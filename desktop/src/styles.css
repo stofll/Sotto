@@ -365,6 +365,53 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
  .section-title { font: 500 11px/1 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-mute); }
 .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .kbd { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 20px; padding: 0 6px; border-radius: 5px; background: var(--surface-3); border: 1px solid var(--border-strong); border-bottom-width: 2px; font: 500 11px/1 var(--font-mono); color: var(--text-1); }
+/* ── Сегментированный переключатель ─────────────────────────────────────
+   Выбранный сегмент подсвечивает не собственный фон, а подложка под ним:
+   только так переключение читается как перемещение, а не как перекраска двух
+   кнопок разом. Позицию и ширину подложке считает сам компонент — сегменты
+   бывают разной ширины. Кривая та же, что у сайдбара: начинает быстро и
+   мягко доезжает. */
+.segmented {
+  position: relative;
+  display: inline-flex;
+  padding: 3px; gap: 2px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+}
+.segmented[data-disabled="true"] { opacity: .55; }
+.segmented__thumb {
+  position: absolute;
+  top: 3px; bottom: 3px; left: 0;
+  border-radius: 4px;
+  background: var(--surface-4);
+  box-shadow: 0 1px 0 rgba(255,255,255,0.04) inset, 0 1px 2px rgba(0,0,0,0.2);
+  pointer-events: none;
+  transition: transform .26s cubic-bezier(.32,.72,0,1), width .26s cubic-bezier(.32,.72,0,1);
+}
+.segmented__option {
+  appearance: none;
+  position: relative; /* поверх подложки */
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 26px; padding: 0 12px;
+  border: 0; border-radius: 4px;
+  background: transparent;
+  color: var(--text-2);
+  font: 500 12px/1 var(--font-sans);
+  cursor: pointer;
+  /* Цвет догоняет подложку чуть быстрее, чем она едет: подпись, меняющая
+     цвет ровно в момент прибытия, выглядит запаздывающей. */
+  transition: color .18s ease;
+}
+.segmented__option[data-selected="true"] { color: var(--text); }
+.segmented__option:disabled { cursor: not-allowed; }
+.segmented__option:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Движение здесь — украшение, и системная просьба его убрать важнее. */
+@media (prefers-reduced-motion: reduce) {
+  .segmented__thumb, .segmented__option { transition: none; }
+}
+
 .switch { position: relative; width: 32px; height: 18px; border-radius: 999px; background: var(--surface-4); border: 1px solid var(--border-strong); transition: background .15s ease; flex: 0 0 auto; cursor: pointer; }
 .switch::after { content: ""; position: absolute; top: 1px; left: 1px; width: 14px; height: 14px; border-radius: 50%; background: var(--text-1); transition: transform .15s cubic-bezier(.2,.7,.3,1); box-shadow: 0 1px 2px rgba(0,0,0,0.4); }
 .switch[data-on="true"] { background: var(--accent); border-color: transparent; }
@@ -1189,14 +1236,16 @@ button.card { appearance: none; font: inherit; color: inherit; }
 }
 .capture-row .model-select { width: 100%; max-width: none; }
 .capture-row__recording-mode,
-.capture-row__recording-mode > div { width: 100%; }
-/* Segmented собран на инлайн-стилях, поэтому высоту задаём кнопке внутри.
-   Вокруг кнопки 3px внутреннего отступа и 1px рамки с каждой стороны — их и
-   вычитаем, чтобы кнопка не отстала от --control-h, если тот поменяют. */
-.capture-row__recording-mode > div > button,
-.lang-row__ui-language > div > button,
-.device-picker > div > button { height: calc(var(--control-h) - 8px) !important; }
-.capture-row__recording-mode > div > button { flex: 1 1 0; justify-content: center; padding-left: 8px !important; padding-right: 8px !important; }
+.capture-row__recording-mode > .segmented { width: 100%; }
+/* В этих трёх строках переключатель стоит рядом с полноразмерными контролами
+   и обязан быть с ними одного роста. Вокруг сегмента 3px внутреннего отступа
+   и 1px рамки с каждой стороны — их и вычитаем, чтобы сегмент не отстал от
+   --control-h, если тот поменяют. Подложка тянется за ним сама: её высота
+   задана краями, а не числом. */
+.capture-row__recording-mode .segmented__option,
+.lang-row__ui-language .segmented__option,
+.device-picker .segmented__option { height: calc(var(--control-h) - 8px); }
+.capture-row__recording-mode .segmented__option { flex: 1 1 0; justify-content: center; padding-left: 8px; padding-right: 8px; }
 /* Языки — два узких контрола. Растягивать их на половину карточки каждый
    значило бы налить внутрь кнопок пустоты; ширину задаёт содержимое. */
 .lang-row > .set-cell { flex: 0 0 auto; min-width: 150px; }
