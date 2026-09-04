@@ -1671,6 +1671,11 @@ button.card { appearance: none; font: inherit; color: inherit; }
 
 .fold__head {
   display: flex; align-items: center; gap: 10px;
+  /* Переносится, когда состояние и заголовок не умещаются в одну строку: в
+     узкой колонке у «Замен» справа копится до трёх элементов, и без переноса
+     заголовок ужимался многоточием до нуля. Лучше вторая строка в шапке, чем
+     карточка без названия. */
+  flex-wrap: wrap; row-gap: 4px;
   padding: 0 12px 0 0;
   min-height: 44px;
 }
@@ -1679,7 +1684,9 @@ button.card { appearance: none; font: inherit; color: inherit; }
    переключатели лежат снаружи — иначе клик по switch схлопывал бы карточку. */
 .fold__toggle {
   display: flex; align-items: center; gap: 8px;
-  flex: 1 1 auto; min-width: 0;
+  /* 190 px — заголовок со счётчиком; меньше уже нечитаемо, и вместо ужимания
+     дальше шапка переносит правую часть на вторую строку. */
+  flex: 1 1 190px; min-width: 0;
   padding: 12px; margin: 0;
   background: transparent; border: 0; cursor: pointer;
   color: inherit; font: inherit; text-align: left;
@@ -1687,7 +1694,10 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .fold__toggle:hover .fold__title { color: var(--accent-text); }
 .fold__chev { display: inline-flex; flex-shrink: 0; color: var(--ink-faint); transition: transform .18s, color .12s; }
 .fold__chev[data-open="true"] { transform: rotate(90deg); color: var(--accent); }
-.fold__title { font: 600 13.5px/1 var(--font-sans); color: var(--ink); white-space: nowrap; }
+/* Ужимается многоточием, а не выталкивает соседей: в узкой колонке шапка
+   «Замены» с двумя плашками состояния переставала помещаться, и содержимое
+   кнопки наезжало на переключатель справа. */
+.fold__title { font: 600 13.5px/1 var(--font-sans); color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 
 .fold__aside { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .fold__body { border-top: 1px solid var(--line-soft); }
@@ -1697,7 +1707,11 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .fold__rows { border: 1px solid var(--line-soft); border-radius: var(--r-sm); overflow: hidden; }
 .fold__body > .fold__rows { border: 0; border-radius: 0; }
 
-@media (max-width: 1000px) {
+/* Порог опущен ниже минимальной ширины окна (1000 px): раньше он совпадал с
+   ней, и страница открывалась в одну колонку — ровно в том размере, в котором
+   приложение теперь и запускается. Правило оставлено на случай, если
+   minWidth когда-нибудь опустят. */
+@media (max-width: 820px) {
   .text-grid { grid-template-columns: 1fr; }
 }
 

@@ -497,7 +497,11 @@ function parseCustomWords(value: string): string[] {
   return value.split(/[\n,]/).map((item) => item.trim()).filter(Boolean);
 }
 
-const TEXT_FOLDS_KEY = "sotto.text.folds";
+// Ключ с версией: умолчание сменилось на «всё свёрнуто», а сохранённый
+// выбор со старым ключом закрывал бы его собой у каждого, кто уже открывал
+// эту страницу. Разовый сброс складок дешевле, чем умолчание, которое
+// никто не увидит.
+const TEXT_FOLDS_KEY = "sotto.text.folds.v2";
 
 /** Сворачиваемая карточка страницы «Текст».
  *
@@ -557,7 +561,10 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
       const stored = window.localStorage.getItem(TEXT_FOLDS_KEY);
       if (stored) return JSON.parse(stored) as Record<string, boolean>;
     } catch {/* ignore */}
-    return { clean: true, repl: true, dict: false };
+    // Страница открывается списком того, что на ней есть, а не развёрнутым
+    // содержимым двух блоков: до предпросмотра справа при развёрнутых
+    // «Очистке» и «Заменах» приходилось доскроллить.
+    return { clean: false, repl: false, dict: false };
   });
 
   function toggleFold(id: string) {
