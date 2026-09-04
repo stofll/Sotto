@@ -6,7 +6,7 @@
 > instead. Where this file and `.github/workflows/release.yml` disagree, the
 > workflow is authoritative — it is what actually runs.
 
-> Applies to [whisper-desktop](https://github.com/stofll/sotto) — the
+> Applies to [whisper-desktop](https://github.com/stofll/Sotto) — the
 > native Rust/Tauri speech-to-text app (**Sotto**).
 
 ## Versioning Policy

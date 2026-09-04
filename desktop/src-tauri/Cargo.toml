@@ -4,8 +4,8 @@ version = "0.0.1"
 description = "Sotto desktop shell"
 authors = ["Stofl <152594969+stofll@users.noreply.github.com>"]
 license = "MIT"
-repository = "https://github.com/stofll/sotto"
-homepage = "https://github.com/stofll/sotto"
+repository = "https://github.com/stofll/Sotto"
+homepage = "https://github.com/stofll/Sotto"
 edition = "2021"
 
 [build-dependencies]

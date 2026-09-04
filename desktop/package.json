@@ -6,9 +6,9 @@
   "author": "Stofl <152594969+stofll@users.noreply.github.com>",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/stofll/sotto.git"
+    "url": "git+https://github.com/stofll/Sotto.git"
   },
-  "homepage": "https://github.com/stofll/sotto",
+  "homepage": "https://github.com/stofll/Sotto",
   "packageManager": "pnpm@11.9.0",
   "type": "module",
   "scripts": {

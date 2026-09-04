@@ -57,7 +57,7 @@ pub const OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 pub const DEFAULT_USER_AGENT: &str = concat!(
     "Sotto/",
     env!("CARGO_PKG_VERSION"),
-    " (+https://github.com/stofll/sotto)"
+    " (+https://github.com/stofll/Sotto)"
 );
 
 pub const OPENCODE_GO_MESSAGES_MODELS: &[&str] = &["minimax-m2.7", "minimax-m2.5"];

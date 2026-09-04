@@ -29,7 +29,7 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://github.com/stofll/sotto/releases/latest/download/latest.json"
+        "https://github.com/stofll/Sotto/releases/latest/download/latest.json"
       ],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEE5QzZBNThDQjVFNTk3MzkKUldRNWwrVzFqS1hHcWROTW5HUnpnVGRyQUdsOXh1K2ZSczBDU1FuUWIraDVNTWIxQjJwdk9mS2oK",
       "windows": {
@@ -41,7 +41,7 @@
     "active": true,
     "createUpdaterArtifacts": true,
     "publisher": "Stofl",
-    "homepage": "https://github.com/stofll/sotto",
+    "homepage": "https://github.com/stofll/Sotto",
     "copyright": "Copyright (c) 2026 Stofl",
     "license": "MIT",
     "licenseFile": "../../LICENSE",
