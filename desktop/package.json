@@ -1,0 +1,40 @@
+{
+  "name": "whisper-desktop",
+  "private": true,
+  "version": "0.0.1",
+  "license": "MIT",
+  "author": "Stofl <152594969+stofll@users.noreply.github.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/stofll/sotto.git"
+  },
+  "homepage": "https://github.com/stofll/sotto",
+  "packageManager": "pnpm@11.9.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "tauri": "tauri",
+    "i18n:check": "node check-i18n.mjs && node find-eager-t.mjs",
+    "i18n:keys": "node check-i18n.mjs --keys",
+    "bundle:check": "node check-bundle-size.mjs"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.11.0",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.2",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.2",
+    "esbuild": "^0.28.2",
+    "typescript": "^6.0.3",
+    "vite": "^8.2.2",
+    "vitest": "^4.1.11"
+  }
+}

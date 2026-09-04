@@ -1,0 +1,147 @@
+[package]
+name = "whisper-desktop"
+version = "0.0.1"
+description = "Sotto desktop shell"
+authors = ["Stofl <152594969+stofll@users.noreply.github.com>"]
+license = "MIT"
+repository = "https://github.com/stofll/sotto"
+homepage = "https://github.com/stofll/sotto"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["macos-private-api", "tray-icon", "image-png"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+raw-window-handle = "0.6"
+tokio = { version = "1", features = ["sync", "time", "fs", "io-util", "macros", "rt"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "json"] }
+futures-util = "0.3"
+sha2 = "0.10"
+fs2 = "0.4"
+regex = "1"
+once_cell = "1"
+uuid = { version = "1", features = ["v4"] }
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "linux-native"] }
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-clipboard-manager = "2"
+tauri-plugin-autostart = "2"
+# A second instance would register the same global hotkey and lose the race
+# nondeterministically — single-instance is a correctness fix, not polish.
+tauri-plugin-single-instance = "2"
+# Самообновление. Плагин качает и ставит артефакт из latest.json на
+# GitHub Releases, проверяя minisign-подпись публичным ключом из
+# tauri.conf.json. Целостность — да, издатель — нет: SmartScreen про
+# «неизвестного издателя» лечится только Authenticode (см. 4.1 в плане).
+tauri-plugin-updater = "2"
+enigo = { version = "0.3", default-features = false, features = ["xdo"] }
+log = "0.4"
+# Base (CPU) dependency, with no GPU backend. The backends are opt-in via
+# the `gpu` feature below, so a plain `cargo build`/`cargo test` needs no
+# Vulkan SDK; release builds turn it on. whisper.cpp falls back to CPU at
+# runtime anyway when the GPU can't be initialised.
+whisper-rs = "0.14"
+dirs = "6"
+cpal = "0.15"
+# WS 4b: rusqlite + bundled SQLite for the data layer (stats, history).
+# `bundled` compiles SQLite from source so we don't depend on the system libsqlite3.
+rusqlite = { version = "0.31", features = ["bundled"] }
+earshot = "1.2.1"
+symphonia = { version = "0.6.1", features = ["mp3", "isomp4", "aac", "alac"] }
+rubato = "5.0.0"
+tauri-plugin-dialog = "2"
+
+[dev-dependencies]
+criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
+tempfile = "3"
+tokio = { version = "1", features = ["test-util", "macros", "rt"] }
+
+[target.'cfg(windows)'.dependencies]
+# GigaAM/Sherpa is intentionally Windows-only for this MVP. The native
+# download-binaries feature produces Windows DLLs that are packaged by the
+# NSIS hook; keeping it target-gated prevents macOS/Linux from linking an
+# unbundled native runtime or exposing a model that cannot load there.
+sherpa-rs = { version = "0.6", default-features = false, features = ["sys", "download-binaries"] }
+windows-sys = { version = "0.52", features = [
+    "Win32_UI_WindowsAndMessaging",
+    # SetWindowSubclass / DefSubclassProc для неклиентского щита оверлея.
+    "Win32_UI_Shell",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_Foundation",
+    "Win32_Graphics_Dwm",
+    "Win32_Security",
+    "Win32_System_JobObjects",
+    "Win32_System_Threading",
+    "Win32_System_DataExchange",
+    "Win32_System_Memory",
+    # PlaySoundW (winmm) for the recording cues in `sounds.rs`.
+    "Win32_Media_Audio",
+    "Win32_Globalization",
+] }
+# Core Audio volume control for `output_volume.rs`. `windows-sys` exposes COM
+# interfaces as opaque pointers with no vtables, so it cannot call methods on
+# them; the `windows` crate can. Not a new build cost — Tauri already pulls
+# this exact version in through wry/tao.
+windows = { version = "0.61", features = [
+    "Win32_Media_Audio",
+    "Win32_Media_Audio_Endpoints",
+    "Win32_System_Com",
+] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+
+[lib]
+name = "whisper_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "whisper-desktop"
+path = "src/main.rs"
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+# GPU acceleration for whisper.cpp, opt-in per backend. Off by default so
+# CI and a plain `cargo build` compile without the Vulkan SDK, whose
+# absence otherwise fails `whisper-rs-sys`'s build script outright. The
+# runtime is unaffected either way: whisper.cpp with no GPU backend runs on
+# the CPU, which is what a machine without a usable GPU did already.
+#
+# Two features rather than one `gpu`, because Cargo cannot express "vulkan
+# here, metal there" under a single name: features are additive and
+# target-blind, so one name would pull both backends onto every platform,
+# and `metal` does not link outside macOS. Aliasing `whisper-rs` twice does
+# not work either — Cargo rejects one crate appearing under two names.
+#
+# Who turns these on: `scripts/build-installer.bat` and
+# `scripts/build-release.bat` (vulkan), and the per-platform matrix in
+# `.github/workflows/release.yml` (vulkan on Windows, metal on macOS).
+gpu-vulkan = ["whisper-rs/vulkan"]
+gpu-metal = ["whisper-rs/metal"]
+
+# WS 4a2b Task 8: opt-in feature that exposes the
+# `start_recording_test` Tauri command to production builds. Default
+# OFF — only `cargo build`, debug runs, and tests enable it (via
+# `#[cfg(any(test, debug_assertions, feature = "test-commands"))]`).
+# Reduces the public IPC surface in release binaries.
+test-commands = []
+
+[[bench]]
+name = "engine_bench"
+harness = false
+
+[profile.bench]
+opt-level = 3
+lto = "thin"
+
+[profile.release]
+opt-level = 3
+lto = true
+panic = "unwind"  # Required for catch_unwind around whisper-rs state.full() (R1)

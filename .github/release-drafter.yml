@@ -1,0 +1,71 @@
+# .github/release-drafter.yml — Auto-populates GitHub Release notes from PRs
+#
+# Relies on the release-drafter GitHub Action
+# (https://github.com/release-drafter/release-drafter).
+#
+# Release notes contain the categorized changes once; the public changelog is
+# maintained separately and should summarize user-visible behavior.
+
+name-template: 'v$RESOLVED_VERSION'
+tag-template: 'v$RESOLVED_VERSION'
+
+categories:
+  - title: 'Security'
+    labels:
+      - 'security'
+  - title: 'Performance'
+    labels:
+      - 'performance'
+  - title: 'New Features'
+    labels:
+      - 'feat'
+      - 'feature'
+      - 'enhancement'
+  - title: 'Bug Fixes'
+    labels:
+      - 'fix'
+      - 'bugfix'
+      - 'bug'
+  - title: 'Infrastructure'
+    labels:
+      - 'ci'
+      - 'chore'
+      - 'dependencies'
+  - title: 'Documentation'
+    labels:
+      - 'docs'
+      - 'documentation'
+
+change-template: '- $TITLE (#$NUMBER)'
+change-title-escapes: '\<*_&'
+
+version-resolver:
+  major:
+    labels:
+      - 'major'
+      - 'breaking'
+  minor:
+    labels:
+      - 'minor'
+      - 'feat'
+      - 'feature'
+  patch:
+    labels:
+      - 'patch'
+      - 'fix'
+      - 'bugfix'
+      - 'bug'
+      - 'chore'
+      - 'dependencies'
+      - 'security'
+      - 'performance'
+      - 'ci'
+      - 'docs'
+  default: patch
+
+template: |
+  ## What's Changed
+
+  $CHANGES
+
+  **Full Changelog**: https://github.com/$OWNER/$REPOSITORY/compare/$PREVIOUS_TAG...v$RESOLVED_VERSION

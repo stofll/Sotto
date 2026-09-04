@@ -1,0 +1,10 @@
+{
+  "build": {
+    "beforeBundleCommand": "powershell -NoProfile -ExecutionPolicy Bypass -File prepare-native-libs.ps1"
+  },
+  "bundle": {
+    "resources": {
+      ".tauri-native/windows/x64/*.dll": "sherpa-native"
+    }
+  }
+}

@@ -1,0 +1,92 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+env/
+ENV/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Node.js / Tauri frontend ---
+node_modules/
+dist/
+.vite/
+*.local
+
+# --- Rust / Tauri ---
+desktop/src-tauri/target/
+desktop/src-tauri/gen/
+desktop/src-tauri/.tauri-native/
+
+# --- Локальные данные и загрузки ---
+TTS2/uploads/
+
+# --- Пользовательские диагностические записи (не тестовые fixtures) ---
+desktop/src-tauri/logs/recordings/
+desktop/src-tauri/recordings/
+
+# --- Артефакты A/B-экспериментов ---
+scripts/ab_*.json
+scripts/ab_run.log
+
+# --- Локальные настройки агентов / IDE ---
+.claude/settings.local.json
+.kilo/
+
+# --- Локальные секреты и окружение ---
+.env
+.env.*
+!.env.example
+
+# --- Локальные базы данных ---
+*.db
+*.sqlite
+*.sqlite3
+!desktop/src-tauri/tests/fixtures/**/*.db
+!desktop/src-tauri/tests/fixtures/**/*.sqlite
+!desktop/src-tauri/tests/fixtures/**/*.sqlite3
+
+# --- Локальные package-manager caches ---
+.pnpm-store/
+
+# --- ОС ---
+.DS_Store
+Thumbs.db
+desktop.ini
+# Windows reserved device name accidentally created by `> nul` redirects
+# from a POSIX shell (git-bash), where `nul` is a normal file, not a device.
+nul
+
+# --- Прочее ---
+*.log
+*.pid
+logs/
+
+# --- Локальные черновики, за пределами репозитория ---
+# spike/ и tools/ были выкинуты из публичного репозитория: одноразовые
+# эксперименты, часть из них ещё от Python-стека. Каталоги могут оставаться
+# на машине разработчика, но обратно в git не возвращаются.
+spike/
+tools/
+
+# --- Git worktrees (изоляция фич) ---
+.worktrees/
+worktrees/
+
+# --- Агентский scratch (per-task briefs/reports/diffs/ledgers) ---
+.superpowers/
+# --- Local Windows toolchain scripts (not for commit) ---
+/scripts/*.bat
+
+# Вывод cargo-mutants: рабочий каталог прогона, не артефакт проекта.
+mutants.out/
+mutants.out.old/
+
+# Побочный эффект `cargo test --lib`: тест открывает sqlite в корне крейта.
+desktop/src-tauri/sotto.db

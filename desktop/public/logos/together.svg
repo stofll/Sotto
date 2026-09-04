@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" role="img" aria-label="Together AI" color="#000000">
+  <title>Together AI</title>
+  <svg x="4" y="4" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" fill-rule="evenodd">
+    <path d="M17.385 11.23a4.615 4.615 0 100-9.23 4.615 4.615 0 000 9.23zm0 10.77a4.615 4.615 0 100-9.23 4.615 4.615 0 000 9.23zm-10.77 0a4.615 4.615 0 100-9.23 4.615 4.615 0 000 9.23z" fill="currentColor" opacity=".2"/>
+    <circle cx="6.615" cy="6.615" r="4.615" fill="currentColor"/>
+  </svg>
+</svg>

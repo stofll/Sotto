@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" role="img" aria-label="vLLM" color="#000000">
+  <title>vLLM</title>
+  <svg x="4" y="4" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" fill-rule="evenodd">
+    <path d="M0 4.973h9.324V23L0 4.973z" fill="currentColor"/>
+    <path d="M13.986 4.351L22.378 0l-6.216 23H9.324l4.662-18.649z" fill="currentColor"/>
+  </svg>
+</svg>

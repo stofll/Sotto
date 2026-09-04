@@ -1,0 +1,378 @@
+name: Rust CI
+
+# Висит на PR в main. Был отключён ради runner-минут (#22), но приложение
+# готовится к раздаче, а собирается оно на трёх ОС из одного дерева: без CI
+# весь `#[cfg(target_os = ...)]` проверяется только на той машине, где
+# случилось разрабатывать, то есть на Windows.
+#
+# На `push: main` сознательно не висит. Работа идёт через PR, так что
+# мерж-коммит проверял бы ровно то содержимое, которое только что проверил
+# `pull_request`, — двойная цена за один и тот же ответ. Если понадобится
+# проверить main отдельно (прямой пуш, откат), есть workflow_dispatch.
+#
+# Дорогая релизная сборка сюда не входит — она живёт в release.yml и висит
+# на теге. Здесь только CPU-вариант, см. комментарий ниже.
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Пуш в ветку отменяет её предыдущий, ещё не досчитанный прогон. Иначе
+# каждая правка по ходу ревью оплачивается дважды: вытесненный прогон
+# считает матрицу из трёх ОС до конца, и его результат уже никому не нужен.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+# Все джобы собирают CPU-вариант: GPU-бэкенды whisper.cpp вынесены в
+# опциональные фичи gpu-vulkan / gpu-metal (см. Cargo.toml), и без них
+# Vulkan SDK на раннере не нужен. Не добавляйте сюда установку SDK —
+# ускоритель проверяется релизной сборкой, а не этим пайплайном.
+jobs:
+  security-audit:
+    name: Dependency security audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        with:
+          node-version-file: .node-version
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1  # v4.3.0
+        with:
+          version: 11.9.0
+
+      # --audit-level high: this job gates every pull request, and a low or
+      # moderate advisory somewhere in the dev graph is not a reason to block
+      # a change that has nothing to do with it. The full list stays visible
+      # in the job log.
+      - name: Audit frontend lockfile
+        working-directory: desktop
+        run: pnpm audit --prod=false --audit-level high
+
+      # Ставим готовый бинарник, а не rustsec/audit-check. Тот экшен внутри
+      # делает `cargo install cargo-audit` без `--locked`, то есть на каждом
+      # прогоне заново резолвит свежие версии всех зависимостей самого
+      # cargo-audit. 2026-09-03 так и вышло: вышедший tinyvec 1.13.0 не
+      # собрался нашим тулчейном, и гейт лёг на всех PR разом, хотя ни один
+      # из них к этому отношения не имел. Плюс та сборка из исходников
+      # занимала почти всю джобу (~5 минут раннера на каждый PR).
+      #
+      # Версия cargo-audit закреплена намеренно и не устаревает по данным:
+      # база advisory тянется с гита в момент запуска, в бинарник она не
+      # вшита. Бампать её нужно, только если cargo-audit перестанет читать
+      # новый формат Cargo.lock.
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@e67fa11c4b9316fa714ddf0abed07a0c3143b95b  # v2.87.4
+        with:
+          tool: cargo-audit@0.22.2
+
+      # Зовём бинарник напрямую, а не через `cargo audit`: шим rustup увидел
+      # бы rust-toolchain.toml и потащил качать весь закреплённый тулчейн,
+      # который аудиту лок-файла не нужен.
+      - name: Audit Rust lockfile
+        working-directory: desktop/src-tauri
+        run: cargo-audit audit
+
+  # ---------------------------------------------------------------
+  # Lint runs once on Linux (fmt + clippy are platform-independent
+  # for our code; running them 3x wastes runner minutes).
+  # ---------------------------------------------------------------
+  lint:
+    name: Cargo fmt + clippy (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+
+      # Версию задаёт rust-toolchain.toml в корне — rustup читает его для
+      # любого cargo внутри репозитория и всё равно переопределит то, что
+      # поставит экшен. Дублировать её здесь значит завести второе место,
+      # которое при бампе забудут.
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87  # ветка stable на 2026-09-03
+        with:
+          components: rustfmt, clippy
+
+      - name: Install Linux system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            libglib2.0-dev \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev \
+            pkg-config \
+            build-essential \
+            curl \
+            wget \
+            libasound2-dev \
+            libudev-dev \
+            libxdo-dev \
+            libxkbcommon-dev
+
+      - name: Cache cargo registry & target
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2.9.2
+        with:
+          workspaces: desktop/src-tauri -> target
+          cache-on-failure: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        with:
+          node-version-file: .node-version
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1  # v4.3.0
+        with:
+          version: 11.9.0
+
+      # Tauri's `generate_context!()` reads `desktop/dist/`, which only
+      # exists after `pnpm build`. Build the frontend before any cargo
+      # step that triggers the macro (clippy included).
+      - name: Install frontend deps
+        working-directory: desktop
+        run: pnpm install --frozen-lockfile
+
+      - name: Build frontend (produces desktop/dist for Tauri macro)
+        working-directory: desktop
+        run: pnpm build
+
+      - name: Format check
+        working-directory: desktop/src-tauri
+        run: cargo fmt --all -- --check
+
+      # --all-targets здесь несущий, а не косметика: он включает бенчмарки,
+      # которые не собираются ни `cargo build`, ни `cargo test`, и потому
+      # гниют молча — однажды уже сгнили (f28dd7b, «бенч снова собирается
+      # после добавления model_id»). Раньше их сторожил отдельный шаг
+      # `cargo bench --no-run`, но он делал полную сборку с opt-level 3 и
+      # стоил 16 минут из 23 в этой джобе, ловя сверх клиппи только отказы
+      # на кодогенерации и линковке. Убирать `--all-targets` нельзя.
+      - name: Clippy (deny warnings)
+        working-directory: desktop/src-tauri
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+  # ---------------------------------------------------------------
+  # Build + test on every target platform. This is a Windows-first
+  # app with a macOS port: previously CI only ran on Linux, so the
+  # entire `#[cfg(windows)]` / `#[cfg(target_os = "macos")]` surface
+  # (tray popup, WinAPI paste, overlay) was never compiled or tested
+  # in CI, and Windows-only runtime failures were invisible.
+  # ---------------------------------------------------------------
+  build-test:
+    name: Build + test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+
+      # Версию задаёт rust-toolchain.toml — см. комментарий в джобе lint.
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87  # ветка stable на 2026-09-03
+
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            libglib2.0-dev \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev \
+            pkg-config \
+            build-essential \
+            curl \
+            wget \
+            libasound2-dev \
+            libudev-dev \
+            libxdo-dev \
+            libxkbcommon-dev
+
+      - name: Cache cargo registry & target
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2.9.2
+        with:
+          workspaces: desktop/src-tauri -> target
+          cache-on-failure: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        with:
+          node-version-file: .node-version
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1  # v4.3.0
+        with:
+          version: 11.9.0
+
+      - name: Install frontend deps
+        working-directory: desktop
+        run: pnpm install --frozen-lockfile
+
+      - name: Build frontend (produces desktop/dist for Tauri macro)
+        working-directory: desktop
+        run: pnpm build
+
+      # `tauri.windows.conf.json` объявляет ресурсом
+      # `.tauri-native/windows/x64/*.dll`, и build script падает, если glob
+      # ничего не нашёл. Раскладывает эти DLL `prepare-native-libs.ps1`, но
+      # он висит на `beforeBundleCommand`, то есть отрабатывает только при
+      # `tauri build` — при голом `cargo build` каталога нет вовсе. На машине
+      # разработчика он остаётся от прошлой сборки, на чистой — нет.
+      #
+      # Скрипт берёт DLL из `target/[<triple>/]<profile>`, куда их кладёт
+      # сборочный скрипт `sherpa-rs-sys`, поэтому сначала собираем именно её.
+      # Отдельно, а не весь граф: полный `cargo build` — это как раз тот
+      # шаг, который без разложенных DLL и падает.
+      - name: Разложить нативный рантайм sherpa (Windows)
+        if: runner.os == 'Windows'
+        working-directory: desktop/src-tauri
+        env:
+          # Профиль для скрипта: обе следующие команды идут в debug.
+          TAURI_ENV_DEBUG: "true"
+        run: |
+          cargo build --locked -p sherpa-rs-sys
+          # На прогоне с тёплым кэшем этого мало. rust-cache перед сохранением
+          # подчищает корень `target/<profile>` от всего, что не является
+          # артефактом зависимости, и разложенные скриптом DLL туда попадают, а
+          # `.fingerprint` пакета остаётся. Cargo видит build script
+          # отработавшим и не запускает его снова — файлов нет, а собирать,
+          # с точки зрения cargo, нечего. Сбросить нужно именно этот пакет:
+          # тогда build script отрабатывает заново, и это около десяти секунд,
+          # потому что скачивать ему уже нечего.
+          if (-not (Test-Path 'target/debug/cargs.dll')) {
+            cargo clean -p sherpa-rs-sys
+            cargo build --locked -p sherpa-rs-sys
+          }
+          powershell -NoProfile -ExecutionPolicy Bypass -File prepare-native-libs.ps1
+
+      - name: Build
+        working-directory: desktop/src-tauri
+        run: cargo build --locked --verbose
+
+      - name: Test
+        working-directory: desktop/src-tauri
+        run: cargo test --locked --verbose
+
+  frontend-test:
+    name: TypeScript typecheck + build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        with:
+          node-version-file: .node-version
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1  # v4.3.0
+        with:
+          version: 11.9.0
+
+      - name: Cache pnpm store
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        with:
+          path: ~/.local/share/pnpm/store
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('desktop/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Install
+        working-directory: desktop
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        working-directory: desktop
+        run: npx tsc --noEmit
+
+      - name: Unit tests (Vitest)
+        working-directory: desktop
+        run: pnpm test
+
+      - name: Build
+        working-directory: desktop
+        run: pnpm build
+
+      # Бюджет стартовой загрузки окна. Предупреждение Vite про 500 KB
+      # сборку не роняет, поэтому вес растёт незаметно; здесь он растёт
+      # только вместе с осознанно поднятым порогом.
+      - name: Bundle size budget
+        working-directory: desktop
+        run: pnpm bundle:check
+
+  # Static gate: no `sidecar_invoke` left in the frontend.
+  # Catches regressions if a new caller reintroduces the legacy
+  # Python sidecar RPC.
+  static-gate:
+    name: Static gate — no sidecar_invoke / Python runtime
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+
+      # Закрепление Actions по SHA имеет смысл, только если его нельзя
+      # незаметно отменить. Тег вроде `v4` — это ссылка, которую владелец
+      # репозитория может перевести на другой коммит; SHA — нет.
+      # Закрепление Actions по SHA имеет смысл, только если его нельзя
+      # незаметно отменить. Тег вроде `v4` — это ссылка, которую владелец
+      # репозитория может перевести на другой коммит; SHA — нет.
+      - name: Every GitHub Action is pinned to a commit SHA
+        run: |
+          # Закреплённым считается либо полный SHA, либо workflow этого же
+          # репозитория (`./…`) — у него нет чужого владельца, чтобы что-то
+          # подменить.
+          ok='uses: *(\./|[A-Za-z0-9._-]+/[A-Za-z0-9._/-]+@[0-9a-f]{40}( |$))'
+          floating=$(grep -rnE '^ *-? *uses:' .github/workflows/ | grep -vE "$ok" || true)
+          if [ -n "$floating" ]; then
+            echo "::error::These actions are not pinned to a full commit SHA:"
+            echo "$floating"
+            echo "See docs/development.md → Pinned GitHub Actions"
+            exit 1
+          fi
+
+      - name: No sidecar_invoke in frontend
+        run: |
+          if grep -rn "sidecar_invoke" desktop/src/; then
+            echo "::error::sidecar_invoke must not appear in the frontend"
+            exit 1
+          fi
+
+      - name: No Python runtime files
+        run: |
+          # Use `git ls-files` (not `find`) for path-aware gating.
+          # `find -path` syntax for excluding dirs is brittle across
+          # GNU find versions. We only flag Python files that the
+          # repo ACTUALLY tracks within three path segments (`a/b/c.py`).
+          # `scripts/` is the sole exception: release helpers there are
+          # legitimately Python.
+          leaked=$(git ls-files -z -- '*.py' \
+              | tr '\0' '\n' \
+              | awk -F/ 'NF<=3 && $1!="scripts"' )
+          if [ -n "$leaked" ]; then
+            echo "::error::Python runtime files leaked into the repo root:"
+            echo "$leaked"
+            exit 1
+          fi
+          if [ -d venv ]; then
+            echo "::error::venv/ leaked into the repo root"
+            exit 1
+          fi

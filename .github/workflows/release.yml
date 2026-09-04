@@ -1,0 +1,226 @@
+name: Release
+
+# Запускается тегом вида v0.2.0 либо руками. На push в ветки не висит:
+# полная сборка Tauri дорогая по runner-минутам. Дешёвая проверка (fmt,
+# clippy, build, test на трёх ОС) висит на PR — см. rust-ci.yml.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Тег релиза, например v0.2.0"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Собрать и подписать
+    permissions:
+      # tauri-action создаёт черновик релиза и заливает в него артефакты.
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # --features gpu-*: GPU backends are opt-in (see Cargo.toml), so a
+          # release that forgot them would quietly ship CPU-only inference.
+          # target_dir: каталог сборки уводится из рабочей копии — исходники
+          # whisper.cpp распаковываются под него, и MSVC/clang вшивают эти
+          # пути в бинарь через __FILE__. Внутри workspace это был бы путь с
+          # именем репозитория; снаружи — нейтральный. См. #41.
+          - platform: windows-latest
+            target_triple: x86_64-pc-windows-msvc
+            args: "--target x86_64-pc-windows-msvc --features gpu-vulkan -- --locked"
+            target_dir: 'D:\b'
+          - platform: macos-latest
+            target_triple: aarch64-apple-darwin
+            args: "--target aarch64-apple-darwin --features gpu-metal -- --locked"
+            target_dir: "/tmp/b"
+    runs-on: ${{ matrix.platform }}
+    env:
+      CARGO_TARGET_DIR: ${{ matrix.target_dir }}
+      CARGO_BUILD_TARGET: ${{ matrix.target_triple }}
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1  # v4.3.0
+        with:
+          version: 11.9.0
+
+      - name: Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: desktop/pnpm-lock.yaml
+
+      # Версию задаёт rust-toolchain.toml в корне; здесь остаётся только
+      # целевой триплет, которого в нём нет.
+      - name: Rust
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87  # ветка stable на 2026-09-03
+        with:
+          targets: ${{ matrix.target_triple }}
+
+      - name: Проверить согласованность версии релиза
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: sh scripts/check-version.sh "$RELEASE_TAG"
+
+      # rustc вшивает file!() каждой зависимости в сообщения паники, а это
+      # $CARGO_HOME/registry — то есть домашний каталог пользователя раннера.
+      # Пути раннера не выдают мейнтейнера, но в раздаваемом артефакте им всё
+      # равно делать нечего. Профильный trim-paths сделал бы это декларативно,
+      # но в Cargo 1.95 он требует nightly.
+      #
+      # Разделитель — пробел, а не \x1f как в build-installer.sh: у путей
+      # раннера пробелов не бывает, и обычный RUSTFLAGS читается глазами.
+      # Шаг стоит до rust-cache: ключ кэша считается по флагам сборки.
+      - name: Ремап путей сборки
+        shell: bash
+        run: |
+          cargo_home="${CARGO_HOME:-$HOME/.cargo}"
+          workspace="$GITHUB_WORKSPACE"
+          # rustc видит пути в родной форме ОС, а bash на Windows — в форме
+          # msys (/c/Users/…). Ремап по несовпадающему префиксу молча ничего
+          # не делает, поэтому приводим к windows-форме там, где она есть.
+          if command -v cygpath >/dev/null 2>&1; then
+            cargo_home=$(cygpath -w "$cargo_home")
+            workspace=$(cygpath -w "$workspace")
+          fi
+          echo "RUSTFLAGS=--remap-path-prefix=$cargo_home=/cargo --remap-path-prefix=$workspace=/build" >> "$GITHUB_ENV"
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2.9.2
+        with:
+          workspaces: desktop/src-tauri
+
+      # whisper.cpp собирается с Vulkan-бэкендом, и для этого нужны glslc и
+      # заголовки. В рантайме vulkan-1.dll приезжает с драйвером GPU, так что
+      # SDK нужен только здесь. См. project_vulkan_build: без VULKAN_SDK
+      # cargo не соберётся.
+      #
+      # У пина версии есть срок годности: LunarG убирает с sdk.lunarg.com
+      # сборки старше примерно двух лет, и версия просто перестаёт
+      # скачиваться. Так умер 1.3.280.0 (февраль 2024): шаг падал за минуту
+      # на `curl failed with error code: 22` и `HTTP/1.1 404 Not Found`.
+      # Новую версию брать здесь: https://vulkan.lunarg.com/sdk/home
+      #
+      # Экшен — jakoch, а не humbletim/install-vulkan-sdk. Тот распаковывал
+      # инсталлятор одним `7z x` и на layout'е 1.4.x разложил дерево так, что
+      # CMake не нашёл ни заголовков, ни библиотек:
+      #   Could NOT find Vulkan (missing: Vulkan_LIBRARY Vulkan_INCLUDE_DIR)
+      # Причём сам шаг при этом отчитывался успехом — glslangValidator на
+      # месте, 817 МБ распаковано, — так что поломка всплывала только через
+      # одиннадцать минут, в build script'е whisper-rs-sys.
+      - name: Vulkan SDK (Windows)
+        if: matrix.platform == 'windows-latest'
+        uses: jakoch/install-vulkan-sdk-action@37effcfa045411f8bfbbda26df2fd1b3bf3436fa  # v1.6.0
+        with:
+          vulkan_version: 1.4.357.0
+          # vulkan-1.dll в рантайме приезжает с драйвером GPU, раннеру он не
+          # нужен: здесь SDK берётся только ради заголовков, .lib и glslc.
+          install_runtime: false
+          cache: true
+
+      - name: Установить зависимости фронтенда
+        working-directory: desktop
+        run: pnpm install --frozen-lockfile
+
+      # `tauri.windows.conf.json` объявляет ресурсом
+      # `.tauri-native/windows/x64/*.dll`, и build script падает, если glob
+      # ничего не нашёл:
+      #   glob pattern .tauri-native/windows/x64/*.dll path not found
+      # Раскладывает эти DLL `prepare-native-libs.ps1`, но он висит на
+      # `beforeBundleCommand` — то есть отрабатывает уже ПОСЛЕ компиляции, а
+      # падает как раз компиляция. На машине разработчика каталог остаётся от
+      # прошлой сборки, на чистом раннере его нет вовсе, поэтому здесь он
+      # нужен явным шагом. Тот же шаг с тем же обоснованием есть в
+      # rust-ci.yml; отличия только в профиле (release, не debug) и в том,
+      # что CARGO_BUILD_TARGET здесь задан, так что Cargo кладёт всё под
+      # триплет.
+      - name: Разложить нативный рантайм sherpa (Windows)
+        if: matrix.platform == 'windows-latest'
+        working-directory: desktop/src-tauri
+        shell: pwsh
+        run: |
+          cargo build --release --locked -p sherpa-rs-sys
+          # На прогоне с тёплым кэшем этого мало: rust-cache перед сохранением
+          # подчищает `target/<triple>/<profile>` от всего, что не является
+          # артефактом зависимости, и разложенные DLL туда попадают, а
+          # `.fingerprint` пакета остаётся. Cargo видит build script
+          # отработавшим и не запускает его снова. Сбросить нужно именно этот
+          # пакет — скачивать ему уже нечего, так что это секунды.
+          $dll = Join-Path $env:CARGO_TARGET_DIR (Join-Path $env:CARGO_BUILD_TARGET 'release/cargs.dll')
+          if (-not (Test-Path -LiteralPath $dll)) {
+            cargo clean -p sherpa-rs-sys
+            cargo build --release --locked -p sherpa-rs-sys
+          }
+          powershell -NoProfile -ExecutionPolicy Bypass -File prepare-native-libs.ps1
+
+      - name: Собрать, подписать и выложить
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5  # v0.6.2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Приватный minisign-ключ. Публичная половина лежит в
+          # tauri.conf.json → plugins.updater.pubkey; без совпадения пары
+          # установленное приложение откажется ставить обновление.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Публичный ingest-токен проекта PostHog, а не личный ключ: он
+          # компилируется в бинарник через option_env!. Пока секрет не задан,
+          # переменная приезжает пустой и телеметрия в сборке — полный no-op.
+          SOTTO_POSTHOG_API_KEY: ${{ secrets.SOTTO_POSTHOG_API_KEY }}
+        with:
+          projectPath: desktop
+          tagName: ${{ github.event.inputs.tag || github.ref_name }}
+          releaseName: "Sotto ${{ github.event.inputs.tag || github.ref_name }}"
+          # Черновик, а не сразу публикация: latest.json подхватится
+          # пользователями в тот момент, когда релиз перестанет быть
+          # черновиком, — то есть после того, как сборку проверили руками.
+          releaseDraft: true
+          prerelease: false
+          # Апдейтер читает тело релиза как «что нового», поэтому заметки
+          # пишутся в самом релизе на GitHub, а не здесь.
+          includeUpdaterJson: true
+          updaterJsonPreferNsis: true
+          args: ${{ matrix.args }}
+
+      # Артефакты к этому моменту уже лежат в черновике релиза: шаг не
+      # отменяет заливку, он даёт повод черновик не публиковать. Публикация
+      # и так ручная, так что этого достаточно. См. #41.
+      - name: Проверить, что в бинаре нет путей сборочной машины
+        shell: bash
+        run: |
+          target_dir="$CARGO_TARGET_DIR"
+          # Git Bash receives the Windows value as D:\\b, while `find` needs
+          # the MSYS form (/d/b). Keep the conversion local to this shell;
+          # Cargo and PowerShell must continue to see the native path.
+          if command -v cygpath >/dev/null 2>&1; then
+            target_dir=$(cygpath -u "$target_dir")
+          fi
+          bin=$(find "$target_dir" -maxdepth 3 -type f \
+            \( -name whisper-desktop -o -name whisper-desktop.exe \) | head -1)
+          if [ -z "$bin" ]; then
+            echo "бинарь не найден в $target_dir"
+            exit 1
+          fi
+          py=$(command -v python3 || command -v python)
+          "$py" scripts/check-build-paths.py "$bin"
+
+  # SBOM считается после того, как tauri-action создал черновик: иначе
+  # заливать ассет некуда. Отдельным вызовом, а не шагом внутри матрицы, —
+  # инвентарь зависимостей один на релиз, а не по одному на платформу.
+  sbom:
+    name: SBOM релиза
+    needs: release
+    permissions:
+      contents: write
+    uses: ./.github/workflows/sbom.yml
+    with:
+      release_tag: ${{ github.event.inputs.tag || github.ref_name }}

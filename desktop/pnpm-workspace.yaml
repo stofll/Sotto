@@ -1,0 +1,20 @@
+# pnpm workspace config.
+#
+# This file has TWO responsibilities:
+#   1. Allow esbuild's postinstall script to run (pnpm v9+
+#      blocks postinstall scripts by default; required for
+#      vite/esbuild to bootstrap).
+#   2. Declare workspace members so `pnpm install --frozen-lockfile`
+#      accepts the project. Without an explicit `packages:` list,
+#      pnpm v9+ reports "packages field missing or empty" when
+#      invoked with --frozen-lockfile.
+#
+# `desktop/` is the workspace root; the only member today is
+# `e2e/` (WebDriverIO spec). Add further members here as they
+# appear.
+packages:
+  - "."
+  - "e2e"
+
+allowBuilds:
+  esbuild: true
