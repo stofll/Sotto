@@ -1239,8 +1239,19 @@ button.card { appearance: none; font: inherit; color: inherit; }
   align-items: stretch;
 }
 .capture-row .model-select { width: 100%; max-width: none; }
-.capture-row__recording-mode,
-.capture-row__recording-mode > .segmented { width: 100%; }
+/* Обе ячейки строки — одна линия «подпись — контрол». Контрол по содержимому,
+   а не во всю половину: растянутый переключатель и растянутая рамка с
+   клавишами — это налитая внутрь пустота, а не заполненная строка.
+   Перенос — на случай, когда линия не помещается (узкое окно с развёрнутым
+   сайдбаром): контрол уходит под свою подпись, то есть ровно в ту раскладку,
+   что была здесь раньше, и обе ячейки переносятся вместе. */
+.capture-row > .set-cell {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px 10px;
+  flex-wrap: wrap;
+}
+.capture-row > .set-cell > .set-label { flex: 0 0 auto; }
 /* В этих трёх строках переключатель стоит рядом с полноразмерными контролами
    и обязан быть с ними одного роста. Вокруг сегмента 3px внутреннего отступа
    и 1px рамки с каждой стороны — их и вычитаем, чтобы сегмент не отстал от
@@ -1249,7 +1260,6 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .capture-row__recording-mode .segmented__option,
 .lang-row__ui-language .segmented__option,
 .device-picker .segmented__option { height: calc(var(--control-h) - 8px); }
-.capture-row__recording-mode .segmented__option { flex: 1 1 0; justify-content: center; padding-left: 8px; padding-right: 8px; }
 /* Языки — два узких контрола. Растягивать их на половину карточки каждый
    значило бы налить внутрь кнопок пустоты; ширину задаёт содержимое. */
 .lang-row > .set-cell { flex: 0 0 auto; min-width: 150px; }
