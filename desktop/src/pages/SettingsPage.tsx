@@ -754,6 +754,10 @@ export function SettingsPage({ config, microphones, models, onConfigChanged }: P
           чекбоксов; отдельный тумблер создавал ложную визуальную иерархию. */}
       <section className="card" style={{ padding: "12px 16px" }}>
         <div className="behavior-row behavior-row--primary">
+          {/* «Пробел в конце» и «Enter после вставки» переехали в
+              «Дополнительно»: обе зависят от авто-вставки, обе ставят один раз
+              под свой сценарий — и втроём эти подписи не давали строке
+              поместиться на узком окне. */}
           <div className="set-cell behavior-row__paste-options">
             <span className="label-with-hint">
               <label className="checkbox-row">
@@ -762,14 +766,6 @@ export function SettingsPage({ config, microphones, models, onConfigChanged }: P
               </label>
               <HintIcon text={t("Сразу вставлять распознанный текст в активное поле. Если выключить, текст останется только в буфере обмена.")}/>
             </span>
-            <label className="checkbox-row" style={{ color: autoPaste ? "var(--ink-mute)" : "var(--ink-faint)" }}>
-              <input className="checkbox" type="checkbox" disabled={!autoPaste} checked={config?.paste_trailing_space ?? false} onChange={(e) => void onConfigChanged({ paste_trailing_space: e.target.checked })}/>
-              {t("Пробел в конце")}
-            </label>
-            <label className="checkbox-row" style={{ color: autoPaste ? "var(--ink-mute)" : "var(--ink-faint)" }} title={t("Нажать Enter сразу после вставки — отправит сообщение в чате или запустит поиск.")}>
-              <input className="checkbox" type="checkbox" disabled={!autoPaste} checked={config?.paste_auto_submit ?? false} onChange={(e) => void onConfigChanged({ paste_auto_submit: e.target.checked })}/>
-              {t("Enter после вставки")}
-            </label>
           </div>
           <div className="vrule"/>
           <div className="set-cell behavior-row__sound-feedback">
@@ -848,6 +844,23 @@ export function SettingsPage({ config, microphones, models, onConfigChanged }: P
             <SetLabel title={t("Скорость набора")} hint={t("Скорость ручного набора. В статистике используется формула: символы / скорость набора.")}/>
             <TypingSpeedControl value={config?.typing_speed_cpm} onConfigChanged={onConfigChanged}/>
           </div>
+        </div>
+
+        {/* Уточнения к авто-вставке: работают, только когда она включена, и
+            выключенными выглядят приглушённо — иначе флажок, который ничего не
+            делает, читается как сломанный. */}
+        <div className="advanced__paste-row">
+          <label className="checkbox-row" style={{ color: autoPaste ? "var(--ink-mute)" : "var(--ink-faint)" }}>
+            <input className="checkbox" type="checkbox" disabled={!autoPaste} checked={config?.paste_trailing_space ?? false} onChange={(e) => void onConfigChanged({ paste_trailing_space: e.target.checked })}/>
+            {t("Пробел в конце")}
+          </label>
+          <span className="label-with-hint">
+            <label className="checkbox-row" style={{ color: autoPaste ? "var(--ink-mute)" : "var(--ink-faint)" }}>
+              <input className="checkbox" type="checkbox" disabled={!autoPaste} checked={config?.paste_auto_submit ?? false} onChange={(e) => void onConfigChanged({ paste_auto_submit: e.target.checked })}/>
+              {t("Enter после вставки")}
+            </label>
+            <HintIcon text={t("Нажать Enter сразу после вставки — отправит сообщение в чате или запустит поиск.")}/>
+          </span>
         </div>
 
         {/* Автозапуск ставят один раз за установку — ровно тот случай, ради

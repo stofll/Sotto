@@ -1243,6 +1243,19 @@ button.card { appearance: none; font: inherit; color: inherit; }
 }
 .advanced__history-cell { width: max-content; max-width: 100%; justify-self: center; }
 
+/* Уточнения к авто-вставке и выключатели «поставил один раз» набраны
+   одинаково: это соседние строки одного блока, а не разные по весу секции. */
+.advanced__paste-row {
+  display: flex;
+  align-items: center;
+  gap: 10px 28px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line-soft);
+}
+.advanced__paste-row .checkbox-row { font: 500 11.5px/1 var(--font-sans); color: var(--ink-mute); }
+
 .advanced__autostart-row {
   display: flex;
   align-items: center;
