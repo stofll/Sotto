@@ -10,13 +10,7 @@ import type { ConfigResult, MicrophoneResult, ModelInfo } from "../bridge/types"
 import { getLocale, isLocale, LOCALE_LABELS, LOCALES, setLocale, t, type Locale } from "../i18n";
 import { DEFAULT_HOTKEY } from "../hotkey";
 import { fallbackLanguage, fallbackModels, speechLanguages } from "./modelCatalog";
-import {
-  DEFAULT_TELEMETRY_SESSION_TIMEOUT_MINUTES,
-  MAX_TELEMETRY_SESSION_TIMEOUT_MINUTES,
-  MIN_TELEMETRY_SESSION_TIMEOUT_MINUTES,
-  isTelemetryEnabled,
-  normalizeTelemetrySessionTimeout,
-} from "./telemetrySettings";
+import { isTelemetryEnabled } from "./telemetrySettings";
 
 type Props = {
   config: ConfigResult | null;
@@ -469,68 +463,37 @@ function HistoryRetentionControl({ days, maxEntries, onConfigChanged }: { days: 
   );
 }
 
+// Три абзаца о том, что собирается, чего не собирается и что меняет
+// выключатель, стояли развёрнутым текстом в разделе, куда заходят ради других
+// настроек. Осталась строка с выключателем и подсказка; полный разбор живёт в
+// docs/telemetry.md, где его и читают целиком.
+//
+// «Таймаут сессии» отсюда убран: это параметр агрегации на стороне аналитики,
+// пользователю в нём нечего решать. Ключ `telemetry_session_timeout_minutes`
+// в конфиге остаётся и по-прежнему читается Rust со своим значением по
+// умолчанию — исчезла только ручка в интерфейсе.
 function TelemetrySettings({
   enabled,
-  timeoutMinutes,
   onConfigChanged,
 }: {
   enabled?: boolean;
-  timeoutMinutes?: number;
   onConfigChanged: Props["onConfigChanged"];
 }) {
-  const telemetryEnabled = isTelemetryEnabled(enabled);
-  const effectiveTimeout = normalizeTelemetrySessionTimeout(timeoutMinutes);
-  const [draftTimeout, setDraftTimeout] = useState(String(effectiveTimeout));
-
-  useEffect(() => {
-    setDraftTimeout(String(effectiveTimeout));
-  }, [effectiveTimeout]);
-
-  async function saveTimeout(raw = draftTimeout) {
-    const nextTimeout = normalizeTelemetrySessionTimeout(raw);
-    setDraftTimeout(String(nextTimeout));
-    const result = await onConfigChanged({ telemetry_session_timeout_minutes: nextTimeout });
-    // Keep the control honest if save_config rejected the change. The parent
-    // owns the persisted state, so a failed save must not look successful here.
-    if (!result) setDraftTimeout(String(effectiveTimeout));
-  }
-
   return (
     <section className="advanced__telemetry" aria-labelledby="telemetry-settings-title">
-      <div className="advanced__telemetry-copy">
-        <h3 id="telemetry-settings-title" className="advanced__telemetry-title">{t("Телеметрия")}</h3>
+      <h3 id="telemetry-settings-title" className="advanced__telemetry-title">{t("Телеметрия")}</h3>
+      <span className="label-with-hint">
         <label className="checkbox-row advanced__telemetry-toggle">
           <input
             className="checkbox"
             type="checkbox"
-            checked={telemetryEnabled}
+            checked={isTelemetryEnabled(enabled)}
             onChange={(event) => void onConfigChanged({ telemetry_enabled: event.target.checked })}
           />
           {t("Разрешить обезличенную телеметрию")}
         </label>
-        <p>{t("Собираются обезличенные события использования и технические сведения: режим обработки, длительность аудио и обработки, оценка сэкономленного времени, ОС, версия приложения, архитектура и сведения о сессии.")}</p>
-        <p>{t("Не отправляется: текст диктовки, аудио, содержимое буфера обмена, имена и пути файлов, промпты, API-ключи, ответы провайдеров и тексты ошибок.")}</p>
-        <p>{t("Отключение не влияет на функции приложения и останавливает новый сбор и отправку. Уже сохранённые или отправленные события не удаляются; после повторного включения ожидающие события могут отправиться.")}</p>
-      </div>
-      <div className="set-cell advanced__telemetry-timeout">
-        <SetLabel title={t("Таймаут сессии")} hint={t("Сессия завершается после периода бездействия. Этот параметр влияет только на агрегированную аналитику и не меняет запись или выгрузку модели.")}/>
-        <div className="advanced__telemetry-timeout-control">
-          <NumberField
-            className="mono"
-            min={MIN_TELEMETRY_SESSION_TIMEOUT_MINUTES}
-            max={MAX_TELEMETRY_SESSION_TIMEOUT_MINUTES}
-            step={5}
-            value={draftTimeout}
-            onValueChange={setDraftTimeout}
-            onStepCommit={(next) => void saveTimeout(next)}
-            onBlur={() => void saveTimeout()}
-            onKeyDown={(event) => { if (event.key === "Enter") void saveTimeout(); }}
-            style={{ width: 78, height: "var(--control-h)", flex: "0 0 auto" }}
-          />
-          <span>{t("минут")}</span>
-        </div>
-        <span className="advanced__telemetry-timeout-note">{t("По умолчанию: {p0} минут", { p0: DEFAULT_TELEMETRY_SESSION_TIMEOUT_MINUTES })}</span>
-      </div>
+        <HintIcon text={t("Собираются обезличенные события использования и технические сведения: режим обработки, длительность аудио и обработки, оценка сэкономленного времени, ОС, версия приложения, архитектура и сведения о сессии.")}/>
+      </span>
     </section>
   );
 }
@@ -918,11 +881,7 @@ export function SettingsPage({ config, microphones, models, onConfigChanged }: P
           </span>
         </div>
 
-        <TelemetrySettings
-          enabled={config?.telemetry_enabled}
-          timeoutMinutes={config?.telemetry_session_timeout_minutes}
-          onConfigChanged={onConfigChanged}
-        />
+        <TelemetrySettings enabled={config?.telemetry_enabled} onConfigChanged={onConfigChanged}/>
       </details>
     </div>
   );

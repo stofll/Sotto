@@ -220,15 +220,6 @@ export const en: Record<string, string | string[]> = {
   "Разрешить обезличенную телеметрию": "Allow de-identified telemetry",
   "Собираются обезличенные события использования и технические сведения: режим обработки, длительность аудио и обработки, оценка сэкономленного времени, ОС, версия приложения, архитектура и сведения о сессии.":
     "De-identified usage events and technical data are collected: processing mode, audio and processing duration, estimated time saved, operating system, app version, architecture, and session data.",
-  "Не отправляется: текст диктовки, аудио, содержимое буфера обмена, имена и пути файлов, промпты, API-ключи, ответы провайдеров и тексты ошибок.":
-    "Not sent: dictation text, audio, clipboard contents, file names and paths, prompts, API keys, provider responses, or error text.",
-  "Отключение не влияет на функции приложения и останавливает новый сбор и отправку. Уже сохранённые или отправленные события не удаляются; после повторного включения ожидающие события могут отправиться.":
-    "Disabling does not affect app features and stops new collection and sending. Events already stored or sent are not deleted; pending events may be sent after telemetry is enabled again.",
-  "Таймаут сессии": "Session timeout",
-  "Сессия завершается после периода бездействия. Этот параметр влияет только на агрегированную аналитику и не меняет запись или выгрузку модели.":
-    "A session ends after this period of inactivity. This only affects aggregated analytics; it does not change recording or model unloading.",
-  "минут": "minutes",
-  "По умолчанию: {p0} минут": "Default: {p0} minutes",
   "Хранить историю": "Keep history",
   "Записи старше указанного срока и всё, что не влезло в лимит, удаляются при открытии страницы истории. 0 — без ограничения.":
     "Entries older than this, and anything over the limit, are removed when the history page opens. 0 means no limit.",
@@ -499,9 +490,6 @@ export const en: Record<string, string | string[]> = {
   "изменено": "changed",
 
   // ── LLM: профили и провайдеры ──────────────────────────────────────────
-  "Настроить": "Set up",
-  "Облачное распознавание недоступно: провайдер не настроен.": "Cloud transcription is unavailable: no provider is set up.",
-  "Режим с LLM недоступен: провайдер не настроен.": "The LLM mode is unavailable: no provider is set up.",
   "Профиля LLM ещё нет: создайте его в «Интеграциях» и сделайте активным.": "There is no LLM profile yet: create one in Integrations and make it active.",
   "У активного профиля не выбрана модель.": "The active profile has no model selected.",
   "У активного профиля нет сохранённого API-ключа.": "The active profile has no saved API key.",

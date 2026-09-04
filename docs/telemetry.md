@@ -17,9 +17,12 @@ local outbox. Re-enabling resumes delivery of pending rows.
 Both settings live in `config.json` (`telemetry_enabled`,
 `telemetry_session_timeout_minutes`) and are written through the ordinary
 `save_config` merge patch, which re-syncs the live capture gate before it
-returns — there is no separate telemetry command and no restart is needed. A
-timeout outside the supported range is clamped, never rejected: a hand-edited
-config must not make unrelated settings unsavable.
+returns — there is no separate telemetry command and no restart is needed. Only
+the consent switch has a control in the UI: the session timeout is an
+aggregation parameter with nothing for a user to decide, so it is set by
+editing `config.json` and otherwise keeps its default. A timeout outside the
+supported range is clamped, never rejected: a hand-edited config must not make
+unrelated settings unsavable.
 
 ## Release configuration
 

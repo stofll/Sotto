@@ -512,25 +512,18 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
               </button>
             ))}
           </div>
+          {/* Одна строка без заголовка и без кнопки: путь в «Интеграции» уже
+              лежит двумя карточками выше, а заголовок повторял бы то же, что
+              говорит сама причина. */}
           {routeBlocker && (
             <div role="alert" className="ai-mode-warning">
               <Icon name="info" size={13} style={{ color: "var(--warn)", flex: "0 0 auto", marginTop: 1 }}/>
-              <div style={{ display: "grid", gap: 3 }}>
-                <span style={{ font: "600 12px/1.4 var(--font-sans)", color: "var(--ink)" }}>
-                  {ai.pipeline_mode === "cloud"
-                    ? t("Облачное распознавание недоступно: провайдер не настроен.")
-                    : t("Режим с LLM недоступен: провайдер не настроен.")}
-                </span>
-                <span style={{ font: "400 11.5px/1.45 var(--font-sans)", color: "var(--ink-mute)" }}>
-                  {blockerReason(routeBlocker)}{" "}
-                  {ai.pipeline_mode === "cloud"
-                    ? t("Пока этого нет, распознавать нечем: диктовка завершится ошибкой.")
-                    : t("Пока этого нет, диктовка вставляет локальный текст без обработки LLM.")}
-                </span>
-              </div>
-              <button className="btn btn--ghost" type="button" onClick={() => onNavigate("integrations")} style={{ marginLeft: "auto", flex: "0 0 auto" }}>
-                <Icon name="server" size={12}/>{t("Настроить")}
-              </button>
+              <span style={{ font: "500 11.5px/1.45 var(--font-sans)", color: "var(--ink)" }}>
+                {blockerReason(routeBlocker)}{" "}
+                {ai.pipeline_mode === "cloud"
+                  ? t("Пока этого нет, распознавать нечем: диктовка завершится ошибкой.")
+                  : t("Пока этого нет, диктовка вставляет локальный текст без обработки LLM.")}
+              </span>
             </div>
           )}
         </section>
