@@ -875,20 +875,29 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
           </Foldable>
         </div>
 
+        {/* Заголовок и пояснение живут внутри первой карточки, а не над ней:
+            в левой колонке заголовки блоков стоят внутри рамки, и внешняя
+            подпись над карточкой читалась как чужая. Шаги «до» и «после»
+            подписаны текстом — пилюли делали из служебной подписи акцент,
+            который спорил с самим содержимым карточки. */}
         <div className="flex-col" style={{ gap: 12, minWidth: 0 }}>
-          <SectionLabel>{t("Живой предпросмотр")}</SectionLabel>
-          <div style={{ font: "400 11.5px/1.5 var(--font-sans)", color: "var(--ink-mute)", marginTop: -6 }}>
-            {t("Весь локальный проход: очистка и замены — ровно то, что уходит в модель или во вставку.")}
-          </div>
           <div className="card" style={{ padding: 18 }}>
-            <span className="pill ghost">{t("До")}</span>
-            <textarea className="field mono" value={previewText} onChange={(e) => setPreviewText(e.target.value)} placeholder={t("Введите текст для проверки обработки")} style={{ width: "100%", minHeight: 145, marginTop: 10, padding: 12, resize: "vertical", lineHeight: 1.55 }}/>
+            <div className="preview-card__head">
+              <h2 className="preview-card__title">
+                {t("Живой предпросмотр")}
+                <Hint text={t("Весь локальный проход: очистка и замены — ровно то, что уходит в модель или во вставку.")}/>
+              </h2>
+              <span className="preview-card__step">{t("До")}</span>
+            </div>
+            <textarea className="field mono" value={previewText} onChange={(e) => setPreviewText(e.target.value)} placeholder={t("Введите текст для проверки обработки")} style={{ width: "100%", minHeight: 145, padding: 12, resize: "vertical", lineHeight: 1.55 }}/>
           </div>
           <div className="preview-pair__arrow preview-pair__arrow--down" aria-hidden="true"><Icon name="arrow-right" size={14}/></div>
           <div className="card" style={{ padding: 18 }}>
-            <span className="pill accent">{t("После")}</span>
-            {previewError ? <p style={{ margin: "10px 0 0", font: "500 12px/1.55 var(--font-sans)", color: "var(--err)" }}>{previewError}</p> : <>
-              <p style={{ margin: "10px 0 0", font: "400 13px/1.65 var(--font-sans)", color: "var(--ink)", whiteSpace: "pre-wrap" }}>{previewResult || t("Введите текст для предпросмотра")}</p>
+            <div className="preview-card__head">
+              <span className="preview-card__step">{t("После")}</span>
+            </div>
+            {previewError ? <p style={{ margin: 0, font: "500 12px/1.55 var(--font-sans)", color: "var(--err)" }}>{previewError}</p> : <>
+              <p style={{ margin: 0, font: "400 13px/1.65 var(--font-sans)", color: "var(--ink)", whiteSpace: "pre-wrap" }}>{previewResult || t("Введите текст для предпросмотра")}</p>
               <div className="flex-row" style={{ flexWrap: "wrap", gap: 6, marginTop: 10 }}>{previewMatches?.length ? previewMatches.map((item) => <span className={matchesAreHypothetical ? "pill" : "pill ok"} key={`${item.id}-${item.find}`}>{item.find}: {item.count}</span>) : <span className="pill">{t("Сработало 0 правил")} {rules.length === 0 ? t("— правил пока нет") : ""}</span>}</div>
               {matchesAreHypothetical && previewMatches?.length ? <div style={{ marginTop: 6, font: "400 11px/1.4 var(--font-sans)", color: "var(--warn)" }}>{t("Замены на паузе: правила совпали бы, но в результат выше не попали.")}</div> : null}
               {previewText.trim() && previewResult ? <DiffBlock before={previewText} after={previewResult} title={t("Diff: исходный → после обработки")} /> : null}

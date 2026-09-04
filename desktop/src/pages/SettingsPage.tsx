@@ -463,41 +463,6 @@ function HistoryRetentionControl({ days, maxEntries, onConfigChanged }: { days: 
   );
 }
 
-// Три абзаца о том, что собирается, чего не собирается и что меняет
-// выключатель, стояли развёрнутым текстом в разделе, куда заходят ради других
-// настроек. Осталась строка с выключателем и подсказка; полный разбор живёт в
-// docs/telemetry.md, где его и читают целиком.
-//
-// «Таймаут сессии» отсюда убран: это параметр агрегации на стороне аналитики,
-// пользователю в нём нечего решать. Ключ `telemetry_session_timeout_minutes`
-// в конфиге остаётся и по-прежнему читается Rust со своим значением по
-// умолчанию — исчезла только ручка в интерфейсе.
-function TelemetrySettings({
-  enabled,
-  onConfigChanged,
-}: {
-  enabled?: boolean;
-  onConfigChanged: Props["onConfigChanged"];
-}) {
-  return (
-    <section className="advanced__telemetry" aria-labelledby="telemetry-settings-title">
-      <h3 id="telemetry-settings-title" className="advanced__telemetry-title">{t("Телеметрия")}</h3>
-      <span className="label-with-hint">
-        <label className="checkbox-row advanced__telemetry-toggle">
-          <input
-            className="checkbox"
-            type="checkbox"
-            checked={isTelemetryEnabled(enabled)}
-            onChange={(event) => void onConfigChanged({ telemetry_enabled: event.target.checked })}
-          />
-          {t("Разрешить обезличенную телеметрию")}
-        </label>
-        <HintIcon text={t("Собираются обезличенные события использования и технические сведения: режим обработки, длительность аудио и обработки, оценка сэкономленного времени, ОС, версия приложения, архитектура и сведения о сессии.")}/>
-      </span>
-    </section>
-  );
-}
-
 const MIC_SEGMENTS = 24;
 
 function MicMeter({ level, peak, active }: { level: number; peak: number; active: boolean }) {
@@ -755,13 +720,13 @@ export function SettingsPage({ config, microphones, models, onConfigChanged }: P
         </div>
       </section>
 
-      {/* 2. Languages — 2 cols. Развёрнутые подписи вместо подсказки: путать
-          язык речи с языком интерфейса дорого, но объяснять это всплывашкой
-          дороже, чем назвать настройки так, чтобы вопрос не возникал. */}
+      {/* 2. Languages — 2 cols. Названия разводят две настройки между собой,
+          а подсказка у языка речи отвечает на следующий вопрос: что будет,
+          если продиктовать не на нём. */}
       <section className="card" style={{ padding: "12px 16px", marginBottom: 10 }}>
         <div className="lang-row">
           <div className="set-cell">
-            <SetLabel title={t("Язык речи")}/>
+            <SetLabel title={t("Язык речи")} hint={t("Язык, на котором вы диктуете: модель распознаёт речь именно как его. «Авто» определяет язык по самой записи — это чуть медленнее и иногда ошибается на коротких фразах. На язык интерфейса не влияет.")}/>
             <LanguagePicker language={config?.language} model={selectedModelInfo} models={models} onConfigChanged={onConfigChanged}/>
           </div>
           <div className="set-cell">
@@ -870,7 +835,10 @@ export function SettingsPage({ config, microphones, models, onConfigChanged }: P
             которого блок и свёрнут. Обрезки тишины здесь больше нет: vad.rs
             сам отказывается резать, когда речь не найдена или экономия меньше
             секунды, так что выключателю было нечего чинить. Ключ trim_silence
-            в config.json по-прежнему читается — как отладочный. */}
+            в config.json по-прежнему читается — как отладочный.
+            Согласие на телеметрию стоит здесь же: это такой же выключатель
+            «поставил один раз», и отдельный подраздел под одну строку был
+            тяжелее самой строки. */}
         <div className="advanced__autostart-row">
           <span className="label-with-hint">
             <label className="checkbox-row">
@@ -879,9 +847,19 @@ export function SettingsPage({ config, microphones, models, onConfigChanged }: P
             </label>
             <HintIcon text={t("Приложение запускается в фоне при входе в систему, горячая клавиша становится доступна сразу.")}/>
           </span>
+          <span className="label-with-hint">
+            <label className="checkbox-row">
+              <input
+                className="checkbox"
+                type="checkbox"
+                checked={isTelemetryEnabled(config?.telemetry_enabled)}
+                onChange={(e) => void onConfigChanged({ telemetry_enabled: e.target.checked })}
+              />
+              {t("Разрешить обезличенную телеметрию")}
+            </label>
+            <HintIcon text={t("Собираются обезличенные события использования и технические сведения: режим обработки, длительность аудио и обработки, оценка сэкономленного времени, ОС, версия приложения, архитектура и сведения о сессии.")}/>
+          </span>
         </div>
-
-        <TelemetrySettings enabled={config?.telemetry_enabled} onConfigChanged={onConfigChanged}/>
       </details>
     </div>
   );

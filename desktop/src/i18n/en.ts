@@ -138,6 +138,8 @@ export const en: Record<string, string | string[]> = {
   // ── Настройки: язык, устройство, микрофон ──────────────────────────────
   "Язык": "Speech language",
   "Язык речи": "Speech language",
+  "Язык, на котором вы диктуете: модель распознаёт речь именно как его. «Авто» определяет язык по самой записи — это чуть медленнее и иногда ошибается на коротких фразах. На язык интерфейса не влияет.":
+    "The language you dictate in: the model transcribes speech as that language. “Auto” detects it from the recording itself — slightly slower, and sometimes wrong on short phrases. It does not affect the interface language.",
   "Язык интерфейса": "Interface language",
   "Авто": "Auto",
   "Пробел в конце": "Trailing space",
@@ -216,7 +218,6 @@ export const en: Record<string, string | string[]> = {
   "Приложение запускается в фоне при входе в систему, горячая клавиша становится доступна сразу.":
     "The app starts in the background when you sign in, so the shortcut is available immediately.",
   "Дополнительно": "Advanced",
-  "Телеметрия": "Telemetry",
   "Разрешить обезличенную телеметрию": "Allow de-identified telemetry",
   "Собираются обезличенные события использования и технические сведения: режим обработки, длительность аудио и обработки, оценка сэкономленного времени, ОС, версия приложения, архитектура и сведения о сессии.":
     "De-identified usage events and technical data are collected: processing mode, audio and processing duration, estimated time saved, operating system, app version, architecture, and session data.",
