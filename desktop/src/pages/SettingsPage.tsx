@@ -639,7 +639,7 @@ function MicPicker({ microphone, microphones, onConfigChanged }: { microphone?: 
   }
 
   return (
-    <div>
+    <div className="mic-picker">
       <div className="mic-control">
         <CustomSelect className="custom-select--mic" value={microphone ?? null} options={options.map((option) => ({ ...option, icon: "mic" }))} onChange={(value) => void onConfigChanged({ microphone: value })}/>
         <button className={`mic-test${testing ? " mic-test--active" : ""}`} type="button" onClick={() => void toggleTest()} title={t("Проверить микрофон")}><Icon name="mic" size={14}/></button>
@@ -714,12 +714,12 @@ export function SettingsPage({ config, microphones, models, onConfigChanged }: P
           а вместе с ним и скачивание с удалением. */}
       <section className="card" style={{ padding: "12px 16px", marginBottom: 10 }}>
         <div className="capture-row">
-          <div className="set-cell">
+          <div className="set-cell set-cell--inline">
             <SetLabel title={t("Горячая клавиша")} hint={t("Диктовка. Пойдёт ли текст в LLM, решает режим обработки на вкладке «ИИ».")}/>
             <HotkeyDisplay hotkey={config?.hotkey} fallback={DEFAULT_HOTKEY} onConfigChanged={onConfigChanged}/>
           </div>
           <div className="vrule"/>
-          <div className="set-cell">
+          <div className="set-cell set-cell--inline">
             <SetLabel title={t("Режим записи")}/>
             <RecordingModeSegmented value={recordingMode} onConfigChanged={onConfigChanged}/>
           </div>
@@ -731,11 +731,11 @@ export function SettingsPage({ config, microphones, models, onConfigChanged }: P
           если продиктовать не на нём. */}
       <section className="card" style={{ padding: "12px 16px", marginBottom: 10 }}>
         <div className="lang-row">
-          <div className="set-cell">
+          <div className="set-cell set-cell--inline">
             <SetLabel title={t("Язык речи")} hint={t("Язык, на котором вы диктуете: модель распознаёт речь именно как его. «Авто» определяет язык по самой записи — это чуть медленнее и иногда ошибается на коротких фразах. На язык интерфейса не влияет.")}/>
             <LanguagePicker language={config?.language} model={selectedModelInfo} models={models} onConfigChanged={onConfigChanged}/>
           </div>
-          <div className="set-cell">
+          <div className="set-cell set-cell--inline">
             <SetLabel title={t("Язык интерфейса")}/>
             <UiLanguagePicker value={config?.ui_language} onConfigChanged={onConfigChanged}/>
           </div>
@@ -744,7 +744,7 @@ export function SettingsPage({ config, microphones, models, onConfigChanged }: P
 
       {/* 3. Microphone — own row (long device names) */}
       <section className="card" style={{ padding: "12px 16px", marginBottom: 10 }}>
-        <div className="set-cell">
+        <div className="set-cell set-cell--inline">
           <SetLabel title={t("Микрофон")}/>
           <MicPicker microphone={config?.microphone} microphones={microphones} onConfigChanged={onConfigChanged}/>
         </div>
