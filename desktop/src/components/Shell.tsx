@@ -49,8 +49,14 @@ export function TitleBar({ collapsed, onToggleCollapse }: { collapsed?: boolean;
   // Полоса делится ровно по границе сайдбара: слева она продолжает сайдбар и
   // держит название с кнопкой сворачивания, справа — фон страницы с кнопками
   // окна. Своего цвета у неё нет, поэтому «чёрной полосы» сверху больше нет.
+  //
+  // Перетаскивание окна держится на `data-tauri-drag-region`, а не на
+  // `-webkit-app-region: drag`: последнее понимает только WebView2, поэтому на
+  // macOS (WKWebView) окно меняло размер, но не двигалось. Значение `deep`
+  // распространяет зону на всю полосу; кнопки Tauri исключает сам — любой
+  // `<button>` на пути события отменяет перетаскивание.
   return (
-    <div className="titlebar">
+    <div className="titlebar" data-tauri-drag-region="deep">
       <div className="titlebar__rail"><Brand collapsed={collapsed} onToggleCollapse={onToggleCollapse}/></div>
       <div className="titlebar__bar">
         <button className="btn btn--ghost titlebar__button" onClick={() => void withWindow("minimize")} aria-label={t("Свернуть")}><svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 5h6" stroke="currentColor" strokeWidth="1"/></svg></button>

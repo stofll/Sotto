@@ -1,6 +1,6 @@
 import { createElement } from "react";
 import { Icon } from "../components/Icon";
-import type { ConfigResult } from "../bridge/types";
+import type { ApiKeyStatus, ConfigResult } from "../bridge/types";
 import { t } from "../i18n";
 
 export type AiConfig = ConfigResult["ai_processing"];
@@ -294,6 +294,34 @@ export function textProfileFor(ai: AiConfig | null, profiles: LlmProfile[], voic
   const id = ai?.text_profile_id;
   if (!id || id === voiceProfile.id) return voiceProfile;
   return profiles.find((profile) => profile.id === id) ?? voiceProfile;
+}
+
+/**
+ * Чего не хватает, чтобы LLM-этап вообще запустился в выбранном режиме.
+ *
+ * Повторяет ворота из `ai_process_text_with_status` на стороне Rust — там
+ * пустой провайдер и пустой ключ дают `skipped_reason`, диктовка молча
+ * вставляет локальный текст, и со стороны это выглядит как «гибридный режим
+ * ничего не делает». Проверка вынесена сюда, чтобы интерфейс мог сказать об
+ * этом до записи, а не после неё.
+ *
+ * `null` значит «маршрут есть» — в том числе для режима «только локально»,
+ * которому LLM не нужна вовсе.
+ */
+export type LlmRouteBlocker = "no_profile" | "no_model" | "no_key" | null;
+
+export function llmRouteBlocker(ai: AiConfig | null, profiles: LlmProfile[], apiKeys: ApiKeyStatus): LlmRouteBlocker {
+  const mode = ai?.pipeline_mode ?? DEFAULT_AI.pipeline_mode;
+  if (mode === "local") return null;
+  const activeId = ai?.active_profile_id || ai?.profile_id || "";
+  // Тот же выбор активного, что и на странице «LLM-обработка»: указатель на
+  // удалённый профиль там читается как «первый в списке», и расхождение между
+  // предупреждением и подсвеченной строкой было бы хуже самой ошибки.
+  const active = profiles.find((profile) => profile.id === activeId) ?? profiles[0] ?? null;
+  if (!active) return "no_profile";
+  if (!active.provider.trim() || !active.model.trim()) return "no_model";
+  if (!apiKeys[profileKeyRef(active)]?.available) return "no_key";
+  return null;
 }
 
 export function activeConfigFromProfile(ai: AiConfig, profile: LlmProfile, profiles: LlmProfile[]): AiConfig {

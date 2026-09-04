@@ -412,6 +412,12 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
             <span className={hasChanges ? "pill warn" : "pill ok dot"}>
               {hasChanges ? t("Есть изменения") : t("Синхронизировано")}
             </span>
+            {/* Ключ и профиль — два способа начать работу на этой странице, и
+                оба живут в шапке. Кнопка «Добавить ключ» стояла в строке
+                фильтров списка ключей: чтобы добавить первый ключ, нужно было
+                сначала доскроллить до списка, которого ещё нет. */}
+            <button className="btn btn--ghost" onClick={() => setAdding(true)}>
+              <Icon name="plus" size={12}/>  {t("Добавить ключ")} </button>
             <button className="btn btn--primary" onClick={() => setWizardSeed({})}>
               <Icon name="plus" size={12}/>  {t("Новый профиль")} </button>
           </>
@@ -438,10 +444,8 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
 
       <section className="card prov-list-card">
         {draftProfiles.length === 0 && (
-          <div style={{ padding: 16, color: "var(--ink-mute)", font: "400 12px/1.5 var(--font-sans)", display: "grid", gap: 10, justifyItems: "start" }}>
-            <span>{t("Профилей ещё нет. Профиль — это связка «провайдер + ключ + модель»; из него LLM-обработка берёт всё, что ей нужно.")}</span>
-            <button className="btn btn--primary" onClick={() => setWizardSeed({})}>
-              <Icon name="plus" size={12}/>  {t("Создать первый профиль")} </button>
+          <div style={{ padding: 16, color: "var(--ink-mute)", font: "400 12px/1.5 var(--font-sans)" }}>
+            {t("Профилей ещё нет. Профиль — это связка «провайдер + ключ + модель»; из него LLM-обработка берёт всё, что ей нужно.")}
           </div>
         )}
         {draftProfiles.map((profile, i) => {
@@ -698,8 +702,6 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
                 onChange={(next) => setKeyFilter(next)}
               />
             </div>
-            <button className="btn btn--ghost" onClick={() => setAdding(true)}>
-              <Icon name="plus" size={12}/>  {t("Добавить ключ")} </button>
           </div>
         </div>
 

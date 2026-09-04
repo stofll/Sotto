@@ -15,6 +15,7 @@ import {
   STRUCTURED_SYSTEM_PROMPT,
   SYSTEM_PROMPT_PRESETS,
   textProfileFor,
+  llmRouteBlocker,
   type LlmProfile,
 } from "./aiShared";
 
@@ -169,5 +170,51 @@ describe("порог минимальной длительности", () => {
     const base = mergeAi(null, { llm_min_duration_seconds: 30 });
     const profile = normalizeProfile(base, { id: "p1", provider: "openai", llm_min_duration_seconds: 0 });
     expect(activeConfigFromProfile(base, profile, [profile]).llm_min_duration_seconds).toBe(0);
+  });
+});
+
+// Гибридный режим без провайдера вёл себя как локальный: Rust проставлял
+// skipped_reason, текст вставлялся необработанным, и на экране об этом не было
+// ни слова. Тесты держат ворота ровно такими же, как на стороне Rust.
+describe("llmRouteBlocker", () => {
+  const withKey = { openai: { available: true, label: "OpenAI", masked: "sk-…12" } };
+
+  it("режиму «только локально» провайдер не нужен", () => {
+    expect(llmRouteBlocker(mergeAi(null, { pipeline_mode: "local" }), [], {})).toBeNull();
+  });
+
+  it("гибрид без единого профиля называет причину", () => {
+    expect(llmRouteBlocker(mergeAi(null, { pipeline_mode: "hybrid" }), [], {})).toBe("no_profile");
+  });
+
+  it("облачный режим судится по тем же воротам", () => {
+    const base = mergeAi(null, { pipeline_mode: "cloud", active_profile_id: "default" });
+    const profile = normalizeProfile(base, { id: "default", provider: "openai", model: "gpt-4o-mini" });
+    expect(llmRouteBlocker(base, [profile], {})).toBe("no_key");
+    expect(llmRouteBlocker(base, [], {})).toBe("no_profile");
+  });
+
+  it("профиль без сохранённого ключа не считается рабочим маршрутом", () => {
+    const base = mergeAi(null, { pipeline_mode: "hybrid", active_profile_id: "default" });
+    const profile = normalizeProfile(base, { id: "default", provider: "openai", model: "gpt-4o-mini" });
+    expect(llmRouteBlocker(base, [profile], {})).toBe("no_key");
+  });
+
+  it("профиль без модели не считается рабочим маршрутом", () => {
+    const base = mergeAi(null, { pipeline_mode: "hybrid", active_profile_id: "default" });
+    const profile = { ...normalizeProfile(base, { id: "default", provider: "openai" }), model: "" };
+    expect(llmRouteBlocker(base, [profile], withKey)).toBe("no_model");
+  });
+
+  it("настроенный профиль с ключом претензий не вызывает", () => {
+    const base = mergeAi(null, { pipeline_mode: "hybrid", active_profile_id: "default" });
+    const profile = normalizeProfile(base, { id: "default", provider: "openai", model: "gpt-4o-mini" });
+    expect(llmRouteBlocker(base, [profile], withKey)).toBeNull();
+  });
+
+  it("указатель на удалённый профиль читается как первый в списке — как и на странице", () => {
+    const base = mergeAi(null, { pipeline_mode: "hybrid", active_profile_id: "deleted" });
+    const profile = normalizeProfile(base, { id: "default", provider: "openai", model: "gpt-4o-mini" });
+    expect(llmRouteBlocker(base, [profile], withKey)).toBeNull();
   });
 });

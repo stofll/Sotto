@@ -58,6 +58,12 @@ function clampLevel(value: unknown) {
 function shortAiProblem(payload?: TranscriptionPayload) {
   if (payload?.ai_problem) return payload.ai_problem;
   const ai = payload?.ai_processing;
+  // Ненастроенный провайдер — не fallback: запроса не было вовсе, и до этой
+  // строки такая диктовка приходила без единого слова о том, почему в режиме
+  // с LLM вставился необработанный текст.
+  if (ai?.skipped_reason === "missing_provider" || ai?.skipped_reason === "missing_api_key") {
+    return t("LLM не настроена, вставлен локальный текст");
+  }
   if (!ai?.fallback) return "";
   if (ai.skipped_reason === "provider_timeout") return t("LLM не ответила, вставлен локальный текст");
   if (ai.skipped_reason === "provider_quota_or_rate_limit") return t("Лимит LLM, вставлен локальный текст");

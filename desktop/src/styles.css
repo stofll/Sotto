@@ -413,11 +413,10 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 /* Титулбар держит те же колонки, что и layout под ним: рельс слева
    продолжает сайдбар, правая часть — фон страницы. Никакой собственной
    подложки и линии снизу — граница проходит там же, где граница сайдбара. */
-.titlebar { height: var(--titlebar-h); display: grid; grid-template-columns: var(--sidebar-w) 1fr; -webkit-app-region: drag; flex: 0 0 auto; transition: grid-template-columns .34s cubic-bezier(.32,.72,0,1); }
+.titlebar { height: var(--titlebar-h); display: grid; grid-template-columns: var(--sidebar-w) 1fr; flex: 0 0 auto; transition: grid-template-columns .34s cubic-bezier(.32,.72,0,1); }
 .win.collapsed .titlebar { grid-template-columns: var(--sidebar-collapsed-w) 1fr; transition: grid-template-columns .4s cubic-bezier(.6,.04,.24,1); }
 .titlebar__rail { background: var(--bg-1); border-right: 1px solid var(--line); display: flex; align-items: center; min-width: 0; }
 .titlebar__bar { background: var(--bg-2); display: flex; align-items: flex-start; justify-content: flex-end; gap: 4px; padding: 6px 12px 0; color: var(--text-mute); }
-.titlebar button { -webkit-app-region: no-drag; }
 .titlebar__button { height: 24px; width: 28px; padding: 0; }
 .titlebar__button--close:hover { background: rgba(239,94,107,0.16); color: var(--err); }
 .titlebar__dots { display: flex; gap: 6px; }
@@ -1554,6 +1553,16 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .ai-mode-card[data-selected="true"] .ai-mode-card__title { color: var(--accent-text); }
 .ai-mode-card__desc { font: 400 12px/1.5 var(--font-sans); color: var(--ink-mute); }
 .ai-mode-card[data-selected="true"] .ai-mode-card__desc { color: var(--ink-dim); }
+
+/* Предупреждение под сеткой режимов: жёлтая плашка того же вида, что и
+   «у профиля свой промпт» ниже на странице. */
+.ai-mode-warning {
+  display: flex; align-items: flex-start; gap: 8px; flex-wrap: wrap;
+  margin-top: 10px; padding: 9px 11px;
+  border-radius: var(--r-sm);
+  background: var(--warn-soft);
+  border: 1px solid rgba(251,191,36,0.30);
+}
 
 @media (max-width: 900px) {
   .ai-mode-grid { grid-template-columns: 1fr; }

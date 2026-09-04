@@ -12,11 +12,13 @@ import {
   promptIsCustom,
   normalizeProfile,
   profileKeyRef,
+  llmRouteBlocker,
   profilesForAi,
   PROVIDERS,
   SYSTEM_PROMPT_PRESETS,
   textProfileFor,
   type AiConfig,
+  type LlmRouteBlocker,
 } from "./aiShared";
 import { CustomSelect } from "../components/CustomSelect";
 import { NumberField } from "../components/NumberField";
@@ -95,6 +97,13 @@ const PIPELINE_MODES = () => ([
   { id: "cloud", title: t("Облачное распознавание"), sub: t("Аудио уходит на OpenAI-совместимый эндпоинт /audio/transcriptions. Нужны Base URL, модель и ключ активного профиля."), icon: "spark" },
 ] as const);
 
+/** Что именно мешает выбранному режиму дойти до провайдера. */
+function blockerReason(blocker: NonNullable<LlmRouteBlocker>): string {
+  if (blocker === "no_profile") return t("Профиля LLM ещё нет: создайте его в «Интеграциях» и сделайте активным.");
+  if (blocker === "no_model") return t("У активного профиля не выбрана модель.");
+  return t("У активного профиля нет сохранённого API-ключа.");
+}
+
 const EMPTY_KEY_INFO: ApiKeyInfo = { available: false, label: "", masked: "" };
 
 type Props = {
@@ -124,6 +133,11 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
   const activeProfile = profiles.find((item) => item.id === baseAi.active_profile_id) ?? profiles[0] ?? fallbackProfile;
   const ai = useMemo(() => activeConfigFromProfile(baseAi, activeProfile, profiles), [baseAi, activeProfile, profiles]);
   const provider = PROVIDERS.find((item) => item.id === ai.provider) ?? PROVIDERS[0];
+  // Режим с LLM, до которой нечем дойти, — молчаливый режим: Rust проставит
+  // skipped_reason и вставит локальный текст, а пользователь увидит просто
+  // «гибрид не работает». Считаем это здесь, чтобы сказать об этом на экране,
+  // где режим и выбирают.
+  const routeBlocker = llmRouteBlocker(ai, profiles, apiKeys);
 
   // Ключ голосового профиля показывает его собственная строка в списке выше
   // («ключ сохранён» / «нет ключа»), поэтому отдельной переменной под него
@@ -415,11 +429,11 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
           </button>
         </div>
         <div className="profile-list">
+            {/* Ссылка на «Интеграции» здесь была третьей подряд: та же кнопка
+                стоит в шапке страницы и в заголовке этой карточки. */}
             {profiles.length === 0 && (
-              <div style={{ padding: "16px 14px", color: "var(--ink-mute)", font: "400 12px/1.5 var(--font-sans)", display: "grid", gap: 8, justifyItems: "start" }}>
-                <span>{t("Профилей пока нет. Настройки LLM ниже применяются к базовой конфигурации; профиль нужен, чтобы хранить несколько связок «провайдер + ключ + модель».")}</span>
-                <button className="btn btn--ghost" onClick={() => onNavigate("integrations")}>
-                  <Icon name="server" size={12}/>{t("Создать профиль в «Интеграциях»")} </button>
+              <div style={{ padding: "16px 14px", color: "var(--ink-mute)", font: "400 12px/1.5 var(--font-sans)" }}>
+                {t("Профилей пока нет. Настройки LLM ниже применяются к базовой конфигурации; профиль нужен, чтобы хранить несколько связок «провайдер + ключ + модель».")}
               </div>
             )}
             {profiles.map((profile) => {
@@ -498,6 +512,27 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
               </button>
             ))}
           </div>
+          {routeBlocker && (
+            <div role="alert" className="ai-mode-warning">
+              <Icon name="info" size={13} style={{ color: "var(--warn)", flex: "0 0 auto", marginTop: 1 }}/>
+              <div style={{ display: "grid", gap: 3 }}>
+                <span style={{ font: "600 12px/1.4 var(--font-sans)", color: "var(--ink)" }}>
+                  {ai.pipeline_mode === "cloud"
+                    ? t("Облачное распознавание недоступно: провайдер не настроен.")
+                    : t("Режим с LLM недоступен: провайдер не настроен.")}
+                </span>
+                <span style={{ font: "400 11.5px/1.45 var(--font-sans)", color: "var(--ink-mute)" }}>
+                  {blockerReason(routeBlocker)}{" "}
+                  {ai.pipeline_mode === "cloud"
+                    ? t("Пока этого нет, распознавать нечем: диктовка завершится ошибкой.")
+                    : t("Пока этого нет, диктовка вставляет локальный текст без обработки LLM.")}
+                </span>
+              </div>
+              <button className="btn btn--ghost" type="button" onClick={() => onNavigate("integrations")} style={{ marginLeft: "auto", flex: "0 0 auto" }}>
+                <Icon name="server" size={12}/>{t("Настроить")}
+              </button>
+            </div>
+          )}
         </section>
 
         <section className="card" style={{ padding: "4px 22px", marginBottom: 14 }}>
