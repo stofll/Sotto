@@ -1239,29 +1239,8 @@ button.card { appearance: none; font: inherit; color: inherit; }
   align-items: stretch;
 }
 .capture-row .model-select { width: 100%; max-width: none; }
-/* Ячейка в одну линию: подпись слева, контрол сразу за ней. Контрол по
-   содержимому, а не во всю ширину ячейки — растянутый переключатель или
-   рамка с клавишами это налитая внутрь пустота, а не заполненная строка.
-   Исключение — микрофон: там растягивается сам селект, потому что имена
-   устройств длинные и обрезать их нечем.
-   Перенос оставлен клапаном: когда линия не помещается (узкое окно с
-   развёрнутым сайдбаром), контрол уходит под свою подпись — ровно в ту
-   раскладку, что была здесь раньше, и соседние ячейки переносятся вместе. */
-.set-cell--inline {
-  flex-direction: row;
-  align-items: center;
-  gap: 6px 10px;
-  flex-wrap: wrap;
-}
-.set-cell--inline > .set-label { flex: 0 0 auto; }
-/* Ширина селекта языка фиксирована, а не по содержимому: содержимое здесь —
-   выбранный язык, и контрол дёргался бы в ширине при каждом переключении.
-   Длинное имя обрезается многоточием, как и везде в селектах. */
-/* Специфичнее общего «селект внутри ячейки — во всю ширину», которое стоит
-   ниже по файлу: в однострочной ячейке ширины ячейки ещё нет, она сама
-   считается по содержимому. */
-.set-cell--inline > .custom-select.custom-select--language { width: 190px; max-width: 100%; flex: 0 1 auto; }
-.set-cell--inline > .mic-picker { flex: 1 1 260px; min-width: 0; }
+.capture-row__recording-mode,
+.capture-row__recording-mode > .segmented { width: 100%; }
 /* В этих трёх строках переключатель стоит рядом с полноразмерными контролами
    и обязан быть с ними одного роста. Вокруг сегмента 3px внутреннего отступа
    и 1px рамки с каждой стороны — их и вычитаем, чтобы сегмент не отстал от
@@ -1270,9 +1249,10 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .capture-row__recording-mode .segmented__option,
 .lang-row__ui-language .segmented__option,
 .device-picker .segmented__option { height: calc(var(--control-h) - 8px); }
+.capture-row__recording-mode .segmented__option { flex: 1 1 0; justify-content: center; padding-left: 8px; padding-right: 8px; }
 /* Языки — два узких контрола. Растягивать их на половину карточки каждый
    значило бы налить внутрь кнопок пустоты; ширину задаёт содержимое. */
-.lang-row > .set-cell { flex: 0 1 auto; min-width: 0; }
+.lang-row > .set-cell { flex: 0 0 auto; min-width: 150px; }
 /* Ячейки строки — `min-width: 0` от `.set-cell`, то есть ужимаются ниже
    ширины содержимого. С `nowrap` на всей ячейке содержимое не ужималось, а
    вылезало за её границы и наезжало на соседнюю. Переносим по элементам:
@@ -1361,6 +1341,9 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .set-cell .custom-select { width: 100%; max-width: none; }
 .set-cell .hotkey-display { flex-wrap: wrap; }
 .capture-row .hotkey-display { flex-wrap: nowrap; }
+/* …кроме языка речи: содержимое там короткое, и полная ширина ячейки
+   превращается в пустую полосу справа от подписи. */
+.lang-row .custom-select--language { width: 100%; max-width: 210px; }
 
 @media (max-width: 900px) {
   .vrule { display: none; }
