@@ -26,8 +26,8 @@ read_version() {
     printf '%s\n' "$value"
 }
 
-# Keep the accepted format aligned with docs/RELEASE.md: normal SemVer plus
-# optional pre-release/build metadata (for example 0.3.0-rc.1).
+# Keep the accepted format aligned with docs/RELEASE.md → Tag Format: normal
+# SemVer plus optional pre-release/build metadata (for example 0.3.0-rc.1).
 is_semver() {
     printf '%s\n' "$1" | grep -Eq \
         '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'

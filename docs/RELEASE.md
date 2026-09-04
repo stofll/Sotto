@@ -9,20 +9,6 @@
 > Applies to [Sotto](https://github.com/stofll/Sotto) — the
 > native Rust/Tauri speech-to-text app (**Sotto**).
 
-## Versioning Policy
-
-This project follows **Semantic Versioning** (`MAJOR.MINOR.PATCH`).
-
-| Bump | When | Example |
-|------|------|---------|
-| **MAJOR** | Tauri engine upgrade (1.x -> 2.x, 2.x -> 3.x), breaking IPC contract changes, migration to a new STT engine (e.g. replacing whisper-rs), dropped platform support | `0.1.0` -> `1.0.0` |
-| **MINOR** | New Tauri command added to the public IPC surface, new LLM or cloud STT provider, new pipeline mode, new config section with migration, public API additions in `lib.rs` | `0.1.0` -> `0.2.0` |
-| **PATCH** | Bug fixes, dependency updates, internal refactors, performance improvements, documentation changes that don't add new IPC commands or config sections | `0.1.0` -> `0.1.1` |
-
-Pre-release versions follow `X.Y.Z-rc.N` during release-candidate staging.
-
----
-
 ## Pre-release
 
 ### 1. Version Bump
@@ -98,21 +84,19 @@ the publisher sense. Until one is, what users get instead is
 every release by the `checksums` job, and the minisign key the updater already
 enforces.
 
-What the choice actually costs, as of the last time this was checked
-(September 2026):
+Two conditions worth knowing before shopping, because neither is obvious from
+a vendor's page:
 
-- **macOS** — Apple Developer Program at $99/year, a Developer ID Application
-  certificate, and notarization. Tauri does the signing and the notarization
-  itself when the `APPLE_*` variables are present, so this is mostly a
-  purchase and a set of secrets. On an individual account the certificate
-  carries the maintainer's legal name, and Gatekeeper shows it.
+- **macOS** — Tauri signs and notarizes on its own once the `APPLE_*`
+  variables are present, so the work is a purchase plus secrets. On an
+  individual Developer Program account the certificate carries the
+  maintainer's legal name, and Gatekeeper shows it to users.
 - **Windows** — an EV certificate no longer buys instant SmartScreen trust
-  (Microsoft removed that in 2024), so its premium over OV is not worth paying
-  for that reason alone; reputation now accrues to a consistent publisher
-  identity either way. Azure Artifact Signing (formerly Trusted Signing) is the
-  cheapest route at about $10/month, but individual developers must be in the
-  US or Canada. Otherwise an OV certificate with a cloud HSM, since the private
-  key may no longer live on the build machine.
+  (Microsoft removed that in 2024); reputation accrues to a consistent
+  publisher identity either way, so the EV premium buys nothing here. Azure
+  Artifact Signing is limited to the US and Canada for individual developers,
+  and an OV certificate now requires a cloud HSM — the private key may not
+  live on the build machine.
 
 - [ ] **Windows Authenticode certificate** loaded in CI secrets
       (`WINDOWS_CERT_BASE64`, `WINDOWS_CERT_PASSWORD`).
