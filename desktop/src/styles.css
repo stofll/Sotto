@@ -1226,9 +1226,10 @@ button.card { appearance: none; font: inherit; color: inherit; }
    съехав на строку выше селекта, меняла бы высоту всей карточки. */
 .sound-feedback-control { display: flex; align-items: center; gap: 10px; min-width: 0; flex-wrap: nowrap; }
 .sound-feedback-control__label { white-space: nowrap; }
-/* Ширина под самый длинный вариант («Выключено») и ни пикселем больше: селект
-   стоит в строке, которая должна помещаться целиком. */
-.set-cell .custom-select.custom-select--sound-volume { width: 108px; max-width: 108px; }
+/* Ширина под самый длинный вариант — «Выключено» / «Off». Замерено: на 112px
+   он уже обрезается многоточием, поэтому 118 — минимум с запасом на пиксель
+   округления, а не произвольное число. */
+.set-cell .custom-select.custom-select--sound-volume { width: 118px; max-width: 118px; }
 
 .device-picker { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .device-picker__note { min-width: 0; font: 500 10.5px/1.25 var(--font-sans); color: var(--ink-mute); white-space: nowrap; }
