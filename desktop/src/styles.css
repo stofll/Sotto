@@ -1671,10 +1671,10 @@ button.card { appearance: none; font: inherit; color: inherit; }
 
 .fold__head {
   display: flex; align-items: center; gap: 10px;
-  /* Переносится, когда состояние и заголовок не умещаются в одну строку: в
-     узкой колонке у «Замен» справа копится до трёх элементов, и без переноса
-     заголовок ужимался многоточием до нуля. Лучше вторая строка в шапке, чем
-     карточка без названия. */
+  /* Аварийный клапан на случай длинного перевода: если заголовок со счётчиком
+     и переключатель не умещаются в строку, переключатель уходит вниз, а не
+     ужимает заголовок многоточием до нуля. В русском и английском не
+     срабатывает — справа остался один переключатель. */
   flex-wrap: wrap; row-gap: 4px;
   padding: 0 12px 0 0;
   min-height: 44px;
@@ -1684,9 +1684,7 @@ button.card { appearance: none; font: inherit; color: inherit; }
    переключатели лежат снаружи — иначе клик по switch схлопывал бы карточку. */
 .fold__toggle {
   display: flex; align-items: center; gap: 8px;
-  /* 190 px — заголовок со счётчиком; меньше уже нечитаемо, и вместо ужимания
-     дальше шапка переносит правую часть на вторую строку. */
-  flex: 1 1 190px; min-width: 0;
+  flex: 1 1 auto; min-width: 0;
   padding: 12px; margin: 0;
   background: transparent; border: 0; cursor: pointer;
   color: inherit; font: inherit; text-align: left;

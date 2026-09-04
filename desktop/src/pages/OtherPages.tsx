@@ -775,10 +775,10 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
             onToggle={() => toggleFold("clean")}
             title={t("Очистка")}
             summary={<span className="pill mono">{activeCleanCount}/{cleanRules.length}</span>}
-            aside={<>
-              <span className={formatting.enabled ? "pill ok dot" : "pill"}>{formatting.enabled ? t("включена") : t("выключена")}</span>
-              <span title={masterRule.sub}><Switch on={formatting.enabled} onChange={(next) => void saveFormatting({ enabled: next })}/></span>
-            </>}
+            /* Плашки «включена» рядом с переключателем нет: она говорила ровно
+               то же, что и его положение, а в узкой колонке из-за неё шапка
+               переносилась на вторую строку. */
+            aside={<span title={masterRule.sub}><Switch on={formatting.enabled} onChange={(next) => void saveFormatting({ enabled: next })}/></span>}
           >
             <div className="fold__rows">
               {cleanRules.map((opt, i) => {
@@ -804,10 +804,7 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
               <span className="pill mono">{activeCount}/{rules.length}</span>
               {!saved && <span className="pill warn">{t("не сохранено")}</span>}
             </>}
-            aside={<>
-              <span className={paused ? "pill warn" : "pill ok dot"}>{paused ? t("пауза") : t("активны")}</span>
-              <Switch on={!paused} onChange={(next) => void setPaused(!next)}/>
-            </>}
+            aside={<span title={paused ? t("Замены на паузе") : t("Замены применяются")}><Switch on={!paused} onChange={(next) => void setPaused(!next)}/></span>}
           >
             <div style={{ padding: "10px 12px", display: "grid", gap: 10 }}>
               <div className="flex-row" style={{ gap: 8, flexWrap: "wrap" }}>

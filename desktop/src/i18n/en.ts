@@ -19,6 +19,8 @@ export const en: Record<string, string | string[]> = {
   "Обработка": "Processing",
   "Форматирование": "Formatting",
   "Замены": "Replacements",
+  "Замены на паузе": "Replacements are paused",
+  "Замены применяются": "Replacements are applied",
   "Текст": "Text",
   "LLM-обработка": "LLM processing",
   "Интеграции": "Integrations",
@@ -480,7 +482,6 @@ export const en: Record<string, string | string[]> = {
   "Регистр": "Case",
   "Пауза замен": "Pause replacements",
   "Возобновить замены": "Resume replacements",
-  "пауза": "paused",
   "У каждого правила должно быть заполнено поле поиска.": "Every rule needs something to search for.",
   "Одно из правил ничего не меняет: текст поиска совпадает с заменой.":
     "One rule changes nothing: the search text equals the replacement.",
@@ -520,7 +521,6 @@ export const en: Record<string, string | string[]> = {
   "Профиль провайдера сохранён.": "Provider profile saved.",
   "Профили ещё не созданы": "No profiles yet",
   "нет профилей": "no profiles",
-  "активны": "active",
   "активный": "active",
   "Активный": "Active",
   "Провайдер": "Provider",
@@ -776,8 +776,6 @@ export const en: Record<string, string | string[]> = {
   "Введите текст для проверки обработки": "Enter text to test processing",
   "Весь локальный проход: очистка и замены — ровно то, что уходит в модель или во вставку.":
     "The whole local pass: cleanup and replacements — exactly what goes to the model or into the paste.",
-  "включена": "on",
-  "выключена": "off",
   "Замены на паузе: правила совпали бы, но в результат выше не попали.": "Replacements are paused: these rules would match, but they are not in the result above.",
   "не сохранено": "not saved",
   "Очистка": "Cleanup",
