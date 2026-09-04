@@ -765,7 +765,7 @@ export function SettingsPage({ config, microphones, models, onConfigChanged }: P
               {t("Enter после вставки")}
             </label>
           </div>
-          <div className="vrule"/>
+          <div className="vrule behavior-row__rule behavior-row__rule--sound"/>
           <div className="set-cell behavior-row__sound-feedback">
             <SoundFeedbackControl
               enabled={config?.sound_feedback ?? true}
@@ -773,7 +773,7 @@ export function SettingsPage({ config, microphones, models, onConfigChanged }: P
               onConfigChanged={onConfigChanged}
             />
           </div>
-          <div className="vrule"/>
+          <div className="vrule behavior-row__rule behavior-row__rule--duck"/>
           {/* Приглушение — не обработка записи, а то, что приложение делает с
               системой, пока пишет; и переключают его ситуативно: в наушниках
               не нужно, с колонок нужно. Отсюда соседство со вставкой, а не
@@ -786,17 +786,18 @@ export function SettingsPage({ config, microphones, models, onConfigChanged }: P
               </label>
               <HintIcon text={t("На время записи убавить общую громкость и вернуть её после. Нужно, если пишете с колонок: звук из них попадает в микрофон.")}/>
             </span>
-            {/* Проверка нужна ровно один раз — когда включили. Пока выключено,
-                кнопке в этой строке делать нечего. */}
-            {duckOutput && (
-              <>
-                <button className="btn btn--ghost" type="button" disabled={duckTest === "running"} onClick={() => void testOutputDuck()} style={{ height: 26, padding: "0 9px", fontSize: 11 }}>
-                  {duckTest === "running" ? t("Проверяем приглушение…") : t("Проверить")}
-                </button>
-                {duckTest === "done" && <span role="status" style={{ font: "500 11px/1.3 var(--font-sans)", color: "var(--ok)" }}>{t("Громкость восстановлена")}</span>}
-                {duckTest === "error" && <span role="alert" title={duckTestError} style={{ font: "500 11px/1.3 var(--font-sans)", color: "var(--err)", maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{duckTestError}</span>}
-              </>
-            )}
+            {/* Проверка нужна ровно один раз — когда включили, поэтому при
+                выключенном приглушении кнопка не работает. Но из потока она не
+                выпадает: раньше её появление и исчезновение переносило строку
+                и меняло высоту карточки прямо под курсором. Место под неё и
+                под статус занято всегда, меняется только видимость. */}
+            <span className="behavior-row__duck-test" data-visible={duckOutput ? "true" : "false"} aria-hidden={duckOutput ? undefined : true}>
+              <button className="btn btn--ghost" type="button" disabled={!duckOutput || duckTest === "running"} tabIndex={duckOutput ? undefined : -1} onClick={() => void testOutputDuck()} style={{ height: 26, padding: "0 9px", fontSize: 11 }}>
+                {duckTest === "running" ? t("Проверяем приглушение…") : t("Проверить")}
+              </button>
+              {duckTest === "done" && <span className="behavior-row__duck-status" role="status" style={{ color: "var(--ok)" }}>{t("Громкость восстановлена")}</span>}
+              {duckTest === "error" && <span className="behavior-row__duck-status" role="alert" title={duckTestError} style={{ color: "var(--err)" }}>{duckTestError}</span>}
+            </span>
           </div>
         </div>
       </section>

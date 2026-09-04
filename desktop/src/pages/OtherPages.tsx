@@ -747,6 +747,9 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
   // отдельного этапа применяет всегда — иначе он был бы бесполезен ровно
   // тогда, когда правила и настраивают. Расхождение подписываем.
   const matchesAreHypothetical = paused;
+  // Diff показывается, только когда есть что с чем сравнивать; иначе карточка
+  // результата держит подсказку «введите текст».
+  const showPreviewDiff = Boolean(previewText.trim() && previewResult);
 
   return (
     <div className="page">
@@ -894,15 +897,21 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
               <span className="preview-card__step preview-card__step--after">{t("После")}</span>
             </div>
             {previewError ? <p style={{ margin: 0, font: "500 12px/1.55 var(--font-sans)", color: "var(--err)" }}>{previewError}</p> : <>
-              <p style={{ margin: 0, font: "400 13px/1.65 var(--font-sans)", color: "var(--ink)", whiteSpace: "pre-wrap" }}>{previewResult || t("Введите текст для предпросмотра")}</p>
+              {/* Результат показывает только diff: он и есть обработанный
+                  текст, просто с подсветкой того, что изменилось. Отдельный
+                  абзац над ним печатал ту же строку второй раз. */}
+              {showPreviewDiff
+                ? <DiffBlock before={previewText} after={previewResult} title={t("Diff: исходный → после обработки")} />
+                : <p style={{ margin: 0, font: "400 13px/1.65 var(--font-sans)", color: "var(--ink-mute)", whiteSpace: "pre-wrap" }}>{t("Введите текст для предпросмотра")}</p>}
               <div className="flex-row" style={{ flexWrap: "wrap", gap: 6, marginTop: 10 }}>{previewMatches?.length ? previewMatches.map((item) => <span className={matchesAreHypothetical ? "pill" : "pill ok"} key={`${item.id}-${item.find}`}>{item.find}: {item.count}</span>) : <span className="pill">{t("Сработало 0 правил")} {rules.length === 0 ? t("— правил пока нет") : ""}</span>}</div>
               {matchesAreHypothetical && previewMatches?.length ? <div style={{ marginTop: 6, font: "400 11px/1.4 var(--font-sans)", color: "var(--warn)" }}>{t("Замены на паузе: правила совпали бы, но в результат выше не попали.")}</div> : null}
-              {previewText.trim() && previewResult ? <DiffBlock before={previewText} after={previewResult} title={t("Diff: исходный → после обработки")} /> : null}
             </>}
           </div>
           <section className="card" style={{ padding: 14 }}>
-            <div style={{ font: "600 13px/1.2 var(--font-sans)", color: "var(--ink)" }}>{t("Добавить правило-пример")}</div>
-            <div style={{ font: "400 11.5px/1.4 var(--font-sans)", color: "var(--ink-mute)", margin: "2px 0 8px" }}>{t("Нажмите, чтобы создать правило — оно сразу попадёт в список слева и в предпросмотр.")}</div>
+            <div style={{ font: "600 13px/1.2 var(--font-sans)", color: "var(--ink)", display: "inline-flex", alignItems: "center", gap: 5, marginBottom: 8 }}>
+              {t("Добавить правило-пример")}
+              <Hint text={t("Нажмите, чтобы создать правило — оно сразу попадёт в список слева и в предпросмотр.")}/>
+            </div>
             <div className="flex-row" style={{ flexWrap: "wrap", gap: 6 }}>{/* Готовые правила — это русские слова, которые Whisper слышит неверно.
                 Через t() они не идут: подстановка английского слова создала бы
                 правило, которое никогда не сработает. */}
