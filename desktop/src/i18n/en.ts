@@ -771,17 +771,14 @@ export const en: Record<string, string | string[]> = {
   "Обработка:": "Processing:",
 
   // ── Обработка → Текст ──────────────────────────────────────────────────
-  "{p0}/{p1} замен активны": "{p0}/{p1} replacements active",
   "Введите текст для проверки обработки": "Enter text to test processing",
   "Весь локальный проход: очистка и замены — ровно то, что уходит в модель или во вставку.":
     "The whole local pass: cleanup and replacements — exactly what goes to the model or into the paste.",
   "включена": "on",
   "выключена": "off",
   "Замены на паузе: правила совпали бы, но в результат выше не попали.": "Replacements are paused: these rules would match, but they are not in the result above.",
-  "Замены не сохранены": "Replacements not saved",
   "не сохранено": "not saved",
   "Очистка": "Cleanup",
-  "Очистка сохранена": "Cleanup saved",
   "Словари": "Dictionaries",
   "Diff: исходный → после обработки": "Diff: original → after processing",
   "слово|слова|слов": ["word", "words"],

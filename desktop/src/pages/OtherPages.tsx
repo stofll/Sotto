@@ -533,7 +533,6 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
   const [customWordsText, setCustomWordsText] = useState(formatting.custom_parasite_words.join("\n"));
   const [dictionaryText, setDictionaryText] = useState(formatting.custom_words.join("\n"));
   const [presets, setPresets] = useState<[string, string[]][]>([]);
-  const [savingFormat, setSavingFormat] = useState(false);
 
   // ── Замены: черновик до кнопки «Сохранить» ─────────────────────────────
   const configRules = replacementRulesFromConfig(config);
@@ -633,13 +632,12 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
     };
   }, [previewText, JSON.stringify(rules), JSON.stringify(formatting), paused]);
 
+  // Настройки очистки сохраняются сами, без кнопки и без индикатора: флажок
+  // и есть подтверждение — он остаётся в новом положении, когда конфиг
+  // вернулся. Отдельная плашка «сохраняю» жила в шапке страницы и мигала на
+  // каждый чих.
   async function saveFormatting(patch: Partial<TextFormattingConfig>) {
-    setSavingFormat(true);
-    try {
-      await onConfigChanged({ text_formatting: patch as TextFormattingConfig });
-    } finally {
-      setSavingFormat(false);
-    }
+    await onConfigChanged({ text_formatting: patch as TextFormattingConfig });
   }
 
   function saveCustomWords() {
@@ -753,13 +751,12 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
   return (
     <div className="page">
       <input type="file" accept=".json,application/json" ref={fileInputRef} style={{ display: "none" }} onChange={(e) => { const file = e.target.files?.[0]; if (file) void importRules(file); }}/>
-      <PageHeader
-        title={t("Текст")}
-        actions={<>
-          <span className={savingFormat ? "pill" : "pill ok"}><Icon name={savingFormat ? "info" : "check"} size={11}/>{savingFormat ? t("Сохраняю") : t("Очистка сохранена")}</span>
-          <span className={saved ? "pill ok" : "pill warn"}>{saved ? t("{p0}/{p1} замен активны", { p0: activeCount, p1: rules.length }) : t("Замены не сохранены")}</span>
-        </>}
-      />
+      {/* Пилюль состояния в шапке нет: обе дублировали то, что видно рядом с
+          самими блоками — счётчик правил стоит на «Заменах», а «не сохранено»
+          загорается там же, у кнопки сохранения. Постоянная зелёная плашка
+          «сохранено» на весь экран сообщала только то, что ничего не
+          произошло. */}
+      <PageHeader title={t("Текст")}/>
 
       <div className="text-grid">
         <div className="flex-col" style={{ gap: 12, minWidth: 0 }}>
@@ -894,7 +891,7 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
           <div className="preview-pair__arrow preview-pair__arrow--down" aria-hidden="true"><Icon name="arrow-right" size={14}/></div>
           <div className="card" style={{ padding: 18 }}>
             <div className="preview-card__head">
-              <span className="preview-card__step">{t("После")}</span>
+              <span className="preview-card__step preview-card__step--after">{t("После")}</span>
             </div>
             {previewError ? <p style={{ margin: 0, font: "500 12px/1.55 var(--font-sans)", color: "var(--err)" }}>{previewError}</p> : <>
               <p style={{ margin: 0, font: "400 13px/1.65 var(--font-sans)", color: "var(--ink)", whiteSpace: "pre-wrap" }}>{previewResult || t("Введите текст для предпросмотра")}</p>

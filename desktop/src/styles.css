@@ -1080,12 +1080,14 @@ button.card { appearance: none; font: inherit; color: inherit; }
   border: 1px solid var(--line); border-radius: 50%;
   background: var(--bg-2); color: var(--ink-mute);
 }
-/* Шапка карточек предпросмотра: слева заголовок блока с подсказкой, справа —
-   подпись шага. Обе карточки держат подпись в одном месте, поэтому «до» и
-   «после» читаются как одна пара, а не как два разных элемента. */
-.preview-card__head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; min-height: 20px; }
+/* Шапка карточек предпросмотра: заголовок блока с подсказкой, под ним подпись
+   шага. Обе карточки держат подпись на одном месте — левым краем над своим
+   содержимым, — поэтому «до» и «после» читаются как одна пара. */
+.preview-card__head { display: grid; justify-items: start; gap: 7px; margin-bottom: 10px; }
 .preview-card__title { margin: 0; font: 600 14px/1.2 var(--font-sans); color: var(--ink); display: inline-flex; align-items: center; gap: 5px; }
 .preview-card__step { font: 500 10.5px/1 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-mute); }
+/* Результат — акцентный шаг: цвет остался от прежней пилюли, подложка ушла. */
+.preview-card__step--after { color: var(--accent-text); }
 
 .grid-auto { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
 @media (max-width: 1100px) { .page { padding: 18px 22px 28px; } }
