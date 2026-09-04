@@ -1153,50 +1153,28 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .behavior-row, .lang-row {
   display: flex; gap: 16px; align-items: stretch; flex-wrap: wrap;
 }
-/* Строка поведения — сетка с тремя оговорёнными состояниями вместо переноса
-   «где кончилось место». На flex-wrap момент переноса зависел от длины
-   перевода и от того, свёрнут ли сайдбар: ячейка «Приглушать звук» срывалась
-   на вторую строку в произвольной точке, а разделители оставались висеть по
-   краям. Раскладок ровно три, и переключаются они на объявленных ширинах.
-   Пороги считаны на развёрнутый сайдбар (240 px) плюс поля страницы: со
-   свёрнутым карточка шире, и трёхколоночное состояние могло бы наступить
-   раньше — но лишний порог вернул бы ту же непредсказуемость. */
+/* Строка поведения — две строки одного и того же вида на любой ширине.
+   Раньше три группы лежали в одной flex-строке с переносом «где кончилось
+   место»: точка переноса зависела от длины перевода и от того, свёрнут ли
+   сайдбар, а разделители оставались висеть по краям. Колонки на грид с
+   брейкпоинтами были не лучше — при равных колонках и очень разной по объёму
+   начинке между звуком и приглушением зияла дыра.
+   Здесь ширина ничего не решает: сверху вставка, снизу звук. Обе строки
+   набираются слева направо и переносятся только на совсем узком окне —
+   внутри своей строки, не меняя её состава. */
 .behavior-row--primary {
-  display: grid;
-  grid-template-columns: minmax(390px, 1.7fr) 1px auto 1px minmax(250px, 1fr);
-  grid-template-areas: "paste rule-sound sound rule-duck duck";
-  column-gap: 16px;
-  row-gap: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+/* Вторая строка: сигналы приложения и приглушение чужого звука, разделённые
+   волоском. Прижаты влево — растягивать два коротких контрола на всю карточку
+   значит налить между ними пустоту. */
+.behavior-row__audio {
+  display: flex;
   align-items: center;
-}
-.behavior-row__paste-options { grid-area: paste; }
-.behavior-row__rule--sound { grid-area: rule-sound; }
-.behavior-row__sound-feedback { grid-area: sound; }
-.behavior-row__rule--duck { grid-area: rule-duck; }
-.behavior-row__duck { grid-area: duck; }
-
-/* Средняя раскладка: вставке отдана вся ширина, звук и приглушение делят
-   вторую строку. Порог взят по фактической ширине содержимого: три колонки
-   складываются примерно из 970 px, а карточка на развёрнутом сайдбаре — это
-   ширина окна минус 328 px полей. Окно по умолчанию (1310 px) поэтому
-   открывается в этой раскладке, а не в трёхколоночной впритык. */
-@media (max-width: 1400px) {
-  .behavior-row--primary {
-    grid-template-columns: minmax(0, 1fr) 1px minmax(0, 1fr);
-    grid-template-areas:
-      "paste paste paste"
-      "sound rule-duck duck";
-  }
-  .behavior-row__rule--sound { display: none; }
-}
-
-/* Узкая раскладка: одна колонка, разделители не нужны. */
-@media (max-width: 900px) {
-  .behavior-row--primary {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "paste" "sound" "duck";
-  }
-  .behavior-row__rule--duck { display: none; }
+  gap: 14px;
+  flex-wrap: wrap;
 }
 .capture-row {
   display: grid;
@@ -1217,14 +1195,11 @@ button.card { appearance: none; font: inherit; color: inherit; }
 /* Языки — два узких контрола. Растягивать их на половину карточки каждый
    значило бы налить внутрь кнопок пустоты; ширину задаёт содержимое. */
 .lang-row > .set-cell { flex: 0 0 auto; min-width: 150px; }
-.behavior-row > .set-cell { flex: 1 1 220px; }
 /* Ячейки строки — `min-width: 0` от `.set-cell`, то есть ужимаются ниже
    ширины содержимого. С `nowrap` на всей ячейке содержимое не ужималось, а
    вылезало за её границы и наезжало на соседнюю. Переносим по элементам:
-   неразрывны отдельные подписи, а не группа целиком. Сам перенос внутри
-   ячейки остаётся аварийным клапаном — ширины колонок подобраны так, чтобы в
-   каждой из трёх раскладок содержимое влезало в строку. */
-.behavior-row--primary > .behavior-row__paste-options {
+   неразрывны отдельные подписи, а не группа целиком. */
+.behavior-row__paste-options {
   flex-direction: row;
   align-items: center;
   gap: 8px 14px;
@@ -1233,7 +1208,7 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .behavior-row__paste-options .checkbox-row { white-space: nowrap; }
 /* Приглушение: подпись, кнопка проверки и её статус живут в одну строку,
    поэтому ячейка здесь горизонтальная, а не столбец, как остальные. */
-.behavior-row--primary > .behavior-row__duck {
+.behavior-row__duck {
   flex-direction: row;
   align-items: center;
   gap: 8px 10px;
@@ -1251,9 +1226,9 @@ button.card { appearance: none; font: inherit; color: inherit; }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 /* Единственная ячейка строки с контролом фиксированной ширины: её и держим
-   жёсткой. Ужиматься и переносить содержимое умеют соседи, а подпись, съехав
-   на строку выше селекта, каждый раз меняла высоту всей карточки. */
-.behavior-row--primary > .behavior-row__sound-feedback { justify-content: center; }
+   жёсткой. Подпись, съехав на строку выше селекта, меняла бы высоту всей
+   карточки. */
+.behavior-row__sound-feedback { flex: 0 0 auto; }
 .sound-feedback-control { display: flex; align-items: center; gap: 10px; min-width: 0; flex-wrap: nowrap; }
 .sound-feedback-control__label { white-space: nowrap; }
 .set-cell .custom-select.custom-select--sound-volume { width: 124px; max-width: 124px; }
