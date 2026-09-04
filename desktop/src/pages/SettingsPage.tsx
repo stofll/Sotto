@@ -698,6 +698,12 @@ export function SettingsPage({ config, microphones, models, onConfigChanged }: P
   // (язык, CPU-only) следуют язык речи и выбор устройства.
   const selectedModelInfo = (models.length ? models : fallbackModels()).find((item) => item.id === model);
   const recordingMode = config?.recording_mode ?? "toggle";
+  // Одна подпись на все места, где состояние проверки называется словами:
+  // подсказка кнопки и строка для скринридера обязаны говорить одно и то же.
+  const duckTestLabel = duckTest === "running" ? t("Проверяем приглушение…")
+    : duckTest === "done" ? t("Громкость восстановлена")
+    : duckTest === "error" ? duckTestError
+    : t("Проверить");
 
   return (
     <div className="page">
@@ -765,39 +771,51 @@ export function SettingsPage({ config, microphones, models, onConfigChanged }: P
               {t("Enter после вставки")}
             </label>
           </div>
-          {/* Вторая строка — про звук: сигналы приложения и приглушение чужого.
-              Приглушение здесь, а не в «Дополнительно», потому что переключают
-              его ситуативно: в наушниках не нужно, с колонок нужно. */}
-          <div className="behavior-row__audio">
-            <div className="set-cell behavior-row__sound-feedback">
-              <SoundFeedbackControl
-                enabled={config?.sound_feedback ?? true}
-                volume={config?.sound_volume ?? DEFAULT_SOUND_VOLUME}
-                onConfigChanged={onConfigChanged}
-              />
-            </div>
-            <div className="vrule"/>
-            <div className="set-cell behavior-row__duck">
-              <span className="label-with-hint">
-                <label className="checkbox-row">
-                  <input className="checkbox" type="checkbox" checked={duckOutput} onChange={(e) => void onConfigChanged({ duck_output_while_recording: e.target.checked })}/>
-                  {t("Приглушать звук на время записи")}
-                </label>
-                <HintIcon text={t("На время записи убавить общую громкость и вернуть её после. Нужно, если пишете с колонок: звук из них попадает в микрофон.")}/>
-              </span>
-              {/* Проверка нужна ровно один раз — когда включили, поэтому при
-                  выключенном приглушении кнопка не работает. Но из потока она не
-                  выпадает: раньше её появление и исчезновение переносило строку
-                  и меняло высоту карточки прямо под курсором. Место под неё и
-                  под статус занято всегда, меняется только видимость. */}
-              <span className="behavior-row__duck-test" data-visible={duckOutput ? "true" : "false"} aria-hidden={duckOutput ? undefined : true}>
-                <button className="btn btn--ghost" type="button" disabled={!duckOutput || duckTest === "running"} tabIndex={duckOutput ? undefined : -1} onClick={() => void testOutputDuck()} style={{ height: 26, padding: "0 9px", fontSize: 11 }}>
-                  {duckTest === "running" ? t("Проверяем приглушение…") : t("Проверить")}
-                </button>
-                {duckTest === "done" && <span className="behavior-row__duck-status" role="status" style={{ color: "var(--ok)" }}>{t("Громкость восстановлена")}</span>}
-                {duckTest === "error" && <span className="behavior-row__duck-status" role="alert" title={duckTestError} style={{ color: "var(--err)" }}>{duckTestError}</span>}
-              </span>
-            </div>
+          <div className="vrule"/>
+          <div className="set-cell behavior-row__sound-feedback">
+            <SoundFeedbackControl
+              enabled={config?.sound_feedback ?? true}
+              volume={config?.sound_volume ?? DEFAULT_SOUND_VOLUME}
+              onConfigChanged={onConfigChanged}
+            />
+          </div>
+          <div className="vrule"/>
+          {/* Приглушение — не обработка записи, а то, что приложение делает с
+              системой, пока пишет; и переключают его ситуативно: в наушниках
+              не нужно, с колонок нужно. Отсюда соседство со вставкой, а не
+              место в «Дополнительно». Подпись короткая: «на время записи»
+              договаривает подсказка, а в строке эти три слова стоили того
+              места, из-за которого строка и переставала помещаться. */}
+          <div className="set-cell behavior-row__duck">
+            <span className="label-with-hint">
+              <label className="checkbox-row">
+                <input className="checkbox" type="checkbox" checked={duckOutput} onChange={(e) => void onConfigChanged({ duck_output_while_recording: e.target.checked })}/>
+                {t("Приглушать звук")}
+              </label>
+              <HintIcon text={t("На время записи убавить общую громкость и вернуть её после. Нужно, если пишете с колонок: звук из них попадает в микрофон.")}/>
+            </span>
+            {/* Вся проверка — одна кнопка-значок, и результат показывает она
+                же: галочка или красный знак вместо слов рядом. Так строка
+                занимает одну и ту же ширину во всех состояниях — а раньше
+                появление кнопки, а потом и статуса, переносило ячейку на
+                вторую строку и меняло высоту карточки прямо под курсором.
+                Текст результата никуда не делся: он в подсказке кнопки и в
+                скрытой строке для скринридера. */}
+            <button
+              className="btn btn--ghost behavior-row__duck-button"
+              type="button"
+              data-state={duckTest}
+              data-visible={duckOutput ? "true" : "false"}
+              disabled={!duckOutput || duckTest === "running"}
+              tabIndex={duckOutput ? undefined : -1}
+              aria-hidden={duckOutput ? undefined : true}
+              onClick={() => void testOutputDuck()}
+              title={duckTestLabel}
+              aria-label={duckTestLabel}
+            >
+              <Icon name={duckTest === "done" ? "check" : duckTest === "error" ? "x" : "test"} size={12}/>
+            </button>
+            <span className="sr-only" role="status">{duckTest === "idle" ? "" : duckTestLabel}</span>
           </div>
         </div>
       </section>

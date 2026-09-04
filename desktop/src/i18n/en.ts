@@ -208,10 +208,10 @@ export const en: Record<string, string | string[]> = {
   "Тихо": "Quiet",
   "Средне": "Medium",
   "Громко": "Loud",
-  "Приглушать звук на время записи": "Duck other audio while recording",
+  "Приглушать звук": "Duck other audio",
+  "Громкость восстановлена": "Volume restored",
   "Проверить": "Test",
   "Проверяем приглушение…": "Testing ducking…",
-  "Громкость восстановлена": "Volume restored",
   "На время записи убавить общую громкость и вернуть её после. Нужно, если пишете с колонок: звук из них попадает в микрофон.":
     "Turn the system volume down while recording and restore it afterwards. Useful with speakers, whose output leaks into the mic.",
   "Запускать вместе с системой": "Start with the system",

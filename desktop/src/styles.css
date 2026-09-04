@@ -1147,35 +1147,35 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .advanced__autostart-row .checkbox-row,
 .sound-feedback-control__label { font: 500 11.5px/1 var(--font-sans); color: var(--ink-mute); }
 
+/* Текст только для скринридера: в потоке не занимает места, поэтому им можно
+   озвучивать то, что на экране показано значком или цветом. */
+.sr-only {
+  position: absolute; width: 1px; height: 1px;
+  margin: -1px; padding: 0; border: 0;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+}
+
 /* Hairline vertical divider between cells in dense rows */
 .vrule { width: 1px; background: var(--line-soft); align-self: stretch; margin: 4px 0; flex: 0 0 auto; }
 
 .behavior-row, .lang-row {
   display: flex; gap: 16px; align-items: stretch; flex-wrap: wrap;
 }
-/* Строка поведения — две строки одного и того же вида на любой ширине.
-   Раньше три группы лежали в одной flex-строке с переносом «где кончилось
-   место»: точка переноса зависела от длины перевода и от того, свёрнут ли
-   сайдбар, а разделители оставались висеть по краям. Колонки на грид с
-   брейкпоинтами были не лучше — при равных колонках и очень разной по объёму
-   начинке между звуком и приглушением зияла дыра.
-   Здесь ширина ничего не решает: сверху вставка, снизу звук. Обе строки
-   набираются слева направо и переносятся только на совсем узком окне —
-   внутри своей строки, не меняя её состава. */
+/* Строка поведения — одна строка, набранная слева направо.
+   Двух предыдущих подходов не осталось намеренно. При flex-grow на ячейках
+   группы разъезжались по всей карточке, и между ними стояла пустота; при
+   гриде с брейкпоинтами колонки равнялись друг под друга и давали ту же
+   пустоту, только по расписанию. Здесь ни одна группа не растёт: строка
+   занимает ровно столько, сколько занимает её содержимое.
+   Переносится она тоже группами — ячейка целиком уходит на вторую строку,
+   а не рвётся посередине, — и до этого доходит только на узком окне. */
 .behavior-row--primary {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-/* Вторая строка: сигналы приложения и приглушение чужого звука, разделённые
-   волоском. Прижаты влево — растягивать два коротких контрола на всю карточку
-   значит налить между ними пустоту. */
-.behavior-row__audio {
-  display: flex;
   align-items: center;
-  gap: 14px;
-  flex-wrap: wrap;
+  gap: 10px 12px;
 }
+/* Ячейки не растут (иначе между ними появляется воздух), но ужиматься умеют:
+   это единственный клапан, если перевод окажется длиннее русского. */
+.behavior-row--primary > .set-cell { flex: 0 1 auto; }
 .capture-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 1px minmax(0, 1fr) 1px minmax(0, 1fr);
@@ -1218,20 +1218,17 @@ button.card { appearance: none; font: inherit; color: inherit; }
 /* Кнопка проверки и её статус: место занято всегда, скрывается только
    видимость — иначе включение приглушения меняло высоту карточки. Статус
    обрезается многоточием, чтобы длинная ошибка не переносила строку. */
-.behavior-row__duck-test { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
-.behavior-row__duck-test[data-visible="false"] { visibility: hidden; }
-.behavior-row__duck-status {
-  font: 500 11px/1.3 var(--font-sans);
-  max-width: 170px; min-width: 0;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-/* Единственная ячейка строки с контролом фиксированной ширины: её и держим
-   жёсткой. Подпись, съехав на строку выше селекта, меняла бы высоту всей
-   карточки. */
-.behavior-row__sound-feedback { flex: 0 0 auto; }
+.behavior-row__duck-button { height: 26px; width: 26px; padding: 0; justify-content: center; flex: 0 0 auto; }
+.behavior-row__duck-button[data-visible="false"] { visibility: hidden; }
+.behavior-row__duck-button[data-state="done"] { color: var(--ok); }
+.behavior-row__duck-button[data-state="error"] { color: var(--err); }
+/* Единственная ячейка строки с контролом фиксированной ширины. Подпись,
+   съехав на строку выше селекта, меняла бы высоту всей карточки. */
 .sound-feedback-control { display: flex; align-items: center; gap: 10px; min-width: 0; flex-wrap: nowrap; }
 .sound-feedback-control__label { white-space: nowrap; }
-.set-cell .custom-select.custom-select--sound-volume { width: 124px; max-width: 124px; }
+/* Ширина под самый длинный вариант («Выключено») и ни пикселем больше: селект
+   стоит в строке, которая должна помещаться целиком. */
+.set-cell .custom-select.custom-select--sound-volume { width: 108px; max-width: 108px; }
 
 .device-picker { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .device-picker__note { min-width: 0; font: 500 10.5px/1.25 var(--font-sans); color: var(--ink-mute); white-space: nowrap; }
