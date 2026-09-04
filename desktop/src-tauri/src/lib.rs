@@ -2664,6 +2664,23 @@ const AUTOSTART_ARG: &str = "--autostart";
 /// registry hive, which a policy or a cleanup tool can make unwritable. That
 /// is worth a log line, not a failed startup or a failed settings save.
 fn apply_autostart(app: &AppHandle) {
+    apply_autostart_inner(app, false)
+}
+
+/// Same, but rewriting an entry that is already in the wanted state.
+///
+/// Called once at startup, because the entry stores the *path* to the
+/// executable and the OS never revisits it. Renaming the binary
+/// (`whisper-desktop` → `Sotto`) left every existing entry pointing at a file
+/// that no longer exists, and `is_enabled()` still answered "on": it only
+/// checks that the record is there, not where it leads. So an entry that
+/// looks correct is rewritten once per launch — a registry value on Windows,
+/// a LaunchAgent plist on macOS — and any stale path heals itself.
+fn refresh_autostart(app: &AppHandle) {
+    apply_autostart_inner(app, true)
+}
+
+fn apply_autostart_inner(app: &AppHandle, rewrite_when_unchanged: bool) {
     use tauri_plugin_autostart::ManagerExt;
 
     let wanted = crate::config::Config::load(app)
@@ -2681,7 +2698,15 @@ fn apply_autostart(app: &AppHandle) {
         }
     };
     if current == wanted {
-        return;
+        if !(rewrite_when_unchanged && wanted) {
+            return;
+        }
+        // Пересоздаём запись целиком: путь в ней меняет только повторная
+        // регистрация, отдельного «обнови путь» у плагина нет.
+        if let Err(error) = manager.disable() {
+            log::warn!("autostart entry could not be refreshed: {error}");
+            return;
+        }
     }
     let result = if wanted {
         manager.enable()
@@ -2755,8 +2780,10 @@ pub fn run() {
             // Reconcile the OS autostart entry with config. Config is the
             // source of truth: the entry can go missing (profile migration,
             // a cleanup tool) and the setting would otherwise keep claiming
-            // it is on.
-            apply_autostart(app.handle());
+            // it is on. At startup the entry is rewritten even when it looks
+            // right — see `refresh_autostart` for why a correct-looking entry
+            // can still point at the wrong file.
+            refresh_autostart(app.handle());
 
             // Normalise the compute-device settings before anything reads
             // them. Non-fatal: `resolve_device` copes with the legacy value

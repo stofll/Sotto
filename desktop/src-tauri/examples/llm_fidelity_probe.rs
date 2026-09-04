@@ -15,9 +15,9 @@
 
 use std::time::Instant;
 
-use whisper_desktop_lib::ai::fidelity::{kept_word_ratio, word_count};
-use whisper_desktop_lib::ai::{ai_process_text_with_status, step::AiConfig};
-use whisper_desktop_lib::secret_store;
+use sotto_lib::ai::fidelity::{kept_word_ratio, word_count};
+use sotto_lib::ai::{ai_process_text_with_status, step::AiConfig};
+use sotto_lib::secret_store;
 
 /// Print the app's own `log::warn!` lines to stderr. The fidelity guard reports
 /// the exact share of words it saw there, which is the number this probe is

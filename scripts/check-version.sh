@@ -42,7 +42,7 @@ README='README.md'
 cargo_version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' "$CARGO_TOML" | head -n 1)
 cargo_lock_version=$(awk '
     /^\[\[package\]\]$/ { in_package = 1; is_app = 0; next }
-    in_package && /^name = "whisper-desktop"$/ { is_app = 1; next }
+    in_package && /^name = "sotto"$/ { is_app = 1; next }
     is_app && /^version = "/ {
         line = $0
         sub(/^version = "/, "", line)

@@ -49,7 +49,7 @@ pnpm tauri build
 Windows artifacts land in `desktop\src-tauri\target\release\`:
 
 - Installer: `bundle\nsis\Sotto_<version>_x64-setup.exe`
-- Direct executable: `whisper-desktop.exe`
+- Direct executable: `Sotto.exe`
 
 Use the installer for a normal install; the direct executable is handy for a
 quick local check without installing. On Windows, prefer the scripted build,

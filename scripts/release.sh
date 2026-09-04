@@ -1,5 +1,5 @@
 #!/bin/sh
-# release.sh — Dry-run release verification for whisper-desktop
+# release.sh — Dry-run release verification for Sotto
 #
 # Verifies:
 #   1. git working tree is clean
@@ -46,7 +46,7 @@ info() { printf "${CYAN}[INFO]${NC} %s\n" "$*"; }
 # ---------------------------------------------------------------------------
 CARGO_TOML="desktop/src-tauri/Cargo.toml"
 
-echo "${BOLD}=== whisper-desktop release dry-run ===${NC}"
+echo "${BOLD}=== Sotto release dry-run ===${NC}"
 echo ""
 
 # ---------------------------------------------------------------------------

@@ -5,18 +5,18 @@
 //! services — all data is synthetic.
 //!
 //! Run via:
-//!   cargo bench --package whisper-desktop
-//!   cargo bench --package whisper-desktop --bench engine_bench
+//!   cargo bench --package sotto
+//!   cargo bench --package sotto --bench engine_bench
 //!
 //! Quick compile check (CI):
-//!   cargo bench --no-run --package whisper-desktop
+//!   cargo bench --no-run --package sotto
 
 use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
-use whisper_desktop_lib::cloud_stt::{audio_to_wav_bytes, build_multipart_body};
-use whisper_desktop_lib::whisper::InferenceResult;
+use sotto_lib::cloud_stt::{audio_to_wav_bytes, build_multipart_body};
+use sotto_lib::whisper::InferenceResult;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -121,7 +121,7 @@ fn inference_result_clone(c: &mut Criterion) {
 
 /// Inline equivalent of `mutex_recover::lock()` — recovers from a poisoned
 /// mutex instead of panicking. We replicate the logic here (rather than
-/// calling the private `whisper_desktop_lib::mutex_recover::lock`) so the
+/// calling the private `sotto_lib::mutex_recover::lock`) so the
 /// benchmark can compare overhead without modifying production visibility.
 fn recover_lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     match mutex.lock() {

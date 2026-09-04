@@ -938,6 +938,12 @@ fn definition(model_id: &str) -> Result<&'static ModelDefinition, String> {
         .ok_or_else(|| format!("UNKNOWN_MODEL: {model_id}"))
 }
 
+/// Каталог кэша до переименования приложения в Sotto. Существует только ради
+/// переезда: у тех, кто ставил ранние сборки, здесь лежат уже скачанные
+/// модели — это гигабайты, и терять их из-за смены имени нельзя.
+const LEGACY_CACHE_DIR: &str = "whisper-desktop";
+const CACHE_DIR: &str = "sotto";
+
 pub fn models_dir() -> Result<PathBuf, String> {
     if let Ok(override_dir) = std::env::var("SPEECH_TO_TEXT_MODELS_DIR") {
         if !override_dir.trim().is_empty() {
@@ -946,7 +952,32 @@ pub fn models_dir() -> Result<PathBuf, String> {
     }
     let cache =
         dirs::cache_dir().ok_or_else(|| "MODEL_CACHE_UNAVAILABLE: no cache dir".to_string())?;
-    Ok(cache.join("whisper-desktop").join("models"))
+    Ok(migrate_legacy_cache(&cache).join("models"))
+}
+
+/// Вернуть каталог кэша, по дороге переселив старый, если он ещё не переселён.
+///
+/// Переименование — одно движение в пределах одного тома, поэтому копии и
+/// половинчатого состояния не возникает. Если переименовать не вышло (права,
+/// открытый файл, том только на чтение), возвращаем старый путь: работающие
+/// модели важнее аккуратного имени каталога, а повторить попытку можно на
+/// следующем запуске.
+fn migrate_legacy_cache(cache: &Path) -> PathBuf {
+    let current = cache.join(CACHE_DIR);
+    let legacy = cache.join(LEGACY_CACHE_DIR);
+    if current.exists() || !legacy.is_dir() {
+        return current;
+    }
+    match std::fs::rename(&legacy, &current) {
+        Ok(()) => {
+            log::info!("model cache moved from {LEGACY_CACHE_DIR} to {CACHE_DIR}");
+            current
+        }
+        Err(error) => {
+            log::warn!("model cache stays at {LEGACY_CACHE_DIR}: {error}");
+            legacy
+        }
+    }
 }
 
 pub fn model_path(model_id: &str) -> Result<PathBuf, String> {
@@ -1430,6 +1461,49 @@ pub fn delete_cached_model(model_id: &str) -> Result<bool, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Переезд кэша стоит гигабайтов трафика, если сломается: у пользователя
+    /// прежних сборок в старом каталоге лежат уже скачанные модели.
+    mod cache_migration {
+        use super::*;
+
+        #[test]
+        fn a_legacy_directory_moves_to_the_new_name() {
+            let root = tempfile::tempdir().unwrap();
+            let legacy = root.path().join(LEGACY_CACHE_DIR).join("models");
+            std::fs::create_dir_all(&legacy).unwrap();
+            std::fs::write(legacy.join("ggml-turbo.bin"), b"weights").unwrap();
+
+            let resolved = migrate_legacy_cache(root.path());
+
+            assert_eq!(resolved, root.path().join(CACHE_DIR));
+            assert!(resolved.join("models").join("ggml-turbo.bin").is_file());
+            assert!(!root.path().join(LEGACY_CACHE_DIR).exists());
+        }
+
+        /// Уже переехавший каталог трогать нельзя: старый мог остаться от
+        /// параллельно стоящей сборки, и его содержимое затёрло бы новое.
+        #[test]
+        fn an_existing_new_directory_wins_over_the_legacy_one() {
+            let root = tempfile::tempdir().unwrap();
+            std::fs::create_dir_all(root.path().join(CACHE_DIR).join("models")).unwrap();
+            std::fs::create_dir_all(root.path().join(LEGACY_CACHE_DIR).join("models")).unwrap();
+
+            let resolved = migrate_legacy_cache(root.path());
+
+            assert_eq!(resolved, root.path().join(CACHE_DIR));
+            assert!(root.path().join(LEGACY_CACHE_DIR).exists());
+        }
+
+        #[test]
+        fn a_clean_install_just_gets_the_new_path() {
+            let root = tempfile::tempdir().unwrap();
+            assert_eq!(
+                migrate_legacy_cache(root.path()),
+                root.path().join(CACHE_DIR)
+            );
+        }
+    }
 
     #[test]
     fn turbo_aliases_resolve_to_public_id() {

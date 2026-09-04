@@ -752,14 +752,13 @@ use std::path::PathBuf;
 
 /// Resolve the on-disk path for a model by name.
 ///
-/// Convention: `<cache_dir>/whisper-desktop/models/ggml-<name>.bin`.
-/// Cache dir is resolved via `dirs::cache_dir()` which gives:
-/// - macOS: `~/Library/Caches/`
-/// - Windows: `%LOCALAPPDATA%`
-/// - Linux: `~/.cache/`
+/// Convention: `<cache_dir>/sotto/models/ggml-<name>.bin`. The directory
+/// itself — including the move from the pre-rename `whisper-desktop` — is
+/// decided by [`crate::model::models_dir`]. This function used to spell the
+/// same path out a second time, which is exactly the copy that the rename
+/// would have left behind pointing at the old directory.
 pub fn resolve_model_path(model_name: &str) -> Result<PathBuf, String> {
-    let cache = dirs::cache_dir().ok_or_else(|| "no cache_dir available".to_string())?;
-    let models_dir = cache.join("whisper-desktop").join("models");
+    let models_dir = crate::model::models_dir()?;
     std::fs::create_dir_all(&models_dir).map_err(|e| format!("create models dir: {e}"))?;
     Ok(models_dir.join(format!("ggml-{model_name}.bin")))
 }
@@ -826,7 +825,7 @@ mod tests {
     fn resolve_model_path_produces_cache_path() {
         let path = resolve_model_path("large-v3-turbo").unwrap();
         let path_str = path.to_string_lossy();
-        assert!(path_str.contains("whisper-desktop"));
+        assert!(path_str.contains("sotto"));
         assert!(path_str.contains("models"));
         // `resolve_model_path` is a naive `ggml-{name}.bin` formatter that
         // predates the catalogue and does not consult it; the catalogue's

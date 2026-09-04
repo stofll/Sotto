@@ -17,12 +17,10 @@
 //!
 //! (Requires model file + `tauri/test` feature enabled in dev.)
 
+use sotto_lib::model::ModelLoadSpec;
+use sotto_lib::whisper::{resolve_model_path, EngineCommand, EngineEvent, InferenceResult};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
-use whisper_desktop_lib::model::ModelLoadSpec;
-use whisper_desktop_lib::whisper::{
-    resolve_model_path, EngineCommand, EngineEvent, InferenceResult,
-};
 
 /// Phase 4 / Batch 4 / PR 4.5: TranscribeCloud is constructible
 /// from outside the engine crate (frontend bridge or other
@@ -30,7 +28,7 @@ use whisper_desktop_lib::whisper::{
 /// types). Pins the public surface.
 #[test]
 fn transcribe_cloud_variant_compiles() {
-    use whisper_desktop_lib::cloud_stt::{CloudSttProvider, CloudSttRequest};
+    use sotto_lib::cloud_stt::{CloudSttProvider, CloudSttRequest};
     let (reply, _rx) = tokio::sync::oneshot::channel();
     let _cmd = EngineCommand::TranscribeCloud {
         session_id: 1,

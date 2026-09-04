@@ -10,16 +10,16 @@ Run these commands from `desktop/src-tauri`:
 
 ```bash
 # All benchmarks
-cargo bench --package whisper-desktop
+cargo bench --package sotto
 
 # Just this suite
-cargo bench --package whisper-desktop --bench engine_bench
+cargo bench --package sotto --bench engine_bench
 
 # Filtered by name (criterion supports substring matching)
-cargo bench --package whisper-desktop -- wav_encoding
+cargo bench --package sotto -- wav_encoding
 
 # Compile-only check
-cargo bench --no-run --package whisper-desktop
+cargo bench --no-run --package sotto
 ```
 
 Results are printed to stdout. Criterion also writes an HTML report to
@@ -137,10 +137,10 @@ To compare against a saved baseline:
 
 ```bash
 # Save a baseline from the current codebase (e.g. on `main`):
-cargo bench --package whisper-desktop -- --save-baseline main
+cargo bench --package sotto -- --save-baseline main
 
 # After a change, compare:
-cargo bench --package whisper-desktop -- --baseline main
+cargo bench --package sotto -- --baseline main
 ```
 
 For CI comparison, archive the `target/criterion` directory as a build

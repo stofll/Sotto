@@ -14,10 +14,8 @@ use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 
-use whisper_desktop_lib::ai::providers::{
-    AnthropicProvider, OpenAIProvider, Provider, ProviderErrorType,
-};
-use whisper_desktop_lib::ai::step::{ai_process_text_with_status, AiConfig};
+use sotto_lib::ai::providers::{AnthropicProvider, OpenAIProvider, Provider, ProviderErrorType};
+use sotto_lib::ai::step::{ai_process_text_with_status, AiConfig};
 
 /// Per-test type alias — the captured-request log is an
 /// `Arc<Mutex<Vec<HashMap<...>>>>`, too noisy to repeat in every
