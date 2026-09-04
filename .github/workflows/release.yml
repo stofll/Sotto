@@ -224,3 +224,37 @@ jobs:
     uses: ./.github/workflows/sbom.yml
     with:
       release_tag: ${{ github.event.inputs.tag || github.ref_name }}
+
+  # Контрольные суммы — то немногое, что пользователь может проверить сам,
+  # пока сборки не подписаны сертификатом издателя. Отдельной задачей после
+  # обеих сборок и SBOM: файл один на релиз и должен покрывать всё, что в
+  # черновике лежит, а посчитанный внутри матрицы знал бы только про свою
+  # платформу.
+  checksums:
+    name: Контрольные суммы релиза
+    needs: [release, sbom]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Посчитать SHA-256 и приложить к черновику
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p assets && cd assets
+          # Черновик виден только по токену с contents: write — публичной
+          # ссылки на него ещё нет.
+          gh release download "$RELEASE_TAG" --clobber
+          # Формат — ровно тот, что понимает `sha256sum -c`, поэтому никаких
+          # заголовков и комментариев в файле: объяснение живёт в
+          # docs/verifying-downloads.md, а файл остаётся машинно проверяемым.
+          # Собственный файл сумм в список не попадает: он мог остаться от
+          # перевыпуска и посчитал бы сам себя.
+          rm -f SHA256SUMS.txt
+          sha256sum -- * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          gh release upload "$RELEASE_TAG" SHA256SUMS.txt --clobber

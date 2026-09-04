@@ -93,7 +93,26 @@ Two different signatures, often confused:
 Without Authenticode, both the first install and every update show
 "unknown publisher". The updater works; it just looks untrustworthy. A
 certificate has not been obtained, so every release so far ships unsigned in
-the publisher sense.
+the publisher sense. Until one is, what users get instead is
+[Verifying a download](verifying-downloads.md): `SHA256SUMS.txt` attached to
+every release by the `checksums` job, and the minisign key the updater already
+enforces.
+
+What the choice actually costs, as of the last time this was checked
+(September 2026):
+
+- **macOS** — Apple Developer Program at $99/year, a Developer ID Application
+  certificate, and notarization. Tauri does the signing and the notarization
+  itself when the `APPLE_*` variables are present, so this is mostly a
+  purchase and a set of secrets. On an individual account the certificate
+  carries the maintainer's legal name, and Gatekeeper shows it.
+- **Windows** — an EV certificate no longer buys instant SmartScreen trust
+  (Microsoft removed that in 2024), so its premium over OV is not worth paying
+  for that reason alone; reputation now accrues to a consistent publisher
+  identity either way. Azure Artifact Signing (formerly Trusted Signing) is the
+  cheapest route at about $10/month, but individual developers must be in the
+  US or Canada. Otherwise an OV certificate with a cloud HSM, since the private
+  key may no longer live on the build machine.
 
 - [ ] **Windows Authenticode certificate** loaded in CI secrets
       (`WINDOWS_CERT_BASE64`, `WINDOWS_CERT_PASSWORD`).
@@ -305,6 +324,13 @@ pnpm tauri build --bundles nsis --target x86_64-pc-windows-msvc
 ```
 
 ### Checksum Generation
+
+The `checksums` job in `release.yml` does this: after both builds and the SBOM
+land in the draft, it downloads the draft's own assets, hashes them and uploads
+`SHA256SUMS.txt`. Hashing the release rather than the build directory is the
+point — it verifies what people will actually download.
+
+Manually, from a local build:
 
 ```bash
 # See "Build Paths": on Windows this is $CARGO_TARGET_DIR, not the working copy.

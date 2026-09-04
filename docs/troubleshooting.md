@@ -1,5 +1,12 @@
 # Troubleshooting
 
+## Windows or macOS refuses to open the download
+
+Expected: the builds carry no publisher certificate, so SmartScreen and
+Gatekeeper cannot say who made them. [Verifying a download](verifying-downloads.md)
+has the click-through for both systems, plus the checksum and update-signature
+checks worth doing first.
+
 ## The application does not build
 
 Confirm that Rust stable, Node.js LTS, pnpm, CMake, LLVM/libclang, and the
