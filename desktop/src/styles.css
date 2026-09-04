@@ -1228,9 +1228,13 @@ button.card { appearance: none; font: inherit; color: inherit; }
 /* Ячейки не растут (иначе между ними появляется воздух), но ужиматься умеют:
    это единственный клапан, если перевод окажется длиннее русского. */
 .behavior-row--primary > .set-cell { flex: 0 1 auto; }
+/* Две ячейки и волосок между ними. Колонок было пять — след от третьей
+   ячейки с выбором модели, которая уехала на свою страницу: две лишние
+   дорожки остались пустыми и забирали треть ширины, отчего «Удерживать» не
+   помещалось в переключатель и вылезало за его рамку. */
 .capture-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 1px minmax(0, 1fr) 1px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) 1px minmax(0, 1fr);
   column-gap: 16px;
   align-items: stretch;
 }
