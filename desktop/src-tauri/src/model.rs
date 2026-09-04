@@ -1439,16 +1439,25 @@ pub fn list_models(selected: &str, loaded_model_id: Option<&str>) -> Vec<ModelIn
     catalogue.chain(bundles).chain(local).collect()
 }
 
+/// Delete a model's file: a catalogue download, a bundle directory, or a file
+/// the user put in the models directory themselves.
+///
+/// Own files used to be refused here, on the grounds that the app cannot get
+/// one back the way it can re-download a catalogue model. But the file is in
+/// the app's directory, the app is what shows it, and the only way out was a
+/// file manager — a refusal that protects nobody from anything. What the
+/// difference actually deserves is a different sentence in the confirmation,
+/// and that is where it now lives.
+///
+/// The id of an own file is its file stem, validated by `local_model_stem`
+/// through `model_path`, so nothing outside the models directory is
+/// reachable from here.
 pub fn delete_cached_model(model_id: &str) -> Result<bool, String> {
-    // Catalogue models only. The app downloaded those and can fetch them
-    // again; a file the user placed in the directory is not ours to remove,
-    // and there would be no way to get it back.
     if model_engine(model_id)? == ModelEngine::SherpaNemoCtc {
         let entry = bundle_manifest_entry(model_id)?;
         let path = models_dir()?.join(entry.directory_name);
         return remove_bundle_path(&path);
     }
-    definition(model_id)?;
     let path = model_path(model_id)?;
     if !path.exists() {
         return Ok(false);
@@ -2052,10 +2061,16 @@ mod tests {
         assert!(path.to_string_lossy().ends_with("russian-finetune.bin"));
     }
 
+    /// Раньше здесь стоял отказ: приложение не скачивало этот файл и не
+    /// смогло бы его вернуть. Отказ убран — вместе с ним ушла и модель,
+    /// которую список показывал, но убрать из этого списка было нечем.
+    /// Единственное, чего быть не должно, — ошибки на уже отсутствующем
+    /// файле: интерфейс показал бы её как «не удалось удалить».
     #[test]
-    fn local_models_are_not_deletable() {
-        // The app did not download the file and could not restore it.
-        assert!(delete_cached_model("russian-finetune").is_err());
+    fn deleting_an_absent_own_file_is_not_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let _g = EnvGuard::set(MODELS_DIR_ENV, dir.path());
+        assert_eq!(delete_cached_model("russian-finetune"), Ok(false));
     }
 
     #[test]
@@ -2208,6 +2223,43 @@ mod tests {
             .unwrap();
         assert!(delete_cached_model("tiny").unwrap());
         assert!(!dir.path().join("ggml-tiny.bin").exists());
+    }
+
+    /// Свой файл каталогу неизвестен, и раньше удаление на нём отказывало:
+    /// список показывал модель, которую нельзя убрать из этого же списка.
+    #[test]
+    fn delete_cached_model_removes_a_file_the_user_added() {
+        let dir = tempfile::tempdir().unwrap();
+        let _g = EnvGuard::set(MODELS_DIR_ENV, dir.path());
+        let own = dir.path().join("ggml-my-finetune.bin");
+        std::fs::File::create(&own)
+            .unwrap()
+            .set_len(MIN_VALID_MODEL_BYTES)
+            .unwrap();
+        // Именно так этот файл и назван в списке моделей.
+        assert_eq!(
+            discover_local_models_in(dir.path()),
+            vec![("ggml-my-finetune".to_string(), MIN_VALID_MODEL_BYTES)],
+        );
+
+        assert!(delete_cached_model("ggml-my-finetune").unwrap());
+        assert!(!own.exists());
+        assert!(discover_local_models_in(dir.path()).is_empty());
+    }
+
+    /// Идентификатор своего файла приходит с фронтенда, и путь из него
+    /// собирается конкатенацией. Выход за каталог моделей должен упираться в
+    /// ту же проверку, что и на загрузке, а не в удачное стечение имён.
+    #[test]
+    fn delete_cached_model_refuses_to_walk_out_of_the_models_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let _g = EnvGuard::set(MODELS_DIR_ENV, dir.path());
+        let outsider = dir.path().parent().unwrap().join("outsider.bin");
+        std::fs::write(&outsider, b"not a model").unwrap();
+
+        assert!(delete_cached_model("../outsider").is_err());
+        assert!(delete_cached_model("/etc/passwd").is_err());
+        assert!(outsider.exists());
     }
 
     // ------------------------------------------------------------------

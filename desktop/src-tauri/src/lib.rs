@@ -1027,9 +1027,14 @@ async fn delete_model(
     state: tauri::State<'_, AppState>,
     model: String,
 ) -> Result<bool, String> {
-    let normalized = crate::model::normalize_model_id(&model)?;
+    // Свой файл каталогу неизвестен, и нормализация на нём падает. Его
+    // идентификатор — имя файла, и проверяет его `delete_cached_model` тем же
+    // правилом, что и загрузка: за пределы каталога моделей отсюда не выйти.
+    let normalized = crate::model::normalize_model_id(&model)
+        .map(str::to_string)
+        .unwrap_or_else(|_| model.clone());
     let loaded = crate::mutex_recover::lock(&state.engine_current_model).clone();
-    if loaded.as_deref() == Some(normalized) {
+    if loaded.as_deref() == Some(normalized.as_str()) {
         let (reply_tx, reply_rx) = tokio::sync::oneshot::channel::<()>();
         state
             .engine_cmd_tx
@@ -1041,7 +1046,7 @@ async fn delete_model(
         reply_rx
             .await
             .map_err(|e| format!("engine reply dropped: {e}"))?;
-        let _ = app.emit("model-unloaded", normalized);
+        let _ = app.emit("model-unloaded", normalized.clone());
     }
     crate::model::delete_cached_model(&model).map_err(|e| e.to_string())
 }

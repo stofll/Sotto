@@ -247,8 +247,10 @@ function ModelCard({ model, active, busy, onSelect, onDownload, onDelete }: {
           <span className="model-card2__state model-card2__state--disk">{t("Выбрана")}</span>
         )}
         {model.local && <span className="model-card2__state model-card2__state--own">{t("Свой файл")}</span>}
-        {/* Своё удалять нечем: файл положили не мы. */}
-        {installed && !model.local && <CardMenu busy={busy} onDelete={onDelete}/>}
+        {/* Свой файл тоже удаляется отсюда. Отличается он не наличием кнопки,
+            а тем, что скачать его заново приложение не сможет, — об этом
+            говорит подтверждение. */}
+        {installed && <CardMenu busy={busy} onDelete={onDelete}/>}
       </div>
 
       {/* Свойства модели одной строкой и в одном виде: язык и потоковость —

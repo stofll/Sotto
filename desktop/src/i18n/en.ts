@@ -169,6 +169,8 @@ export const en: Record<string, string | string[]> = {
   "Удалить модель?": "Delete this model?",
   "Файл модели «{p0}» ({p1}) будет удалён с диска. Для повторного использования его придётся скачать заново.":
     "The model file “{p0}” ({p1}) will be removed from disk. You will need to download it again to use it later.",
+  "Файл «{p0}» ({p1}) будет удалён с диска навсегда. Это ваш файл: скачать его заново приложение не сможет.":
+    "The file “{p0}” ({p1}) will be deleted from disk for good. It is your own file: the app cannot download it again.",
   "Эта модель сейчас загружена. Она будет выгружена из памяти, и распознавание перестанет работать, пока вы не выберете или не скачаете другую модель.":
     "This model is currently loaded. It will be unloaded from memory, and speech recognition will stop working until you select or download another model.",
   "Модель удалена: {p0}": "Model deleted: {p0}",
