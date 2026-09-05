@@ -1,6 +1,6 @@
 import { createElement } from "react";
 import { Icon } from "../components/Icon";
-import type { ConfigResult } from "../bridge/types";
+import type { ApiKeyStatus, ConfigResult } from "../bridge/types";
 import { t } from "../i18n";
 
 export type AiConfig = ConfigResult["ai_processing"];
@@ -294,6 +294,28 @@ export function textProfileFor(ai: AiConfig | null, profiles: LlmProfile[], voic
   const id = ai?.text_profile_id;
   if (!id || id === voiceProfile.id) return voiceProfile;
   return profiles.find((profile) => profile.id === id) ?? voiceProfile;
+}
+
+/** Проверяет сохранённый маршрут: Rust читает плоские поля, а не список профилей. */
+export type LlmRouteBlocker = "no_provider" | "no_model" | "no_key" | "invalid_base_url" | null;
+
+export function llmRouteBlocker(ai: AiConfig | null, apiKeys: ApiKeyStatus): LlmRouteBlocker {
+  const mode = ai?.pipeline_mode ?? DEFAULT_AI.pipeline_mode;
+  if (mode === "local") return null;
+  if (mode === "cloud") {
+    try {
+      const url = new URL(ai?.base_url ?? "");
+      if (url.protocol !== "http:" && url.protocol !== "https:") return "invalid_base_url";
+    } catch {
+      return "invalid_base_url";
+    }
+  } else if (!ai?.provider?.trim()) {
+    return "no_provider";
+  }
+  const model = mode === "cloud" ? ai?.stt_model ?? ai?.model : ai?.model;
+  if (!model?.trim()) return "no_model";
+  if (!apiKeys[ai?.api_key_ref ?? ""]?.available) return "no_key";
+  return null;
 }
 
 export function activeConfigFromProfile(ai: AiConfig, profile: LlmProfile, profiles: LlmProfile[]): AiConfig {

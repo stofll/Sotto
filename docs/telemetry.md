@@ -17,9 +17,12 @@ local outbox. Re-enabling resumes delivery of pending rows.
 Both settings live in `config.json` (`telemetry_enabled`,
 `telemetry_session_timeout_minutes`) and are written through the ordinary
 `save_config` merge patch, which re-syncs the live capture gate before it
-returns — there is no separate telemetry command and no restart is needed. A
-timeout outside the supported range is clamped, never rejected: a hand-edited
-config must not make unrelated settings unsavable.
+returns — there is no separate telemetry command and no restart is needed. Only
+the consent switch has a control in the UI: the session timeout is an
+aggregation parameter with nothing for a user to decide, so it is set by
+editing `config.json` and otherwise keeps its default. A timeout outside the
+supported range is clamped, never rejected: a hand-edited config must not make
+unrelated settings unsavable.
 
 ## Release configuration
 
@@ -36,13 +39,14 @@ key.
 
 Because the token is a compile-time input, a build that misses it cannot be
 repaired at runtime, and nothing about the running app reveals the difference.
-`scripts/build-installer.sh`, which produces the Windows release, therefore
-takes the token from `~/.tauri/sotto-posthog.key`, refuses to build without
-one, and verifies afterwards that the ingest host actually survived into the
-artifact. `SOTTO_ALLOW_NO_TELEMETRY=1` waives both checks, for a build that is
-meant to report nothing. The release workflow reads the same variable from a
-repository secret; that secret is unset, so a CI build carries no telemetry.
-See [RELEASE.md](RELEASE.md).
+`scripts/build-installer.sh`, for builds made outside CI, therefore takes the
+token from `~/.tauri/sotto-posthog.key`, refuses to build without one, and
+verifies afterwards that the ingest host actually survived into the artifact.
+`SOTTO_ALLOW_NO_TELEMETRY=1` waives both checks, for a build that is meant to
+report nothing. The release workflow reads the same variable from a repository
+secret, which is set, so released builds do carry telemetry — but it has no
+equivalent guard, and would ship a silently reportless release if the secret
+ever went missing. See [RELEASE.md](RELEASE.md).
 
 Without a token the telemetry service is a complete no-op: no outbox rows are
 written, and neither the delivery worker nor the session watcher is started,

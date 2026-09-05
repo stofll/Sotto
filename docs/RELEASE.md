@@ -6,31 +6,32 @@
 > instead. Where this file and `.github/workflows/release.yml` disagree, the
 > workflow is authoritative — it is what actually runs.
 
-> Applies to [whisper-desktop](https://github.com/stofll/Sotto) — the
+> Applies to [Sotto](https://github.com/stofll/Sotto) — the
 > native Rust/Tauri speech-to-text app (**Sotto**).
-
-## Versioning Policy
-
-This project follows **Semantic Versioning** (`MAJOR.MINOR.PATCH`).
-
-| Bump | When | Example |
-|------|------|---------|
-| **MAJOR** | Tauri engine upgrade (1.x -> 2.x, 2.x -> 3.x), breaking IPC contract changes, migration to a new STT engine (e.g. replacing whisper-rs), dropped platform support | `0.1.0` -> `1.0.0` |
-| **MINOR** | New Tauri command added to the public IPC surface, new LLM or cloud STT provider, new pipeline mode, new config section with migration, public API additions in `lib.rs` | `0.1.0` -> `0.2.0` |
-| **PATCH** | Bug fixes, dependency updates, internal refactors, performance improvements, documentation changes that don't add new IPC commands or config sections | `0.1.0` -> `0.1.1` |
-
-Pre-release versions follow `X.Y.Z-rc.N` during release-candidate staging.
-
----
 
 ## Pre-release
 
 ### 1. Version Bump
 
-- Update `version` in `desktop/src-tauri/Cargo.toml`.
-- Update `version` in `desktop/package.json`.
-- Verify consistency: both files must carry the same version.
-- Commit: `chore(release): bump version to X.Y.Z`.
+Five files carry the version, and `scripts/check-version.sh` fails the release
+build if any of them disagrees:
+
+| File | Field |
+|---|---|
+| `desktop/src-tauri/Cargo.toml` | `version` |
+| `desktop/src-tauri/Cargo.lock` | the `sotto` package entry — `cargo update -p sotto` |
+| `desktop/package.json` | `version` |
+| `desktop/src-tauri/Info.plist` | `CFBundleShortVersionString` |
+| `README.md` | `- Version:` under `## Current Status` |
+
+`tauri.conf.json` is not in the list: it has no `version` key, so Tauri reads
+the one from `Cargo.toml`.
+
+```bash
+sh scripts/check-version.sh vX.Y.Z
+```
+
+Commit: `chore(release): bump version to X.Y.Z`.
 
 ### 2. Dependency Audit
 
@@ -93,7 +94,24 @@ Two different signatures, often confused:
 Without Authenticode, both the first install and every update show
 "unknown publisher". The updater works; it just looks untrustworthy. A
 certificate has not been obtained, so every release so far ships unsigned in
-the publisher sense.
+the publisher sense. Until one is, what users get instead is
+[Verifying a download](verifying-downloads.md): `SHA256SUMS.txt` attached to
+every release by the `checksums` job, and the minisign key the updater already
+enforces.
+
+Two conditions worth knowing before shopping, because neither is obvious from
+a vendor's page:
+
+- **macOS** — Tauri signs and notarizes on its own once the `APPLE_*`
+  variables are present, so the work is a purchase plus secrets. On an
+  individual Developer Program account the certificate carries the
+  maintainer's legal name, and Gatekeeper shows it to users.
+- **Windows** — an EV certificate no longer buys instant SmartScreen trust
+  (Microsoft removed that in 2024); reputation accrues to a consistent
+  publisher identity either way, so the EV premium buys nothing here. Azure
+  Artifact Signing is limited to the US and Canada for individual developers,
+  and an OV certificate now requires a cloud HSM — the private key may not
+  live on the build machine.
 
 - [ ] **Windows Authenticode certificate** loaded in CI secrets
       (`WINDOWS_CERT_BASE64`, `WINDOWS_CERT_PASSWORD`).
@@ -225,18 +243,26 @@ worker runs, and the linker drops the delivery path out of the binary. Settings
 still shows the toggle as on, so such a build is indistinguishable from a
 working one until the dashboard stays empty.
 
-The Windows build is the release path, and it refuses to produce a silent
-no-op. `build-installer.sh` reads the token from `~/.tauri/sotto-posthog.key`
-(next to the updater signing key, outside the repository); override the
-location with `SOTTO_POSTHOG_KEY_PATH`, or set `SOTTO_POSTHOG_API_KEY` in the
-environment to win over the file. Missing token — the build stops before
-`cargo`. After the build, the script greps the artifact for the ingest host: a
-token that never reached `rustc` fails there, which a check on the variable
-alone would miss.
+The token reaches a build from one of two places, and they must hold the same
+project token:
 
-The release workflow takes the same variable from a repository secret of that
-name. That secret is not set, so a CI build would carry no telemetry — release
-builds are made on Windows through the script above.
+| Build | Source |
+|---|---|
+| tag build in `release.yml` | repository secret `SOTTO_POSTHOG_API_KEY` — **set**, so both targets ship with telemetry |
+| `build-installer.sh`, outside CI | `~/.tauri/sotto-posthog.key`, next to the updater signing key |
+
+For the local script, override the file with `SOTTO_POSTHOG_KEY_PATH`, or set
+`SOTTO_POSTHOG_API_KEY` in the environment to win over it.
+
+The two differ in what happens when the token is missing, and the difference
+matters. The script refuses to produce a silent no-op: no token and it stops
+before `cargo`, and after the build it greps the artifact for the ingest host —
+which catches a token that was set but never reached `rustc`, something a check
+on the variable alone would miss. CI has neither guard. The workflow passes the
+secret straight through, and `option_env!` reads an absent one as `None`, so a
+renamed, rotated-away or expired secret does not fail anything: the release
+builds, installs and behaves identically, and simply never reports. If the
+dashboard goes quiet after a release, suspect the secret before the client.
 
 Pass `SOTTO_ALLOW_NO_TELEMETRY=1` to build deliberately without telemetry; it
 skips both the pre-build guard and the artifact check.
@@ -306,6 +332,13 @@ pnpm tauri build --bundles nsis --target x86_64-pc-windows-msvc
 
 ### Checksum Generation
 
+The `checksums` job in `release.yml` does this: after both builds and the SBOM
+land in the draft, it downloads the draft's own assets, hashes them and uploads
+`SHA256SUMS.txt`. Hashing the release rather than the build directory is the
+point — it verifies what people will actually download.
+
+Manually, from a local build:
+
 ```bash
 # See "Build Paths": on Windows this is $CARGO_TARGET_DIR, not the working copy.
 cd "${CARGO_TARGET_DIR:-desktop/src-tauri/target}/release/bundle"
@@ -331,9 +364,24 @@ sha256sum *.dmg *.exe 2>/dev/null > SHA256SUMS.txt
 
 ### GitHub Release
 
-1. Create a new Release on GitHub from the `vX.Y.Z` tag.
-2. Use the auto-generated release-drafter notes as a starting point.
-3. Fill in the "What's new" template below.
+The release itself already exists by this point: `tauri-action` opened it as a
+draft when the tag build started, and the `sbom` and `checksums` jobs added
+their assets to it. Nothing here creates a release or uploads an asset.
+
+1. Open the draft and check the assets against
+   [Draft contents](#draft-contents) below.
+2. Install each artifact and smoke-test it. This is the only gate between the
+   build and every existing installation.
+3. Write the body from the "What's new" template below. `.github/release-drafter.yml`
+   holds the categories and the version resolver, but no workflow runs
+   release-drafter — the body is written by hand, or from
+   `git log --oneline <previous tag>..vX.Y.Z`.
+4. Publish the draft.
+
+Publishing is the release. `latest.json` is served from
+`releases/latest/download/`, so until the draft stops being a draft no
+installed copy sees anything; the moment it is published, every 0.x install
+is offered the update with this body as its "what's new".
 
 ### What's New Template
 
@@ -355,12 +403,23 @@ sha256sum *.dmg *.exe 2>/dev/null > SHA256SUMS.txt
 - [bullet point bug fixes or "None in this release"]
 ```
 
-### Asset Upload Order
+### Draft contents
 
-1. `.dmg` (macOS arm64)
-2. `.exe` (Windows NSIS installer)
-3. `SHA256SUMS.txt`
-4. Source code archive (auto-generated by GitHub)
+Everything below is uploaded by CI. A missing entry means a job failed or was
+skipped, and is a reason to fix the build rather than to upload by hand.
+
+| Asset | From |
+|---|---|
+| `Sotto_X.Y.Z_aarch64.dmg` | `release` job, macOS |
+| `Sotto_aarch64.app.tar.gz` + `.sig` | `release` job, macOS — the updater artifact |
+| `Sotto_X.Y.Z_x64-setup.exe` + `.sig` | `release` job, Windows |
+| `latest.json` | `release` job (`includeUpdaterJson`) — the updater manifest |
+| `sbom-rust.cdx.json`, `sbom-npm.cdx.json` | `sbom` job |
+| `licenses-npm-prod.json`, `licenses-npm-dev.json` | `sbom` job |
+| `SHA256SUMS.txt` | `checksums` job, hashed over the draft's own assets |
+
+The source archives GitHub attaches on its own appear only once the draft is
+published, and are not covered by `SHA256SUMS.txt`.
 
 ---
 

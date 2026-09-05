@@ -1,6 +1,6 @@
 [package]
-name = "whisper-desktop"
-version = "0.0.1"
+name = "sotto"
+version = "0.0.2"
 description = "Sotto desktop shell"
 authors = ["Stofl <152594969+stofll@users.noreply.github.com>"]
 license = "MIT"
@@ -94,14 +94,21 @@ windows = { version = "0.61", features = [
 libc = "0.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
+tempfile = "3"
 objc2 = "0.6"
 
 [lib]
-name = "whisper_desktop_lib"
+name = "sotto_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+# Имя бинарника — то, что видит система: подпись иконки в доке у
+# несобранной сборки, «Мониторинг системы», «Принудительное завершение»,
+# отчёты о падениях и Sotto.exe на Windows. Оно берётся отсюда, а не из
+# productName, поэтому и стоит здесь, а не в mainBinaryName: тот
+# переименовывает бинарь только на `tauri build`, и dev-сборка
+# продолжала бы называться именем crate.
 [[bin]]
-name = "whisper-desktop"
+name = "Sotto"
 path = "src/main.rs"
 
 [features]

@@ -17,13 +17,21 @@ Download the latest build from [Releases](../../releases/latest).
 
 **Windows** — run the `Sotto_<version>_x64-setup.exe` installer. Windows 11 ships
 the WebView2 runtime the app needs; on Windows 10 the installer will prompt for
-it. The build is not signed with an Authenticode certificate yet, so SmartScreen
-warns about an unknown publisher.
+it. SmartScreen warns about an unknown publisher: **More info** → **Run anyway**.
 
-**macOS** — the port is functional but less exercised than Windows. See
+**macOS** — open the DMG and drag Sotto to Applications. Gatekeeper blocks the
+first launch; allow it in **System Settings** → **Privacy & Security** →
+**Open Anyway**. The port is functional but less exercised than Windows — see
 [Platform support](docs/platforms.md) for what is verified on each target.
 
-The app updates itself: releases are signed with a minisign key and verified
+Both warnings are honest: the builds are not signed with a publisher
+certificate (no Authenticode, no Apple Developer ID), so neither system can
+tell who produced them. What you can check yourself is that the file is the one
+the release workflow produced — every release ships `SHA256SUMS.txt`, and
+update artifacts are signed with a minisign key. See
+[Verifying a download](docs/verifying-downloads.md).
+
+The app updates itself: releases are signed with that minisign key and verified
 before installation.
 
 ## What it does
@@ -51,7 +59,7 @@ is sent; [Privacy](docs/privacy.md) covers the full network picture.
 
 ## Current Status
 
-- Version: `0.0.1`
+- Version: `0.0.2`
 - Desktop shell: **Tauri 2 + Rust** backend, **React 19 / TypeScript / Vite** frontend
 - Speech backend: **`whisper-rs`** (whisper.cpp, GGML models) — fully native, no Python
 - Second speech backend (Windows): **`sherpa-onnx`**, CPU-only, each bundle pinned

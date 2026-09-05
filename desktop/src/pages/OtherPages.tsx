@@ -284,7 +284,7 @@ export function StatsPage({ stats, typingSpeedCpm = 240, onRefresh }: { stats: S
       <PageHeader
         title={t("Статистика")}
         actions={<>
-          <span className="pill mono" title={t("Скорость ручного набора из настроек")}>{speedCpm.toLocaleString(localeTag())}  {t("симв/мин")}</span>
+          <span className="head-count" title={t("Скорость ручного набора из настроек")}>{speedCpm.toLocaleString(localeTag())}  {t("симв/мин")}</span>
           <Segmented value={range} options={RANGE_OPTIONS()} onChange={(value) => setRange(value as StatsRange)}/>
           <button className="btn btn--ghost" onClick={() => void refresh()} disabled={refreshing}><Icon name="refresh" size={13}/>{refreshing ? t("Обновляю") : t("Обновить")}</button>
         </>}
@@ -349,7 +349,7 @@ export function StatsPage({ stats, typingSpeedCpm = 240, onRefresh }: { stats: S
         <section className="card chart-card">
           <div className="chart-card__head">
             <div className="chart-card__title">{t("Разбивка обработки")}</div>
-            <span className="pill mono">{periodSub}</span>
+            <span className="head-count">{periodSub}</span>
           </div>
           <BreakdownRow label="STT" value={formatShortDuration(whisperSeconds)} tone="accent"/>
           <BreakdownRow label={t("Форматирование")} value={formatShortDuration(formatSeconds)}/>
@@ -374,7 +374,7 @@ export function StatsPage({ stats, typingSpeedCpm = 240, onRefresh }: { stats: S
             </div>
             {/* Единственный блок, который фильтру не подчиняется: разбивки по
                 датам у причин в базе нет. Поэтому и подписан «за всё время». */}
-            <span className="pill mono">{fallbackReasons.reduce((sum, reason) => sum + reason.count, 0).toLocaleString(localeTag())}  {t("за всё время")}</span>
+            <span className="head-count">{fallbackReasons.reduce((sum, reason) => sum + reason.count, 0).toLocaleString(localeTag())}  {t("за всё время")}</span>
           </div>
           {fallbackReasons.map((reason) => (
             <BreakdownRow
@@ -497,7 +497,11 @@ function parseCustomWords(value: string): string[] {
   return value.split(/[\n,]/).map((item) => item.trim()).filter(Boolean);
 }
 
-const TEXT_FOLDS_KEY = "sotto.text.folds";
+// Ключ с версией: умолчание сменилось на «всё свёрнуто», а сохранённый
+// выбор со старым ключом закрывал бы его собой у каждого, кто уже открывал
+// эту страницу. Разовый сброс складок дешевле, чем умолчание, которое
+// никто не увидит.
+const TEXT_FOLDS_KEY = "sotto.text.folds.v2";
 
 /** Сворачиваемая карточка страницы «Текст».
  *
@@ -533,7 +537,6 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
   const [customWordsText, setCustomWordsText] = useState(formatting.custom_parasite_words.join("\n"));
   const [dictionaryText, setDictionaryText] = useState(formatting.custom_words.join("\n"));
   const [presets, setPresets] = useState<[string, string[]][]>([]);
-  const [savingFormat, setSavingFormat] = useState(false);
 
   // ── Замены: черновик до кнопки «Сохранить» ─────────────────────────────
   const configRules = replacementRulesFromConfig(config);
@@ -558,7 +561,10 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
       const stored = window.localStorage.getItem(TEXT_FOLDS_KEY);
       if (stored) return JSON.parse(stored) as Record<string, boolean>;
     } catch {/* ignore */}
-    return { clean: true, repl: true, dict: false };
+    // Страница открывается списком того, что на ней есть, а не развёрнутым
+    // содержимым двух блоков: до предпросмотра справа при развёрнутых
+    // «Очистке» и «Заменах» приходилось доскроллить.
+    return { clean: false, repl: false, dict: false };
   });
 
   function toggleFold(id: string) {
@@ -633,13 +639,12 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
     };
   }, [previewText, JSON.stringify(rules), JSON.stringify(formatting), paused]);
 
+  // Настройки очистки сохраняются сами, без кнопки и без индикатора: флажок
+  // и есть подтверждение — он остаётся в новом положении, когда конфиг
+  // вернулся. Отдельная плашка «сохраняю» жила в шапке страницы и мигала на
+  // каждый чих.
   async function saveFormatting(patch: Partial<TextFormattingConfig>) {
-    setSavingFormat(true);
-    try {
-      await onConfigChanged({ text_formatting: patch as TextFormattingConfig });
-    } finally {
-      setSavingFormat(false);
-    }
+    await onConfigChanged({ text_formatting: patch as TextFormattingConfig });
   }
 
   function saveCustomWords() {
@@ -749,17 +754,19 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
   // отдельного этапа применяет всегда — иначе он был бы бесполезен ровно
   // тогда, когда правила и настраивают. Расхождение подписываем.
   const matchesAreHypothetical = paused;
+  // Diff показывается, только когда есть что с чем сравнивать; иначе карточка
+  // результата держит подсказку «введите текст».
+  const showPreviewDiff = Boolean(previewText.trim() && previewResult);
 
   return (
     <div className="page">
       <input type="file" accept=".json,application/json" ref={fileInputRef} style={{ display: "none" }} onChange={(e) => { const file = e.target.files?.[0]; if (file) void importRules(file); }}/>
-      <PageHeader
-        title={t("Текст")}
-        actions={<>
-          <span className={savingFormat ? "pill" : "pill ok"}><Icon name={savingFormat ? "info" : "check"} size={11}/>{savingFormat ? t("Сохраняю") : t("Очистка сохранена")}</span>
-          <span className={saved ? "pill ok" : "pill warn"}>{saved ? t("{p0}/{p1} замен активны", { p0: activeCount, p1: rules.length }) : t("Замены не сохранены")}</span>
-        </>}
-      />
+      {/* Пилюль состояния в шапке нет: обе дублировали то, что видно рядом с
+          самими блоками — счётчик правил стоит на «Заменах», а «не сохранено»
+          загорается там же, у кнопки сохранения. Постоянная зелёная плашка
+          «сохранено» на весь экран сообщала только то, что ничего не
+          произошло. */}
+      <PageHeader title={t("Текст")}/>
 
       <div className="text-grid">
         <div className="flex-col" style={{ gap: 12, minWidth: 0 }}>
@@ -767,11 +774,11 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
             open={Boolean(folds.clean)}
             onToggle={() => toggleFold("clean")}
             title={t("Очистка")}
-            summary={<span className="pill mono">{activeCleanCount}/{cleanRules.length}</span>}
-            aside={<>
-              <span className={formatting.enabled ? "pill ok dot" : "pill"}>{formatting.enabled ? t("включена") : t("выключена")}</span>
-              <span title={masterRule.sub}><Switch on={formatting.enabled} onChange={(next) => void saveFormatting({ enabled: next })}/></span>
-            </>}
+            summary={<span className="head-count">{activeCleanCount}/{cleanRules.length}</span>}
+            /* Плашки «включена» рядом с переключателем нет: она говорила ровно
+               то же, что и его положение, а в узкой колонке из-за неё шапка
+               переносилась на вторую строку. */
+            aside={<span title={masterRule.sub}><Switch on={formatting.enabled} onChange={(next) => void saveFormatting({ enabled: next })}/></span>}
           >
             <div className="fold__rows">
               {cleanRules.map((opt, i) => {
@@ -794,13 +801,10 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
             onToggle={() => toggleFold("repl")}
             title={t("Замены")}
             summary={<>
-              <span className="pill mono">{activeCount}/{rules.length}</span>
+              <span className="head-count">{activeCount}/{rules.length}</span>
               {!saved && <span className="pill warn">{t("не сохранено")}</span>}
             </>}
-            aside={<>
-              <span className={paused ? "pill warn" : "pill ok dot"}>{paused ? t("пауза") : t("активны")}</span>
-              <Switch on={!paused} onChange={(next) => void setPaused(!next)}/>
-            </>}
+            aside={<span title={paused ? t("Замены на паузе") : t("Замены применяются")}><Switch on={!paused} onChange={(next) => void setPaused(!next)}/></span>}
           >
             <div style={{ padding: "10px 12px", display: "grid", gap: 10 }}>
               <div className="flex-row" style={{ gap: 8, flexWrap: "wrap" }}>
@@ -835,7 +839,7 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
             open={Boolean(folds.dict)}
             onToggle={() => toggleFold("dict")}
             title={t("Словари")}
-            summary={<span className="pill mono">{dictionarySize} {tPlural(dictionarySize, ["слово", "слова", "слов"])}</span>}
+            summary={<span className="head-count">{dictionarySize} {tPlural(dictionarySize, ["слово", "слова", "слов"])}</span>}
           >
             <div style={{ padding: 14, display: "grid", gap: 14 }}>
               <div>
@@ -875,28 +879,43 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
           </Foldable>
         </div>
 
+        {/* Заголовок и пояснение живут внутри первой карточки, а не над ней:
+            в левой колонке заголовки блоков стоят внутри рамки, и внешняя
+            подпись над карточкой читалась как чужая. Шаги «до» и «после»
+            подписаны текстом — пилюли делали из служебной подписи акцент,
+            который спорил с самим содержимым карточки. */}
         <div className="flex-col" style={{ gap: 12, minWidth: 0 }}>
-          <SectionLabel>{t("Живой предпросмотр")}</SectionLabel>
-          <div style={{ font: "400 11.5px/1.5 var(--font-sans)", color: "var(--ink-mute)", marginTop: -6 }}>
-            {t("Весь локальный проход: очистка и замены — ровно то, что уходит в модель или во вставку.")}
-          </div>
           <div className="card" style={{ padding: 18 }}>
-            <span className="pill ghost">{t("До")}</span>
-            <textarea className="field mono" value={previewText} onChange={(e) => setPreviewText(e.target.value)} placeholder={t("Введите текст для проверки обработки")} style={{ width: "100%", minHeight: 145, marginTop: 10, padding: 12, resize: "vertical", lineHeight: 1.55 }}/>
+            <div className="preview-card__head">
+              <h2 className="preview-card__title">
+                {t("Живой предпросмотр")}
+                <Hint text={t("Весь локальный проход: очистка и замены — ровно то, что уходит в модель или во вставку.")}/>
+              </h2>
+              <span className="preview-card__step">{t("До")}</span>
+            </div>
+            <textarea className="field mono" value={previewText} onChange={(e) => setPreviewText(e.target.value)} placeholder={t("Введите текст для проверки обработки")} style={{ width: "100%", minHeight: 145, padding: 12, resize: "vertical", lineHeight: 1.55 }}/>
           </div>
           <div className="preview-pair__arrow preview-pair__arrow--down" aria-hidden="true"><Icon name="arrow-right" size={14}/></div>
           <div className="card" style={{ padding: 18 }}>
-            <span className="pill accent">{t("После")}</span>
-            {previewError ? <p style={{ margin: "10px 0 0", font: "500 12px/1.55 var(--font-sans)", color: "var(--err)" }}>{previewError}</p> : <>
-              <p style={{ margin: "10px 0 0", font: "400 13px/1.65 var(--font-sans)", color: "var(--ink)", whiteSpace: "pre-wrap" }}>{previewResult || t("Введите текст для предпросмотра")}</p>
+            <div className="preview-card__head">
+              <span className="preview-card__step preview-card__step--after">{t("После")}</span>
+            </div>
+            {previewError ? <p style={{ margin: 0, font: "500 12px/1.55 var(--font-sans)", color: "var(--err)" }}>{previewError}</p> : <>
+              {/* Результат показывает только diff: он и есть обработанный
+                  текст, просто с подсветкой того, что изменилось. Отдельный
+                  абзац над ним печатал ту же строку второй раз. */}
+              {showPreviewDiff
+                ? <DiffBlock before={previewText} after={previewResult} title={t("Diff: исходный → после обработки")} />
+                : <p style={{ margin: 0, font: "400 13px/1.65 var(--font-sans)", color: "var(--ink-mute)", whiteSpace: "pre-wrap" }}>{t("Введите текст для предпросмотра")}</p>}
               <div className="flex-row" style={{ flexWrap: "wrap", gap: 6, marginTop: 10 }}>{previewMatches?.length ? previewMatches.map((item) => <span className={matchesAreHypothetical ? "pill" : "pill ok"} key={`${item.id}-${item.find}`}>{item.find}: {item.count}</span>) : <span className="pill">{t("Сработало 0 правил")} {rules.length === 0 ? t("— правил пока нет") : ""}</span>}</div>
               {matchesAreHypothetical && previewMatches?.length ? <div style={{ marginTop: 6, font: "400 11px/1.4 var(--font-sans)", color: "var(--warn)" }}>{t("Замены на паузе: правила совпали бы, но в результат выше не попали.")}</div> : null}
-              {previewText.trim() && previewResult ? <DiffBlock before={previewText} after={previewResult} title={t("Diff: исходный → после обработки")} /> : null}
             </>}
           </div>
           <section className="card" style={{ padding: 14 }}>
-            <div style={{ font: "600 13px/1.2 var(--font-sans)", color: "var(--ink)" }}>{t("Добавить правило-пример")}</div>
-            <div style={{ font: "400 11.5px/1.4 var(--font-sans)", color: "var(--ink-mute)", margin: "2px 0 8px" }}>{t("Нажмите, чтобы создать правило — оно сразу попадёт в список слева и в предпросмотр.")}</div>
+            <div style={{ font: "600 13px/1.2 var(--font-sans)", color: "var(--ink)", display: "inline-flex", alignItems: "center", gap: 5, marginBottom: 8 }}>
+              {t("Добавить правило-пример")}
+              <Hint text={t("Нажмите, чтобы создать правило — оно сразу попадёт в список слева и в предпросмотр.")}/>
+            </div>
             <div className="flex-row" style={{ flexWrap: "wrap", gap: 6 }}>{/* Готовые правила — это русские слова, которые Whisper слышит неверно.
                 Через t() они не идут: подстановка английского слова создала бы
                 правило, которое никогда не сработает. */}

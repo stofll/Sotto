@@ -29,7 +29,7 @@ fn audio_module_compiles_publically_accessible() {
     // let is_recording = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
     // let buffer = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     // let level_bits = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0.0_f32.to_bits()));
-    // whisper_desktop_lib::audio::process_samples(
+    // sotto_lib::audio::process_samples(
     //     &data, 2, 16000, 16000, &is_recording, &buffer, &level_bits,
     // );
     // let result = buffer.lock().unwrap();
@@ -43,7 +43,7 @@ fn audio_module_compiles_publically_accessible() {
     //
     // (clippy::assertions_on_constants fires on `assert!(true, ...)`;
     // we keep the original comment trail intentionally.)
-    let _lib: &str = "whisper_desktop_lib";
+    let _lib: &str = "sotto_lib";
     if _lib.is_empty() {
         panic!("unreachable — kept as no-op to match the original test");
     }

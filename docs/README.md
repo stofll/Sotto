@@ -10,6 +10,8 @@ current product contract.
 - [Platform support](platforms.md) — supported, experimental, and CI-only targets.
 - [Models](models.md) — local model families, storage, and platform limits.
 - [Privacy](privacy.md) — telemetry, optional cloud providers, and network data flow.
+- [Verifying a download](verifying-downloads.md) — checksums, the update
+  signature, and how to open a build that is not signed by a publisher.
 - [Troubleshooting](troubleshooting.md) — common installation and runtime issues.
 
 ## Contributing

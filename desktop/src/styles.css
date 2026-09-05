@@ -365,6 +365,53 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
  .section-title { font: 500 11px/1 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-mute); }
 .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .kbd { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 20px; padding: 0 6px; border-radius: 5px; background: var(--surface-3); border: 1px solid var(--border-strong); border-bottom-width: 2px; font: 500 11px/1 var(--font-mono); color: var(--text-1); }
+/* ── Сегментированный переключатель ─────────────────────────────────────
+   Выбранный сегмент подсвечивает не собственный фон, а подложка под ним:
+   только так переключение читается как перемещение, а не как перекраска двух
+   кнопок разом. Позицию и ширину подложке считает сам компонент — сегменты
+   бывают разной ширины. Кривая та же, что у сайдбара: начинает быстро и
+   мягко доезжает. */
+.segmented {
+  position: relative;
+  display: inline-flex;
+  padding: 3px; gap: 2px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+}
+.segmented[data-disabled="true"] { opacity: .55; }
+.segmented__thumb {
+  position: absolute;
+  top: 3px; bottom: 3px; left: 0;
+  border-radius: 4px;
+  background: var(--surface-4);
+  box-shadow: 0 1px 0 rgba(255,255,255,0.04) inset, 0 1px 2px rgba(0,0,0,0.2);
+  pointer-events: none;
+  transition: transform .26s cubic-bezier(.32,.72,0,1), width .26s cubic-bezier(.32,.72,0,1);
+}
+.segmented__option {
+  appearance: none;
+  position: relative; /* поверх подложки */
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 26px; padding: 0 12px;
+  border: 0; border-radius: 4px;
+  background: transparent;
+  color: var(--text-2);
+  font: 500 12px/1 var(--font-sans);
+  cursor: pointer;
+  /* Цвет догоняет подложку чуть быстрее, чем она едет: подпись, меняющая
+     цвет ровно в момент прибытия, выглядит запаздывающей. */
+  transition: color .18s ease;
+}
+.segmented__option[data-selected="true"] { color: var(--text); }
+.segmented__option:disabled { cursor: not-allowed; }
+.segmented__option:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Движение здесь — украшение, и системная просьба его убрать важнее. */
+@media (prefers-reduced-motion: reduce) {
+  .segmented__thumb, .segmented__option { transition: none; }
+}
+
 .switch { position: relative; width: 32px; height: 18px; border-radius: 999px; background: var(--surface-4); border: 1px solid var(--border-strong); transition: background .15s ease; flex: 0 0 auto; cursor: pointer; }
 .switch::after { content: ""; position: absolute; top: 1px; left: 1px; width: 14px; height: 14px; border-radius: 50%; background: var(--text-1); transition: transform .15s cubic-bezier(.2,.7,.3,1); box-shadow: 0 1px 2px rgba(0,0,0,0.4); }
 .switch[data-on="true"] { background: var(--accent); border-color: transparent; }
@@ -413,11 +460,10 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 /* Титулбар держит те же колонки, что и layout под ним: рельс слева
    продолжает сайдбар, правая часть — фон страницы. Никакой собственной
    подложки и линии снизу — граница проходит там же, где граница сайдбара. */
-.titlebar { height: var(--titlebar-h); display: grid; grid-template-columns: var(--sidebar-w) 1fr; -webkit-app-region: drag; flex: 0 0 auto; transition: grid-template-columns .34s cubic-bezier(.32,.72,0,1); }
+.titlebar { height: var(--titlebar-h); display: grid; grid-template-columns: var(--sidebar-w) 1fr; flex: 0 0 auto; transition: grid-template-columns .34s cubic-bezier(.32,.72,0,1); }
 .win.collapsed .titlebar { grid-template-columns: var(--sidebar-collapsed-w) 1fr; transition: grid-template-columns .4s cubic-bezier(.6,.04,.24,1); }
 .titlebar__rail { background: var(--bg-1); border-right: 1px solid var(--line); display: flex; align-items: center; min-width: 0; }
 .titlebar__bar { background: var(--bg-2); display: flex; align-items: flex-start; justify-content: flex-end; gap: 4px; padding: 6px 12px 0; color: var(--text-mute); }
-.titlebar button { -webkit-app-region: no-drag; }
 .titlebar__button { height: 24px; width: 28px; padding: 0; }
 .titlebar__button--close:hover { background: rgba(239,94,107,0.16); color: var(--err); }
 .titlebar__dots { display: flex; gap: 6px; }
@@ -1081,6 +1127,15 @@ button.card { appearance: none; font: inherit; color: inherit; }
   border: 1px solid var(--line); border-radius: 50%;
   background: var(--bg-2); color: var(--ink-mute);
 }
+/* Шапка карточек предпросмотра: заголовок блока с подсказкой, под ним подпись
+   шага. Обе карточки держат подпись на одном месте — левым краем над своим
+   содержимым, — поэтому «до» и «после» читаются как одна пара. */
+.preview-card__head { display: grid; justify-items: start; gap: 12px; margin-bottom: 10px; }
+.preview-card__title { margin: 0; font: 600 14px/1.2 var(--font-sans); color: var(--ink); display: inline-flex; align-items: center; gap: 5px; }
+.preview-card__step { font: 500 10.5px/1 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-mute); }
+/* Результат — акцентный шаг: цвет остался от прежней пилюли, подложка ушла. */
+.preview-card__step--after { color: var(--accent-text); }
+
 .grid-auto { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
 @media (max-width: 1100px) { .page { padding: 18px 22px 28px; } }
 @media (max-width: 820px) { .grid-2 { grid-template-columns: 1fr; } .page { padding: 16px 16px 24px; } }
@@ -1130,7 +1185,12 @@ button.card { appearance: none; font: inherit; color: inherit; }
    ================================================================ */
 
 .set-cell { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.set-label { font: 500 11.5px/1 var(--font-sans); color: var(--ink-mute); display: inline-flex; align-items: center; gap: 5px; }
+/* Высота подписи не зависит от того, есть ли у неё подсказка: значок «i»
+   ростом 14 px, текст — 11.5, и без этой строки соседние ячейки в ряду
+   начинали свои контролы с разной высоты. Разъезжались из-за этого
+   «Язык речи» с «Языком интерфейса» и «Горячая клавиша» с «Режимом
+   записи» — везде, где подсказка есть у одной ячейки из пары. */
+.set-label { font: 500 11.5px/1 var(--font-sans); color: var(--ink-mute); display: inline-flex; align-items: center; gap: 5px; min-height: 14px; }
 /* Подписи у чекбоксов и селектов внутри строк набраны так же, как .set-label:
    в одной строке два разных кегля подписей читаются как сбой вёрстки. Держим
    их одним правилом, чтобы кегль не пришлось править в четырёх местах. */
@@ -1139,38 +1199,65 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .advanced__autostart-row .checkbox-row,
 .sound-feedback-control__label { font: 500 11.5px/1 var(--font-sans); color: var(--ink-mute); }
 
+/* Текст только для скринридера: в потоке не занимает места, поэтому им можно
+   озвучивать то, что на экране показано значком или цветом. */
+.sr-only {
+  position: absolute; width: 1px; height: 1px;
+  margin: -1px; padding: 0; border: 0;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+}
+
 /* Hairline vertical divider between cells in dense rows */
 .vrule { width: 1px; background: var(--line-soft); align-self: stretch; margin: 4px 0; flex: 0 0 auto; }
 
 .behavior-row, .lang-row {
   display: flex; gap: 16px; align-items: stretch; flex-wrap: wrap;
 }
+/* Строка поведения — одна строка, набранная слева направо.
+   Двух предыдущих подходов не осталось намеренно. При flex-grow на ячейках
+   группы разъезжались по всей карточке, и между ними стояла пустота; при
+   гриде с брейкпоинтами колонки равнялись друг под друга и давали ту же
+   пустоту, только по расписанию. Здесь ни одна группа не растёт: строка
+   занимает ровно столько, сколько занимает её содержимое.
+   Переносится она тоже группами — ячейка целиком уходит на вторую строку,
+   а не рвётся посередине, — и до этого доходит только на узком окне. */
+.behavior-row--primary {
+  align-items: center;
+  gap: 10px 12px;
+}
+/* Ячейки не растут (иначе между ними появляется воздух), но ужиматься умеют:
+   это единственный клапан, если перевод окажется длиннее русского. */
+.behavior-row--primary > .set-cell { flex: 0 1 auto; }
+/* Две ячейки и волосок между ними. Колонок было пять — след от третьей
+   ячейки с выбором модели, которая уехала на свою страницу: две лишние
+   дорожки остались пустыми и забирали треть ширины, отчего «Удерживать» не
+   помещалось в переключатель и вылезало за его рамку. */
 .capture-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 1px minmax(0, 1fr) 1px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) 1px minmax(0, 1fr);
   column-gap: 16px;
   align-items: stretch;
 }
 .capture-row .model-select { width: 100%; max-width: none; }
 .capture-row__recording-mode,
-.capture-row__recording-mode > div { width: 100%; }
-/* Segmented собран на инлайн-стилях, поэтому высоту задаём кнопке внутри.
-   Вокруг кнопки 3px внутреннего отступа и 1px рамки с каждой стороны — их и
-   вычитаем, чтобы кнопка не отстала от --control-h, если тот поменяют. */
-.capture-row__recording-mode > div > button,
-.lang-row__ui-language > div > button,
-.device-picker > div > button { height: calc(var(--control-h) - 8px) !important; }
-.capture-row__recording-mode > div > button { flex: 1 1 0; justify-content: center; padding-left: 8px !important; padding-right: 8px !important; }
+.capture-row__recording-mode > .segmented { width: 100%; }
+/* В этих трёх строках переключатель стоит рядом с полноразмерными контролами
+   и обязан быть с ними одного роста. Вокруг сегмента 3px внутреннего отступа
+   и 1px рамки с каждой стороны — их и вычитаем, чтобы сегмент не отстал от
+   --control-h, если тот поменяют. Подложка тянется за ним сама: её высота
+   задана краями, а не числом. */
+.capture-row__recording-mode .segmented__option,
+.lang-row__ui-language .segmented__option,
+.device-picker .segmented__option { height: calc(var(--control-h) - 8px); }
+.capture-row__recording-mode .segmented__option { flex: 1 1 0; justify-content: center; padding-left: 8px; padding-right: 8px; }
 /* Языки — два узких контрола. Растягивать их на половину карточки каждый
    значило бы налить внутрь кнопок пустоты; ширину задаёт содержимое. */
 .lang-row > .set-cell { flex: 0 0 auto; min-width: 150px; }
-.behavior-row > .set-cell { flex: 1 1 220px; }
 /* Ячейки строки — `min-width: 0` от `.set-cell`, то есть ужимаются ниже
    ширины содержимого. С `nowrap` на всей ячейке содержимое не ужималось, а
    вылезало за её границы и наезжало на соседнюю. Переносим по элементам:
    неразрывны отдельные подписи, а не группа целиком. */
-.behavior-row--primary > .behavior-row__paste-options {
-  flex: 1.65 1 410px;
+.behavior-row__paste-options {
   flex-direction: row;
   align-items: center;
   gap: 8px 14px;
@@ -1179,21 +1266,28 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .behavior-row__paste-options .checkbox-row { white-space: nowrap; }
 /* Приглушение: подпись, кнопка проверки и её статус живут в одну строку,
    поэтому ячейка здесь горизонтальная, а не столбец, как остальные. */
-.behavior-row--primary > .behavior-row__duck {
-  flex: 1 1 280px;
+.behavior-row__duck {
   flex-direction: row;
   align-items: center;
   gap: 8px 10px;
   flex-wrap: wrap;
 }
 .behavior-row__duck .checkbox-row { white-space: nowrap; }
-/* Единственная ячейка строки с контролом фиксированной ширины: её и держим
-   жёсткой. Ужиматься и переносить содержимое умеют соседи, а подпись, съехав
-   на строку выше селекта, каждый раз меняла высоту всей карточки. */
-.behavior-row--primary > .behavior-row__sound-feedback { flex: 0 0 auto; justify-content: center; }
+/* Кнопка проверки и её статус: место занято всегда, скрывается только
+   видимость — иначе включение приглушения меняло высоту карточки. Статус
+   обрезается многоточием, чтобы длинная ошибка не переносила строку. */
+.behavior-row__duck-button { height: 26px; width: 26px; padding: 0; justify-content: center; flex: 0 0 auto; }
+.behavior-row__duck-button[data-visible="false"] { visibility: hidden; }
+.behavior-row__duck-button[data-state="done"] { color: var(--ok); }
+.behavior-row__duck-button[data-state="error"] { color: var(--err); }
+/* Единственная ячейка строки с контролом фиксированной ширины. Подпись,
+   съехав на строку выше селекта, меняла бы высоту всей карточки. */
 .sound-feedback-control { display: flex; align-items: center; gap: 10px; min-width: 0; flex-wrap: nowrap; }
 .sound-feedback-control__label { white-space: nowrap; }
-.set-cell .custom-select.custom-select--sound-volume { width: 124px; max-width: 124px; }
+/* Ширина под самый длинный вариант — «Выключено» / «Off». Замерено: на 112px
+   он уже обрезается многоточием, поэтому 118 — минимум с запасом на пиксель
+   округления, а не произвольное число. */
+.set-cell .custom-select.custom-select--sound-volume { width: 118px; max-width: 118px; }
 
 .device-picker { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .device-picker__note { min-width: 0; font: 500 10.5px/1.25 var(--font-sans); color: var(--ink-mute); white-space: nowrap; }
@@ -1207,28 +1301,28 @@ button.card { appearance: none; font: inherit; color: inherit; }
 }
 .advanced__history-cell { width: max-content; max-width: 100%; justify-self: center; }
 
-.advanced__autostart-row {
+/* Уточнения к авто-вставке и выключатели «поставил один раз» набраны
+   одинаково: это соседние строки одного блока, а не разные по весу секции. */
+.advanced__paste-row {
+  display: flex;
+  align-items: center;
+  gap: 10px 28px;
+  flex-wrap: wrap;
   margin-top: 14px;
   padding-top: 12px;
   border-top: 1px solid var(--line-soft);
 }
+.advanced__paste-row .checkbox-row { font: 500 11.5px/1 var(--font-sans); color: var(--ink-mute); }
 
-.advanced__telemetry {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(230px, .55fr);
-  gap: 18px;
-  align-items: start;
+.advanced__autostart-row {
+  display: flex;
+  align-items: center;
+  gap: 16px 28px;
+  flex-wrap: wrap;
   margin-top: 14px;
-  padding-top: 14px;
+  padding-top: 12px;
   border-top: 1px solid var(--line-soft);
 }
-.advanced__telemetry-copy { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.advanced__telemetry-title { margin: 0 0 2px; font: 600 13px/1.2 var(--font-sans); color: var(--ink); }
-.advanced__telemetry-toggle { color: var(--ink); font: 500 12px/1.2 var(--font-sans); }
-.advanced__telemetry-copy p { margin: 0; max-width: 820px; font: 400 11px/1.45 var(--font-sans); color: var(--ink-mute); }
-.advanced__telemetry-timeout { max-width: 270px; justify-self: end; }
-.advanced__telemetry-timeout-control { display: flex; align-items: center; gap: 8px; color: var(--ink-mute); font: 500 12px/1 var(--font-sans); }
-.advanced__telemetry-timeout-note { color: var(--ink-faint); font: 400 10.5px/1.3 var(--font-sans); }
 
 /* Свёрнутый блок «Дополнительно» на странице настроек. */
 .advanced > summary { list-style: none; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; font: 500 11.5px/1 var(--font-sans); color: var(--ink-mute); user-select: none; outline: none; }
@@ -1255,15 +1349,12 @@ button.card { appearance: none; font: inherit; color: inherit; }
   .vrule { display: none; }
   .capture-row { display: flex; flex-direction: column; gap: 14px; }
   .capture-row > .set-cell,
-  .behavior-row > .set-cell,
   .lang-row > .set-cell { flex: 1 1 100% !important; }
   .behavior-row__paste-options .checkbox-row,
   .behavior-row__duck .checkbox-row { white-space: normal; }
   .device-picker { flex-wrap: wrap; }
   .advanced__main-row { display: flex; flex-direction: column; gap: 14px; }
   .advanced__history-cell { width: 100%; justify-self: stretch; }
-  .advanced__telemetry { display: flex; flex-direction: column; gap: 14px; }
-  .advanced__telemetry-timeout { max-width: none; justify-self: stretch; }
 }
 
 /* ================================================================
@@ -1555,6 +1646,16 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .ai-mode-card__desc { font: 400 12px/1.5 var(--font-sans); color: var(--ink-mute); }
 .ai-mode-card[data-selected="true"] .ai-mode-card__desc { color: var(--ink-dim); }
 
+/* Предупреждение под сеткой режимов: жёлтая плашка того же вида, что и
+   «у профиля свой промпт» ниже на странице. */
+.ai-mode-warning {
+  display: flex; align-items: flex-start; gap: 8px; flex-wrap: wrap;
+  margin-top: 10px; padding: 9px 11px;
+  border-radius: var(--r-sm);
+  background: var(--warn-soft);
+  border: 1px solid rgba(251,191,36,0.30);
+}
+
 @media (max-width: 900px) {
   .ai-mode-grid { grid-template-columns: 1fr; }
 }
@@ -1574,6 +1675,11 @@ button.card { appearance: none; font: inherit; color: inherit; }
 
 .fold__head {
   display: flex; align-items: center; gap: 10px;
+  /* Аварийный клапан на случай длинного перевода: если заголовок со счётчиком
+     и переключатель не умещаются в строку, переключатель уходит вниз, а не
+     ужимает заголовок многоточием до нуля. В русском и английском не
+     срабатывает — справа остался один переключатель. */
+  flex-wrap: wrap; row-gap: 4px;
   padding: 0 12px 0 0;
   min-height: 44px;
 }
@@ -1590,7 +1696,15 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .fold__toggle:hover .fold__title { color: var(--accent-text); }
 .fold__chev { display: inline-flex; flex-shrink: 0; color: var(--ink-faint); transition: transform .18s, color .12s; }
 .fold__chev[data-open="true"] { transform: rotate(90deg); color: var(--accent); }
-.fold__title { font: 600 13.5px/1 var(--font-sans); color: var(--ink); white-space: nowrap; }
+/* Ужимается многоточием, а не выталкивает соседей: в узкой колонке шапка
+   «Замены» с двумя плашками состояния переставала помещаться, и содержимое
+   кнопки наезжало на переключатель справа. */
+.fold__title { font: 600 13.5px/1 var(--font-sans); color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+
+/* Счётчик у заголовка — цифра, а не состояние: плашка вокруг неё спорила по
+   весу с самим заголовком и путала счёт с плашками состояния («активный»,
+   «не сохранено»), которые рядом остаются в баблах. */
+.head-count { font: 500 10.5px/1.7 var(--font-mono); color: var(--ink-dim); white-space: nowrap; flex-shrink: 0; }
 
 .fold__aside { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .fold__body { border-top: 1px solid var(--line-soft); }
@@ -1600,7 +1714,11 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .fold__rows { border: 1px solid var(--line-soft); border-radius: var(--r-sm); overflow: hidden; }
 .fold__body > .fold__rows { border: 0; border-radius: 0; }
 
-@media (max-width: 1000px) {
+/* Порог опущен ниже минимальной ширины окна (1000 px): раньше он совпадал с
+   ней, и страница открывалась в одну колонку — ровно в том размере, в котором
+   приложение теперь и запускается. Правило оставлено на случай, если
+   minWidth когда-нибудь опустят. */
+@media (max-width: 820px) {
   .text-grid { grid-template-columns: 1fr; }
 }
 

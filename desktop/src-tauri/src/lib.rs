@@ -3,6 +3,8 @@ pub mod ai;
 mod audio;
 mod audio_file;
 mod audio_worker;
+#[cfg(any(target_os = "macos", test))]
+mod autostart;
 mod clipboard;
 pub mod cloud_stt;
 pub mod config;
@@ -1027,9 +1029,14 @@ async fn delete_model(
     state: tauri::State<'_, AppState>,
     model: String,
 ) -> Result<bool, String> {
-    let normalized = crate::model::normalize_model_id(&model)?;
+    // Свой файл каталогу неизвестен, и нормализация на нём падает. Его
+    // идентификатор — имя файла, и проверяет его `delete_cached_model` тем же
+    // правилом, что и загрузка: за пределы каталога моделей отсюда не выйти.
+    let normalized = crate::model::normalize_model_id(&model)
+        .map(str::to_string)
+        .unwrap_or_else(|_| model.clone());
     let loaded = crate::mutex_recover::lock(&state.engine_current_model).clone();
-    if loaded.as_deref() == Some(normalized) {
+    if loaded.as_deref() == Some(normalized.as_str()) {
         let (reply_tx, reply_rx) = tokio::sync::oneshot::channel::<()>();
         state
             .engine_cmd_tx
@@ -1041,7 +1048,7 @@ async fn delete_model(
         reply_rx
             .await
             .map_err(|e| format!("engine reply dropped: {e}"))?;
-        let _ = app.emit("model-unloaded", normalized);
+        let _ = app.emit("model-unloaded", normalized.clone());
     }
     crate::model::delete_cached_model(&model).map_err(|e| e.to_string())
 }
@@ -2664,6 +2671,16 @@ const AUTOSTART_ARG: &str = "--autostart";
 /// registry hive, which a policy or a cleanup tool can make unwritable. That
 /// is worth a log line, not a failed startup or a failed settings save.
 fn apply_autostart(app: &AppHandle) {
+    apply_autostart_inner(app, false)
+}
+
+/// Refresh the executable path after an update, even if an entry exists.
+/// Keep the old entry until its replacement is ready.
+fn refresh_autostart(app: &AppHandle) {
+    apply_autostart_inner(app, true)
+}
+
+fn apply_autostart_inner(app: &AppHandle, rewrite_when_unchanged: bool) {
     use tauri_plugin_autostart::ManagerExt;
 
     let wanted = crate::config::Config::load(app)
@@ -2680,13 +2697,31 @@ fn apply_autostart(app: &AppHandle) {
             return;
         }
     };
-    if current == wanted {
+    if current == wanted && !(rewrite_when_unchanged && wanted) {
         return;
     }
-    let result = if wanted {
-        manager.enable()
+    let result: Result<(), String> = if wanted {
+        // Windows enable() overwrites the Run value without deleting it.
+        // The macOS plugin truncates the plist, so write it atomically instead.
+        #[cfg(target_os = "macos")]
+        {
+            (|| {
+                let home = dirs::home_dir().ok_or("home directory unavailable")?;
+                let name = &app.package_info().name;
+                let path = home
+                    .join("Library/LaunchAgents")
+                    .join(format!("{name}.plist"));
+                let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+                crate::autostart::write_launch_agent(&path, name, &exe, AUTOSTART_ARG)
+                    .map_err(|e| e.to_string())
+            })()
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            manager.enable().map_err(|e| e.to_string())
+        }
     } else {
-        manager.disable()
+        manager.disable().map_err(|e| e.to_string())
     };
     match result {
         Ok(()) => log::info!("autostart set to {wanted}"),
@@ -2755,8 +2790,10 @@ pub fn run() {
             // Reconcile the OS autostart entry with config. Config is the
             // source of truth: the entry can go missing (profile migration,
             // a cleanup tool) and the setting would otherwise keep claiming
-            // it is on.
-            apply_autostart(app.handle());
+            // it is on. At startup the entry is rewritten even when it looks
+            // right — see `refresh_autostart` for why a correct-looking entry
+            // can still point at the wrong file.
+            refresh_autostart(app.handle());
 
             // Normalise the compute-device settings before anything reads
             // them. Non-fatal: `resolve_device` copes with the legacy value

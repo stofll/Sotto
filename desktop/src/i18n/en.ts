@@ -19,6 +19,8 @@ export const en: Record<string, string | string[]> = {
   "Обработка": "Processing",
   "Форматирование": "Formatting",
   "Замены": "Replacements",
+  "Замены на паузе": "Replacements are paused",
+  "Замены применяются": "Replacements are applied",
   "Текст": "Text",
   "LLM-обработка": "LLM processing",
   "Интеграции": "Integrations",
@@ -138,6 +140,8 @@ export const en: Record<string, string | string[]> = {
   // ── Настройки: язык, устройство, микрофон ──────────────────────────────
   "Язык": "Speech language",
   "Язык речи": "Speech language",
+  "Язык, на котором вы диктуете: модель распознаёт речь именно как его. «Авто» определяет язык по самой записи — это чуть медленнее и иногда ошибается на коротких фразах. На язык интерфейса не влияет.":
+    "The language you dictate in: the model transcribes speech as that language. “Auto” detects it from the recording itself — slightly slower, and sometimes wrong on short phrases. It does not affect the interface language.",
   "Язык интерфейса": "Interface language",
   "Авто": "Auto",
   "Пробел в конце": "Trailing space",
@@ -167,6 +171,8 @@ export const en: Record<string, string | string[]> = {
   "Удалить модель?": "Delete this model?",
   "Файл модели «{p0}» ({p1}) будет удалён с диска. Для повторного использования его придётся скачать заново.":
     "The model file “{p0}” ({p1}) will be removed from disk. You will need to download it again to use it later.",
+  "Файл «{p0}» ({p1}) будет удалён с диска навсегда. Это ваш файл: скачать его заново приложение не сможет.":
+    "The file “{p0}” ({p1}) will be deleted from disk for good. It is your own file: the app cannot download it again.",
   "Эта модель сейчас загружена. Она будет выгружена из памяти, и распознавание перестанет работать, пока вы не выберете или не скачаете другую модель.":
     "This model is currently loaded. It will be unloaded from memory, and speech recognition will stop working until you select or download another model.",
   "Модель удалена: {p0}": "Model deleted: {p0}",
@@ -206,29 +212,19 @@ export const en: Record<string, string | string[]> = {
   "Тихо": "Quiet",
   "Средне": "Medium",
   "Громко": "Loud",
-  "Приглушать звук на время записи": "Duck other audio while recording",
+  "Приглушать звук": "Duck other audio",
+  "Громкость восстановлена": "Volume restored",
   "Проверить": "Test",
   "Проверяем приглушение…": "Testing ducking…",
-  "Громкость восстановлена": "Volume restored",
   "На время записи убавить общую громкость и вернуть её после. Нужно, если пишете с колонок: звук из них попадает в микрофон.":
     "Turn the system volume down while recording and restore it afterwards. Useful with speakers, whose output leaks into the mic.",
   "Запускать вместе с системой": "Start with the system",
   "Приложение запускается в фоне при входе в систему, горячая клавиша становится доступна сразу.":
     "The app starts in the background when you sign in, so the shortcut is available immediately.",
   "Дополнительно": "Advanced",
-  "Телеметрия": "Telemetry",
   "Разрешить обезличенную телеметрию": "Allow de-identified telemetry",
   "Собираются обезличенные события использования и технические сведения: режим обработки, длительность аудио и обработки, оценка сэкономленного времени, ОС, версия приложения, архитектура и сведения о сессии.":
     "De-identified usage events and technical data are collected: processing mode, audio and processing duration, estimated time saved, operating system, app version, architecture, and session data.",
-  "Не отправляется: текст диктовки, аудио, содержимое буфера обмена, имена и пути файлов, промпты, API-ключи, ответы провайдеров и тексты ошибок.":
-    "Not sent: dictation text, audio, clipboard contents, file names and paths, prompts, API keys, provider responses, or error text.",
-  "Отключение не влияет на функции приложения и останавливает новый сбор и отправку. Уже сохранённые или отправленные события не удаляются; после повторного включения ожидающие события могут отправиться.":
-    "Disabling does not affect app features and stops new collection and sending. Events already stored or sent are not deleted; pending events may be sent after telemetry is enabled again.",
-  "Таймаут сессии": "Session timeout",
-  "Сессия завершается после периода бездействия. Этот параметр влияет только на агрегированную аналитику и не меняет запись или выгрузку модели.":
-    "A session ends after this period of inactivity. This only affects aggregated analytics; it does not change recording or model unloading.",
-  "минут": "minutes",
-  "По умолчанию: {p0} минут": "Default: {p0} minutes",
   "Хранить историю": "Keep history",
   "Записи старше указанного срока и всё, что не влезло в лимит, удаляются при открытии страницы истории. 0 — без ограничения.":
     "Entries older than this, and anything over the limit, are removed when the history page opens. 0 means no limit.",
@@ -486,7 +482,6 @@ export const en: Record<string, string | string[]> = {
   "Регистр": "Case",
   "Пауза замен": "Pause replacements",
   "Возобновить замены": "Resume replacements",
-  "пауза": "paused",
   "У каждого правила должно быть заполнено поле поиска.": "Every rule needs something to search for.",
   "Одно из правил ничего не меняет: текст поиска совпадает с заменой.":
     "One rule changes nothing: the search text equals the replacement.",
@@ -499,6 +494,12 @@ export const en: Record<string, string | string[]> = {
   "изменено": "changed",
 
   // ── LLM: профили и провайдеры ──────────────────────────────────────────
+  "Провайдер LLM не выбран. Настройте его в «Интеграциях».": "No LLM provider selected. Configure it in Integrations.",
+  "Для облачного распознавания укажите Base URL с http:// или https://.": "For cloud transcription, enter a Base URL starting with http:// or https://.",
+  "Модель обработки не выбрана.": "No processing model selected.",
+  "Для обработки нет сохранённого API-ключа.": "No saved API key for processing.",
+  "Пока этого нет, диктовка вставляет локальный текст без обработки LLM.": "Until then dictation pastes the local text with no LLM pass.",
+  "Пока этого нет, распознавать нечем: диктовка завершится ошибкой.": "Until then there is nothing to transcribe with: dictation will fail.",
   "Профили LLM": "LLM profiles",
   "Профили провайдеров": "Provider profiles",
   "Активный профиль": "Active profile",
@@ -521,7 +522,6 @@ export const en: Record<string, string | string[]> = {
   "Профиль провайдера сохранён.": "Provider profile saved.",
   "Профили ещё не созданы": "No profiles yet",
   "нет профилей": "no profiles",
-  "активны": "active",
   "активный": "active",
   "Активный": "Active",
   "Провайдер": "Provider",
@@ -761,6 +761,7 @@ export const en: Record<string, string | string[]> = {
   "model не задан": "no model set",
   "Отправить": "Send",
   "Повторно отправить": "Re-send",
+  "LLM не настроена, вставлен локальный текст": "LLM is not set up, local text pasted",
   "LLM не ответила, вставлен локальный текст": "The LLM did not answer; local text was pasted",
   "Лимит LLM, вставлен локальный текст": "LLM rate limit; local text was pasted",
   "Ошибка LLM, вставлен локальный текст": "LLM error; local text was pasted",
@@ -773,17 +774,12 @@ export const en: Record<string, string | string[]> = {
   "Обработка:": "Processing:",
 
   // ── Обработка → Текст ──────────────────────────────────────────────────
-  "{p0}/{p1} замен активны": "{p0}/{p1} replacements active",
   "Введите текст для проверки обработки": "Enter text to test processing",
   "Весь локальный проход: очистка и замены — ровно то, что уходит в модель или во вставку.":
     "The whole local pass: cleanup and replacements — exactly what goes to the model or into the paste.",
-  "включена": "on",
-  "выключена": "off",
   "Замены на паузе: правила совпали бы, но в результат выше не попали.": "Replacements are paused: these rules would match, but they are not in the result above.",
-  "Замены не сохранены": "Replacements not saved",
   "не сохранено": "not saved",
   "Очистка": "Cleanup",
-  "Очистка сохранена": "Cleanup saved",
   "Словари": "Dictionaries",
   "Diff: исходный → после обработки": "Diff: original → after processing",
   "слово|слова|слов": ["word", "words"],
@@ -797,8 +793,6 @@ export const en: Record<string, string | string[]> = {
   "Профилей пока нет. Настройки LLM ниже применяются к базовой конфигурации; профиль нужен, чтобы хранить несколько связок «провайдер + ключ + модель».": "No profiles yet. The LLM settings below apply to the base config; a profile lets you keep several provider + key + model triples.",
   "Профиль продублирован.": "Profile duplicated.",
   "пуст.": "is empty.",
-  "Создать первый профиль": "Create the first profile",
-  "Создать профиль в «Интеграциях»": "Create a profile in Integrations",
   "Управлять профилями": "Manage profiles",
   "{count} язык|{count} языка|{count} языков": ["{count} language", "{count} languages"],
   "профиль|профиля|профилей": ["profile", "profiles"],

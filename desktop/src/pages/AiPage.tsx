@@ -12,11 +12,13 @@ import {
   promptIsCustom,
   normalizeProfile,
   profileKeyRef,
+  llmRouteBlocker,
   profilesForAi,
   PROVIDERS,
   SYSTEM_PROMPT_PRESETS,
   textProfileFor,
   type AiConfig,
+  type LlmRouteBlocker,
 } from "./aiShared";
 import { CustomSelect } from "../components/CustomSelect";
 import { NumberField } from "../components/NumberField";
@@ -95,6 +97,14 @@ const PIPELINE_MODES = () => ([
   { id: "cloud", title: t("Облачное распознавание"), sub: t("Аудио уходит на OpenAI-совместимый эндпоинт /audio/transcriptions. Нужны Base URL, модель и ключ активного профиля."), icon: "spark" },
 ] as const);
 
+/** Что именно мешает выбранному режиму дойти до провайдера. */
+function blockerReason(blocker: NonNullable<LlmRouteBlocker>): string {
+  if (blocker === "no_provider") return t("Провайдер LLM не выбран. Настройте его в «Интеграциях».");
+  if (blocker === "invalid_base_url") return t("Для облачного распознавания укажите Base URL с http:// или https://.");
+  if (blocker === "no_model") return t("Модель обработки не выбрана.");
+  return t("Для обработки нет сохранённого API-ключа.");
+}
+
 const EMPTY_KEY_INFO: ApiKeyInfo = { available: false, label: "", masked: "" };
 
 type Props = {
@@ -124,6 +134,11 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
   const activeProfile = profiles.find((item) => item.id === baseAi.active_profile_id) ?? profiles[0] ?? fallbackProfile;
   const ai = useMemo(() => activeConfigFromProfile(baseAi, activeProfile, profiles), [baseAi, activeProfile, profiles]);
   const provider = PROVIDERS.find((item) => item.id === ai.provider) ?? PROVIDERS[0];
+  // Режим с LLM, до которой нечем дойти, — молчаливый режим: Rust проставит
+  // skipped_reason и вставит локальный текст, а пользователь увидит просто
+  // «гибрид не работает». Считаем это здесь, чтобы сказать об этом на экране,
+  // где режим и выбирают.
+  const routeBlocker = llmRouteBlocker(config, apiKeys);
 
   // Ключ голосового профиля показывает его собственная строка в списке выше
   // («ключ сохранён» / «нет ключа»), поэтому отдельной переменной под него
@@ -408,18 +423,18 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 12 }}>
           <h2 style={{ margin: 0, font: "600 14px/1.2 var(--font-sans)", display: "inline-flex", alignItems: "center", gap: 5 }}>
              {t("Профили LLM")} <Hint text={t("Один профиль = одна связка provider + ключ + модель. Создаются и редактируются они в «Интеграциях»; здесь профиль только выбирают.")}/>
-            <span className="pill mono">{profiles.length}</span>
+            <span className="head-count">{profiles.length}</span>
           </h2>
           <button className="btn btn--ghost" onClick={() => onNavigate("integrations")}>
             <Icon name="server" size={12}/>{t("Управлять профилями")}<Icon name="arrow-right" size={11}/>
           </button>
         </div>
         <div className="profile-list">
+            {/* Ссылка на «Интеграции» здесь была третьей подряд: та же кнопка
+                стоит в шапке страницы и в заголовке этой карточки. */}
             {profiles.length === 0 && (
-              <div style={{ padding: "16px 14px", color: "var(--ink-mute)", font: "400 12px/1.5 var(--font-sans)", display: "grid", gap: 8, justifyItems: "start" }}>
-                <span>{t("Профилей пока нет. Настройки LLM ниже применяются к базовой конфигурации; профиль нужен, чтобы хранить несколько связок «провайдер + ключ + модель».")}</span>
-                <button className="btn btn--ghost" onClick={() => onNavigate("integrations")}>
-                  <Icon name="server" size={12}/>{t("Создать профиль в «Интеграциях»")} </button>
+              <div style={{ padding: "16px 14px", color: "var(--ink-mute)", font: "400 12px/1.5 var(--font-sans)" }}>
+                {t("Профилей пока нет. Настройки LLM ниже применяются к базовой конфигурации; профиль нужен, чтобы хранить несколько связок «провайдер + ключ + модель».")}
               </div>
             )}
             {profiles.map((profile) => {
@@ -498,6 +513,20 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
               </button>
             ))}
           </div>
+          {/* Одна строка без заголовка и без кнопки: путь в «Интеграции» уже
+              лежит двумя карточками выше, а заголовок повторял бы то же, что
+              говорит сама причина. */}
+          {routeBlocker && (
+            <div role="alert" className="ai-mode-warning">
+              <Icon name="info" size={13} style={{ color: "var(--warn)", flex: "0 0 auto", marginTop: 1 }}/>
+              <span style={{ font: "500 11.5px/1.45 var(--font-sans)", color: "var(--ink)" }}>
+                {blockerReason(routeBlocker)}{" "}
+                {ai.pipeline_mode === "cloud"
+                  ? t("Пока этого нет, распознавать нечем: диктовка завершится ошибкой.")
+                  : t("Пока этого нет, диктовка вставляет локальный текст без обработки LLM.")}
+              </span>
+            </div>
+          )}
         </section>
 
         <section className="card" style={{ padding: "4px 22px", marginBottom: 14 }}>

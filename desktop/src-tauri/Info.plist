@@ -5,13 +5,13 @@
   <key>CFBundleIdentifier</key>
   <string>com.sotto.app</string>
   <key>CFBundleExecutable</key>
-  <string>whisper-desktop</string>
+  <string>Sotto</string>
   <key>CFBundleName</key>
   <string>Sotto</string>
   <key>CFBundleDisplayName</key>
   <string>Sotto</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.0.1</string>
+  <string>0.0.2</string>
   <key>CFBundleVersion</key>
   <string>1</string>
   <key>CFBundleInfoDictionaryVersion</key>

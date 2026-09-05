@@ -938,6 +938,12 @@ fn definition(model_id: &str) -> Result<&'static ModelDefinition, String> {
         .ok_or_else(|| format!("UNKNOWN_MODEL: {model_id}"))
 }
 
+/// Каталог кэша до переименования приложения в Sotto. Существует только ради
+/// переезда: у тех, кто ставил ранние сборки, здесь лежат уже скачанные
+/// модели — это гигабайты, и терять их из-за смены имени нельзя.
+const LEGACY_CACHE_DIR: &str = "whisper-desktop";
+const CACHE_DIR: &str = "sotto";
+
 pub fn models_dir() -> Result<PathBuf, String> {
     if let Ok(override_dir) = std::env::var("SPEECH_TO_TEXT_MODELS_DIR") {
         if !override_dir.trim().is_empty() {
@@ -946,7 +952,32 @@ pub fn models_dir() -> Result<PathBuf, String> {
     }
     let cache =
         dirs::cache_dir().ok_or_else(|| "MODEL_CACHE_UNAVAILABLE: no cache dir".to_string())?;
-    Ok(cache.join("whisper-desktop").join("models"))
+    Ok(migrate_legacy_cache(&cache).join("models"))
+}
+
+/// Вернуть каталог кэша, по дороге переселив старый, если он ещё не переселён.
+///
+/// Переименование — одно движение в пределах одного тома, поэтому копии и
+/// половинчатого состояния не возникает. Если переименовать не вышло (права,
+/// открытый файл, том только на чтение), возвращаем старый путь: работающие
+/// модели важнее аккуратного имени каталога, а повторить попытку можно на
+/// следующем запуске.
+fn migrate_legacy_cache(cache: &Path) -> PathBuf {
+    let current = cache.join(CACHE_DIR);
+    let legacy = cache.join(LEGACY_CACHE_DIR);
+    if current.exists() || !legacy.is_dir() {
+        return current;
+    }
+    match std::fs::rename(&legacy, &current) {
+        Ok(()) => {
+            log::info!("model cache moved from {LEGACY_CACHE_DIR} to {CACHE_DIR}");
+            current
+        }
+        Err(error) => {
+            log::warn!("model cache stays at {LEGACY_CACHE_DIR}: {error}");
+            legacy
+        }
+    }
 }
 
 pub fn model_path(model_id: &str) -> Result<PathBuf, String> {
@@ -1408,16 +1439,25 @@ pub fn list_models(selected: &str, loaded_model_id: Option<&str>) -> Vec<ModelIn
     catalogue.chain(bundles).chain(local).collect()
 }
 
+/// Delete a model's file: a catalogue download, a bundle directory, or a file
+/// the user put in the models directory themselves.
+///
+/// Own files used to be refused here, on the grounds that the app cannot get
+/// one back the way it can re-download a catalogue model. But the file is in
+/// the app's directory, the app is what shows it, and the only way out was a
+/// file manager — a refusal that protects nobody from anything. What the
+/// difference actually deserves is a different sentence in the confirmation,
+/// and that is where it now lives.
+///
+/// The id of an own file is its file stem, validated by `local_model_stem`
+/// through `model_path`, so nothing outside the models directory is
+/// reachable from here.
 pub fn delete_cached_model(model_id: &str) -> Result<bool, String> {
-    // Catalogue models only. The app downloaded those and can fetch them
-    // again; a file the user placed in the directory is not ours to remove,
-    // and there would be no way to get it back.
     if model_engine(model_id)? == ModelEngine::SherpaNemoCtc {
         let entry = bundle_manifest_entry(model_id)?;
         let path = models_dir()?.join(entry.directory_name);
         return remove_bundle_path(&path);
     }
-    definition(model_id)?;
     let path = model_path(model_id)?;
     if !path.exists() {
         return Ok(false);
@@ -1430,6 +1470,49 @@ pub fn delete_cached_model(model_id: &str) -> Result<bool, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Переезд кэша стоит гигабайтов трафика, если сломается: у пользователя
+    /// прежних сборок в старом каталоге лежат уже скачанные модели.
+    mod cache_migration {
+        use super::*;
+
+        #[test]
+        fn a_legacy_directory_moves_to_the_new_name() {
+            let root = tempfile::tempdir().unwrap();
+            let legacy = root.path().join(LEGACY_CACHE_DIR).join("models");
+            std::fs::create_dir_all(&legacy).unwrap();
+            std::fs::write(legacy.join("ggml-turbo.bin"), b"weights").unwrap();
+
+            let resolved = migrate_legacy_cache(root.path());
+
+            assert_eq!(resolved, root.path().join(CACHE_DIR));
+            assert!(resolved.join("models").join("ggml-turbo.bin").is_file());
+            assert!(!root.path().join(LEGACY_CACHE_DIR).exists());
+        }
+
+        /// Уже переехавший каталог трогать нельзя: старый мог остаться от
+        /// параллельно стоящей сборки, и его содержимое затёрло бы новое.
+        #[test]
+        fn an_existing_new_directory_wins_over_the_legacy_one() {
+            let root = tempfile::tempdir().unwrap();
+            std::fs::create_dir_all(root.path().join(CACHE_DIR).join("models")).unwrap();
+            std::fs::create_dir_all(root.path().join(LEGACY_CACHE_DIR).join("models")).unwrap();
+
+            let resolved = migrate_legacy_cache(root.path());
+
+            assert_eq!(resolved, root.path().join(CACHE_DIR));
+            assert!(root.path().join(LEGACY_CACHE_DIR).exists());
+        }
+
+        #[test]
+        fn a_clean_install_just_gets_the_new_path() {
+            let root = tempfile::tempdir().unwrap();
+            assert_eq!(
+                migrate_legacy_cache(root.path()),
+                root.path().join(CACHE_DIR)
+            );
+        }
+    }
 
     #[test]
     fn turbo_aliases_resolve_to_public_id() {
@@ -1978,10 +2061,16 @@ mod tests {
         assert!(path.to_string_lossy().ends_with("russian-finetune.bin"));
     }
 
+    /// Раньше здесь стоял отказ: приложение не скачивало этот файл и не
+    /// смогло бы его вернуть. Отказ убран — вместе с ним ушла и модель,
+    /// которую список показывал, но убрать из этого списка было нечем.
+    /// Единственное, чего быть не должно, — ошибки на уже отсутствующем
+    /// файле: интерфейс показал бы её как «не удалось удалить».
     #[test]
-    fn local_models_are_not_deletable() {
-        // The app did not download the file and could not restore it.
-        assert!(delete_cached_model("russian-finetune").is_err());
+    fn deleting_an_absent_own_file_is_not_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let _g = EnvGuard::set(MODELS_DIR_ENV, dir.path());
+        assert_eq!(delete_cached_model("russian-finetune"), Ok(false));
     }
 
     #[test]
@@ -2134,6 +2223,43 @@ mod tests {
             .unwrap();
         assert!(delete_cached_model("tiny").unwrap());
         assert!(!dir.path().join("ggml-tiny.bin").exists());
+    }
+
+    /// Свой файл каталогу неизвестен, и раньше удаление на нём отказывало:
+    /// список показывал модель, которую нельзя убрать из этого же списка.
+    #[test]
+    fn delete_cached_model_removes_a_file_the_user_added() {
+        let dir = tempfile::tempdir().unwrap();
+        let _g = EnvGuard::set(MODELS_DIR_ENV, dir.path());
+        let own = dir.path().join("ggml-my-finetune.bin");
+        std::fs::File::create(&own)
+            .unwrap()
+            .set_len(MIN_VALID_MODEL_BYTES)
+            .unwrap();
+        // Именно так этот файл и назван в списке моделей.
+        assert_eq!(
+            discover_local_models_in(dir.path()),
+            vec![("ggml-my-finetune".to_string(), MIN_VALID_MODEL_BYTES)],
+        );
+
+        assert!(delete_cached_model("ggml-my-finetune").unwrap());
+        assert!(!own.exists());
+        assert!(discover_local_models_in(dir.path()).is_empty());
+    }
+
+    /// Идентификатор своего файла приходит с фронтенда, и путь из него
+    /// собирается конкатенацией. Выход за каталог моделей должен упираться в
+    /// ту же проверку, что и на загрузке, а не в удачное стечение имён.
+    #[test]
+    fn delete_cached_model_refuses_to_walk_out_of_the_models_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let _g = EnvGuard::set(MODELS_DIR_ENV, dir.path());
+        let outsider = dir.path().parent().unwrap().join("outsider.bin");
+        std::fs::write(&outsider, b"not a model").unwrap();
+
+        assert!(delete_cached_model("../outsider").is_err());
+        assert!(delete_cached_model("/etc/passwd").is_err());
+        assert!(outsider.exists());
     }
 
     // ------------------------------------------------------------------

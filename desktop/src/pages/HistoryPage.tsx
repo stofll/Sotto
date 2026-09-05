@@ -725,7 +725,7 @@ export function HistoryPage() {
                 {group.label && (
                   <div className="flex-row" style={{ gap: 8, padding: "0 4px", margin: "4px 0 2px" }}>
                     <h2 style={{ margin: 0, font: "500 10.5px/1 var(--font-mono)", color: "var(--ink-mute)", textTransform: "uppercase", letterSpacing: "0.08em" }}>{group.label}</h2>
-                    <span className="pill mono">{group.entries.length}</span>
+                    <span className="head-count">{group.entries.length}</span>
                   </div>
                 )}
                 <div style={{ display: "grid", gap: viewMode === "list" ? 4 : 10 }}>

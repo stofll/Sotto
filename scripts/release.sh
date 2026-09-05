@@ -1,5 +1,5 @@
 #!/bin/sh
-# release.sh — Dry-run release verification for whisper-desktop
+# release.sh — Dry-run release verification for Sotto
 #
 # Verifies:
 #   1. git working tree is clean
@@ -46,7 +46,7 @@ info() { printf "${CYAN}[INFO]${NC} %s\n" "$*"; }
 # ---------------------------------------------------------------------------
 CARGO_TOML="desktop/src-tauri/Cargo.toml"
 
-echo "${BOLD}=== whisper-desktop release dry-run ===${NC}"
+echo "${BOLD}=== Sotto release dry-run ===${NC}"
 echo ""
 
 # ---------------------------------------------------------------------------
@@ -122,26 +122,25 @@ ok "Tag '$TAG' is available."
 echo ""
 echo "${BOLD}=== Dry-run summary (no changes made) ===${NC}"
 echo ""
-info "The following commands WOULD be run for release ${VERSION}:"
+info "Releasing ${VERSION} would go like this."
 echo ""
 
+info "You run:"
 printf "  ${CYAN}1.${NC} git tag -a -m 'release ${VERSION}' %s\n" "$TAG"
 printf "  ${CYAN}2.${NC} git push origin %s\n" "$TAG"
 echo ""
 
-printf "  ${CYAN}3.${NC} cd desktop && pnpm tauri build --bundles dmg -- --locked (macOS arm64)\n"
-printf "  ${CYAN}4.${NC} cd desktop && pnpm tauri build --bundles dmg -- --locked (macOS x64)\n"
-printf "  ${CYAN}5.${NC} cd desktop && pnpm tauri build --bundles msi -- --locked (Windows x64)\n"
+info ".github/workflows/release.yml then runs, on the tag push:"
+printf "  ${CYAN}3.${NC} build+sign aarch64-apple-darwin (.dmg, .app.tar.gz)\n"
+printf "  ${CYAN}4.${NC} build+sign x86_64-pc-windows-msvc (NSIS .exe)\n"
+printf "  ${CYAN}5.${NC} attach latest.json and open a DRAFT release\n"
+printf "  ${CYAN}6.${NC} attach the SBOM and the license report\n"
+printf "  ${CYAN}7.${NC} attach SHA256SUMS.txt over the draft's own assets\n"
 echo ""
 
-printf "  ${CYAN}6.${NC} sha256sum *.dmg *.msi *.exe > SHA256SUMS.txt\n"
-echo ""
-
-printf "  ${CYAN}7.${NC} Create GitHub Release from tag %s\n" "$TAG"
-printf "  ${CYAN}8.${NC} Upload: .dmg (arm64), .dmg (x64), .msi, .exe, SHA256SUMS.txt\n"
-echo ""
-
-printf "  ${CYAN}9.${NC} git push origin main\n"
+info "You finish:"
+printf "  ${CYAN}8.${NC} check the draft, write the release body, publish it\n"
+printf "     Publishing is when latest.json goes live for the updater.\n"
 echo ""
 
 warn "Code signing (Windows Authenticode, Apple notarization) requires"

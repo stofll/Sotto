@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Icon } from "./Icon";
 import { Hint } from "./Hint";
@@ -49,8 +49,14 @@ export function TitleBar({ collapsed, onToggleCollapse }: { collapsed?: boolean;
   // Полоса делится ровно по границе сайдбара: слева она продолжает сайдбар и
   // держит название с кнопкой сворачивания, справа — фон страницы с кнопками
   // окна. Своего цвета у неё нет, поэтому «чёрной полосы» сверху больше нет.
+  //
+  // Перетаскивание окна держится на `data-tauri-drag-region`, а не на
+  // `-webkit-app-region: drag`: последнее понимает только WebView2, поэтому на
+  // macOS (WKWebView) окно меняло размер, но не двигалось. Значение `deep`
+  // распространяет зону на всю полосу; кнопки Tauri исключает сам — любой
+  // `<button>` на пути события отменяет перетаскивание.
   return (
-    <div className="titlebar">
+    <div className="titlebar" data-tauri-drag-region="deep">
       <div className="titlebar__rail"><Brand collapsed={collapsed} onToggleCollapse={onToggleCollapse}/></div>
       <div className="titlebar__bar">
         <button className="btn btn--ghost titlebar__button" onClick={() => void withWindow("minimize")} aria-label={t("Свернуть")}><svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 5h6" stroke="currentColor" strokeWidth="1"/></svg></button>
@@ -298,16 +304,67 @@ export function Switch({ on, onChange }: { on: boolean; onChange?: (value: boole
   return <button className="switch" data-on={on ? "true" : "false"} onClick={() => onChange?.(!on)} aria-pressed={on} aria-label={on ? t("Включено") : t("Выключено")}/>;
 }
 
+/**
+ * Переключатель из нескольких сегментов.
+ *
+ * Подсветка выбранного — не фон самой кнопки, а отдельная подложка, которая
+ * переезжает под ней. Раньше выбор перекрашивал две кнопки мгновенно, и на
+ * длинных подписях («Переключатель» → «Удержание») это читалось как подмена
+ * элемента, а не как перемещение. Ехать подложка может только зная, куда, —
+ * отсюда измерение выбранной кнопки, а не вычисление доли от ширины: сегменты
+ * бывают разной ширины, и в русском с английским она к тому же разная.
+ *
+ * Стили переехали в CSS: инлайном не выражаются ни переход, ни уважение к
+ * `prefers-reduced-motion`.
+ */
 export function Segmented({ value, options, onChange, disabled = false }: { value: string; options: Array<string | { value: string; label: string; icon?: string }>; onChange?: (value: string) => void; disabled?: boolean }) {
+  const items = options.map((opt) => (typeof opt === "string" ? { value: opt, label: opt, icon: undefined } : opt));
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [thumb, setThumb] = useState<{ left: number; width: number } | null>(null);
+  const selectedIndex = items.findIndex((item) => item.value === value);
+  // Подписи входят в ключ намеренно: смена языка интерфейса меняет ширину
+  // кнопок, не трогая ни выбор, ни их количество.
+  const labelsKey = items.map((item) => item.label).join("\u0000");
+
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const button = root.querySelectorAll<HTMLButtonElement>(".segmented__option")[selectedIndex];
+    if (!button) {
+      setThumb(null);
+      return;
+    }
+    // Начало координат у обоих одно — padding-box переключателя: `offsetLeft`
+    // отсчитывается от него, и от него же считается `left: 0` у подложки.
+    // Поправка на толщину рамки, которая напрашивается, сдвигает подложку на
+    // тот самый пиксель влево — проверено замером.
+    const measure = () => setThumb({ left: button.offsetLeft, width: button.offsetWidth });
+    measure();
+    // Ширина сегментов зависит от ширины строки: в узком окне «Режим записи»
+    // ужимается вместе с колонкой, и подложка обязана ехать за ним.
+    const observer = new ResizeObserver(measure);
+    observer.observe(root);
+    return () => observer.disconnect();
+  }, [selectedIndex, items.length, labelsKey]);
+
   return (
-    <div style={{ display: "inline-flex", padding: 3, gap: 2, background: "var(--surface-2)", border: "1px solid var(--border-strong)", borderRadius: "var(--r-sm)", opacity: disabled ? 0.55 : 1 }}>
-      {options.map((opt) => {
-        const v = typeof opt === "string" ? opt : opt.value;
-        const label = typeof opt === "string" ? opt : opt.label;
-        const icon = typeof opt === "string" ? undefined : opt.icon;
-        const selected = value === v;
-        return <button key={v} type="button" disabled={disabled} onClick={() => onChange?.(v)} style={{ appearance: "none", display: "inline-flex", alignItems: "center", gap: 6, height: 26, padding: "0 12px", border: 0, cursor: disabled ? "not-allowed" : "pointer", borderRadius: 4, background: selected ? "var(--surface-4)" : "transparent", color: selected ? "var(--text)" : "var(--text-2)", font: "500 12px/1 var(--font-sans)", boxShadow: selected ? "0 1px 0 rgba(255,255,255,0.04) inset, 0 1px 2px rgba(0,0,0,0.2)" : "none" }}>{icon && <Icon name={icon} size={13}/>} {label}</button>;
-      })}
+    <div className="segmented" ref={rootRef} data-disabled={disabled ? "true" : undefined}>
+      {/* Появляется после первого измерения, поэтому въезда слева при монтаже
+          нет: элемент рождается уже на месте, а переход начинает работать со
+          следующей смены выбора. */}
+      {thumb && <span className="segmented__thumb" aria-hidden="true" style={{ transform: `translateX(${thumb.left}px)`, width: thumb.width }}/>}
+      {items.map((item) => (
+        <button
+          key={item.value}
+          type="button"
+          className="segmented__option"
+          data-selected={item.value === value ? "true" : "false"}
+          disabled={disabled}
+          onClick={() => onChange?.(item.value)}
+        >
+          {item.icon && <Icon name={item.icon} size={13}/>} {item.label}
+        </button>
+      ))}
     </div>
   );
 }

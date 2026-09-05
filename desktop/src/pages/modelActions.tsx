@@ -377,8 +377,13 @@ export function ModelActionOverlays({ actions }: { actions: ModelActions }) {
               <button className="modal__close" type="button" onClick={() => setPendingDelete(null)} aria-label={t("Закрыть")}><Icon name="x" size={14}/></button>
             </div>
             <div className="modal__body">
-              <p style={{ margin: 0, font: "400 13px/1.5 var(--font-sans)", color: "var(--ink-mute)" }}>
-                {t("Файл модели «{p0}» ({p1}) будет удалён с диска. Для повторного использования его придётся скачать заново.", { p0: pendingDelete.label, p1: pendingDelete.size })}
+              {/* Своё и скачанное удаляются одинаково, а последствия разные:
+                  каталожную модель приложение вернёт само, чужой файл —
+                  никогда. Разговор об этом идёт здесь, до удаления. */}
+              <p style={{ margin: 0, font: "400 13px/1.5 var(--font-sans)", color: pendingDelete.local ? "var(--warn)" : "var(--ink-mute)" }}>
+                {pendingDelete.local
+                  ? t("Файл «{p0}» ({p1}) будет удалён с диска навсегда. Это ваш файл: скачать его заново приложение не сможет.", { p0: pendingDelete.label, p1: pendingDelete.size })
+                  : t("Файл модели «{p0}» ({p1}) будет удалён с диска. Для повторного использования его придётся скачать заново.", { p0: pendingDelete.label, p1: pendingDelete.size })}
               </p>
               {pendingDelete.loaded && (
                 <p style={{ margin: 0, font: "400 13px/1.5 var(--font-sans)", color: "var(--warn)" }}>

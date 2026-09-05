@@ -10,13 +10,7 @@ import type { ConfigResult, MicrophoneResult, ModelInfo } from "../bridge/types"
 import { getLocale, isLocale, LOCALE_LABELS, LOCALES, setLocale, t, type Locale } from "../i18n";
 import { DEFAULT_HOTKEY } from "../hotkey";
 import { fallbackLanguage, fallbackModels, speechLanguages } from "./modelCatalog";
-import {
-  DEFAULT_TELEMETRY_SESSION_TIMEOUT_MINUTES,
-  MAX_TELEMETRY_SESSION_TIMEOUT_MINUTES,
-  MIN_TELEMETRY_SESSION_TIMEOUT_MINUTES,
-  isTelemetryEnabled,
-  normalizeTelemetrySessionTimeout,
-} from "./telemetrySettings";
+import { isTelemetryEnabled } from "./telemetrySettings";
 
 type Props = {
   config: ConfigResult | null;
@@ -469,72 +463,6 @@ function HistoryRetentionControl({ days, maxEntries, onConfigChanged }: { days: 
   );
 }
 
-function TelemetrySettings({
-  enabled,
-  timeoutMinutes,
-  onConfigChanged,
-}: {
-  enabled?: boolean;
-  timeoutMinutes?: number;
-  onConfigChanged: Props["onConfigChanged"];
-}) {
-  const telemetryEnabled = isTelemetryEnabled(enabled);
-  const effectiveTimeout = normalizeTelemetrySessionTimeout(timeoutMinutes);
-  const [draftTimeout, setDraftTimeout] = useState(String(effectiveTimeout));
-
-  useEffect(() => {
-    setDraftTimeout(String(effectiveTimeout));
-  }, [effectiveTimeout]);
-
-  async function saveTimeout(raw = draftTimeout) {
-    const nextTimeout = normalizeTelemetrySessionTimeout(raw);
-    setDraftTimeout(String(nextTimeout));
-    const result = await onConfigChanged({ telemetry_session_timeout_minutes: nextTimeout });
-    // Keep the control honest if save_config rejected the change. The parent
-    // owns the persisted state, so a failed save must not look successful here.
-    if (!result) setDraftTimeout(String(effectiveTimeout));
-  }
-
-  return (
-    <section className="advanced__telemetry" aria-labelledby="telemetry-settings-title">
-      <div className="advanced__telemetry-copy">
-        <h3 id="telemetry-settings-title" className="advanced__telemetry-title">{t("Телеметрия")}</h3>
-        <label className="checkbox-row advanced__telemetry-toggle">
-          <input
-            className="checkbox"
-            type="checkbox"
-            checked={telemetryEnabled}
-            onChange={(event) => void onConfigChanged({ telemetry_enabled: event.target.checked })}
-          />
-          {t("Разрешить обезличенную телеметрию")}
-        </label>
-        <p>{t("Собираются обезличенные события использования и технические сведения: режим обработки, длительность аудио и обработки, оценка сэкономленного времени, ОС, версия приложения, архитектура и сведения о сессии.")}</p>
-        <p>{t("Не отправляется: текст диктовки, аудио, содержимое буфера обмена, имена и пути файлов, промпты, API-ключи, ответы провайдеров и тексты ошибок.")}</p>
-        <p>{t("Отключение не влияет на функции приложения и останавливает новый сбор и отправку. Уже сохранённые или отправленные события не удаляются; после повторного включения ожидающие события могут отправиться.")}</p>
-      </div>
-      <div className="set-cell advanced__telemetry-timeout">
-        <SetLabel title={t("Таймаут сессии")} hint={t("Сессия завершается после периода бездействия. Этот параметр влияет только на агрегированную аналитику и не меняет запись или выгрузку модели.")}/>
-        <div className="advanced__telemetry-timeout-control">
-          <NumberField
-            className="mono"
-            min={MIN_TELEMETRY_SESSION_TIMEOUT_MINUTES}
-            max={MAX_TELEMETRY_SESSION_TIMEOUT_MINUTES}
-            step={5}
-            value={draftTimeout}
-            onValueChange={setDraftTimeout}
-            onStepCommit={(next) => void saveTimeout(next)}
-            onBlur={() => void saveTimeout()}
-            onKeyDown={(event) => { if (event.key === "Enter") void saveTimeout(); }}
-            style={{ width: 78, height: "var(--control-h)", flex: "0 0 auto" }}
-          />
-          <span>{t("минут")}</span>
-        </div>
-        <span className="advanced__telemetry-timeout-note">{t("По умолчанию: {p0} минут", { p0: DEFAULT_TELEMETRY_SESSION_TIMEOUT_MINUTES })}</span>
-      </div>
-    </section>
-  );
-}
-
 const MIC_SEGMENTS = 24;
 
 function MicMeter({ level, peak, active }: { level: number; peak: number; active: boolean }) {
@@ -770,6 +698,12 @@ export function SettingsPage({ config, microphones, models, onConfigChanged }: P
   // (язык, CPU-only) следуют язык речи и выбор устройства.
   const selectedModelInfo = (models.length ? models : fallbackModels()).find((item) => item.id === model);
   const recordingMode = config?.recording_mode ?? "toggle";
+  // Одна подпись на все места, где состояние проверки называется словами:
+  // подсказка кнопки и строка для скринридера обязаны говорить одно и то же.
+  const duckTestLabel = duckTest === "running" ? t("Проверяем приглушение…")
+    : duckTest === "done" ? t("Громкость восстановлена")
+    : duckTest === "error" ? duckTestError
+    : t("Проверить");
 
   return (
     <div className="page">
@@ -792,13 +726,13 @@ export function SettingsPage({ config, microphones, models, onConfigChanged }: P
         </div>
       </section>
 
-      {/* 2. Languages — 2 cols. Развёрнутые подписи вместо подсказки: путать
-          язык речи с языком интерфейса дорого, но объяснять это всплывашкой
-          дороже, чем назвать настройки так, чтобы вопрос не возникал. */}
+      {/* 2. Languages — 2 cols. Названия разводят две настройки между собой,
+          а подсказка у языка речи отвечает на следующий вопрос: что будет,
+          если продиктовать не на нём. */}
       <section className="card" style={{ padding: "12px 16px", marginBottom: 10 }}>
         <div className="lang-row">
           <div className="set-cell">
-            <SetLabel title={t("Язык речи")}/>
+            <SetLabel title={t("Язык речи")} hint={t("Язык, на котором вы диктуете: модель распознаёт речь именно как его. «Авто» определяет язык по самой записи — это чуть медленнее и иногда ошибается на коротких фразах. На язык интерфейса не влияет.")}/>
             <LanguagePicker language={config?.language} model={selectedModelInfo} models={models} onConfigChanged={onConfigChanged}/>
           </div>
           <div className="set-cell">
@@ -820,6 +754,10 @@ export function SettingsPage({ config, microphones, models, onConfigChanged }: P
           чекбоксов; отдельный тумблер создавал ложную визуальную иерархию. */}
       <section className="card" style={{ padding: "12px 16px" }}>
         <div className="behavior-row behavior-row--primary">
+          {/* «Пробел в конце» и «Enter после вставки» переехали в
+              «Дополнительно»: обе зависят от авто-вставки, обе ставят один раз
+              под свой сценарий — и втроём эти подписи не давали строке
+              поместиться на узком окне. */}
           <div className="set-cell behavior-row__paste-options">
             <span className="label-with-hint">
               <label className="checkbox-row">
@@ -828,14 +766,6 @@ export function SettingsPage({ config, microphones, models, onConfigChanged }: P
               </label>
               <HintIcon text={t("Сразу вставлять распознанный текст в активное поле. Если выключить, текст останется только в буфере обмена.")}/>
             </span>
-            <label className="checkbox-row" style={{ color: autoPaste ? "var(--ink-mute)" : "var(--ink-faint)" }}>
-              <input className="checkbox" type="checkbox" disabled={!autoPaste} checked={config?.paste_trailing_space ?? false} onChange={(e) => void onConfigChanged({ paste_trailing_space: e.target.checked })}/>
-              {t("Пробел в конце")}
-            </label>
-            <label className="checkbox-row" style={{ color: autoPaste ? "var(--ink-mute)" : "var(--ink-faint)" }} title={t("Нажать Enter сразу после вставки — отправит сообщение в чате или запустит поиск.")}>
-              <input className="checkbox" type="checkbox" disabled={!autoPaste} checked={config?.paste_auto_submit ?? false} onChange={(e) => void onConfigChanged({ paste_auto_submit: e.target.checked })}/>
-              {t("Enter после вставки")}
-            </label>
           </div>
           <div className="vrule"/>
           <div className="set-cell behavior-row__sound-feedback">
@@ -849,26 +779,39 @@ export function SettingsPage({ config, microphones, models, onConfigChanged }: P
           {/* Приглушение — не обработка записи, а то, что приложение делает с
               системой, пока пишет; и переключают его ситуативно: в наушниках
               не нужно, с колонок нужно. Отсюда соседство со вставкой, а не
-              место в «Дополнительно». */}
+              место в «Дополнительно». Подпись короткая: «на время записи»
+              договаривает подсказка, а в строке эти три слова стоили того
+              места, из-за которого строка и переставала помещаться. */}
           <div className="set-cell behavior-row__duck">
             <span className="label-with-hint">
               <label className="checkbox-row">
                 <input className="checkbox" type="checkbox" checked={duckOutput} onChange={(e) => void onConfigChanged({ duck_output_while_recording: e.target.checked })}/>
-                {t("Приглушать звук на время записи")}
+                {t("Приглушать звук")}
               </label>
               <HintIcon text={t("На время записи убавить общую громкость и вернуть её после. Нужно, если пишете с колонок: звук из них попадает в микрофон.")}/>
             </span>
-            {/* Проверка нужна ровно один раз — когда включили. Пока выключено,
-                кнопке в этой строке делать нечего. */}
-            {duckOutput && (
-              <>
-                <button className="btn btn--ghost" type="button" disabled={duckTest === "running"} onClick={() => void testOutputDuck()} style={{ height: 26, padding: "0 9px", fontSize: 11 }}>
-                  {duckTest === "running" ? t("Проверяем приглушение…") : t("Проверить")}
-                </button>
-                {duckTest === "done" && <span role="status" style={{ font: "500 11px/1.3 var(--font-sans)", color: "var(--ok)" }}>{t("Громкость восстановлена")}</span>}
-                {duckTest === "error" && <span role="alert" title={duckTestError} style={{ font: "500 11px/1.3 var(--font-sans)", color: "var(--err)", maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{duckTestError}</span>}
-              </>
-            )}
+            {/* Вся проверка — одна кнопка-значок, и результат показывает она
+                же: галочка или красный знак вместо слов рядом. Так строка
+                занимает одну и ту же ширину во всех состояниях — а раньше
+                появление кнопки, а потом и статуса, переносило ячейку на
+                вторую строку и меняло высоту карточки прямо под курсором.
+                Текст результата никуда не делся: он в подсказке кнопки и в
+                скрытой строке для скринридера. */}
+            <button
+              className="btn btn--ghost behavior-row__duck-button"
+              type="button"
+              data-state={duckTest}
+              data-visible={duckOutput ? "true" : "false"}
+              disabled={!duckOutput || duckTest === "running"}
+              tabIndex={duckOutput ? undefined : -1}
+              aria-hidden={duckOutput ? undefined : true}
+              onClick={() => void testOutputDuck()}
+              title={duckTestLabel}
+              aria-label={duckTestLabel}
+            >
+              <Icon name={duckTest === "done" ? "check" : duckTest === "error" ? "x" : "test"} size={12}/>
+            </button>
+            <span className="sr-only" role="status">{duckTest === "idle" ? "" : duckTestLabel}</span>
           </div>
         </div>
       </section>
@@ -903,11 +846,31 @@ export function SettingsPage({ config, microphones, models, onConfigChanged }: P
           </div>
         </div>
 
+        {/* Уточнения к авто-вставке: работают, только когда она включена, и
+            выключенными выглядят приглушённо — иначе флажок, который ничего не
+            делает, читается как сломанный. */}
+        <div className="advanced__paste-row">
+          <label className="checkbox-row" style={{ color: autoPaste ? "var(--ink-mute)" : "var(--ink-faint)" }}>
+            <input className="checkbox" type="checkbox" disabled={!autoPaste} checked={config?.paste_trailing_space ?? false} onChange={(e) => void onConfigChanged({ paste_trailing_space: e.target.checked })}/>
+            {t("Пробел в конце")}
+          </label>
+          <span className="label-with-hint">
+            <label className="checkbox-row" style={{ color: autoPaste ? "var(--ink-mute)" : "var(--ink-faint)" }}>
+              <input className="checkbox" type="checkbox" disabled={!autoPaste} checked={config?.paste_auto_submit ?? false} onChange={(e) => void onConfigChanged({ paste_auto_submit: e.target.checked })}/>
+              {t("Enter после вставки")}
+            </label>
+            <HintIcon text={t("Нажать Enter сразу после вставки — отправит сообщение в чате или запустит поиск.")}/>
+          </span>
+        </div>
+
         {/* Автозапуск ставят один раз за установку — ровно тот случай, ради
             которого блок и свёрнут. Обрезки тишины здесь больше нет: vad.rs
             сам отказывается резать, когда речь не найдена или экономия меньше
             секунды, так что выключателю было нечего чинить. Ключ trim_silence
-            в config.json по-прежнему читается — как отладочный. */}
+            в config.json по-прежнему читается — как отладочный.
+            Согласие на телеметрию стоит здесь же: это такой же выключатель
+            «поставил один раз», и отдельный подраздел под одну строку был
+            тяжелее самой строки. */}
         <div className="advanced__autostart-row">
           <span className="label-with-hint">
             <label className="checkbox-row">
@@ -916,13 +879,19 @@ export function SettingsPage({ config, microphones, models, onConfigChanged }: P
             </label>
             <HintIcon text={t("Приложение запускается в фоне при входе в систему, горячая клавиша становится доступна сразу.")}/>
           </span>
+          <span className="label-with-hint">
+            <label className="checkbox-row">
+              <input
+                className="checkbox"
+                type="checkbox"
+                checked={isTelemetryEnabled(config?.telemetry_enabled)}
+                onChange={(e) => void onConfigChanged({ telemetry_enabled: e.target.checked })}
+              />
+              {t("Разрешить обезличенную телеметрию")}
+            </label>
+            <HintIcon text={t("Собираются обезличенные события использования и технические сведения: режим обработки, длительность аудио и обработки, оценка сэкономленного времени, ОС, версия приложения, архитектура и сведения о сессии.")}/>
+          </span>
         </div>
-
-        <TelemetrySettings
-          enabled={config?.telemetry_enabled}
-          timeoutMinutes={config?.telemetry_session_timeout_minutes}
-          onConfigChanged={onConfigChanged}
-        />
       </details>
     </div>
   );

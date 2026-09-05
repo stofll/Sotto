@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Проверить, что в раздаваемом артефакте нет путей сборочной машины.
 
-    python scripts/check-build-paths.py desktop/src-tauri/target/release/whisper-desktop.exe
+    python scripts/check-build-paths.py desktop/src-tauri/target/release/Sotto.exe
 
 Зачем. rustc вшивает `file!()` каждой зависимости в сообщения паники, а MSVC —
 `__FILE__` в ассерты whisper.cpp. И то и другое — абсолютные пути той машины,

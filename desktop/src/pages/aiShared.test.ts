@@ -15,6 +15,7 @@ import {
   STRUCTURED_SYSTEM_PROMPT,
   SYSTEM_PROMPT_PRESETS,
   textProfileFor,
+  llmRouteBlocker,
   type LlmProfile,
 } from "./aiShared";
 
@@ -169,5 +170,49 @@ describe("порог минимальной длительности", () => {
     const base = mergeAi(null, { llm_min_duration_seconds: 30 });
     const profile = normalizeProfile(base, { id: "p1", provider: "openai", llm_min_duration_seconds: 0 });
     expect(activeConfigFromProfile(base, profile, [profile]).llm_min_duration_seconds).toBe(0);
+  });
+});
+
+describe("llmRouteBlocker", () => {
+  const withKey = { openai: { available: true, label: "OpenAI", masked: "sk-…12" } };
+  const hybrid = mergeAi(null, { pipeline_mode: "hybrid" });
+  const cloud = mergeAi(hybrid, { pipeline_mode: "cloud", base_url: "https://example.com/v1", stt_model: "whisper-1" });
+
+  it("local needs no provider or key", () => {
+    expect(llmRouteBlocker(null, {})).toBeNull();
+  });
+
+  it("accepts working flat settings without profiles", () => {
+    expect(hybrid.profiles).toEqual([]);
+    expect(llmRouteBlocker(hybrid, withKey)).toBeNull();
+    expect(llmRouteBlocker(cloud, withKey)).toBeNull();
+  });
+
+  it("checks the saved flat settings even if a profile disagrees", () => {
+    const profile = normalizeProfile(hybrid, { id: "default", provider: "openai" });
+    expect(llmRouteBlocker({ ...hybrid, profiles: [profile], api_key_ref: "missing" }, withKey)).toBe("no_key");
+  });
+
+  it("identifies missing provider, model and key", () => {
+    expect(llmRouteBlocker({ ...hybrid, provider: "" }, withKey)).toBe("no_provider");
+    expect(llmRouteBlocker({ ...hybrid, model: " " }, withKey)).toBe("no_model");
+    expect(llmRouteBlocker(hybrid, {})).toBe("no_key");
+    expect(llmRouteBlocker(cloud, {})).toBe("no_key");
+  });
+
+  it.each([undefined, "", "  ", "/v1", "example.com", "file:///tmp/model"])("rejects cloud Base URL %s", (base_url) => {
+    expect(llmRouteBlocker({ ...cloud, base_url }, withKey)).toBe("invalid_base_url");
+  });
+
+  it("allows local HTTP servers and does not require a URL for hybrid", () => {
+    expect(llmRouteBlocker({ ...cloud, base_url: "http://localhost:8080/v1" }, withKey)).toBeNull();
+    expect(llmRouteBlocker({ ...hybrid, base_url: "" }, withKey)).toBeNull();
+  });
+
+  it("uses stt_model for cloud, including an explicitly empty value", () => {
+    expect(llmRouteBlocker({ ...cloud, provider: "", model: "" }, withKey)).toBeNull();
+    expect(llmRouteBlocker({ ...cloud, stt_model: "" }, withKey)).toBe("no_model");
+    expect(llmRouteBlocker({ ...cloud, stt_model: undefined }, withKey)).toBeNull();
+    expect(llmRouteBlocker({ ...cloud, stt_model: undefined, model: "" }, withKey)).toBe("no_model");
   });
 });

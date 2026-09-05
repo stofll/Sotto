@@ -16,9 +16,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use whisper_desktop_lib::cloud_stt::{
-    audio_to_wav_bytes, transcribe, CloudSttProvider, CloudSttRequest,
-};
+use sotto_lib::cloud_stt::{audio_to_wav_bytes, transcribe, CloudSttProvider, CloudSttRequest};
 
 #[derive(Default, Debug)]
 struct Captured {

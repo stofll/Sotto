@@ -4728,6 +4728,48 @@ dependencies = [
 ]
 
 [[package]]
+name = "sotto"
+version = "0.0.2"
+dependencies = [
+ "cpal",
+ "criterion",
+ "dirs 6.0.0",
+ "earshot",
+ "enigo",
+ "fs2",
+ "futures-util",
+ "keyring",
+ "libc",
+ "log",
+ "objc2 0.6.4",
+ "once_cell",
+ "raw-window-handle",
+ "regex",
+ "reqwest 0.12.28",
+ "rubato",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sherpa-rs",
+ "symphonia",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-autostart",
+ "tauri-plugin-clipboard-manager",
+ "tauri-plugin-dialog",
+ "tauri-plugin-global-shortcut",
+ "tauri-plugin-single-instance",
+ "tauri-plugin-updater",
+ "tempfile",
+ "tokio",
+ "uuid",
+ "whisper-rs",
+ "windows 0.61.3",
+ "windows-sys 0.52.0",
+]
+
+[[package]]
 name = "soup3"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6518,48 +6560,6 @@ dependencies = [
  "home",
  "once_cell",
  "rustix 0.38.44",
-]
-
-[[package]]
-name = "whisper-desktop"
-version = "0.0.1"
-dependencies = [
- "cpal",
- "criterion",
- "dirs 6.0.0",
- "earshot",
- "enigo",
- "fs2",
- "futures-util",
- "keyring",
- "libc",
- "log",
- "objc2 0.6.4",
- "once_cell",
- "raw-window-handle",
- "regex",
- "reqwest 0.12.28",
- "rubato",
- "rusqlite",
- "serde",
- "serde_json",
- "sha2",
- "sherpa-rs",
- "symphonia",
- "tauri",
- "tauri-build",
- "tauri-plugin-autostart",
- "tauri-plugin-clipboard-manager",
- "tauri-plugin-dialog",
- "tauri-plugin-global-shortcut",
- "tauri-plugin-single-instance",
- "tauri-plugin-updater",
- "tempfile",
- "tokio",
- "uuid",
- "whisper-rs",
- "windows 0.61.3",
- "windows-sys 0.52.0",
 ]
 
 [[package]]

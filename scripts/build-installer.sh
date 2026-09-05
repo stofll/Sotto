@@ -93,7 +93,7 @@ cmd //c '.\build-installer.bat'
 
 # Регрессию ловим здесь, а не глазами при следующем релизе: любая сборка
 # мимо этого скрипта вернёт пути обратно, и заметить это по бинарю нельзя.
-exe="$(cygpath -u "$build_dir")/release/whisper-desktop.exe"
+exe="$(cygpath -u "$build_dir")/release/Sotto.exe"
 
 python check-build-paths.py "$exe"
 
