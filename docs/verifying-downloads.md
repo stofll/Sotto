@@ -25,7 +25,7 @@ sha256sum --ignore-missing -c SHA256SUMS.txt
 
 ```powershell
 # Windows PowerShell — compare against the line for your file
-Get-FileHash .\Sotto_0.0.2_x64-setup.exe -Algorithm SHA256
+Get-FileHash .\Sotto_0.0.3_x64-setup.exe -Algorithm SHA256
 Select-String -Path .\SHA256SUMS.txt -Pattern 'x64-setup.exe'
 ```
 
@@ -48,14 +48,14 @@ RWQ5l+W1jKXGqdNMnGRzgTdrAGl9xu+fRs0CSQnQb+h5MMb1B2pvOfKj
 The installed app verifies this automatically before applying an update, and
 refuses artifacts signed by any other key. To check a downloaded artifact by
 hand, download the update artifact and its matching `.sig` file. Use the exact
-asset name from the release (for example, `Sotto_0.0.2_x64-setup.exe` on Windows
+asset name from the release (for example, `Sotto_0.0.3_x64-setup.exe` on Windows
 or the `.app.tar.gz` update archive on macOS, rather than the DMG).
 
 Tauri wraps the minisign signature in Base64. Decode it first, then pass the
 decoded file explicitly to [minisign](https://jedisct1.github.io/minisign/):
 
 ```bash
-artifact='Sotto_0.0.2_x64-setup.exe' # replace with your downloaded asset name
+artifact='Sotto_0.0.3_x64-setup.exe' # replace with your downloaded asset name
 
 # macOS
 base64 -D < "$artifact.sig" > "$artifact.minisig"
@@ -68,7 +68,7 @@ minisign -Vm "$artifact" -x "$artifact.minisig" \
 
 ```powershell
 # Windows PowerShell, with minisign installed
-$artifact = 'Sotto_0.0.2_x64-setup.exe' # replace with your downloaded asset name
+$artifact = 'Sotto_0.0.3_x64-setup.exe' # replace with your downloaded asset name
 [IO.File]::WriteAllBytes("$artifact.minisig", [Convert]::FromBase64String((Get-Content -Raw "$artifact.sig")))
 minisign -Vm $artifact -x "$artifact.minisig" `
   -P 'RWQ5l+W1jKXGqdNMnGRzgTdrAGl9xu+fRs0CSQnQb+h5MMb1B2pvOfKj'
