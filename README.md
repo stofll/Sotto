@@ -59,7 +59,7 @@ is sent; [Privacy](docs/privacy.md) covers the full network picture.
 
 ## Current Status
 
-- Version: `0.0.1`
+- Version: `0.0.2`
 - Desktop shell: **Tauri 2 + Rust** backend, **React 19 / TypeScript / Vite** frontend
 - Speech backend: **`whisper-rs`** (whisper.cpp, GGML models) — fully native, no Python
 - Second speech backend (Windows): **`sherpa-onnx`**, CPU-only, each bundle pinned
