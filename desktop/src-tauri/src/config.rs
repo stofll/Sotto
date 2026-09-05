@@ -31,6 +31,15 @@ fn hotkey_from(config: &Config) -> String {
         .unwrap_or_else(|| DEFAULT_HOTKEY.to_string())
 }
 
+/// Accept old numeric indexes as well as persistent device names.
+pub fn microphone_selection(value: Option<Value>) -> Option<String> {
+    match value {
+        Some(Value::String(s)) if !s.is_empty() => Some(s),
+        Some(Value::Number(n)) if n.is_u64() => Some(n.to_string()),
+        _ => None,
+    }
+}
+
 /// Where the app reads and writes `config.json`.
 ///
 /// `pub` so startup can record it in the log. When the config reads as
@@ -38,6 +47,9 @@ fn hotkey_from(config: &Config) -> String {
 /// answering it from outside the process means re-deriving Tauri's
 /// `app_config_dir()` by hand and hoping the derivation matches.
 pub fn config_path(app: &AppHandle) -> Result<PathBuf, String> {
+    if let Some(dir) = crate::portable::data_dir() {
+        return Ok(dir.join("config.json"));
+    }
     let dir = app
         .path()
         .app_config_dir()
@@ -197,6 +209,39 @@ pub fn device_uses_gpu(config: &Value) -> bool {
     resolve_device(config) == DEVICE_GPU
 }
 
+/// Key: after how many idle minutes the model is unloaded from RAM.
+pub const MODEL_UNLOAD_KEY: &str = "model_unload_after_minutes";
+
+/// How many idle minutes to wait when the config says nothing.
+///
+/// A large model holds several gigabytes in memory, and between dictations
+/// nobody needs them. Five minutes is the compromise: people dictate in bursts,
+/// and within a burst reloading would cost more than the freed memory is worth.
+pub const DEFAULT_MODEL_UNLOAD_MINUTES: u64 = 5;
+
+/// The values the interface offers. The config is also edited by hand, so
+/// [`model_unload_after_minutes`] accepts any number in the range, not just
+/// these four.
+pub const MODEL_UNLOAD_CHOICES: [u64; 4] = [0, 5, 10, 30];
+
+/// A day of idling is already "never", just written as a number. The upper
+/// bound exists for the timer rather than the user: a `Duration` of thousands of
+/// minutes is no better than unloading being off, yet it looks like a working
+/// setting.
+const MAX_MODEL_UNLOAD_MINUTES: u64 = 24 * 60;
+
+/// After how many idle minutes to unload the model. `0` — never unload.
+///
+/// A missing key does not mean "never" but the default: unloading is on, and
+/// old configs receive it along with the update.
+pub fn model_unload_after_minutes(config: &Value) -> u64 {
+    let minutes = config
+        .get(MODEL_UNLOAD_KEY)
+        .and_then(Value::as_u64)
+        .unwrap_or(DEFAULT_MODEL_UNLOAD_MINUTES);
+    minutes.min(MAX_MODEL_UNLOAD_MINUTES)
+}
+
 /// One-shot startup migration of the compute-device settings.
 ///
 /// - `device: "cuda"` → `"gpu"` (see [`resolve_device`]).
@@ -256,8 +301,8 @@ fn validate_speech_route(candidate: &Value) -> Result<(), String> {
     let Some(languages) = crate::model::model_languages(model) else {
         return Ok(());
     };
-    // Язык не записан вместе с моделью — берём первый из её списка: именно
-    // на него настройки переключатся сами.
+    // The language is not stored next to the model — take the first from its
+    // list: that is exactly the one the settings will switch to on their own.
     let language = candidate
         .get("language")
         .and_then(Value::as_str)
@@ -296,6 +341,17 @@ fn save_with_merge_patch_at(path: &Path, patch: Value) -> Result<Value, String> 
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn microphone_selection_accepts_legacy_indexes_and_names() {
+        assert_eq!(microphone_selection(Some(json!(1))), Some("1".into()));
+        assert_eq!(
+            microphone_selection(Some(json!("name:USB Mic"))),
+            Some("name:USB Mic".into())
+        );
+        assert_eq!(microphone_selection(Some(Value::Null)), None);
+        assert_eq!(microphone_selection(Some(json!(-1))), None);
+    }
 
     fn make_config() -> Config {
         Config { data: json!({}) }
@@ -550,11 +606,11 @@ mod tests {
         assert_eq!(on_disk.as_value(), &returned);
     }
 
-    // Единственное правило `validate` — про GigaAM, а GigaAM намеренно
-    // Windows-only (см. sherpa-rs в Cargo.toml). Вне Windows «gigaam-v3» —
-    // неизвестная модель, `validate_speech_route` выходит на первой же
-    // проверке, и тесты либо падают, либо зеленеют вхолостую. Отсюда
-    // `#[cfg(windows)]` здесь и у двух тестов ниже.
+    // The only rule `validate` has is about GigaAM, and GigaAM is deliberately
+    // Windows-only (see sherpa-rs in Cargo.toml). Outside Windows "gigaam-v3" is
+    // an unknown model, `validate_speech_route` bails out at the very first
+    // check, and the tests either fail or go green for nothing. Hence the
+    // `#[cfg(windows)]` here and on the two tests below.
     #[cfg(windows)]
     #[test]
     fn validate_refuses_a_russian_only_model_in_another_language() {
@@ -583,9 +639,9 @@ mod tests {
     /// settings command. A refused patch must also leave the previous config
     /// intact rather than half-applying it.
     ///
-    /// Windows-only не по существу шва, а потому, что отвергнуть нечего:
-    /// единственная пара, которую `validate` бракует, — это GigaAM с чужим
-    /// языком. Появится правило без привязки к платформе — снять `cfg`.
+    /// Windows-only not because of the seam itself but because there is nothing
+    /// to reject: the only pair `validate` rules out is GigaAM with a foreign
+    /// language. Once a platform-independent rule appears, drop the `cfg`.
     #[cfg(windows)]
     #[test]
     fn merge_patch_refuses_an_invalid_pair_and_leaves_the_file_alone() {
@@ -598,5 +654,52 @@ mod tests {
 
         assert!(refused.is_err());
         assert_eq!(Config::load_at(&path).unwrap().as_value(), &before);
+    }
+
+    /// No key still means unloading is on: otherwise the update would quietly
+    /// leave everyone already using the app without it.
+    #[test]
+    fn a_config_without_the_key_still_unloads_after_five_minutes() {
+        assert_eq!(
+            model_unload_after_minutes(&json!({})),
+            DEFAULT_MODEL_UNLOAD_MINUTES
+        );
+    }
+
+    #[test]
+    fn zero_minutes_means_never_unload() {
+        assert_eq!(
+            model_unload_after_minutes(&json!({ MODEL_UNLOAD_KEY: 0 })),
+            0
+        );
+    }
+
+    /// A value outside the UI list is still a value: configs are edited by hand.
+    #[test]
+    fn a_hand_written_interval_is_taken_as_written() {
+        assert_eq!(
+            model_unload_after_minutes(&json!({ MODEL_UNLOAD_KEY: 2 })),
+            2
+        );
+    }
+
+    /// Garbage and negative numbers do not disable unloading but roll it back to
+    /// the default: "we could not read it" is not "you asked for never".
+    #[test]
+    fn unreadable_values_fall_back_to_the_default() {
+        for value in [json!("пять"), json!(-5), json!(null), json!(5.5)] {
+            assert_eq!(
+                model_unload_after_minutes(&json!({ MODEL_UNLOAD_KEY: value })),
+                DEFAULT_MODEL_UNLOAD_MINUTES
+            );
+        }
+    }
+
+    #[test]
+    fn an_absurd_interval_is_capped_at_a_day() {
+        assert_eq!(
+            model_unload_after_minutes(&json!({ MODEL_UNLOAD_KEY: 100_000 })),
+            MAX_MODEL_UNLOAD_MINUTES
+        );
     }
 }

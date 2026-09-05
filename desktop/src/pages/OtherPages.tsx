@@ -27,8 +27,8 @@ type DailyStats = {
   llm_tokens: number;
 };
 
-// Ключи приходят из src-tauri/src/ai/step.rs (SKIPPED_REASON_BY_ERROR_TYPE).
-// Неизвестный ключ показывается как есть — лучше сырое имя, чем пустая строка.
+// The keys come from src-tauri/src/ai/step.rs (SKIPPED_REASON_BY_ERROR_TYPE).
+// An unknown key is shown as is — a raw name beats an empty string.
 const FALLBACK_REASON_LABELS = (): Record<string, string> => ({
   provider_timeout: t("Таймаут провайдера"),
   provider_connection_error: t("Не достучались до провайдера"),
@@ -204,9 +204,9 @@ function BarChart({ data }: { data: DailyStats[] }) {
     <div className="bar-row">
       {data.map((d) => {
         const height = d.count === 0 ? 6 : Math.max(6, (d.count / max) * 100);
-        // Акцент отмечает дни с записями. Раньше подсвечивались пять
-        // последних столбцов независимо от данных — на пустой статистике
-        // это рисовало активность, которой не было.
+        // The accent marks days with entries. The last five columns used to be
+        // highlighted regardless of the data — on empty statistics that drew
+        // activity which never happened.
         return <div key={d.date} className={`bar-row__cell${d.count > 0 ? " active" : ""}`} title={`${shortDateLabel(d.date)}: ${d.count}`} style={{ height: `${height}%` }}/>;
       })}
     </div>
@@ -222,15 +222,15 @@ export function StatsPage({ stats, typingSpeedCpm = 240, onRefresh }: { stats: S
   const dailySeries = buildDailySeries(history, range);
   const speedCpm = Math.max(1, Number(typingSpeedCpm) || 240);
 
-  // Одна точка выбора источника на всю страницу.
+  // A single place on the page where the data source is chosen.
   //
-  // Раньше крупное число всегда бралось из пожизненных счётчиков, а фильтр
-  // менял только мелкую подпись под ним — отсюда «поставил фильтр, а половина
-  // цифр не двигается». Теперь период выбирает источник целиком: за «всё
-  // время» отвечают счётчики, за остальные периоды — суммы по дням.
+  // The large number always used to come from lifetime counters while the
+  // filter changed only the small caption beneath it — hence "I set a filter and
+  // half the numbers do not move". Now the period picks the source outright: the
+  // counters answer for "all time", the daily sums for every other period.
   //
-  // Смешивать их в одной строке нельзя: счётчики считают всё, а stats_daily
-  // хранит год, и вычитание одного из другого даёт бессмыслицу.
+  // They must not be mixed in one row: the counters count everything while
+  // stats_daily keeps a year, and subtracting one from the other is nonsense.
   const allTime = range === "all";
   const pick = (total: number | undefined, key: keyof Omit<DailyStats, "date">): number =>
     allTime ? (total ?? 0) : sumDaily(rangeHistory, key);
@@ -248,9 +248,9 @@ export function StatsPage({ stats, typingSpeedCpm = 240, onRefresh }: { stats: S
   const llmTokens = pick(stats?.total_llm_tokens, "llm_tokens");
   const llmInputTokens = pick(stats?.total_llm_input_tokens, "llm_input_tokens");
   const llmOutputTokens = pick(stats?.total_llm_output_tokens, "llm_output_tokens");
-  // Причины фолбэков бэкенд отдаёт только суммарно по всем дням, разбивки по
-  // датам в них нет — честнее подписать их «за всё время», чем делать вид,
-  // что они подчиняются фильтру.
+  // The backend reports fallback reasons only as a total across all days, with
+  // no per-date breakdown — labelling them "all time" is more honest than
+  // pretending they obey the filter.
   const fallbackReasons = stats?.llm_fallback_reasons ?? [];
 
   const manualTypingSeconds = chars / speedCpm * 60;
@@ -260,8 +260,8 @@ export function StatsPage({ stats, typingSpeedCpm = 240, onRefresh }: { stats: S
   const averageProcessing = transcriptions > 0 ? processingSeconds / transcriptions : 0;
   const realtimeFactor = processingSeconds > 0 && audioSeconds > 0 ? audioSeconds / processingSeconds : 0;
   const rangeLabel = RANGE_OPTIONS().find((item) => item.value === range)?.label.toLowerCase() ?? t("период");
-  // Одна подпись периода на все карточки: раз число теперь зависит от фильтра,
-  // об этом надо сказать на самой карточке, а не только в переключателе.
+  // One period caption for every card: now that the number depends on the
+  // filter, that has to be said on the card itself, not only in the switch.
   const periodSub = allTime ? t("за всё время") : t("за {p0}", { p0: rangeLabel });
   const axisLabels = dailySeries.length > 0 ? (() => {
     const idxs = [0, Math.floor(dailySeries.length / 4), Math.floor(dailySeries.length / 2), Math.floor((3 * dailySeries.length) / 4), dailySeries.length - 1];
@@ -296,9 +296,6 @@ export function StatsPage({ stats, typingSpeedCpm = 240, onRefresh }: { stats: S
         <Stat label={t("Ручной набор")} value={formatDuration(manualTypingSeconds)} sub={t("Символы / {p0} симв/мин.", { p0: speedCpm.toLocaleString(localeTag()) })}/>
         <Stat label={t("Чистая экономия")} value={formatSignedDuration(netSavedSeconds)} sub={t("минус аудио и обработка")} accent={netSavedSeconds >= 0} hint={t("Оценка ручного набора минус длительность аудио и обработка.")}/>
         <Stat label={t("Активных дней")} value={String(activeDays)} sub={t("{p0} дней сохранено в истории", { p0: history.length })}/>
-      </div>
-
-      <div className="stats-grid">
         <Stat label={t("Аудио")} value={formatDuration(audioSeconds)} sub={periodSub} hint={t("Суммарная длительность записанных фрагментов.")}/>
         <Stat label={t("Обработка")} value={formatShortDuration(processingSeconds)} sub={t("{p0} на запись", { p0: formatShortDuration(averageProcessing) })} hint={t("STT {p0} + форматирование {p1} + LLM {p2}.", { p0: formatShortDuration(whisperSeconds), p1: formatShortDuration(formatSeconds), p2: formatShortDuration(llmSeconds) })}/>
         <Stat label="LLM" value={`${llmUsed.toLocaleString(localeTag())}/${llmAttempts.toLocaleString(localeTag())}`} sub={t("успешно, fallback: {p0}", { p0: llmFallbacks.toLocaleString(localeTag()) })}/>
@@ -357,9 +354,9 @@ export function StatsPage({ stats, typingSpeedCpm = 240, onRefresh }: { stats: S
           <BreakdownRow label={t("Input токены")} value={llmInputTokens.toLocaleString(localeTag())}/>
           <BreakdownRow label={t("Output токены")} value={llmOutputTokens.toLocaleString(localeTag())}/>
           <BreakdownRow label="Fallback LLM" value={llmFallbacks.toLocaleString(localeTag())} tone={llmFallbacks === 0 ? "ok" : undefined}/>
-          {/* Дубля «за всё время» здесь больше нет: раньше строка подмешивала
-              пожизненные числа в карточку за период, теперь всё время — это
-              просто ещё одно положение фильтра. */}
+          {/* The "all time" duplicate is gone: the row used to mix lifetime
+              numbers into a card covering a period; now all time is simply
+              another position of the filter. */}
           <div className="breakdown-note">
              {t("Стоимость в деньгах не считается без таблицы тарифов; сохраняются только usage-токены провайдера.")} </div>
         </section>
@@ -372,8 +369,9 @@ export function StatsPage({ stats, typingSpeedCpm = 240, onRefresh }: { stats: S
               <div className="chart-card__title">{t("Почему LLM отваливался")}</div>
               <div className="chart-card__sub">{t("Счётчик по причинам живёт дольше истории, поэтому разбор не упирается в срок хранения записей")}</div>
             </div>
-            {/* Единственный блок, который фильтру не подчиняется: разбивки по
-                датам у причин в базе нет. Поэтому и подписан «за всё время». */}
+            {/* The only block that does not obey the filter: the database has
+                no per-date breakdown of the reasons. Hence the "all time"
+                caption. */}
             <span className="head-count">{fallbackReasons.reduce((sum, reason) => sum + reason.count, 0).toLocaleString(localeTag())}  {t("за всё время")}</span>
           </div>
           {fallbackReasons.map((reason) => (
@@ -470,8 +468,8 @@ const FORMAT_DEFAULTS: TextFormattingConfig = {
 
 type FormatRule = { key: keyof TextFormattingConfig; title: string; sub: string };
 
-// Главный выключатель всего локального прохода стоит отдельно от списка: он
-// уезжает в шапку карточки «Очистка», а не в её тело.
+// The master switch for the whole local pass stands apart from the list: it
+// goes into the header of the «Очистка» card rather than into its body.
 const MASTER_RULE = (): FormatRule => (
   { key: "enabled", title: t("Включить форматирование"), sub: t("Главный переключатель всего локального пайплайна") }
 );
@@ -497,17 +495,17 @@ function parseCustomWords(value: string): string[] {
   return value.split(/[\n,]/).map((item) => item.trim()).filter(Boolean);
 }
 
-// Ключ с версией: умолчание сменилось на «всё свёрнуто», а сохранённый
-// выбор со старым ключом закрывал бы его собой у каждого, кто уже открывал
-// эту страницу. Разовый сброс складок дешевле, чем умолчание, которое
-// никто не увидит.
+// A versioned key: the default changed to "everything collapsed", and a saved
+// choice under the old key would have overridden it for everyone who had already
+// opened this page. Resetting the folds once is cheaper than a default nobody
+// ever sees.
 const TEXT_FOLDS_KEY = "sotto.text.folds.v2";
 
-/** Сворачиваемая карточка страницы «Текст».
+/** A collapsible card on the «Текст» page.
  *
- * Заголовок разделён на две зоны: кнопка-сворачиватель (иконка, название,
- * сводка) и `aside` рядом с ней. Переключатели живут в `aside` намеренно —
- * внутри кнопки клик по switch схлопывал бы карточку заодно. */
+ * The header is split into two zones: the collapse button (icon, name, summary)
+ * and an `aside` beside it. The switches live in `aside` on purpose — inside the
+ * button a click on a switch would collapse the card as well. */
 function Foldable({ open, title, summary, aside, onToggle, children }: { open: boolean; title: string; summary?: ReactNode; aside?: ReactNode; onToggle: () => void; children: ReactNode }) {
   return (
     <section className="card fold">
@@ -524,21 +522,22 @@ function Foldable({ open, title, summary, aside, onToggle, children }: { open: b
   );
 }
 
-/** «Обработка → Текст»: локальный проход целиком — очистка, замены, словари.
+/** «Обработка → Текст»: the entire local pass — cleanup, replacements,
+ * dictionaries.
  *
- * Раньше это были две страницы, «Форматирование» и «Замены». Разделение было
- * фикцией: в бэкенде обе половины выполняет один `Formatter::process`, и
- * `preview_format` уже применял замены — то есть предпросмотр «Форматирования»
- * показывал результат, который его собственные тумблеры не объясняли. Здесь
- * проход один и предпросмотр один. */
+ * These used to be two pages, «Форматирование» and «Замены». The split was a
+ * fiction: in the backend one `Formatter::process` runs both halves, and
+ * `preview_format` already applied the replacements — that is, the preview on
+ * «Форматирование» showed a result its own switches did not explain. Here there
+ * is one pass and one preview. */
 export function TextPage({ config, onConfigChanged }: { config: ConfigResult | null; onConfigChanged: (partial: Partial<ConfigResult>) => Promise<ConfigResult | null> }) {
-  // ── Очистка и словари: сохраняются сразу, черновика нет ────────────────
+  // ── Cleanup and dictionaries: saved immediately, no draft ──────────────
   const formatting = normalizeTextFormatting(config);
   const [customWordsText, setCustomWordsText] = useState(formatting.custom_parasite_words.join("\n"));
   const [dictionaryText, setDictionaryText] = useState(formatting.custom_words.join("\n"));
   const [presets, setPresets] = useState<[string, string[]][]>([]);
 
-  // ── Замены: черновик до кнопки «Сохранить» ─────────────────────────────
+  // ── Replacements: a draft until the «Сохранить» button ─────────────────
   const configRules = replacementRulesFromConfig(config);
   const paused = config?.replacements_paused ?? false;
   const [rules, setRules] = useState<ReplacementRule[]>(() => configRules);
@@ -549,8 +548,8 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
   const fileInputRef = useRef<HTMLInputElement>(null);
   const findRef = useRef<HTMLInputElement>(null);
 
-  // ── Общий предпросмотр всего локального прохода ────────────────────────
-  // i18n-ignore: образец русской диктовки, показывает работу очистки и замен
+  // ── A shared preview of the whole local pass ───────────────────────────
+  // i18n-ignore: a Russian dictation sample showing cleanup and replacements
   const [previewText, setPreviewText] = useState("эээ ну в общем, я я хочу сказать что тайпскрипт мы обсудим в понед и я потом отправлю мой мейл");
   const [previewResult, setPreviewResult] = useState("");
   const [previewMatches, setPreviewMatches] = useState<PreviewReplacementsResult["matched_rules"]>([]);
@@ -561,9 +560,9 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
       const stored = window.localStorage.getItem(TEXT_FOLDS_KEY);
       if (stored) return JSON.parse(stored) as Record<string, boolean>;
     } catch {/* ignore */}
-    // Страница открывается списком того, что на ней есть, а не развёрнутым
-    // содержимым двух блоков: до предпросмотра справа при развёрнутых
-    // «Очистке» и «Заменах» приходилось доскроллить.
+    // The page opens as a list of what it contains rather than the expanded
+    // contents of two blocks: with «Очистка» and «Замены» expanded you had to
+    // scroll to reach the preview on the right.
     return { clean: false, repl: false, dict: false };
   });
 
@@ -601,17 +600,17 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
       if (!find) return;
       setRules((current) => [makeReplacementRule(find, payload.replace ?? ""), ...current]);
       setSaved(false);
-      // Правило прилетело из истории — карточка замен может быть свёрнута, и
-      // черновик оказался бы за кадром.
+      // The rule arrived from the history — the replacements card may be
+      // collapsed, and the draft would end up out of sight.
       setFolds((current) => ({ ...current, repl: true }));
       window.setTimeout(() => findRef.current?.focus(), 0);
     }).then((fn) => { unlisten = fn; });
     return () => { unlisten?.(); };
   }, []);
 
-  // Два вызова на один предпросмотр: `preview_format` даёт полный локальный
-  // результат (очистку И замены разом), а `preview_replacements` — только
-  // метаданные о том, какие правила сработали. Первый их не возвращает.
+  // Two calls for one preview: `preview_format` gives the full local result
+  // (cleanup AND replacements at once), while `preview_replacements` gives only
+  // metadata about which rules fired. The first does not return that.
   useEffect(() => {
     let cancelled = false;
     const timer = window.setTimeout(() => {
@@ -639,10 +638,10 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
     };
   }, [previewText, JSON.stringify(rules), JSON.stringify(formatting), paused]);
 
-  // Настройки очистки сохраняются сами, без кнопки и без индикатора: флажок
-  // и есть подтверждение — он остаётся в новом положении, когда конфиг
-  // вернулся. Отдельная плашка «сохраняю» жила в шапке страницы и мигала на
-  // каждый чих.
+  // The cleanup settings save themselves, with no button and no indicator: the
+  // checkbox is the confirmation — it stays in its new position once the config
+  // comes back. A separate "saving" pill used to live in the page header and
+  // flashed at every sneeze.
   async function saveFormatting(patch: Partial<TextFormattingConfig>) {
     await onConfigChanged({ text_formatting: patch as TextFormattingConfig });
   }
@@ -655,8 +654,9 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
     void saveFormatting({ custom_words: parseCustomWords(dictionaryText) });
   }
 
-  // Набор хранится идентификатором, а не копией слов: выключение
-  // мгновенное и без потерь, а поле со своими словами он не трогает вовсе.
+  // A set is stored as an identifier rather than a copy of the words: turning it
+  // off is instant and lossless, and it does not touch the field with your own
+  // words at all.
   function togglePreset(id: string) {
     const on = formatting.enabled_presets ?? [];
     const next = on.includes(id) ? on.filter((x) => x !== id) : [...on, id];
@@ -750,22 +750,23 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
   const activeCleanCount = cleanRules.filter((rule) => Boolean(formatting[rule.key])).length;
   const dictionarySize = formatting.custom_parasite_words.length + formatting.custom_words.length;
   const masterRule = MASTER_RULE();
-  // Замены на паузе бэкенд в полном проходе не применяет, а предпросмотр
-  // отдельного этапа применяет всегда — иначе он был бы бесполезен ровно
-  // тогда, когда правила и настраивают. Расхождение подписываем.
+  // The backend does not apply paused replacements in the full pass, while the
+  // preview of that single stage always applies them — otherwise it would be
+  // useless exactly when the rules are being set up. The discrepancy is
+  // labelled.
   const matchesAreHypothetical = paused;
-  // Diff показывается, только когда есть что с чем сравнивать; иначе карточка
-  // результата держит подсказку «введите текст».
+  // The diff is shown only when there is something to compare with; otherwise
+  // the result card holds an "enter some text" prompt.
   const showPreviewDiff = Boolean(previewText.trim() && previewResult);
 
   return (
     <div className="page">
       <input type="file" accept=".json,application/json" ref={fileInputRef} style={{ display: "none" }} onChange={(e) => { const file = e.target.files?.[0]; if (file) void importRules(file); }}/>
-      {/* Пилюль состояния в шапке нет: обе дублировали то, что видно рядом с
-          самими блоками — счётчик правил стоит на «Заменах», а «не сохранено»
-          загорается там же, у кнопки сохранения. Постоянная зелёная плашка
-          «сохранено» на весь экран сообщала только то, что ничего не
-          произошло. */}
+      {/* There are no state pills in the header: both duplicated what is
+          visible next to the blocks themselves — the rule counter sits on
+          «Замены», and «не сохранено» lights up right there by the save button.
+          A permanent green "saved" pill across the whole screen reported only
+          that nothing had happened. */}
       <PageHeader title={t("Текст")}/>
 
       <div className="text-grid">
@@ -775,9 +776,9 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
             onToggle={() => toggleFold("clean")}
             title={t("Очистка")}
             summary={<span className="head-count">{activeCleanCount}/{cleanRules.length}</span>}
-            /* Плашки «включена» рядом с переключателем нет: она говорила ровно
-               то же, что и его положение, а в узкой колонке из-за неё шапка
-               переносилась на вторую строку. */
+            /* There is no "enabled" pill next to the switch: it said exactly
+               what the switch's position said, and in a narrow column it pushed
+               the header onto a second line. */
             aside={<span title={masterRule.sub}><Switch on={formatting.enabled} onChange={(next) => void saveFormatting({ enabled: next })}/></span>}
           >
             <div className="fold__rows">
@@ -825,9 +826,10 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
                 {formError && <div style={{ padding: "10px 12px", color: "var(--err)", font: "500 12px/1.4 var(--font-sans)", borderTop: "1px solid var(--line)" }}>{formError}</div>}
               </div>
 
-              {/* Экспорт и импорт — операции разовые, и в одной строке с
-                  поиском и «Сохранить» они вставали между частыми действиями.
-                  Подписи обязательны: без них «Импорт» — просто глиф. */}
+              {/* Export and import are one-off operations, and on one line with
+                  the search and «Сохранить» they stood between frequent actions.
+                  The captions are mandatory: without them «Импорт» is just a
+                  glyph. */}
               <div className="flex-row" style={{ gap: 6, justifyContent: "flex-end" }}>
                 <button className="btn btn--ghost" style={{ height: 26 }} onClick={exportRules} disabled={rules.length === 0}><Icon name="download" size={12}/>{t("Экспорт")}</button>
                 <button className="btn btn--ghost" style={{ height: 26 }} onClick={() => fileInputRef.current?.click()}><Icon name="folder" size={12}/>{t("Импорт")}</button>
@@ -879,11 +881,12 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
           </Foldable>
         </div>
 
-        {/* Заголовок и пояснение живут внутри первой карточки, а не над ней:
-            в левой колонке заголовки блоков стоят внутри рамки, и внешняя
-            подпись над карточкой читалась как чужая. Шаги «до» и «после»
-            подписаны текстом — пилюли делали из служебной подписи акцент,
-            который спорил с самим содержимым карточки. */}
+        {/* The heading and the explanation live inside the first card rather
+            than above it: in the left column block headings sit inside the
+            border, and an external caption above the card read as alien. The
+            «до» and «после» steps are labelled with text — pills turned a
+            utility caption into an accent that competed with the card's own
+            content. */}
         <div className="flex-col" style={{ gap: 12, minWidth: 0 }}>
           <div className="card" style={{ padding: 18 }}>
             <div className="preview-card__head">
@@ -901,9 +904,9 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
               <span className="preview-card__step preview-card__step--after">{t("После")}</span>
             </div>
             {previewError ? <p style={{ margin: 0, font: "500 12px/1.55 var(--font-sans)", color: "var(--err)" }}>{previewError}</p> : <>
-              {/* Результат показывает только diff: он и есть обработанный
-                  текст, просто с подсветкой того, что изменилось. Отдельный
-                  абзац над ним печатал ту же строку второй раз. */}
+              {/* The result shows only the diff: it is the processed text,
+                  simply with the changes highlighted. A separate paragraph above
+                  it printed the same string a second time. */}
               {showPreviewDiff
                 ? <DiffBlock before={previewText} after={previewResult} title={t("Diff: исходный → после обработки")} />
                 : <p style={{ margin: 0, font: "400 13px/1.65 var(--font-sans)", color: "var(--ink-mute)", whiteSpace: "pre-wrap" }}>{t("Введите текст для предпросмотра")}</p>}
@@ -916,9 +919,9 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
               {t("Добавить правило-пример")}
               <Hint text={t("Нажмите, чтобы создать правило — оно сразу попадёт в список слева и в предпросмотр.")}/>
             </div>
-            <div className="flex-row" style={{ flexWrap: "wrap", gap: 6 }}>{/* Готовые правила — это русские слова, которые Whisper слышит неверно.
-                Через t() они не идут: подстановка английского слова создала бы
-                правило, которое никогда не сработает. */}
+            <div className="flex-row" style={{ flexWrap: "wrap", gap: 6 }}>{/* The ready-made rules are Russian words Whisper mishears. They do
+                not go through t(): substituting an English word would create a
+                rule that never fires. */}
               {/* i18n-ignore */}
               {[["щас", "сейчас"], ["тайпскрипт", "TypeScript"], ["мой мейл", "name@example.com"], ["смайл", ":)"]].map(([find, replace]) => <button key={find} className="btn btn--ghost" onClick={() => addRule(find, replace)} style={{ height: 26 }}><span className="mono">{find}</span><Icon name="arrow-right" size={11}/><span className="mono">{replace}</span></button>)}</div>
           </section>
@@ -975,10 +978,10 @@ function formatMb(bytes: number) {
   return t("{p0} МБ", { p0: (bytes / 1024 / 1024).toFixed(1) });
 }
 
-// Обновление никогда не ставится само: проверка при открытии страницы —
-// тихая (ошибку сети показывать не за что), а скачивание идёт только по
-// явному нажатию. Пользователь всегда видит, что именно приедет: версию,
-// дату и релизные заметки.
+// An update is never installed by itself: the check when the page opens is
+// silent (there is nothing to gain from showing a network error) and downloading
+// happens only on an explicit click. The user always sees exactly what is
+// coming: the version, the date and the release notes.
 function UpdatesCard({ version }: { version?: string | null }) {
   const [state, setState] = useState<UpdateState>({ kind: "idle" });
 
@@ -989,7 +992,7 @@ function UpdatesCard({ version }: { version?: string | null }) {
       setState(info.available ? { kind: "available", info } : { kind: "current" });
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
-      // Тихая проверка при открытии не должна кричать про отсутствие сети.
+      // A silent check on open must not shout about a missing network.
       setState(loud ? { kind: "error", message } : { kind: "idle" });
     }
   }
@@ -1007,7 +1010,7 @@ function UpdatesCard({ version }: { version?: string | null }) {
   async function install(info: UpdateInfo) {
     setState({ kind: "downloading", info, progress: null });
     try {
-      // При успехе приложение перезапускается и сюда мы не возвращаемся.
+      // On success the application restarts and we never return here.
       await invoke("install_update");
     } catch (e) {
       setState({ kind: "error", message: e instanceof Error ? e.message : String(e) });
@@ -1068,26 +1071,26 @@ function UpdatesCard({ version }: { version?: string | null }) {
   );
 }
 
-// Название набора живёт здесь, а не в Rust: список слов один на все языки,
-// а подпись на кнопке переводится.
+// A set's name lives here rather than in Rust: the word list is the same for
+// every language, while the button's caption is translated.
 const PRESET_LABELS = (): Record<string, string> => ({
   development: t("Разработка"),
 });
 
 const LOG_LEVELS = ["error", "warn", "info", "debug", "trace"] as const;
 
-// Логи ротируются на 5 МБ и держат три архива, так что размер живёт в
-// диапазоне от килобайт до двух десятков мегабайт. «0.0 МБ» на свежей
-// установке ничего не сообщает, поэтому мелочь показываем в килобайтах.
+// The logs rotate at 5 MB and keep three archives, so the size lives between
+// kilobytes and a couple of dozen megabytes. "0.0 MB" on a fresh install reports
+// nothing, so small values are shown in kilobytes.
 function formatLogSize(bytes: number) {
   return bytes < 1024 * 1024
     ? t("{p0} КБ", { p0: Math.round(bytes / 1024).toString() })
     : t("{p0} МБ", { p0: (bytes / 1024 / 1024).toFixed(1) });
 }
 
-// Разбор проблемы у чужого пользователя опирается на то, что он пришлёт.
-// Здесь три вещи, которые он может прислать: уровень логов, сводка о среде
-// и сохранённые записи.
+// Diagnosing somebody else's problem rests on what they send you. Here are the
+// three things they can send: the log level, an environment summary, and the
+// saved recordings.
 function DiagnosticsCard({ config, onConfigChanged }: { config: ConfigResult | null; onConfigChanged?: (partial: Partial<ConfigResult>) => Promise<ConfigResult | null> }) {
   const [report, setReport] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -1097,15 +1100,15 @@ function DiagnosticsCard({ config, onConfigChanged }: { config: ConfigResult | n
   const saveRecordings = config?.debug_save_recordings ?? false;
   const overlayDiag = config?.debug_overlay_diag ?? false;
 
-  // Размер читается при открытии страницы и после очистки. Он меняется
-  // по мегабайту за неделю, следить за ним в реальном времени незачем.
+  // The size is read when the page opens and after a cleanup. It changes by a
+  // megabyte a week; there is no point watching it in real time.
   useEffect(() => {
     void invoke<number>("logs_size").then(setLogsBytes).catch(() => setLogsBytes(null));
   }, []);
 
-  // Очистка в два клика: логи — единственный след уже случившейся
-  // проблемы, и промах по кнопке стирает как раз то, ради чего человек
-  // на эту страницу и пришёл.
+  // Clearing takes two clicks: the logs are the only trace of a problem that
+  // has already happened, and a mis-click erases exactly what brought the person
+  // to this page.
   async function clearLogs() {
     if (!confirmClear) {
       setConfirmClear(true);
@@ -1116,7 +1119,7 @@ function DiagnosticsCard({ config, onConfigChanged }: { config: ConfigResult | n
     try {
       setLogsBytes(await invoke<number>("clear_logs"));
     } catch {
-      // Вспомогательное действие: падать из-за него не за что.
+      // An auxiliary action: there is nothing here worth failing over.
     }
   }
 
@@ -1226,7 +1229,9 @@ export function InfoPage({ version, config, onConfigChanged }: { version?: strin
             <InfoRow label={t("Режим записи")} value={recordingMode}/>
             <InfoRow label={t("Автовставка")} value={config?.auto_paste ? t("Включена") : t("Выключена")}/>
           </div>
-          <p style={{ margin: "12px 0 0", font: "400 11.5px/1.5 var(--font-sans)", color: "var(--ink-mute)" }}>{config?.recording_mode === "push_to_talk" ? t("В режиме удержания запись идет, пока hotkey зажат. Это удобно для коротких фраз.") : t("В режиме переключателя первое нажатие начинает запись, второе останавливает. Это удобно для длинной диктовки.")}</p>
+          {/* The "in … mode recording runs …" line is gone: the mode itself is
+              on the row above, and how it works is written in the hint on
+              «Режим записи» in settings, in the same place it is switched. */}
         </HelpCard>
       </div>
 

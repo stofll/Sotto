@@ -38,7 +38,7 @@ before installation.
 
 - **Dictation by hotkey** into the focused window, with an overlay showing state.
 - **Local speech models** — `whisper.cpp` everywhere, plus `sherpa-onnx` bundles
-  on Windows (GigaAM, Parakeet, Canary, Moonshine, SenseVoice, Zipformer). Two of
+  on Windows and macOS (GigaAM, Parakeet, Canary, Moonshine, SenseVoice, Zipformer). Two of
   them stream text while you are still speaking. See [Models](docs/models.md).
 - **File transcription** — attach a recording in the "Обработать текст" panel and
   the text comes back there, without touching the focused window or the history.
@@ -59,10 +59,10 @@ is sent; [Privacy](docs/privacy.md) covers the full network picture.
 
 ## Current Status
 
-- Version: `0.0.2`
+- Version: `0.0.3`
 - Desktop shell: **Tauri 2 + Rust** backend, **React 19 / TypeScript / Vite** frontend
 - Speech backend: **`whisper-rs`** (whisper.cpp, GGML models) — fully native, no Python
-- Second speech backend (Windows): **`sherpa-onnx`**, CPU-only, each bundle pinned
+- Second speech backend (Windows/macOS): **`sherpa-onnx`**, CPU-only, each bundle pinned
   to an exact artifact manifest and to its own list of languages
 - Data: SQLite (`rusqlite`, bundled) for history and statistics
 - Sections: Settings, Models, Text, LLM processing, Integrations, History, Statistics

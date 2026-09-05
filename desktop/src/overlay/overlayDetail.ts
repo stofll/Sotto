@@ -1,17 +1,17 @@
-// Что оверлей показывает во второй строке — отдельно от того, как он это
-// рисует.
+// What the overlay shows on its second line — kept apart from how it draws it.
 //
-// Вынесено из OverlayApp, потому что сломалось именно решение, а не вёрстка:
-// «N символов вставлено» показывалось по событию `whisper-done`, то есть до
-// LLM-обработки и до вставки. Число считалось по черновику, а сама надпись
-// утверждала то, чего ещё не произошло. Здесь это решение можно проверить
-// тестом — тесты фронтенда идут без DOM, отрендерить компонент нечем.
+// Split out of OverlayApp because what broke was the decision, not the markup:
+// «N символов вставлено» was shown on the `whisper-done` event, that is before
+// LLM processing and before insertion. The number was counted from the draft
+// while the caption asserted something that had not happened yet. Here the
+// decision can be covered by a test — frontend tests run without a DOM, there is
+// nothing to render the component with.
 
 import { t } from "../i18n";
 
-/// Через сколько «Распознано» перестаёт молчать и признаётся, что чего-то
-/// ждёт. Быстрый путь укладывается в этот интервал целиком, и подпись,
-/// показанная на 200 мс, была бы просто миганием.
+/// How long before «Распознано» stops keeping quiet and admits it is waiting
+/// for something. The fast path fits entirely inside this interval, and a
+/// caption shown for 200 ms would be nothing but a flicker.
 export const POLISHING_LABEL_AFTER_MS = 600;
 
 export type OverlayDetailState =
@@ -30,13 +30,14 @@ export type OverlayDetail =
 
 export interface OverlayDetailInput {
     state: OverlayDetailState;
-    /// Длина реально вставленного текста из `paste-done`. `null` — событие
-    /// пришло без неё; тогда о вставке говорим без числа, но не молчим.
+    /// The length of the text actually inserted, from `paste-done`. `null` — the
+    /// event arrived without it; then we mention the insertion without a number
+    /// rather than stay silent.
     pastedLength: number | null;
-    /// Сколько прошло с `whisper-done`. Имеет смысл только в состоянии `done`.
+    /// Time elapsed since `whisper-done`. Meaningful only in the `done` state.
     polishingMs: number;
     errorText: string;
-    /// Проблема LLM (фолбэк на локальный текст). Известна не раньше вставки.
+    /// An LLM problem (fallback to local text). Not known before insertion.
     aiProblem: string;
 }
 
@@ -52,9 +53,9 @@ export function overlayDetail(input: OverlayDetailInput): OverlayDetail {
         return { kind: "text", text: errorText || t("Запись не была обработана") };
     }
 
-    // Распознано, но ещё не вставлено. На быстром пути это доли секунды; когда
-    // текст чистит LLM — десятки секунд, и молчание об этом читалось как
-    // «цикл закончился, текст потерялся».
+    // Transcribed but not inserted yet. On the fast path this is a fraction of a
+    // second; when the LLM cleans the text it is tens of seconds, and staying
+    // quiet about it read as "the cycle finished and the text was lost".
     if (state === "done") {
         return polishingMs < POLISHING_LABEL_AFTER_MS
             ? { kind: "progress" }

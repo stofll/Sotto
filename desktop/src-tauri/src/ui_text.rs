@@ -1,15 +1,16 @@
-//! Локализация строк, которые рождаются в Rust.
+//! Localization of the strings that are born in Rust.
 //!
-//! Таких немного: пункт меню трея и полдюжины сообщений об ошибках, которые
-//! уезжают во фронтенд как есть. Полноценный i18n-крейт ради них — лишняя
-//! зависимость, поэтому здесь то же решение, что и на фронте: ключ — русский
-//! оригинал, перевод ищется в таблице, отсутствующий перевод падает на ключ.
+//! There are few: a tray menu item and half a dozen error messages that travel
+//! to the frontend as they are. A full i18n crate for their sake is an
+//! unnecessary dependency, so the solution here is the same as on the frontend:
+//! the key is the Russian original, the translation is looked up in a table, and
+//! a missing translation falls back to the key.
 //!
-//! Язык хранится в атомике, а не в состоянии Tauri, потому что читать его
-//! приходится из мест без `AppHandle` — например из потока движка.
+//! The language is kept in an atomic rather than in Tauri state, because it has
+//! to be read from places without an `AppHandle` — the engine thread, say.
 //!
-//! Сюда НЕ попадают строки логов и слова-паразиты из `formatter.rs`: первые
-//! читает разработчик, вторые относятся к языку речи.
+//! Log strings and the filler words from `formatter.rs` do NOT belong here: the
+//! former are read by a developer, the latter belong to the language of speech.
 
 use std::sync::atomic::{AtomicU8, Ordering};
 
@@ -20,12 +21,13 @@ const EN: u8 = 1;
 
 static LOCALE: AtomicU8 = AtomicU8::new(RU);
 
-/// Ключ конфига. Отдельно от `language`: тот про язык речи.
+/// The config key. Separate from `language`: that one is about speech.
 pub const CONFIG_KEY: &str = "ui_language";
 
-/// Применить язык из конфига. Если старый конфиг ещё не содержит поля,
-/// используем тот же системный fallback, что и frontend: только явно
-/// русская/английская локаль переключает язык, остальные падают на русский.
+/// Apply the language from the config. If an old config does not yet carry the
+/// field we use the same system fallback as the frontend: only an explicitly
+/// Russian or English locale switches the language, everything else falls back
+/// to Russian.
 pub fn set_from_config(config: &Value) {
     let system = system_locale();
     let locale = resolve_locale(config, system.as_deref());
@@ -76,7 +78,7 @@ pub fn is_english() -> bool {
     LOCALE.load(Ordering::Relaxed) == EN
 }
 
-/// Перевести строку. Ключ — русский оригинал.
+/// Translate a string. The key is the Russian original.
 pub fn t(key: &str) -> String {
     if !is_english() {
         return key.to_string();
@@ -106,7 +108,8 @@ fn en(key: &str) -> Option<&'static str> {
         "Не удалось вставить текст в активное окно." => {
             "Could not paste into the active window."
         }
-        // Транскрипция прикреплённого файла: декодер, гейты и отказы.
+        // Transcription of an attached file: the decoder, the gates and the
+        // refusals.
         "Аудио" => "Audio",
         "Не удалось открыть диалог выбора файла." => "Could not open the file picker.",
         "Не удалось открыть файл: {p0}" => "Could not open the file: {p0}",
@@ -144,8 +147,8 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    /// Тесты трогают глобальный атомик, поэтому идут под общим мьютексом:
-    /// иначе один тест переключает язык под ногами у другого.
+    /// The tests touch a global atomic, so they run under a shared mutex:
+    /// otherwise one test switches the language out from under another.
     static GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     fn with_locale<T>(config: Value, body: impl FnOnce() -> T) -> T {
@@ -173,7 +176,7 @@ mod tests {
 
     #[test]
     fn unknown_key_falls_back_to_the_original() {
-        // Худший случай — смешанный язык, а не пустая строка в интерфейсе.
+        // The worst case is mixed language, not an empty string in the UI.
         with_locale(json!({ "ui_language": "en" }), || {
             assert_eq!(t("Такого ключа нет"), "Такого ключа нет");
         });
@@ -206,8 +209,8 @@ mod tests {
         );
     }
 
-    /// Каждый ключ таблицы обязан встречаться в коде — иначе перевод висит
-    /// мёртвым грузом и расходится с оригиналом незаметно.
+    /// Every key in the table must occur in the code — otherwise a translation
+    /// hangs there as dead weight and drifts from the original unnoticed.
     #[test]
     fn every_translated_key_is_used_somewhere() {
         let sources: Vec<String> = ["lib.rs", "tray.rs", "whisper.rs", "model.rs"]

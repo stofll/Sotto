@@ -1,9 +1,9 @@
-// Что оверлей вправе утверждать в каждой фазе цикла.
+// What the overlay is entitled to assert in each phase of the cycle.
 //
-// Регрессия, ради которой этот файл существует: «N символов вставлено»
-// показывалось по `whisper-done`, то есть до LLM-обработки и до вставки.
-// При медленной модели оверлей объявлял готовность, прятался через 1.8 с,
-// а текст приезжал секунд через двадцать — в пустоту.
+// The regression this file exists for: «N символов вставлено» was shown on
+// `whisper-done`, that is before LLM processing and before insertion. With a slow
+// model the overlay announced completion, hid itself after 1.8 s, and the text
+// arrived some twenty seconds later — into nothing.
 
 import { describe, expect, it } from "vitest";
 import { overlayDetail } from "./overlayDetail";
@@ -18,16 +18,16 @@ const base = {
 describe("overlayDetail", () => {
     it("ничего не обещает, пока текст только распознан", () => {
         const detail = overlayDetail({ ...base, state: "done", pastedLength: 42 });
-        // Даже если длина откуда-то известна — в этой фазе она не про вставку.
+        // Even when the length is known from somewhere, in this phase it is not
+        // about the insertion.
         expect(detail.kind).toBe("progress");
         expect(JSON.stringify(detail)).not.toContain("42");
     });
 
-    // Числа здесь намеренно литеральные, а не выведенные из
-    // POLISHING_LABEL_AFTER_MS: тест, который импортирует константу и
-    // считает от неё, переезжает вместе с ней и перестаёт что-либо
-    // утверждать. Мутационный прогон ловил ровно это — обнуление порога
-    // не роняло тест.
+    // The numbers here are literal on purpose rather than derived from
+    // POLISHING_LABEL_AFTER_MS: a test that imports the constant and counts from
+    // it travels along with it and stops asserting anything. A mutation run
+    // caught exactly that — zeroing the threshold did not fail the test.
     it("на быстром пути не мигает подписью про обработку", () => {
         const detail = overlayDetail({ ...base, state: "done", polishingMs: 200 });
         expect(detail).toEqual({ kind: "progress" });
@@ -42,7 +42,7 @@ describe("overlayDetail", () => {
     it("на медленной модели показывает, сколько уже ждёт", () => {
         const detail = overlayDetail({ ...base, state: "done", polishingMs: 7400 });
         expect(detail.kind).toBe("progress");
-        // Секунды округляются вниз: 7.4 с — это «7 с», а не «8 с».
+        // Seconds round down: 7.4 s is "7 s", not "8 s".
         expect("label" in detail && detail.label).toContain("7");
     });
 

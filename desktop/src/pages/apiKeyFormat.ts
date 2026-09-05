@@ -1,33 +1,33 @@
 import { t } from "../i18n";
 
 /**
- * Проверка значения API-ключа на шаге мастера, до создания профиля.
+ * Validation of an API key value at the wizard step, before a profile exists.
  *
- * Единого формата у ключей нет — это стоит держать в голове, читая правила
- * ниже. `sk-` носят OpenAI и DeepSeek, Anthropic добавляет `sk-ant-`,
- * OpenRouter — `sk-or-`, Gemini выдаёт `AIza…` вообще без дефисов, Groq —
- * `gsk_…` с подчёркиванием, Cerebras — `csk-`, а Mistral и Together отдают
- * голую строку без приставки. Локальные серверы (LM Studio, Ollama, vLLM)
- * не проверяют ключ вовсе, и туда штатно пишут заглушку вроде `local`.
+ * There is no single key format — worth keeping in mind while reading the rules
+ * below. `sk-` is worn by OpenAI and DeepSeek, Anthropic adds `sk-ant-`,
+ * OpenRouter uses `sk-or-`, Gemini issues `AIza…` with no hyphens at all, Groq
+ * `gsk_…` with an underscore, Cerebras `csk-`, while Mistral and Together hand
+ * out a bare string with no prefix. Local servers (LM Studio, Ollama, vLLM) do
+ * not check the key at all, and a placeholder like `local` is routinely put
+ * there.
  *
- * Отсюда деление на два уровня. `error` — то, что неверно у любого
- * провайдера: пусто, пробел внутри, непечатаемые символы, оставленный
- * плейсхолдер из документации. Только это блокирует «Далее». Всё, что
- * зависит от провайдера — приставка и длина — возвращается как `warn`:
- * приставки меняются без предупреждения, и запрет по устаревшему списку
- * стоил бы пользователю рабочего ключа.
+ * Hence the split into two levels. `error` is what is wrong for any provider:
+ * empty, a space inside, non-printable characters, a placeholder left over from
+ * the documentation. Only that blocks "Next". Everything provider-dependent —
+ * the prefix and the length — comes back as `warn`: prefixes change without
+ * notice, and a ban based on a stale list would cost the user a working key.
  *
- * `code` существует ради тестов и логов: сообщения переводятся и правятся,
- * а привязывать проверку правила к его тексту — способ получить тест,
- * который краснеет на редактуре и молчит на подмене условия.
+ * `code` exists for tests and logs: messages get translated and edited, and
+ * tying a rule's check to its text is a way to get a test that goes red on
+ * copy-editing and stays silent when the condition is swapped.
  */
 export type KeyCheckCode = "empty" | "whitespace" | "charset" | "placeholder" | "prefix" | "length";
 export type KeyCheck = { level: "error" | "warn"; code: KeyCheckCode; message: string } | null;
 
-/** Провайдеры, которые ключ не проверяют: там уместна любая строка. */
+/** Providers that do not check the key: any string is acceptable there. */
 const LOCAL_PRESETS = new Set(["lmstudio", "ollama", "vllm"]);
 
-/** Приставка, с которой ключ провайдера начинается сегодня. */
+/** The prefix a provider's key starts with today. */
 const PREFIXES: Record<string, string> = {
   openai: "sk-",
   anthropic: "sk-ant-",
@@ -39,7 +39,7 @@ const PREFIXES: Record<string, string> = {
   xai: "xai-",
 };
 
-/** Значения из примеров в документации: скопированы, но не заменены. */
+/** Values from documentation examples: copied but never replaced. */
 const PLACEHOLDERS = [
   "sk-...",
   "sk-xxx",
@@ -57,11 +57,11 @@ export function checkApiKey(provider: string, presetId: string | null, raw: stri
   const value = raw.trim();
   if (!value) return { level: "error", code: "empty", message: t("Введите значение ключа.") };
 
-  // Пробел внутри — почти всегда обрезанная при копировании строка или
-  // склейка двух половин; ни один провайдер пробелов в ключ не кладёт.
-  // Диапазон печатаемых ASCII ниже поймал бы его и сам: правило стоит
-  // раньше только ради более точного сообщения, поэтому и проверяется
-  // тестом по `code`, а не по факту блокировки.
+  // A space inside is almost always a string truncated while copying or two
+  // halves spliced together; no provider puts spaces in a key. The printable
+  // ASCII range below would catch it on its own: this rule comes earlier only
+  // for a more precise message, which is why it is tested by `code` rather than
+  // by the fact of being blocked.
   if (/\s/.test(value)) {
     return { level: "error", code: "whitespace", message: t("В ключе есть пробел — похоже, он скопирован не целиком.") };
   }
@@ -73,8 +73,8 @@ export function checkApiKey(provider: string, presetId: string | null, raw: stri
     return { level: "error", code: "placeholder", message: t("Это пример из документации, а не ключ.") };
   }
 
-  // Дальше — догадки про конкретного провайдера. Локальные серверы ключ не
-  // смотрят, так что и гадать не о чем.
+  // From here on these are guesses about a specific provider. Local servers do
+  // not look at the key, so there is nothing to guess about.
   if (presetId && LOCAL_PRESETS.has(presetId)) return null;
 
   const expected = PREFIXES[presetId ?? provider];
@@ -87,7 +87,7 @@ export function checkApiKey(provider: string, presetId: string | null, raw: stri
   return null;
 }
 
-/** Можно ли уйти с шага ключа дальше. */
+/** Whether the key step can be left behind. */
 export function apiKeyBlocks(check: KeyCheck): boolean {
   return check?.level === "error";
 }

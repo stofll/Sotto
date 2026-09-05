@@ -80,10 +80,10 @@ pub fn preview(level: f32, duration: std::time::Duration) -> Result<(), String> 
     }
 }
 
-/// Вне Windows `submit` — пустышка, и поля запроса никто не читает. Это не
-/// мёртвый код, а форма «каждая точка входа здесь — no-op»: `duck` и
-/// `restore` собирают запрос одинаково на всех платформах, чтобы ветвление
-/// по ОС жило в одном месте — в `submit`.
+/// Outside Windows `submit` is a no-op and nobody reads the request fields.
+/// This is not dead code but the shape "every entry point here is a no-op":
+/// `duck` and `restore` build the request identically on every platform so
+/// that the OS branching lives in one place — inside `submit`.
 #[cfg_attr(not(windows), allow(dead_code))]
 #[derive(Debug)]
 enum Request {

@@ -33,19 +33,21 @@ type AiRunResult = {
   provider_error?: string;
   skipped_reason?: string;
   http_status?: number;
-  /** Первые 500 символов тела ответа. Бэкенд присылал его и раньше, но здесь
-   *  поле не было объявлено, и единственный источник правды про «ответ не той
-   *  формы» молча терялся между Rust и экраном. */
+  /** The first 500 characters of the response body. The backend was sending it
+   *  before, but the field was not declared here, and the only source of truth
+   *  about "the response has the wrong shape" was silently lost between Rust
+   *  and the screen. */
   response_snippet?: string;
   ai_processing?: { attempted?: boolean; used?: boolean; skipped_reason?: string };
 };
 
-/** Стадия обработки прикреплённого файла. Прогресса движок не отдаёт, так
- *  что показать можно только то, на каком из трёх шагов мы стоим. */
+/** The processing stage of an attached file. The engine reports no progress, so
+ *  all we can show is which of the three steps we are on. */
 type FileStage = null | "decoding" | "transcribing";
 
-/** Ответ `transcribe_audio_file`. Форма другая, чем у `AiRunResult`: там
- *  результат одного вызова LLM, здесь — весь пайплайн распознавания. */
+/** The response of `transcribe_audio_file`. A different shape from
+ *  `AiRunResult`: that is the result of one LLM call, this is the entire
+ *  recognition pipeline. */
 type TranscribeFileResult = {
   text: string;
   raw_text: string;
@@ -61,12 +63,13 @@ type TranscribeFileResult = {
   language: string | null;
 };
 
-/** Пилюля статуса для результата файла.
+/** The status pill for a file result.
  *
- *  Отдельно от пилюль «Обработать текст»: там `available === false` значит
- *  «LLM не отработала», и это ошибка. Здесь LLM может не запускаться штатно
- *  — в режиме «только локально» её и не должно быть, — а текст при этом
- *  распознан. Красная пилюля на успешной расшифровке врала бы. */
+ *  Separate from the «Обработать текст» pills: there `available === false`
+ *  means "the LLM did not run", and that is an error. Here the LLM may
+ *  legitimately not run — in local-only mode it should not — while the text is
+ *  transcribed all the same. A red pill on a successful transcription would be
+ *  a lie. */
 function FileStatusPill({ result }: { result: TranscribeFileResult }) {
   const ai = result.ai_status;
   if (ai?.fallback) return <span className="pill warn">Fallback</span>;
@@ -75,8 +78,9 @@ function FileStatusPill({ result }: { result: TranscribeFileResult }) {
   return <span className="pill">{t("Распознано")}</span>;
 }
 
-/** Сырой ответ провайдера под ошибкой. Свёрнут: нужен, когда сообщение об
- *  ошибке говорит «не та форма ответа», и не нужен во всех прочих случаях. */
+/** The provider's raw response beneath the error. Collapsed: needed when the
+ *  error message says "wrong response shape", and unnecessary in every other
+ *  case. */
 function ProviderSnippet({ result }: { result: AiRunResult }) {
   if (!result.response_snippet) return null;
   return (
@@ -97,7 +101,7 @@ const PIPELINE_MODES = () => ([
   { id: "cloud", title: t("Облачное распознавание"), sub: t("Аудио уходит на OpenAI-совместимый эндпоинт /audio/transcriptions. Нужны Base URL, модель и ключ активного профиля."), icon: "spark" },
 ] as const);
 
-/** Что именно мешает выбранному режиму дойти до провайдера. */
+/** What exactly stops the chosen mode from reaching the provider. */
 function blockerReason(blocker: NonNullable<LlmRouteBlocker>): string {
   if (blocker === "no_provider") return t("Провайдер LLM не выбран. Настройте его в «Интеграциях».");
   if (blocker === "invalid_base_url") return t("Для облачного распознавания укажите Base URL с http:// или https://.");
@@ -114,7 +118,7 @@ type Props = {
   onNavigate: (tab: "integrations") => void;
 };
 
-/** Ровно тот же список, что в фильтре `pick_audio_file` на стороне Rust. */
+/** Exactly the same list as in the `pick_audio_file` filter on the Rust side. */
 const AUDIO_EXTENSIONS = ["wav", "mp3", "m4a", "mp4", "ogg", "oga", "opus", "flac"];
 
 function isAudioPath(path: string): boolean {
@@ -134,20 +138,20 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
   const activeProfile = profiles.find((item) => item.id === baseAi.active_profile_id) ?? profiles[0] ?? fallbackProfile;
   const ai = useMemo(() => activeConfigFromProfile(baseAi, activeProfile, profiles), [baseAi, activeProfile, profiles]);
   const provider = PROVIDERS.find((item) => item.id === ai.provider) ?? PROVIDERS[0];
-  // Режим с LLM, до которой нечем дойти, — молчаливый режим: Rust проставит
-  // skipped_reason и вставит локальный текст, а пользователь увидит просто
-  // «гибрид не работает». Считаем это здесь, чтобы сказать об этом на экране,
-  // где режим и выбирают.
+  // A mode with an LLM that cannot be reached is a silent mode: Rust sets a
+  // skipped_reason and inserts the local text, while the user simply sees that
+  // "hybrid does not work". We compute it here so it can be said on the screen
+  // where the mode is chosen.
   const routeBlocker = llmRouteBlocker(config, apiKeys);
 
-  // Ключ голосового профиля показывает его собственная строка в списке выше
-  // («ключ сохранён» / «нет ключа»), поэтому отдельной переменной под него
-  // здесь больше нет — панель ручной обработки судит по своему профилю.
+  // The voice profile's key is shown by its own row in the list above («ключ
+  // сохранён» / «нет ключа»), so there is no separate variable for it here any
+  // more — the manual processing panel judges by its own profile.
   const activeKeyRef = profileKeyRef(activeProfile);
 
-  // Ручная обработка текста может идти другим профилем, чем диктовка: у них
-  // разные задачи, и модель, хорошо чистящая речь, не обязана быть лучшей для
-  // произвольного текста. По умолчанию наследуется голосовой.
+  // Manual text processing may run on a different profile from dictation: they
+  // have different jobs, and a model good at cleaning speech need not be the
+  // best for arbitrary text. By default the voice profile is inherited.
   const textProfile = useMemo(
     () => textProfileFor(baseAi, profiles, activeProfile),
     [baseAi, profiles, activeProfile],
@@ -156,14 +160,15 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
   const textKeyInfo = apiKeys[textKeyRef] ?? (textProfile.id === "default" ? apiKeys[textProfile.provider] ?? EMPTY_KEY_INFO : EMPTY_KEY_INFO);
   const textInheritsVoice = textProfile.id === activeProfile.id;
 
-  // Встроенный промпт под пресет профиля и то, что реально уйдёт модели.
+  // The built-in prompt for the profile's preset and what will actually go to
+  // the model.
   const builtinPrompt = presetPrompt(activeProfile.prompt_preset);
   const promptCustom = promptIsCustom(activeProfile);
   const [promptDraft, setPromptDraft] = useState(effectiveSystemPrompt(activeProfile));
-  // Хвост, который Rust дописывает к любому промпту, включая написанный
-  // руками. Читаем из бэкенда, а не держим копию здесь: копия разошлась бы
-  // с оригиналом на первой же правке, и тогда «что уходит модели» врало бы
-  // ровно в том месте, ради которого его показывают.
+  // The tail Rust appends to any prompt, including a hand-written one. We read
+  // it from the backend rather than keep a copy here: a copy would diverge from
+  // the original on the very first edit, and then "what goes to the model" would
+  // lie in exactly the place it is shown for.
   const [outputContract, setOutputContract] = useState("");
   const [contractShown, setContractShown] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -175,12 +180,12 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
   const [fileStage, setFileStage] = useState<FileStage>(null);
   const [fileResult, setFileResult] = useState<TranscribeFileResult | null>(null);
   const [fileError, setFileError] = useState("");
-  // Приходит событием в начале сессии, а не в результате: к моменту
-  // результата отменять уже нечего.
+  // It arrives as an event at the start of a session rather than in the result:
+  // by the time there is a result there is nothing left to cancel.
   const fileSessionId = useRef<number | null>(null);
   const [fileDragActive, setFileDragActive] = useState(false);
-  // Подписка на drop ставится один раз, поэтому занятость читается из рефов:
-  // замыкание на состоянии заморозило бы значения первого рендера.
+  // The drop subscription is installed once, so busyness is read from refs: a
+  // closure over state would freeze the values of the first render.
   const fileStageRef = useRef<FileStage>(null);
   const manualLoadingRef = useRef(false);
   const skipResetRef = useRef(false);
@@ -191,19 +196,21 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
   }, [activeProfile.id, activeProfile.system_prompt, activeProfile.prompt_preset]);
 
   useEffect(() => {
-    // Не блокирует страницу: пока не приехал, блок просто не показывается.
+    // It does not block the page: until it arrives the block simply is not
+    // shown.
     invoke<string>("get_output_contract").then(setOutputContract).catch(() => {});
   }, []);
 
-  // Перетаскивание файла в окно.
+  // Dragging a file into the window.
   //
-  // HTML5-события drop сюда не доходят: в webview включён нативный обработчик
-  // Tauri, и он их перехватывает. Зато он даёт то, чего DataTransfer дать не
-  // может, — путь на диске, а `transcribe_audio_file` принимает именно путь.
+  // HTML5 drop events do not reach here: the webview has Tauri's native handler
+  // enabled and it intercepts them. In exchange it gives what DataTransfer
+  // cannot — a path on disk, and `transcribe_audio_file` takes exactly a path.
   //
-  // Событие приходит на всё окно, без привязки к элементу, поэтому зона не
-  // ловит попадание курсора, а просто подсвечивается на время перетаскивания:
-  // ронять файл больше некуда, и требовать точного прицела было бы придиркой.
+  // The event arrives for the whole window with no element binding, so the zone
+  // does not track the cursor but simply highlights for the duration of the
+  // drag: there is nowhere else to drop a file, and demanding precise aim would
+  // be pedantry.
   useEffect(() => {
     if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) return;
     let unlisten: (() => void) | null = null;
@@ -221,8 +228,8 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
         }
         return;
       }
-      // Одна расшифровка за раз: движок всё равно занят, а вторая встала бы
-      // в очередь за первой без всякого следа в интерфейсе.
+      // One transcription at a time: the engine is busy anyway, and a second
+      // would queue behind the first with no trace in the interface.
       if (fileStageRef.current !== null || manualLoadingRef.current) return;
       void transcribeFile(path);
     }).then((fn) => {
@@ -269,15 +276,15 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
     const next = promptDraft.trim();
     if (!next || next === (activeProfile.system_prompt ?? "")) return;
     skipResetRef.current = true;
-    // Совпал со встроенным — сохраняем пустоту, а не копию: копия застынет и
-    // перестанет получать правки встроенного промпта.
+    // It matched the built-in one — we save emptiness rather than a copy: a copy
+    // freezes and stops receiving edits to the built-in prompt.
     await saveAi({ system_prompt: next === builtinPrompt.trim() ? "" : next });
     showMessage(t("Системный промпт сохранён."));
   }
 
-  // Раньше сброс только подставлял текст в поле и ничего не сохранял: пока не
-  // нажмёшь ещё и «Сохранить промпт», при следующем заходе возвращался старый.
-  // Отсюда и «приходится кликать каждый раз».
+  // Reset used to only put the text into the field and save nothing: until you
+  // also pressed «Сохранить промпт», the old one came back on your next visit.
+  // Hence "you have to click every time".
   async function resetPrompt() {
     setPromptDraft(builtinPrompt);
     if (!activeProfile.system_prompt?.trim()) return;
@@ -298,7 +305,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
         model: ai.model,
         base_url: ai.base_url ?? "",
         system_prompt: ai.system_prompt,
-        // i18n-ignore: образец русской диктовки для пробного запроса в LLM
+        // i18n-ignore: a Russian dictation sample for the trial LLM request
         text: "ну в общем нужно сегодня встретиться с командой и обсудить следующие шаги",
       });
       setTestResult(result);
@@ -315,9 +322,10 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
     setManualLoading(true);
     setManualResult(null);
     try {
-      // Поля берём с самого профиля, а не с плоских активных: при наследовании
-      // это одно и то же, а при выборе другого профиля плоские поля описывали
-      // бы голосовой — то есть отправляли бы запрос не туда, куда показано.
+      // The fields are taken from the profile itself rather than from the flat
+      // active ones: under inheritance they are the same, but when a different
+      // profile is chosen the flat fields would describe the voice one — that
+      // is, they would send the request somewhere other than what is shown.
       const result = await invoke<AiRunResult>("process_text_ai", {
         text,
         profile_id: textProfile.id,
@@ -346,7 +354,8 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
       setFileError(e instanceof Error ? e.message : String(e));
       return;
     }
-    // Пользователь закрыл диалог — это не ошибка и показывать нечего.
+    // The user closed the dialog — that is not an error and there is nothing to
+    // show.
     if (!path) return;
     await transcribeFile(path);
   }
@@ -355,8 +364,9 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
     setFileError("");
     setFileResult(null);
     setFileStage("decoding");
-    // Событие приходит уже после декодирования, но подписку ставим до
-    // вызова: иначе гонка между `emit` в Rust и `listen` здесь.
+    // The event arrives after decoding, but the subscription is installed before
+    // the call: otherwise there is a race between `emit` in Rust and `listen`
+    // here.
     const unlisten = await on<{ session_id: number }>("file-transcription-started", (payload) => {
       fileSessionId.current = payload.session_id;
       setFileStage("transcribing");
@@ -430,8 +440,8 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
           </button>
         </div>
         <div className="profile-list">
-            {/* Ссылка на «Интеграции» здесь была третьей подряд: та же кнопка
-                стоит в шапке страницы и в заголовке этой карточки. */}
+            {/* A link to «Интеграции» here was the third in a row: the same
+                button stands in the page header and in this card's heading. */}
             {profiles.length === 0 && (
               <div style={{ padding: "16px 14px", color: "var(--ink-mute)", font: "400 12px/1.5 var(--font-sans)" }}>
                 {t("Профилей пока нет. Настройки LLM ниже применяются к базовой конфигурации; профиль нужен, чтобы хранить несколько связок «провайдер + ключ + модель».")}
@@ -513,9 +523,9 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
               </button>
             ))}
           </div>
-          {/* Одна строка без заголовка и без кнопки: путь в «Интеграции» уже
-              лежит двумя карточками выше, а заголовок повторял бы то же, что
-              говорит сама причина. */}
+          {/* One line with no heading and no button: the route to «Интеграции»
+              already lies two cards above, and a heading would repeat what the
+              reason itself says. */}
           {routeBlocker && (
             <div role="alert" className="ai-mode-warning">
               <Icon name="info" size={13} style={{ color: "var(--warn)", flex: "0 0 auto", marginTop: 1 }}/>
@@ -532,9 +542,10 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
         <section className="card" style={{ padding: "4px 22px", marginBottom: 14 }}>
           <SettingRow title={t("Системный промпт")} stack hint={t("Инструкции, которые отправляются модели перед каждым запросом. Шаблон поддерживает плейсхолдеры {{language}} и {{transcript}}.")}>
             <div style={{ display: "grid", gap: 8 }}>
-              {/* Профиль со своим текстом молча перестаёт получать правки
-                  встроенного промпта. Пока это было не видно, конфиг с апреля
-                  ходил без правила «не заменяй слова синонимами». */}
+              {/* A profile with its own text silently stops receiving edits to
+                  the built-in prompt. While that was invisible, a config from
+                  April went around without the rule "do not replace words with
+                  synonyms". */}
               {promptCustom && (
                 <div className="flex-row" style={{ gap: 8, flexWrap: "wrap", padding: "7px 10px", borderRadius: "var(--r-sm)", background: "var(--warn-soft)", border: "1px solid rgba(251,191,36,0.30)" }}>
                   <Icon name="info" size={13} style={{ color: "var(--warn)", flex: "0 0 auto" }}/>
@@ -566,9 +577,9 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
                 <span style={{ font: "400 11px/1.3 var(--font-sans)", color: "var(--ink-mute)" }}>
                    {t("Кликни пресет, сохрани и протестируй на длинной записи через «Повторить LLM» в истории.")} </span>
               </div>
-              {/* Кнопки «развернуть» здесь нет намеренно: окно и так на
-                  дюжину строк, а видимый скроллбар показывает, сколько текста
-                  осталось, — и высоту всегда можно потянуть за угол. */}
+              {/* There is deliberately no "expand" button: the box is a dozen
+                  lines tall as it is, a visible scrollbar shows how much text is
+                  left, and the height can always be dragged by the corner. */}
               <textarea
                 className="field mono scroll-visible"
                 value={promptDraft}
@@ -655,9 +666,9 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
               <div style={{ font: "600 14px/1.2 var(--font-sans)", color: "var(--ink)" }}>{t("Обработать текст")}</div>
               <div style={{ font: "400 11.5px/1.3 var(--font-sans)", color: "var(--ink-mute)", marginTop: 2 }}>{t("Любой текст, не связанный с диктовкой")}</div>
             </div>
-            {/* Раньше здесь было только «по правилам активного профиля» — какой
-                моделью, узнать было неоткуда. Селектор одновременно называет
-                её и позволяет развести с диктовкой. */}
+            {/* This used to say only "by the active profile's rules" — with no
+                way to learn which model. The selector both names it and lets it
+                be separated from dictation. */}
             <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 230 }}>
               <span className="set-label" style={{ whiteSpace: "nowrap" }}>{t("Обрабатывает")}</span>
               <CustomSelect
@@ -686,9 +697,10 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
             {!textProfile.model.trim() && <span style={{ font: "500 11px/1.35 var(--font-mono)", color: "var(--err)" }}>{t("model не задан")}</span>}
             {!textKeyInfo.available && <span style={{ font: "500 11px/1.35 var(--font-mono)", color: "var(--err)" }}>{t("Ключ профиля не задан.")}</span>}
           </div>
-          {/* Своя зона, а не ещё одна кнопка в ряду: выше по карточке — ввод
-              текста, здесь — речь, и это два разных входа в обработку. Раньше
-              их разделяла только вторая строка кнопок. */}
+          {/* Its own zone rather than another button in the row: higher up the
+              card is text entry, here is speech, and these are two different
+              entrances into processing. They used to be separated only by a
+              second row of buttons. */}
           <div className="audio-drop" data-active={fileDragActive ? "true" : "false"} data-busy={fileStage !== null ? "true" : "false"}>
             <span className="audio-drop__mark"><Icon name="mic" size={16}/></span>
             <div className="audio-drop__copy">
@@ -700,8 +712,9 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
             </div>
             <div className="audio-drop__actions">
               {fileStage === "transcribing"
-                /* Отмена есть только на этапе распознавания: до него сессии
-                   ещё нет, а декодирование заведомо короткое. */
+                /* Cancellation exists only during the recognition stage: before
+                   it there is no session yet, and decoding is short by
+                   definition. */
                 ? <button className="btn btn--ghost" onClick={() => void cancelFileTranscription()}>{t("Отменить")}</button>
                 : (
                   <button className="btn btn--ghost" onClick={() => void runFileTranscription()} disabled={fileStage !== null || manualLoading}>
@@ -726,8 +739,8 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
                 <div style={{ font: "500 11px/1.45 var(--font-mono)", color: "var(--ink-mute)", whiteSpace: "pre-wrap" }}>{fileResult.ai_status.skipped_reason}</div>
               )}
               <div style={{ padding: 12, borderRadius: "var(--r-sm)", background: "var(--bg-2)", border: "1px solid var(--line)", font: "400 13px/1.55 var(--font-sans)", color: "var(--ink)", whiteSpace: "pre-wrap" }}>{fileResult.text}</div>
-              {/* Показываем сырой этап только когда он отличается — иначе это
-                  просто вторая копия того же текста. */}
+              {/* We show the raw stage only when it differs — otherwise it is
+                  simply a second copy of the same text. */}
               {fileResult.raw_text !== fileResult.text && (
                 <details>
                   <summary style={{ cursor: "pointer", font: "500 11px/1.4 var(--font-sans)", color: "var(--ink-mute)" }}>{t("Whisper без обработки")}</summary>

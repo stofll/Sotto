@@ -1,8 +1,8 @@
-// Ищет вызовы t() в инициализаторах констант уровня модуля.
+// Finds t() calls in module-level constant initialisers.
 //
-// Такой вызов выполняется один раз при импорте — до того, как приложение
-// узнало язык из конфига, — и навсегда застревает на языке по умолчанию.
-// Внутри компонента t() вычисляется при каждой отрисовке и потому переключается.
+// Such a call runs once at import time — before the app has learned the language
+// from the config — and is stuck in the default language forever. Inside a
+// component t() is evaluated on every render and therefore switches.
 import ts from "typescript";
 import fs from "node:fs";
 import path from "node:path";
@@ -26,7 +26,7 @@ for (const file of walkFiles("src")) {
     if (!ts.isVariableStatement(stmt)) continue;
     for (const decl of stmt.declarationList.declarations) {
       if (!decl.initializer) continue;
-      // t() внутри функции/стрелки вычислится при вызове — это нормально.
+      // t() inside a function or arrow is evaluated on call — that is fine.
       let eager = false;
       const scan = (node) => {
         if (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) return;

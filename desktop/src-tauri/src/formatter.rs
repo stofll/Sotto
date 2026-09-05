@@ -838,42 +838,42 @@ impl FormatStep for FillerWordsRemover {
     }
 }
 
-/// Готовый набор терминов для словаря пользователя.
+/// A ready-made set of terms for the user's dictionary.
 ///
-/// Смысл не в самих словах — их человек и сам бы вписал. Смысл в том, что
-/// про словарь вспоминают слишком поздно: функция есть, покрыта тестами,
-/// выведена в настройки, и всё равно остаётся пустой ровно до того дня,
-/// когда термины начинают мазать. Набор в один клик снимает этот барьер.
+/// The point is not the words themselves — a person would enter those anyway.
+/// The point is that the dictionary is remembered too late: the feature exists,
+/// is covered by tests and surfaced in settings, and still stays empty right up
+/// to the day the terms start going wrong. A one-click set removes that
+/// barrier.
 ///
-/// На Whisper это к тому же работает **до** распознавания, а не только
-/// после: содержимое словаря уходит в `initial_prompt` (см.
-/// `custom_words_prompt`), то есть модель заранее знает, каких слов ждать,
-/// и с большей вероятностью не ломает их вовсе.
+/// On Whisper it additionally works **before** recognition rather than only
+/// after: the dictionary's contents go into `initial_prompt` (see
+/// `custom_words_prompt`), so the model knows in advance which words to expect
+/// and is more likely not to mangle them at all.
 pub struct DictionaryPreset {
-    /// Стабильный идентификатор. Название показывает фронтенд — оно
-    /// переводимое, а список слов нет.
+    /// A stable identifier. The name is displayed by the frontend — that is
+    /// translatable, the word list is not.
     pub id: &'static str,
     pub words: &'static [&'static str],
 }
 
-/// Разработка: то, что произносят вслух каждый день и что движок пишет
-/// кириллицей.
+/// Development: what people say out loud every day and what the engine writes
+/// in Cyrillic.
 ///
-/// Отбор консервативный, и вот по каким правилам — их стоит соблюдать,
-/// если набор когда-нибудь будут пополнять:
+/// The selection is conservative, and here are the rules — worth following if
+/// the set is ever extended:
 ///
-/// 1. Термин обязан переживать свёртку и оставаться не короче
-///    [`CUSTOM_WORD_MIN_CHARS`]. `Vite` сворачивается в `vit` (немая `e`
-///    отбрасывается), `Node` — в `nod`: такие слова словарь молча
-///    игнорирует, и обещать их пользователю нечестно.
-/// 2. Термин не должен садиться на обычное русское слово в пределах
-///    бюджета правок. `buffer` сворачивается в `bufer` и отличается от
-///    «буфет» ровно на одну правку — за такую подмену расплачивается
-///    человек, диктующий про обед.
+/// 1. A term must survive folding and stay no shorter than
+///    [`CUSTOM_WORD_MIN_CHARS`]. `Vite` folds to `vit` (the silent `e` is
+///    dropped), `Node` to `nod`: the dictionary silently ignores such words, and
+///    promising them to the user is dishonest.
+/// 2. A term must not land on an ordinary Russian word within the edit budget.
+///    `buffer` folds to `bufer` and differs from «буфет» by exactly one edit —
+///    the person dictating about lunch pays for that substitution.
 ///
-/// Оба правила проверяются тестами, а не глазами.
+/// Both rules are checked by tests, not by eye.
 const PRESET_DEVELOPMENT: &[&str] = &[
-    // Git и процесс
+    // Git and process
     "pull request",
     "merge request",
     "commit",
@@ -884,7 +884,7 @@ const PRESET_DEVELOPMENT: &[&str] = &[
     "squash",
     "stash",
     "changelog",
-    // Сборка и выкладка
+    // Build and release
     "pipeline",
     "deploy",
     "release",
@@ -895,7 +895,7 @@ const PRESET_DEVELOPMENT: &[&str] = &[
     "Dockerfile",
     "Kubernetes",
     "nginx",
-    // Языки и инструменты
+    // Languages and tools
     "Rust",
     "Cargo",
     "Cargo.toml",
@@ -914,12 +914,12 @@ const PRESET_DEVELOPMENT: &[&str] = &[
     "Postgres",
     "SQLite",
     "Redis",
-    // Файлы и форматы
+    // Files and formats
     "package.json",
     "tsconfig.json",
     "README",
     "Markdown",
-    // Понятия
+    // Concepts
     "backend",
     "frontend",
     "middleware",
@@ -931,32 +931,33 @@ const PRESET_DEVELOPMENT: &[&str] = &[
     "thread",
 ];
 
-/// Наборы, которые фронтенд предлагает добавить в словарь.
+/// The sets the frontend offers to add to the dictionary.
 pub const DICTIONARY_PRESETS: &[DictionaryPreset] = &[DictionaryPreset {
     id: "development",
     words: PRESET_DEVELOPMENT,
 }];
 
-/// Сколько правок прощается термину такой длины, чтобы он всё ещё считался
-/// искажением словарной формы.
+/// How many edits are forgiven a term of this length for it still to count as a
+/// distortion of the dictionary form.
 ///
-/// Раньше здесь стоял один относительный порог 0.8 на термины любой длины,
-/// и он был неверен на обоих концах шкалы. У аббревиатуры из четырёх букв
-/// («NSIS») одна неверная буква — это сразу 0.75, ниже порога: такой термин
-/// не проходил никогда, сколько бы раз его в словарь ни вписали. А у
-/// длинного составного («structured_log» против услышанного «структуре
-/// тлок») две-три правки на тринадцати символах — очевидно то же слово, но
-/// относительная мера давала 0.769 и тоже отказывала.
+/// There used to be a single relative threshold of 0.8 for terms of any length,
+/// and it was wrong at both ends of the scale. For a four-letter abbreviation
+/// («NSIS») one wrong letter is 0.75 straight away, below the threshold: such a
+/// term never passed, however many times it was entered into the dictionary. And
+/// for a long compound one («structured_log» against the heard «структуре
+/// тлок») two or three edits over thirteen characters is obviously the same
+/// word, yet the relative measure gave 0.769 and refused as well.
 ///
-/// Абсолютный бюджет решает оба случая разом: чем длиннее термин, тем
-/// дешевле обходится одна ошибка распознавания.
+/// An absolute budget solves both cases at once: the longer the term, the
+/// cheaper a single recognition error becomes.
 ///
-/// Верхнюю границу задаёт то, что ловить **не** нужно. «брайтер» и
-/// «райдере» — это движки услышали другие слова, а не записали «writer»
-/// другим алфавитом; от свёрнутого `vriter` их отделяют две и три правки на
-/// шести символах. Поэтому шестибуквенному термину прощается ровно одна:
-/// ошибочная замена выглядит как то, что человек якобы сам продиктовал, и
-/// портит текст сильнее пропущенной.
+/// The upper bound is set by what must **not** be caught. «брайтер» and
+/// «райдере» are the engines hearing different words rather than writing
+/// «writer» in another alphabet; two and three edits over six characters
+/// separate them from the folded `vriter`. So a six-letter term is forgiven
+/// exactly one: a mistaken substitution looks like something the person
+/// supposedly dictated themselves, and spoils the text worse than a missed
+/// one.
 fn edit_budget(key_len: usize) -> usize {
     match key_len {
         0..=6 => 1,
@@ -965,29 +966,30 @@ fn edit_budget(key_len: usize) -> usize {
     }
 }
 
-/// Считается ли свёрнутое окно искажением свёрнутого термина.
+/// Whether a folded window counts as a distortion of a folded term.
 fn within_budget(folded: &str, key: &str) -> bool {
     let folded: Vec<char> = folded.chars().collect();
     let key: Vec<char> = key.chars().collect();
-    // Разница длин сама по себе не меньше расстояния: отсекает очевидно
-    // чужие окна до подсчёта матрицы.
+    // The length difference is itself no less than the distance: it rejects
+    // obviously foreign windows before the matrix is computed.
     if folded.len().abs_diff(key.len()) > edit_budget(key.len()) {
         return false;
     }
     edit_distance(&folded, &key) <= edit_budget(key.len())
 }
 
-/// Короче этого нечёткое сравнение не работает: у слов на три буквы почти
-/// любая опечатка даёт похожесть выше порога, и словарь начинает
-/// переписывать здоровый текст.
+/// Shorter than this, fuzzy comparison does not work: for three-letter words
+/// almost any typo gives a similarity above the threshold, and the dictionary
+/// starts rewriting healthy text.
 const CUSTOM_WORD_MIN_CHARS: usize = 4;
 
-/// Транслитерация кириллицы в латиницу.
+/// Transliteration of Cyrillic into Latin.
 ///
-/// Без неё вся затея не работает: типичный случай — человек диктует
-/// английский бренд, а движок пишет его кириллицей. «Таури» и «Tauri» не
-/// имеют ни одного общего символа, и посимвольное расстояние между ними
-/// максимально возможное, хотя это одно и то же слово.
+/// Without it the whole idea does not work: the typical case is a person
+/// dictating an English brand while the engine writes it in Cyrillic. «Таури»
+/// and «Tauri» share not a single character, and the per-character distance
+/// between them is the maximum possible, even though it is one and the same
+/// word.
 fn translit_char(c: char) -> &'static str {
     match c {
         'а' => "a",
@@ -1017,19 +1019,19 @@ fn translit_char(c: char) -> &'static str {
         'ы' => "y",
         'ю' => "yu",
         'я' => "ya",
-        // Твёрдый и мягкий знаки звука не дают.
+        // The hard and soft signs carry no sound.
         'ъ' | 'ь' => "",
         _ => "",
     }
 }
 
-/// Свести слово к форме, по которой сравниваем.
+/// Fold a word into the form used for comparison.
 ///
-/// Регистр не важен, пунктуация к слову не относится, кириллица уезжает в
-/// латиницу, а дальше снимаются написания, различающие одно и то же
-/// звучание: `ph`/`f`, `ck`/`k`, `c`/`k`, удвоенные буквы, немая `e` на
-/// конце. Диграфы `sh`/`ch`/`zh` сначала прячутся в служебные символы,
-/// иначе последующее `c → k` разобрало бы `ch` на части.
+/// Case does not matter, punctuation does not belong to the word, Cyrillic goes
+/// to Latin, and then the spellings that distinguish one and the same sound are
+/// removed: `ph`/`f`, `ck`/`k`, `c`/`k`, doubled letters, a silent `e` at the
+/// end. The digraphs `sh`/`ch`/`zh` are first hidden in sentinel characters,
+/// otherwise the subsequent `c → k` would take `ch` apart.
 fn fold_for_match(word: &str) -> String {
     let mut latin = String::with_capacity(word.len());
     for c in word.chars().filter(|c| c.is_alphanumeric()) {
@@ -1042,8 +1044,8 @@ fn fold_for_match(word: &str) -> String {
         }
     }
 
-    // Служебные символы для диграфов: заглавные, а строка уже в нижнем
-    // регистре, так что столкнуться им не с чем.
+    // Sentinel characters for the digraphs: uppercase, and the string is already
+    // lowercase, so there is nothing for them to collide with.
     let stage: String = latin
         .replace("sh", "S")
         .replace("ch", "C")
@@ -1064,7 +1066,7 @@ fn fold_for_match(word: &str) -> String {
         }
     }
 
-    // Удвоения на слух не слышны: «Ollama» и «олама» — одно слово.
+    // Doubling is inaudible: «Ollama» and «олама» are one word.
     let mut deduped = String::with_capacity(out.len());
     for c in out.chars() {
         if !deduped.ends_with(c) {
@@ -1072,18 +1074,18 @@ fn fold_for_match(word: &str) -> String {
         }
     }
 
-    // Немая «e» на конце: «code» и «код» должны сойтись.
+    // A silent «e» at the end: «code» and «код» must meet.
     if deduped.chars().count() > 3 && deduped.ends_with('e') {
         deduped.pop();
     }
     deduped
 }
 
-/// Расстояние Левенштейна по символам (не байтам — текст смешанный,
-/// кириллица и латиница разной ширины в UTF-8).
+/// Levenshtein distance over characters (not bytes — the text is mixed, and
+/// Cyrillic and Latin have different widths in UTF-8).
 ///
-/// Своя реализация вместо зависимости: тридцать строк против лишнего
-/// крейта в дереве сборки.
+/// Our own implementation instead of a dependency: thirty lines against an
+/// extra crate in the build tree.
 fn edit_distance(a: &[char], b: &[char]) -> usize {
     if a.is_empty() {
         return b.len();
@@ -1114,30 +1116,31 @@ fn ratio(a: &str, b: &str) -> f64 {
     1.0 - (edit_distance(&ac, &bc) as f64 / longest as f64)
 }
 
-/// Похожесть двух свёрнутых ключей.
+/// Similarity of two folded keys.
 ///
-/// Только полная форма. Пробовался второй сигнал — согласный скелет, где
-/// у слова остаются первый символ и все согласные: он ловит заимствования,
-/// разошедшиеся гласными («клод» и «claude» после него совпадают
-/// буквально). Но он же склеивает несвязанные слова: «город» и «град» без
-/// гласных неразличимы, и словарь с термином «Град» начинал переписывать
-/// здоровый текст. Отсечь одно, не потеряв другое, порогом не вышло.
+/// The full form only. A second signal was tried — a consonant skeleton keeping
+/// a word's first character and all its consonants: it catches loanwords that
+/// diverged in their vowels («клод» and «claude» match literally after it). But
+/// it also glues unrelated words together: «город» and «град» are
+/// indistinguishable without vowels, and a dictionary containing the term «Град»
+/// began rewriting healthy text. No threshold managed to cut one off without
+/// losing the other.
 ///
-/// Выбор в пользу пропущенной замены: её человек увидит и поправит, а
-/// подменённое слово выглядит как то, что он якобы сам продиктовал.
-/// Кросс-алфавитный случай — тот, ради которого всё затевалось, — свёртка
-/// закрывает и без скелета: «таури» и «Tauri» после транслитерации
-/// совпадают точно.
+/// The choice favours a missed replacement: a person sees and fixes that, while
+/// a substituted word looks like something they supposedly dictated themselves.
+/// The cross-alphabet case — the one this was all started for — the folding
+/// covers even without the skeleton: «таури» and «Tauri» match exactly after
+/// transliteration.
 fn similarity(a: &str, b: &str) -> f64 {
     ratio(a, b)
 }
 
-/// Перенести регистр найденного фрагмента на словарную форму.
+/// Carry the case of the matched fragment over to the dictionary form.
 ///
-/// Написание термина задаёт пользователь, поэтому оно и побеждает: «таури»
-/// становится «Tauri», а не «tauri». Но если фрагмент стоял в начале
-/// предложения или набран капсом, это свойство текста, а не термина, и его
-/// нужно сохранить.
+/// The user sets a term's spelling, which is why it wins: «таури» becomes
+/// «Tauri», not «tauri». But if the fragment stood at the start of a sentence or
+/// was typed in caps, that is a property of the text rather than of the term,
+/// and it must be preserved.
 fn apply_case_of(matched: &str, canonical: &str) -> String {
     let letters: Vec<char> = matched.chars().filter(|c| c.is_alphabetic()).collect();
     if letters.len() > 1 && letters.iter().all(|c| c.is_uppercase()) {
@@ -1158,19 +1161,19 @@ fn apply_case_of(matched: &str, canonical: &str) -> String {
     }
 }
 
-/// Приводит распознанные слова к написанию из пользовательского словаря.
+/// Brings recognised words to the spelling from the user's dictionary.
 ///
-/// Нужен потому, что движок не может знать имена, бренды, термины и жаргон
-/// конкретного человека. Whisper мы дополнительно подсказываем словарём
-/// через `initial_prompt` — там он влияет на само декодирование; GigaAM
-/// такого входа не имеет (offline NemoCtc, hotwords в sherpa-onnx есть
-/// только у transducer), и для него этот шаг — единственный способ.
+/// Needed because the engine cannot know a particular person's names, brands,
+/// terms and jargon. For Whisper we additionally hint with the dictionary via
+/// `initial_prompt` — there it influences the decoding itself; GigaAM has no
+/// such input (offline NemoCtc, and hotwords in sherpa-onnx exist only for a
+/// transducer), and for it this step is the only way.
 ///
-/// Сравнение нечёткое: смысл словаря в том, чтобы ловить именно те случаи,
-/// где движок услышал похоже, но записал не так.
+/// The comparison is fuzzy: the point of the dictionary is to catch exactly
+/// those cases where the engine heard something close but wrote it otherwise.
 pub struct CustomWordsCorrector {
     enabled: bool,
-    /// (словарная форма, свёрнутый склеенный ключ)
+    /// (dictionary form, folded joined key)
     terms: Vec<(String, String)>,
 }
 
@@ -1183,11 +1186,11 @@ impl CustomWordsCorrector {
                 if canonical.is_empty() {
                     return None;
                 }
-                // Ключ склеенный, без пробелов: движок сегментирует речь
-                // по-своему, и «Giga AM» приходит двумя токенами там, где в
-                // словаре записано одно слово «GigaAM». Сравнение по
-                // склейке снимает этот вопрос целиком, а не гадает, сколько
-                // слов окажется в тексте.
+                // The key is joined, without spaces: the engine segments
+                // speech its own way, and «Giga AM» arrives as two tokens where
+                // the dictionary holds the single word «GigaAM». Comparing by
+                // the joined form removes the question entirely rather than
+                // guessing how many words the text will contain.
                 let key: String = canonical.split_whitespace().map(fold_for_match).collect();
                 if key.chars().filter(|c| c.is_alphanumeric()).count() < CUSTOM_WORD_MIN_CHARS {
                     return None;
@@ -1198,10 +1201,10 @@ impl CustomWordsCorrector {
         Self { enabled, terms }
     }
 
-    /// Сколько токенов текста имеет смысл пробовать за раз.
+    /// How many text tokens it makes sense to try at once.
     ///
-    /// Число слов в самом длинном термине плюс один: движок может разбить
-    /// на один пробел больше, чем в словаре («Клод Код» против «Клодкод»).
+    /// The word count of the longest term plus one: the engine may split on one
+    /// more space than the dictionary does («Клод Код» against «Клодкод»).
     fn max_window(&self) -> usize {
         self.terms
             .iter()
@@ -1211,8 +1214,8 @@ impl CustomWordsCorrector {
             + 1
     }
 
-    /// Похожесть окна `words[start .. start + n]` на конкретный термин.
-    /// `None`, если окно слишком короткое, чтобы его вообще сравнивать.
+    /// Similarity of the window `words[start .. start + n]` to a specific term.
+    /// `None` if the window is too short to be compared at all.
     fn window_score(&self, words: &[&str], start: usize, n: usize, key: &str) -> Option<f64> {
         if n == 0 || start + n > words.len() {
             return None;
@@ -1227,23 +1230,24 @@ impl CustomWordsCorrector {
         Some(similarity(&folded, key))
     }
 
-    /// Лучшее совпадение, начинающееся с позиции `start`.
+    /// The best match beginning at position `start`.
     ///
-    /// Возвращает длину окна и словарную форму.
+    /// Returns the window length and the dictionary form.
     ///
-    /// Составное окно принимается только если для того же термина оно
-    /// похоже **строго сильнее**, чем то же окно без первого и без
-    /// последнего токена. Сравнение именно с тем же термином, а не с любым:
-    /// иначе «Claude» из словаря отменял бы совпадение «Claude Code», ведь
-    /// он идеально ложится на первую половину окна. Без этого
-    /// правила длинный термин утаскивает соседнее служебное слово: порог
-    /// относительный, «на опен роутер» отличается от «openrouter» на два
-    /// символа из двенадцати — то есть проходит, — и предлог исчезал из
-    /// текста. Проверка симметрична, потому что прилипнуть слово может с
-    /// любой стороны: «Tauri и» ломается ровно так же.
+    /// A compound window is accepted only if, for the same term, it is
+    /// **strictly** more similar than the same window without its first and
+    /// without its last token. The comparison is against the same term rather
+    /// than any term: otherwise «Claude» from the dictionary would cancel the
+    /// «Claude Code» match, since it fits the first half of the window
+    /// perfectly. Without this rule a long term drags a neighbouring function
+    /// word along: the threshold is relative, «на опен роутер» differs from
+    /// «openrouter» by two characters out of twelve — that is, it passes — and
+    /// the preposition disappeared from the text. The check is symmetric because
+    /// a word can stick on either side: «Tauri и» breaks in exactly the same
+    /// way.
     ///
-    /// При равном счёте побеждает длинное окно: иначе «Claude» съедал бы
-    /// начало «Claude Code» и оставлял «код» болтаться.
+    /// On an equal score the long window wins: otherwise «Claude» would eat the
+    /// beginning of «Claude Code» and leave «код» dangling.
     fn best_match(&self, words: &[&str], start: usize) -> Option<(usize, &str)> {
         let limit = self.max_window().min(words.len() - start);
         let mut best: Option<(f64, usize, &str)> = None;
@@ -1259,8 +1263,8 @@ impl CustomWordsCorrector {
                 if !within_budget(&folded, key) {
                     continue;
                 }
-                // Счёт нужен и дальше — им выбирается лучший из подошедших
-                // кандидатов и сравниваются вложенные окна.
+                // The score is needed later too — it picks the best among the
+                // matching candidates and compares nested windows.
                 let score = similarity(&folded, key);
                 if n > 1 {
                     let trimmed = self
@@ -1272,8 +1276,8 @@ impl CustomWordsCorrector {
                         continue;
                     }
                 }
-                // `<` а не `<=`: окна перебираются от коротких к длинным,
-                // и равный счёт должен доставаться длинному.
+                // `<` rather than `<=`: windows are iterated from short to
+                // long, and an equal score must go to the long one.
                 match best {
                     Some((best_score, _, _)) if score < best_score => {}
                     _ => best = Some((score, n, canonical.as_str())),
@@ -1284,13 +1288,13 @@ impl CustomWordsCorrector {
     }
 }
 
-/// Слово вместе с разделителем, который стоял перед ним.
+/// A word together with the separator that stood before it.
 ///
-/// Разделитель хранится дословно, а не пересобирается пробелом: шаг
-/// словаря не имеет права трогать разметку текста. Первая версия резала
-/// вход через `split_whitespace` и склеивала через `join(" ")` — и тем
-/// самым схлопывала двойные пробелы даже при выключенной нормализации, а
-/// переводы строк превращала в пробелы, то есть уничтожала абзацы.
+/// The separator is stored verbatim rather than rebuilt from a space: the
+/// dictionary step has no right to touch the text's layout. The first version
+/// cut the input with `split_whitespace` and joined it with `join(" ")` — and by
+/// doing so collapsed double spaces even with normalisation off, and turned
+/// newlines into spaces, that is destroyed paragraphs.
 struct Token<'a> {
     gap: &'a str,
     raw: &'a str,
@@ -1319,7 +1323,7 @@ fn tokenize(text: &str) -> Vec<Token<'_>> {
             raw: &text[start..],
         });
     } else if gap_start < text.len() {
-        // Хвостовой пробел без слова после него — тоже часть текста.
+        // A trailing space with no word after it is part of the text too.
         tokens.push(Token {
             gap: &text[gap_start..],
             raw: "",
@@ -1328,17 +1332,17 @@ fn tokenize(text: &str) -> Vec<Token<'_>> {
     tokens
 }
 
-/// Пунктуация до первой буквы или цифры.
+/// Punctuation before the first letter or digit.
 fn leading_punctuation(word: &str) -> &str {
     match word.char_indices().find(|(_, c)| c.is_alphanumeric()) {
         Some((i, _)) => &word[..i],
-        // Целиком пунктуация: считаем её ведущей, чтобы не продублировать
-        // тот же кусок ещё и как хвост.
+        // All punctuation: we treat it as leading so as not to duplicate the
+        // same chunk as a trailing part as well.
         None => word,
     }
 }
 
-/// Пунктуация после последней буквы или цифры.
+/// Punctuation after the last letter or digit.
 fn trailing_punctuation(word: &str) -> &str {
     match word.char_indices().rfind(|(_, c)| c.is_alphanumeric()) {
         Some((i, c)) => &word[i + c.len_utf8()..],
@@ -1366,10 +1370,10 @@ impl FormatStep for CustomWordsCorrector {
                 Some((n, canonical)) => {
                     let first = &tokens[i];
                     let last = &tokens[i + n - 1];
-                    // Кавычки и скобки вокруг термина принадлежат
-                    // предложению, а не термину, — с обеих сторон. Хвост
-                    // сохранялся с самого начала, а вот открывающая
-                    // пунктуация терялась: «таури» превращалось в Tauri».
+                    // Quotes and brackets around a term belong to the sentence
+                    // rather than to the term — on both sides. The trailing part
+                    // was preserved from the start, but the opening punctuation
+                    // was lost: «таури» turned into Tauri».
                     out.push_str(first.gap);
                     out.push_str(leading_punctuation(first.raw));
                     let matched = raws[i..i + n].join(" ");
@@ -2002,12 +2006,12 @@ pub struct TextFormattingConfig {
     pub normalize_spaces: bool,
     #[serde(default)]
     pub split_sentences: bool,
-    /// Идентификаторы включённых готовых наборов ([`DICTIONARY_PRESETS`]).
+    /// Identifiers of the enabled ready-made sets ([`DICTIONARY_PRESETS`]).
     ///
-    /// Хранится списком id, а не копией слов, ровно ради выключателя:
-    /// набор можно снять одним движением и без потерь, а свой словарь
-    /// пользователя при этом не задет — он лежит отдельно в
-    /// `custom_words` и остаётся тем, что человек написал руками.
+    /// Stored as a list of ids rather than a copy of the words precisely for the
+    /// sake of the switch: a set can be removed in one motion and without loss,
+    /// while the user's own dictionary is untouched — it lives separately in
+    /// `custom_words` and stays what the person wrote by hand.
     #[serde(default)]
     pub enabled_presets: Vec<String>,
     #[serde(default = "default_true")]
@@ -2016,21 +2020,21 @@ pub struct TextFormattingConfig {
     pub final_punctuation: bool,
     #[serde(default)]
     pub custom_parasite_words: Vec<String>,
-    /// Имена, бренды, термины и жаргон, которых движок знать не может.
-    /// Пустой список — шаг не выполняется вовсе.
+    /// Names, brands, terms and jargon the engine cannot know. An empty list
+    /// means the step does not run at all.
     #[serde(default)]
     pub custom_words: Vec<String>,
 }
 
 impl TextFormattingConfig {
-    /// Словарь, который на самом деле применяется: слова пользователя плюс
-    /// слова каждого включённого набора.
+    /// The dictionary that is actually applied: the user's words plus the words
+    /// of every enabled set.
     ///
-    /// Свои слова идут первыми и побеждают при совпадении: если человек
-    /// вписал термин в своём написании, набор не имеет права подменить его
-    /// своим. Сравнение без учёта регистра, иначе `Cargo` из набора и
-    /// `cargo` из своего списка стали бы двумя разными терминами и оба
-    /// боролись бы за одно и то же окно текста.
+    /// The user's own words come first and win on a collision: if a person
+    /// entered a term in their own spelling, a set has no right to replace it
+    /// with its own. The comparison ignores case, otherwise `Cargo` from a set
+    /// and `cargo` from the user's list would become two different terms and
+    /// both would fight over the same window of text.
     pub fn effective_custom_words(&self) -> Vec<String> {
         let mut out: Vec<String> = Vec::new();
         let mut seen: Vec<String> = Vec::new();
@@ -2051,9 +2055,9 @@ impl TextFormattingConfig {
         }
         for id in &self.enabled_presets {
             let Some(set) = DICTIONARY_PRESETS.iter().find(|set| set.id == id) else {
-                // Набор из конфига, которого больше нет в сборке: молча
-                // пропускаем. Откат приложения на версию без этого набора
-                // не должен ломать форматирование.
+                // A set from the config that no longer exists in the build: we
+                // skip it silently. Rolling the app back to a version without
+                // that set must not break formatting.
                 continue;
             };
             for word in set.words {
@@ -2136,10 +2140,10 @@ impl Formatter {
             Box::new(PhraseLoopCollapser::new(fmt.collapse_phrase_loops)),
             Box::new(CommaCleaner::new(fmt.clean_commas)),
             Box::new(SpaceNormalizer::new(fmt.normalize_spaces)),
-            // После нормализации пробелов — окна из слов режутся по
-            // единичным пробелам, а не по случайным пачкам. И до правил
-            // замен: пользовательское правило должно видеть уже
-            // исправленный термин, а не то, что послышалось движку.
+            // After whitespace normalisation — word windows are cut on single
+            // spaces rather than on random clumps. And before the replacement
+            // rules: a user rule must see the already-corrected term rather than
+            // what the engine thought it heard.
             Box::new({
                 let words = fmt.effective_custom_words();
                 CustomWordsCorrector::new(!words.is_empty(), words)
@@ -2665,10 +2669,11 @@ mod tests {
         assert_eq!(out, "Шепот работает.");
     }
 
-    /// Зеркало теста выше. Тот проверяет, что на паузе правило молчит, но
-    /// сам по себе он остаётся зелёным и в мире, где правило не срабатывает
-    /// никогда. Этот закрывает вторую половину и тем самым — выбор ветки
-    /// построения правил в `from_config` и вычисление `replacements_enabled`.
+    /// A mirror of the test above. That one checks the rule stays silent while
+    /// paused, but on its own it stays green in a world where the rule never
+    /// fires at all. This one covers the other half and with it the branch
+    /// choice for building rules in `from_config` and the computation of
+    /// `replacements_enabled`.
     #[test]
     fn replacement_rules_apply_when_not_paused() {
         let mut cfg = default_fmt();
@@ -2682,11 +2687,11 @@ mod tests {
         );
     }
 
-    /// Правило из старого конфига со `stage: post_llm` раньше не выполнялось
-    /// нигде: конвейер применял замены только на этапе `pre_llm`, а `post_llm`
-    /// передавала одна лишь команда предпросмотра. Этапы удалены, поле
-    /// осталось в чужих конфигах — и оно обязано игнорироваться, то есть
-    /// правило теперь срабатывает.
+    /// A rule from an old config carrying `stage: post_llm` used to run nowhere:
+    /// the pipeline applied replacements only at the `pre_llm` stage, and
+    /// `post_llm` was passed by the preview command alone. The stages are gone
+    /// while the field survives in other people's configs — and it must be
+    /// ignored, that is, the rule now fires.
     #[test]
     fn legacy_stage_field_is_ignored_and_preserve_case_applies() {
         let source = serde_json::json!({
@@ -2756,8 +2761,8 @@ mod custom_words_tests {
         corrector.apply(text)
     }
 
-    /// Ради этого случая всё и затевалось: движок услышал похоже, но
-    /// записал кириллицей то, что пишется латиницей.
+    /// This is the case it was all started for: the engine heard something close
+    /// but wrote in Cyrillic what is spelled in Latin.
     #[test]
     fn misheard_term_gets_the_spelling_from_the_dictionary() {
         assert_eq!(
@@ -2766,8 +2771,8 @@ mod custom_words_tests {
         );
     }
 
-    /// Написание задаёт пользователь, но начало предложения принадлежит
-    /// тексту, а не термину.
+    /// The user sets the spelling, but the start of a sentence belongs to the
+    /// text rather than to the term.
     #[test]
     fn a_sentence_start_keeps_its_capital() {
         assert_eq!(
@@ -2781,7 +2786,7 @@ mod custom_words_tests {
         assert_eq!(correct(&["Tauri"], "ТАУРИ"), "TAURI");
     }
 
-    /// Пунктуация приклеена к слову, но принадлежит предложению.
+    /// The punctuation is glued to the word but belongs to the sentence.
     #[test]
     fn trailing_punctuation_survives() {
         assert_eq!(correct(&["Tauri"], "собрано в таури."), "собрано в Tauri.");
@@ -2796,8 +2801,8 @@ mod custom_words_tests {
         );
     }
 
-    /// Длинный термин должен победить короткий, иначе «Клод Код» распадётся
-    /// на «Claude» плюс мусор.
+    /// A long term must beat a short one, otherwise «Клод Код» falls apart into
+    /// «Claude» plus garbage.
     #[test]
     fn the_longer_term_wins() {
         assert_eq!(
@@ -2806,8 +2811,8 @@ mod custom_words_tests {
         );
     }
 
-    /// Главный риск словаря — испортить здоровый текст. Непохожие слова
-    /// трогать нельзя, даже если они той же длины.
+    /// The dictionary's main risk is spoiling healthy text. Dissimilar words
+    /// must not be touched, even when they are the same length.
     #[test]
     fn unrelated_words_are_left_alone() {
         assert_eq!(
@@ -2825,14 +2830,13 @@ mod custom_words_tests {
         assert_eq!(correct(&["Tauri"], "собрано в Tauri"), "собрано в Tauri");
     }
 
-    /// «ё» и «е» на слух не различаются, и диктовка их путает.
+    /// «ё» and «е» are indistinguishable by ear, and dictation confuses them.
     #[test]
     fn yo_and_ye_are_the_same_sound() {
         assert_eq!(correct(&["Шёпот"], "запустил шепот"), "запустил Шёпот");
     }
 
-    /// Короткие термины дают слишком много ложных срабатываний, чтобы их
-    /// можно было сопоставлять нечётко.
+    /// Short terms produce too many false positives to be matched fuzzily.
     #[test]
     fn very_short_terms_are_ignored_entirely() {
         assert_eq!(correct(&["Go"], "го дальше"), "го дальше");
@@ -2844,42 +2848,44 @@ mod custom_words_tests {
         assert_eq!(correct(&["   "], "любой текст"), "любой текст");
     }
 
-    /// Шаг выключается пустым списком, но и явный флаг должен работать.
+    /// The step is disabled by an empty list, but the explicit flag must work
+    /// too.
     #[test]
     fn a_disabled_step_changes_nothing() {
         let corrector = CustomWordsCorrector::new(false, vec!["Tauri".to_string()]);
         assert_eq!(corrector.apply("таури"), "таури");
     }
 
-    /// Собственно то, ради чего понадобилась фонетическая свёртка: слово
-    /// записано другим алфавитом, общих символов ноль, а слово то же самое.
+    /// Precisely what the phonetic folding was needed for: the word is written
+    /// in a different alphabet, shares zero characters, and is the same word.
     #[test]
     fn a_latin_term_is_found_behind_cyrillic_spelling() {
         assert_eq!(fold_for_match("Tauri"), fold_for_match("таури"));
         assert_eq!(fold_for_match("Ollama"), fold_for_match("олама"));
     }
 
-    /// Пара к сходящимся случаям выше — и она обязательна.
+    /// The counterpart to the converging cases above — and it is mandatory.
     ///
-    /// Все остальные проверки свёртки сравнивают её выход с её же выходом:
-    /// «эти два слова дают одно и то же». Такое утверждение переживает
-    /// свёртку, которая всегда возвращает пустую строку, — равенство-то
-    /// сохраняется. Здесь закреплено обратное: разные слова обязаны
-    /// расходиться, а значит свёртка обязана что-то делать.
+    /// Every other check of the folding compares its output against its own
+    /// output: "these two words give the same thing". Such an assertion survives
+    /// a folding that always returns an empty string — the equality still holds.
+    /// This one pins the opposite: different words must diverge, which means the
+    /// folding must actually do something.
     #[test]
     fn folding_keeps_different_words_apart() {
         assert_ne!(fold_for_match("Tauri"), fold_for_match("тайна"));
         assert_ne!(fold_for_match("Ollama"), fold_for_match("оладьи"));
         assert_ne!(fold_for_match("город"), fold_for_match("град"));
         assert_ne!(fold_for_match("chat"), fold_for_match("шелл"));
-        // И не схлопывается в пустоту: слово после свёртки остаётся словом.
+        // And it does not collapse into nothing: after folding a word is still
+        // a word.
         assert!(!fold_for_match("Tauri").is_empty());
         assert_eq!(fold_for_match("Tauri").chars().count(), 5);
     }
 
-    /// Слова, похожие согласными, но не звучанием, трогать нельзя. Ровно
-    /// на этой паре развалился отброшенный вариант со скелетом из
-    /// согласных — см. комментарий у `similarity`.
+    /// Words alike in their consonants but not in sound must not be touched. It
+    /// is on exactly this pair that the discarded consonant-skeleton variant fell
+    /// apart — see the comment on `similarity`.
     #[test]
     fn words_that_share_consonants_are_still_different_words() {
         assert_eq!(correct(&["Град"], "город проснулся"), "город проснулся");
@@ -2889,15 +2895,15 @@ mod custom_words_tests {
         ));
     }
 
-    // ── Реальная диктовка ───────────────────────────────────────────────
+    // ── Real dictation ──────────────────────────────────────────────────
     //
-    // Четыре фразы, продиктованные на GigaAM v3 и на Whisper large-v3-turbo
-    // без LLM-постобработки, с известным исходным текстом (см. #20 и #31).
-    // Придуманные случаи про ложные срабатывания не рассказывают: они
-    // возникают на словах, которые никому не пришло бы в голову
-    // перечислить.
+    // Four phrases dictated on GigaAM v3 and on Whisper large-v3-turbo without
+    // LLM post-processing, with a known source text (see #20 and #31). Invented
+    // cases say nothing about false positives: those arise on words nobody would
+    // think to list.
 
-    /// Словарь стека, как его завёл бы человек, диктующий про свой проект.
+    /// A stack dictionary as a person dictating about their own project would
+    /// set it up.
     const REAL_DICT: [&str; 8] = [
         "Cargo.toml",
         "structured_log",
@@ -2913,44 +2919,45 @@ mod custom_words_tests {
         correct(&REAL_DICT, text)
     }
 
-    /// Четырёхбуквенная аббревиатура с одной неверной буквой. При старом
-    /// относительном пороге это 0.75 — то есть `NSIS` не восстанавливался
-    /// никогда, каким бы очевидным промах ни выглядел.
+    /// A four-letter abbreviation with one wrong letter. Under the old relative
+    /// threshold that is 0.75 — that is, `NSIS` was never restored, however
+    /// obvious the miss looked.
     #[test]
     fn a_short_acronym_survives_one_wrong_letter() {
         assert_eq!(fix("проверь NSYS Installer"), "проверь NSIS Installer");
         assert_eq!(fix("проверь энсис инсталлятор"), "проверь NSIS инсталлятор");
     }
 
-    /// Длинный идентификатор, разобранный движком на два токена с потерей
-    /// слога. При старом пороге — 0.769, чуть ниже отсечки.
+    /// A long identifier the engine broke into two tokens while losing a
+    /// syllable. Under the old threshold that is 0.769, just below the cut-off.
     #[test]
     fn a_long_identifier_survives_several_errors() {
         assert_eq!(fix("В структуре тлок лежит"), "В structured_log лежит");
         assert_eq!(fix("В структуре лог лежит"), "В structured_log лежит");
     }
 
-    /// Имя файла с точкой: движки слышат его как два слова или как одно, и
-    /// оба варианта должны сойтись на словарной форме.
+    /// A file name with a dot: the engines hear it as two words or as one, and
+    /// both variants must converge on the dictionary form.
     #[test]
     fn a_dotted_file_name_is_restored_from_either_segmentation() {
         assert_eq!(fix("Поправь карга томол и"), "Поправь Cargo.toml и");
         assert_eq!(fix("Поправь карготомал и"), "Поправь Cargo.toml и");
     }
 
-    /// Верхняя граница бюджета. Здесь движки услышали **другое слово**, а
-    /// не записали `writer` другим алфавитом: лишняя «б» в одном случае,
-    /// выдуманный предлог и другая согласная в другом. Растянуть порог до
-    /// них — значит начать подменять слова, а подменённое выглядит как то,
-    /// что человек якобы сам продиктовал.
+    /// The budget's upper bound. Here the engines heard **a different word**
+    /// rather than writing `writer` in another alphabet: a spare «б» in one case,
+    /// an invented preposition and a different consonant in the other. Stretching
+    /// the threshold to reach them means starting to substitute words, and a
+    /// substituted one looks like something the person supposedly dictated
+    /// themselves.
     #[test]
     fn a_misheard_word_is_not_stretched_into_a_dictionary_term() {
         assert_eq!(fix("лежит брайтер он"), "лежит брайтер он");
         assert_eq!(fix("лежит в райдере, он"), "лежит в райдере, он");
     }
 
-    /// Кириллица, которая читается, но пишется не так: основная масса
-    /// технической диктовки. Ради этого словарь и нужен.
+    /// Cyrillic that reads correctly but is spelled otherwise: the bulk of
+    /// technical dictation. This is what the dictionary is for.
     #[test]
     fn readable_cyrillic_is_pulled_to_the_dictionary_spelling() {
         assert_eq!(fix("открой пул реквест"), "открой pull request");
@@ -2959,20 +2966,21 @@ mod custom_words_tests {
         assert_eq!(fix("держит хэндл файла"), "держит handle файла");
     }
 
-    /// Цена узкого бюджета на коротких терминах, зафиксированная честно.
+    /// The price of a narrow budget on short terms, recorded honestly.
     ///
-    /// Второй движок услышал то же слово как «хендел»: лишний слог уводит
-    /// его от свёрнутого `handl` на три правки при пяти символах ключа.
-    /// Расширять бюджет ради этого нельзя — тем же движением притянулся бы
-    /// «брайтер» к `writer`. Промах человек увидит и поправит; подмена
-    /// выглядит как то, что он якобы сам продиктовал.
+    /// The second engine heard the same word as «хендел»: the extra syllable
+    /// takes it three edits away from the folded `handl` on a five-character key.
+    /// The budget must not be widened for this — the same motion would drag
+    /// «брайтер» to `writer`. A person sees and fixes a miss; a substitution
+    /// looks like something they supposedly dictated themselves.
     #[test]
     fn a_short_term_can_be_missed_when_a_whole_syllable_is_wrong() {
         assert_eq!(fix("держит хендел файла"), "держит хендел файла");
     }
 
-    /// Слова вне словаря шаг не трогает, даже стоя вплотную к найденному
-    /// термину: «денай ворнингс» человек в словарь не вносил.
+    /// The step does not touch words outside the dictionary even when they stand
+    /// right next to a matched term: the person never entered «денай ворнингс»
+    /// into the dictionary.
     #[test]
     fn words_outside_the_dictionary_are_left_as_dictated() {
         assert_eq!(
@@ -2981,8 +2989,8 @@ mod custom_words_tests {
         );
     }
 
-    /// Бюджет растёт от длины, но не безгранично: у шести символов он
-    /// остаётся равен одному, иначе `writer` притянул бы «брайтер».
+    /// The budget grows with length but not without limit: at six characters it
+    /// stays equal to one, otherwise `writer` would drag «брайтер» in.
     #[test]
     fn the_budget_grows_with_length_but_stays_tight_on_short_terms() {
         assert_eq!(edit_budget(4), 1);
@@ -2991,7 +2999,7 @@ mod custom_words_tests {
         assert_eq!(edit_budget(13), 3);
     }
 
-    /// Разные написания одного звука не должны считаться разными словами.
+    /// Different spellings of one sound must not count as different words.
     #[test]
     fn spelling_variants_of_one_sound_collapse() {
         assert_eq!(fold_for_match("Phil"), fold_for_match("Фил"));
@@ -2999,29 +3007,30 @@ mod custom_words_tests {
         assert_eq!(fold_for_match("Nick"), fold_for_match("Ник"));
     }
 
-    /// Диграфы должны пережить замену `c → k`, иначе «ч» и «ш» разбираются
-    /// на части и слово перестаёт совпадать само с собой.
+    /// The digraphs must survive the `c → k` replacement, otherwise «ч» and «ш»
+    /// are taken apart and a word stops matching itself.
     #[test]
     fn digraphs_survive_the_single_letter_pass() {
         assert_eq!(fold_for_match("Чат"), fold_for_match("chat"));
         assert_eq!(fold_for_match("Шелл"), fold_for_match("shell"));
     }
 
-    /// Мягкий и твёрдый знаки звука не дают и сравнению мешать не должны.
+    /// The soft and hard signs carry no sound and must not disturb the
+    /// comparison.
     #[test]
     fn soft_signs_are_silent() {
         assert_eq!(fold_for_match("Гугль"), fold_for_match("гугл"));
     }
 
-    // ── Готовые наборы ──────────────────────────────────────────────────
+    // ── Ready-made sets ─────────────────────────────────────────────────
 
-    /// Обычная русская речь без единого технического термина. Служит
-    /// синтетической проверкой на ложные срабатывания: набор из полусотни
-    /// слов не имеет права тронуть здесь ни одного слова.
+    /// Ordinary Russian speech without a single technical term. It serves as a
+    /// synthetic false-positive check: a set of some fifty words has no right to
+    /// touch a single word here.
     ///
-    /// Слова подобраны так, чтобы бить по известным опасным местам:
-    /// «буфет» рядом с `buffer`, «комитет» рядом с `commit`, «морж» рядом
-    /// с `merge`, «треть» рядом с `thread`, «дебют» рядом с `debug`.
+    /// The words are chosen to strike the known danger spots: «буфет» next to
+    /// `buffer`, «комитет» next to `commit`, «морж» next to `merge`, «треть»
+    /// next to `thread`, «дебют» next to `debug`.
     const PLAIN_RUSSIAN: [&str; 12] = [
         "буфет закрылся на обед, пришлось идти в столовую",
         "комитет собрался в среду и ничего не решил",
@@ -3048,11 +3057,12 @@ mod custom_words_tests {
             .collect()
     }
 
-    /// Термин, который после свёртки короче порога, словарь молча
-    /// игнорирует. Обещать такой термин пользователю нечестно: он его
-    /// видит в наборе и считает, что тот работает.
+    /// A term that is shorter than the threshold after folding is silently
+    /// ignored by the dictionary. Promising such a term to the user is
+    /// dishonest: they see it in the set and assume it works.
     ///
-    /// Так отсеиваются `Vite` (→ `vit`, немая `e`) и `Node` (→ `nod`).
+    /// This is how `Vite` (→ `vit`, silent `e`) and `Node` (→ `nod`) are
+    /// filtered out.
     #[test]
     fn every_preset_term_survives_folding() {
         for set in DICTIONARY_PRESETS {
@@ -3084,9 +3094,9 @@ mod custom_words_tests {
         }
     }
 
-    /// Главный риск готового набора: человек нажал одну кнопку и получил
-    /// полсотни терминов, каждый из которых может сесть на обычное слово.
-    /// Свой словарь человек пишет сам и отвечает за него; набор даём мы.
+    /// The main risk of a ready-made set: a person pressed one button and got
+    /// fifty terms, each of which may land on an ordinary word. A person writes
+    /// their own dictionary and answers for it; the set is supplied by us.
     #[test]
     fn a_preset_leaves_ordinary_russian_alone() {
         for set in DICTIONARY_PRESETS {
@@ -3102,8 +3112,8 @@ mod custom_words_tests {
         }
     }
 
-    /// И ради чего всё: набор должен чинить реальную диктовку без единой
-    /// строчки, вписанной руками.
+    /// And what it is all for: a set must fix real dictation without a single
+    /// line entered by hand.
     #[test]
     fn the_development_preset_fixes_real_dictation() {
         let corrector = CustomWordsCorrector::new(true, preset("development"));
@@ -3112,7 +3122,7 @@ mod custom_words_tests {
         assert_eq!(corrector.apply("прогони клипи"), "прогони clippy");
     }
 
-    // ── Включение и выключение наборов ──────────────────────────────────
+    // ── Enabling and disabling sets ─────────────────────────────────────
 
     fn fmt_with(words: &[&str], presets: &[&str]) -> TextFormattingConfig {
         TextFormattingConfig {
@@ -3122,8 +3132,8 @@ mod custom_words_tests {
         }
     }
 
-    /// Ради этого набор и хранится идентификатором, а не копией слов:
-    /// выключение должно быть одним движением и без потерь.
+    /// This is why a set is stored as an identifier rather than a copy of the
+    /// words: disabling it must be one motion and lossless.
     #[test]
     fn a_disabled_preset_contributes_nothing() {
         let off = fmt_with(&["Шёпот"], &[]);
@@ -3142,8 +3152,8 @@ mod custom_words_tests {
         assert_eq!(words.len(), 1 + PRESET_DEVELOPMENT.len());
     }
 
-    /// Свои слова идут первыми и побеждают: человек вписал термин в своём
-    /// написании, и набор не имеет права подменить его своим.
+    /// The user's own words come first and win: a person entered the term in
+    /// their own spelling, and a set has no right to replace it with its own.
     #[test]
     fn the_users_own_spelling_wins_over_the_preset() {
         let both = fmt_with(&["cargo"], &["development"]);
@@ -3155,8 +3165,8 @@ mod custom_words_tests {
         );
     }
 
-    /// Откат приложения на версию без такого набора не должен ломать
-    /// форматирование: неизвестный id молча пропускается.
+    /// Rolling the app back to a version without such a set must not break
+    /// formatting: an unknown id is skipped silently.
     #[test]
     fn an_unknown_preset_id_is_ignored() {
         let stale = fmt_with(&["Шёпот"], &["набора-больше-нет"]);
@@ -3169,8 +3179,8 @@ mod custom_words_tests {
         assert_eq!(messy.effective_custom_words(), vec!["Шёпот".to_string()]);
     }
 
-    /// Выключенный набор не должен чинить текст — иначе выключатель
-    /// декоративный.
+    /// A disabled set must not fix the text — otherwise the switch is
+    /// decorative.
     #[test]
     fn the_correction_follows_the_toggle() {
         let off = fmt_with(&[], &[]).effective_custom_words();
@@ -3185,16 +3195,15 @@ mod custom_words_tests {
         );
     }
 
-    /// Прогон словаря по реальным расшифровкам.
+    /// Running the dictionary over real transcriptions.
     ///
-    /// Единственная опасность этого шага — испортить здоровый текст, и ни
-    /// один придуманный случай про это не расскажет: ложное срабатывание
-    /// возникает на словах, которые никому не пришло бы в голову
-    /// перечислить. Отвечает на вопрос только то, что человек реально
-    /// надиктовал.
+    /// The only danger of this step is spoiling healthy text, and no invented
+    /// case will tell you about it: a false positive arises on words nobody would
+    /// think to list. Only what a person actually dictated answers the
+    /// question.
     ///
-    /// Словарь задаётся через `SOTTO_DICT` (по одному термину в строке),
-    /// корпус — через `SOTTO_CORPUS`, как у `collapse_over_corpus`.
+    /// The dictionary is given through `SOTTO_DICT` (one term per line) and the
+    /// corpus through `SOTTO_CORPUS`, as with `collapse_over_corpus`.
     ///
     /// ```bash
     /// SOTTO_CORPUS=corpus.txt SOTTO_DICT=dict.txt cargo test --lib \
@@ -3225,11 +3234,11 @@ mod custom_words_tests {
             let out = corrector.apply(line);
             if out != line {
                 changed += 1;
-                // Строку целиком, а не пары слов: замена может склеить два
-                // токена в один, после чего попарное сравнение объявляет
-                // изменившимся весь остаток строки. Первая версия этого
-                // теста так и делала — и утопила настоящую находку в двух
-                // сотнях ложных строк.
+                // The whole line rather than word pairs: a replacement may glue
+                // two tokens into one, after which a pairwise comparison
+                // declares the entire rest of the line changed. The first
+                // version of this test did exactly that — and drowned a genuine
+                // finding in two hundred false lines.
                 println!("--- before: {line}");
                 println!("--- after:  {out}");
             }
@@ -3240,9 +3249,9 @@ mod custom_words_tests {
         );
     }
 
-    /// Пунктуация обрамляет термин с обеих сторон. Хвост сохранялся с
-    /// самого начала, а открывающая кавычка терялась — «таури» приезжало
-    /// как Tauri».
+    /// Punctuation frames a term on both sides. The trailing part was preserved
+    /// from the start while the opening quote was lost — «таури» arrived as
+    /// Tauri».
     #[test]
     fn punctuation_survives_on_both_sides() {
         assert_eq!(
@@ -3254,11 +3263,10 @@ mod custom_words_tests {
         assert_eq!(correct(&["Tauri"], "—таури..."), "—Tauri...");
     }
 
-    /// Шаг словаря не имеет права переписывать разметку текста. Первая
-    /// версия резала вход через split_whitespace и склеивала через
-    /// join(" ") — двойные пробелы схлопывались даже при выключенной
-    /// нормализации, а переводы строк превращались в пробелы, то есть
-    /// абзацы пропадали.
+    /// The dictionary step has no right to rewrite the text's layout. The first
+    /// version cut the input with split_whitespace and joined it with join(" ") —
+    /// double spaces collapsed even with normalisation off, and newlines turned
+    /// into spaces, that is paragraphs disappeared.
     #[test]
     fn whitespace_is_left_exactly_as_it_was() {
         assert_eq!(
@@ -3270,22 +3278,22 @@ mod custom_words_tests {
             "первая строка\nвторая строка"
         );
         assert_eq!(correct(&["Tauri"], "абзац\n\nвторой"), "абзац\n\nвторой");
-        // И то же самое, когда замена всё-таки произошла.
+        // And the same when a replacement did take place.
         assert_eq!(
             correct(&["Tauri"], "первая\n\nтаури  здесь"),
             "первая\n\nTauri  здесь"
         );
     }
 
-    /// Ведущие и хвостовые пробелы принадлежат тексту: их снимает трим на
-    /// входе в пайплайн, а не этот шаг.
+    /// Leading and trailing spaces belong to the text: they are removed by the
+    /// trim at the pipeline's entrance, not by this step.
     #[test]
     fn leading_and_trailing_gaps_are_preserved() {
         assert_eq!(correct(&["Tauri"], "  таури  "), "  Tauri  ");
         assert_eq!(correct(&["Tauri"], "\n таури"), "\n Tauri");
     }
 
-    /// Токен из одной пунктуации не должен ни совпадать, ни дублироваться.
+    /// A token of pure punctuation must neither match nor be duplicated.
     #[test]
     fn punctuation_only_tokens_pass_through_once() {
         assert_eq!(correct(&["Tauri"], "таури — это"), "Tauri — это");
@@ -3294,8 +3302,8 @@ mod custom_words_tests {
 
     #[test]
     fn distance_is_measured_in_characters_not_bytes() {
-        // Кириллица — два байта на символ; побайтовое расстояние дало бы
-        // здесь вдвое больший ответ и увело похожесть ниже порога.
+        // Cyrillic is two bytes per character; a per-byte distance would give
+        // twice the answer here and push the similarity below the threshold.
         let a: Vec<char> = "кот".chars().collect();
         let b: Vec<char> = "кит".chars().collect();
         assert_eq!(edit_distance(&a, &b), 1);
@@ -3305,16 +3313,16 @@ mod custom_words_tests {
     fn similarity_is_symmetric_and_bounded() {
         assert!((similarity("tauri", "tauri") - 1.0).abs() < f64::EPSILON);
         assert_eq!(similarity("tauri", "таури"), similarity("таури", "tauri"));
-        // Не «>= 0.0»: этот порог проходила бы и функция, всегда
-        // возвращающая единицу, а вместе с ней и два утверждения выше.
-        // Непохожие строки обязаны получать низкий счёт, а не любой.
+        // Not ">= 0.0": that threshold would also be passed by a function that
+        // always returns one, and with it the two assertions above. Dissimilar
+        // strings must receive a low score, not just any score.
         assert_eq!(similarity("abc", "xyz"), 0.0);
         assert!(similarity("tauri", "тайна") < 0.7);
     }
 
     // ------------------------------------------------------------------
-    // Мутационное покрытие (очередь 3): правила замены, транслитерация,
-    // границы сегментации.
+    // Mutation coverage (queue 3): replacement rules, transliteration,
+    // segmentation boundaries.
     // ------------------------------------------------------------------
 
     #[test]
@@ -3334,9 +3342,9 @@ mod custom_words_tests {
 
     #[test]
     fn normalize_replacement_rules_empty_array_falls_through_to_legacy() {
-        // Пустой structured-массив не должен прерывать путь до legacy-
-        // словаря `replacements`: подмена `!rules.is_empty()` на `is_empty()`
-        // вернула бы пусто.
+        // An empty structured array must not cut off the path to the legacy
+        // `replacements` dictionary: swapping `!rules.is_empty()` for
+        // `is_empty()` would return nothing.
         let src = serde_json::json!({ "replacement_rules": [], "replacements": { "а": "б" } });
         let rules = normalize_replacement_rules(Some(&src));
         assert_eq!(rules.len(), 1);
@@ -3414,8 +3422,8 @@ mod custom_words_tests {
         assert_eq!(out, "Реальный текст.");
     }
 
-    /// Новая строка — тоже разделитель: галлюцинированный первый сегмент
-    /// обязан уйти и в этой ветке (`delete !` в `is_hallucinated_segment`).
+    /// A newline is a separator too: a hallucinated first segment must go in
+    /// this branch as well (`delete !` in `is_hallucinated_segment`).
     #[test]
     fn hallucination_walk_drops_newline_separated_segment() {
         let cleaner = HallucinationCleaner::new(true);
@@ -3423,8 +3431,8 @@ mod custom_words_tests {
         assert_eq!(out, "Реальный текст");
     }
 
-    /// Немая «e» отбрасывается только при длине СТРОГО больше трёх: трёхбуквенное
-    /// слово свою «e» сохраняет.
+    /// A silent «e» is dropped only at a length STRICTLY greater than three: a
+    /// three-letter word keeps its «e».
     #[test]
     fn fold_keeps_the_silent_e_on_three_char_words() {
         assert_eq!(fold_for_match("кое"), "koe");
@@ -3432,7 +3440,7 @@ mod custom_words_tests {
 
     #[test]
     fn apply_case_of_handles_a_single_capital_letter() {
-        // Одна заглавная буква — это регистр текста, а не «всё капсом».
+        // A single capital letter is the text's case, not "all caps".
         assert_eq!(apply_case_of("А", "tauri"), "Tauri");
     }
 
@@ -3445,9 +3453,10 @@ mod custom_words_tests {
     #[test]
     fn window_score_rejects_out_of_bounds_and_short_windows() {
         let c = CustomWordsCorrector::new(true, vec!["Claude Code".to_string()]);
-        // Окно, вылезающее за границу входа, — None, а не паника.
+        // A window running past the input's edge is None, not a panic.
         assert!(c.window_score(&["a", "b"], 1, 2, "claudecode").is_none());
-        // Ровно CUSTOM_WORD_MIN_CHARS буквенно-цифровых символов — граница.
+        // Exactly CUSTOM_WORD_MIN_CHARS alphanumeric characters is the
+        // boundary.
         assert!(c.window_score(&["abcd"], 0, 1, "abcd").is_some());
     }
 
@@ -3456,8 +3465,8 @@ mod custom_words_tests {
         let a: Vec<char> = "ab".chars().collect();
         let b: Vec<char> = "xy".chars().collect();
         assert_eq!(edit_distance(&a, &b), 2);
-        // Удаление: «ab» → «b» стоит одну правку. Ловит сдвиг граничного
-        // `current[0] = i + 1` (подмену `+` на `*`).
+        // Deletion: «ab» → «b» costs one edit. Catches a shift in the boundary
+        // `current[0] = i + 1` (swapping `+` for `*`).
         let b1: Vec<char> = "b".chars().collect();
         assert_eq!(edit_distance(&a, &b1), 1);
     }
@@ -3467,25 +3476,25 @@ mod custom_words_tests {
         assert!(tokenize("").is_empty());
     }
 
-    // ----- Флаги enabled, пороги и применение правил замены -----
+    // ----- Enabled flags, thresholds and applying replacement rules -----
     //
-    // Закрывает промахи контрольного прогона по formatter.rs. Общий узор у
-    // них один: проверялось только поведение включённого шага на «удобном»
-    // входе, поэтому снятие `!` в `if !self.enabled` меняло шаг на строго
-    // противоположный незаметно для тестов.
+    // Covers the misses from the control run over formatter.rs. They share one
+    // pattern: only the behaviour of an enabled step on a "convenient" input was
+    // checked, so dropping the `!` in `if !self.enabled` flipped the step to the
+    // exact opposite without the tests noticing.
 
-    /// Ровно двадцать слов — граница, на которой `SentenceSplitter`
-    /// перестаёт считать текст коротким, — и ключевое слово «потом» внутри,
-    /// по которому шаг делит фразу.
+    /// Exactly twenty words — the boundary at which `SentenceSplitter` stops
+    /// treating the text as short — and the keyword «потом» inside it, which the
+    /// step splits the phrase on.
     fn twenty_words_with_split_keyword() -> &'static str {
         "один два три четыре пять шесть семь восемь девять десять потом \
          одиннадцать двенадцать тринадцать четырнадцать пятнадцать шестнадцать \
          семнадцать восемнадцать девятнадцать"
     }
 
-    /// Проверяются обе стороны флага на одном входе. Одного случая мало:
-    /// тест на выключенный шаг переживает снятие `!`, если не показать, что
-    /// включённый шаг тот же текст меняет.
+    /// Both sides of the flag are checked on one input. A single case is not
+    /// enough: a test for a disabled step survives dropping the `!` unless it is
+    /// also shown that an enabled step changes the same text.
     #[test]
     fn comma_cleaner_runs_only_when_enabled() {
         let input = "раз, и два";
@@ -3515,9 +3524,10 @@ mod custom_words_tests {
         );
     }
 
-    /// Порог короткого текста — строго меньше двадцати слов. Нужны все три
-    /// точки: короткий текст, ровно граница и текст длиннее её. По одной
-    /// точке подмена `<` на `==`, `<=` или `>` неотличима от оригинала.
+    /// The short-text threshold is strictly fewer than twenty words. All three
+    /// points are needed: a short text, exactly the boundary, and a text longer
+    /// than it. From one point alone, swapping `<` for `==`, `<=` or `>` is
+    /// indistinguishable from the original.
     #[test]
     fn sentence_splitter_threshold_is_twenty_words() {
         let short = "раз два потом три";
@@ -3554,10 +3564,10 @@ mod custom_words_tests {
         );
     }
 
-    /// Без этого теста тело шага можно заменить на пустую строку или на
-    /// произвольную константу, и ни один тест не покраснеет: замены
-    /// проверялись только через `apply_replacement_rules` напрямую, минуя
-    /// сам шаг.
+    /// Without this test the step's body could be replaced with an empty string
+    /// or an arbitrary constant and no test would go red: the replacements were
+    /// checked only through `apply_replacement_rules` directly, bypassing the
+    /// step itself.
     #[test]
     fn context_replacements_apply_the_rule() {
         let step = ContextReplacements::new(true, vec![word_rule("тайпскрипт", "TypeScript")]);
@@ -3568,9 +3578,9 @@ mod custom_words_tests {
         );
     }
 
-    /// Выключенный шаг с непустым списком правил — единственный вход, на
-    /// котором `!enabled || rules.is_empty()` отличается от той же связки
-    /// через `&&`: при `&&` шаг не отступает и применяет правила.
+    /// A disabled step with a non-empty rule list is the only input on which
+    /// `!enabled || rules.is_empty()` differs from the same pair joined by `&&`:
+    /// with `&&` the step does not back off and applies the rules.
     #[test]
     fn context_replacements_stay_out_when_disabled() {
         let step = ContextReplacements::new(false, vec![word_rule("тайпскрипт", "TypeScript")]);

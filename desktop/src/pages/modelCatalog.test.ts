@@ -1,6 +1,20 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ModelInfo } from "../bridge/types";
-import { catalogLanguages, downloadToastCopy, familySections, filterModels, languageSummary, modelMetadata, speechLanguages, supportsLanguage } from "./modelCatalog";
+import { catalogLanguages, downloadToastCopy, fallbackModels, familySections, filterModels, languageSummary, modelMetadata, speechLanguages, supportsLanguage } from "./modelCatalog";
+
+describe("fallback catalog platforms", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it.each(["MacIntel", "Macintosh", "Windows NT 10.0"])("offers Sherpa on %s", (platform) => {
+    vi.stubGlobal("navigator", { platform, userAgent: "" });
+    expect(fallbackModels().some((model) => model.id === "gigaam-v3")).toBe(true);
+  });
+
+  it.each(["Linux x86_64", ""])("keeps unsupported platforms Whisper-only: %s", (platform) => {
+    vi.stubGlobal("navigator", { platform, userAgent: "" });
+    expect(fallbackModels().every((model) => model.engine !== "sherpa-onnx")).toBe(true);
+  });
+});
 
 function model(patch: Partial<ModelInfo> & { id: string }): ModelInfo {
   return {
@@ -19,8 +33,8 @@ type CatalogFiltersLike = Parameters<typeof filterModels>[1];
 
 describe("model catalog filtering", () => {
   it("searches the id as well as the label", () => {
-    // Подпись и идентификатор расходятся намеренно: человек может помнить
-    // модель по имени из документации, а не по тому, как её назвали в списке.
+    // The label and the identifier differ on purpose: a person may remember the
+    // model by its name from the docs rather than by what the list calls it.
     const models = [model({ id: "turbo", label: "Быстрая" }), model({ id: "gigaam-v3", label: "GigaAM v3" })];
 
     expect(filterModels(models, { ...ALL, query: "turbo" }).map((m) => m.id)).toEqual(["turbo"]);
@@ -35,15 +49,15 @@ describe("model catalog filtering", () => {
       model({ id: "turbo" }),
     ];
 
-    // Многоязычная модель проходит любой языковой фильтр, потому что умеет
-    // и то и другое; модель с закрытым списком — только свой.
+    // A multilingual model passes any language filter because it can do both; a
+    // model with a closed list passes only its own.
     expect(filterModels(models, { ...ALL, language: "ru" }).map((m) => m.id)).toEqual(["gigaam-v3", "turbo"]);
     expect(filterModels(models, { ...ALL, language: "en" }).map((m) => m.id)).toEqual(["small.en", "sense-voice", "turbo"]);
   });
 
   it("counts a file found on disk as downloaded", () => {
-    // У своего файла `downloaded` не выставлен — он не из каталога, но лежит
-    // на диске и работать с ним можно.
+    // A user's own file has no `downloaded` flag — it is not from the catalog,
+    // yet it lies on disk and can be worked with.
     const models = [model({ id: "my-finetune", local: true }), model({ id: "small" })];
 
     expect(filterModels(models, { ...ALL, onlyDownloaded: true }).map((m) => m.id)).toEqual(["my-finetune"]);
@@ -53,8 +67,8 @@ describe("model catalog filtering", () => {
     expect(languageSummary(model({ id: "my-finetune", local: true }))).toBe("Язык неизвестен");
     expect(languageSummary(model({ id: "small" }))).toBe("Многоязычная");
     expect(languageSummary(model({ id: "gigaam-v3", languages: ["ru"] }))).toBe("Только русский");
-    // До четырёх языков перечисляем поимённо: это ответ на вопрос «есть ли
-    // там мой», а «3 языка» — нет.
+    // Up to four languages are listed by name: that answers "is mine in there",
+    // while "3 languages" does not.
     expect(languageSummary(model({ id: "sense-voice", languages: ["zh", "en", "ja"] })))
       .toBe("Китайский, Английский, Японский");
     expect(languageSummary(model({ id: "many", languages: ["ru", "en", "de", "fr", "it"] })))
@@ -70,15 +84,16 @@ describe("model catalog filtering", () => {
 
 describe("catalog language list", () => {
   it("offers every language the catalogue can transcribe, by name", () => {
-    // Японский идёт первым по порядку в каталоге и вторым по алфавиту:
-    // так тест видит саму сортировку, а не совпадение порядков.
+    // Japanese comes first in catalog order and second alphabetically: this way
+    // the test sees the sorting itself rather than a coincidence of orders.
     const languages = catalogLanguages([
       model({ id: "sense-voice", languages: ["ja", "ru"] }),
       model({ id: "gigaam-v3", languages: ["ru"] }),
       model({ id: "own-file", local: true }),
     ]);
 
-    // Дубли схлопнуты, порядок — по названию в текущей локали, а не по коду.
+    // Duplicates are collapsed; the order is by name in the current locale, not
+    // by code.
     expect(languages).toEqual([
       { code: "ru", name: "Русский" },
       { code: "ja", name: "Японский" },
@@ -96,7 +111,7 @@ describe("model catalog families", () => {
       model({ id: "my-finetune", local: true }),
     ]);
 
-    // Whisper первым, потому что первым пришёл, а не по алфавиту.
+    // Whisper comes first because it arrived first, not alphabetically.
     expect(sections.map((section) => section.family)).toEqual(["Whisper", "GigaAM", "Свои файлы"]);
     expect(sections[0].models.map((m) => m.id)).toEqual(["large-v3", "turbo", "tiny"]);
   });
@@ -115,8 +130,8 @@ describe("download toast copy", () => {
       [],
     );
 
-    // Байты — во второй строке и целиком: длинное название не должно их
-    // выдавливать, ради них на тост и смотрят.
+    // The bytes go on the second line and in full: a long name must not squeeze
+    // them out, they are what the toast is looked at for.
     expect(copy?.detail).toBe("128 MB / 632 MB");
     expect(copy?.text).toContain("Parakeet Streaming EN");
     expect(copy?.progress).toBe(20);
@@ -131,8 +146,8 @@ describe("download toast copy", () => {
   });
 
   it("ignores the bytes still arriving after the user pressed cancel", () => {
-    // Скачиватель замечает флаг не мгновенно, и эти события вернули бы
-    // «Скачиваю…» и кнопку отмены поверх уже нажатой.
+    // The downloader does not notice the flag instantly, and these events would
+    // bring back «Скачиваю…» and a cancel button on top of one already pressed.
     const copy = downloadToastCopy(
       { model: "turbo", downloaded: 1024 * 1024, total: 2 * 1024 * 1024 },
       "Turbo",
@@ -140,21 +155,22 @@ describe("download toast copy", () => {
     );
 
     expect(copy).toBeNull();
-    // Отмена одной загрузки не глушит другую.
+    // Cancelling one download does not silence another.
     expect(downloadToastCopy({ model: "tiny", downloaded: 1024 * 1024, total: null }, "Tiny", ["turbo"])).not.toBeNull();
   });
 });
 
 describe("model metadata", () => {
   it("puts the quantisation next to the weight and nothing about streaming", () => {
-    // Квантование — ответ на вопрос «почему столько весит», врозь их читать
-    // незачем. Потоковость сюда не входит: она стоит рядом с языками, где
-    // собраны свойства модели, а здесь — цена, которую за них платят.
+    // Quantisation answers "why does it weigh that much", and reading the two
+    // apart serves no purpose. Streaming does not belong here: it sits next to
+    // the languages, where the model's properties are gathered, while this is
+    // the price paid for them.
     const streaming = model({ id: "zipformer-ru-streaming", size: "27 MB", ram: "~1 GB", cpu_only: true, streaming: true, quantization: "int8" });
     expect(modelMetadata(streaming)).toBe("27 MB (int8) · RAM ~1 GB · CPU");
 
-    // Своему файлу квантование неизвестно, и скобки с пустотой внутри хуже
-    // отсутствия скобок.
+    // A user's own file has no known quantisation, and brackets with emptiness
+    // inside are worse than no brackets at all.
     const own = model({ id: "my-finetune", size: "75 MB", ram: "~1 GB", cpu_only: true, local: true });
     expect(modelMetadata(own)).toBe("75 MB · RAM ~1 GB · CPU");
   });
@@ -162,8 +178,9 @@ describe("model metadata", () => {
 
 describe("several downloads at once", () => {
   it("names one model and says how many others are running", () => {
-    // Тост один, а загрузок может идти несколько: без этого хвоста
-    // остальные не видно вовсе, а полоска показывает чужой прогресс.
+    // There is one toast but there may be several downloads: without this tail
+    // the others are invisible entirely, and the bar shows someone else's
+    // progress.
     const copy = downloadToastCopy(
       { model: "turbo", downloaded: 512 * 1024 * 1024, total: 1024 * 1024 * 1024 },
       "Turbo",
@@ -188,8 +205,8 @@ describe("speech languages", () => {
   ];
 
   it("offers exactly what the loaded model can transcribe", () => {
-    // Чужой язык у модели выходит не ошибкой, а мусором, поэтому список
-    // предлагает её собственный — и по алфавиту, а не в порядке манифеста.
+    // A foreign language comes out of a model as garbage rather than an error,
+    // so the list offers its own — alphabetically, not in manifest order.
     const picked = speechLanguages(model({ id: "parakeet", languages: ["ru", "de"] }), catalog);
 
     expect(picked).toEqual([
@@ -199,8 +216,9 @@ describe("speech languages", () => {
   });
 
   it("does not narrow the choice for a model that declares nothing", () => {
-    // Свой файл в папке моделей: чего он умеет, мы не знаем, и догадка тут
-    // отняла бы у пользователя языки, которые модель прекрасно понимает.
+    // A user's own file in the models folder: we do not know what it can do, and
+    // a guess here would take away languages the model understands perfectly
+    // well.
     const picked = speechLanguages(model({ id: "my-finetune", local: true }), catalog);
 
     expect(picked.map((item) => item.code)).toEqual(["en", "ru", "ja"]);

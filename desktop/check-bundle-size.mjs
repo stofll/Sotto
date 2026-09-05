@@ -1,19 +1,19 @@
-// Бюджет стартовой загрузки для каждого окна.
+// The startup download budget for each window.
 //
-// Считаем не размер отдельного чанка, а то, что окно реально скачивает до
-// первого кадра: entry-скрипт из его HTML плюс все modulepreload, которые
-// Vite туда положил, — это ровно статический граф импортов входа.
-// Чанк сам по себе ничего не говорит: вынести половину кода в соседний
-// файл, который всё равно грузится следом, — не улучшение.
+// What is measured is not the size of an individual chunk but what the window
+// actually downloads before the first frame: the entry script from its HTML plus
+// every modulepreload Vite put there — that is exactly the static import graph of
+// the entry. A chunk on its own says nothing: moving half the code into a
+// neighbouring file that loads right after it anyway is not an improvement.
 //
-// Порог — не факт из сборки, а решение. Если он мешает, его нужно
-// подвинуть осознанно, вместе с ответом на вопрос «что выросло и зачем»,
-// а не молча.
+// The threshold is a decision, not a fact from the build. If it gets in the way
+// it should be moved deliberately, together with an answer to "what grew and
+// why", rather than silently.
 import { readFileSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-// Килобайты здесь десятичные — как их печатает сам Vite, чтобы число из
-// лога сборки и число отсюда можно было сравнивать глазами.
+// The kilobytes here are decimal — the way Vite prints them itself, so that the
+// number from the build log and the number from here can be compared by eye.
 const BUDGETS_KB = {
   "index.html": 560,
   "overlay.html": 330,

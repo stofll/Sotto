@@ -134,11 +134,82 @@ fn to_shortcut(spec: &HotkeySpec) -> Result<Shortcut, String> {
         "x" => Code::KeyX,
         "y" => Code::KeyY,
         "z" => Code::KeyZ,
+        "0" => Code::Digit0,
+        "1" => Code::Digit1,
+        "2" => Code::Digit2,
+        "3" => Code::Digit3,
+        "4" => Code::Digit4,
+        "5" => Code::Digit5,
+        "6" => Code::Digit6,
+        "7" => Code::Digit7,
+        "8" => Code::Digit8,
+        "9" => Code::Digit9,
+        "f1" => Code::F1,
+        "f2" => Code::F2,
+        "f3" => Code::F3,
+        "f4" => Code::F4,
+        "f5" => Code::F5,
+        "f6" => Code::F6,
+        "f7" => Code::F7,
+        "f8" => Code::F8,
+        "f9" => Code::F9,
+        "f10" => Code::F10,
+        "f11" => Code::F11,
+        "f12" => Code::F12,
+        "f13" => Code::F13,
+        "f14" => Code::F14,
+        "f15" => Code::F15,
+        "f16" => Code::F16,
+        "f17" => Code::F17,
+        "f18" => Code::F18,
+        "f19" => Code::F19,
+        "f20" => Code::F20,
+        "f21" => Code::F21,
+        "f22" => Code::F22,
+        "f23" => Code::F23,
+        "f24" => Code::F24,
+        "delete" => Code::Delete,
+        "insert" => Code::Insert,
+        "left" => Code::ArrowLeft,
+        "right" => Code::ArrowRight,
+        "up" => Code::ArrowUp,
+        "down" => Code::ArrowDown,
+        "home" => Code::Home,
+        "end" => Code::End,
+        "pageup" => Code::PageUp,
+        "pagedown" => Code::PageDown,
+        "minus" => Code::Minus,
+        "equal" => Code::Equal,
+        "bracketleft" => Code::BracketLeft,
+        "bracketright" => Code::BracketRight,
+        "backslash" => Code::Backslash,
+        "semicolon" => Code::Semicolon,
+        "quote" => Code::Quote,
+        "backquote" => Code::Backquote,
+        "comma" => Code::Comma,
+        "period" => Code::Period,
+        "slash" => Code::Slash,
+        "numpad0" => Code::Numpad0,
+        "numpad1" => Code::Numpad1,
+        "numpad2" => Code::Numpad2,
+        "numpad3" => Code::Numpad3,
+        "numpad4" => Code::Numpad4,
+        "numpad5" => Code::Numpad5,
+        "numpad6" => Code::Numpad6,
+        "numpad7" => Code::Numpad7,
+        "numpad8" => Code::Numpad8,
+        "numpad9" => Code::Numpad9,
+        "numpadadd" => Code::NumpadAdd,
+        "numpadsubtract" => Code::NumpadSubtract,
+        "numpadmultiply" => Code::NumpadMultiply,
+        "numpaddivide" => Code::NumpadDivide,
+        "numpaddecimal" => Code::NumpadDecimal,
+        "numpadenter" => Code::NumpadEnter,
         // Special keys
         "space" => Code::Space,
         "enter" => Code::Enter,
         "tab" => Code::Tab,
-        "esc" => Code::Escape,
+        "esc" | "escape" => Code::Escape,
         "backspace" => Code::Backspace,
         other => return Err(format!("unsupported key token: {other:?}")),
     };
@@ -363,7 +434,12 @@ fn hotkey_do_start(app: &AppHandle, state: &AppState) {
         // Tauri's managed state, which hands out borrows, not owned
         // handles.
         let state = app.state::<AppState>();
-        if let Err(e) = recorder.start(None) {
+        let selected = crate::config::microphone_selection(
+            crate::config::Config::load(&app)
+                .ok()
+                .and_then(|c| c.get("microphone")),
+        );
+        if let Err(e) = recorder.start_selected(selected.as_deref()) {
             log::error!("hotkey: recorder.start failed: {e}");
             // Retract the id, but only if it is still ours — a newer press
             // may already have published its own.
@@ -512,6 +588,19 @@ fn _ordering_silencer() -> Ordering {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn captured_keys_convert_to_native_shortcuts() {
+        for key in [
+            "2", "f12", "escape", "delete", "left", "pageup", "slash", "numpad2", "a",
+        ] {
+            assert!(
+                to_shortcut(&parse(&format!("ctrl+shift+{key}")).unwrap()).is_ok(),
+                "{key}"
+            );
+        }
+        assert!(to_shortcut(&parse("ctrl+unknown").unwrap()).is_err());
+    }
 
     #[test]
     fn parse_simple_modifier_plus_letter() {

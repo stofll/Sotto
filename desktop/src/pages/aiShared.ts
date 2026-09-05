@@ -74,26 +74,27 @@ export const COMPATIBLE_PRESETS = () => ([
   { id: "vllm", name: t("vLLM (локально)"), baseUrl: "http://localhost:8000/v1", suggestedModel: "your-model", signupHint: "docs.vllm.ai", logo: "vllm.svg" },
 ]);
 
-// Оба пресета — это один промпт, у которого различаются два блока: можно ли
-// выводить списки и что считается допустимым абзацем из одной строки. Раньше
-// они были двумя копиями целиком и уже начали расходиться формулировками, а
-// правка вроде «не заменяй слова синонимами» должна попадать в оба.
+// Both presets are one prompt with two differing blocks: whether lists may be
+// emitted and what counts as an acceptable single-line paragraph. They used to
+// be two complete copies and had already begun to diverge in wording, whereas an
+// edit like «не заменяй слова синонимами» must land in both.
 //
-// ЯЗЫК ПРОМПТА. Инструкции — на английском: он уходит с каждым запросом, а
-// кириллица в токенизаторах современных моделей стоит заметно дороже, и
-// инструкции на английском модели держат надёжнее. Но примеры и образцы
-// лексики остаются русскими намеренно. Правило «не заменяй слова синонимами»
-// держится не формулировкой, а показом: «мало-мальский» не должен стать
-// «малым». На английском примере это правило перестаёт демонстрироваться для
-// того языка, на котором диктуют. То же с триггерами списков и с примером
-// границы данных — модель должна узнавать их в русской речи.
+// PROMPT LANGUAGE. The instructions are in English: the prompt goes out with
+// every request, Cyrillic costs noticeably more in the tokenizers of modern
+// models, and models hold English instructions more reliably. But the examples
+// and lexical samples deliberately stay Russian. The rule «не заменяй слова
+// синонимами» is held not by its wording but by demonstration: «мало-мальский»
+// must not become «малым». With an English example that rule stops being
+// demonstrated for the language people actually dictate in. The same goes for
+// the list triggers and for the data-boundary example — the model has to
+// recognise them in Russian speech.
 
 const PROMPT_ROLE = `You are a proof-reader for voice-dictation transcripts. You are NOT an assistant and NOT a conversation partner: you only tidy up the dictated text and return it.`;
 
-// Главный блок. Модель по умолчанию считает себя обязанной «улучшить» текст,
-// и без явного запрета подменяет редкое слово на частотное: «мало-мальский»
-// превращается в «малый», «по наитию» — в «наугад». Для диктовки это не
-// исправление, а искажение: сказанного слова больше нет.
+// The main block. By default a model considers itself obliged to "improve" the
+// text, and without an explicit ban it swaps a rare word for a frequent one:
+// «мало-мальский» turns into «малый», «по наитию» into «наугад». For dictation
+// that is not a correction but a distortion: the spoken word is gone.
 const PROMPT_EDIT_SCOPE = `WHAT YOU MAY CHANGE:
 - Punctuation, capitalisation, sentence boundaries.
 - Inflection and agreement where the phrase clearly fell apart during recognition.
@@ -118,11 +119,12 @@ function promptParagraphs(singleSentenceException: string): string {
 - Exactly one blank line between paragraphs, no blank lines inside a paragraph.`;
 }
 
-// Пример учит модель сразу двум вещам, поэтому в нём намеренно есть разговорные
-// «мало-мальски» и «по наитию»: на бытовом сюжете видно и группировку абзацев,
-// и то, что лексика не трогается. Прошлый пример показывал только разбиение —
-// и заодно демонстрировал замену слов («дипсик» → «DeepSeek»), то есть ровно
-// ту операцию, которую промпт запрещает.
+// The example teaches the model two things at once, which is why it deliberately
+// contains the colloquial «мало-мальски» and «по наитию»: on an everyday subject
+// both the paragraph grouping and the fact that the vocabulary is left alone are
+// visible. The previous example showed only the splitting — and demonstrated
+// word replacement along the way («дипсик» → «DeepSeek»), that is exactly the
+// operation the prompt forbids.
 const PROMPT_EXAMPLE = `Splitting example:
 Input: «так вот вчера собрал наконец полку в коридоре шурупы оказались короткие пришлось ехать в магазин ещё раз в общем провозился до вечера отдельная история это инструкция там нарисовано одно а в коробке лежит совсем другое так что я её мало-мальски полистал и собрал по наитию»
 Output:
@@ -170,29 +172,29 @@ export const STRUCTURED_SYSTEM_PROMPT = [
 export const DEFAULT_SYSTEM_PROMPT = PLAIN_SYSTEM_PROMPT;
 
 /**
- * Встроенный промпт под выбранный пресет.
+ * The built-in prompt for the chosen preset.
  *
- * Неизвестный id — не ошибка: в старых конфигах лежит `polish`, которого в
- * списке пресетов никогда не было. Такой профиль получает `plain`.
+ * An unknown id is not an error: old configs hold `polish`, which was never in
+ * the preset list. Such a profile gets `plain`.
  */
 export function presetPrompt(presetId?: string): string {
   return SYSTEM_PROMPT_PRESETS().find((preset) => preset.id === presetId)?.prompt ?? PLAIN_SYSTEM_PROMPT;
 }
 
 /**
- * Промпт, который реально уйдёт модели.
+ * The prompt that will actually go to the model.
  *
- * Пустое поле у профиля означает «встроенный», а не «пусто»: только так
- * профиль продолжает получать правки встроенного промпта. Раньше
- * `normalizeProfile` вписывал копию текста в каждый профиль, и та застывала
- * навсегда — конфиг с апреля до сих пор ходит без правила «не заменяй слова
- * синонимами» и с примером, который это правило нарушает.
+ * An empty field on a profile means "built-in" rather than "empty": only that
+ * way does a profile keep receiving edits to the built-in prompt. Previously
+ * `normalizeProfile` wrote a copy of the text into every profile, and that copy
+ * froze forever — a config from April still goes around without the rule
+ * «не заменяй слова синонимами» and with an example that violates it.
  */
 export function effectiveSystemPrompt(profile: Pick<LlmProfile, "system_prompt" | "prompt_preset">): string {
   return profile.system_prompt?.trim() || presetPrompt(profile.prompt_preset);
 }
 
-/** Промпт правился руками и разошёлся со встроенным. */
+/** The prompt was edited by hand and has diverged from the built-in one. */
 export function promptIsCustom(profile: Pick<LlmProfile, "system_prompt" | "prompt_preset">): boolean {
   const stored = profile.system_prompt?.trim();
   return !!stored && stored !== presetPrompt(profile.prompt_preset).trim();
@@ -230,8 +232,8 @@ export const DEFAULT_AI: AiConfig = {
   },
   prompt_preset: "polish",
   spend_limit_usd: 10,
-  // 0 — LLM работает на любой длине. Ненулевой порог тихо отсекает
-  // короткие диктовки, а тишина здесь читается как «LLM сломалась».
+  // 0 — the LLM runs at any length. A non-zero threshold silently cuts off short
+  // dictations, and the silence here reads as "the LLM is broken".
   llm_min_duration_seconds: 0,
   llm_timeout_seconds: 12,
   cloud_stt_timeout_seconds: 45,
@@ -261,9 +263,9 @@ export function normalizeProfile(ai: AiConfig, profile: Partial<LlmProfile>): Ll
     model: profile.model || modelForProvider(ai, providerId, providerMeta.defaultModel),
     api_key_ref: profile.api_key_ref || (id === "default" ? providerId : `key_${id}`),
     prompt_preset: profile.prompt_preset || ai.prompt_preset || DEFAULT_AI.prompt_preset,
-    // Намеренно НЕ подставляем сюда встроенный текст: профиль хранит намерение
-    // («свой промпт» или пусто = встроенный), а не снимок. Разворачивает его
-    // `effectiveSystemPrompt` в момент чтения.
+    // We deliberately do NOT substitute the built-in text here: a profile stores
+    // an intention ("own prompt", or empty = built-in) rather than a snapshot.
+    // `effectiveSystemPrompt` expands it at read time.
     system_prompt: profile.system_prompt ?? "",
     base_url: profile.base_url ?? (providerId === "opencode-go" ? OPENCODE_GO_BASE_URL : ai.base_url ?? ""),
     llm_min_duration_seconds: profile.llm_min_duration_seconds ?? ai.llm_min_duration_seconds ?? DEFAULT_AI.llm_min_duration_seconds,
@@ -283,12 +285,13 @@ export function profilesForAi(ai: AiConfig | null): LlmProfile[] {
 }
 
 /**
- * Профиль, которым обрабатывается текст, вставленный руками.
+ * The profile used to process text pasted by hand.
  *
- * Пустой `text_profile_id` означает «тем же, чем голос». Это и дефолт, и
- * поведение старых конфигов, где поля нет вовсе, — миграция не нужна.
- * Ссылка на удалённый профиль читается так же: молча вернуться к голосовому
- * лучше, чем отправить запрос в никуда или заблокировать кнопку.
+ * An empty `text_profile_id` means "the same one as voice". That is both the
+ * default and the behaviour of old configs where the field is absent entirely —
+ * no migration is needed. A reference to a deleted profile reads the same way:
+ * quietly falling back to the voice profile beats sending a request nowhere or
+ * disabling the button.
  */
 export function textProfileFor(ai: AiConfig | null, profiles: LlmProfile[], voiceProfile: LlmProfile): LlmProfile {
   const id = ai?.text_profile_id;
@@ -296,7 +299,7 @@ export function textProfileFor(ai: AiConfig | null, profiles: LlmProfile[], voic
   return profiles.find((profile) => profile.id === id) ?? voiceProfile;
 }
 
-/** Проверяет сохранённый маршрут: Rust читает плоские поля, а не список профилей. */
+/** Checks the saved route: Rust reads the flat fields, not the profile list. */
 export type LlmRouteBlocker = "no_provider" | "no_model" | "no_key" | "invalid_base_url" | null;
 
 export function llmRouteBlocker(ai: AiConfig | null, apiKeys: ApiKeyStatus): LlmRouteBlocker {
@@ -327,8 +330,8 @@ export function activeConfigFromProfile(ai: AiConfig, profile: LlmProfile, profi
     model: profile.model,
     api_key_ref: profileKeyRef(profile),
     prompt_preset: profile.prompt_preset || ai.prompt_preset,
-    // А здесь наоборот — разворачиваем. Плоское поле уходит в Rust, который про
-    // пресеты ничего не знает и ждёт готовый текст.
+    // Here it is the other way round — we expand. The flat field goes to Rust,
+    // which knows nothing about presets and expects finished text.
     system_prompt: effectiveSystemPrompt(profile),
     base_url: profile.base_url || "",
     llm_min_duration_seconds: profile.llm_min_duration_seconds ?? ai.llm_min_duration_seconds,

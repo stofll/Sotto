@@ -1,24 +1,29 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Icon } from "./Icon";
 
-const GAP = 8;      // зазор между значком и пузырём
-const MARGIN = 8;   // минимальный отступ пузыря от края окна
+const GAP = 8;      // gap between the icon and the bubble
+const MARGIN = 8;   // minimum distance from the bubble to the window edge
 
 /**
- * Подсказка-«i» с пузырём.
+ * A hint with a bubble.
  *
- * Пузырь рендерится порталом в body с position: fixed и координатами,
- * посчитанными от значка: absolute-пузырь внутри страницы обрезался
- * скроллером .main-body, стоило подсказке оказаться у края карточки.
- * Позиция зажимается в окно по горизонтали и переворачивается вниз,
- * если сверху не хватает места.
+ * Without `children` this is the familiar "i" icon. With `children` the control
+ * itself becomes the anchor: people ask about it by hovering over it, not over
+ * an icon next to it — so the explanation of why a device toggle is greyed out
+ * lives on the toggle itself and takes no rows in the layout.
+ *
+ * The bubble is portalled into body with position: fixed and coordinates
+ * computed from the icon: an absolute bubble inside the page was clipped by the
+ * .main-body scroller as soon as the hint landed near a card edge. The position
+ * is clamped to the window horizontally and flips downward when there is not
+ * enough room above.
  */
-// Ни размера, ни отступа в пропсах: раньше каждое место вызова задавало их
-// само (13/18, 11/14, 10/13, 12/16), и расстояние от подписи до значка нигде
-// не совпадало. Геометрия одна и живёт в CSS — эталоном взята строка
-// «Горячая клавиша» в настройках.
-export function Hint({ text }: { text: string }) {
+// Neither size nor offset is a prop: every call site used to set them itself
+// (13/18, 11/14, 10/13, 12/16), and the distance from label to icon matched
+// nowhere. The geometry is single and lives in CSS — the reference is the
+// «Горячая клавиша» row in settings.
+export function Hint({ text, children }: { text: string; children?: ReactNode }) {
   const anchorRef = useRef<HTMLSpanElement>(null);
   const bubbleRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
@@ -39,8 +44,8 @@ export function Hint({ text }: { text: string }) {
     setPos({ left, top });
   }, [open, text]);
 
-  // Пузырь зафиксирован относительно окна и за прокруткой не следует —
-  // проще закрыть его, чем пересчитывать на каждый кадр скролла.
+  // The bubble is fixed relative to the window and does not follow scrolling —
+  // closing it is simpler than recomputing on every scroll frame.
   useEffect(() => {
     if (!open) return;
     const close = () => setOpen(false);
@@ -55,15 +60,23 @@ export function Hint({ text }: { text: string }) {
   return (
     <span
       ref={anchorRef}
-      className="hint"
-      tabIndex={0}
-      aria-label={text}
+      className={children ? "hint-anchor" : "hint"}
+      // The icon does not take focus on its own — it is given focus, otherwise
+      // the hint exists for the mouse only. A wrapper around a control needs no
+      // focus of its own and is harmed by it: it becomes an extra stop before
+      // the control itself.
+      tabIndex={children ? undefined : 0}
+      // A name on the wrapper would replace the name of the control inside, so
+      // the text goes to the screen reader as a separate line rather than as a
+      // label on the anchor.
+      aria-label={children ? undefined : text}
       onMouseEnter={() => setOpen(true)}
       onMouseLeave={() => setOpen(false)}
       onFocus={() => setOpen(true)}
       onBlur={() => setOpen(false)}
     >
-      <Icon name="info" size={11}/>
+      {children ?? <Icon name="info" size={11}/>}
+      {children && <span className="sr-only">{text}</span>}
       {open && createPortal((
         <div
           ref={bubbleRef}

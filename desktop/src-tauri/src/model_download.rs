@@ -185,22 +185,22 @@ pub fn part_path_for(final_path: &Path) -> PathBuf {
     PathBuf::from(owned)
 }
 
-/// Путь к приватной папке, в которую собирается бандл до переименования.
+/// Path to the private folder where a bundle is assembled before the rename.
 pub fn stage_dir_for(dir: &Path, directory_name: &str) -> PathBuf {
     dir.join(format!(".{directory_name}.part"))
 }
 
-/// Убрать всё, что осталось от прерванной загрузки одного файла.
+/// Remove everything left over from an interrupted single-file download.
 ///
-/// Зовётся после отмены: докачки у нас нет, каждая попытка начинается с
-/// нуля, и недокачанный гигабайт на диске — это просто занятое место,
-/// которое пользователь не просил занимать. Ошибки удаления глотаем: файл
-/// мог быть уже удалён, а падать на уборке после отмены не за чем.
+/// Called after a cancel: we have no resume here, every attempt starts from
+/// scratch, and an unfinished gigabyte on disk is simply space the user never
+/// asked to give up. Deletion errors are swallowed: the file may already be
+/// gone, and there is no point failing while cleaning up after a cancel.
 pub fn discard_partial(dir: &Path, spec: &DownloadSpec) {
     let _ = std::fs::remove_file(part_path_for(&dir.join(&spec.file_name)));
 }
 
-/// То же для бандла: у него недокачанное лежит целой папкой.
+/// The same for a bundle: its unfinished download is a whole folder.
 pub fn discard_bundle_partial(dir: &Path, spec: &BundleDownloadSpec) {
     let _ = std::fs::remove_dir_all(stage_dir_for(dir, &spec.directory_name));
 }
@@ -280,16 +280,16 @@ fn free_space_verdict(available: u64, expected_bytes: u64) -> Result<(), ModelDo
     })
 }
 
-/// Сколько байт из `*.part` годится в докачку. `0` — качаем с нуля.
+/// How many bytes of `*.part` are usable for a resume. `0` — start over.
 ///
-/// Файл не короче ожидаемого — это не докачка: либо прошлая попытка
-/// дотянула всё и не сошлась хешем, либо это остаток от другой версии
-/// файла. Продолжать такой нечего: из него не выйдет ничего, кроме второй
-/// несошедшейся суммы.
+/// A file no shorter than expected is not a resume: either the previous attempt
+/// pulled everything down and failed the hash, or this is a leftover from a
+/// different version of the file. There is nothing to continue: it can yield
+/// nothing but a second mismatched checksum.
 ///
-/// Отдельная чистая функция, потому что ошибка здесь тихая: докачка с
-/// неправильного смещения не ломается, а молча собирает битый файл, и
-/// ловит её только SHA-256 в самом конце.
+/// A separate pure function, because a mistake here is silent: resuming from
+/// the wrong offset does not break, it quietly assembles a corrupt file, and
+/// only the SHA-256 at the very end catches it.
 fn resume_verdict(part_len: Option<u64>, expected_bytes: u64) -> u64 {
     match part_len {
         Some(len) if len > 0 && len < expected_bytes => len,
@@ -297,8 +297,8 @@ fn resume_verdict(part_len: Option<u64>, expected_bytes: u64) -> u64 {
     }
 }
 
-/// `resume_verdict` поверх диска: непригодный остаток заодно стирается,
-/// чтобы место не занимал и в следующий раз не рассматривался.
+/// `resume_verdict` on top of the disk: an unusable leftover is erased along
+/// the way, so it takes no space and is not considered again next time.
 fn resume_offset(part_path: &Path, expected_bytes: u64) -> u64 {
     let part_len = std::fs::metadata(part_path)
         .ok()
@@ -311,12 +311,13 @@ fn resume_offset(part_path: &Path, expected_bytes: u64) -> u64 {
     offset
 }
 
-/// Прогнать через хешер то, что уже лежит в `*.part`.
+/// Push whatever already sits in `*.part` through the hasher.
 ///
-/// SHA-256 считается по всему файлу и по порядку, так что докачка обязана
-/// сначала «дочитать» прошлую половину — иначе сумма не сойдётся даже у
-/// совершенно целого файла. Отмену проверяем и здесь: на полутора
-/// гигабайтах это секунды, но кнопка не должна залипать и на секунды.
+/// SHA-256 is computed over the whole file in order, so a resume must first
+/// "read through" the previous half — otherwise the checksum will not match even
+/// for a perfectly intact file. Cancellation is checked here too: on one and a
+/// half gigabytes this takes seconds, but the button must not stick even for
+/// seconds.
 async fn hash_existing_prefix(
     path: &Path,
     len: u64,
@@ -354,8 +355,8 @@ async fn hash_existing_prefix(
 /// Steps:
 /// 1. Run `ensure_free_space`. If the check returns
 ///    `InsufficientFreeSpace`, abort before opening any socket.
-/// 2. Докачать оставшееся, если от прошлой попытки остался пригодный
-///    `*.part` и сервер согласен на `Range` (см. `resume_verdict`).
+/// 2. Download the remainder if a usable `*.part` is left from the previous
+///    attempt and the server agrees to `Range` (see `resume_verdict`).
 /// 3. Stream the response body to `*.part`, periodically checking
 ///    `cancel_flag` and forwarding byte counts to `progress`.
 /// 4. After the stream completes, fire `on_verifying` (PR 1.2) so
@@ -393,8 +394,8 @@ pub async fn download_spec_to_dir(
         std::fs::create_dir_all(parent)
             .map_err(|error| ModelDownloadError::Transport(format!("mkdir: {error}")))?;
     }
-    // Готовое и сошедшееся заново не качаем. Внутри бандла это артефакты,
-    // которые прошлая попытка успела дотянуть целиком.
+    // What is finished and verified is not downloaded again. Inside a bundle
+    // these are artifacts the previous attempt managed to pull down in full.
     if final_path.exists() && verify_file(&final_path, spec).await.is_ok() {
         if let Some(progress_cb) = progress {
             progress_cb(DownloadProgress {
@@ -409,10 +410,10 @@ pub async fn download_spec_to_dir(
     }
 
     let mut offset = resume_offset(&part_path, spec.expected_bytes);
-    // Цикл — ради ровно одной пересдачи: на 416 мы стираем остаток,
-    // обнуляем смещение и спрашиваем файл целиком. Ветка с `continue`
-    // требует `offset > 0`, а возвращаемся мы в неё уже с нулём, так что
-    // второй раз в неё не попасть.
+    // The loop exists for exactly one retry: on 416 we erase the leftover, zero
+    // the offset and ask for the whole file. The `continue` branch requires
+    // `offset > 0`, and we come back into it already at zero, so it cannot be
+    // entered a second time.
     let response = loop {
         let mut request = client.get(&spec.url);
         if offset > 0 {
@@ -429,13 +430,13 @@ pub async fn download_spec_to_dir(
             }
             break response;
         }
-        // 206 — сервер согласился продолжить с нашего места.
+        // 206 — the server agreed to continue from our position.
         if status == reqwest::StatusCode::PARTIAL_CONTENT {
             break response;
         }
-        // 200 — Range проигнорирован, в теле весь файл; 416 — наш остаток
-        // серверу не подошёл. И то и другое значит «докачки не будет»:
-        // остаток стираем и начинаем сначала, честно и без сюрпризов.
+        // 200 — Range was ignored and the body holds the whole file; 416 — our
+        // leftover did not suit the server. Both mean "there will be no resume":
+        // we erase the leftover and start over, honestly and without surprises.
         if status.is_success() || status == reqwest::StatusCode::RANGE_NOT_SATISFIABLE {
             let _ = std::fs::remove_file(&part_path);
             let body_is_whole_file = status.is_success();
@@ -447,8 +448,8 @@ pub async fn download_spec_to_dir(
         }
         return Err(ModelDownloadError::HttpStatus(status.as_u16()));
     };
-    // На 206 Content-Length описывает только хвост, а полоске прогресса
-    // нужен весь файл.
+    // On 206 Content-Length describes only the tail, while the progress bar
+    // needs the whole file.
     let total = response
         .content_length()
         .map(|length| length.saturating_add(offset));
@@ -546,13 +547,13 @@ pub struct BundleDownloadOutcome {
     pub bytes: u64,
 }
 
-/// Убрать из черновой папки всё, чего нет в манифесте.
+/// Remove from the staging folder everything absent from the manifest.
 ///
-/// Переименование публикует папку целиком, как она есть, поэтому в ней не
-/// должно остаться ни обрывков `*.part` от прерванной попытки, ни файлов от
-/// прошлой версии бандла: они переехали бы в установленную модель вместе с
-/// нужными. Раньше от этого спасал снос папки перед каждой попыткой — с
-/// докачкой сносить её больше нельзя.
+/// The rename publishes the folder wholesale, exactly as it is, so no `*.part`
+/// scraps from an interrupted attempt and no files from a previous version of
+/// the bundle may remain: they would move into the installed model along with
+/// the needed ones. This used to be handled by wiping the folder before every
+/// attempt — with resume support it can no longer be wiped.
 fn prune_stage_dir(stage_dir: &Path, spec: &BundleDownloadSpec) {
     let Ok(entries) = std::fs::read_dir(stage_dir) else {
         return;
@@ -600,9 +601,9 @@ pub async fn download_bundle_to_dir(
             final_dir.display()
         )));
     }
-    // Черновую папку не сносим: в ней лежит то, что успела скачать прошлая
-    // попытка, и ради этого вся докачка и затевалась. Лишнее из неё уберёт
-    // `prune_stage_dir` перед самой публикацией.
+    // The staging folder is not wiped: it holds what the previous attempt
+    // managed to download, which is the whole point of resuming. Anything
+    // superfluous is removed by `prune_stage_dir` right before publishing.
     let stage_dir = stage_dir_for(dir, &spec.directory_name);
     std::fs::create_dir_all(&stage_dir)
         .map_err(|error| ModelDownloadError::Transport(format!("mkdir staging dir: {error}")))?;
@@ -716,20 +717,20 @@ mod tests {
         format!("http://{addr}/ggml-tiny.bin")
     }
 
-    /// Как одноразовый сервер отвечает на `Range`.
+    /// How the one-shot server answers a `Range` request.
     #[derive(Clone, Copy)]
     enum RangeMode {
-        /// 206 с хвостом файла — так ведёт себя CDN Hugging Face.
+        /// 206 with the tail of the file — how the Hugging Face CDN behaves.
         Honour,
-        /// 200 со всем файлом: заголовок понят как пожелание.
+        /// 200 with the whole file: the header was read as a suggestion.
         Ignore,
-        /// 416: наш остаток серверу не подошёл.
+        /// 416: our leftover did not suit the server.
         Reject,
     }
 
-    /// Сервер на `connections` запросов, разбирающий `Range`. Возвращает
-    /// адрес и журнал полученных заголовков — по нему тесты проверяют, что
-    /// докачка просит именно то смещение, с которого остановилась.
+    /// A server for `connections` requests that parses `Range`. Returns the
+    /// address and a log of received headers — the tests use it to check that a
+    /// resume asks for exactly the offset it stopped at.
     fn serve_ranged(
         body: Vec<u8>,
         mode: RangeMode,
@@ -747,8 +748,8 @@ mod tests {
                 let mut request = [0_u8; 1024];
                 let read = stream.read(&mut request).unwrap_or(0);
                 let text = String::from_utf8_lossy(&request[..read]).to_string();
-                // Имена заголовков regex-ом по строке: reqwest пишет их в
-                // нижнем регистре, а тесты читают глазами.
+                // Header names are matched by regex over the line: reqwest
+                // writes them lowercase, while the tests are read by eye.
                 let range = text.lines().find_map(|line| {
                     let (name, value) = line.split_once(':')?;
                     name.eq_ignore_ascii_case("range")
@@ -938,8 +939,9 @@ mod tests {
 
     #[test]
     fn resume_verdict_continues_only_a_real_prefix() {
-        // Ошибка здесь тихая: неверное смещение не ломает загрузку, а молча
-        // собирает битый файл — ловит его только SHA-256 в самом конце.
+        // The failure here is silent: a wrong offset does not break the
+        // download, it quietly assembles a corrupt file — only the SHA-256 at
+        // the very end catches it.
         assert_eq!(resume_verdict(None, 100), 0, "качать нечего");
         assert_eq!(
             resume_verdict(Some(0), 100),
@@ -985,15 +987,15 @@ mod tests {
         assert_eq!(std::fs::read(&final_path).unwrap(), body);
         assert_eq!(outcome.bytes(), body.len() as u64);
         assert!(!part_path.exists());
-        // Файл сошёлся с суммой, а сервер прислал только хвост — значит,
-        // прошлая половина была прочитана в хешер.
+        // The file matched the checksum while the server sent only the tail —
+        // which means the previous half was read into the hasher.
     }
 
     #[test]
     fn a_corrupt_leftover_costs_a_download_but_never_installs_a_broken_model() {
-        // Остаток нужной длины, но с чужим содержимым: докачка его не
-        // распознает, и единственное, что стоит между пользователем и битой
-        // моделью, — SHA-256 по всему файлу.
+        // A leftover of the right length but with foreign content: the resume
+        // will not recognise it, and the only thing standing between the user
+        // and a corrupt model is the SHA-256 over the whole file.
         let body = b"resumable model payload".to_vec();
         let (url, _seen) = serve_ranged(body.clone(), RangeMode::Honour, 1);
         let spec = tiny_spec(url, &body);
@@ -1041,8 +1043,9 @@ mod tests {
         .unwrap();
 
         assert_eq!(seen.lock().unwrap().as_slice(), ["bytes=9-"]);
-        // Ровно тело, а не остаток плюс тело: дописывать в непустой файл
-        // ответ, содержащий весь файл, — это девять лишних байт в начале.
+        // Exactly the body, not the leftover plus the body: appending a
+        // whole-file response to a non-empty file means nine extra bytes at the
+        // start.
         assert_eq!(std::fs::read(&final_path).unwrap(), body);
     }
 
@@ -1067,15 +1070,17 @@ mod tests {
         ))
         .unwrap();
 
-        // Второй запрос — уже без Range, и он один: пересдача ровно одна.
+        // The second request carries no Range, and there is only one of them:
+        // exactly one retry.
         assert_eq!(seen.lock().unwrap().as_slice(), ["bytes=9-", ""]);
         assert_eq!(std::fs::read(&final_path).unwrap(), body);
     }
 
     #[test]
     fn a_bundle_keeps_the_artifacts_the_previous_attempt_already_finished() {
-        // Сервер поднят только под второй артефакт. Если докачка полезет за
-        // первым, ей будет некуда постучаться — и тест это увидит.
+        // The server is brought up only for the second artifact. If the resume
+        // reaches for the first one it will have nowhere to knock — and the test
+        // will see that.
         let encoder = b"encoder weights".to_vec();
         let decoder = b"decoder weights".to_vec();
         let (decoder_url, _seen) = serve_ranged(decoder.clone(), RangeMode::Honour, 1);
@@ -1126,8 +1131,8 @@ mod tests {
             std::fs::read(installed.join("decoder.onnx")).unwrap(),
             decoder
         );
-        // Публикация — это переименование папки целиком, поэтому чужого в
-        // ней остаться не должно.
+        // Publishing renames the folder wholesale, so nothing foreign may
+        // remain inside it.
         let mut published: Vec<String> = std::fs::read_dir(&installed)
             .unwrap()
             .flatten()
@@ -1355,10 +1360,10 @@ mod tests {
 
     #[test]
     fn discarding_a_cancelled_download_frees_the_disk_and_spares_the_installed_file() {
-        // Отмена посреди гигабайта не должна оставлять этот гигабайт на
-        // диске — докачки нет, следующая попытка всё равно начнёт с нуля.
-        // И она не должна задевать уже установленную модель: имя у неё
-        // соседнее, ошибиться на один суффикс легко.
+        // Cancelling mid-gigabyte must not leave that gigabyte on disk — there
+        // is no resume, and the next attempt starts from scratch anyway. And it
+        // must not touch an already installed model: its name is adjacent, and
+        // being off by one suffix is easy.
         let dir = tempfile::tempdir().unwrap();
         let spec = DownloadSpec {
             model_id: "tiny".to_string(),
@@ -1376,7 +1381,7 @@ mod tests {
 
         assert!(!partial.exists(), "недокачанное стёрто");
         assert!(installed.exists(), "установленная модель не тронута");
-        // Второй вызов — уборка после уборки — не обязан ничего находить.
+        // The second call — cleanup after cleanup — need not find anything.
         discard_partial(dir.path(), &spec);
     }
 

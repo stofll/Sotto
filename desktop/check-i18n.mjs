@@ -1,10 +1,12 @@
-// Сверяет ключи в коде со словарём и ищет кириллицу, оставшуюся вне t().
+// Reconciles the keys in the code with the dictionary and hunts for Cyrillic
+// left outside t().
 //
-// Нужен потому, что ключ здесь — сам русский текст: правка копии молча рвёт
-// связь с переводом, и без проверки это всплывает у пользователя, а не в CI.
+// Needed because the key here is the Russian text itself: editing the copy
+// silently breaks the link to the translation, and without a check that surfaces
+// for the user rather than in CI.
 //
-//   node check-i18n.mjs          — отчёт, ненулевой код при пропущенных
-//   node check-i18n.mjs --keys   — переписать src/i18n/keys.json
+//   node check-i18n.mjs          — report, non-zero exit when any are missing
+//   node check-i18n.mjs --keys   — rewrite src/i18n/keys.json
 import ts from "typescript";
 import fs from "node:fs";
 import path from "node:path";
@@ -12,11 +14,11 @@ import path from "node:path";
 const CYR = /[А-Яа-яЁё]/;
 const root = "src";
 
-// Ключи, которые намеренно остаются русскими: примеры русской диктовки,
-// слова-паразиты и regex-демонстрации. Английского аналога у них нет.
-// Подписи под правилами форматтера: пример — это и есть те русские паразиты,
-// которые правило вычищает. Английского аналога у списка нет, и выдуманный
-// английский пример был бы хуже честного русского.
+// Keys that deliberately stay Russian: samples of Russian dictation, filler
+// words and regex demonstrations. They have no English counterpart.
+// Captions under the formatter rules: the example *is* the Russian filler the
+// rule cleans out. The list has no English counterpart, and an invented English
+// example would be worse than an honest Russian one.
 const INTENTIONALLY_RUSSIAN = new Set([
   "ну, типа, как бы, в общем и свои слова ниже",
   "например: собственно\nскажем так",
@@ -24,12 +26,12 @@ const INTENTIONALLY_RUSSIAN = new Set([
   "я я хочу -> я хочу",
 ]);
 
-// Файлы, чья кириллица целиком относится к языку речи, а не к интерфейсу.
+// Files whose Cyrillic belongs entirely to the language of speech, not the UI.
 const SPEECH_DOMAIN_FILES = new Set(["pages/aiShared.ts"]);
 
-// Точечное исключение прямо в коде. Нужно там, где одну и ту же строку
-// нельзя рассудить по тексту: правая часть готового правила замены —
-// русское слово, которое не переводится.
+// A pinpoint exception written in the code itself. Needed where one and the
+// same string cannot be judged by its text: the right-hand side of a ready-made
+// replacement rule is a Russian word that is not translated.
 const IGNORE_MARKER = "i18n-ignore";
 
 function walkFiles(dir, out = []) {
@@ -51,8 +53,8 @@ for (const file of walkFiles(root)) {
   const text = fs.readFileSync(file, "utf8");
   const lines = text.split("\n").map((l) => l.replace(/\r$/, ""));
   const src = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-  // Маркер действует на свою строку и на следующую — так он работает и в
-  // конце строки, и отдельным комментарием над блоком.
+  // The marker applies to its own line and the next one — so it works both at
+  // the end of a line and as a standalone comment above a block.
   const ignored = (line) =>
     (lines[line - 1] ?? "").includes(IGNORE_MARKER) || (lines[line - 2] ?? "").includes(IGNORE_MARKER);
 
@@ -65,7 +67,7 @@ for (const file of walkFiles(root)) {
         ts.forEachChild(node, visit);
         return;
       }
-      // tPlural(count, ["одна", "две", "пять"]) — ключ склеен через |
+      // tPlural(count, ["одна", "две", "пять"]) — the key is joined with |
       if (fn === "tPlural" && second && ts.isArrayLiteralExpression(second)) {
         const forms = second.elements.filter(ts.isStringLiteralLike).map((e) => e.text);
         if (forms.length === 3) used.add(forms.join("|"));
@@ -73,7 +75,7 @@ for (const file of walkFiles(root)) {
         return;
       }
     }
-    // Кириллица вне t(): либо забыли, либо это язык речи.
+    // Cyrillic outside t(): either it was forgotten, or it is speech language.
     if (ts.isStringLiteralLike(node) && CYR.test(node.text)) {
       const inT =
         ts.isCallExpression(node.parent) &&
@@ -101,8 +103,8 @@ if (process.argv.includes("--keys")) {
   console.log(`keys.json переписан: ${sorted.length}`);
 }
 
-// Словарь читаем как текст: импортировать .ts из node без сборки нельзя,
-// а нам нужны только ключи верхнего уровня.
+// The dictionary is read as text: a .ts file cannot be imported from node
+// without a build, and all we need are the top-level keys.
 const enSource = fs.readFileSync("src/i18n/en.ts", "utf8");
 const translated = new Set();
 for (const m of enSource.matchAll(/^\s{2}"((?:[^"\\]|\\.)*)":/gm)) {

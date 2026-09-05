@@ -2,18 +2,18 @@ export interface AppVersionResult {
   version: string;
 }
 
-/** Ответ `check_update`. `available: false` — актуальная версия, а не ошибка. */
+/** Response from `check_update`. `available: false` means the version is current, not an error. */
 export interface UpdateInfo {
   available: boolean;
   current_version: string;
   version?: string | null;
-  /** RFC 3339 из манифеста релиза. */
+  /** RFC 3339 from the release manifest. */
   date?: string | null;
-  /** Текст «что нового» из релизных заметок. */
+  /** The "what's new" text from the release notes. */
   notes?: string | null;
 }
 
-/** Событие `update-download-progress`. `total` отсутствует без Content-Length. */
+/** The `update-download-progress` event. `total` is absent without Content-Length. */
 export interface UpdateDownloadProgress {
   downloaded: number;
   total?: number | null;
@@ -32,54 +32,58 @@ export interface TextFormattingConfig {
   capitalize_sentences: boolean;
   final_punctuation: boolean;
   custom_parasite_words: string[];
-  /// Имена, бренды и термины, которых движок знать не может. На Whisper
-  /// уезжает в initial_prompt, на любом движке — правит результат.
+  /// Names, brands and terms the engine cannot know. On Whisper it goes into
+  /// initial_prompt; on any engine it corrects the result.
   custom_words: string[];
-  /// Идентификаторы включённых готовых наборов. Список id, а не копия
-  /// слов: набор снимается одним движением и своих слов не задевает.
+  /// Identifiers of the enabled ready-made sets. A list of ids, not a copy of
+  /// the words: a set is removed in one motion and does not touch your own words.
   enabled_presets: string[];
 }
 
 export interface ConfigResult {
   theme: "dark" | "light";
-  /** Язык интерфейса. Пусто/нет поля — брать язык системы. Не путать с `language`: тот про речь. */
+  /** UI language. Empty or missing — take the system language. Not to be confused with `language`: that one is about speech. */
   ui_language?: "ru" | "en";
   language: string;
   model: string;
-  /** "cuda" — унаследованное значение старых конфигов, читается как "gpu". */
+  /** "cuda" — a legacy value from old configs, read as "gpu". */
   device: "cpu" | "gpu" | "cuda";
   hotkey: string;
   auto_paste: boolean;
-  /** Добавлять пробел в конце вставки. */
+  /** Append a space at the end of the insertion. */
   paste_trailing_space: boolean;
-  /** Нажимать Enter после вставки. */
+  /** Press Enter after inserting. */
   paste_auto_submit: boolean;
   auto_start: boolean;
-  /** Звуковые сигналы цикла диктовки. По умолчанию включены. */
+  /** Sound cues for the dictation cycle. Enabled by default. */
   sound_feedback: boolean;
-  /** Громкость сигналов, 0..1. По умолчанию 0.35. */
+  /** Cue volume, 0..1. Default 0.35. */
   sound_volume: number;
-  /** Убавлять общую громкость на время записи. По умолчанию выключено. */
+  /** Lower the overall volume while recording. Disabled by default. */
   duck_output_while_recording: boolean;
-  /** До какого уровня убавлять, 0..1. По умолчанию 0.2. */
+  /** How far to lower it, 0..1. Default 0.2. */
   duck_output_level: number;
-  /** Обрезать тишину в начале и конце записи. По умолчанию включено. */
+  /** Trim silence at the start and end of a recording. Enabled by default. */
   trim_silence: boolean;
-  /** Сколько дней хранить историю. 0 — без ограничения по возрасту. По умолчанию 30. */
+  /** How many days to keep history. 0 — no age limit. Default 30. */
   history_retention_days: number;
-  /** Потолок числа записей истории. 0 — без ограничения. По умолчанию 1000. */
+  /** Cap on the number of history entries. 0 — no limit. Default 1000. */
   history_max_entries: number;
-  /** Подробность логов. По умолчанию "info". */
+  /** After how many idle minutes the model is unloaded from RAM.
+   *  0 — never unload. No field — five minutes: unloading is on by default,
+   *  and old configs get it along with the update. */
+  model_unload_after_minutes?: number;
+  /** Log verbosity. Default "info". */
   log_level: "error" | "warn" | "info" | "debug" | "trace";
-  /** Разрешить сбор и отправку продуктовой телеметрии. Отсутствие — true. */
+  /** Allow collecting and sending product telemetry. Absent means true. */
   telemetry_enabled?: boolean;
-  /** Таймаут неактивности продуктовой сессии, в минутах. По умолчанию 30.
-   *  Ручки в интерфейсе у него нет: значением распоряжается Rust, а поле
-   *  описано здесь, чтобы `save_config` не терял его при сохранении. */
+  /** Product session inactivity timeout, in minutes. Default 30.
+   *  It has no control in the UI: the value is managed by Rust, and the field is
+   *  described here so that `save_config` does not drop it when saving. */
   telemetry_session_timeout_minutes?: number;
-  /** Сохранять аудио каждой записи рядом с логами. По умолчанию выключено. */
+  /** Save the audio of every recording next to the logs. Disabled by default. */
   debug_save_recordings: boolean;
-  /** Issue #24: подробный лог стилей и окон вокруг показа/скрытия оверлея. */
+  /** Issue #24: verbose log of styles and windows around showing/hiding the overlay. */
   debug_overlay_diag: boolean;
   replacements_paused: boolean;
   recording_mode: "push_to_talk" | "toggle";
@@ -90,12 +94,12 @@ export interface ConfigResult {
   text_formatting: TextFormattingConfig;
   ai_processing: {
     pipeline_mode: "local" | "hybrid" | "cloud";
-    /** Профиль для диктовки: голос → whisper → LLM. */
+    /** Profile for dictation: voice → whisper → LLM. */
     active_profile_id?: string;
     /**
-     * Профиль для текста, вставленного руками на странице LLM-обработки.
-     * Пусто или отсутствует — «как для голоса»; старые конфиги попадают сюда
-     * автоматически, поэтому миграции нет.
+     * Profile for text pasted by hand on the LLM processing page.
+     * Empty or absent means "same as for voice"; old configs land here
+     * automatically, which is why there is no migration.
      */
     text_profile_id?: string;
     provider: string;
@@ -125,13 +129,14 @@ export interface ConfigResult {
       llm_timeout_seconds?: number;
     }>;
     /**
-     * Слоты ключей, не привязанные ни к одному профилю, — то, что создаёт
-     * кнопка «Добавить ключ».
+     * Key slots not bound to any profile — what the «Добавить ключ» button
+     * creates.
      *
-     * Хранятся здесь, потому что сам ключ лежит в хранилище ОС, а оно не
-     * перечисляется: `has_api_key` умеет отвечать только про известный ref.
-     * Без этого списка произвольный ref после перезапуска никто не опросит,
-     * и ключ исчезает из интерфейса, оставаясь в Credential Manager.
+     * They are stored here because the key itself lives in the OS store, and
+     * that store cannot be enumerated: `has_api_key` can only answer about a
+     * known ref. Without this list nobody would query an arbitrary ref after a
+     * restart, and the key would vanish from the UI while remaining in
+     * Credential Manager.
      */
     key_slots?: Array<{
       ref: string;
@@ -163,6 +168,14 @@ export interface ReplacementRuleMatch {
 
 export interface RuntimeStatusResult {
   model_loaded: boolean;
+  /** The model is not in memory, but it is selected and downloaded: it will
+   *  come back on its own at the next dictation. This is not the same as
+   *  "nothing to transcribe with". */
+  model_loads_on_demand?: boolean;
+  /** Running as a portable copy (a `portable.flag` next to the executable).
+   *  Autostart is deliberately not managed in this mode — the installed copy's
+   *  entry belongs to the installed copy. */
+  portable?: boolean;
   model?: string | null;
   /** Model actually loaded by the engine thread; differs from `model` when a switch failed. */
   loaded_model?: string | null;
@@ -198,14 +211,14 @@ export interface StatsResult {
   total_llm_output_tokens: number;
   total_llm_tokens: number;
   total_replacement_applications?: number;
-  /** Разбивка фолбэков LLM по причинам, по убыванию частоты. */
+  /** Breakdown of LLM fallbacks by reason, most frequent first. */
   llm_fallback_reasons?: Array<{
     error_type: string;
-    /** 0 — провайдер не ответил вовсе (таймаут, обрыв связи). */
+    /** 0 — the provider did not answer at all (timeout, dropped connection). */
     http_status: number;
     count: number;
     last_error: string;
-    /** YYYY-MM-DD последнего случая. */
+    /** YYYY-MM-DD of the most recent occurrence. */
     last_seen: string;
   }>;
   daily_history: Array<{
@@ -244,20 +257,20 @@ export interface ModelInfo {
   downloaded: boolean;
   selected: boolean;
   loaded?: boolean;
-  /** Файл найден в папке моделей, а не скачан из каталога: ни скачивать, ни удалять нечего. */
+  /** The file was found in the models folder rather than downloaded from the catalog: there is nothing to download and nothing to delete. */
   local?: boolean;
   /** Inference engine (`whisper.cpp` or `sherpa-onnx`). */
   engine?: string;
   /** Actual compute backend reported by the engine registry. */
   compute_backend?: string;
   cpu_only?: boolean;
-  /** Семейство модели («Whisper», «GigaAM», …); нет у своих файлов. */
+  /** Model family ("Whisper", "GigaAM", …); absent for your own files. */
   family?: string | null;
-  /** Закрытый список языков модели; отсутствует у многоязычных. */
+  /** The model's closed list of languages; absent for multilingual ones. */
   languages?: string[] | null;
-  /** Показывает ли модель текст по ходу диктовки. */
+  /** Whether the model shows text as the dictation goes. */
   streaming?: boolean;
-  /** Квантование весов: `q8_0`, `int8`, `f16`. Пусто у чужого файла. */
+  /** Weight quantisation: `q8_0`, `int8`, `f16`. Empty for a foreign file. */
   quantization?: string | null;
 }
 

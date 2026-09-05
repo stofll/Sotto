@@ -100,8 +100,8 @@ fn inference_result_clone(c: &mut Criterion) {
         session_id: 42,
         text: "Внимание! Шёпот — это тестовая система. Проверяем производительность клонирования InferenceResult в диспетчере. Этот текст достаточно длинный, чтобы клонирование строки доминировало над простым копированием полей. Если диспетчер клонирует этот результат многократно, мы хотим это заметить.".into(),
         language: Some("ru".into()),
-        // Непустой: диспетчер клонирует результат вместе с id модели, и
-        // пустой `None` занизил бы стоимость клона на одну строку.
+        // Non-empty: the dispatcher clones the result along with the model id,
+        // and an empty `None` would understate the clone cost by one string.
         model_id: Some("ggml-large-v3-turbo".into()),
         inference_time_ms: 1234,
         audio_seconds: 12.0,

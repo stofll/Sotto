@@ -11,6 +11,9 @@
 //! - `microphone-test-level`     — fired ~25 Hz while the test is
 //!   running (the cpal callback updates the EMA inside `AudioRecorder`;
 //!   we poll the `level()` getter).
+//! - `microphone-test-audio`    — raw frames for echo monitoring; emitted
+//!   only while monitoring is on, so a plain level check does not pay for
+//!   serialising the whole capture over IPC.
 //! - `microphone-test-stopped`  — fired once on stop.
 //! - `app-error`     — fired when the OS rejects access
 //!   (macOS TCC denial) or when 2 s of silence suggests the same.
@@ -26,7 +29,6 @@ use serde_json;
 use tauri::{AppHandle, Emitter};
 
 use crate::audio::{AudioConfig, AudioRecorder};
-use crate::config::Config;
 
 const SILENCE_WATCH_SECS: f64 = 2.0;
 const LEVEL_POLL_HZ: u64 = 25;
@@ -39,6 +41,13 @@ pub struct MicrophoneTestInfo {
 #[derive(Debug, Clone, Serialize)]
 pub struct LevelPayload {
     pub level: f32,
+}
+
+/// One frame of echo monitoring: the audio and the rate it was captured at.
+#[derive(Debug, Clone, Serialize)]
+struct MonitorPayload {
+    sample_rate: u32,
+    samples: Vec<f32>,
 }
 
 struct Inner {
@@ -54,6 +63,11 @@ struct Inner {
     /// Signalled by `stop()` so worker threads exit promptly instead
     /// of blocking `join()` for up to one loop interval (40ms).
     stop_signal: Arc<AtomicBool>,
+    /// Echo monitoring: when off, the poller drops the captured frames
+    /// instead of emitting them. The level meter runs either way — the
+    /// two are separate user-facing modes, and hearing yourself is the
+    /// one that needs headphones.
+    monitor: Arc<AtomicBool>,
 }
 
 impl Inner {
@@ -66,6 +80,7 @@ impl Inner {
             silence_watch: None,
             active: false,
             stop_signal: Arc::new(AtomicBool::new(false)),
+            monitor: Arc::new(AtomicBool::new(false)),
         }
     }
 }
@@ -90,26 +105,34 @@ impl MicrophoneTest {
         }
     }
 
-    pub fn start(&self, app: &AppHandle, microphone: Option<String>) -> Result<bool, String> {
+    pub fn start(
+        &self,
+        app: &AppHandle,
+        microphone: Option<String>,
+        monitor: bool,
+    ) -> Result<bool, String> {
         let mut guard = crate::mutex_recover::lock(&self.inner);
         if guard.recorder.is_some() {
+            // Already capturing (the level check and echo share one stream):
+            // only the monitoring flag can still differ.
+            guard.monitor.store(monitor, Ordering::Release);
             return Ok(true);
         }
-        let config = Config::load(app)?;
-        let device_index = microphone
-            .or_else(|| config.get_string("microphone"))
-            .and_then(|value| value.parse::<u32>().ok());
-
         let recorder = AudioRecorder::new(AudioConfig::default())
             .map_err(|error| Self::emit_error(app, &error))?;
         recorder
-            .start(device_index.map(|i| i as usize))
+            .start_selected(microphone.as_deref())
             .map_err(|error| Self::emit_error(app, &error))?;
+        let samples = recorder.attach_live_tap(8);
         guard.recorder = Some(recorder);
         guard.saw_signal = false;
         guard.active = true;
         guard.started_at = Instant::now();
         guard.stop_signal.store(false, Ordering::Release);
+        guard.monitor.store(monitor, Ordering::Release);
+        // The poller reads the same flag the `set_monitor` command writes, so
+        // echo can be toggled mid-test without restarting the capture.
+        let monitor_flag = Arc::clone(&guard.monitor);
         // CRITICAL: release the `inner` lock before `spawn_workers`, which
         // re-locks `inner` (to store the join handles) on THIS same thread.
         // std `Mutex` is not reentrant, so holding `guard` across the call
@@ -119,7 +142,7 @@ impl MicrophoneTest {
         drop(guard);
         *crate::mutex_recover::lock(&self.app) = Some(app.clone());
         let _ = app.emit("microphone-test-started", ());
-        Self::spawn_workers(&self.inner, app);
+        Self::spawn_workers(&self.inner, app, samples, monitor_flag);
         Ok(true)
     }
 
@@ -137,6 +160,7 @@ impl MicrophoneTest {
         let silence_watch = guard.silence_watch.take();
         let recorder = guard.recorder.take();
         guard.active = false;
+        guard.monitor.store(false, Ordering::Release);
         drop(guard);
 
         // Join workers (they should exit within ~40ms after seeing stop_signal).
@@ -154,6 +178,14 @@ impl MicrophoneTest {
         Ok(false)
     }
 
+    /// Turn echo monitoring on or off without touching the capture, so the
+    /// echo button can be pressed while the level check is already running.
+    pub fn set_monitor(&self, enabled: bool) {
+        crate::mutex_recover::lock(&self.inner)
+            .monitor
+            .store(enabled, Ordering::Release);
+    }
+
     pub fn info(&self) -> Result<MicrophoneTestInfo, String> {
         Ok(MicrophoneTestInfo {
             active: crate::mutex_recover::lock(&self.inner).active,
@@ -168,16 +200,19 @@ impl MicrophoneTest {
         let _ = app.emit(
             "app-error",
             serde_json::json!({
-                "kind": "permission",
-                "permission": "microphone",
-                "hint": "Privacy → Microphone",
+                "kind": "audio",
                 "message": error,
             }),
         );
         format!("microphone test start failed: {error}")
     }
 
-    fn spawn_workers(inner: &Arc<Mutex<Inner>>, app: &AppHandle) {
+    fn spawn_workers(
+        inner: &Arc<Mutex<Inner>>,
+        app: &AppHandle,
+        samples: std::sync::mpsc::Receiver<Vec<f32>>,
+        monitor: Arc<AtomicBool>,
+    ) {
         let poller_inner = Arc::clone(inner);
         let poller_app = app.clone();
         let poller = std::thread::spawn(move || {
@@ -198,6 +233,10 @@ impl MicrophoneTest {
                         break;
                     }
                     let raw = recorder.level();
+                    // Read under the same guard as the level: once it is
+                    // dropped, `stop` may take the recorder away.
+                    let sample_rate = recorder.tap_sample_rate();
+                    recorder.discard_buffer();
                     // Once we've seen a real signal, remember it so the
                     // silence-watch below doesn't raise a bogus permission
                     // warning. (Previously `saw_signal` was never set, so on
@@ -211,6 +250,27 @@ impl MicrophoneTest {
                     // active threshold. Shared with the overlay waveform.
                     let level = crate::audio::display_level(raw);
                     let _ = poller_app.emit("microphone-test-level", LevelPayload { level });
+                    // Drain the tap unconditionally — a full channel makes the
+                    // audio callback drop frames — but only pay for the emit
+                    // while the user is actually listening to themselves.
+                    let audio: Vec<f32> = samples.try_iter().flatten().collect();
+                    if monitor.load(Ordering::Acquire) && !audio.is_empty() {
+                        // The rate travels with the samples. A device whose
+                        // rate the capture resampler cannot divide (44.1 kHz,
+                        // ratio ≈ 2.76) passes its own audio through
+                        // untouched, and playing that back as 16 kHz stretches
+                        // the voice almost threefold and drops it by an octave
+                        // and a half — which sounds like a broken microphone,
+                        // not like a rate mismatch.
+                        let _ = poller_app.emit_to(
+                            "main",
+                            "microphone-test-audio",
+                            MonitorPayload {
+                                sample_rate,
+                                samples: audio,
+                            },
+                        );
+                    }
                 }
             }));
         });
@@ -220,7 +280,16 @@ impl MicrophoneTest {
             // catch_unwind so a panic inside the silence-watch does not
             // crash the app.
             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                std::thread::sleep(Duration::from_secs_f64(SILENCE_WATCH_SECS));
+                let deadline = Instant::now() + Duration::from_secs_f64(SILENCE_WATCH_SECS);
+                while Instant::now() < deadline {
+                    if crate::mutex_recover::lock(&watch_inner)
+                        .stop_signal
+                        .load(Ordering::Acquire)
+                    {
+                        return;
+                    }
+                    std::thread::sleep(Duration::from_millis(40));
+                }
                 let guard = crate::mutex_recover::lock(&watch_inner);
                 if guard.stop_signal.load(Ordering::Acquire) {
                     return;
@@ -235,11 +304,8 @@ impl MicrophoneTest {
                     let _ = watch_app.emit(
                         "app-error",
                         serde_json::json!({
-                            "kind": "permission",
-                            "permission": "microphone",
-                            "hint": "Privacy → Microphone",
-                            "message": "Микрофон не отдаёт звук. Похоже, macOS блокирует доступ — \
-                                 разрешите доступ к микрофону для приложения в Privacy → Microphone.",
+                            "kind": "audio",
+                            "message": "Звук не обнаружен. Скажите что-нибудь, проверьте подключение, выбранный микрофон и его громкость. Тишина сама по себе не означает запрет доступа.",
                         }),
                     );
                 }

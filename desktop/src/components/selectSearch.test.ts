@@ -10,13 +10,14 @@ describe("select search", () => {
   });
 
   it("finds a language by its code", () => {
-    // Языков под сотню, и код часто короче и вернее названия.
+    // There are close to a hundred languages, and the code is often shorter and
+    // more reliable than the name.
     expect(optionMatches(german, "de")).toBe(true);
   });
 
   it("ignores the spaces around what was typed", () => {
     expect(optionMatches(german, "  нем  ")).toBe(true);
-    // Пустой запрос — это не «ничего не подходит», а «ещё не искали».
+    // An empty query is not "nothing matches" but "no search yet".
     expect(optionMatches(german, "   ")).toBe(true);
   });
 

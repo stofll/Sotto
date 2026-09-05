@@ -30,6 +30,7 @@ affected OS whenever possible.
 ## Pull requests
 
 - Keep each pull request focused and explain the user-visible effect.
+- Write commit messages, PR titles, and descriptions in English.
 - Add or update tests for behavior changes.
 - Update the public documentation when commands, settings, supported platforms,
   privacy behavior, or model handling changes.

@@ -6,10 +6,14 @@ published installer.
 
 | Platform | Status | Local speech models | Published installer |
 | --- | --- | --- | --- |
-| Windows x64 | Primary target | Whisper and GigaAM v3 | Release workflow target |
-| macOS arm64 | Port / verify per release | Whisper | Release workflow target |
-| macOS x64 | Not currently promised | Whisper when built locally | Confirm per release |
+| Windows x64 | Primary target | Whisper and the Sherpa-ONNX bundles | Release workflow target |
+| macOS arm64 | Port / verify per release | Whisper and the Sherpa-ONNX bundles | Release workflow target |
+| macOS x64 | Not currently promised | Whisper and the Sherpa-ONNX bundles when built locally | Confirm per release |
 | Linux | CI/build target | Whisper when built locally | No supported artifact currently documented |
+
+The bundle catalogue is gated on `#[cfg(any(windows, target_os = "macos"))]`, so
+Windows and macOS carry the same set; there are no Windows-only entries in it.
+See [Models](models.md) for the families and their languages.
 
 The macOS deployment minimum is configured in the Tauri bundle metadata. Check
 the current release notes before relying on a particular architecture or
@@ -18,7 +22,8 @@ commands contributors should use are all in [Development](development.md).
 
 ## Platform caveats
 
-- GigaAM v3 is Windows-only and CPU-only in the current implementation.
+- Sherpa-ONNX bundles run on CPU on Windows and macOS. The macOS runtime is
+  statically linked; Linux currently exposes only Whisper models.
 - Whisper is the portable local engine; GPU acceleration depends on the build
   target and available native toolchain.
 - Microphone capture, global shortcuts, clipboard access, and accessibility

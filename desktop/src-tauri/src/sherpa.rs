@@ -9,39 +9,39 @@
 //! closed-registry SHA-256 manifest before constructing it, because
 //! sherpa-onnx may throw a foreign C++ exception for an incompatible graph.
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 use std::ffi::{CStr, CString};
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 use std::os::raw::c_char;
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 use std::path::Path;
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 const PROVIDER_CPU: &[u8] = b"cpu\0";
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 const DECODING_GREEDY: &[u8] = b"greedy_search\0";
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 const LANG_EN: &[u8] = b"en\0";
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 const LANG_AUTO: &[u8] = b"auto\0";
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 #[derive(Debug)]
 pub struct OfflineRecognizer {
     recognizer: *const sherpa_rs::sherpa_rs_sys::SherpaOnnxOfflineRecognizer,
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 fn c_path(path: &Path) -> Result<CString, String> {
     CString::new(path.to_string_lossy().as_bytes())
         .map_err(|_| "SHERPA_INVALID_PATH: path contains NUL".to_string())
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 impl OfflineRecognizer {
-    /// Единственный вход для всех семейств sherpa: движок выбирает
-    /// конструктор, роли файлов приезжают из манифеста. Ни поток движка, ни
-    /// каталог не знают, из скольких графов состоит конкретное семейство.
+    /// The single entry point for every sherpa family: the engine picks the
+    /// constructor, file roles arrive from the manifest. Neither the engine
+    /// thread nor the catalog knows how many graphs a given family consists of.
     pub fn open(
         engine: crate::model::ModelEngine,
         files: &crate::model::BundleFiles,
@@ -85,13 +85,13 @@ impl OfflineRecognizer {
         }
     }
 
-    /// NeMo Canary: энкодер и декодер плюс языковая пара.
+    /// NeMo Canary: encoder and decoder plus a language pair.
     ///
-    /// `src_lang`/`tgt_lang` задаются при создании распознавателя, а не на
-    /// каждой расшифровке, поэтому язык модели у нас закреплён английским —
-    /// сменить его можно было бы только перезагрузкой модели. `use_pnc`
-    /// включает пунктуацию и заглавные, без него текст приходит сплошной
-    /// строкой.
+    /// `src_lang`/`tgt_lang` are set when the recognizer is created rather than
+    /// per transcription, so the model's language is pinned to English here —
+    /// changing it would require reloading the model. `use_pnc` turns on
+    /// punctuation and capitalisation; without it the text arrives as one
+    /// continuous string.
     pub fn canary(
         encoder_path: &Path,
         decoder_path: &Path,
@@ -120,9 +120,9 @@ impl OfflineRecognizer {
         Self::from_raw(recognizer)
     }
 
-    /// Moonshine: препроцессор, энкодер и декодер в двух видах — с кэшем и
-    /// без. Первый шаг декодирования идёт по «холодному» графу, остальные —
-    /// по кэшированному; sherpa переключает их сама.
+    /// Moonshine: a preprocessor, an encoder and a decoder in two forms —
+    /// cached and not. The first decoding step goes through the "cold" graph,
+    /// the rest through the cached one; sherpa switches between them itself.
     pub fn moonshine(
         preprocessor_path: &Path,
         encoder_path: &Path,
@@ -154,10 +154,10 @@ impl OfflineRecognizer {
         Self::from_raw(recognizer)
     }
 
-    /// SenseVoice: один граф и таблица токенов, как у NeMo CTC, но со своим
-    /// полем конфигурации. `auto` оставляет определение языка самой модели;
-    /// `use_itn` включает обратную нормализацию — числа и даты приходят
-    /// цифрами, а не словами.
+    /// SenseVoice: a single graph and a token table, like NeMo CTC, but with its
+    /// own config field. `auto` leaves language detection to the model itself;
+    /// `use_itn` enables inverse normalisation — numbers and dates arrive as
+    /// digits rather than words.
     pub fn sense_voice(
         model_path: &Path,
         tokens_path: &Path,
@@ -296,10 +296,10 @@ impl OfflineRecognizer {
     }
 }
 
-/// Проверки, общие для обоих распознавателей. NaN в буфере sherpa не
-/// проверяет, а на несовместимом входе отвечает падением процесса, поэтому
-/// звук осматривается до C-границы.
-#[cfg(windows)]
+/// Checks common to both recognizers. sherpa does not check for NaN in the
+/// buffer and answers incompatible input by crashing the process, so the audio
+/// is inspected before the C boundary.
+#[cfg(any(windows, target_os = "macos"))]
 fn validate_audio(sample_rate: u32, samples: &[f32]) -> Result<(), String> {
     if sample_rate == 0 || sample_rate > i32::MAX as u32 {
         return Err(format!("SHERPA_INVALID_SAMPLE_RATE: {sample_rate}"));
@@ -313,7 +313,7 @@ fn validate_audio(sample_rate: u32, samples: &[f32]) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 fn check_threads(num_threads: i32) -> Result<(), String> {
     if num_threads <= 0 {
         return Err("SHERPA_INVALID_THREADS: num_threads must be positive".to_string());
@@ -326,7 +326,7 @@ fn check_threads(num_threads: i32) -> Result<(), String> {
 ///
 /// # Safety
 /// `tokens` must outlive the returned config.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 unsafe fn common_model_config(
     tokens: *const c_char,
     num_threads: i32,
@@ -343,7 +343,7 @@ unsafe fn common_model_config(
 
 /// # Safety
 /// Every path inside `model_config` must outlive this call.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 unsafe fn create(
     model_config: sherpa_rs::sherpa_rs_sys::SherpaOnnxOfflineModelConfig,
     feat_config: Option<sherpa_rs::sherpa_rs_sys::SherpaOnnxFeatureConfig>,
@@ -358,7 +358,7 @@ unsafe fn create(
     sys::SherpaOnnxCreateOfflineRecognizer(&config)
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 impl Drop for OfflineRecognizer {
     fn drop(&mut self) {
         if !self.recognizer.is_null() {
@@ -374,14 +374,14 @@ impl Drop for OfflineRecognizer {
 /// unsupported native runtime explicit. The bundle registry is empty on these
 /// targets, so this is a defensive error path rather than a user-visible
 /// model option.
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 #[derive(Debug)]
 pub struct OfflineRecognizer;
 
-#[cfg(not(windows))]
-const UNSUPPORTED: &str = "SHERPA_UNSUPPORTED_PLATFORM: ONNX models are Windows-only";
+#[cfg(not(any(windows, target_os = "macos")))]
+const UNSUPPORTED: &str = "SHERPA_UNSUPPORTED_PLATFORM: ONNX models require Windows or macOS";
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 impl OfflineRecognizer {
     pub fn open(
         _engine: crate::model::ModelEngine,
@@ -446,7 +446,7 @@ impl OfflineRecognizer {
 mod tests {
     use super::*;
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     #[test]
     fn rejects_invalid_thread_count_before_ffi() {
         let err = OfflineRecognizer::nemo_ctc(Path::new("model.onnx"), Path::new("tokens.txt"), 0)
@@ -454,7 +454,7 @@ mod tests {
         assert!(err.contains("SHERPA_INVALID_THREADS"));
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     #[test]
     fn transducer_rejects_invalid_thread_count_before_ffi() {
         let err = OfflineRecognizer::transducer(
@@ -468,7 +468,7 @@ mod tests {
         assert!(err.contains("SHERPA_INVALID_THREADS"));
     }
 
-    #[cfg(not(windows))]
+    #[cfg(not(any(windows, target_os = "macos")))]
     #[test]
     fn reports_unsupported_platform_without_ffi() {
         let err = OfflineRecognizer::nemo_ctc(
@@ -481,20 +481,21 @@ mod tests {
     }
 }
 
-/// Потоковый распознаватель sherpa.
+/// Streaming sherpa recognizer.
 ///
-/// Отличается от офлайнового не моделью, а разговором: аудио подаётся
-/// кусками, распознаватель сам сообщает, набралось ли достаточно для шага
-/// декодирования, и на любом шаге отдаёт текущую гипотезу. Поток живёт между
-/// вызовами, поэтому он тут поле, а не локальная переменная.
-#[cfg(windows)]
+/// It differs from the offline one not by the model but by the conversation:
+/// audio is fed in chunks, the recognizer itself reports whether enough has
+/// accumulated for a decoding step, and at any step it returns the current
+/// hypothesis. The stream lives between calls, which is why it is a field here
+/// rather than a local variable.
+#[cfg(any(windows, target_os = "macos"))]
 #[derive(Debug)]
 pub struct OnlineRecognizer {
     recognizer: *const sherpa_rs::sherpa_rs_sys::SherpaOnnxOnlineRecognizer,
     stream: *const sherpa_rs::sherpa_rs_sys::SherpaOnnxOnlineStream,
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 impl OnlineRecognizer {
     pub fn streaming_transducer(
         encoder_path: &Path,
@@ -530,10 +531,10 @@ impl OnlineRecognizer {
                 },
                 model_config,
                 decoding_method: DECODING_GREEDY.as_ptr() as *const c_char,
-                // Границы диктовки задаёт горячая клавиша, а не тишина в
-                // микрофоне: со включённым определением конца фразы
-                // распознаватель обрывал бы паузу посреди мысли и начинал
-                // фразу заново.
+                // The bounds of a dictation are set by the hotkey, not by
+                // silence in the microphone: with endpoint detection enabled
+                // the recognizer would cut a pause mid-thought and start the
+                // phrase over.
                 enable_endpoint: 0,
                 ..std::mem::zeroed()
             };
@@ -550,8 +551,8 @@ impl OnlineRecognizer {
         Ok(Self { recognizer, stream })
     }
 
-    /// Подать очередной кусок звука и продвинуть декодирование настолько,
-    /// насколько данных уже хватает. До конца фразы не блокирует.
+    /// Feed the next chunk of audio and advance decoding as far as the
+    /// available data allows. Does not block until the end of the phrase.
     pub fn feed(&mut self, sample_rate: u32, samples: &[f32]) -> Result<(), String> {
         validate_audio(sample_rate, samples)?;
         if samples.is_empty() {
@@ -570,8 +571,8 @@ impl OnlineRecognizer {
         Ok(())
     }
 
-    /// Текущая гипотеза целиком. Текст растёт и может исправляться задним
-    /// числом, поэтому вставлять его никуда нельзя — только показывать.
+    /// The current hypothesis in full. The text grows and may be corrected
+    /// retroactively, so it must never be inserted anywhere — only displayed.
     pub fn text(&self) -> Result<String, String> {
         unsafe {
             use sherpa_rs::sherpa_rs_sys as sys;
@@ -591,7 +592,7 @@ impl OnlineRecognizer {
         }
     }
 
-    /// Закрыть фразу: досчитать хвост и вернуть финальный текст.
+    /// Close the phrase: finish the tail and return the final text.
     pub fn finish(&mut self) -> Result<String, String> {
         unsafe {
             use sherpa_rs::sherpa_rs_sys as sys;
@@ -601,7 +602,7 @@ impl OnlineRecognizer {
         self.text()
     }
 
-    /// Забыть накопленное и начать следующую диктовку с чистого листа.
+    /// Forget what was accumulated and start the next dictation from scratch.
     pub fn reset(&mut self) {
         unsafe {
             sherpa_rs::sherpa_rs_sys::SherpaOnnxOnlineStreamReset(self.recognizer, self.stream)
@@ -609,7 +610,7 @@ impl OnlineRecognizer {
     }
 
     /// # Safety
-    /// Поток и распознаватель должны быть живы.
+    /// The stream and the recognizer must be alive.
     unsafe fn decode_ready(&self) {
         use sherpa_rs::sherpa_rs_sys as sys;
         while sys::SherpaOnnxIsOnlineStreamReady(self.recognizer, self.stream) != 0 {
@@ -618,7 +619,7 @@ impl OnlineRecognizer {
     }
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 impl Drop for OnlineRecognizer {
     fn drop(&mut self) {
         unsafe {
@@ -635,11 +636,11 @@ impl Drop for OnlineRecognizer {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 #[derive(Debug)]
 pub struct OnlineRecognizer;
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 impl OnlineRecognizer {
     pub fn streaming_transducer(
         _encoder_path: &std::path::Path,
@@ -666,11 +667,11 @@ impl OnlineRecognizer {
     pub fn reset(&mut self) {}
 }
 
-/// Распознаватель любого семейства sherpa — потоковый или нет.
+/// A recognizer of any sherpa family — streaming or not.
 ///
-/// Поток движка держит именно это: ему важно, что модель загружена и умеет
-/// расшифровать буфер, а из скольких графов она собрана и по какому API
-/// работает — дело этого модуля.
+/// This is what the engine thread holds: what matters to it is that the model
+/// is loaded and can transcribe a buffer, while how many graphs it is assembled
+/// from and which API it uses is this module's business.
 #[derive(Debug)]
 pub enum SherpaRecognizer {
     Offline(OfflineRecognizer),
@@ -696,9 +697,9 @@ impl SherpaRecognizer {
         OfflineRecognizer::open(engine, files, num_threads).map(Self::Offline)
     }
 
-    /// Расшифровать готовый буфер целиком. Потоковый распознаватель идёт тем
-    /// же путём, что и живой предпросмотр, только без пауз: подать всё,
-    /// закрыть фразу, забрать текст.
+    /// Transcribe a complete buffer. A streaming recognizer takes the same path
+    /// as the live preview, only without pauses: feed everything, close the
+    /// phrase, take the text.
     pub fn transcribe(&mut self, sample_rate: u32, samples: &[f32]) -> Result<String, String> {
         match self {
             Self::Offline(recognizer) => recognizer.transcribe(sample_rate, samples),
@@ -716,16 +717,17 @@ impl SherpaRecognizer {
         matches!(self, Self::Online(_))
     }
 
-    /// Забыть накопленную гипотезу. У непотокового распознавателя копить
-    /// нечего, поэтому вызов безвреден.
+    /// Forget the accumulated hypothesis. A non-streaming recognizer has
+    /// nothing to accumulate, so the call is harmless.
     pub fn reset_preview(&mut self) {
         if let Self::Online(recognizer) = self {
             recognizer.reset();
         }
     }
 
-    /// Живой предпросмотр: подать кусок и вернуть текущую гипотезу. У
-    /// непотокового распознавателя гипотезы нет — он молчит до конца записи.
+    /// Live preview: feed a chunk and return the current hypothesis. A
+    /// non-streaming recognizer has no hypothesis — it stays silent until the
+    /// recording ends.
     pub fn feed_preview(
         &mut self,
         sample_rate: u32,

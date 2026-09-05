@@ -45,6 +45,7 @@ function pageFor(tab: TabId, data: {
   stats: StatsResult | null;
   microphones: MicrophoneResult[];
   models: ModelInfo[];
+  runtime: RuntimeStatusResult | null;
   apiKeys: ApiKeyStatus;
   onConfigChanged: (partial: Partial<ConfigResult>) => Promise<ConfigResult | null>;
   onNavigate: (tab: TabId) => void;
@@ -53,7 +54,7 @@ function pageFor(tab: TabId, data: {
   onStatsRefresh: () => Promise<void>;
 }) {
   switch (tab) {
-    case "settings": return <SettingsPage config={data.config} microphones={data.microphones} models={data.models} onConfigChanged={data.onConfigChanged}/>;
+    case "settings": return <SettingsPage config={data.config} microphones={data.microphones} models={data.models} portable={data.runtime?.portable} onConfigChanged={data.onConfigChanged}/>;
     case "models": return <ModelsPage models={data.models} config={data.config} onConfigChanged={data.onConfigChanged} onModelsChanged={data.onModelsChanged}/>;
     case "text": return <TextPage config={data.config} onConfigChanged={data.onConfigChanged}/>;
     case "ai": return <AiPage config={data.config?.ai_processing ?? null} apiKeys={data.apiKeys} onConfigChanged={data.onConfigChanged} onNavigate={(t) => data.onNavigate(t)}/>;
@@ -65,8 +66,8 @@ function pageFor(tab: TabId, data: {
 }
 
 export function MainWindow() {
-  // Одна подписка на язык в корне: t() читает модульное состояние, так что
-  // перерисовки корня достаточно для всего дерева.
+  // One language subscription at the root: t() reads module state, so
+  // re-rendering the root is enough for the whole tree.
   useLocale();
   const [tab, setTab] = useState<TabId>("settings");
   const [theme, setTheme] = useState<"dark" | "light">("dark");
@@ -170,6 +171,7 @@ export function MainWindow() {
     let unlistenModelLoaded: (() => void) | null = null;
     let unlistenWhisperReady: (() => void) | null = null;
     let unlistenModelUnloaded: (() => void) | null = null;
+    let unlistenModelRestored: (() => void) | null = null;
     let unlistenModelLoading: (() => void) | null = null;
     let unlistenModelFailed: (() => void) | null = null;
     let unlistenNavigate: (() => void) | null = null;
@@ -190,11 +192,10 @@ export function MainWindow() {
       });
     }).then((fn) => { unlistenPermission = fn; });
     on<string>("navigate-tab", (next) => {
-      // «Форматирование» + «Замены» слились в «Текст», «Провайдеры» +
-      // «API-ключи» — в «Интеграции», «Обзор» убран целиком. Псевдонимы
-      // оставлены, потому что событие шлёт трей: отдельное окно, которое
-      // может остаться от предыдущей версии сборки и знать только старые
-      // идентификаторы.
+      // «Форматирование» + «Замены» merged into «Текст», «Провайдеры» +
+      // «API-ключи» into «Интеграции», and «Обзор» was removed entirely. The
+      // aliases stay because the event is sent by the tray: a separate window
+      // that may survive from a previous build and know only the old ids.
       const legacy: Record<string, TabId> = { formatting: "text", replacements: "text", providers: "integrations", "api-keys": "integrations", overview: "settings" };
       const resolved = (legacy[next] ?? next) as TabId;
       if (mounted && MVP_TABS.includes(resolved)) setTab(resolved);
@@ -251,9 +252,14 @@ export function MainWindow() {
       setRecordingState("error");
       if (payload?.message) setError(payload.message);
     }).then((fn) => { unlistenModelFailed = fn; });
-    // Выгрузка снимает и загруженную модель, и её признак в списке —
-    // обновляем оба среза, иначе статус в сайдбаре остаётся на удалённой.
+    // Unloading clears both the loaded model and its flag in the list — we
+    // refresh both slices, otherwise the sidebar status stays on a deleted one.
     on<unknown>("model-unloaded", () => { refreshModels(); refreshRuntime(); }).then((fn) => { unlistenModelUnloaded = fn; });
+    // The model returning after an idle unload. Deliberately separate from
+    // `whisper-ready`: that one drives the dictation state, while this arrives
+    // in the middle of somebody else's recording and has no business touching
+    // that state — only the lists.
+    on<unknown>("model-restored", () => { refreshModels(); refreshRuntime(); }).then((fn) => { unlistenModelRestored = fn; });
     on<DownloadProgress>("model-download-progress", (payload) => {
       if (!mounted || !payload) return;
       setDownloadProgress({
@@ -268,9 +274,9 @@ export function MainWindow() {
       const profileRefs = (cfg?.ai_processing?.profiles ?? [])
         .map((p) => p.api_key_ref || (p.id === "default" ? p.provider : `key_${p.id}`))
         .filter(Boolean);
-      // Слоты без профиля: хранилище ОС не перечисляется, `has_api_key` умеет
-      // ответить только про известный ref. Не спросив о них здесь, мы теряем
-      // ключ из интерфейса при каждом перезапуске.
+      // Profile-less slots: the OS store cannot be enumerated and `has_api_key`
+      // can only answer about a known ref. Without asking about them here we
+      // lose the key from the UI on every restart.
       const slotRefs = (cfg?.ai_processing?.key_slots ?? []).map((s) => s.ref).filter(Boolean);
       const ids = Array.from(new Set([...defaults, ...profileRefs, ...slotRefs]));
       const entries = await Promise.all(ids.map(async (key_id) => {
@@ -296,10 +302,10 @@ export function MainWindow() {
           { p: invoke<RuntimeStatusResult>("get_runtime_status"), set: (v) => { if (mounted) setRuntime(v as RuntimeStatusResult); }, name: "get_runtime_status" },
         ];
         const results = await Promise.allSettled(setters.map((s) => s.p));
-        // Каждый отказ здесь виден пользователю. Раньше он уходил только в
-        // console.warn, а в релизной сборке DevTools нет — приложение молча
-        // рисовало пустой конфиг как «настроек ещё нет», и отличить это от
-        // честного первого запуска было нечем.
+        // Every failure here is visible to the user. It used to go only to
+        // console.warn, and a release build has no DevTools — the app silently
+        // drew an empty config as "there are no settings yet", with no way to
+        // tell that apart from an honest first launch.
         const failed: string[] = [];
         results.forEach((r, i) => {
           if (r.status === "fulfilled") {
@@ -335,6 +341,7 @@ export function MainWindow() {
       unlistenModelLoading?.();
       unlistenModelFailed?.();
       unlistenModelUnloaded?.();
+      unlistenModelRestored?.();
       unlistenDownloadProgress?.();
       unlistenNavigate?.();
       unlistenConfigUpdated?.();
@@ -342,10 +349,10 @@ export function MainWindow() {
     };
   }, []);
 
-  // Зеркало rust-гейта `transcription_route_available`: пока распознавать
-  // нечем, горячая клавиша молча ничего не делает — оверлей на запись, из
-  // которой не выйдет текста, врал бы. Плашка объясняет молчание и даёт оба
-  // выхода: скачать модель или уйти в облако.
+  // A mirror of the Rust gate `transcription_route_available`: while there is
+  // nothing to transcribe with, the hotkey silently does nothing — an overlay
+  // for a recording that will produce no text would be a lie. The pill explains
+  // the silence and offers both ways out: download a model or move to the cloud.
   const pipelineMode = config?.ai_processing?.pipeline_mode ?? "local";
   const selectedModel = models.find((item) => item.selected) ?? models.find((item) => item.id === config?.model);
   const sttUnavailable = models.length > 0
@@ -358,7 +365,7 @@ export function MainWindow() {
       <div className={`win${collapsed ? " collapsed" : ""}`}>
         <TitleBar collapsed={collapsed} onToggleCollapse={toggleSidebarCollapse}/>
         <div className={`win__layout${collapsed ? " collapsed" : ""}`}>
-          <Sidebar tab={tab} onTab={setTab} recordingState={recordingState} pipelineMode={config?.ai_processing?.pipeline_mode} loadedModel={actualModelLabel(runtime, "")} theme={theme} onToggleTheme={() => void toggleTheme()} downloadProgress={downloadProgress} collapsed={collapsed}/>
+          <Sidebar tab={tab} onTab={setTab} recordingState={recordingState} pipelineMode={config?.ai_processing?.pipeline_mode} loadedModel={actualModelLabel(runtime, "")} loadsOnDemand={runtime?.model_loads_on_demand} theme={theme} onToggleTheme={() => void toggleTheme()} downloadProgress={downloadProgress} collapsed={collapsed}/>
           <main className="win__main">
             {permissions.length > 0 && permissions.map((p) => (
               <div key={p.permission} role="alert" style={{ margin: "14px 32px 0", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", padding: "12px 14px", borderRadius: 8, background: "var(--accent-soft)", border: "1px solid var(--accent-line)", color: "var(--accent-text)", font: "500 12.5px/1.4 var(--font-sans)" }}>
@@ -379,17 +386,15 @@ export function MainWindow() {
               <div role="status" style={{ margin: "14px 32px 0", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", padding: "12px 14px", borderRadius: 8, background: "var(--warn-soft)", border: "1px solid rgba(251,191,36,0.30)", color: "var(--warn)", font: "500 12.5px/1.4 var(--font-sans)" }}>
                 <Icon name="info" size={14}/>
                 <span style={{ flex: "1 1 240px", minWidth: 240 }}>
-                  <strong>{t("Модель распознавания не скачана.")}</strong>  {t("Запись не запускается: распознавать речь нечем. Скачайте модель в «Настройки → Модели» — или выберите облачного провайдера в разделе «LLM-обработка».")} </span>
-                <button className="btn btn--primary" type="button" onClick={() => setTab("settings")} style={{ height: 28 }}>
+                  <strong>{t("Модель распознавания не скачана.")}</strong>  {t("Для записи скачайте модель распознавания в разделе «Модели».")} </span>
+                <button className="btn btn--primary" type="button" onClick={() => setTab("models")} style={{ height: 28 }}>
                   <Icon name="settings" size={12}/>  {t("Скачать модель")} </button>
-                <button className="btn btn--ghost" type="button" onClick={() => setTab("ai")} style={{ height: 28 }}>
-                  <Icon name="spark" size={12}/>  {t("LLM-обработка")} </button>
               </div>
             )}
             {loading ? <LoadingState/> : (
               <PageWithMvpGate tab={tab}>
                 {isMvpTab(tab)
-                  ? pageFor(tab, { config, version, stats, microphones, models, apiKeys, onConfigChanged, onNavigate: setTab, onApiKeysChanged: setApiKeys, onModelsChanged: setModels, onStatsRefresh: refreshStats })
+                  ? pageFor(tab, { config, version, stats, microphones, models, runtime, apiKeys, onConfigChanged, onNavigate: setTab, onApiKeysChanged: setApiKeys, onModelsChanged: setModels, onStatsRefresh: refreshStats })
                   : <DeferredPage tab={tab}/>}
               </PageWithMvpGate>
             )}

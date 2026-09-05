@@ -271,6 +271,15 @@ jobs:
         working-directory: desktop/src-tauri
         run: cargo test --locked --verbose
 
+      - name: Check embedded macOS native runtime
+        if: runner.os == 'macOS'
+        run: sh scripts/check-macos-native-libs.sh desktop/src-tauri/target/debug/Sotto
+
+      - name: Sherpa download and inference smoke test (macOS)
+        if: runner.os == 'macOS'
+        working-directory: desktop/src-tauri
+        run: cargo test --locked --test test_sherpa_runtime -- --ignored --nocapture
+
   frontend-test:
     name: TypeScript typecheck + build
     runs-on: ubuntu-latest

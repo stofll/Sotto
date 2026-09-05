@@ -13,8 +13,6 @@ use windows_sys::Win32::Foundation::POINT;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON};
 use windows_sys::Win32::UI::WindowsAndMessaging::GetCursorPos;
 
-use super::win_util::{apply_noactivate_styles, extract_hwnd};
-
 const TRAY_POPUP_LABEL: &str = "tray-popup";
 static OUTSIDE_CLICK_WATCHER_RUNNING: AtomicBool = AtomicBool::new(false);
 
@@ -81,16 +79,10 @@ pub fn show_tray_popup(app: AppHandle) -> Result<(), String> {
             .always_on_top(true)
             .skip_taskbar(true)
             .focused(false)
-            .focusable(false)
+            .focusable(true)
             .visible(false)
             .build()
             .map_err(|e| e.to_string())?;
-
-    let hwnd = extract_hwnd(&window)?;
-
-    unsafe {
-        apply_noactivate_styles(hwnd);
-    }
 
     position_tray_popup(&window, &app)?;
     window.show().map_err(|e| e.to_string())?;

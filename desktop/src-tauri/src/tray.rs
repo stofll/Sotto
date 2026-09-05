@@ -15,7 +15,8 @@ fn tray_icon_image() -> Image<'static> {
 pub fn build_tray(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     // Right-click context menu with a single "Quit" entry.
     let quit_item = MenuItem::with_id(app, "quit", crate::ui_text::t("Выход"), true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&quit_item])?;
+    let open_item = MenuItem::with_id(app, "open", "Sotto", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&open_item, &quit_item])?;
 
     TrayIconBuilder::with_id("main-tray")
         .icon(tray_icon_image())
@@ -24,6 +25,9 @@ pub fn build_tray(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Erro
         // Keep left-click for the popup toggle on Windows; show the menu on right-click only.
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| {
+            if event.id.as_ref() == "open" {
+                let _ = crate::focus_main_window(app.clone(), "settings".into());
+            }
             if event.id.as_ref() == "quit" {
                 app.exit(0);
             }
@@ -32,21 +36,28 @@ pub fn build_tray(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Erro
             let app = tray.app_handle();
             if let TrayIconEvent::Click {
                 button: MouseButton::Left,
-                button_state: MouseButtonState::Down,
+                button_state: MouseButtonState::Up,
                 ..
             } = event
             {
                 #[cfg(windows)]
                 {
-                    if let Some(popup) = app.get_webview_window("tray-popup") {
-                        if popup.is_visible().unwrap_or(false) {
-                            let _ = hide_tray_popup(app.clone());
+                    let app = app.clone();
+                    // WebView2 creation must not block the Windows event callback.
+                    std::thread::spawn(move || {
+                        let result = if app
+                            .get_webview_window("tray-popup")
+                            .is_some_and(|p| p.is_visible().unwrap_or(false))
+                        {
+                            hide_tray_popup(app.clone())
                         } else {
-                            let _ = show_tray_popup(app.clone());
+                            show_tray_popup(app.clone())
+                        };
+                        if let Err(error) = result {
+                            log::warn!("tray popup: {error}");
+                            let _ = crate::focus_main_window(app, "settings".into());
                         }
-                    } else {
-                        let _ = show_tray_popup(app.clone());
-                    }
+                    });
                 }
                 #[cfg(not(windows))]
                 {

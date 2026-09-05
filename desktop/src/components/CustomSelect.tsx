@@ -19,9 +19,9 @@ function optionTitle<T extends string | number | null>(option?: SelectOption<T>)
 }
 
 /**
- * `alsoRef` — для меню, вынесенного порталом в body: в DOM оно лежит вне
- * `ref`, и без второй проверки pointerdown по пункту списка считался бы
- * кликом снаружи и закрывал меню раньше, чем срабатывал выбор.
+ * `alsoRef` is for a menu portalled into body: in the DOM it lies outside
+ * `ref`, and without a second check a pointerdown on a list item would count as
+ * a click outside and close the menu before the selection fired.
  */
 export function useOutsideClose(
   open: boolean,
@@ -52,7 +52,7 @@ export function useOutsideClose(
   }, [open, ref, onClose, alsoRef]);
 }
 
-export function CustomSelect<T extends string | number | null>({ value, options, onChange, className = "", disabled = false, searchable = false, inlineMeta = false }: { value: T; options: Array<SelectOption<T>>; onChange: (value: T) => void; className?: string; disabled?: boolean; searchable?: boolean; inlineMeta?: boolean }) {
+export function CustomSelect<T extends string | number | null>({ value, options, onChange, onOpen, className = "", disabled = false, searchable = false, inlineMeta = false }: { value: T; options: Array<SelectOption<T>>; onChange: (value: T) => void; onOpen?: () => void; className?: string; disabled?: boolean; searchable?: boolean; inlineMeta?: boolean }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -65,21 +65,22 @@ export function CustomSelect<T extends string | number | null>({ value, options,
     if (disabled) setOpen(false);
   }, [disabled]);
 
-  // Набранное живёт не дольше открытого меню: вернуться к списку и увидеть
-  // его отфильтрованным прошлым поиском — значит решить, что половина
-  // пунктов пропала.
+  // What was typed lives no longer than the open menu: coming back to the list
+  // and finding it filtered by a previous search means concluding that half the
+  // items have disappeared.
   useEffect(() => {
     if (!open) setQuery("");
   }, [open]);
 
-  // Открыли список — курсор сразу в поиске: искать глазами по сотне языков
-  // никто не станет, а лишний клик по полю превращает поиск в необязательный
-  // довесок.
+  // The list opens with the cursor already in the search box: nobody scans a
+  // hundred languages by eye, and an extra click on the field turns search into
+  // an optional afterthought.
   //
-  // Не `autoFocus` и не просто «на открытие»: первым проходом меню висит в
-  // DOM с `visibility: hidden`, координаты ему считает layout-эффект. Фокус,
-  // выданный в этот момент, уходит в никуда — невидимому полю его не дают, и
-  // ошибки при этом не будет. Ждём отрисовки на месте.
+  // Not `autoFocus` and not simply "on open": on the first pass the menu hangs
+  // in the DOM with `visibility: hidden` and a layout effect computes its
+  // coordinates. Focus given at that moment goes nowhere — an invisible field
+  // does not receive it, and no error is raised either. We wait until it is
+  // painted in place.
   useEffect(() => {
     if (open && searchable && placed) searchRef.current?.focus();
   }, [open, searchable, placed]);
@@ -99,7 +100,7 @@ export function CustomSelect<T extends string | number | null>({ value, options,
 
   return (
     <div className={`custom-select ${inlineMeta ? "custom-select--inline-meta " : ""}${className}`} ref={rootRef}>
-      <button className="custom-select__button" type="button" disabled={disabled} aria-haspopup="listbox" aria-expanded={open} title={optionTitle(selected)} onClick={() => setOpen((current) => !current)}>
+      <button className="custom-select__button" type="button" disabled={disabled} aria-haspopup="listbox" aria-expanded={open} title={optionTitle(selected)} onClick={() => { if (!open) onOpen?.(); setOpen((current) => !current); }}>
         {selected.icon && <Icon name={selected.icon} size={14}/>}
         <span className="custom-select__text">
           <span className="custom-select__label">{selected.label}</span>
@@ -120,8 +121,8 @@ export function CustomSelect<T extends string | number | null>({ value, options,
                 placeholder={t("Поиск")}
                 aria-label={t("Поиск")}
                 onChange={(event) => setQuery(event.target.value)}
-                // Enter выбирает первый подходящий: набрал «нем», нажал —
-                // готово, без перехода к мыши.
+                // Enter picks the first match: type «нем», press it, done —
+                // without reaching for the mouse.
                 onKeyDown={(event) => {
                   if (event.key !== "Enter") return;
                   event.preventDefault();

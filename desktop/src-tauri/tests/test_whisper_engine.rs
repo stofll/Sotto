@@ -18,7 +18,9 @@
 //! (Requires model file + `tauri/test` feature enabled in dev.)
 
 use sotto_lib::model::ModelLoadSpec;
-use sotto_lib::whisper::{resolve_model_path, EngineCommand, EngineEvent, InferenceResult};
+use sotto_lib::whisper::{
+    resolve_model_path, EngineCommand, EngineEvent, InferenceResult, ModelLoadReason,
+};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
@@ -84,7 +86,13 @@ fn channels_accept_all_engine_command_variants() {
                 path: resolve_model_path("medium").unwrap(),
                 use_gpu: true,
             },
+            reason: ModelLoadReason::Requested,
             reply: tokio::sync::oneshot::channel().0,
+        })
+        .is_ok());
+    assert!(tx
+        .try_send(EngineCommand::UnloadIdle {
+            after: std::time::Duration::from_secs(300),
         })
         .is_ok());
     assert!(tx
@@ -101,15 +109,22 @@ fn channels_accept_all_engine_command_variants() {
 
 #[test]
 fn channels_accept_all_engine_event_variants() {
-    // Ёмкость по числу вариантов: с меньшей последний try_send возвращал
-    // ошибку переполнения, а не «канал не принял такой вариант». Пока
-    // результат отбрасывался через let _, тест этого не замечал.
-    let (tx, _rx) = tokio::sync::mpsc::channel::<EngineEvent>(8);
+    // Capacity is sized by the number of variants: with less, the last try_send
+    // returned a queue-full error rather than "the channel rejected this
+    // variant". While the result was discarded via `let _`, the test never
+    // noticed.
+    let (tx, _rx) = tokio::sync::mpsc::channel::<EngineEvent>(16);
     assert!(tx
         .try_send(EngineEvent::ModelLoading { name: "x".into() })
         .is_ok());
     assert!(tx
         .try_send(EngineEvent::ModelReady { name: "x".into() })
+        .is_ok());
+    assert!(tx
+        .try_send(EngineEvent::ModelUnloaded { name: "x".into() })
+        .is_ok());
+    assert!(tx
+        .try_send(EngineEvent::ModelRestored { name: "x".into() })
         .is_ok());
     assert!(tx
         .try_send(EngineEvent::ModelLoadFailed {

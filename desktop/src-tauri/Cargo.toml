@@ -1,6 +1,6 @@
 [package]
 name = "sotto"
-version = "0.0.2"
+version = "0.0.3"
 description = "Sotto desktop shell"
 authors = ["Stofl <152594969+stofll@users.noreply.github.com>"]
 license = "MIT"
@@ -31,10 +31,10 @@ tauri-plugin-autostart = "2"
 # A second instance would register the same global hotkey and lose the race
 # nondeterministically — single-instance is a correctness fix, not polish.
 tauri-plugin-single-instance = "2"
-# Самообновление. Плагин качает и ставит артефакт из latest.json на
-# GitHub Releases, проверяя minisign-подпись публичным ключом из
-# tauri.conf.json. Целостность — да, издатель — нет: SmartScreen про
-# «неизвестного издателя» лечится только Authenticode (см. 4.1 в плане).
+# Self-update. The plugin downloads and installs the artifact from latest.json
+# on GitHub Releases, verifying the minisign signature with the public key from
+# tauri.conf.json. Integrity — yes, publisher — no: SmartScreen's "unknown
+# publisher" is only cured by Authenticode (see 4.1 in the plan).
 tauri-plugin-updater = "2"
 enigo = { version = "0.3", default-features = false, features = ["xdo"] }
 log = "0.4"
@@ -59,14 +59,11 @@ tempfile = "3"
 tokio = { version = "1", features = ["test-util", "macros", "rt"] }
 
 [target.'cfg(windows)'.dependencies]
-# GigaAM/Sherpa is intentionally Windows-only for this MVP. The native
-# download-binaries feature produces Windows DLLs that are packaged by the
-# NSIS hook; keeping it target-gated prevents macOS/Linux from linking an
-# unbundled native runtime or exposing a model that cannot load there.
+# Windows uses shared Sherpa libraries packaged by the NSIS hook.
 sherpa-rs = { version = "0.6", default-features = false, features = ["sys", "download-binaries"] }
 windows-sys = { version = "0.52", features = [
     "Win32_UI_WindowsAndMessaging",
-    # SetWindowSubclass / DefSubclassProc для неклиентского щита оверлея.
+    # SetWindowSubclass / DefSubclassProc for the overlay's non-client guard.
     "Win32_UI_Shell",
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_Foundation",
@@ -94,6 +91,9 @@ windows = { version = "0.61", features = [
 libc = "0.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
+# Embed the checksum-verified universal2 Sherpa/ONNX Runtime archives in the
+# app. No external dylibs or developer-machine search paths are needed.
+sherpa-rs = { version = "0.6", default-features = false, features = ["sys", "download-binaries", "static"] }
 tempfile = "3"
 objc2 = "0.6"
 
@@ -101,12 +101,11 @@ objc2 = "0.6"
 name = "sotto_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
-# Имя бинарника — то, что видит система: подпись иконки в доке у
-# несобранной сборки, «Мониторинг системы», «Принудительное завершение»,
-# отчёты о падениях и Sotto.exe на Windows. Оно берётся отсюда, а не из
-# productName, поэтому и стоит здесь, а не в mainBinaryName: тот
-# переименовывает бинарь только на `tauri build`, и dev-сборка
-# продолжала бы называться именем crate.
+# The binary name is what the system shows: the icon caption in the dock for an
+# unbundled build, Activity Monitor, Force Quit, crash reports, and Sotto.exe on
+# Windows. It is taken from here rather than from productName, which is why it
+# sits here and not in mainBinaryName: that one renames the binary only on
+# `tauri build`, and a dev build would keep being named after the crate.
 [[bin]]
 name = "Sotto"
 path = "src/main.rs"

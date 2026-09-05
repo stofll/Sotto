@@ -20,20 +20,21 @@ cd "$(dirname "$0")"
 export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=
 export SOTTO_SIGNING_PASSWORD_EXPORTED=1
 
-# Публичный ingest-токен PostHog. Он вшивается в бинарь на этапе компиляции
-# через option_env! в telemetry.rs — то есть решается здесь, а не в рантайме.
-# Без него телеметрия не «выключена», а отсутствует: accepting() всегда false,
-# воркер доставки и session-watcher не стартуют, и линкер выбрасывает весь
-# путь отправки из бинаря. Снаружи такая сборка неотличима от рабочей —
-# тумблер в Settings всё равно показывает «включено», а дашборд молчит.
+# The public PostHog ingest token. It is baked into the binary at compile time
+# through option_env! in telemetry.rs — that is, it is decided here, not at
+# runtime. Without it telemetry is not "switched off" but absent: accepting() is
+# always false, the delivery worker and the session watcher never start, and the
+# linker throws the whole send path out of the binary. From the outside such a
+# build is indistinguishable from a working one — the toggle in Settings still
+# reads "on" while the dashboard stays silent.
 #
-# Токен лежит рядом с ключом подписи, вне репозитория: в коммит ему нельзя.
-# Уже выставленная переменная окружения имеет приоритет, чтобы CI и разовая
-# сборка на чужой проект не требовали трогать файл.
+# The token lives next to the signing key, outside the repository: it must not be
+# committed. An environment variable that is already set takes priority, so that
+# CI and a one-off build for somebody else's project need not touch the file.
 posthog_key_file="${SOTTO_POSTHOG_KEY_PATH:-$HOME/.tauri/sotto-posthog.key}"
 if [[ -z "${SOTTO_POSTHOG_API_KEY:-}" && -f "$posthog_key_file" ]]; then
-    # tr, а не $(cat): в файле, созданном из PowerShell, приезжает CRLF и
-    # завершающий перевод строки, а токен сравнивается с пустым как есть.
+    # tr rather than $(cat): a file created from PowerShell arrives with CRLF
+    # and a trailing newline, and the token is compared against empty as is.
     SOTTO_POSTHOG_API_KEY=$(tr -d '[:space:]' < "$posthog_key_file")
 fi
 export SOTTO_POSTHOG_API_KEY
@@ -49,58 +50,62 @@ if [[ -z "${SOTTO_POSTHOG_API_KEY:-}" ]]; then
     echo "[build-installer] SOTTO_ALLOW_NO_TELEMETRY=1 — собираем без телеметрии"
 fi
 
-# Пути сборочной машины иначе уезжают в раздаваемый бинарь: rustc вшивает
-# file!() каждой зависимости в сообщения паники, а это $CARGO_HOME/registry —
-# то есть домашний каталог и имя пользователя того, кто собирал.
+# Otherwise the build machine's paths travel into the distributed binary: rustc
+# bakes the file!() of every dependency into panic messages, and that is
+# $CARGO_HOME/registry — the home directory and the username of whoever built it.
 #
-# Штатный профильный `trim-paths` сделал бы то же самое декларативно, но в
-# Cargo 1.95 он всё ещё нестабилен и сборка на нём падает, требуя nightly.
+# The stock profile `trim-paths` would do the same declaratively, but in Cargo
+# 1.95 it is still unstable and the build fails on it, demanding nightly.
 #
-# Оговорка: это флаг rustc, до cmake он не достаёт. Пути к исходникам
-# whisper.cpp вшивает MSVC через __FILE__; их убирает нейтральный каталог
-# сборки ниже, а не этот флаг.
+# A caveat: this is an rustc flag, it does not reach cmake. The paths to the
+# whisper.cpp sources are baked in by MSVC through __FILE__; those are removed by
+# the neutral build directory below, not by this flag.
 #
-# Разделитель — \x1f, а не пробел: CARGO_ENCODED_RUSTFLAGS режет строку
-# по нему, и путь с пробелом в имени не разъедется на два флага.
+# The separator is \x1f rather than a space: CARGO_ENCODED_RUSTFLAGS splits the
+# string on it, so a path with a space in its name does not fall apart into two
+# flags.
 cargo_home_win=$(cygpath -w "${CARGO_HOME:-$USERPROFILE/.cargo}")
 repo_root_win=$(cygpath -w "$(cd .. && pwd)")
 export CARGO_ENCODED_RUSTFLAGS="--remap-path-prefix=$cargo_home_win=/cargo"$'\x1f'"--remap-path-prefix=$repo_root_win=/build"
 
-# Вторая половина той же задачи — пути whisper.cpp. Их вшивает MSVC через
-# __FILE__ при сборке через cmake, и флаг rustc до cl.exe не доходит:
-# `-ffile-prefix-map` есть у clang-cl, а у MSVC — только недокументированный
-# `/d1trimfile:`. Вместо того чтобы полагаться на недокументированный флаг,
-# уводим сам каталог сборки из рабочей копии: исходники whisper.cpp
-# распаковываются в OUT_DIR, то есть под target/, и вместе с ним переезжают
-# в нейтральное место. В путь попадает только «$build_dir\release\build\…» —
-# ни имени пользователя, ни имени каталога рабочей копии.
+# The second half of the same task — the whisper.cpp paths. MSVC bakes those in
+# through __FILE__ when building via cmake, and the rustc flag never reaches
+# cl.exe: clang-cl has `-ffile-prefix-map`, while MSVC has only the undocumented
+# `/d1trimfile:`. Rather than rely on an undocumented flag, the build directory
+# itself is moved out of the working copy: the whisper.cpp sources are unpacked
+# into OUT_DIR, that is under target/, and travel to a neutral place along with
+# it. Only "$build_dir\release\build\..." ends up in the path — neither the
+# username nor the name of the working-copy directory.
 #
-# Цена — отдельное дерево сборки: релиз не переиспользует объекты обычного
-# `cargo build`, и первая сборка после этой правки собирает whisper.cpp с
-# нуля. Каталог берётся на диске рабочей копии, чтобы не упереться в место
-# на системном; переопределяется через SOTTO_BUILD_DIR.
+# The price is a separate build tree: the release does not reuse the objects of
+# an ordinary `cargo build`, and the first build after this change compiles
+# whisper.cpp from scratch. The directory is taken on the working copy's drive so
+# as not to run out of space on the system one; override it with SOTTO_BUILD_DIR.
 #
-# Путь пишется через прямой слэш: cargo и cmake его понимают, а обратный в
-# `${x:-...}` пришлось бы экранировать дважды и молча получить «D:sotto-build».
+# The path is written with a forward slash: cargo and cmake both understand it,
+# whereas a backslash inside `${x:-...}` would have to be escaped twice and would
+# silently produce "D:sotto-build".
 build_dir_default="${repo_root_win%%:*}:/sotto-build"
 build_dir=${SOTTO_BUILD_DIR:-$build_dir_default}
 export CARGO_TARGET_DIR="$build_dir"
 
-# Не exec: после сборки надо проверить артефакт, а exec заменил бы процесс.
+# Not exec: the artefact has to be checked after the build, and exec would
+# replace the process.
 # The `.\` prefix is required: with NoDefaultCurrentDirectoryInExePath set,
 # cmd refuses to run a script found only in the current directory.
 cmd //c '.\build-installer.bat'
 
-# Регрессию ловим здесь, а не глазами при следующем релизе: любая сборка
-# мимо этого скрипта вернёт пути обратно, и заметить это по бинарю нельзя.
+# The regression is caught here rather than by eye at the next release: any
+# build that bypasses this script puts the paths back, and that cannot be
+# spotted by looking at the binary.
 exe="$(cygpath -u "$build_dir")/release/Sotto.exe"
 
 python check-build-paths.py "$exe"
 
-# Проверяем артефакт, а не переменную. Переменная может быть выставлена и всё
-# равно не доехать до rustc — тогда отправка выпадает из бинаря вместе с
-# адресом ingest, и единственный способ это заметить иначе — пустой дашборд
-# через неделю. Строка — POSTHOG_CAPTURE_URL из telemetry.rs.
+# Check the artefact, not the variable. The variable can be set and still fail
+# to reach rustc — then the send path falls out of the binary along with the
+# ingest address, and the only other way to notice is an empty dashboard a week
+# later. The string is POSTHOG_CAPTURE_URL from telemetry.rs.
 if [[ "${SOTTO_ALLOW_NO_TELEMETRY:-}" != "1" ]]; then
     if grep -aqF "eu.i.posthog.com" "$exe"; then
         echo "[build-installer] телеметрия: адрес ingest в бинаре есть"

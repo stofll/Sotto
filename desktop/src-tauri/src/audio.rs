@@ -83,7 +83,35 @@ pub fn u8_to_f32(s: u8) -> f32 {
 /// the cpal type (and so we can include extra metadata later).
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct DeviceInfo {
-    pub name: String,
+    /// `None` when cpal cannot read the name. Kept as an absence rather than
+    /// filled with a placeholder: a made-up name is indistinguishable from a
+    /// real one, and [`device_ids`] must not hand out an id that
+    /// [`AudioRecorder::start_selected`] can never match back to a device.
+    pub name: Option<String>,
+}
+
+/// Stable ids for a device list, in enumeration order.
+///
+/// A name survives replugging and reordering, which an index does not — so a
+/// readable, unique name is the id. It stops being an identifier the moment it
+/// stops identifying: two microphones of the same model report the same name,
+/// and some devices report none at all. Those fall back to the position, which
+/// is at least correct for the current enumeration.
+pub fn device_ids(devices: &[DeviceInfo]) -> Vec<String> {
+    let mut seen: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    for device in devices {
+        if let Some(name) = device.name.as_deref() {
+            *seen.entry(name).or_default() += 1;
+        }
+    }
+    devices
+        .iter()
+        .enumerate()
+        .map(|(index, device)| match device.name.as_deref() {
+            Some(name) if seen.get(name) == Some(&1) => format!("name:{name}"),
+            _ => format!("index:{index}"),
+        })
+        .collect()
 }
 
 // ============================================================================
@@ -214,21 +242,30 @@ pub struct AudioRecorder {
     /// so external callers (Tauri commands) can poll cheaply.
     is_recording: AtomicBool,
     audio_buffer: Arc<Mutex<Vec<f32>>>, // Arc — callback needs 'static + Send
-    /// Ответвление звука для живого предпросмотра. Полная запись копится в
-    /// `audio_buffer` как и раньше — эта очередь только дублирует куски по
-    /// дороге. Ограниченная и неблокирующая: предпросмотр имеет право
-    /// отстать и потерять кусок, запись — нет.
+    /// An audio tap for the live preview. The full recording accumulates in
+    /// `audio_buffer` as before — this queue merely duplicates chunks along the
+    /// way. Bounded and non-blocking: the preview is allowed to fall behind and
+    /// lose a chunk, the recording is not.
     live_tap: Arc<Mutex<Option<std::sync::mpsc::SyncSender<Vec<f32>>>>>,
     /// RMS level EMA, atomic bit-cast f32. Wrapped in Arc so the callback
     /// can update the SAME bit-cast the public `level()` reads.
     level_ema_bits: Arc<AtomicU32>,
+    /// Rate of the samples the callback actually produces — the target rate
+    /// when the device rate is an integer multiple of it, the device rate
+    /// otherwise (see [`resample_ratio`]). `0` until the first `start`.
+    ///
+    /// Anyone playing the tap back has to know it: assuming the target rate is
+    /// right for every device except the ones the resampler cannot handle, and
+    /// those are exactly the ones where being wrong is audible.
+    tap_sample_rate: AtomicU32,
     stream: Mutex<Option<SendStream>>,
     config: AudioConfig,
 }
 
 impl AudioRecorder {
-    /// Хватает на пять минут записи с 48 кГц. Это подсказка аллокатору, а не
-    /// предел: `Vec` растёт сам, а настоящую частоту устройства узнаёт
+    /// Enough for five minutes of recording at 48 kHz. This is a hint to the
+    /// allocator, not a limit: `Vec` grows on its own, and the device's real
+    /// sample rate is learned by
     /// `start()`.
     const APPROX_CAPACITY: usize = 48_000 * 60 * 5;
 
@@ -236,18 +273,18 @@ impl AudioRecorder {
     /// lazily via `start()`, so a missing or broken device does not prevent
     /// `new()` from succeeding.
     ///
-    /// Раньше здесь опрашивалось устройство по умолчанию — ровно ради того,
-    /// чтобы уточнить ёмкость буфера. Выгода: `Vec` мог один раз не
-    /// перевыделиться. Цена: `default_input_device()` и следом
-    /// `default_input_config()` уходят в WASAPI, и на машине, где звуковой
-    /// стек формально есть, но не работоспособен, этот опрос уносит процесс
-    /// целиком — STATUS_ACCESS_VIOLATION без стека и без сообщения. Так
-    /// падала Windows-джоба CI (#51), где нет ни звукового устройства, ни
-    /// интерактивной сессии: перечисление устройств проходило, а опрос
-    /// конфигурации — нет.
+    /// This used to query the default device — precisely in order to refine the
+    /// buffer capacity. The gain: `Vec` might avoid one reallocation. The cost:
+    /// `default_input_device()` followed by `default_input_config()` go into
+    /// WASAPI, and on a machine where the audio stack formally exists but is not
+    /// operational, that query takes down the whole process —
+    /// STATUS_ACCESS_VIOLATION with no stack and no message. That is how the
+    /// Windows CI job (#51) crashed, where there is neither an audio device nor
+    /// an interactive session: enumerating devices went through, querying the
+    /// configuration did not.
     ///
-    /// Конструктор рекордера — не то место, где стоит трогать нативный
-    /// стек: до записи ещё может не дойти, а упасть уже можно.
+    /// A recorder constructor is not the place to touch the native stack:
+    /// recording may never happen, yet crashing already can.
     pub fn new(config: AudioConfig) -> Result<Self, String> {
         Ok(Self {
             state: Mutex::new(RecorderState::Idle),
@@ -255,6 +292,7 @@ impl AudioRecorder {
             audio_buffer: Arc::new(Mutex::new(Vec::with_capacity(Self::APPROX_CAPACITY))),
             level_ema_bits: Arc::new(AtomicU32::new(0.0_f32.to_bits())),
             live_tap: Arc::new(Mutex::new(None)),
+            tap_sample_rate: AtomicU32::new(0),
             stream: Mutex::new(None),
             config,
         })
@@ -265,20 +303,39 @@ impl AudioRecorder {
     /// error. The stream is `play()`ed before this returns, so callbacks
     /// start firing immediately.
     pub fn start(&self, device_index: Option<usize>) -> Result<(), String> {
+        self.start_selected(device_index.map(|i| i.to_string()).as_deref())
+    }
+
+    pub fn start_selected(&self, selection: Option<&str>) -> Result<(), String> {
         if self.is_recording.load(Ordering::Acquire) {
             return Err("already recording".into());
         }
 
         let host = cpal::default_host();
-        let device = match device_index {
-            Some(index) => host
-                .input_devices()
-                .map_err(|e| format!("input_devices: {e}"))?
-                .nth(index)
-                .ok_or_else(|| format!("no input device at index {index}"))?,
-            None => host
-                .default_input_device()
-                .ok_or_else(|| "no input device".to_string())?,
+        let device = match selection {
+            Some(value) => {
+                let mut devices = host
+                    .input_devices()
+                    .map_err(|e| format!("input_devices: {e}"))?;
+                if let Some(name) = value.strip_prefix("name:") {
+                    devices.find(|device| device.name().ok().as_deref() == Some(name))
+                } else if let Some(index) = value
+                    .strip_prefix("index:")
+                    .and_then(|index| index.parse::<usize>().ok())
+                {
+                    // Position, for the devices a name cannot identify — see
+                    // [`device_ids`].
+                    devices.nth(index)
+                } else if let Ok(index) = value.parse::<usize>() {
+                    devices.nth(index)
+                } else {
+                    devices.find(|device| device.name().ok().as_deref() == Some(value))
+                }.ok_or_else(|| format!("Selected microphone is disconnected: {value}. Select an available microphone in Settings."))?
+            }
+            None => host.default_input_device().ok_or_else(|| {
+                "No default input device. Connect a microphone or select one in Settings."
+                    .to_string()
+            })?,
         };
         let supported = device
             .default_input_config()
@@ -310,6 +367,13 @@ impl AudioRecorder {
         let target_rate = self.config.sample_rate_target;
         let channels_for_cb = channels;
         let sample_rate_for_cb = sample_rate_u32;
+        self.tap_sample_rate.store(
+            match resample_ratio(sample_rate_u32, target_rate) {
+                Some(_) => target_rate,
+                None => sample_rate_u32,
+            },
+            Ordering::Release,
+        );
 
         // Error callback takes StreamError by value in cpal 0.15.
         let err_cb = |err: cpal::StreamError| {
@@ -451,8 +515,8 @@ impl AudioRecorder {
         Ok(Some(Arc::new(taken)))
     }
 
-    /// Снимок приёмников для колбэка. Все три — `Arc`, так что колбэк
-    /// пишет ровно в то, что читают публичные методы.
+    /// A snapshot of the sinks for the callback. All three are `Arc`s, so the
+    /// callback writes into exactly what the public methods read.
     fn capture_sinks(&self) -> CaptureSinks {
         CaptureSinks {
             buffer: Arc::clone(&self.audio_buffer),
@@ -461,11 +525,11 @@ impl AudioRecorder {
         }
     }
 
-    /// Подключить ответвление живого звука и получить приёмник кусков.
+    /// Attach the live audio tap and obtain a receiver of chunks.
     ///
-    /// Ёмкость задаётся в кусках, а не в секундах: колбэк отдаёт по куску за
-    /// вызов, и очередь на несколько десятков кусков — это порядка секунды
-    /// звука при типичном размере буфера cpal.
+    /// The capacity is given in chunks rather than seconds: the callback hands
+    /// over one chunk per call, and a queue of a few dozen chunks is on the
+    /// order of a second of audio at a typical cpal buffer size.
     pub fn attach_live_tap(&self, capacity_chunks: usize) -> std::sync::mpsc::Receiver<Vec<f32>> {
         let (tx, rx) = std::sync::mpsc::sync_channel(capacity_chunks.max(1));
         if let Ok(mut guard) = self.live_tap.lock() {
@@ -474,12 +538,27 @@ impl AudioRecorder {
         rx
     }
 
-    /// Отцепить ответвление. Приёмник на другом конце увидит разрыв канала и
-    /// завершит свой цикл сам.
+    /// Detach the tap. The receiver on the other end will see the channel break
+    /// and end its own loop.
     pub fn detach_live_tap(&self) {
         if let Ok(mut guard) = self.live_tap.lock() {
             *guard = None;
         }
+    }
+
+    /// Rate of the samples coming out of [`Self::attach_live_tap`], or the
+    /// configured target before the first `start` — nothing has been produced
+    /// at any other rate yet, so that is the honest answer rather than a guess.
+    pub fn tap_sample_rate(&self) -> u32 {
+        match self.tap_sample_rate.load(Ordering::Acquire) {
+            0 => self.config.sample_rate_target,
+            rate => rate,
+        }
+    }
+
+    /// Self-tests stream audio without retaining an ever-growing recording.
+    pub fn discard_buffer(&self) {
+        crate::mutex_recover::lock(&self.audio_buffer).clear();
     }
 
     pub fn is_recording(&self) -> bool {
@@ -503,7 +582,9 @@ impl AudioRecorder {
         let host = cpal::default_host();
         match host.input_devices() {
             Ok(devices) => devices
-                .filter_map(|d| d.name().ok().map(|name| DeviceInfo { name }))
+                .map(|d| DeviceInfo {
+                    name: d.name().ok(),
+                })
                 .collect(),
             Err(e) => {
                 log::warn!("input_devices failed: {e}");
@@ -535,15 +616,30 @@ pub fn display_level(raw_rms: f32) -> f32 {
     ((db - FLOOR_DB) / (CEIL_DB - FLOOR_DB)).clamp(0.0, 1.0)
 }
 
-/// Process f32 samples: gate on `is_recording`, update RMS, mono mixdown,
-/// Куда колбэк записи складывает результат: полная запись, индикатор уровня
-/// и необязательное ответвление на живой предпросмотр. Одной структурой, а
-/// не тремя аргументами, — колбэк держит их вместе весь свой срок жизни.
+/// Where the recording callback puts its output: the full recording, the level
+/// meter, and an optional tap for the live preview. One struct rather than three
+/// arguments — the callback holds them together for its entire lifetime.
 #[derive(Clone, Default)]
 struct CaptureSinks {
     buffer: Arc<Mutex<Vec<f32>>>,
     level_bits: Arc<AtomicU32>,
     live_tap: Arc<Mutex<Option<std::sync::mpsc::SyncSender<Vec<f32>>>>>,
+}
+
+/// Which block-averaging ratio the callback will apply, or `None` when the
+/// device rate is not an integer multiple of the target and the audio goes
+/// through untouched.
+///
+/// One function rather than a condition repeated in two places: the callback
+/// picks the resampler by it, and [`AudioRecorder::tap_sample_rate`] answers by
+/// it what rate the produced samples actually carry. Written twice, the two
+/// would drift, and the second one lying is worse than not existing — the echo
+/// monitor plays what it is told the rate is.
+fn resample_ratio(device_rate: u32, target_rate: u32) -> Option<usize> {
+    let ratio = device_rate as f32 / target_rate as f32;
+    [1usize, 2, 3, 6]
+        .into_iter()
+        .find(|&candidate| (ratio - candidate as f32).abs() < 0.01)
 }
 
 /// resample, append to buffer. Called from cpal callback (real-time
@@ -603,29 +699,26 @@ fn process_samples(
     // the integer ratio (1, 2, 3, or 6). Anything else (e.g. 44.1 kHz
     // devices where ratio ≈ 2.76) falls through with `mono` and a
     // log::error — async polyphase resampling is out of scope for WS 4a2b.
-    let ratio = sample_rate as f32 / target_rate as f32;
-    let final_audio: Vec<f32> = if ratio == 1.0 {
-        mono
-    } else if (ratio - 3.0).abs() < 0.01 {
-        resample_3_to_1(&mono)
-    } else if (ratio - 2.0).abs() < 0.01 {
-        resample_2_to_1(&mono)
-    } else if (ratio - 6.0).abs() < 0.01 {
-        resample_6_to_1(&mono)
-    } else {
-        log::error!(
-            "unsupported sample rate ratio {:.2} ({} -> {}); using raw audio, ASR will degrade",
-            ratio,
-            sample_rate,
-            target_rate
-        );
-        mono
+    let final_audio: Vec<f32> = match resample_ratio(sample_rate, target_rate) {
+        Some(1) => mono,
+        Some(2) => resample_2_to_1(&mono),
+        Some(3) => resample_3_to_1(&mono),
+        Some(6) => resample_6_to_1(&mono),
+        _ => {
+            log::error!(
+                "unsupported sample rate ratio {:.2} ({} -> {}); using raw audio, ASR will degrade",
+                sample_rate as f32 / target_rate as f32,
+                sample_rate,
+                target_rate
+            );
+            mono
+        }
     };
 
-    // Ответвление на предпросмотр — до записи в буфер и только
-    // неблокирующей отправкой: очередь переполнена значит предпросмотр не
-    // успевает, и терять надо его, а не диктовку. Клонирование происходит
-    // лишь когда ответвление подключено.
+    // The preview tap comes before writing to the buffer and only via a
+    // non-blocking send: a full queue means the preview is not keeping up, and
+    // it is the preview that should be dropped, not the dictation. The clone
+    // happens only when a tap is attached.
     if let Ok(guard) = live_tap.lock() {
         if let Some(tx) = guard.as_ref() {
             let _ = tx.try_send(final_audio.clone());
@@ -766,9 +859,9 @@ mod tests {
         // audio_buffer. stop() should return Ok(None) (no audio) without
         // panicking on the missing Stream (None branch is exercised).
         //
-        // Заодно это проверка на то, что конструктор не трогает звуковое
-        // устройство: тест обязан проходить на машине без звука и без
-        // интерактивной сессии, где нативный опрос ронял процесс (#51).
+        // This doubles as a check that the constructor does not touch the audio
+        // device: the test must pass on a machine with no audio and no
+        // interactive session, where the native query crashed the process (#51).
         let recorder = AudioRecorder::new(AudioConfig::default())
             .expect("AudioRecorder::new should succeed even without a real device");
         let result = recorder.stop();
@@ -874,8 +967,8 @@ mod tests {
         );
     }
 
-    /// Ровно R сэмплов — это один блок, а не «слишком коротко». Ловит
-    /// подмену `len < R` на `==`/`<=` во всех трёх ресемплерах.
+    /// Exactly R samples is one block, not "too short". Catches swapping
+    /// `len < R` for `==`/`<=` in all three resamplers.
     #[test]
     fn resample_helpers_respect_the_ratio_boundary() {
         assert_eq!(resample_3_to_1(&[1.0, 2.0, 3.0]), vec![2.0]);
@@ -883,8 +976,8 @@ mod tests {
         assert_eq!(resample_6_to_1(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]), vec![3.5]);
     }
 
-    /// Непериодичный вход: индекс блока обязан сдвигаться (`i * 2`), иначе
-    /// все блоки схлопнутся в первый.
+    /// Non-periodic input: the block index must advance (`i * 2`), otherwise all
+    /// blocks collapse into the first one.
     #[test]
     fn resample_2_to_1_uses_distinct_blocks() {
         assert_eq!(resample_2_to_1(&[0.0, 1.0, 2.0, 3.0]), vec![0.5, 2.5]);
@@ -895,8 +988,8 @@ mod tests {
         assert_eq!(display_level(f32::NAN), 0.0);
     }
 
-    /// Приёмники для теста: запись и уровень как в бою, ответвление
-    /// отключено. Тест, которому нужно ответвление, ставит его сам.
+    /// Sinks for a test: recording and level as in production, the tap
+    /// disconnected. A test that needs the tap installs it itself.
     fn test_sinks(level: f32) -> CaptureSinks {
         CaptureSinks {
             level_bits: Arc::new(AtomicU32::new(level.to_bits())),
@@ -904,8 +997,60 @@ mod tests {
         }
     }
 
-    /// Ответвление получает ровно то же, что и запись: уже сведённое в моно
-    /// и приведённое к целевой частоте.
+    fn named(names: &[Option<&str>]) -> Vec<DeviceInfo> {
+        names
+            .iter()
+            .map(|name| DeviceInfo {
+                name: name.map(str::to_string),
+            })
+            .collect()
+    }
+
+    /// The whole point of a name id: it survives the device list being
+    /// reordered, which is what replugging a USB microphone does.
+    #[test]
+    fn a_unique_name_is_the_identifier() {
+        let ids = device_ids(&named(&[Some("USB Mic"), Some("Built-in")]));
+        assert_eq!(ids, ["name:USB Mic", "name:Built-in"]);
+        let reordered = device_ids(&named(&[Some("Built-in"), Some("USB Mic")]));
+        assert_eq!(reordered[1], ids[0]);
+    }
+
+    /// Two microphones of one model report one name. It cannot tell them apart,
+    /// so it must not pretend to: both fall back to their position, and the
+    /// second one is selectable instead of silently resolving to the first.
+    #[test]
+    fn duplicate_names_fall_back_to_position() {
+        let ids = device_ids(&named(&[Some("USB Mic"), Some("Other"), Some("USB Mic")]));
+        assert_eq!(ids, ["index:0", "name:Other", "index:2"]);
+    }
+
+    /// An unreadable name used to become the literal "Unknown microphone",
+    /// which `start_selected` then looked for among devices that report no name
+    /// at all — and never found.
+    #[test]
+    fn a_nameless_device_is_still_selectable() {
+        let ids = device_ids(&named(&[Some("USB Mic"), None]));
+        assert_eq!(ids, ["name:USB Mic", "index:1"]);
+    }
+
+    /// The rate reported to the echo monitor must be the rate of the samples it
+    /// receives — the target one only while the resampler can reach it.
+    #[test]
+    fn the_reported_tap_rate_follows_the_resampler() {
+        for device_rate in [16_000, 32_000, 48_000, 96_000] {
+            assert!(
+                resample_ratio(device_rate, 16_000).is_some(),
+                "{device_rate}"
+            );
+        }
+        // 44.1 kHz: ratio ≈ 2.76, no integer block size — the callback passes
+        // the device's own audio through, and that is what plays back.
+        assert_eq!(resample_ratio(44_100, 16_000), None);
+    }
+
+    /// The tap receives exactly what the recording does: already downmixed to
+    /// mono and resampled to the target rate.
     #[test]
     fn the_live_tap_gets_the_same_audio_as_the_recording() {
         let is_recording = Arc::new(AtomicBool::new(true));
@@ -913,7 +1058,7 @@ mod tests {
         let (tx, rx) = std::sync::mpsc::sync_channel(4);
         *sinks.live_tap.lock().unwrap() = Some(tx);
 
-        // Стерео на 32 кГц: колбэк обязан свести в моно и проредить вдвое.
+        // Stereo at 32 kHz: the callback must downmix to mono and halve the rate.
         let data = vec![1.0_f32, 1.0, 0.5, 0.5, 0.25, 0.25, 0.75, 0.75];
         process_samples(&data, 2, 32_000, 16_000, &is_recording, &sinks);
 
@@ -922,12 +1067,12 @@ mod tests {
         assert_eq!(chunk.len(), 2);
     }
 
-    /// Главный инвариант: предпросмотр имеет право отстать, диктовка — нет.
+    /// The core invariant: the preview may fall behind, the dictation may not.
     #[test]
     fn a_full_live_queue_never_costs_the_recording() {
         let is_recording = Arc::new(AtomicBool::new(true));
         let sinks = test_sinks(0.0);
-        // Очередь на один кусок: второй вызов её переполнит.
+        // A one-chunk queue: the second call overflows it.
         let (tx, rx) = std::sync::mpsc::sync_channel(1);
         *sinks.live_tap.lock().unwrap() = Some(tx);
 
@@ -942,7 +1087,7 @@ mod tests {
             "запись потеряла звук"
         );
         assert_eq!(rx.try_recv().map(|c| c.len()), Ok(4));
-        // Переполнение просто теряет куски, не блокируя колбэк.
+        // Overflow simply drops chunks without blocking the callback.
         assert!(rx.try_recv().is_err());
     }
 
@@ -955,9 +1100,9 @@ mod tests {
         assert_eq!(sinks.buffer.lock().unwrap().len(), 4);
     }
 
-    /// Флаг записи и приёмники, через которые пишет `process_samples`.
-    /// `level` засевает EMA, чтобы тест отличал «сглажено от предыдущего
-    /// уровня» от «посчитано с нуля».
+    /// The recording flag and the sinks `process_samples` writes through.
+    /// `level` seeds the EMA so the test can tell "smoothed from the previous
+    /// level" apart from "computed from scratch".
     fn recording_sink(level: f32) -> (Arc<AtomicBool>, CaptureSinks) {
         (Arc::new(AtomicBool::new(true)), test_sinks(level))
     }

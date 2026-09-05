@@ -761,9 +761,9 @@ mod tests {
             "contract must not be empty"
         );
         assert!(contract.contains("Do not replace words with synonyms"));
-        // Инструкции переведены на английский, но образец русской диктовки
-        // в правиле про <dictation> остаётся: он учит модель узнавать
-        // вопрос в той речи, которую ей и предстоит разбирать.
+        // The instructions are in English, but the sample of Russian dictation
+        // in the <dictation> rule stays: it teaches the model to recognise the
+        // question in the very speech it will have to parse.
         assert!(contract.contains("как мне открыть файл"));
     }
 
@@ -779,7 +779,7 @@ mod tests {
     }
 
     // ------------------------------------------------------------------
-    // Чистая арифметика даты/времени и порога длительности
+    // Pure date/time arithmetic and the duration threshold
     // ------------------------------------------------------------------
 
     #[test]
@@ -791,10 +791,10 @@ mod tests {
         assert_eq!(format_timestamp(86_400), "1970-01-02 00:00");
         assert_eq!(format_timestamp(86_400 * 365), "1971-01-01 00:00");
         assert_eq!(format_timestamp(86_400 * 365 - 1), "1970-12-31 23:59");
-        // Високосный год: 2024-02-29 существует, а следующий день — март.
+        // Leap year: 2024-02-29 exists, and the next day is in March.
         assert_eq!(format_timestamp(1_709_164_800), "2024-02-29 00:00");
         assert_eq!(format_timestamp(1_709_164_800 + 86_400), "2024-03-01 00:00");
-        // Невисокосный февраль: 2023-02-28 переходит в 2023-03-01.
+        // Non-leap February: 2023-02-28 rolls over to 2023-03-01.
         assert_eq!(format_timestamp(1_677_628_800), "2023-03-01 00:00");
     }
 

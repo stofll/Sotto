@@ -119,7 +119,7 @@ function ModelCombobox({ value, suggestions, onChange, onCommit, placeholder }: 
   );
 }
 
-/** Пустое поле — подсказка, испорченное значение — ошибка. */
+/** An empty field is a hint, a malformed value is an error. */
 function keyTone(check: NonNullable<KeyCheck>, raw: string): string {
   if (!raw.trim()) return "var(--text-mute)";
   return check.level === "error" ? "var(--err)" : "var(--warn)";
@@ -168,9 +168,9 @@ export function ProfileWizard({ apiKeys, existingProfiles, seed, onClose, onCrea
   }, [apiKeys]);
 
   const wantsNewKey = !state.reuseKeyRef;
-  // Считается на каждый ввод: шаг ключа не должен отпускать дальше значение,
-  // на котором «Создать профиль» всё равно откажет — раньше об этом узнавали
-  // через два шага, уже на третьем экране.
+  // Recomputed on every keystroke: the key step must not let through a value
+  // that «Создать профиль» will refuse anyway — that used to be discovered two
+  // steps later, already on the third screen.
   const keyCheck = wantsNewKey ? checkApiKey(state.provider, state.preset?.id ?? null, state.newKey) : null;
   const keyBlocks = apiKeyBlocks(keyCheck);
 
@@ -199,8 +199,8 @@ export function ProfileWizard({ apiKeys, existingProfiles, seed, onClose, onCrea
         model: state.model.trim(),
         api_key_ref: apiKeyRef,
         prompt_preset: "plain",
-        // Пусто — значит «встроенный». Копия текста здесь застывала бы в
-        // профиле навсегда и не получала правок встроенного промпта.
+        // Empty means "built-in". A copy of the text here would freeze in the
+        // profile forever and never receive edits to the built-in prompt.
         system_prompt: "",
         base_url: state.baseUrl.trim() || (state.provider === "opencode-go" ? OPENCODE_GO_BASE_URL : ""),
         llm_min_duration_seconds: 0,
@@ -298,10 +298,10 @@ export function ProfileWizard({ apiKeys, existingProfiles, seed, onClose, onCrea
                     <input className="field mono" type="password" value={state.newKey} onChange={(e) => update({ newKey: e.target.value })} placeholder="sk-..."
                       aria-invalid={keyBlocks} aria-describedby={keyCheck ? "wizard-key-check" : undefined}/>
                   </label>
-                  {/* Строка есть всегда, когда есть что сказать: «Далее»
-                      заблокирована, и молчаливая серая кнопка — тот же тупик,
-                      что и отказ на третьем шаге. Пустое поле при этом ещё не
-                      ошибка пользователя, поэтому оно подсказка, а не красное. */}
+                  {/* The line is always there when there is something to say:
+                      «Далее» is disabled, and a silent grey button is the same
+                      dead end as a refusal on the third step. An empty field is
+                      not yet the user's mistake, so it is a hint, not red. */}
                   {keyCheck && (
                     <div id="wizard-key-check" role={keyCheck.level === "error" && state.newKey.trim() ? "alert" : "status"}
                       style={{ font: "500 12px/1.4 var(--font-sans)", color: keyTone(keyCheck, state.newKey) }}>

@@ -289,54 +289,54 @@ mod tests {
     }
 
     // ------------------------------------------------------------------
-    // Чистая арифметика паддинга/порога — тестируется без детектора.
+    // Pure padding/threshold arithmetic — tested without the detector.
     // ------------------------------------------------------------------
 
     #[test]
     fn speech_range_arithmetic_pads_and_clamps() {
         // PADDING_MS(250) * 16000 / 1000 = 4000 samples.
-        // Один кадр [0,0]: start упирается в 0, end = 1*256 + 4000.
+        // A single frame [0,0]: start clamps to 0, end = 1*256 + 4000.
         assert_eq!(speech_range_from_frames(16_000, Some(0), 0), Some(0..4256));
-        // Кадры 20..20: start = 5120 - 4000, end = 21*256 + 4000.
+        // Frames 20..20: start = 5120 - 4000, end = 21*256 + 4000.
         assert_eq!(
             speech_range_from_frames(16_000, Some(20), 20),
             Some(1120..9376)
         );
-        // Конец упирается в длину входа.
+        // The end clamps to the input length.
         assert_eq!(speech_range_from_frames(3_000, Some(10), 10), Some(0..3000));
-        // Нет речевого кадра → None.
+        // No speech frame → None.
         assert_eq!(speech_range_from_frames(16_000, None, 0), None);
     }
 
     #[test]
     fn trim_decision_respects_enabled_and_saving_threshold() {
-        // Выключено → никогда не режем, и детектор не запускаем: паникующее
-        // замыкание ловит возврат к жадному вычислению аргумента.
+        // Disabled → never trim, and the detector is not started: a panicking
+        // closure catches any regression to eager argument evaluation.
         assert_eq!(
             trim_decision(false, 32_000, || unreachable!(
                 "детектор не должен запускаться при выключенной настройке"
             )),
             None
         );
-        // Ничего не нашли → никогда не режем.
+        // Found nothing → never trim.
         assert_eq!(trim_decision(true, 32_000, || None), None);
-        // 30000 из 32000 сэмплов = 1.875 с ≥ 1 с → режем.
+        // 30000 of 32000 samples = 1.875 s ≥ 1 s → trim.
         assert_eq!(
             trim_decision(true, 32_000, || Some(1000..3000)),
             Some((1000..3000, 1.875))
         );
-        // 14000 из 16000 = 0.875 с < 1 с → не режем.
+        // 14000 of 16000 = 0.875 s < 1 s → do not trim.
         assert_eq!(trim_decision(true, 16_000, || Some(1000..3000)), None);
-        // Ровно 1.0 с экономии — граница допуска: режем.
+        // Exactly 1.0 s saved — the tolerance boundary: trim.
         assert_eq!(
             trim_decision(true, 17_000, || Some(1000..2000)),
             Some((1000..2000, 1.0))
         );
     }
 
-    /// Синтетический тон детектор распознаёт как речь — значит, `speech_range`
-    /// обязан вернуть диапазон, а не `None`. Ловит подмену всей функции на
-    /// `None` и мутации порога/проверки кадра.
+    /// The detector recognises a synthetic tone as speech — so `speech_range`
+    /// must return a range rather than `None`. Catches replacing the whole
+    /// function with `None` and mutations of the threshold / frame check.
     #[test]
     fn synthetic_speech_is_detected() {
         assert!(speech_range(&tone(2.0)).is_some());

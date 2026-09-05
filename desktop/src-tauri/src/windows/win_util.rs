@@ -138,34 +138,34 @@ pub fn extract_hwnd(window: &impl HasWindowHandle) -> Result<HWND, String> {
 }
 
 // ---------------------------------------------------------------------------
-// Неклиентский щит (issue #24).
+// Non-client guard (issue #24).
 //
-// Десять попыток из журнала эксперимента правили *состояние* окна: стили,
-// политику отрисовки, cloak, порядок show/hide. Каждая исходила из того, что
-// если состояние правильное, то кадра с системным заголовком быть не может.
-// Заголовок всё равно мелькает — один раз за процесс, на первой отмене.
+// Ten attempts in the experiment log all corrected the *state* of the window:
+// styles, the drawing policy, cloak, the show/hide order. Each assumed that with
+// the right state a frame with the system title bar cannot happen. The title bar
+// still flashes — once per process, on the first cancel.
 //
-// Щит меняет не состояние, а правило. Неважно, кто и когда вернул `WS_CAPTION`
-// (tao при первом `apply_diff`, USER32 при перестроении фрейма, DWM при
-// пересоздании поверхности): сообщения, которыми рисуется неклиентская
-// область, до отрисовки не доходят.
+// The guard changes the rule, not the state. It does not matter who restored
+// `WS_CAPTION` or when (tao on the first `apply_diff`, USER32 when rebuilding the
+// frame, DWM when recreating the surface): the messages that draw the non-client
+// area never reach painting.
 //
-//   * `WM_NCCALCSIZE` → 0: клиентская область равна всему окну. Неклиентской
-//     области нет вообще, рисовать негде.
-//   * `WM_NCPAINT` → 0: перерисовки рамки не происходит.
-//   * `WM_NCACTIVATE` → TRUE: смена активности не перерисовывает заголовок.
+//   * `WM_NCCALCSIZE` → 0: the client area equals the whole window. There is no
+//     non-client area at all, nowhere to draw.
+//   * `WM_NCPAINT` → 0: the frame is never repainted.
+//   * `WM_NCACTIVATE` → TRUE: an activation change does not repaint the title bar.
 //
-// tao делает для `decorations(false)` то же самое своим `WM_NCCALCSIZE`, но
-// делает это в своей оконной процедуре — то есть после всего, что успеет
-// вклиниться раньше. Субкласс стоит перед ней.
+// tao does the same for `decorations(false)` with its own `WM_NCCALCSIZE`, but it
+// does so in its own window procedure — that is, after everything that manages to
+// cut in earlier. The subclass sits ahead of it.
 //
-// Чего щит не лечит: если рамку рисует не наше окно, а подставное окно
-// USER32 (гипотеза 2 в `overlay_diag`), то у него своя оконная процедура и
-// наш субкласс к ней отношения не имеет. Различить эти два случая —
-// ровно то, для чего в `overlay_diag` живёт `enumerate_top_level`.
+// What the guard does not cure: if the frame is drawn not by our window but by a
+// stand-in USER32 window (hypothesis 2 in `overlay_diag`), that window has its own
+// window procedure and our subclass has nothing to do with it. Telling those two
+// cases apart is exactly what `enumerate_top_level` lives in `overlay_diag` for.
 // ---------------------------------------------------------------------------
 
-/// Идентификатор субкласса. Произвольный, но должен совпадать при снятии.
+/// Subclass identifier. Arbitrary, but must match when removing.
 const NC_GUARD_SUBCLASS_ID: usize = 0x0024_0001;
 
 unsafe extern "system" fn nc_guard_proc(
@@ -177,13 +177,13 @@ unsafe extern "system" fn nc_guard_proc(
     _data: usize,
 ) -> LRESULT {
     match msg {
-        // wparam == TRUE означает «в lparam лежит NCCALCSIZE_PARAMS, первый
-        // прямоугольник — предлагаемая клиентская область». Возвращая 0 и не
-        // трогая прямоугольник, мы говорим: клиент занимает окно целиком.
+        // wparam == TRUE means "lparam holds NCCALCSIZE_PARAMS, the first
+        // rectangle is the proposed client area". By returning 0 and leaving the
+        // rectangle alone we say: the client occupies the whole window.
         WM_NCCALCSIZE => 0,
         WM_NCPAINT => 0,
         WM_NCACTIVATE => 1,
-        // Субкласс обязан сняться до того, как окно перестанет существовать.
+        // The subclass must be removed before the window ceases to exist.
         WM_NCDESTROY => {
             RemoveWindowSubclass(hwnd, Some(nc_guard_proc), NC_GUARD_SUBCLASS_ID);
             DefSubclassProc(hwnd, msg, wparam, lparam)
@@ -192,9 +192,9 @@ unsafe extern "system" fn nc_guard_proc(
     }
 }
 
-/// Поставить неклиентский щит на окно. Повторный вызов для того же окна
-/// безвреден: `SetWindowSubclass` с той же парой (процедура, id) заменяет
-/// запись, а не добавляет вторую.
+/// Install the non-client guard on a window. Calling it twice for the same
+/// window is harmless: `SetWindowSubclass` with the same (procedure, id) pair
+/// replaces the entry rather than adding a second one.
 pub unsafe fn install_nc_guard(hwnd: HWND) -> Result<(), String> {
     if SetWindowSubclass(hwnd, Some(nc_guard_proc), NC_GUARD_SUBCLASS_ID, 0) == 0 {
         return Err("SetWindowSubclass failed".to_string());

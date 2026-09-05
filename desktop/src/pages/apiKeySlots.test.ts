@@ -20,9 +20,9 @@ const filled = { available: true, label: "мой ключ", masked: "sk-123…78
 
 describe("collectSlots", () => {
   it("показывает слот без профиля, созданный кнопкой «Добавить ключ»", () => {
-    // Ref такого слота (`key_<время>`) не совпадает ни с ref профиля, ни с id
-    // провайдера — до появления прохода по key_slots строка не рисовалась
-    // вообще, хотя ключ лежал в хранилище.
+    // Such a slot's ref (`key_<timestamp>`) matches neither a profile ref nor a
+    // provider id — before the key_slots pass appeared the row was not drawn at
+    // all, even though the key was sitting in the store.
     const config = ai({ key_slots: [{ ref: "key_mq8j7rjc", label: "Cerebras", provider: "compatible" }] });
     const keys: ApiKeyStatus = { key_mq8j7rjc: filled };
 
@@ -36,7 +36,7 @@ describe("collectSlots", () => {
   });
 
   it("рисует слот без профиля и когда ключа в нём ещё нет", () => {
-    // Иначе удалить осиротевшую запись из интерфейса было бы нечем.
+    // Otherwise there would be no way to delete an orphaned entry from the UI.
     const config = ai({ key_slots: [{ ref: "key_empty", label: "Пустой", provider: "openai" }] });
 
     const slots = collectSlots(config, {});

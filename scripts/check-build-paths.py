@@ -26,19 +26,21 @@ import re
 import sys
 from pathlib import Path
 
-# Весь вывод скрипта русский, а Python берёт кодировку stdout из локали
-# процесса. На англоязычном Windows-раннере это cp1252, в которой кириллицы
-# нет: скрипт падал с UnicodeEncodeError на первом же print — то есть до
-# того, как выполнить хоть одну проверку, и релизная джоба краснела, ничего
-# в артефакте не проверив. Локаль раннера не наше дело, поэтому кодировку
-# самих потоков фиксируем здесь, а не в каждом месте вызова.
+# All of this script's output is Russian, and Python takes the stdout encoding
+# from the process locale. On an English-language Windows runner that is cp1252,
+# which has no Cyrillic: the script died with UnicodeEncodeError on the very
+# first print — that is, before performing a single check, and the release job
+# went red without having inspected anything in the artifact. The runner's locale
+# is not our business, so we pin the encoding of the streams themselves here
+# rather than at every call site.
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
         _stream.reconfigure(encoding="utf-8", errors="replace")
 
-# Каталоги, которые не должны попасть в артефакт. Считаются на месте: путь к
-# рабочей копии и к CARGO_HOME у каждой машины свой, и зашивать сюда «D:\\
-# Project\\speech-to-text» значило бы проверять только одну машину.
+# Directories that must not end up in the artifact. Computed on the spot: the
+# path to the working copy and to CARGO_HOME differs on every machine, and
+# hardcoding «D:\\Project\\speech-to-text» here would mean checking one machine
+# only.
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CARGO_HOME = Path(os.environ.get("CARGO_HOME") or Path.home() / ".cargo")
 
@@ -61,13 +63,13 @@ def variants(path: Path | str) -> list[bytes]:
 def checks() -> list[tuple[str, list[bytes]]]:
     """Что ищем. Порядок — от «однозначно утечка» к «след машины»."""
     return [
-        # Домашний каталог пользователя: здесь имя учётной записи ОС.
+        # The user's home directory: it carries the OS account name.
         ("домашний каталог пользователя", variants("C:\\Users\\")),
-        # Реестр крейтов — тот же домашний каталог, но у него отдельная
-        # причина попадать в бинарь (file!() зависимостей), и ремап для него
-        # отдельный, поэтому и проверка отдельная.
+        # The crate registry is the same home directory, but it has its own
+        # reason to end up in the binary (file!() of dependencies) and its own
+        # remap, so it gets its own check.
         ("реестр cargo", variants(CARGO_HOME)),
-        # Рабочая копия: имя каталога мейнтейнера и раскладка его диска.
+        # The working copy: the maintainer's directory name and disk layout.
         ("рабочая копия", variants(REPO_ROOT)),
     ]
 

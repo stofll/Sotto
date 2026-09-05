@@ -1,17 +1,17 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
 
 /**
- * Позиционирование выпадающего меню, вынесенного порталом в body.
+ * Positioning a dropdown menu portalled into body.
  *
- * Absolute-меню внутри страницы режет ближайший скроллер: у `.win__main` и у
- * `.modal__body` стоит `overflow: auto`, и список, не поместившийся до
- * нижней границы, обрывался — доскроллить до остатка было нельзя, он просто
- * не рисовался. Fixed-координаты, посчитанные от кнопки, этой границы не
- * знают: меню зажимается в окно и переворачивается вверх, когда снизу места
- * меньше, чем сверху.
+ * An absolute menu inside the page is clipped by the nearest scroller: both
+ * `.win__main` and `.modal__body` have `overflow: auto`, and a list that did not
+ * fit above the bottom edge was cut off — the remainder could not be scrolled
+ * to, it simply was not drawn. Fixed coordinates computed from the button do not
+ * know that boundary: the menu is clamped to the window and flips upward when
+ * there is less room below than above.
  *
- * Пересчёт висит на скролле (в фазе перехвата — прокрутка идёт во внутреннем
- * контейнере, а не в окне) и на resize.
+ * Recalculation is hooked to scroll (in the capture phase — scrolling happens
+ * in an inner container, not in the window) and to resize.
  */
 const GAP = 6;
 const MARGIN = 8;
@@ -20,24 +20,25 @@ const MIN_USABLE = 140;
 export type AnchoredMenu = {
   menuRef: RefObject<HTMLDivElement | null>;
   style: CSSProperties;
-  /** Меню открылось вверх — вызывающему может понадобиться для стрелки. */
+  /** The menu opened upward — the caller may need this for the arrow. */
   flipped: boolean;
   /**
-   * Меню уже поставлено на место и видимо.
+   * The menu is already positioned and visible.
    *
-   * До этого оно висит в DOM с `visibility: hidden`, а невидимому элементу
-   * нельзя дать фокус: `focus()` внутри такого меню молча ничего не делает.
-   * Кому нужен фокус — пусть дождётся этого признака.
+   * Before that it hangs in the DOM with `visibility: hidden`, and an invisible
+   * element cannot be focused: `focus()` inside such a menu silently does
+   * nothing. Whoever needs focus should wait for this flag.
    */
   placed: boolean;
 };
 
 /**
- * `start` — левый край меню по левому краю кнопки, `end` — правый по правому.
+ * `start` — the menu's left edge against the button's left edge, `end` — right
+ * against right.
  *
- * Меню действий у кнопки в правом углу карточки обязано открываться внутрь
- * карточки, а не наружу: выровненное по левому краю, оно уезжает за её край
- * и виснет над соседкой.
+ * An action menu on a button in the top-right corner of a card has to open into
+ * the card, not out of it: aligned to the left edge it runs past the card border
+ * and hangs over the neighbour.
  */
 export type MenuAlign = "start" | "end";
 
@@ -62,13 +63,13 @@ export function useAnchoredMenu(
       const above = anchor.top - GAP - MARGIN;
       const flipped = below < Math.min(maxHeight, MIN_USABLE) && above > below;
       const height = Math.max(MIN_USABLE, Math.min(maxHeight, flipped ? above : below));
-      // Ширину и высоту берём с уже отрисованного меню: они зависят от
-      // содержимого и от CSS, а не от кнопки.
+      // Width and height are taken from the already-rendered menu: they depend
+      // on the content and the CSS, not on the button.
       const width = menuRef.current?.offsetWidth ?? anchor.width;
-      // Развёрнутое вверх меню прижимается к кнопке своим низом, поэтому
-      // отсчитывать надо его собственную высоту, а не разрешённый максимум:
-      // короткое меню из одного пункта тот поднимал на полтораста пикселей
-      // выше кнопки — на середину экрана, без всякой связи с ней.
+      // A menu flipped upward is pinned to the button by its bottom, so the
+      // offset must use its own height rather than the permitted maximum: a
+      // short one-item menu was lifted a hundred and fifty pixels above the
+      // button — into the middle of the screen, with no relation to it.
       const shown = Math.min(height, menuRef.current?.offsetHeight ?? height);
       const maxLeft = Math.max(MARGIN, window.innerWidth - width - MARGIN);
       const wanted = align === "end" ? anchor.right - width : anchor.left;
@@ -93,8 +94,8 @@ export function useAnchoredMenu(
     menuRef,
     flipped: box?.flipped ?? false,
     placed: box !== null,
-    // Первый проход — меню уже в DOM, но ещё не измерено: прячем его, чтобы
-    // не мигнуть в левом верхнем углу. useLayoutEffect успевает до отрисовки.
+    // First pass — the menu is in the DOM but not yet measured: we hide it so it
+    // does not flash in the top-left corner. useLayoutEffect lands before paint.
     style: box
       ? { left: box.left, top: box.top, minWidth: box.minWidth, maxHeight: box.maxHeight }
       : { left: 0, top: 0, visibility: "hidden" },

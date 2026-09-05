@@ -35,21 +35,22 @@ type KeyFilterValue = "all" | "filled" | "empty";
 
 type TestResponse = { available: boolean; message?: string; provider_error?: string; output?: string };
 
-/** Ключ профиля в `testingKey` и `testResults`. Одна функция на все места,
- *  где он строится: строка, собранная по месту, молча разъезжается. */
+/** The profile key used in `testingKey` and `testResults`. One function for
+ *  every place it is built: a string assembled ad hoc drifts apart silently. */
 function testKeyFor(profileId: string): string {
   return `profile:${profileId}`;
 }
 
-/** «Интеграции»: профили провайдеров сверху, слоты ключей снизу.
+/** «Интеграции»: provider profiles on top, key slots below.
  *
- * Раньше это были две страницы. Каталог из 15 провайдеров и сетка
- * OpenAI-compatible пресетов, стоявшие сверху «Провайдеров», удалены целиком:
- * и то и другое дублировало первый шаг мастера «Новый профиль», где выбор
- * стоит в контексте, а на странице просто занимал первый экран. Вместе с
- * каталогом ушли редактор дефолтной модели провайдера (значение по-прежнему
- * читается из конфига как подсказка мастеру) и тест на уровне провайдера —
- * тест профиля честнее, он проверяет реальную связку ключ + модель + Base
+ * These used to be two pages. The catalog of 15 providers and the grid of
+ * OpenAI-compatible presets that stood at the top of «Провайдеры» are removed
+ * entirely: both duplicated the first step of the «Новый профиль» wizard, where
+ * the choice stands in context, while on the page they simply occupied the first
+ * screen. Along with the catalog went the provider default-model editor (the
+ * value is still read from the config as a hint for the wizard) and the
+ * provider-level test — a profile test is more honest, it checks the real
+ * key + model + Base
  * URL. */
 export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKeysChanged }: Props) {
   const profiles = useMemo(() => profilesForAi(ai), [ai]);
@@ -66,7 +67,7 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
   const [wizardSeed, setWizardSeed] = useState<ProfileWizardSeed | null>(null);
   const remoteModels = useProviderModels();
 
-  // ── Ключи ──────────────────────────────────────────────────────────────
+  // ── Keys ───────────────────────────────────────────────────────────────
   const [adding, setAdding] = useState(false);
   const [newProvider, setNewProvider] = useState<string>(PROVIDERS[0].id);
   const [newLabel, setNewLabel] = useState("");
@@ -133,9 +134,10 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
         };
       }),
     );
-    // Смена провайдера обесценивает подтянутый список: он был про другой
-    // API. Тянем новый сразу — это явное действие пользователя, а не
-    // фоновый опрос, и без него в подсказках остались бы чужие модели.
+    // Changing the provider invalidates the fetched list: it was about a
+    // different API. We fetch a new one at once — this is an explicit user
+    // action rather than background polling, and without it the suggestions
+    // would keep somebody else's models.
     if (patch.provider) {
       const profile = draftProfiles.find((item) => item.id === profileId);
       const nextBaseUrl = patch.provider === "opencode-go" ? OPENCODE_GO_BASE_URL : profile?.base_url;
@@ -175,11 +177,11 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
     setRenameDraft(profile.name);
   }
 
-  /// Переименование сохраняется сразу, а не через общую кнопку «Сохранить»:
-  /// карандаш стоит в свёрнутой строке, а кнопка живёт в раскрытом
-  /// редакторе — до неё пользователь бы просто не доехал. За основу берётся
-  /// сохранённый профиль, а не черновик, чтобы вместе с именем не записать
-  /// правки, которых пользователь ещё не подтверждал.
+  /// A rename is saved immediately rather than through the shared «Сохранить»
+  /// button: the pencil sits in a collapsed row while the button lives in the
+  /// expanded editor — the user would simply never reach it. The saved profile
+  /// is used as the base rather than the draft, so that edits the user has not
+  /// yet confirmed are not written along with the name.
   async function commitRename(profile: LlmProfile) {
     const next = renameDraft.trim();
     setRenamingId(null);
@@ -190,9 +192,9 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
     await saveAi(activeConfigFromProfile(ai, activeProfile, nextProfiles), t("Профиль переименован."));
   }
 
-  /// Дубликат наследует ключ оригинала, а не пустой слот: копию делают ради
-  /// другой модели или промпта, и требовать заново вводить тот же ключ было
-  /// лишним шагом.
+  /// A duplicate inherits the original's key rather than an empty slot: copies
+  /// are made for a different model or prompt, and demanding the same key be
+  /// entered again was a step too many.
   async function duplicateProfile(source: LlmProfile) {
     if (!ai) return;
     const id = `profile_${Date.now().toString(36)}`;
@@ -212,8 +214,9 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
     if (!window.confirm(t("Удалить профиль «{p0}»? API-ключ не удаляется автоматически.", { p0: target.name }))) return;
     const nextProfiles = profiles.filter((profile) => profile.id !== target.id);
     if (nextProfiles.length === 0) {
-      // Удалён последний профиль: плоские поля LLM остаются рабочими, гаснет
-      // только ссылка на активный — то же состояние, что у свежей установки.
+      // The last profile was deleted: the flat LLM fields stay operational and
+      // only the reference to the active one goes out — the same state as on a
+      // fresh install.
       await saveAi(mergeAi(ai, { profiles: [], active_profile_id: "", profile_id: "" }), t("Профиль удалён."));
       return;
     }
@@ -292,11 +295,11 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
     setExpandedProfiles((prev) => new Set([...prev, payload.profile.id]));
   }
 
-  // ── Ключи: сохранение, удаление, добавление ────────────────────────────
+  // ── Keys: saving, deleting, adding ─────────────────────────────────────
 
-  /// Записывает список слотов без профиля в конфиг. Метка хранится здесь,
-  /// а не только в хранилище ОС: портимого поля для неё есть лишь у Windows,
-  /// на macOS и Linux она бы терялась при перезапуске.
+  /// Writes the list of profile-less slots into the config. The label is stored
+  /// here rather than only in the OS store: a portable field for it exists only
+  /// on Windows, and on macOS and Linux it would be lost on restart.
   async function saveKeySlots(next: KeySlotRecord[]) {
     if (!ai) return;
     await onConfigChanged({ ai_processing: { ...ai, key_slots: next } });
@@ -333,8 +336,8 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
     const next = { ...apiKeys };
     next[slot.ref] = EMPTY_KEY_INFO;
     onApiKeysChanged(next);
-    // Слот без профиля существует только записью в конфиге — убираем и её,
-    // иначе строка останется висеть навсегда пустой.
+    // A profile-less slot exists only as an entry in the config — we remove that
+    // too, otherwise the row hangs there empty forever.
     if (slot.kind === "standalone") {
       await saveKeySlots((ai?.key_slots ?? []).filter((item) => item.ref !== slot.ref));
     }
@@ -381,10 +384,10 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
     setReplaceRevealed(false);
   }
 
-  /// «Задать ключ» из строки профиля. Раньше это была навигация на соседнюю
-  /// вкладку; теперь ключи на той же странице, поэтому открываем редактор
-  /// нужного слота и подводим к нему экран. Слота может ещё не быть —
-  /// тогда открывается модалка добавления с уже выбранным провайдером.
+  /// «Задать ключ» from a profile row. This used to navigate to a neighbouring
+  /// tab; now the keys are on the same page, so we open the right slot's editor
+  /// and bring the screen to it. The slot may not exist yet — then the add modal
+  /// opens with the provider already selected.
   function focusKeyForProfile(profile: LlmProfile) {
     const ref = profileKeyRef(profile);
     const slot = slots.find((item) => item.ref === ref);
@@ -412,10 +415,10 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
             <span className={hasChanges ? "pill warn" : "pill ok dot"}>
               {hasChanges ? t("Есть изменения") : t("Синхронизировано")}
             </span>
-            {/* Ключ и профиль — два способа начать работу на этой странице, и
-                оба живут в шапке. Кнопка «Добавить ключ» стояла в строке
-                фильтров списка ключей: чтобы добавить первый ключ, нужно было
-                сначала доскроллить до списка, которого ещё нет. */}
+            {/* A key and a profile are the two ways to start working on this
+                page, and both live in the header. The «Добавить ключ» button
+                used to sit in the key list's filter row: to add the first key
+                you had to scroll down to a list that did not exist yet. */}
             <button className="btn btn--ghost" onClick={() => setAdding(true)}>
               <Icon name="plus" size={12}/>  {t("Добавить ключ")} </button>
             <button className="btn btn--primary" onClick={() => setWizardSeed({})}>
@@ -434,7 +437,7 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
           <Icon name="info" size={12}/> {missingProfileKeys}  {t("проф. ссылаются на отсутствующий API-ключ. Добавьте ключ или выберите другой slot.")} </div>
       )}
 
-      {/* ── Профили провайдеров ─────────────────────────────────────────── */}
+      {/* ── Provider profiles ───────────────────────────────────────────── */}
       <div className="flex-row" style={{ justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
         <SectionLabel>{t("Профили провайдеров")}</SectionLabel>
         <span style={{ font: "500 11px/1 var(--font-mono)", color: "var(--ink-mute)" }}>
@@ -465,8 +468,8 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
 
           return (
             <div key={profile.id} style={{ borderTop: i === 0 ? "none" : "1px solid var(--line-soft)" }}>
-              {/* Строка — не одна большая кнопка: внутрь встают карандаш и
-                  поле переименования, а кнопка в кнопке невалидна. */}
+              {/* The row is not one big button: a pencil and a rename field go
+                  inside it, and a button inside a button is invalid. */}
               <div className="prov-row prov-row--split">
                 <button type="button" className="prov-row__main" onClick={() => toggleProfile(profile.id)} aria-expanded={isOpen}>
                   <span className="prov-chev" data-open={isOpen ? "true" : "false"}>
@@ -560,9 +563,9 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
                     </div>
                     <div className="set-cell">
                       <span className="set-label">Model</span>
-                      {/* Ключ кэша — профиль, а не провайдер: у каждого
-                          профиля свои base_url и ключ, значит и список
-                          моделей свой. */}
+                      {/* The cache key is the profile, not the provider: every
+                          profile has its own base_url and key, and therefore
+                          its own model list. */}
                       <ModelField
                         cacheKey={profile.id}
                         value={profile.model}
@@ -661,7 +664,7 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
         })}
       </section>
 
-      {/* ── API-ключи ───────────────────────────────────────────────────── */}
+      {/* ── API keys ────────────────────────────────────────────────────── */}
       <div ref={keysRef} className="integrations-split">
         <div className="flex-row" style={{ justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 8 }}>
           <SectionLabel>{t("API-ключи")}</SectionLabel>
