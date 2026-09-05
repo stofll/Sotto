@@ -173,27 +173,23 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           # Публичный ingest-токен проекта PostHog, а не личный ключ: он
-          # компилируется в бинарник через option_env!.
-          #
-          # У option_env! нет разницы между «секрета нет» и «телеметрия не
-          # нужна»: пустая переменная — это None, линкер выбрасывает путь
-          # доставки, и сборка успешно завершается молчащим бинарём. Тумблер
-          # в настройках при этом остаётся включённым, так что снаружи такая
-          # сборка неотличима от рабочей. Здесь, в отличие от
-          # build-installer.sh, guard'а нет — переименовали секрет, и релиз
-          # уедет без телеметрии, ничем этого не показав.
+          # компилируется в бинарник через option_env!, и отсутствующий
+          # секрет даёт молчащую сборку, неотличимую от рабочей. Guard'а,
+          # как в build-installer.sh, здесь нет — см. docs/RELEASE.md →
+          # Telemetry Ingest Token.
           SOTTO_POSTHOG_API_KEY: ${{ secrets.SOTTO_POSTHOG_API_KEY }}
         with:
           projectPath: desktop
           tagName: ${{ github.event.inputs.tag || github.ref_name }}
           releaseName: "Sotto ${{ github.event.inputs.tag || github.ref_name }}"
+          # Ключа releaseBody здесь намеренно нет: апдейтер показывает тело
+          # релиза как «что нового», поэтому заметки пишутся руками в самом
+          # релизе на GitHub. См. docs/RELEASE.md → Publish.
           # Черновик, а не сразу публикация: latest.json подхватится
           # пользователями в тот момент, когда релиз перестанет быть
           # черновиком, — то есть после того, как сборку проверили руками.
           releaseDraft: true
           prerelease: false
-          # Апдейтер читает тело релиза как «что нового», поэтому заметки
-          # пишутся в самом релизе на GitHub, а не здесь.
           includeUpdaterJson: true
           updaterJsonPreferNsis: true
           args: ${{ matrix.args }}
@@ -205,9 +201,8 @@ jobs:
         shell: bash
         run: |
           target_dir="$CARGO_TARGET_DIR"
-          # Git Bash receives the Windows value as D:\\b, while `find` needs
-          # the MSYS form (/d/b). Keep the conversion local to this shell;
-          # Cargo and PowerShell must continue to see the native path.
+          # То же преобразование, что и в «Ремап путей сборки»: find нужна
+          # msys-форма пути, а Cargo и PowerShell — родная.
           if command -v cygpath >/dev/null 2>&1; then
             target_dir=$(cygpath -u "$target_dir")
           fi
