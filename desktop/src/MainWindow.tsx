@@ -45,6 +45,7 @@ function pageFor(tab: TabId, data: {
   stats: StatsResult | null;
   microphones: MicrophoneResult[];
   models: ModelInfo[];
+  runtime: RuntimeStatusResult | null;
   apiKeys: ApiKeyStatus;
   onConfigChanged: (partial: Partial<ConfigResult>) => Promise<ConfigResult | null>;
   onNavigate: (tab: TabId) => void;
@@ -53,7 +54,7 @@ function pageFor(tab: TabId, data: {
   onStatsRefresh: () => Promise<void>;
 }) {
   switch (tab) {
-    case "settings": return <SettingsPage config={data.config} microphones={data.microphones} models={data.models} onConfigChanged={data.onConfigChanged}/>;
+    case "settings": return <SettingsPage config={data.config} microphones={data.microphones} models={data.models} portable={data.runtime?.portable} onConfigChanged={data.onConfigChanged}/>;
     case "models": return <ModelsPage models={data.models} config={data.config} onConfigChanged={data.onConfigChanged} onModelsChanged={data.onModelsChanged}/>;
     case "text": return <TextPage config={data.config} onConfigChanged={data.onConfigChanged}/>;
     case "ai": return <AiPage config={data.config?.ai_processing ?? null} apiKeys={data.apiKeys} onConfigChanged={data.onConfigChanged} onNavigate={(t) => data.onNavigate(t)}/>;
@@ -393,7 +394,7 @@ export function MainWindow() {
             {loading ? <LoadingState/> : (
               <PageWithMvpGate tab={tab}>
                 {isMvpTab(tab)
-                  ? pageFor(tab, { config, version, stats, microphones, models, apiKeys, onConfigChanged, onNavigate: setTab, onApiKeysChanged: setApiKeys, onModelsChanged: setModels, onStatsRefresh: refreshStats })
+                  ? pageFor(tab, { config, version, stats, microphones, models, runtime, apiKeys, onConfigChanged, onNavigate: setTab, onApiKeysChanged: setApiKeys, onModelsChanged: setModels, onStatsRefresh: refreshStats })
                   : <DeferredPage tab={tab}/>}
               </PageWithMvpGate>
             )}

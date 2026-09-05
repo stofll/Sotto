@@ -125,6 +125,8 @@ export const en: Record<string, string | string[]> = {
   "Не удалось обработать через LLM: {p0}": "LLM processing failed: {p0}",
   "Не удалось повторить LLM-обработку.": "Could not retry LLM processing.",
   "Не удалось повторить LLM-обработку: {p0}": "Could not retry LLM processing: {p0}",
+  "Недоступно в портативной версии: запись автозапуска указывала бы на папку, которая ездит вместе с приложением, и перебила бы автозапуск установленной копии.":
+    "Not available in the portable version: the autostart entry would point at a folder that travels with the app, and it would override the installed copy's autostart.",
   "Комбинация {p0} зарезервирована системой. Выберите другую.": "{p0} is reserved by the system. Pick another shortcut.",
 
   // ── Hotkeys ────────────────────────────────────────────────────────────

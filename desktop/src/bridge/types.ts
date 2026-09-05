@@ -172,6 +172,10 @@ export interface RuntimeStatusResult {
    *  come back on its own at the next dictation. This is not the same as
    *  "nothing to transcribe with". */
   model_loads_on_demand?: boolean;
+  /** Running as a portable copy (a `portable.flag` next to the executable).
+   *  Autostart is deliberately not managed in this mode — the installed copy's
+   *  entry belongs to the installed copy. */
+  portable?: boolean;
   model?: string | null;
   /** Model actually loaded by the engine thread; differs from `model` when a switch failed. */
   loaded_model?: string | null;

@@ -17,6 +17,8 @@ type Props = {
   config: ConfigResult | null;
   microphones: MicrophoneResult[];
   models: ModelInfo[];
+  /** A portable copy does not manage autostart — see the row itself. */
+  portable?: boolean;
   onConfigChanged: (partial: Partial<ConfigResult>) => Promise<ConfigResult | null>;
 };
 
@@ -834,7 +836,7 @@ function TypingSpeedControl({ value, onConfigChanged }: { value?: number; onConf
   );
 }
 
-export function SettingsPage({ config, microphones, models, onConfigChanged }: Props) {
+export function SettingsPage({ config, microphones, models, portable, onConfigChanged }: Props) {
   const model = config?.model || "large-v3";
   const autoPaste = config?.auto_paste ?? true;
   const autoStart = config?.auto_start ?? false;
@@ -1041,12 +1043,19 @@ export function SettingsPage({ config, microphones, models, onConfigChanged }: P
             and forget" switch, and a separate subsection for a single row was
             heavier than the row itself. */}
         <div className="advanced__autostart-row">
+          {/* A portable copy does not register autostart: the entry it would
+              write points at a folder that travels on a flash drive, and
+              rewriting it would take the installed copy's autostart away.
+              Hence a disabled checkbox with the reason on it rather than a
+              working-looking one that saves the value and does nothing. */}
           <span className="label-with-hint">
-            <label className="checkbox-row">
-              <input className="checkbox" type="checkbox" checked={autoStart} onChange={(e) => void onConfigChanged({ auto_start: e.target.checked })}/>
+            <label className="checkbox-row" style={{ color: portable ? "var(--ink-faint)" : undefined }}>
+              <input className="checkbox" type="checkbox" disabled={portable} checked={autoStart && !portable} onChange={(e) => void onConfigChanged({ auto_start: e.target.checked })}/>
               {t("Запускать вместе с системой")}
             </label>
-            <HintIcon text={t("Приложение запускается в фоне при входе в систему, горячая клавиша становится доступна сразу.")}/>
+            <HintIcon text={portable
+              ? t("Недоступно в портативной версии: запись автозапуска указывала бы на папку, которая ездит вместе с приложением, и перебила бы автозапуск установленной копии.")
+              : t("Приложение запускается в фоне при входе в систему, горячая клавиша становится доступна сразу.")}/>
           </span>
           <span className="label-with-hint">
             <label className="checkbox-row">

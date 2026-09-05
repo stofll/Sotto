@@ -707,6 +707,10 @@ fn get_runtime_status(
     Ok(serde_json::json!({
         "model_loaded": loaded_engine.is_some(),
         "model_loads_on_demand": loads_on_demand,
+        // A portable copy deliberately does not touch autostart (see
+        // `apply_autostart_inner`), and the interface has to know: a checkbox
+        // that saves its value and changes nothing is worse than no checkbox.
+        "portable": crate::portable::data_dir().is_some(),
         "model": model,
         "loaded_model": loaded_model,
         "device": actual_device,
