@@ -65,8 +65,8 @@ function pageFor(tab: TabId, data: {
 }
 
 export function MainWindow() {
-  // Одна подписка на язык в корне: t() читает модульное состояние, так что
-  // перерисовки корня достаточно для всего дерева.
+  // One language subscription at the root: t() reads module state, so
+  // re-rendering the root is enough for the whole tree.
   useLocale();
   const [tab, setTab] = useState<TabId>("settings");
   const [theme, setTheme] = useState<"dark" | "light">("dark");
@@ -191,11 +191,10 @@ export function MainWindow() {
       });
     }).then((fn) => { unlistenPermission = fn; });
     on<string>("navigate-tab", (next) => {
-      // «Форматирование» + «Замены» слились в «Текст», «Провайдеры» +
-      // «API-ключи» — в «Интеграции», «Обзор» убран целиком. Псевдонимы
-      // оставлены, потому что событие шлёт трей: отдельное окно, которое
-      // может остаться от предыдущей версии сборки и знать только старые
-      // идентификаторы.
+      // «Форматирование» + «Замены» merged into «Текст», «Провайдеры» +
+      // «API-ключи» into «Интеграции», and «Обзор» was removed entirely. The
+      // aliases stay because the event is sent by the tray: a separate window
+      // that may survive from a previous build and know only the old ids.
       const legacy: Record<string, TabId> = { formatting: "text", replacements: "text", providers: "integrations", "api-keys": "integrations", overview: "settings" };
       const resolved = (legacy[next] ?? next) as TabId;
       if (mounted && MVP_TABS.includes(resolved)) setTab(resolved);
@@ -252,12 +251,13 @@ export function MainWindow() {
       setRecordingState("error");
       if (payload?.message) setError(payload.message);
     }).then((fn) => { unlistenModelFailed = fn; });
-    // Выгрузка снимает и загруженную модель, и её признак в списке —
-    // обновляем оба среза, иначе статус в сайдбаре остаётся на удалённой.
+    // Unloading clears both the loaded model and its flag in the list — we
+    // refresh both slices, otherwise the sidebar status stays on a deleted one.
     on<unknown>("model-unloaded", () => { refreshModels(); refreshRuntime(); }).then((fn) => { unlistenModelUnloaded = fn; });
-    // Возврат модели после выгрузки по простою. Отдельно от `whisper-ready`
-    // намеренно: тот ведёт состояние диктовки, а этот приходит посреди
-    // чужой записи, и трогать её состояние ему нечем — только списки.
+    // The model returning after an idle unload. Deliberately separate from
+    // `whisper-ready`: that one drives the dictation state, while this arrives
+    // in the middle of somebody else's recording and has no business touching
+    // that state — only the lists.
     on<unknown>("model-restored", () => { refreshModels(); refreshRuntime(); }).then((fn) => { unlistenModelRestored = fn; });
     on<DownloadProgress>("model-download-progress", (payload) => {
       if (!mounted || !payload) return;
@@ -273,9 +273,9 @@ export function MainWindow() {
       const profileRefs = (cfg?.ai_processing?.profiles ?? [])
         .map((p) => p.api_key_ref || (p.id === "default" ? p.provider : `key_${p.id}`))
         .filter(Boolean);
-      // Слоты без профиля: хранилище ОС не перечисляется, `has_api_key` умеет
-      // ответить только про известный ref. Не спросив о них здесь, мы теряем
-      // ключ из интерфейса при каждом перезапуске.
+      // Profile-less slots: the OS store cannot be enumerated and `has_api_key`
+      // can only answer about a known ref. Without asking about them here we
+      // lose the key from the UI on every restart.
       const slotRefs = (cfg?.ai_processing?.key_slots ?? []).map((s) => s.ref).filter(Boolean);
       const ids = Array.from(new Set([...defaults, ...profileRefs, ...slotRefs]));
       const entries = await Promise.all(ids.map(async (key_id) => {
@@ -301,10 +301,10 @@ export function MainWindow() {
           { p: invoke<RuntimeStatusResult>("get_runtime_status"), set: (v) => { if (mounted) setRuntime(v as RuntimeStatusResult); }, name: "get_runtime_status" },
         ];
         const results = await Promise.allSettled(setters.map((s) => s.p));
-        // Каждый отказ здесь виден пользователю. Раньше он уходил только в
-        // console.warn, а в релизной сборке DevTools нет — приложение молча
-        // рисовало пустой конфиг как «настроек ещё нет», и отличить это от
-        // честного первого запуска было нечем.
+        // Every failure here is visible to the user. It used to go only to
+        // console.warn, and a release build has no DevTools — the app silently
+        // drew an empty config as "there are no settings yet", with no way to
+        // tell that apart from an honest first launch.
         const failed: string[] = [];
         results.forEach((r, i) => {
           if (r.status === "fulfilled") {
@@ -348,10 +348,10 @@ export function MainWindow() {
     };
   }, []);
 
-  // Зеркало rust-гейта `transcription_route_available`: пока распознавать
-  // нечем, горячая клавиша молча ничего не делает — оверлей на запись, из
-  // которой не выйдет текста, врал бы. Плашка объясняет молчание и даёт оба
-  // выхода: скачать модель или уйти в облако.
+  // A mirror of the Rust gate `transcription_route_available`: while there is
+  // nothing to transcribe with, the hotkey silently does nothing — an overlay
+  // for a recording that will produce no text would be a lie. The pill explains
+  // the silence and offers both ways out: download a model or move to the cloud.
   const pipelineMode = config?.ai_processing?.pipeline_mode ?? "local";
   const selectedModel = models.find((item) => item.selected) ?? models.find((item) => item.id === config?.model);
   const sttUnavailable = models.length > 0

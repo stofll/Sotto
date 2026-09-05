@@ -160,13 +160,14 @@ struct HistoryRetryAiResult {
     reason: Option<String>,
 }
 
-/// Режим конвейера для ручной обработки записи из истории.
+/// Pipeline mode for processing a history entry by hand.
 ///
-/// Режим решает, обрабатывать ли диктовку автоматически, а не разрешено ли
-/// пользователю обработать запись руками. Нажатие «Обработать» в истории —
-/// прямое указание, и отвечать на него «режим локально, LLM выключена»
-/// значит спорить с тем, кто уже сказал, чего хочет. Провайдер и ключ
-/// по-прежнему обязательны: без них отказ осмысленный и объяснимый.
+/// The mode decides whether a dictation is processed automatically, not whether
+/// the user is allowed to process an entry by hand. Pressing «Обработать» in the
+/// history is a direct instruction, and answering it with "local mode, LLM off"
+/// means arguing with someone who has already said what they want. A provider
+/// and a key are still required: without them the refusal is meaningful and
+/// explainable.
 fn manual_llm_mode(configured: &str) -> &str {
     if configured == "local" {
         "hybrid"
@@ -491,8 +492,8 @@ fn apply_runtime_config(app: &AppHandle, saved: &Value, patch: &Value) {
     }
     if patch.get(crate::ui_text::CONFIG_KEY).is_some() {
         crate::ui_text::set_from_config(saved);
-        // Меню трея строится один раз при старте, так что смену языка оно
-        // само не заметит — пересобираем.
+        // The tray menu is built once at startup, so it will not notice a
+        // language change on its own — we rebuild it.
         if let Err(error) = crate::tray::build_tray(app) {
             log::warn!("не пересобрали трей после смены языка: {error}");
         }
@@ -553,15 +554,15 @@ fn app_version(app: AppHandle) -> Result<serde_json::Value, String> {
     Ok(serde_json::json!({ "version": version }))
 }
 
-/// Спросить сервер обновлений. Ответ `available: false` — не ошибка.
+/// Ask the update server. An `available: false` answer is not an error.
 #[tauri::command]
 async fn check_update(app: AppHandle) -> Result<updater::UpdateInfo, String> {
     updater::check(&app).await
 }
 
-/// Скачать и поставить обновление. Прогресс — событиями
-/// `update-download-progress`; при успехе приложение перезапускается и
-/// команда не возвращает управление во фронтенд.
+/// Download and install the update. Progress arrives as
+/// `update-download-progress` events; on success the application restarts and
+/// the command never returns control to the frontend.
 #[tauri::command]
 async fn install_update(app: AppHandle) -> Result<(), String> {
     updater::install(&app).await
@@ -633,10 +634,10 @@ fn list_models(app: AppHandle, state: tauri::State<'_, AppState>) -> Vec<crate::
 ///   diagnostics but are not the model that will transcribe the recording.
 /// - `device`: compute device actually used by the loaded engine ("cpu" /
 ///   "gpu"), or null when no engine is loaded
-/// - `model_loads_on_demand`: модели нет в памяти, но она выбрана и скачана —
-///   значит, её вернут туда при следующей диктовке. Отличает выгруженную по
-///   простою модель от отсутствующей: распознавать есть чем, просто память
-///   сейчас свободна
+/// - `model_loads_on_demand`: the model is not in memory, but it is selected
+///   and downloaded — so it will be brought back at the next dictation. Tells a
+///   model unloaded on idle apart from a missing one: there is something to
+///   transcribe with, the memory is simply free right now
 /// - `recording`: whether the audio recorder is active
 /// - `state`: app FSM state string (idle/recording/processing/done/error)
 /// - `last_error`: null (error tracking is not wired yet)
@@ -688,9 +689,9 @@ fn get_runtime_status(
         actual_device,
     );
 
-    // Выгруженная по простою модель и не скачанная ни разу — для движка
-    // одно и то же «ничего не загружено», а для человека противоположные
-    // новости. Разводит их наличие файла на диске.
+    // A model unloaded on idle and one never downloaded are the same "nothing
+    // is loaded" to the engine, yet opposite news to a person. What tells them
+    // apart is whether the file is on disk.
     let loads_on_demand = loaded_model.is_none()
         && pipeline_mode != "cloud"
         && model.as_deref().is_some_and(crate::model::is_downloaded);
@@ -755,10 +756,10 @@ mod preview_queue_tests {
 
     #[test]
     fn live_preview_never_takes_the_seats_the_recording_needs() {
-        // Очередь движка одна на все команды, и отставшая потоковая модель
-        // успевала забить её кусками предпросмотра. Дальше `try_send` с
-        // готовой записью отклонялся, и диктовка пропадала целиком —
-        // черновик вытеснял результат.
+        // The engine has one queue for every command, and a streaming model
+        // that fell behind managed to fill it with preview chunks. After that a
+        // `try_send` carrying the finished recording was rejected and the whole
+        // dictation was lost — the draft crowded out the result.
         let (tx, _rx) = tokio::sync::mpsc::channel::<u8>(64);
         let mut sent = 0;
         while preview_has_room(tx.capacity()) {
@@ -824,20 +825,20 @@ mod runtime_status_tests {
 /// onto the final path. Emits `model-download-progress` events during
 /// download with payload `{ model, downloaded, total }`.
 ///
-/// Отменённая загрузка — это `Ok(None)`, а не ошибка: пользователь нажал
-/// «отменить» и получил ровно то, что просил. Недокачанное при этом
-/// стирается — докачки у нас нет, и оставленный кусок был бы просто
-/// занятым местом.
+/// A cancelled download is `Ok(None)`, not an error: the user pressed «отменить»
+/// and got exactly what they asked for. What was not downloaded is erased along
+/// the way — we have no resume, and a leftover chunk would be nothing but
+/// occupied space.
 #[tauri::command]
 async fn download_model(
     app: AppHandle,
     state: tauri::State<'_, AppState>,
     model: String,
 ) -> Result<Option<crate::model_download::DownloadOutcomeInfo>, String> {
-    // Регистрируем отмену до первого байта: иначе «отменить», нажатое в
-    // первую секунду, не нашло бы что отменять. Заявка же отклоняет вторую
-    // загрузку той же модели: обе писали бы один `*.part` и наперегонки
-    // проверяли бы его сумму.
+    // Cancellation is registered before the first byte: otherwise «отменить»
+    // pressed within the first second would find nothing to cancel. The same
+    // registration rejects a second download of the same model: both would write
+    // one `*.part` and race each other checking its checksum.
     let Some(download) = state.try_claim_download(&model) else {
         return Err(crate::ui_text::t("Эта модель уже скачивается."));
     };
@@ -968,11 +969,11 @@ async fn download_model(
     )))
 }
 
-/// Остановить идущее скачивание модели.
+/// Stop a download of a model that is in progress.
 ///
-/// `false` — этой модели сейчас никто не качает: кнопка нажата после того,
-/// как загрузка уже кончилась. Это не ошибка, а гонка, и лечится она
-/// молчанием.
+/// `false` — nobody is downloading this model right now: the button was pressed
+/// after the download had already finished. That is not an error but a race, and
+/// it is cured by staying silent.
 #[tauri::command]
 fn cancel_model_download(state: tauri::State<'_, AppState>, model: String) -> bool {
     state.cancel_download(&model)
@@ -1005,8 +1006,9 @@ async fn set_model(
 /// every entry point — the `set_model` command, the startup auto-load, the
 /// reload after the CPU/GPU setting changes, and the return of a model
 /// unloaded by idle — agrees on which device the context gets built for.
-/// Возврат после простоя тем и отличается от кэша спецификации, что читает
-/// настройки заново: за время простоя устройство обработки могли сменить.
+/// Restoring after an idle period differs from a cached spec precisely in that
+/// it re-reads the settings: the compute device may have been changed while the
+/// engine was idle.
 async fn load_model_into_engine(
     app: &AppHandle,
     engine_cmd_tx: &tokio::sync::mpsc::Sender<crate::whisper::EngineCommand>,
@@ -1042,18 +1044,20 @@ async fn load_model_into_engine(
         .map_err(|e| format!("engine reply dropped: {e}"))?
 }
 
-/// Вернуть в память модель, выгруженную по простою.
+/// Bring a model unloaded on idle back into memory.
 ///
-/// Тихо и по дороге: вызывается в начале диктовки, пока человек говорит, —
-/// к остановке записи модель обычно уже на месте, и расшифровка не ждёт
-/// загрузку. Событий жизненного цикла модели возврат не поднимает: они ведут
-/// состояние интерфейса, а у идущей диктовки состояние своё.
+/// Quietly and along the way: it is called at the start of a dictation while
+/// the person is speaking — by the time recording stops the model is usually
+/// already in place and transcription does not wait on the load. The restore
+/// raises no model-lifecycle events: those drive the UI state, and a dictation
+/// in progress has a state of its own.
 ///
-/// Ничего не делает, когда модель на месте, когда её нет в настройках или
-/// файл не скачан: это уже не возврат, а пустая конфигурация, про которую
-/// приложение говорит отдельно — плашкой «нечем распознавать». В облачном
-/// режиме локальная модель не нужна вовсе, и возвращать её в память значило
-/// бы отменять выгрузку ради того, кто ею не пользуется.
+/// Does nothing when the model is already in place, when it is absent from the
+/// settings, or when the file is not downloaded: that is no longer a restore but
+/// an empty configuration, which the application reports separately with the
+/// «нечем распознавать» pill. In cloud mode a local model is not needed at all,
+/// and bringing it back into memory would mean undoing the unload for somebody
+/// who does not use it.
 async fn restore_unloaded_model(app: &AppHandle, state: &AppState) {
     if crate::mutex_recover::lock(&state.engine_current_model).is_some() {
         return;
@@ -1089,14 +1093,16 @@ async fn restore_unloaded_model(app: &AppHandle, state: &AppState) {
     }
 }
 
-/// Как часто спрашивать движок, не пора ли отдать память.
+/// How often to ask the engine whether it is time to give the memory back.
 ///
-/// Полминуты — это точность, с которой соблюдается выбранный порог, и цена
-/// вопроса: проверка стоит чтения конфига и одной команды в очередь.
+/// Half a minute is the precision with which the chosen threshold is honoured,
+/// and the price of asking: the check costs one config read and one command in
+/// the queue.
 const IDLE_UNLOAD_TICK: std::time::Duration = std::time::Duration::from_secs(30);
 
-/// Через сколько простоя выгружать модель. `None` — не выгружать: так
-/// сказано в настройках, или конфиг не прочитался и трогать ничего не стоит.
+/// After how much idling to unload the model. `None` — do not unload: either
+/// the settings say so, or the config could not be read and nothing should be
+/// touched.
 fn idle_unload_after(app: &AppHandle) -> Option<std::time::Duration> {
     let config = crate::config::Config::load(app).ok()?;
     let minutes = crate::config::model_unload_after_minutes(config.as_value());
@@ -1121,9 +1127,10 @@ async fn delete_model(
     state: tauri::State<'_, AppState>,
     model: String,
 ) -> Result<bool, String> {
-    // Свой файл каталогу неизвестен, и нормализация на нём падает. Его
-    // идентификатор — имя файла, и проверяет его `delete_cached_model` тем же
-    // правилом, что и загрузка: за пределы каталога моделей отсюда не выйти.
+    // A user's own file is unknown to the catalog and normalisation fails on it.
+    // Its identifier is the file name, and `delete_cached_model` checks it by the
+    // same rule as a download does: there is no way out of the models directory
+    // from here.
     let normalized = crate::model::normalize_model_id(&model)
         .map(str::to_string)
         .unwrap_or_else(|_| model.clone());
@@ -1221,12 +1228,13 @@ fn delete_api_key(key_id: String) -> Result<serde_json::Value, String> {
     Ok(serde_json::json!({ "deleted": deleted }))
 }
 
-/// Язык речи для подстановки `{{language}}` в системный промпт.
+/// The speech language substituted for `{{language}}` in the system prompt.
 ///
-/// Лежит на верхнем уровне конфига, рядом с моделью и устройством, а НЕ в
-/// `ai_processing`. `AiConfig::from_ai_processing` читал одноимённое поле из
-/// своего поддерева — его туда никто никогда не писал, так что плейсхолдер
-/// разворачивался в пустоту и модели уходило «Output language: .».
+/// It sits at the top level of the config, next to the model and the device,
+/// and NOT inside `ai_processing`. `AiConfig::from_ai_processing` used to read a
+/// field of the same name from its own subtree — nobody ever wrote it there, so
+/// the placeholder expanded to nothing and the model received "Output
+/// language: .".
 fn speech_language(config: Option<&crate::config::Config>) -> String {
     config
         .and_then(|cfg| cfg.get_string("language"))
@@ -1305,10 +1313,11 @@ async fn run_ai_prompt(
             serde_json::json!(status.skipped_reason)
         },
         "message": message,
-        // Тело ответа провайдера. Оно собирается в `send_request` и доезжает
-        // до `AiStatus`, но этот ответ раньше строился вручную и поле в него
-        // не попадало — то есть единственный источник правды про «ответ не той
-        // формы» терялся на последнем шаге, уже за пределами HTTP-слоя.
+        // The provider's response body. It is assembled in `send_request` and
+        // reaches `AiStatus`, but this response used to be built by hand and the
+        // field never made it in — that is, the only source of truth about "the
+        // response has the wrong shape" was lost at the final step, already
+        // outside the HTTP layer.
         "http_status": status.http_status,
         "response_snippet": status.response_snippet,
         "ai_processing": {
@@ -1685,9 +1694,10 @@ async fn transcribe_file_inner(
         serde_json::json!({ "session_id": session_id }),
     );
 
-    // Здесь возврат модели ждут, а не запускают вдогонку: живого звука,
-    // который утечёт за время загрузки, у файла нет, а расшифровка пустым
-    // движком закончилась бы отказом «модель не загружена».
+    // Here the model restore is awaited rather than fired off in parallel: a
+    // file has no live audio that would leak away during the load, and
+    // transcribing with an empty engine would end in a «модель не загружена»
+    // refusal.
     restore_unloaded_model(app, state).await;
 
     let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
@@ -2020,15 +2030,16 @@ fn has_transcription_route(
 mod manual_llm_mode_tests {
     use super::manual_llm_mode;
 
-    /// Ради этого случая функция и существует: в режиме «локально» кнопка
-    /// «Обработать» в истории обязана работать.
+    /// This case is the reason the function exists: in "local" mode the
+    /// «Обработать» button in the history must still work.
     #[test]
     fn local_mode_still_allows_a_manual_run() {
         assert_eq!(manual_llm_mode("local"), "hybrid");
     }
 
-    /// Остальные режимы не трогаем: в них LLM и так разрешена, а подмена
-    /// «облака» на «гибрид» изменила бы отчёт о том, что произошло.
+    /// The other modes are left alone: the LLM is already permitted in them, and
+    /// substituting "hybrid" for "cloud" would change the report of what
+    /// actually happened.
     #[test]
     fn the_other_modes_are_passed_through_untouched() {
         assert_eq!(manual_llm_mode("hybrid"), "hybrid");
@@ -2235,11 +2246,11 @@ pub(crate) fn on_recording_started(app: &AppHandle) {
         crate::output_volume::duck(cfg.as_value());
     }
     let state = app.state::<AppState>();
-    // Модель могла уйти из памяти по простою — вернуть её сейчас, а не в
-    // конце записи: загрузка идёт параллельно речи и к остановке обычно
-    // уже позади. Отдельной задачей, потому что здесь начинается запись, а
-    // не ожидание модели: секунда загрузки, отнятая у начала диктовки, —
-    // это проглоченные первые слова.
+    // The model may have left memory on idle — bring it back now rather than at
+    // the end of the recording: the load runs in parallel with speech and is
+    // usually over by the time it stops. As a separate task, because what starts
+    // here is the recording, not a wait for the model: a second of loading taken
+    // from the start of a dictation is the first words swallowed.
     if crate::mutex_recover::lock(&state.engine_current_model).is_none() {
         let restore_app = app.clone();
         let restore_state = state.inner().clone();
@@ -2249,9 +2260,9 @@ pub(crate) fn on_recording_started(app: &AppHandle) {
     }
     let session_id = state.current_session_id.load(Ordering::Acquire);
     let armed = start_live_preview(&state, session_id);
-    // Оверлей под живой текст выглядит иначе, и знать об этом он должен с
-    // начала записи, а не с первого узнанного слова: иначе окно меняет
-    // форму посреди фразы.
+    // The overlay sized for live text looks different, and it must know that
+    // from the start of the recording rather than from the first recognised
+    // word: otherwise the window changes shape mid-phrase.
     let _ = app.emit(
         "live-preview-armed",
         serde_json::json!({ "session_id": session_id, "armed": armed }),
@@ -2268,8 +2279,8 @@ pub(crate) fn on_recording_stopped(app: &AppHandle, session_id: u64, audio: Opti
     // Unconditional and first: a recording that ends without this leaves
     // the machine quiet with no indication why.
     crate::output_volume::restore();
-    // Отцепить ответвление здесь, а не в командах остановки: путей выхода
-    // из записи несколько, и это единственный, через который проходят все.
+    // The tap is detached here rather than in the stop commands: there are
+    // several ways out of a recording, and this is the only one they all take.
     app.state::<AppState>().recorder.detach_live_tap();
 
     let Some(samples) = audio else {
@@ -2351,29 +2362,28 @@ async fn start_recording(app: AppHandle, state: tauri::State<'_, AppState>) -> R
     Ok(session_id)
 }
 
-/// Ответвить звук в загруженную модель, если она умеет отдавать текст по
-/// ходу речи.
+/// Tap the audio into the loaded model if it can return text as speech goes on.
 ///
-/// Вызывается из [`on_recording_started`], а не из команды `start_recording`:
-/// диктовку запускают горячей клавишей, у которой свой путь старта, и
-/// предпросмотр, повешенный на команду, в реальной жизни не существовал.
+/// Called from [`on_recording_started`] rather than from the `start_recording`
+/// command: dictation is launched by a hotkey, which has its own start path, and
+/// a preview hung on the command did not exist in real life.
 ///
-/// Пересылкой занимается отдельный поток, а не поток движка: тот занят
-/// командами и не может одновременно ждать на двух каналах. Переполнение
-/// командной очереди теряет кусок предпросмотра — это допустимо, полная
-/// запись всё равно копится отдельно и уходит на расшифровку целиком.
-/// Сколько мест в очереди движка предпросмотр не занимает никогда.
+/// Forwarding is done by a separate thread rather than the engine thread: that
+/// one is busy with commands and cannot wait on two channels at once. Overflowing
+/// the command queue loses a preview chunk — which is acceptable, since the full
+/// recording accumulates separately anyway and goes to transcription whole. The
+/// preview never occupies the last places in the engine's queue.
 ///
-/// Очередь одна на все команды. Гипотеза — черновик, её потеря стоит одного
-/// пропущенного кадра; финальная расшифровка — вся запись целиком, и её
-/// потеря стоит всего сказанного. Отставшая потоковая модель успевала забить
-/// очередь кусками предпросмотра, после чего `try_send` с записью отклонялся
-/// и диктовка пропадала.
+/// There is one queue for every command. A hypothesis is a draft and losing it
+/// costs one skipped frame; the final transcription is the entire recording, and
+/// losing it costs everything that was said. A streaming model that fell behind
+/// managed to fill the queue with preview chunks, after which a `try_send`
+/// carrying the recording was rejected and the dictation was lost.
 const PREVIEW_QUEUE_RESERVE: usize = 16;
 
-/// Есть ли в очереди место для ещё одного куска предпросмотра.
+/// Whether the queue has room for one more preview chunk.
 ///
-/// `capacity` — свободные места, а не размер очереди.
+/// `capacity` is the free slots, not the size of the queue.
 fn preview_has_room(capacity: usize) -> bool {
     capacity > PREVIEW_QUEUE_RESERVE
 }
@@ -2395,17 +2405,18 @@ fn start_live_preview(state: &AppState, session_id: u64) -> bool {
         "session {session_id}: live preview on, model {:?}",
         loaded.as_deref().unwrap_or("<none>")
     );
-    // Очередь примерно на секунду звука: колбэк cpal отдаёт кусок за вызов.
+    // A queue of roughly one second of audio: the cpal callback hands over one
+    // chunk per call.
     let rx = state.recorder.attach_live_tap(48);
     let engine_tx = state.engine_cmd_tx.clone();
     let _ = engine_tx.try_send(crate::whisper::EngineCommand::PreviewReset { session_id });
     std::thread::spawn(move || {
-        // Канал рвётся, когда запись останавливается и ответвление
-        // отцепляют, — это и есть условие выхода.
+        // The channel breaks when the recording stops and the tap is detached —
+        // that is exactly the exit condition.
         while let Ok(samples) = rx.recv() {
-            // Место под настоящие команды бережём до отправки: очередь
-            // общая, и занятое здесь место — это место, которого не
-            // хватит записи.
+            // Room for real commands is preserved before sending: the queue is
+            // shared, and a slot taken here is a slot the recording will not
+            // have.
             if !preview_has_room(engine_tx.capacity()) {
                 log::debug!("session {session_id}: preview chunk dropped, queue reserved");
                 continue;
@@ -2751,10 +2762,10 @@ async fn test_paste(app: AppHandle) -> Result<String, String> {
 }
 
 /// Copy-pasteable summary of the setup for a bug report.
-/// Готовые наборы терминов для словаря.
+/// Ready-made term sets for the dictionary.
 ///
-/// Отдаём id и слова; название набора показывает фронтенд, потому что оно
-/// переводимое, а список слов — нет.
+/// We hand over the id and the words; the set's name is displayed by the
+/// frontend because the name is translatable while the word list is not.
 #[tauri::command]
 fn dictionary_presets() -> Vec<(String, Vec<String>)> {
     crate::formatter::DICTIONARY_PRESETS
@@ -2917,7 +2928,7 @@ pub fn run() {
         .on_window_event(crate::window_state::handle)
         .setup(|app| {
             crate::window_state::restore(app.handle());
-            // Раньше трея: его единственный пункт меню строится сразу.
+            // Before the tray: its single menu item is built immediately.
             if let Ok(cfg) = crate::config::Config::load(app.handle()) {
                 crate::ui_text::set_from_config(cfg.as_value());
             }
@@ -3028,8 +3039,8 @@ pub fn run() {
                 if let Err(e) = crate::db::migrate_from_json(&conn, &config_dir) {
                     log::warn!("migration from JSON failed (non-fatal): {e}");
                 }
-                // Чинит счётчики, откаченные повторным импортом stats.json.
-                // На здоровой базе ничего не делает.
+                // Repairs counters rolled back by re-importing stats.json.
+                // Does nothing on a healthy database.
                 match crate::stats::reconcile_totals_with_daily(&conn) {
                     Ok(0) => {}
                     Ok(count) => {
@@ -3130,16 +3141,16 @@ pub fn run() {
                 }
             });
 
-            // Сторож простоя. Сам он ничего не выгружает: решение принимает
-            // поток движка, который один знает, чем занят и как давно
-            // (см. `EngineCommand::UnloadIdle`). Отсюда — только повод
-            // проверить и выбранный в настройках порог.
+            // The idle watchdog. It unloads nothing itself: the decision is
+            // made by the engine thread, which alone knows what it is doing and
+            // for how long (see `EngineCommand::UnloadIdle`). All that comes
+            // from here is a reason to check plus the threshold from settings.
             let idle_app = app.handle().clone();
             let idle_state = app.state::<AppState>().inner().clone();
             tauri::async_runtime::spawn(async move {
                 let mut ticker = tokio::time::interval(IDLE_UNLOAD_TICK);
-                // Первый тик `interval` отдаёт немедленно — пропускаем: в
-                // ноль секунд после старта простаивать ещё нечему.
+                // `interval` delivers its first tick immediately — we skip it:
+                // zero seconds after startup there is nothing to be idle yet.
                 ticker.tick().await;
                 loop {
                     ticker.tick().await;
@@ -3149,8 +3160,8 @@ pub fn run() {
                     if crate::mutex_recover::lock(&idle_state.engine_current_model).is_none() {
                         continue;
                     }
-                    // `try_send`: очередь занята делом — значит, движок не
-                    // простаивает, и спрашивать его не о чем.
+                    // `try_send`: a busy queue means the engine is not idle, so
+                    // there is nothing to ask it about.
                     let _ = idle_state
                         .engine_cmd_tx
                         .try_send(crate::whisper::EngineCommand::UnloadIdle { after });
@@ -3180,9 +3191,10 @@ pub fn run() {
                             let _ = app_for_dispatch.emit("whisper-ready", name);
                         }
                         EngineEvent::ModelUnloaded { name } => {
-                            // То же событие, что и у выгрузки перед удалением
-                            // модели: списки и статус обновляются одинаково,
-                            // а чем именно освободили память, им знать незачем.
+                            // The same event as an unload before deleting a
+                            // model: the lists and the status refresh the same
+                            // way, and they have no need to know exactly how the
+                            // memory was freed.
                             let _ = app_for_dispatch.emit("model-unloaded", name);
                         }
                         EngineEvent::ModelRestored { name } => {
@@ -3200,9 +3212,10 @@ pub fn run() {
                             );
                         }
                         EngineEvent::PreviewText { session_id, text } => {
-                            // Гипотеза предыдущей диктовки не должна
-                            // дописываться в overlay текущей: пока событие
-                            // шло по каналу, запись могла смениться.
+                            // The previous dictation's hypothesis must not be
+                            // appended to the current one's overlay: while the
+                            // event travelled the channel, the recording could
+                            // have changed.
                             let current = app_for_dispatch
                                 .state::<AppState>()
                                 .current_session_id
@@ -3797,31 +3810,30 @@ struct ProcessedTranscription {
     system_prompt: Option<String>,
 }
 
-/// Чем закончилась сессия распознавания — до того, как запустится
-/// постобработка.
+/// How a recognition session ended — before post-processing starts.
 ///
-/// Вынесено из диспетчера, потому что каждая ветка здесь — обещание
-/// пользователю: от того, какая выбрана, зависит и что показывает оверлей,
-/// и какой звук играет, и вставится ли текст. Внутри диспетчера эта логика
-/// недосягаема для теста — она сидит за `AppHandle`, tokio-задачей и
-/// каналом, — и оба бага, о которых пришлось узнавать от пользователя,
-/// были именно тут.
+/// Split out of the dispatcher because every branch here is a promise to the
+/// user: which one is chosen decides what the overlay shows, which sound plays,
+/// and whether the text is inserted at all. Inside the dispatcher this logic is
+/// out of reach for a test — it sits behind an `AppHandle`, a tokio task and a
+/// channel — and both bugs we had to learn about from users were right here.
 ///
-/// `PartialEq` намеренно нет: сравнивать `InferenceResult` целиком в тесте
-/// незачем, а вывод его в `Debug` тащил бы в сообщение об ошибке всю
-/// расшифровку. Тесты разбирают вариант через `matches!`.
+/// `PartialEq` is deliberately absent: there is no reason to compare a whole
+/// `InferenceResult` in a test, and printing it via `Debug` would drag the entire
+/// transcription into the failure message. Tests match the variant with
+/// `matches!`.
 #[derive(Debug)]
 pub(crate) enum Completion {
-    /// Пользователь отменил, пока движок работал. Ничего не вставляется и
-    /// ничего не записывается.
+    /// The user cancelled while the engine was working. Nothing is inserted and
+    /// nothing is recorded.
     Cancelled,
-    /// Движок не справился. Сообщение уходит в оверлей как есть.
+    /// The engine failed. The message goes to the overlay as is.
     Failed(String),
-    /// Движок вернул пустоту — тишина или слишком короткая запись. От
-    /// `Failed` отличается только формулировкой: обе ветки завершают цикл
-    /// без текста.
+    /// The engine returned nothing — silence or too short a recording. It
+    /// differs from `Failed` only in wording: both branches end the cycle
+    /// without text.
     Empty,
-    /// Текст есть, дальше постобработка.
+    /// There is text; post-processing comes next.
     Transcribed(crate::whisper::InferenceResult),
 }
 
@@ -3829,29 +3841,28 @@ pub(crate) fn classify_completion(
     cancelled: bool,
     result: Result<crate::whisper::InferenceResult, String>,
 ) -> Completion {
-    // Отмена старше всего остального, включая ошибку: пользователь уже
-    // сказал, что эта сессия ему не нужна, и показывать по ней сбой —
-    // значит объяснять последствия решения, которое он сам и принял.
+    // Cancellation outranks everything else, errors included: the user has
+    // already said they do not need this session, and reporting a failure for it
+    // means explaining the consequences of a decision they made themselves.
     if cancelled {
         return Completion::Cancelled;
     }
     match result {
         Err(error) => Completion::Failed(error),
-        // `trim`, а не `is_empty`: whisper на тишине возвращает пробел или
-        // перевод строки, и «непустой» такой ответ приводил к вставке
-        // пустоты с бодрым «Текст готов».
+        // `trim` rather than `is_empty`: on silence whisper returns a space or a
+        // newline, and treating such an answer as "non-empty" led to inserting
+        // nothing with a cheerful «Текст готов».
         Ok(inference) if inference.text.trim().is_empty() => Completion::Empty,
         Ok(inference) => Completion::Transcribed(inference),
     }
 }
 
-/// Стоит ли вставлять то, что осталось после постобработки.
+/// Whether what remains after post-processing is worth inserting.
 ///
-/// Пусто здесь не значит «движок ничего не услышал» — значит, что
-/// форматтер убрал всё услышанное. Так бывает, когда вся расшифровка
-/// оказалась галлюцинацией на тишине («Субтитры сделал…»). Вставить
-/// запасной вариант в этом случае — вставить ровно тот артефакт, который
-/// только что вычистили.
+/// Empty here does not mean "the engine heard nothing" — it means the formatter
+/// removed everything it heard. That happens when the whole transcription turned
+/// out to be a hallucination on silence («Субтитры сделал…»). Inserting the
+/// fallback in that case means inserting exactly the artifact just cleaned out.
 pub(crate) fn is_deliverable(final_text: &str) -> bool {
     !final_text.trim().is_empty()
 }
@@ -4139,9 +4150,9 @@ async fn post_process_transcription(
 /// `None` when the list is empty, so a user who never opened the setting
 /// pays nothing: an empty prompt still costs decoder tokens.
 pub(crate) fn custom_words_prompt(config: &crate::config::Config) -> Option<String> {
-    // Эффективный словарь, а не только свои слова: включённый набор
-    // должен подсказывать декодеру ровно так же, иначе он чинил бы термины
-    // после распознавания, но не мешал бы их ломать.
+    // The effective dictionary, not just your own words: an enabled set must
+    // hint the decoder exactly the same way, otherwise it would repair terms
+    // after recognition without preventing them from being broken.
     let words = text_formatting_config(config).effective_custom_words();
     let joined = words
         .iter()
@@ -4391,25 +4402,25 @@ mod llm_gate_tests {
     use super::*;
     use serde_json::json;
 
-    /// Живая диктовка при `pipeline_mode: "hybrid"` обязана идти в LLM —
-    /// это ровно тот случай, который сломался, когда основной хоткей нёс
-    /// собственное «только локально»: настройка стояла, а в буфер падал
-    /// необработанный Whisper.
+    /// A live dictation with `pipeline_mode: "hybrid"` must go to the LLM —
+    /// this is exactly the case that broke when the main hotkey carried its own
+    /// "local only": the setting was in place while raw Whisper landed in the
+    /// clipboard.
     #[test]
     fn hybrid_config_runs_the_llm() {
         assert!(llm_should_run(Some(&json!({"pipeline_mode": "hybrid"}))));
     }
 
-    /// `local` — это whisper и точка; `cloud` меняет whisper на облачный
-    /// STT, но своего LLM-прохода не добавляет.
+    /// `local` is whisper and nothing else; `cloud` swaps whisper for cloud STT
+    /// but adds no LLM pass of its own.
     #[test]
     fn local_and_cloud_do_not() {
         assert!(!llm_should_run(Some(&json!({"pipeline_mode": "local"}))));
         assert!(!llm_should_run(Some(&json!({"pipeline_mode": "cloud"}))));
     }
 
-    /// Неполный конфиг не должен молча включать сеть: ни отсутствующий
-    /// режим, ни отсутствующий блок `ai_processing` не равны `hybrid`.
+    /// An incomplete config must not silently enable the network: neither a
+    /// missing mode nor a missing `ai_processing` block equals `hybrid`.
     #[test]
     fn a_partial_config_never_enables_the_llm() {
         assert!(!llm_should_run(Some(&json!({}))));
@@ -4435,9 +4446,9 @@ mod completion_tests {
         }
     }
 
-    /// Первое обещание диспетчера: отменённая сессия не вставляется. Это
-    /// та самая ветка, ради которой проверка отмены стоит раньше всего
-    /// остального.
+    /// The dispatcher's first promise: a cancelled session is not inserted. This
+    /// is the very branch for which the cancellation check comes before
+    /// everything else.
     #[test]
     fn a_cancelled_session_is_cancelled_whatever_the_engine_returned() {
         assert!(matches!(
@@ -4454,9 +4465,9 @@ mod completion_tests {
         ));
     }
 
-    /// Whisper на тишине возвращает не пустую строку, а пробел или перевод
-    /// строки. Без `trim` такой ответ считался текстом, и пользователь
-    /// получал «Текст готов» на пустоту.
+    /// On silence Whisper returns not an empty string but a space or a newline.
+    /// Without `trim` such an answer counted as text, and the user got «Текст
+    /// готов» for nothing at all.
     #[test]
     fn whitespace_is_not_text() {
         for blank in ["", " ", "\n", "\t\n  "] {
@@ -4479,8 +4490,9 @@ mod completion_tests {
         }
     }
 
-    /// Сообщение движка уезжает в оверлей дословно: у него там своя
-    /// подстановка на случай пустоты, и подменять причину сбоя нельзя.
+    /// The engine's message travels to the overlay verbatim: the overlay has its
+    /// own substitution for the empty case, and the cause of a failure must not
+    /// be replaced.
     #[test]
     fn the_engine_message_survives_verbatim() {
         let outcome = classify_completion(false, Err("GigaAM v3 не умеет английский".to_string()));
@@ -4490,8 +4502,8 @@ mod completion_tests {
         }
     }
 
-    /// Ошибка не превращается в пустоту, даже если текста в ней нет: у них
-    /// разные формулировки в оверлее.
+    /// An error does not turn into an empty result even when it carries no text:
+    /// the two are worded differently in the overlay.
     #[test]
     fn a_failure_is_not_an_empty_transcription() {
         assert!(matches!(
@@ -4500,8 +4512,9 @@ mod completion_tests {
         ));
     }
 
-    /// Форматтер мог убрать всё, что услышал: вся расшифровка оказалась
-    /// галлюцинацией на тишине. Вставлять тут нечего.
+    /// The formatter may have removed everything it heard: the whole
+    /// transcription turned out to be a hallucination on silence. There is
+    /// nothing to insert.
     #[test]
     fn text_emptied_by_the_formatter_is_not_delivered() {
         assert!(!is_deliverable(""));
@@ -4512,7 +4525,7 @@ mod completion_tests {
     #[test]
     fn surviving_text_is_delivered() {
         assert!(is_deliverable("привет"));
-        // Один осмысленный символ — всё ещё текст.
+        // A single meaningful character is still text.
         assert!(is_deliverable("!"));
     }
 }

@@ -159,8 +159,8 @@ fn main() {
         if let Some(snippet) = &status.response_snippet {
             println!("   ответ:     {snippet}");
         }
-        // Каждый ответ рядом с входом: цифра говорит, сколько слов пропало,
-        // а какие именно — видно только глазами в самом тексте.
+        // Every answer next to its input: the number says how many words went
+        // missing, while which ones exactly is only visible by eye in the text.
         if status.used {
             let out_path = std::path::Path::new(&text_path)
                 .with_extension(format!("{}.out.txt", model.replace(['/', ':'], "_")));

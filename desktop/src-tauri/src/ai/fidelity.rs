@@ -145,17 +145,17 @@ mod tests {
         assert!(dropped_too_much(&"слово ".repeat(100), ""));
     }
 
-    /// Ровно на пороге длины проверка должна судить, а не воздерживаться.
+    /// Exactly at the length threshold the check must judge, not abstain.
     #[test]
     fn exactly_forty_words_is_judged() {
         let input = "слово ".repeat(40);
         let output = "слово ".repeat(28);
-        // 40 слов — это MIN_WORDS_TO_JUDGE: на границе отношение уже
-        // осмысленно и обязано вернуться как Some, а не None.
+        // 40 words is MIN_WORDS_TO_JUDGE: at the boundary the ratio is already
+        // meaningful and must come back as Some, not None.
         assert!(kept_word_ratio(&input, &output).is_some());
     }
 
-    /// Ровно 70 % — граница допуска: такой ответ сохраняется, а не режется.
+    /// Exactly 70 % is the tolerance boundary: such an answer is kept, not cut.
     #[test]
     fn exactly_seventy_percent_is_kept() {
         let input = "слово ".repeat(100);

@@ -168,12 +168,12 @@ pub struct AppState {
     /// accurate indicator separate from `downloaded` (file on disk).
     pub engine_current_model: Arc<Mutex<Option<String>>>,
 
-    /// Флаги отмены скачиваний, по идентификатору модели.
+    /// Download cancellation flags, keyed by model identifier.
     ///
-    /// Отдельно от `cancel_flags`: те живут сессиями распознавания и
-    /// нумеруются, а скачивание идентифицируется моделью — отменить надо
-    /// именно ту, что сейчас качается, и знать про неё пользователь может
-    /// только по имени.
+    /// Separate from `cancel_flags`: those live per recognition session and are
+    /// numbered, while a download is identified by its model — what must be
+    /// cancelled is the one being downloaded right now, and the only way the
+    /// user knows it is by name.
     pub download_cancels: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
 }
 
@@ -212,16 +212,17 @@ impl AppState {
         }
     }
 
-    /// Занять модель под скачивание и получить страж, который освободит её
-    /// на любом выходе — включая `?` и панику.
+    /// Claim a model for downloading and receive a guard that releases it on any
+    /// exit — including `?` and a panic.
     ///
-    /// `None` — эту модель уже качают. Проверка и запись под одним замком:
-    /// две загрузки одной модели писали бы один и тот же `*.part`,
-    /// наперегонки проверяли бы его сумму и переименовывали бы результат, а
-    /// отмена доставалась бы только последней.
+    /// `None` — this model is already being downloaded. The check and the write
+    /// happen under one lock: two downloads of the same model would write the
+    /// same `*.part`, race each other checking its checksum and renaming the
+    /// result, while a cancel would reach only the last one.
     ///
-    /// Флаг регистрируется до первого байта: иначе отмена, нажатая в первую
-    /// секунду, не найдёт что отменять и молча ничего не сделает.
+    /// The flag is registered before the first byte: otherwise a cancel pressed
+    /// within the first second finds nothing to cancel and silently does
+    /// nothing.
     pub fn try_claim_download(&self, model_id: &str) -> Option<DownloadGuard> {
         let mut registry = crate::mutex_recover::lock(&self.download_cancels);
         if registry.contains_key(model_id) {
@@ -236,7 +237,7 @@ impl AppState {
         })
     }
 
-    /// Попросить скачивание остановиться. `false` — такого скачивания нет.
+    /// Ask a download to stop. `false` — there is no such download.
     pub fn cancel_download(&self, model_id: &str) -> bool {
         let flag = crate::mutex_recover::lock(&self.download_cancels)
             .get(model_id)
@@ -474,9 +475,9 @@ impl AppState {
     }
 }
 
-/// Занятая под скачивание модель, выданная [`AppState::try_claim_download`].
+/// A model claimed for download, handed out by [`AppState::try_claim_download`].
 ///
-/// Пока страж жив, вторая загрузка этой же модели не начнётся.
+/// While the guard is alive, a second download of the same model cannot start.
 pub struct DownloadGuard {
     state: AppState,
     model_id: String,
@@ -495,8 +496,8 @@ impl DownloadGuard {
 
 impl Drop for DownloadGuard {
     fn drop(&mut self) {
-        // Записи под этим именем всегда одна: `try_claim_download` не даёт
-        // завести вторую, пока жив этот страж.
+        // There is always exactly one entry under this name:
+        // `try_claim_download` will not create a second while this guard lives.
         crate::mutex_recover::lock(&self.state.download_cancels).remove(&self.model_id);
     }
 }
@@ -915,9 +916,9 @@ mod tests {
 
     #[test]
     fn the_same_model_is_never_downloaded_twice_at_once() {
-        // Две загрузки одной модели писали бы один и тот же `*.part`,
-        // наперегонки проверяли бы его сумму и переименовывали бы
-        // результат, а отмена доставалась бы только последней.
+        // Two downloads of one model would write the same `*.part`, race each
+        // other checking its checksum and renaming the result, while a cancel
+        // would reach only the last one.
         let state = test_state();
         let first = state.try_claim_download("turbo").unwrap();
 
@@ -925,7 +926,7 @@ mod tests {
             state.try_claim_download("turbo").is_none(),
             "вторая заявка на ту же модель отклоняется"
         );
-        // Другая модель при этом не заперта: качать их одновременно можно.
+        // A different model is not locked out: downloading them at once is fine.
         assert!(state.try_claim_download("tiny").is_some());
 
         drop(first);

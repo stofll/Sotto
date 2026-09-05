@@ -58,9 +58,9 @@ function clampLevel(value: unknown) {
 function shortAiProblem(payload?: TranscriptionPayload) {
   if (payload?.ai_problem) return payload.ai_problem;
   const ai = payload?.ai_processing;
-  // Ненастроенный провайдер — не fallback: запроса не было вовсе, и до этой
-  // строки такая диктовка приходила без единого слова о том, почему в режиме
-  // с LLM вставился необработанный текст.
+  // An unconfigured provider is not a fallback: no request was made at all, and
+  // before this line such a dictation arrived without a single word about why
+  // unprocessed text was inserted in a mode with an LLM.
   if (ai?.skipped_reason === "missing_provider" || ai?.skipped_reason === "missing_api_key") {
     return t("LLM не настроена, вставлен локальный текст");
   }
@@ -72,9 +72,9 @@ function shortAiProblem(payload?: TranscriptionPayload) {
 
 export function OverlayApp() {
   useLocale();
-  // Оверлей — отдельное webview-окно со своим JS-контекстом, поэтому язык
-  // главного окна сюда сам не переносится. Читаем его один раз при монтаже и
-  // слушаем дальнейшие изменения; это не добавляет IPC на старт записи.
+  // The overlay is a separate webview window with its own JS context, so the
+  // main window's language does not carry over by itself. We read it once on
+  // mount and listen for later changes; this adds no IPC at recording start.
   useEffect(() => {
     let disposed = false;
     let unlisten: (() => void) | undefined;
@@ -102,15 +102,14 @@ export function OverlayApp() {
   // When decoding finished, so "Распознано" can start showing how long the
   // post-processing has been running.
   const [decodedAt, setDecodedAt] = useState<number | null>(null);
-  // Растущая гипотеза потоковой модели. Живёт только во время записи: после
-  // остановки её место занимает финальный текст, а показывать одновременно
-  // черновик и результат — значит показывать два разных ответа на один
-  // вопрос.
+  // The streaming model's growing hypothesis. It lives only while recording:
+  // after the stop its place is taken by the final text, and showing the draft
+  // and the result at once means showing two different answers to one question.
   const [previewText, setPreviewText] = useState("");
-  // Сессия, для которой включён живой предпросмотр. Хранится номером, а не
-  // флагом: событие о включении и `recording-started` приходят из разных
-  // мест, и порядок между ними не гарантирован — по номеру видно, что они
-  // об одной и той же диктовке.
+  // The session the live preview is enabled for. Stored as a number rather than
+  // a flag: the enable event and `recording-started` come from different places
+  // and their order is not guaranteed — the number shows they are about one and
+  // the same dictation.
   const [armedSession, setArmedSession] = useState<number | null>(null);
   const [errorText, setErrorText] = useState("");
   const [aiProblem, setAiProblem] = useState("");
@@ -255,11 +254,11 @@ export function OverlayApp() {
     };
   }, []);
 
-  // Отдельная форма оверлея на время диктовки потоковой моделью. Признак —
-  // сама модель, а не наличие текста: иначе окно меняет форму посреди
-  // фразы, ровно в тот момент, когда на него смотрят.
-  // Пришедший текст — страховка на случай, если событие о включении
-  // разминулось с прогревом окна: показать гипотезу в таблетке негде.
+  // A separate overlay shape for a dictation with a streaming model. The signal
+  // is the model itself, not the presence of text: otherwise the window changes
+  // shape mid-phrase, at exactly the moment somebody is looking at it.
+  // Arrived text is the safety net for when the enable event missed the window
+  // warm-up: there is nowhere to show a hypothesis inside the pill.
   const streaming = state === "recording" && (armedSession !== null || previewText.length > 0);
   useEffect(() => {
     void tauriInvoke("set_overlay_streaming", { streaming }).catch(() => {});
@@ -268,9 +267,9 @@ export function OverlayApp() {
   useEffect(() => {
     const unlisteners = Promise.all([
       listen<PreviewPayload>("transcription-delta", (e) => {
-        // Событие предыдущей диктовки не должно дописывать текущую: Rust
-        // уже фильтрует по сессии, но между остановкой и следующим стартом
-        // окно всё равно есть.
+        // An event from the previous dictation must not append to the current
+        // one: Rust already filters by session, but a window between the stop
+        // and the next start exists all the same.
         if (_currentSessionId === null || e.payload?.session_id !== _currentSessionId) return;
         setPreviewText(e.payload.text ?? "");
       }),
@@ -280,8 +279,8 @@ export function OverlayApp() {
       listen<number>("recording-started", (e) => {
         _currentSessionId = e.payload;
         setPreviewText("");
-        // Не затираем отметку, если она уже пришла про эту же диктовку:
-        // порядок этих двух событий не гарантирован.
+        // We do not overwrite the mark if it already arrived for this same
+        // dictation: the order of these two events is not guaranteed.
         setArmedSession((current) => (current === e.payload ? current : null));
         setState("recording");
         setRecordingStartedAt(eventTime(e.payload as unknown as TimedPayload));
@@ -330,9 +329,9 @@ export function OverlayApp() {
         setAiProblem(shortAiProblem(e.payload));
         setDecodedAt(null);
       }),
-      // Распознали, но вставить не смогли. Отдельное событие, потому что
-      // whisper тут ни при чём, а оверлей иначе остаётся ждать вставки,
-      // которой не будет.
+      // Transcribed but could not be inserted. A separate event, because whisper
+      // has nothing to do with it and the overlay would otherwise keep waiting
+      // for an insertion that will never come.
       listen<ErrorPayload>("paste-failed", (e) => {
         if (!belongsToCurrentSession(e.payload)) return;
         _currentSessionId = null;
@@ -411,9 +410,10 @@ export function OverlayApp() {
     <div className="app-frame" style={{ position: "fixed", inset: 0, padding: 0, background: "transparent", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", fontFamily: "var(--font-sans)", color: "var(--text)", letterSpacing: 0 }}>
       <div style={shell}>
         {streaming ? (
-          // Текст занимает всю ширину и живёт под верхним рядом: в строке
-          // между таймером и крестиком ему оставалось меньше половины окна,
-          // и всё, что не помещалось, просто не показывалось.
+          // The text takes the full width and lives below the top row: on a
+          // line between the timer and the close button it was left with less
+          // than half the window, and whatever did not fit was simply not
+          // shown.
           <div style={{ ...surface, display: "flex", flexDirection: "column", gap: 8, padding: "9px 11px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <TimerBadge duration={duration}/>
@@ -476,19 +476,20 @@ function StateDetail({ state, levels, pastedLength, polishingMs, errorText, aiPr
   return <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", font: "600 14px/1.2 var(--font-sans)", color: "var(--text-2)", textAlign: "left" }}>{detail.text}</div>;
 }
 
-/// Живая лента гипотезы: видно всегда конец.
+/// A live feed of the hypothesis: the end is always in view.
 ///
-/// Обрезка по количеству символов этого не давала: показывались первые
-/// строки последних N символов, то есть середина сказанного, а свежие слова
-/// — те самые, ради которых на оверлей и смотрят, — оставались за нижним
-/// краем. Поэтому не обрезаем, а прокручиваем к концу.
+/// Truncating by character count did not achieve that: it showed the first
+/// lines of the last N characters, that is the middle of what was said, while
+/// the freshest words — the very ones the overlay is watched for — stayed below
+/// the bottom edge. So instead of truncating we scroll to the end.
 ///
-/// Гипотеза может переписываться задним числом, поэтому это черновик, а не
-/// результат: он никуда не вставляется, вставится расшифровка всей записи.
+/// A hypothesis may be rewritten retroactively, so this is a draft rather than
+/// a result: it is inserted nowhere; the transcription of the whole recording is
+/// what gets inserted.
 function PreviewPane({ text }: { text: string }) {
   const ref = useRef<HTMLDivElement | null>(null);
-  // Layout, а не обычный effect: прокрутка до отрисовки не даёт кадру с
-  // текстом появиться в неправильном положении и дёрнуться.
+  // A layout effect rather than an ordinary one: scrolling before paint stops
+  // the frame with the text from appearing in the wrong position and jumping.
   useLayoutEffect(() => {
     const node = ref.current;
     if (node) node.scrollTop = node.scrollHeight;

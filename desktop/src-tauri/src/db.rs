@@ -811,15 +811,15 @@ mod migration_v4_tests {
         assert_eq!(ps["audio_seconds"], serde_json::json!(19.2));
     }
 
-    /// Пин на второй дискриминатор из WHERE.
+    /// A pin on the second discriminator from the WHERE clause.
     ///
-    /// Условий там два — `$.text` в ai_processing_json и `$.attempted` в
-    /// processing_stats_json, — и мутационный прогон показал, что первое
-    /// ничем не покрыто: убери его из SQL, и все тесты по-прежнему зелёные,
-    /// потому что во всех подопытных строках второе условие тоже не
-    /// выполняется. Здесь строка подобрана так, что её спасает **только**
-    /// проверка `$.text`. Обе проверки на разрушающем UPDATE стоит держать,
-    /// но каждая должна быть за что-то ответственна.
+    /// There are two conditions — `$.text` in ai_processing_json and
+    /// `$.attempted` in processing_stats_json — and a mutation run showed the
+    /// first was covered by nothing: remove it from the SQL and every test is
+    /// still green, because in all the rows under test the second condition
+    /// fails as well. Here the row is chosen so that **only** the `$.text` check
+    /// saves it. Both checks on a destructive UPDATE are worth keeping, but each
+    /// must be responsible for something.
     #[test]
     fn a_row_without_the_stranded_text_is_not_repaired() {
         let conn = fresh();
@@ -838,7 +838,7 @@ mod migration_v4_tests {
             )
             .unwrap();
         assert_eq!(text, "живой текст");
-        // Колонки не поменялись местами.
+        // The columns did not swap places.
         let ai: serde_json::Value = serde_json::from_str(&ai).unwrap();
         assert_eq!(ai["used"], serde_json::json!(true));
     }

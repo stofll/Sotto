@@ -10,8 +10,9 @@ describe("checkApiKey", () => {
     expect(apiKeyBlocks(checkApiKey("openai", null, ""))).toBe(true);
   });
 
-  // Диапазон печатаемых ASCII поймал бы пробел и сам, поэтому проверяется
-  // именно то, ради чего правило существует: своё сообщение вместо общего.
+  // The printable ASCII range would catch a space on its own, so what is
+  // checked is exactly what the rule exists for: its own message instead of the
+  // generic one.
   it("names the space rather than lumping it in with junk characters", () => {
     const check = checkApiKey("openai", null, "sk-proj-0123 456789abcdef");
     expect(check?.code).toBe("whitespace");
@@ -38,9 +39,9 @@ describe("checkApiKey", () => {
     expect(checkApiKey("openai", null, `  ${OPENAI_KEY}\n`)).toBeNull();
   });
 
-  // Единого формата нет: приставки различаются, а у части провайдеров их
-  // нет вовсе. Поэтому несовпадение — предупреждение, а не запрет: список
-  // приставок устареет раньше, чем ключи.
+  // There is no single format: prefixes differ, and some providers have none at
+  // all. So a mismatch is a warning rather than a ban: the list of prefixes will
+  // go stale sooner than the keys will.
   it("warns about a foreign prefix but lets it through", () => {
     const check = checkApiKey("anthropic", null, OPENAI_KEY);
     expect(check?.code).toBe("prefix");

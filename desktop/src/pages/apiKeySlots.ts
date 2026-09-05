@@ -44,9 +44,9 @@ export function collectSlots(config: ConfigResult["ai_processing"] | null, apiKe
     });
   }
 
-  // Слоты без профиля. Без этого прохода ключ, созданный кнопкой «Добавить
-  // ключ», не попадал в список ни разу: его ref (`key_<время>`) не совпадает
-  // ни с ref профиля, ни с id провайдера.
+  // Profile-less slots. Without this pass a key created by the «Добавить ключ»
+  // button never made it into the list: its ref (`key_<timestamp>`) matches
+  // neither a profile ref nor a provider id.
   for (const slot of config?.key_slots ?? []) {
     if (!slot.ref || seen.has(slot.ref)) continue;
     seen.add(slot.ref);

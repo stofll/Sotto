@@ -43,9 +43,10 @@ pub fn is_accessibility_granted() -> bool {
 /// `kind === "permission"` and shows a dismissable banner with a
 /// deep-link into System Settings.
 ///
-/// macOS-only, как и оба вызова (`clipboard.rs`, `lib.rs`): на остальных
-/// платформах разрешения нет, вызовы вырезаются по `cfg`, и без этого
-/// атрибута функция висела бы мёртвой — clippy на Linux валил сборку.
+/// macOS-only, like both call sites (`clipboard.rs`, `lib.rs`): other platforms
+/// have no such permission, the calls are cut out by `cfg`, and without this
+/// attribute the function would hang there dead — clippy failed the build on
+/// Linux.
 #[cfg(target_os = "macos")]
 pub fn emit_accessibility_error(app: &AppHandle) {
     let _ = app.emit(

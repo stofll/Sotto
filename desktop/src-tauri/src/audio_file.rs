@@ -660,8 +660,8 @@ mod tests {
         assert_eq!(MAX_DURATION_SECONDS, 10_800.0);
     }
 
-    /// Обрезанный файл — это всё ещё запись пользователя: что декодировалось
-    /// до обрыва, должно вернуться, а не уйти в ошибку целиком.
+    /// A truncated file is still the user's recording: whatever decoded before
+    /// the break must come back rather than be lost to an error wholesale.
     #[test]
     fn truncated_file_keeps_what_decoded() {
         let mut bytes = wav_bytes(&sine(16_000, 0.5, 440.0), 16_000, 1);
@@ -678,8 +678,9 @@ mod tests {
 
     #[test]
     fn downmixes_identical_channels_to_the_same_signal() {
-        // L == R: среднее — это сам сигнал. `sum / channels` ловится здесь,
-        // а не на L == -R (там сумма равна нулю и `*`/`%` дают тот же ноль).
+        // L == R: the average is the signal itself. `sum / channels` is caught
+        // here rather than at L == -R (there the sum is zero and `*`/`%` give
+        // the same zero).
         let tone = sine(16_000, 0.5, 440.0);
         let mut interleaved = Vec::with_capacity(tone.len() * 2);
         for sample in &tone {
