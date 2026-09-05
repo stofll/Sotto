@@ -422,7 +422,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 12 }}>
           <h2 style={{ margin: 0, font: "600 14px/1.2 var(--font-sans)", display: "inline-flex", alignItems: "center", gap: 5 }}>
              {t("Профили LLM")} <Hint text={t("Один профиль = одна связка provider + ключ + модель. Создаются и редактируются они в «Интеграциях»; здесь профиль только выбирают.")}/>
-            <span className="pill mono">{profiles.length}</span>
+            <span className="head-count">{profiles.length}</span>
           </h2>
           <button className="btn btn--ghost" onClick={() => onNavigate("integrations")}>
             <Icon name="server" size={12}/>{t("Управлять профилями")}<Icon name="arrow-right" size={11}/>

@@ -1701,6 +1701,11 @@ button.card { appearance: none; font: inherit; color: inherit; }
    кнопки наезжало на переключатель справа. */
 .fold__title { font: 600 13.5px/1 var(--font-sans); color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 
+/* Счётчик у заголовка — цифра, а не состояние: плашка вокруг неё спорила по
+   весу с самим заголовком и путала счёт с плашками состояния («активный»,
+   «не сохранено»), которые рядом остаются в баблах. */
+.head-count { font: 500 10.5px/1.7 var(--font-mono); color: var(--ink-dim); white-space: nowrap; flex-shrink: 0; }
+
 .fold__aside { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .fold__body { border-top: 1px solid var(--line-soft); }
 

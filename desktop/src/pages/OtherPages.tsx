@@ -284,7 +284,7 @@ export function StatsPage({ stats, typingSpeedCpm = 240, onRefresh }: { stats: S
       <PageHeader
         title={t("Статистика")}
         actions={<>
-          <span className="pill mono" title={t("Скорость ручного набора из настроек")}>{speedCpm.toLocaleString(localeTag())}  {t("симв/мин")}</span>
+          <span className="head-count" title={t("Скорость ручного набора из настроек")}>{speedCpm.toLocaleString(localeTag())}  {t("симв/мин")}</span>
           <Segmented value={range} options={RANGE_OPTIONS()} onChange={(value) => setRange(value as StatsRange)}/>
           <button className="btn btn--ghost" onClick={() => void refresh()} disabled={refreshing}><Icon name="refresh" size={13}/>{refreshing ? t("Обновляю") : t("Обновить")}</button>
         </>}
@@ -349,7 +349,7 @@ export function StatsPage({ stats, typingSpeedCpm = 240, onRefresh }: { stats: S
         <section className="card chart-card">
           <div className="chart-card__head">
             <div className="chart-card__title">{t("Разбивка обработки")}</div>
-            <span className="pill mono">{periodSub}</span>
+            <span className="head-count">{periodSub}</span>
           </div>
           <BreakdownRow label="STT" value={formatShortDuration(whisperSeconds)} tone="accent"/>
           <BreakdownRow label={t("Форматирование")} value={formatShortDuration(formatSeconds)}/>
@@ -374,7 +374,7 @@ export function StatsPage({ stats, typingSpeedCpm = 240, onRefresh }: { stats: S
             </div>
             {/* Единственный блок, который фильтру не подчиняется: разбивки по
                 датам у причин в базе нет. Поэтому и подписан «за всё время». */}
-            <span className="pill mono">{fallbackReasons.reduce((sum, reason) => sum + reason.count, 0).toLocaleString(localeTag())}  {t("за всё время")}</span>
+            <span className="head-count">{fallbackReasons.reduce((sum, reason) => sum + reason.count, 0).toLocaleString(localeTag())}  {t("за всё время")}</span>
           </div>
           {fallbackReasons.map((reason) => (
             <BreakdownRow
@@ -774,7 +774,7 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
             open={Boolean(folds.clean)}
             onToggle={() => toggleFold("clean")}
             title={t("Очистка")}
-            summary={<span className="pill mono">{activeCleanCount}/{cleanRules.length}</span>}
+            summary={<span className="head-count">{activeCleanCount}/{cleanRules.length}</span>}
             /* Плашки «включена» рядом с переключателем нет: она говорила ровно
                то же, что и его положение, а в узкой колонке из-за неё шапка
                переносилась на вторую строку. */
@@ -801,7 +801,7 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
             onToggle={() => toggleFold("repl")}
             title={t("Замены")}
             summary={<>
-              <span className="pill mono">{activeCount}/{rules.length}</span>
+              <span className="head-count">{activeCount}/{rules.length}</span>
               {!saved && <span className="pill warn">{t("не сохранено")}</span>}
             </>}
             aside={<span title={paused ? t("Замены на паузе") : t("Замены применяются")}><Switch on={!paused} onChange={(next) => void setPaused(!next)}/></span>}
@@ -839,7 +839,7 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
             open={Boolean(folds.dict)}
             onToggle={() => toggleFold("dict")}
             title={t("Словари")}
-            summary={<span className="pill mono">{dictionarySize} {tPlural(dictionarySize, ["слово", "слова", "слов"])}</span>}
+            summary={<span className="head-count">{dictionarySize} {tPlural(dictionarySize, ["слово", "слова", "слов"])}</span>}
           >
             <div style={{ padding: 14, display: "grid", gap: 14 }}>
               <div>
