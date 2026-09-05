@@ -2635,6 +2635,11 @@ async fn cancel_recording(
 /// emits `microphone-test-started` / `microphone-test-level` events
 /// at ~25 Hz so the frontend can render a VU meter. Returns the test
 /// state info (`active: true` on success).
+///
+/// `monitor` turns on echo — the captured frames are also emitted as
+/// `microphone-test-audio` for the frontend to play back. It is off by
+/// default: the level check is a separate mode and must not send the
+/// user's voice to the speakers on its own.
 /// Helper: extract a panic message from `catch_unwind`'s `Box<dyn Any>`.
 pub(crate) fn panic_msg(panic: Box<dyn std::any::Any + Send + 'static>) -> String {
     panic
@@ -2649,6 +2654,7 @@ async fn start_microphone_test(
     app: AppHandle,
     state: tauri::State<'_, AppState>,
     microphone: Option<serde_json::Value>,
+    monitor: Option<bool>,
 ) -> Result<crate::mic_test::MicrophoneTestInfo, String> {
     // catch_unwind prevents a panic inside cpal/audio from crashing
     // the app. The microphone test path can fail silently or hard-crash
@@ -2662,6 +2668,7 @@ async fn start_microphone_test(
                 test.start(
                     &app_for_worker,
                     crate::config::microphone_selection(microphone),
+                    monitor.unwrap_or(false),
                 )
             }))
         })
@@ -2711,6 +2718,19 @@ async fn stop_microphone_test(
             Err(msg)
         }
     }
+}
+
+/// Toggle echo monitoring on a running microphone test.
+///
+/// Separate from start/stop so switching echo on or off does not restart
+/// the capture stream — the level meter keeps running across the toggle.
+#[tauri::command]
+async fn set_microphone_test_monitor(
+    state: tauri::State<'_, AppState>,
+    enabled: bool,
+) -> Result<crate::mic_test::MicrophoneTestInfo, String> {
+    state.microphone_test.set_monitor(enabled);
+    state.microphone_test.info()
 }
 
 /// Test the paste pipeline from the frontend.
@@ -3689,6 +3709,7 @@ pub fn run() {
             cancel_recording,
             start_microphone_test,
             stop_microphone_test,
+            set_microphone_test_monitor,
             // WS 4b Task 9: stats + history Tauri commands. Frontend calls
             // these via `rustInvoke` from `desktop/src/bridge/stats.ts`.
             // All 5 are `async fn` so the DB op runs through `spawn_blocking`

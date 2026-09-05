@@ -4,6 +4,10 @@ export function Icon({ name, size = 16, ...rest }: IconProps) {
   const props = { width: size, height: size, viewBox: "0 0 16 16", fill: "none", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round", strokeLinejoin: "round", ...rest } as const;
   switch (name) {
     case "mic": return <svg {...props}><rect x="6" y="2" width="4" height="8" rx="2"/><path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2M5.5 14h5"/></svg>;
+    // Наушники для эхо-контроля: дуга оголовья и две чашки. Микрофону на
+    // соседней кнопке нужен визуально непохожий сосед — иначе две кнопки
+    // подряд читаются как одна пара «вкл/выкл» одного и того же режима.
+    case "headphones": return <svg {...props}><path d="M3 10.5V8a5 5 0 0 1 10 0v2.5"/><rect x="2" y="9.5" width="3" height="4.5" rx="1.5"/><rect x="11" y="9.5" width="3" height="4.5" rx="1.5"/></svg>;
     case "sliders": return <svg {...props}><path d="M2 4h7M11 4h3M2 8h3M7 8h7M2 12h9M13 12h1"/><circle cx="10" cy="4" r="1.4"/><circle cx="6" cy="8" r="1.4"/><circle cx="12" cy="12" r="1.4"/></svg>;
     case "replace": return <svg {...props}><path d="M3 5h7l-2-2M3 5l2 2M13 11H6l2 2M13 11l-2-2"/></svg>;
     // Раздел «Текст» помечался палочкой-волшебницей: пять разнокалиберных

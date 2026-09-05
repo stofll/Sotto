@@ -528,7 +528,12 @@ function nextActive(prev: boolean, level: number): boolean {
 type SidecarErrorPayload = { kind?: string; permission?: string; hint?: string; message?: string };
 
 function MicPicker({ microphone, microphones, onConfigChanged }: { microphone?: string | number | null; microphones: MicrophoneResult[]; onConfigChanged: Props["onConfigChanged"] }) {
-  const [testing, setTesting] = useState(false);
+  // Проверка уровня и эхо — два разных режима на одном потоке захвата.
+  // Раньше кнопка была одна и включала оба сразу: чтобы посмотреть на
+  // индикатор, приходилось слушать себя в колонках и ловить самовозбуждение.
+  // Поэтому флага два, а поток живёт, пока включён хотя бы один из них.
+  const [checking, setChecking] = useState(false);
+  const [echo, setEcho] = useState(false);
   const [busy, setBusy] = useState(false);
   const [devices, setDevices] = useState(microphones);
   const playback = useRef<AudioContext | null>(null);
@@ -657,8 +662,11 @@ function MicPicker({ microphone, microphones, onConfigChanged }: { microphone?: 
         setMicActive(active);
       }
     });
-    subscribe<unknown>("microphone-test-started", () => { setTesting(true); setError(null); setRunningStatus(t("Тест микрофона запущен")); });
-    subscribe<unknown>("microphone-test-stopped", () => { closePlayback(); setTesting(false); resetMeter(); setStoppedStatus(t("Тест микрофона остановлен")); });
+    // Режимы включают обработчики кнопок — они знают, какой из двух нажали.
+    // Здесь остаётся только внешняя остановка (скрытие окна, смена устройства):
+    // поток захвата один, и с его концом гаснут оба режима.
+    subscribe<unknown>("microphone-test-started", () => { setError(null); });
+    subscribe<unknown>("microphone-test-stopped", () => { closePlayback(); setChecking(false); setEcho(false); resetMeter(); });
     subscribe<SidecarErrorPayload>("app-error", (payload) => {
       // События о разрешениях показывает баннер в MainWindow — у него текст под
       // конкретное разрешение и ссылка в нужную панель системных настроек.
@@ -670,7 +678,8 @@ function MicPicker({ microphone, microphones, onConfigChanged }: { microphone?: 
     });
     subscribe<{ message?: string }>("microphone-test-failed", (payload) => {
       closePlayback();
-      setTesting(false);
+      setChecking(false);
+      setEcho(false);
       resetMeter();
       setError(payload?.message ?? t("Тест микрофона не удался"));
       setStoppedStatus(t("Ошибка теста микрофона"));
@@ -687,36 +696,69 @@ function MicPicker({ microphone, microphones, onConfigChanged }: { microphone?: 
     };
   }, []);
 
-  async function toggleTest() {
+  // Захват общий на оба режима: старт идемпотентен, остановка — только когда
+  // второй режим тоже выключен, иначе выход из эха гасил бы индикатор.
+  async function startCapture(monitor: boolean) {
+    await invoke("start_microphone_test", { microphone: microphone ?? null, monitor });
+  }
+
+  async function stopCapture() {
+    closePlayback();
+    setChecking(false);
+    setEcho(false);
+    resetMeter();
+    await invoke("stop_microphone_test");
+  }
+
+  async function toggleCheck() {
     if (busy) return;
     setBusy(true);
     setError(null);
     try {
-      if (testing) {
-        closePlayback();
-        await invoke("stop_microphone_test");
-        setTesting(false);
-        resetMeter();
-        setStoppedStatus(t("Тест микрофона остановлен"));
+      if (checking) {
+        setChecking(false);
+        if (!echo) await stopCapture();
+        setStoppedStatus(t("Проверка микрофона остановлена"));
       } else {
+        await startCapture(echo);
+        setChecking(true);
+        setRunningStatus(t("Проверка микрофона запущена"));
+      }
+    } catch (e) {
+      await stopCapture().catch(() => {});
+      setError(e instanceof Error ? e.message : String(e));
+    } finally { setBusy(false); }
+  }
+
+  async function toggleEcho() {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      if (echo) {
+        closePlayback();
+        setEcho(false);
+        await invoke("set_microphone_test_monitor", { enabled: false });
+        if (!checking) await stopCapture();
+        setStoppedStatus(t("Эхо выключено"));
+      } else {
+        // Контекст открывается до старта захвата: браузерный autoplay-гейт
+        // снимается только внутри обработчика клика.
         const context = new AudioContext();
         playback.current = context;
         await context.resume();
-        await invoke("start_microphone_test", { microphone: microphone ?? null });
-        setTesting(true);
-        setRunningStatus(t("Тест микрофона запущен"));
+        await startCapture(true);
+        setEcho(true);
+        setRunningStatus(t("Эхо включено"));
       }
     } catch (e) {
-      closePlayback();
-      setTesting(false);
+      await stopCapture().catch(() => {});
       setError(e instanceof Error ? e.message : String(e));
     } finally { setBusy(false); }
   }
 
   async function selectMicrophone(value: string | number | null) {
-    closePlayback();
-    await invoke("stop_microphone_test");
-    setTesting(false);
+    await stopCapture();
     await onConfigChanged({ microphone: value });
   }
 
@@ -724,11 +766,18 @@ function MicPicker({ microphone, microphones, onConfigChanged }: { microphone?: 
     <div>
       <div className="mic-control">
         <CustomSelect className="custom-select--mic" value={selectedValue} options={options.map((option) => ({ ...option, icon: "mic" }))} onOpen={() => void refreshDevices()} onChange={(value) => void selectMicrophone(value).catch((e) => setError(String(e)))}/>
-        <button className={`mic-test${testing ? " mic-test--active" : ""}`} type="button" disabled={busy} aria-pressed={testing} onClick={() => void toggleTest()} title={t("Проверить микрофон")}><Icon name="mic" size={14}/></button>
+        {/* Наушники стоят первыми: слева от них — список устройств, и эхо
+            отвечает на первый вопрос про новый микрофон («меня вообще
+            слышно и как?»), а индикатор уровня уточняет громкость. */}
+        <Hint text={t("Возвращает ваш голос обратно, чтобы вы слышали себя таким, каким вас слышит программа: шум, хрипы, гулкость комнаты. Только в наушниках: через колонки микрофон поймает сам себя.")}>
+          <button className={`mic-test${echo ? " mic-test--active" : ""}`} type="button" disabled={busy} aria-pressed={echo} aria-label={t("Эхо")} onClick={() => void toggleEcho()}><Icon name="headphones" size={14}/></button>
+        </Hint>
+        <Hint text={t("Индикатор показывает уровень сигнала. Скажите что-нибудь: полоса должна доходить до середины и не упираться в край.")}>
+          <button className={`mic-test${checking ? " mic-test--active" : ""}`} type="button" disabled={busy} aria-pressed={checking} aria-label={t("Проверка микрофона")} onClick={() => void toggleCheck()}><Icon name="mic" size={14}/></button>
+        </Hint>
         {status && <span className={`mic-status-chip${status.kind === "stopped" ? " mic-status-chip--stop" : ""}`} role="status" aria-live="polite">{status.text}</span>}
         <MicMeter level={level} peak={peak} active={micActive}/>
       </div>
-      <div style={{ marginTop: 6, color: "var(--text-muted)", fontSize: 11 }}>{t("Нажмите на микрофон, чтобы услышать себя. Используйте наушники, чтобы избежать эха. Нажмите ещё раз, чтобы остановить проверку.")}</div>
       {error && <div role="alert" style={{ marginTop: 6, color: "var(--err)", font: "500 11px/1.4 var(--font-sans)" }}>{error}</div>}
     </div>
   );

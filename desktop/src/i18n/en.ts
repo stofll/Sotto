@@ -16,7 +16,6 @@ export const en: Record<string, string | string[]> = {
   "Микрофон отключён": "Microphone disconnected",
   "Для записи скачайте модель распознавания в разделе «Модели».": "To record, download a speech recognition model in Models.",
   "Переключение: нажмите горячую клавишу, чтобы начать запись, и нажмите снова, чтобы закончить. Удержание: говорите, удерживая горячую клавишу; отпустите её, чтобы закончить запись.": "Toggle: press the shortcut to start recording and press again to finish. Hold: speak while holding the shortcut; release it to finish recording.",
-  "Нажмите на микрофон, чтобы услышать себя. Используйте наушники, чтобы избежать эха. Нажмите ещё раз, чтобы остановить проверку.": "Click the microphone to hear yourself. Use headphones to avoid feedback. Click again to stop the test.",
 
   // ── Навигация и оболочка ───────────────────────────────────────────────
   "Основное": "General",
@@ -152,9 +151,14 @@ export const en: Record<string, string | string[]> = {
   "Микрофон": "Microphone",
   "Системный": "System",
   "Системный микрофон по умолчанию": "System default microphone",
-  "Проверить микрофон": "Test the microphone",
-  "Тест микрофона запущен": "Microphone test started",
-  "Тест микрофона остановлен": "Microphone test stopped",
+  "Проверка микрофона": "Microphone check",
+  "Проверка микрофона запущена": "Microphone check started",
+  "Проверка микрофона остановлена": "Microphone check stopped",
+  "Индикатор показывает уровень сигнала. Скажите что-нибудь: полоса должна доходить до середины и не упираться в край.": "The meter shows the input level. Say something: the bar should reach about halfway without hitting the end.",
+  "Эхо": "Echo",
+  "Эхо включено": "Echo on",
+  "Эхо выключено": "Echo off",
+  "Возвращает ваш голос обратно, чтобы вы слышали себя таким, каким вас слышит программа: шум, хрипы, гулкость комнаты. Только в наушниках: через колонки микрофон поймает сам себя.": "Plays your voice back so you hear yourself the way the app does: noise, clipping, room reverb. Headphones only \u2014 over speakers the microphone will pick itself up.",
   "Тест микрофона не удался": "Microphone test failed",
   "Ошибка теста микрофона": "Microphone test error",
 

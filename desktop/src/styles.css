@@ -745,6 +745,10 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 .mic-status-chip { display: inline-flex; align-items: center; padding: 4px 9px; font: 600 11px/1 var(--font-sans); border-radius: 999px; background: var(--accent-soft-2); color: var(--accent); border: 1px solid var(--border-accent); margin-left: 8px; letter-spacing: 0.01em; box-shadow: 0 1px 0 rgba(0,0,0,0.25); white-space: nowrap; animation: mic-status-chip-in .18s ease-out; }
 .mic-status-chip--stop { background: var(--surface-3); color: var(--text); border-color: var(--border); }
 @keyframes mic-status-chip-in { from { opacity: 0; transform: translateY(-2px); } to { opacity: 1; transform: translateY(0); } }
+/* Две кнопки рядом — два режима, и без подписи их путают. Пояснение висит
+   на самой кнопке подсказкой: постоянный текст под строкой занимал четыре
+   строки вёрстки ради того, что читают один раз. */
+.mic-control .hint-anchor { flex: 0 0 auto; }
 /* Left-to-right VU meter: segments fill with the current loudness so the test
    shows how well/loud you're heard. Colour zones flag quiet / good / too-hot. */
 .mic-meter { flex: 1 1 150px; height: var(--control-h); display: flex; align-items: center; gap: 2px; padding: 0 8px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface-2); overflow: hidden; }
@@ -869,7 +873,7 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
   .device-grid { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
   .recording-segment { width: 100%; }
   .recording-segment__button { flex: 1 1 0; min-width: 0; }
-  .mic-control { display: grid; grid-template-columns: minmax(0, 1fr) var(--control-h); }
+  .mic-control { display: grid; grid-template-columns: minmax(0, 1fr) var(--control-h) var(--control-h); }
   .mic-control .custom-select--mic { width: 100%; flex: initial; }
   .mic-status-chip { grid-column: 1 / -1; margin-left: 0; justify-self: start; }
   .mic-meter { grid-column: 1 / -1; flex-basis: auto; }
