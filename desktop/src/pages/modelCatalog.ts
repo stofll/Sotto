@@ -13,7 +13,7 @@ const FALLBACK_MODELS: ModelInfo[] = [
   { id: "turbo", label: "Whisper turbo", size: "834 MB", ram: "~1.7 GB", downloaded: false, selected: false, recommended: true, loaded: false },
 ];
 
-const WINDOWS_BUNDLE_FALLBACKS: ModelInfo[] = [
+const BUNDLE_FALLBACKS: ModelInfo[] = [
   {
     id: "gigaam-v3",
     label: "GigaAM v3",
@@ -46,10 +46,9 @@ const WINDOWS_BUNDLE_FALLBACKS: ModelInfo[] = [
 
 export function fallbackModels(): ModelInfo[] {
   // The real list comes from Rust and is authoritative. This fallback is only
-  // for a transient bridge failure; do not show a Windows-only model on a Mac
-  // build where Sherpa is intentionally not linked.
+  // for a transient bridge failure; match the platforms that link Sherpa.
   const platform = typeof navigator === "undefined" ? "" : `${navigator.platform} ${navigator.userAgent}`;
-  return /windows/i.test(platform) ? [...FALLBACK_MODELS, ...WINDOWS_BUNDLE_FALLBACKS] : FALLBACK_MODELS;
+  return /windows|mac/i.test(platform) ? [...FALLBACK_MODELS, ...BUNDLE_FALLBACKS] : FALLBACK_MODELS;
 }
 
 /**

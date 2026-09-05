@@ -7,8 +7,22 @@
 
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use tokio::sync::{mpsc as tmpsc, oneshot};
+
+/// Кто просит загрузить модель — и, следовательно, кому об этом знать.
+///
+/// Загрузку, начатую пользователем, показывают: он её ждёт. Возврат модели,
+/// выгруженной по простою, идёт параллельно записи, и те же события затёрли
+/// бы «Идёт запись» надписью «Загружаю модель» — про диктовку, которая в
+/// этот момент прекрасно пишется.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModelLoadReason {
+    /// Пользователь выбрал модель, сменил устройство, запустил приложение.
+    Requested,
+    /// Модель вернули в память после выгрузки по простою.
+    Restore,
+}
 
 #[derive(Debug)]
 pub enum EngineCommand {
@@ -44,6 +58,8 @@ pub enum EngineCommand {
     SetModel {
         name: String,
         spec: crate::model::ModelLoadSpec,
+        /// Показывать ли загрузку. См. [`ModelLoadReason`].
+        reason: ModelLoadReason,
         reply: oneshot::Sender<Result<(), String>>,
     },
     /// Кусок звука для живого предпросмотра.
@@ -65,6 +81,16 @@ pub enum EngineCommand {
     UnloadModel {
         reply: oneshot::Sender<()>,
     },
+    /// Выгрузить модель, если движок простаивает дольше `after`.
+    ///
+    /// Решает сам движок, а не тот, кто прислал команду: между решением и
+    /// его исполнением очередь успевает принять диктовку, и «выгрузи» без
+    /// проверки выгрузило бы модель ровно перед тем, как она понадобится.
+    /// Здесь же простой и измеряется — по последней команде, а не по
+    /// внешним признакам занятости.
+    UnloadIdle {
+        after: std::time::Duration,
+    },
     Shutdown,
 }
 
@@ -84,6 +110,18 @@ pub enum EngineEvent {
         name: String,
     },
     ModelReady {
+        name: String,
+    },
+    /// Модель выгружена из памяти по простою.
+    ModelUnloaded {
+        name: String,
+    },
+    /// Модель вернулась в память после выгрузки по простою.
+    ///
+    /// Отдельно от `ModelReady`: тот ведёт конечный автомат интерфейса
+    /// («загружаю» → «готово»), а здесь нужно только обновить списки —
+    /// состояние диктовки в этот момент принадлежит самой диктовке.
+    ModelRestored {
         name: String,
     },
     ModelLoadFailed {
@@ -167,7 +205,7 @@ fn sherpa_threads() -> i32 {
 pub fn engine_thread_main(
     mut cmd_rx: tokio::sync::mpsc::Receiver<EngineCommand>,
     event_tx: tokio::sync::mpsc::Sender<EngineEvent>,
-    _app_handle: AppHandle,
+    app_handle: AppHandle,
     engine_current_model: std::sync::Arc<std::sync::Mutex<Option<String>>>,
 ) {
     let mut current_ctx: Option<whisper_rs::WhisperContext> = None;
@@ -179,8 +217,22 @@ pub fn engine_thread_main(
     // бы полсотни одинаковых событий в секунду.
     let mut last_preview = String::new();
     let mut preview_session: Option<u64> = None;
+    // Когда движок в последний раз работал. Отсюда считается простой, по
+    // которому модель уходит из памяти (`UnloadIdle`).
+    let mut last_activity = std::time::Instant::now();
 
     while let Some(cmd) = cmd_rx.blocking_recv() {
+        // Отметка ставится на приходе команды, а не на её завершении: у
+        // длинных веток есть короткие выходы через `continue`, и хвост
+        // цикла до них не доживает. Расшифровки, которые сами длятся
+        // дольше простоя, доставляют отметку ещё раз в конце — их начало
+        // к моменту следующей проверки уже слишком старое.
+        //
+        // Сама проверка простоя работой не считается: иначе движок
+        // отодвигал бы свой таймер каждым тиком и не дожил бы до него.
+        if !matches!(cmd, EngineCommand::UnloadIdle { .. }) {
+            last_activity = std::time::Instant::now();
+        }
         match cmd {
             EngineCommand::Transcribe {
                 session_id,
@@ -473,10 +525,19 @@ pub fn engine_thread_main(
                     },
                 };
                 let _ = reply.send(reply_payload);
+                last_activity = std::time::Instant::now();
             }
-            EngineCommand::SetModel { name, spec, reply } => {
-                let _ = event_tx.blocking_send(EngineEvent::ModelLoading { name: name.clone() });
-                log::info!("loading model {name} ({spec:?})");
+            EngineCommand::SetModel {
+                name,
+                spec,
+                reason,
+                reply,
+            } => {
+                if reason == ModelLoadReason::Requested {
+                    let _ =
+                        event_tx.blocking_send(EngineEvent::ModelLoading { name: name.clone() });
+                }
+                log::info!("loading model {name} ({spec:?}, {reason:?})");
                 let result: Result<(), String> = (|| {
                     // CRITICAL drop order: state FIRST (state holds raw
                     // pointers into ctx internals; dropping ctx first
@@ -526,13 +587,26 @@ pub fn engine_thread_main(
                 match result {
                     Ok(()) => {
                         let _ = reply.send(Ok(()));
-                        let _ = event_tx.blocking_send(EngineEvent::ModelReady { name });
+                        let _ = event_tx.blocking_send(match reason {
+                            ModelLoadReason::Requested => EngineEvent::ModelReady { name },
+                            ModelLoadReason::Restore => EngineEvent::ModelRestored { name },
+                        });
                     }
                     Err(err_msg) => {
-                        let _ = event_tx.blocking_send(EngineEvent::ModelLoadFailed {
-                            name,
-                            error: err_msg.clone(),
-                        });
+                        // Провалившийся возврат молчит здесь не потому, что
+                        // он не важен, а потому, что о нём скажет расшифровка,
+                        // которая идёт следом: она упрётся в пустой движок и
+                        // покажет ровно ту же беду словами про модель. Плашка
+                        // «не удалось загрузить» посреди записи объяснила бы
+                        // её раньше времени и не тому, кто её вызвал.
+                        if reason == ModelLoadReason::Requested {
+                            let _ = event_tx.blocking_send(EngineEvent::ModelLoadFailed {
+                                name,
+                                error: err_msg.clone(),
+                            });
+                        } else {
+                            log::warn!("возврат модели {name} в память не удался: {err_msg}");
+                        }
                         let _ = reply.send(Err(err_msg));
                     }
                 }
@@ -585,6 +659,31 @@ pub fn engine_thread_main(
                 current_sherpa = None;
                 current_ctx = None;
                 let _ = reply.send(());
+            }
+            EngineCommand::UnloadIdle { after } => {
+                let loaded = crate::mutex_recover::lock(&engine_current_model).clone();
+                let Some(name) = loaded else {
+                    continue;
+                };
+                let idle = last_activity.elapsed();
+                if idle < after {
+                    continue;
+                }
+                if app_is_busy(&app_handle) {
+                    continue;
+                }
+                log::info!(
+                    "выгружаю модель {name}: простой {} c при пороге {} c",
+                    idle.as_secs(),
+                    after.as_secs()
+                );
+                // Порядок как в `UnloadModel`: состояние держит сырые
+                // указатели внутрь контекста и умирает первым.
+                *crate::mutex_recover::lock(&engine_current_model) = None;
+                current_state = None;
+                current_sherpa = None;
+                current_ctx = None;
+                let _ = event_tx.blocking_send(EngineEvent::ModelUnloaded { name });
             }
             EngineCommand::TranscribeCloud {
                 session_id,
@@ -696,11 +795,29 @@ pub fn engine_thread_main(
                     },
                 };
                 let _ = reply.send(reply_payload);
+                last_activity = std::time::Instant::now();
             }
             EngineCommand::Shutdown => break,
         }
     }
     log::info!("whisper engine thread exiting");
+}
+
+/// Занято ли приложение прямо сейчас — по человеческим меркам, не по своим.
+///
+/// Пока диктуют, очередь команд пуста: звук копится в записи и придёт одной
+/// командой в самом конце. Для движка это неотличимо от простоя, и без этой
+/// проверки модель успевала бы уйти из памяти ровно посередине фразы.
+/// Расшифровка файла держит движок так же — задолго до `Transcribe`, ещё на
+/// раскодировании. Знает об этом только состояние приложения, поэтому здесь
+/// поток движка единственный раз смотрит наружу.
+fn app_is_busy(app: &AppHandle) -> bool {
+    let Some(state) = app.try_state::<crate::state::AppState>() else {
+        // Движок стартует раньше, чем состояние регистрируют. Значит, ни
+        // записи, ни файла ещё нет — и занятости тоже.
+        return false;
+    };
+    state.recorder.is_recording() || state.is_engine_busy()
 }
 
 /// Emit `InferenceCompleted(Err(msg))` AND reply on the oneshot

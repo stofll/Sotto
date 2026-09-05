@@ -59,10 +59,7 @@ tempfile = "3"
 tokio = { version = "1", features = ["test-util", "macros", "rt"] }
 
 [target.'cfg(windows)'.dependencies]
-# GigaAM/Sherpa is intentionally Windows-only for this MVP. The native
-# download-binaries feature produces Windows DLLs that are packaged by the
-# NSIS hook; keeping it target-gated prevents macOS/Linux from linking an
-# unbundled native runtime or exposing a model that cannot load there.
+# Windows uses shared Sherpa libraries packaged by the NSIS hook.
 sherpa-rs = { version = "0.6", default-features = false, features = ["sys", "download-binaries"] }
 windows-sys = { version = "0.52", features = [
     "Win32_UI_WindowsAndMessaging",
@@ -94,6 +91,9 @@ windows = { version = "0.61", features = [
 libc = "0.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
+# Embed the checksum-verified universal2 Sherpa/ONNX Runtime archives in the
+# app. No external dylibs or developer-machine search paths are needed.
+sherpa-rs = { version = "0.6", default-features = false, features = ["sys", "download-binaries", "static"] }
 tempfile = "3"
 objc2 = "0.6"
 

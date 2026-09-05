@@ -52,7 +52,7 @@ export function useOutsideClose(
   }, [open, ref, onClose, alsoRef]);
 }
 
-export function CustomSelect<T extends string | number | null>({ value, options, onChange, className = "", disabled = false, searchable = false, inlineMeta = false }: { value: T; options: Array<SelectOption<T>>; onChange: (value: T) => void; className?: string; disabled?: boolean; searchable?: boolean; inlineMeta?: boolean }) {
+export function CustomSelect<T extends string | number | null>({ value, options, onChange, onOpen, className = "", disabled = false, searchable = false, inlineMeta = false }: { value: T; options: Array<SelectOption<T>>; onChange: (value: T) => void; onOpen?: () => void; className?: string; disabled?: boolean; searchable?: boolean; inlineMeta?: boolean }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -99,7 +99,7 @@ export function CustomSelect<T extends string | number | null>({ value, options,
 
   return (
     <div className={`custom-select ${inlineMeta ? "custom-select--inline-meta " : ""}${className}`} ref={rootRef}>
-      <button className="custom-select__button" type="button" disabled={disabled} aria-haspopup="listbox" aria-expanded={open} title={optionTitle(selected)} onClick={() => setOpen((current) => !current)}>
+      <button className="custom-select__button" type="button" disabled={disabled} aria-haspopup="listbox" aria-expanded={open} title={optionTitle(selected)} onClick={() => { if (!open) onOpen?.(); setOpen((current) => !current); }}>
         {selected.icon && <Icon name={selected.icon} size={14}/>}
         <span className="custom-select__text">
           <span className="custom-select__label">{selected.label}</span>

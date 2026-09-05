@@ -13,6 +13,11 @@
 // две, и tPlural берёт нужную по длине массива.
 
 export const en: Record<string, string | string[]> = {
+  "Микрофон отключён": "Microphone disconnected",
+  "Для записи скачайте модель распознавания в разделе «Модели».": "To record, download a speech recognition model in Models.",
+  "Переключение: нажмите горячую клавишу, чтобы начать запись, и нажмите снова, чтобы закончить. Удержание: говорите, удерживая горячую клавишу; отпустите её, чтобы закончить запись.": "Toggle: press the shortcut to start recording and press again to finish. Hold: speak while holding the shortcut; release it to finish recording.",
+  "Нажмите на микрофон, чтобы услышать себя. Используйте наушники, чтобы избежать эха. Нажмите ещё раз, чтобы остановить проверку.": "Click the microphone to hear yourself. Use headphones to avoid feedback. Click again to stop the test.",
+
   // ── Навигация и оболочка ───────────────────────────────────────────────
   "Основное": "General",
   "Настройки": "Settings",
@@ -102,15 +107,11 @@ export const en: Record<string, string | string[]> = {
   "После выдачи прав перезапустите приложение.": "Restart the app after granting access.",
   "Открыть System Settings": "Open System Settings",
   "Модель распознавания не скачана.": "The speech model has not been downloaded.",
-  "Запись не запускается: распознавать речь нечем. Скачайте модель в «Настройки → Модели» — или выберите облачного провайдера в разделе «LLM-обработка».":
-    "Recording will not start: there is nothing to transcribe with. Download a model in Settings → Models — or pick a cloud provider under LLM processing.",
   "Не удалось распознать речь. Откройте «Настройки → Модели» и убедитесь, что модель скачана.":
     "Could not transcribe. Open Settings → Models and make sure a model is downloaded.",
   "Не удалось загрузить модель": "Could not load the model",
   "Не удалось загрузить модель. Откройте «Настройки → Модели» и попробуйте снова.":
     "Could not load the model. Open Settings → Models and try again.",
-  "Нет доступа к микрофону. Откройте «Системные настройки → Конфиденциальность → Микрофон» и разрешите доступ для приложения.{p0}":
-    "No microphone access. Open System Settings → Privacy → Microphone and allow this app.{p0}",
   "Не удалось вставить текст в активное окно.": "Could not insert the text into the active window.",
   "Не удалось скопировать.": "Could not copy.",
   "Не удалось скопировать. Скопируйте текст вручную.": "Could not copy. Please copy the text manually.",
@@ -147,7 +148,7 @@ export const en: Record<string, string | string[]> = {
   "Пробел в конце": "Trailing space",
   "Русский": "Russian",
   "Устройство обработки": "Compute device",
-  "модель работает только на CPU": "this model is CPU-only",
+  "Модель работает только на CPU": "This model runs on the CPU only",
   "Микрофон": "Microphone",
   "Системный": "System",
   "Системный микрофон по умолчанию": "System default microphone",
@@ -156,11 +157,17 @@ export const en: Record<string, string | string[]> = {
   "Тест микрофона остановлен": "Microphone test stopped",
   "Тест микрофона не удался": "Microphone test failed",
   "Ошибка теста микрофона": "Microphone test error",
-  "Ошибка остановки теста": "Could not stop the test",
 
   // ── Настройки: модель и режим ──────────────────────────────────────────
   "Модель": "Model",
   "Модель не загружена": "No model loaded",
+  "Модель выгружена": "Model unloaded",
+  "вернётся при диктовке": "comes back when you dictate",
+  "Выгружать модель": "Unload the model",
+  "Через сколько минут без диктовки освобождать оперативную память. Модель вернётся в неё сама — в начале следующей записи, пока вы говорите.":
+    "How many minutes without dictation before the memory is freed. The model comes back on its own — at the start of the next recording, while you are still speaking.",
+  "Никогда": "Never",
+  "{p0} мин": "{p0} min",
   "модель не сохранена": "model not recorded",
   "Модель первичной транскрибации: {p0}": "Primary transcription model: {p0}",
   "Скачать модель": "Download model",

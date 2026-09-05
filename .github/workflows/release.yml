@@ -163,6 +163,15 @@ jobs:
           }
           powershell -NoProfile -ExecutionPolicy Bypass -File prepare-native-libs.ps1
 
+      - name: Проверить статический рантайм macOS перед упаковкой
+        if: runner.os == 'macOS'
+        working-directory: desktop/src-tauri
+        shell: bash
+        run: |
+          pnpm --dir .. build
+          cargo build --release --locked --features gpu-metal
+          sh ../../scripts/check-macos-native-libs.sh "$CARGO_TARGET_DIR/$CARGO_BUILD_TARGET/release/Sotto"
+
       - name: Собрать, подписать и выложить
         uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5  # v0.6.2
         env:
@@ -193,6 +202,19 @@ jobs:
           includeUpdaterJson: true
           updaterJsonPreferNsis: true
           args: ${{ matrix.args }}
+
+      - name: Package Windows portable ZIP
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          $binaryDirectory = Join-Path $env:CARGO_TARGET_DIR "$env:CARGO_BUILD_TARGET/release"
+          $archive = Join-Path $env:RUNNER_TEMP "Sotto-$env:RELEASE_TAG-windows-x64-portable.zip"
+          ./scripts/build-portable.ps1 -BinaryDirectory $binaryDirectory -OutputPath $archive
+          gh release upload $env:RELEASE_TAG $archive --clobber
+          if ($LASTEXITCODE -ne 0) { throw "Portable ZIP upload failed" }
 
       # Артефакты к этому моменту уже лежат в черновике релиза: шаг не
       # отменяет заливку, он даёт повод черновик не публиковать. Публикация

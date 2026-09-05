@@ -1,6 +1,20 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ModelInfo } from "../bridge/types";
-import { catalogLanguages, downloadToastCopy, familySections, filterModels, languageSummary, modelMetadata, speechLanguages, supportsLanguage } from "./modelCatalog";
+import { catalogLanguages, downloadToastCopy, fallbackModels, familySections, filterModels, languageSummary, modelMetadata, speechLanguages, supportsLanguage } from "./modelCatalog";
+
+describe("fallback catalog platforms", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it.each(["MacIntel", "Macintosh", "Windows NT 10.0"])("offers Sherpa on %s", (platform) => {
+    vi.stubGlobal("navigator", { platform, userAgent: "" });
+    expect(fallbackModels().some((model) => model.id === "gigaam-v3")).toBe(true);
+  });
+
+  it.each(["Linux x86_64", ""])("keeps unsupported platforms Whisper-only: %s", (platform) => {
+    vi.stubGlobal("navigator", { platform, userAgent: "" });
+    expect(fallbackModels().every((model) => model.engine !== "sherpa-onnx")).toBe(true);
+  });
+});
 
 function model(patch: Partial<ModelInfo> & { id: string }): ModelInfo {
   return {

@@ -170,6 +170,7 @@ export function MainWindow() {
     let unlistenModelLoaded: (() => void) | null = null;
     let unlistenWhisperReady: (() => void) | null = null;
     let unlistenModelUnloaded: (() => void) | null = null;
+    let unlistenModelRestored: (() => void) | null = null;
     let unlistenModelLoading: (() => void) | null = null;
     let unlistenModelFailed: (() => void) | null = null;
     let unlistenNavigate: (() => void) | null = null;
@@ -254,6 +255,10 @@ export function MainWindow() {
     // Выгрузка снимает и загруженную модель, и её признак в списке —
     // обновляем оба среза, иначе статус в сайдбаре остаётся на удалённой.
     on<unknown>("model-unloaded", () => { refreshModels(); refreshRuntime(); }).then((fn) => { unlistenModelUnloaded = fn; });
+    // Возврат модели после выгрузки по простою. Отдельно от `whisper-ready`
+    // намеренно: тот ведёт состояние диктовки, а этот приходит посреди
+    // чужой записи, и трогать её состояние ему нечем — только списки.
+    on<unknown>("model-restored", () => { refreshModels(); refreshRuntime(); }).then((fn) => { unlistenModelRestored = fn; });
     on<DownloadProgress>("model-download-progress", (payload) => {
       if (!mounted || !payload) return;
       setDownloadProgress({
@@ -335,6 +340,7 @@ export function MainWindow() {
       unlistenModelLoading?.();
       unlistenModelFailed?.();
       unlistenModelUnloaded?.();
+      unlistenModelRestored?.();
       unlistenDownloadProgress?.();
       unlistenNavigate?.();
       unlistenConfigUpdated?.();
@@ -358,7 +364,7 @@ export function MainWindow() {
       <div className={`win${collapsed ? " collapsed" : ""}`}>
         <TitleBar collapsed={collapsed} onToggleCollapse={toggleSidebarCollapse}/>
         <div className={`win__layout${collapsed ? " collapsed" : ""}`}>
-          <Sidebar tab={tab} onTab={setTab} recordingState={recordingState} pipelineMode={config?.ai_processing?.pipeline_mode} loadedModel={actualModelLabel(runtime, "")} theme={theme} onToggleTheme={() => void toggleTheme()} downloadProgress={downloadProgress} collapsed={collapsed}/>
+          <Sidebar tab={tab} onTab={setTab} recordingState={recordingState} pipelineMode={config?.ai_processing?.pipeline_mode} loadedModel={actualModelLabel(runtime, "")} loadsOnDemand={runtime?.model_loads_on_demand} theme={theme} onToggleTheme={() => void toggleTheme()} downloadProgress={downloadProgress} collapsed={collapsed}/>
           <main className="win__main">
             {permissions.length > 0 && permissions.map((p) => (
               <div key={p.permission} role="alert" style={{ margin: "14px 32px 0", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", padding: "12px 14px", borderRadius: 8, background: "var(--accent-soft)", border: "1px solid var(--accent-line)", color: "var(--accent-text)", font: "500 12.5px/1.4 var(--font-sans)" }}>
@@ -379,11 +385,9 @@ export function MainWindow() {
               <div role="status" style={{ margin: "14px 32px 0", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", padding: "12px 14px", borderRadius: 8, background: "var(--warn-soft)", border: "1px solid rgba(251,191,36,0.30)", color: "var(--warn)", font: "500 12.5px/1.4 var(--font-sans)" }}>
                 <Icon name="info" size={14}/>
                 <span style={{ flex: "1 1 240px", minWidth: 240 }}>
-                  <strong>{t("Модель распознавания не скачана.")}</strong>  {t("Запись не запускается: распознавать речь нечем. Скачайте модель в «Настройки → Модели» — или выберите облачного провайдера в разделе «LLM-обработка».")} </span>
-                <button className="btn btn--primary" type="button" onClick={() => setTab("settings")} style={{ height: 28 }}>
+                  <strong>{t("Модель распознавания не скачана.")}</strong>  {t("Для записи скачайте модель распознавания в разделе «Модели».")} </span>
+                <button className="btn btn--primary" type="button" onClick={() => setTab("models")} style={{ height: 28 }}>
                   <Icon name="settings" size={12}/>  {t("Скачать модель")} </button>
-                <button className="btn btn--ghost" type="button" onClick={() => setTab("ai")} style={{ height: 28 }}>
-                  <Icon name="spark" size={12}/>  {t("LLM-обработка")} </button>
               </div>
             )}
             {loading ? <LoadingState/> : (

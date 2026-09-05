@@ -26,7 +26,6 @@ use serde_json;
 use tauri::{AppHandle, Emitter};
 
 use crate::audio::{AudioConfig, AudioRecorder};
-use crate::config::Config;
 
 const SILENCE_WATCH_SECS: f64 = 2.0;
 const LEVEL_POLL_HZ: u64 = 25;
@@ -95,16 +94,12 @@ impl MicrophoneTest {
         if guard.recorder.is_some() {
             return Ok(true);
         }
-        let config = Config::load(app)?;
-        let device_index = microphone
-            .or_else(|| config.get_string("microphone"))
-            .and_then(|value| value.parse::<u32>().ok());
-
         let recorder = AudioRecorder::new(AudioConfig::default())
             .map_err(|error| Self::emit_error(app, &error))?;
         recorder
-            .start(device_index.map(|i| i as usize))
+            .start_selected(microphone.as_deref())
             .map_err(|error| Self::emit_error(app, &error))?;
+        let samples = recorder.attach_live_tap(8);
         guard.recorder = Some(recorder);
         guard.saw_signal = false;
         guard.active = true;
@@ -119,7 +114,7 @@ impl MicrophoneTest {
         drop(guard);
         *crate::mutex_recover::lock(&self.app) = Some(app.clone());
         let _ = app.emit("microphone-test-started", ());
-        Self::spawn_workers(&self.inner, app);
+        Self::spawn_workers(&self.inner, app, samples);
         Ok(true)
     }
 
@@ -168,16 +163,18 @@ impl MicrophoneTest {
         let _ = app.emit(
             "app-error",
             serde_json::json!({
-                "kind": "permission",
-                "permission": "microphone",
-                "hint": "Privacy → Microphone",
+                "kind": "audio",
                 "message": error,
             }),
         );
         format!("microphone test start failed: {error}")
     }
 
-    fn spawn_workers(inner: &Arc<Mutex<Inner>>, app: &AppHandle) {
+    fn spawn_workers(
+        inner: &Arc<Mutex<Inner>>,
+        app: &AppHandle,
+        samples: std::sync::mpsc::Receiver<Vec<f32>>,
+    ) {
         let poller_inner = Arc::clone(inner);
         let poller_app = app.clone();
         let poller = std::thread::spawn(move || {
@@ -198,6 +195,7 @@ impl MicrophoneTest {
                         break;
                     }
                     let raw = recorder.level();
+                    recorder.discard_buffer();
                     // Once we've seen a real signal, remember it so the
                     // silence-watch below doesn't raise a bogus permission
                     // warning. (Previously `saw_signal` was never set, so on
@@ -211,6 +209,10 @@ impl MicrophoneTest {
                     // active threshold. Shared with the overlay waveform.
                     let level = crate::audio::display_level(raw);
                     let _ = poller_app.emit("microphone-test-level", LevelPayload { level });
+                    let audio: Vec<f32> = samples.try_iter().flatten().collect();
+                    if !audio.is_empty() {
+                        let _ = poller_app.emit_to("main", "microphone-test-audio", audio);
+                    }
                 }
             }));
         });
@@ -220,7 +222,16 @@ impl MicrophoneTest {
             // catch_unwind so a panic inside the silence-watch does not
             // crash the app.
             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                std::thread::sleep(Duration::from_secs_f64(SILENCE_WATCH_SECS));
+                let deadline = Instant::now() + Duration::from_secs_f64(SILENCE_WATCH_SECS);
+                while Instant::now() < deadline {
+                    if crate::mutex_recover::lock(&watch_inner)
+                        .stop_signal
+                        .load(Ordering::Acquire)
+                    {
+                        return;
+                    }
+                    std::thread::sleep(Duration::from_millis(40));
+                }
                 let guard = crate::mutex_recover::lock(&watch_inner);
                 if guard.stop_signal.load(Ordering::Acquire) {
                     return;
@@ -235,11 +246,8 @@ impl MicrophoneTest {
                     let _ = watch_app.emit(
                         "app-error",
                         serde_json::json!({
-                            "kind": "permission",
-                            "permission": "microphone",
-                            "hint": "Privacy → Microphone",
-                            "message": "Микрофон не отдаёт звук. Похоже, macOS блокирует доступ — \
-                                 разрешите доступ к микрофону для приложения в Privacy → Microphone.",
+                            "kind": "audio",
+                            "message": "Звук не обнаружен. Скажите что-нибудь, проверьте подключение, выбранный микрофон и его громкость. Тишина сама по себе не означает запрет доступа.",
                         }),
                     );
                 }

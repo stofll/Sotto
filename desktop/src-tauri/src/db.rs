@@ -21,6 +21,9 @@ use rusqlite::Connection;
 /// (`~/Library/Application Support/<bundle>/`), which would split Rust data from
 /// Python data and break the WS 4b migration.
 pub fn db_path() -> PathBuf {
+    if let Some(dir) = crate::portable::data_dir() {
+        return dir;
+    }
     if let Ok(dir) = std::env::var("SOTTO_CONFIG_DIR") {
         return PathBuf::from(dir);
     }

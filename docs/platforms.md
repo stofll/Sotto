@@ -18,7 +18,8 @@ commands contributors should use are all in [Development](development.md).
 
 ## Platform caveats
 
-- GigaAM v3 is Windows-only and CPU-only in the current implementation.
+- Sherpa-ONNX bundles run on CPU on Windows and macOS. The macOS runtime is
+  statically linked; Linux currently exposes only Whisper models.
 - Whisper is the portable local engine; GPU acceleration depends on the build
   target and available native toolchain.
 - Microphone capture, global shortcuts, clipboard access, and accessibility

@@ -9,35 +9,35 @@
 //! closed-registry SHA-256 manifest before constructing it, because
 //! sherpa-onnx may throw a foreign C++ exception for an incompatible graph.
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 use std::ffi::{CStr, CString};
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 use std::os::raw::c_char;
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 use std::path::Path;
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 const PROVIDER_CPU: &[u8] = b"cpu\0";
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 const DECODING_GREEDY: &[u8] = b"greedy_search\0";
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 const LANG_EN: &[u8] = b"en\0";
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 const LANG_AUTO: &[u8] = b"auto\0";
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 #[derive(Debug)]
 pub struct OfflineRecognizer {
     recognizer: *const sherpa_rs::sherpa_rs_sys::SherpaOnnxOfflineRecognizer,
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 fn c_path(path: &Path) -> Result<CString, String> {
     CString::new(path.to_string_lossy().as_bytes())
         .map_err(|_| "SHERPA_INVALID_PATH: path contains NUL".to_string())
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 impl OfflineRecognizer {
     /// Единственный вход для всех семейств sherpa: движок выбирает
     /// конструктор, роли файлов приезжают из манифеста. Ни поток движка, ни
@@ -299,7 +299,7 @@ impl OfflineRecognizer {
 /// Проверки, общие для обоих распознавателей. NaN в буфере sherpa не
 /// проверяет, а на несовместимом входе отвечает падением процесса, поэтому
 /// звук осматривается до C-границы.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 fn validate_audio(sample_rate: u32, samples: &[f32]) -> Result<(), String> {
     if sample_rate == 0 || sample_rate > i32::MAX as u32 {
         return Err(format!("SHERPA_INVALID_SAMPLE_RATE: {sample_rate}"));
@@ -313,7 +313,7 @@ fn validate_audio(sample_rate: u32, samples: &[f32]) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 fn check_threads(num_threads: i32) -> Result<(), String> {
     if num_threads <= 0 {
         return Err("SHERPA_INVALID_THREADS: num_threads must be positive".to_string());
@@ -326,7 +326,7 @@ fn check_threads(num_threads: i32) -> Result<(), String> {
 ///
 /// # Safety
 /// `tokens` must outlive the returned config.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 unsafe fn common_model_config(
     tokens: *const c_char,
     num_threads: i32,
@@ -343,7 +343,7 @@ unsafe fn common_model_config(
 
 /// # Safety
 /// Every path inside `model_config` must outlive this call.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 unsafe fn create(
     model_config: sherpa_rs::sherpa_rs_sys::SherpaOnnxOfflineModelConfig,
     feat_config: Option<sherpa_rs::sherpa_rs_sys::SherpaOnnxFeatureConfig>,
@@ -358,7 +358,7 @@ unsafe fn create(
     sys::SherpaOnnxCreateOfflineRecognizer(&config)
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 impl Drop for OfflineRecognizer {
     fn drop(&mut self) {
         if !self.recognizer.is_null() {
@@ -374,14 +374,14 @@ impl Drop for OfflineRecognizer {
 /// unsupported native runtime explicit. The bundle registry is empty on these
 /// targets, so this is a defensive error path rather than a user-visible
 /// model option.
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 #[derive(Debug)]
 pub struct OfflineRecognizer;
 
-#[cfg(not(windows))]
-const UNSUPPORTED: &str = "SHERPA_UNSUPPORTED_PLATFORM: ONNX models are Windows-only";
+#[cfg(not(any(windows, target_os = "macos")))]
+const UNSUPPORTED: &str = "SHERPA_UNSUPPORTED_PLATFORM: ONNX models require Windows or macOS";
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 impl OfflineRecognizer {
     pub fn open(
         _engine: crate::model::ModelEngine,
@@ -446,7 +446,7 @@ impl OfflineRecognizer {
 mod tests {
     use super::*;
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     #[test]
     fn rejects_invalid_thread_count_before_ffi() {
         let err = OfflineRecognizer::nemo_ctc(Path::new("model.onnx"), Path::new("tokens.txt"), 0)
@@ -454,7 +454,7 @@ mod tests {
         assert!(err.contains("SHERPA_INVALID_THREADS"));
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     #[test]
     fn transducer_rejects_invalid_thread_count_before_ffi() {
         let err = OfflineRecognizer::transducer(
@@ -468,7 +468,7 @@ mod tests {
         assert!(err.contains("SHERPA_INVALID_THREADS"));
     }
 
-    #[cfg(not(windows))]
+    #[cfg(not(any(windows, target_os = "macos")))]
     #[test]
     fn reports_unsupported_platform_without_ffi() {
         let err = OfflineRecognizer::nemo_ctc(
@@ -487,14 +487,14 @@ mod tests {
 /// кусками, распознаватель сам сообщает, набралось ли достаточно для шага
 /// декодирования, и на любом шаге отдаёт текущую гипотезу. Поток живёт между
 /// вызовами, поэтому он тут поле, а не локальная переменная.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 #[derive(Debug)]
 pub struct OnlineRecognizer {
     recognizer: *const sherpa_rs::sherpa_rs_sys::SherpaOnnxOnlineRecognizer,
     stream: *const sherpa_rs::sherpa_rs_sys::SherpaOnnxOnlineStream,
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 impl OnlineRecognizer {
     pub fn streaming_transducer(
         encoder_path: &Path,
@@ -618,7 +618,7 @@ impl OnlineRecognizer {
     }
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 impl Drop for OnlineRecognizer {
     fn drop(&mut self) {
         unsafe {
@@ -635,11 +635,11 @@ impl Drop for OnlineRecognizer {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 #[derive(Debug)]
 pub struct OnlineRecognizer;
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 impl OnlineRecognizer {
     pub fn streaming_transducer(
         _encoder_path: &std::path::Path,

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Icon } from "./Icon";
 
@@ -6,7 +6,12 @@ const GAP = 8;      // зазор между значком и пузырём
 const MARGIN = 8;   // минимальный отступ пузыря от края окна
 
 /**
- * Подсказка-«i» с пузырём.
+ * Подсказка с пузырём.
+ *
+ * Без `children` это привычный значок «i». С `children` якорем становится сам
+ * контрол: подсказку про него спрашивают, наводя на него, а не на значок
+ * рядом — так объяснение, зачем погашен переключатель устройства, живёт на
+ * самом переключателе и не занимает строки в вёрстке.
  *
  * Пузырь рендерится порталом в body с position: fixed и координатами,
  * посчитанными от значка: absolute-пузырь внутри страницы обрезался
@@ -18,7 +23,7 @@ const MARGIN = 8;   // минимальный отступ пузыря от к�
 // само (13/18, 11/14, 10/13, 12/16), и расстояние от подписи до значка нигде
 // не совпадало. Геометрия одна и живёт в CSS — эталоном взята строка
 // «Горячая клавиша» в настройках.
-export function Hint({ text }: { text: string }) {
+export function Hint({ text, children }: { text: string; children?: ReactNode }) {
   const anchorRef = useRef<HTMLSpanElement>(null);
   const bubbleRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
@@ -55,15 +60,21 @@ export function Hint({ text }: { text: string }) {
   return (
     <span
       ref={anchorRef}
-      className="hint"
-      tabIndex={0}
-      aria-label={text}
+      className={children ? "hint-anchor" : "hint"}
+      // Значок сам по себе фокус не получает — ему его дают, иначе подсказка
+      // существует только для мыши. Обёртке вокруг контрола свой фокус не
+      // нужен и вреден: он встаёт лишней остановкой перед самим контролом.
+      tabIndex={children ? undefined : 0}
+      // Имя обёртки заменило бы собой имя контрола внутри, поэтому текст
+      // уходит скринридеру отдельной строкой, а не подписью на якоре.
+      aria-label={children ? undefined : text}
       onMouseEnter={() => setOpen(true)}
       onMouseLeave={() => setOpen(false)}
       onFocus={() => setOpen(true)}
       onBlur={() => setOpen(false)}
     >
-      <Icon name="info" size={11}/>
+      {children ?? <Icon name="info" size={11}/>}
+      {children && <span className="sr-only">{text}</span>}
       {open && createPortal((
         <div
           ref={bubbleRef}

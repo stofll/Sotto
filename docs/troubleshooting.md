@@ -18,9 +18,20 @@ NSIS, WebView2, and `LIBCLANG_PATH` requirements.
 ## A model is missing or fails to load
 
 Check the model family, platform, cache directory, and available disk space in
-[Models](models.md). GigaAM v3 is Windows-only. A custom Whisper file must be a
+[Models](models.md). GigaAM v3 is available on Windows and macOS. A custom Whisper file must be a
 compatible `.bin` model; do not rename an unrelated model to make it appear in
 the catalog.
+
+## The first dictation after a pause is slower
+
+The model is unloaded from memory after a period without dictation — five
+minutes by default — and is loaded again at the start of the next recording.
+The load runs while you speak, so it is usually invisible; a large model on a
+slow disk can still delay the transcription that follows. Change the interval,
+or switch the behaviour off entirely, under Settings → Advanced → "Unload the
+model". While the model is out of memory the sidebar says so and states that it
+comes back on its own; "No model loaded" means something else — nothing is
+selected or downloaded.
 
 ## The hotkey, microphone, or paste action does not work
 

@@ -31,6 +31,15 @@ fn hotkey_from(config: &Config) -> String {
         .unwrap_or_else(|| DEFAULT_HOTKEY.to_string())
 }
 
+/// Accept old numeric indexes as well as persistent device names.
+pub fn microphone_selection(value: Option<Value>) -> Option<String> {
+    match value {
+        Some(Value::String(s)) if !s.is_empty() => Some(s),
+        Some(Value::Number(n)) if n.is_u64() => Some(n.to_string()),
+        _ => None,
+    }
+}
+
 /// Where the app reads and writes `config.json`.
 ///
 /// `pub` so startup can record it in the log. When the config reads as
@@ -38,6 +47,9 @@ fn hotkey_from(config: &Config) -> String {
 /// answering it from outside the process means re-deriving Tauri's
 /// `app_config_dir()` by hand and hoping the derivation matches.
 pub fn config_path(app: &AppHandle) -> Result<PathBuf, String> {
+    if let Some(dir) = crate::portable::data_dir() {
+        return Ok(dir.join("config.json"));
+    }
     let dir = app
         .path()
         .app_config_dir()
@@ -197,6 +209,39 @@ pub fn device_uses_gpu(config: &Value) -> bool {
     resolve_device(config) == DEVICE_GPU
 }
 
+/// Ключ: через сколько минут простоя выгружать модель из оперативной памяти.
+pub const MODEL_UNLOAD_KEY: &str = "model_unload_after_minutes";
+
+/// Сколько минут простоя ждут, если в конфиге ничего не сказано.
+///
+/// Модель большого размера держит в памяти несколько гигабайт, и между
+/// диктовками они не нужны никому. Пять минут — компромисс: диктуют
+/// очередями, и внутри очереди повторная загрузка обошлась бы дороже
+/// освобождённой памяти.
+pub const DEFAULT_MODEL_UNLOAD_MINUTES: u64 = 5;
+
+/// Значения, которые предлагает интерфейс. Конфиг правят и руками, поэтому
+/// [`model_unload_after_minutes`] принимает любое число из диапазона, а не
+/// только эти четыре.
+pub const MODEL_UNLOAD_CHOICES: [u64; 4] = [0, 5, 10, 30];
+
+/// Сутки простоя — это уже «никогда», просто записанное числом. Верхняя
+/// граница нужна не пользователю, а таймеру: `Duration` из тысяч минут
+/// ничем не лучше отключённой выгрузки, а выглядит как работающая настройка.
+const MAX_MODEL_UNLOAD_MINUTES: u64 = 24 * 60;
+
+/// Через сколько минут простоя выгружать модель. `0` — не выгружать.
+///
+/// Отсутствие ключа — не «никогда», а значение по умолчанию: выгрузка
+/// включена, и старые конфиги получают её вместе с обновлением.
+pub fn model_unload_after_minutes(config: &Value) -> u64 {
+    let minutes = config
+        .get(MODEL_UNLOAD_KEY)
+        .and_then(Value::as_u64)
+        .unwrap_or(DEFAULT_MODEL_UNLOAD_MINUTES);
+    minutes.min(MAX_MODEL_UNLOAD_MINUTES)
+}
+
 /// One-shot startup migration of the compute-device settings.
 ///
 /// - `device: "cuda"` → `"gpu"` (see [`resolve_device`]).
@@ -296,6 +341,17 @@ fn save_with_merge_patch_at(path: &Path, patch: Value) -> Result<Value, String> 
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn microphone_selection_accepts_legacy_indexes_and_names() {
+        assert_eq!(microphone_selection(Some(json!(1))), Some("1".into()));
+        assert_eq!(
+            microphone_selection(Some(json!("name:USB Mic"))),
+            Some("name:USB Mic".into())
+        );
+        assert_eq!(microphone_selection(Some(Value::Null)), None);
+        assert_eq!(microphone_selection(Some(json!(-1))), None);
+    }
 
     fn make_config() -> Config {
         Config { data: json!({}) }
@@ -598,5 +654,52 @@ mod tests {
 
         assert!(refused.is_err());
         assert_eq!(Config::load_at(&path).unwrap().as_value(), &before);
+    }
+
+    /// Ключа нет — выгрузка всё равно включена: иначе обновление тихо
+    /// оставило бы всех, кто уже пользуется приложением, без неё.
+    #[test]
+    fn a_config_without_the_key_still_unloads_after_five_minutes() {
+        assert_eq!(
+            model_unload_after_minutes(&json!({})),
+            DEFAULT_MODEL_UNLOAD_MINUTES
+        );
+    }
+
+    #[test]
+    fn zero_minutes_means_never_unload() {
+        assert_eq!(
+            model_unload_after_minutes(&json!({ MODEL_UNLOAD_KEY: 0 })),
+            0
+        );
+    }
+
+    /// Значение не из списка интерфейса — тоже значение: конфиг правят руками.
+    #[test]
+    fn a_hand_written_interval_is_taken_as_written() {
+        assert_eq!(
+            model_unload_after_minutes(&json!({ MODEL_UNLOAD_KEY: 2 })),
+            2
+        );
+    }
+
+    /// Мусор и отрицательные числа не выключают выгрузку, а откатывают её к
+    /// умолчанию: «не смогли прочитать» — это не «просили никогда».
+    #[test]
+    fn unreadable_values_fall_back_to_the_default() {
+        for value in [json!("пять"), json!(-5), json!(null), json!(5.5)] {
+            assert_eq!(
+                model_unload_after_minutes(&json!({ MODEL_UNLOAD_KEY: value })),
+                DEFAULT_MODEL_UNLOAD_MINUTES
+            );
+        }
+    }
+
+    #[test]
+    fn an_absurd_interval_is_capped_at_a_day() {
+        assert_eq!(
+            model_unload_after_minutes(&json!({ MODEL_UNLOAD_KEY: 100_000 })),
+            MAX_MODEL_UNLOAD_MINUTES
+        );
     }
 }

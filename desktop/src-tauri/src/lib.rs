@@ -20,6 +20,7 @@ pub mod model_download;
 pub mod mutex_recover;
 mod output_volume;
 mod overlay;
+mod portable;
 pub mod secret_store;
 pub mod sherpa;
 mod sounds;
@@ -35,6 +36,7 @@ mod updater;
 mod vad;
 mod wav;
 pub mod whisper;
+mod window_state;
 #[cfg(windows)]
 mod windows_util;
 #[cfg(windows)]
@@ -443,7 +445,14 @@ fn save_config(
             let reload_app = app.clone();
             let reload_tx = state.engine_cmd_tx.clone();
             tauri::async_runtime::spawn(async move {
-                if let Err(error) = load_model_into_engine(&reload_app, &reload_tx, &model).await {
+                if let Err(error) = load_model_into_engine(
+                    &reload_app,
+                    &reload_tx,
+                    &model,
+                    crate::whisper::ModelLoadReason::Requested,
+                )
+                .await
+                {
                     log::warn!("reload after device change failed: {error}");
                 }
             });
@@ -585,7 +594,7 @@ async fn list_microphones(
         .enumerate()
         .map(|(i, dev)| {
             serde_json::json!({
-                "id": i,
+                "id": format!("name:{}", dev.name),
                 "index": i,
                 "name": dev.name,
                 "label": dev.name,
@@ -624,6 +633,10 @@ fn list_models(app: AppHandle, state: tauri::State<'_, AppState>) -> Vec<crate::
 ///   diagnostics but are not the model that will transcribe the recording.
 /// - `device`: compute device actually used by the loaded engine ("cpu" /
 ///   "gpu"), or null when no engine is loaded
+/// - `model_loads_on_demand`: модели нет в памяти, но она выбрана и скачана —
+///   значит, её вернут туда при следующей диктовке. Отличает выгруженную по
+///   простою модель от отсутствующей: распознавать есть чем, просто память
+///   сейчас свободна
 /// - `recording`: whether the audio recorder is active
 /// - `state`: app FSM state string (idle/recording/processing/done/error)
 /// - `last_error`: null (error tracking is not wired yet)
@@ -675,8 +688,16 @@ fn get_runtime_status(
         actual_device,
     );
 
+    // Выгруженная по простою модель и не скачанная ни разу — для движка
+    // одно и то же «ничего не загружено», а для человека противоположные
+    // новости. Разводит их наличие файла на диске.
+    let loads_on_demand = loaded_model.is_none()
+        && pipeline_mode != "cloud"
+        && model.as_deref().is_some_and(crate::model::is_downloaded);
+
     Ok(serde_json::json!({
         "model_loaded": loaded_engine.is_some(),
+        "model_loads_on_demand": loads_on_demand,
         "model": model,
         "loaded_model": loaded_model,
         "device": actual_device,
@@ -969,19 +990,28 @@ async fn set_model(
     state: tauri::State<'_, AppState>,
     model: String,
 ) -> Result<(), String> {
-    load_model_into_engine(&app, &state.engine_cmd_tx, &model).await
+    load_model_into_engine(
+        &app,
+        &state.engine_cmd_tx,
+        &model,
+        crate::whisper::ModelLoadReason::Requested,
+    )
+    .await
 }
 
 /// Send `SetModel` to the engine thread and await its reply.
 ///
 /// The compute device is read from config here rather than passed in, so
-/// every entry point — the `set_model` command, the startup auto-load, and
-/// the reload after the CPU/GPU setting changes — agrees on which device the
-/// context gets built for.
+/// every entry point — the `set_model` command, the startup auto-load, the
+/// reload after the CPU/GPU setting changes, and the return of a model
+/// unloaded by idle — agrees on which device the context gets built for.
+/// Возврат после простоя тем и отличается от кэша спецификации, что читает
+/// настройки заново: за время простоя устройство обработки могли сменить.
 async fn load_model_into_engine(
     app: &AppHandle,
     engine_cmd_tx: &tokio::sync::mpsc::Sender<crate::whisper::EngineCommand>,
     model: &str,
+    reason: crate::whisper::ModelLoadReason,
 ) -> Result<(), String> {
     let engine = crate::model::model_engine(model)?;
     if !crate::model::is_downloaded(model) {
@@ -1002,6 +1032,7 @@ async fn load_model_into_engine(
         .send(crate::whisper::EngineCommand::SetModel {
             name: model.to_string(),
             spec,
+            reason,
             reply: reply_tx,
         })
         .await
@@ -1009,6 +1040,67 @@ async fn load_model_into_engine(
     reply_rx
         .await
         .map_err(|e| format!("engine reply dropped: {e}"))?
+}
+
+/// Вернуть в память модель, выгруженную по простою.
+///
+/// Тихо и по дороге: вызывается в начале диктовки, пока человек говорит, —
+/// к остановке записи модель обычно уже на месте, и расшифровка не ждёт
+/// загрузку. Событий жизненного цикла модели возврат не поднимает: они ведут
+/// состояние интерфейса, а у идущей диктовки состояние своё.
+///
+/// Ничего не делает, когда модель на месте, когда её нет в настройках или
+/// файл не скачан: это уже не возврат, а пустая конфигурация, про которую
+/// приложение говорит отдельно — плашкой «нечем распознавать». В облачном
+/// режиме локальная модель не нужна вовсе, и возвращать её в память значило
+/// бы отменять выгрузку ради того, кто ею не пользуется.
+async fn restore_unloaded_model(app: &AppHandle, state: &AppState) {
+    if crate::mutex_recover::lock(&state.engine_current_model).is_some() {
+        return;
+    }
+    let Ok(config) = crate::config::Config::load(app) else {
+        return;
+    };
+    let pipeline_mode = config
+        .as_value()
+        .get("ai_processing")
+        .and_then(|value| value.get("pipeline_mode"))
+        .and_then(Value::as_str)
+        .unwrap_or("local");
+    if pipeline_mode == "cloud" {
+        return;
+    }
+    let Some(model) = config.get_string("model") else {
+        return;
+    };
+    if !crate::model::is_downloaded(&model) {
+        return;
+    }
+    match load_model_into_engine(
+        app,
+        &state.engine_cmd_tx,
+        &model,
+        crate::whisper::ModelLoadReason::Restore,
+    )
+    .await
+    {
+        Ok(()) => log::info!("модель {model} возвращена в память после простоя"),
+        Err(error) => log::warn!("не вернули модель {model} в память: {error}"),
+    }
+}
+
+/// Как часто спрашивать движок, не пора ли отдать память.
+///
+/// Полминуты — это точность, с которой соблюдается выбранный порог, и цена
+/// вопроса: проверка стоит чтения конфига и одной команды в очередь.
+const IDLE_UNLOAD_TICK: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Через сколько простоя выгружать модель. `None` — не выгружать: так
+/// сказано в настройках, или конфиг не прочитался и трогать ничего не стоит.
+fn idle_unload_after(app: &AppHandle) -> Option<std::time::Duration> {
+    let config = crate::config::Config::load(app).ok()?;
+    let minutes = crate::config::model_unload_after_minutes(config.as_value());
+    (minutes > 0).then(|| std::time::Duration::from_secs(minutes * 60))
 }
 
 /// Delete a cached model file from disk.
@@ -1593,6 +1685,11 @@ async fn transcribe_file_inner(
         serde_json::json!({ "session_id": session_id }),
     );
 
+    // Здесь возврат модели ждут, а не запускают вдогонку: живого звука,
+    // который утечёт за время загрузки, у файла нет, а расшифровка пустым
+    // движком закончилась бы отказом «модель не загружена».
+    restore_unloaded_model(app, state).await;
+
     let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
     // Same branch as `stop_recording`: a cloud-configured user has no local
     // model loaded, and sending `Transcribe` would fail with "модель не
@@ -1712,6 +1809,7 @@ async fn cancel_audio_file(
 fn focus_main_window(app: AppHandle, tab: String) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("main") {
         window.show().map_err(|e| e.to_string())?;
+        window.unminimize().map_err(|e| e.to_string())?;
         window.set_focus().map_err(|e| e.to_string())?;
         let _ = window.emit("navigate-tab", tab);
     }
@@ -2137,6 +2235,18 @@ pub(crate) fn on_recording_started(app: &AppHandle) {
         crate::output_volume::duck(cfg.as_value());
     }
     let state = app.state::<AppState>();
+    // Модель могла уйти из памяти по простою — вернуть её сейчас, а не в
+    // конце записи: загрузка идёт параллельно речи и к остановке обычно
+    // уже позади. Отдельной задачей, потому что здесь начинается запись, а
+    // не ожидание модели: секунда загрузки, отнятая у начала диктовки, —
+    // это проглоченные первые слова.
+    if crate::mutex_recover::lock(&state.engine_current_model).is_none() {
+        let restore_app = app.clone();
+        let restore_state = state.inner().clone();
+        tauri::async_runtime::spawn(async move {
+            restore_unloaded_model(&restore_app, &restore_state).await;
+        });
+    }
     let session_id = state.current_session_id.load(Ordering::Acquire);
     let armed = start_live_preview(&state, session_id);
     // Оверлей под живой текст выглядит иначе, и знать об этом он должен с
@@ -2203,7 +2313,13 @@ async fn start_recording(app: AppHandle, state: tauri::State<'_, AppState>) -> R
     // Arm the cpal stream on the audio worker. Errors here surface
     // permission denials / missing-device conditions loudly to the UI.
     let recorder = Arc::clone(&state.recorder);
-    let started = match state.audio.call(move || recorder.start(None)).await {
+    let selected =
+        crate::config::microphone_selection(crate::config::Config::load(&app)?.get("microphone"));
+    let started = match state
+        .audio
+        .call(move || recorder.start_selected(selected.as_deref()))
+        .await
+    {
         Ok(inner) => inner,
         Err(error) => Err(error),
     };
@@ -2532,7 +2648,7 @@ pub(crate) fn panic_msg(panic: Box<dyn std::any::Any + Send + 'static>) -> Strin
 async fn start_microphone_test(
     app: AppHandle,
     state: tauri::State<'_, AppState>,
-    microphone: Option<String>,
+    microphone: Option<serde_json::Value>,
 ) -> Result<crate::mic_test::MicrophoneTestInfo, String> {
     // catch_unwind prevents a panic inside cpal/audio from crashing
     // the app. The microphone test path can fail silently or hard-crash
@@ -2543,7 +2659,10 @@ async fn start_microphone_test(
         .audio
         .call(move || {
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                test.start(&app_for_worker, microphone)
+                test.start(
+                    &app_for_worker,
+                    crate::config::microphone_selection(microphone),
+                )
             }))
         })
         .await?;
@@ -2681,6 +2800,10 @@ fn refresh_autostart(app: &AppHandle) {
 }
 
 fn apply_autostart_inner(app: &AppHandle, rewrite_when_unchanged: bool) {
+    // A portable copy must not erase or redirect the installed copy's entry.
+    if crate::portable::data_dir().is_some() {
+        return;
+    }
     use tauri_plugin_autostart::ManagerExt;
 
     let wanted = crate::config::Config::load(app)
@@ -2771,7 +2894,9 @@ pub fn run() {
         // open a file dialog, and the one place that can is a command that
         // decides for itself which extensions are offered.
         .plugin(tauri_plugin_dialog::init())
+        .on_window_event(crate::window_state::handle)
         .setup(|app| {
+            crate::window_state::restore(app.handle());
             // Раньше трея: его единственный пункт меню строится сразу.
             if let Ok(cfg) = crate::config::Config::load(app.handle()) {
                 crate::ui_text::set_from_config(cfg.as_value());
@@ -2972,9 +3097,43 @@ pub fn run() {
                     log::info!("config.model={model} not downloaded, skipping auto-load");
                     return;
                 }
-                match load_model_into_engine(&auto_load_app, &auto_load_tx, &model).await {
+                match load_model_into_engine(
+                    &auto_load_app,
+                    &auto_load_tx,
+                    &model,
+                    crate::whisper::ModelLoadReason::Requested,
+                )
+                .await
+                {
                     Ok(()) => log::info!("auto-loaded model {model} from saved config"),
                     Err(e) => log::warn!("auto-load failed: {e}"),
+                }
+            });
+
+            // Сторож простоя. Сам он ничего не выгружает: решение принимает
+            // поток движка, который один знает, чем занят и как давно
+            // (см. `EngineCommand::UnloadIdle`). Отсюда — только повод
+            // проверить и выбранный в настройках порог.
+            let idle_app = app.handle().clone();
+            let idle_state = app.state::<AppState>().inner().clone();
+            tauri::async_runtime::spawn(async move {
+                let mut ticker = tokio::time::interval(IDLE_UNLOAD_TICK);
+                // Первый тик `interval` отдаёт немедленно — пропускаем: в
+                // ноль секунд после старта простаивать ещё нечему.
+                ticker.tick().await;
+                loop {
+                    ticker.tick().await;
+                    let Some(after) = idle_unload_after(&idle_app) else {
+                        continue;
+                    };
+                    if crate::mutex_recover::lock(&idle_state.engine_current_model).is_none() {
+                        continue;
+                    }
+                    // `try_send`: очередь занята делом — значит, движок не
+                    // простаивает, и спрашивать его не о чем.
+                    let _ = idle_state
+                        .engine_cmd_tx
+                        .try_send(crate::whisper::EngineCommand::UnloadIdle { after });
                 }
             });
 
@@ -2999,6 +3158,15 @@ pub fn run() {
                         }
                         EngineEvent::ModelReady { name } => {
                             let _ = app_for_dispatch.emit("whisper-ready", name);
+                        }
+                        EngineEvent::ModelUnloaded { name } => {
+                            // То же событие, что и у выгрузки перед удалением
+                            // модели: списки и статус обновляются одинаково,
+                            // а чем именно освободили память, им знать незачем.
+                            let _ = app_for_dispatch.emit("model-unloaded", name);
+                        }
+                        EngineEvent::ModelRestored { name } => {
+                            let _ = app_for_dispatch.emit("model-restored", name);
                         }
                         EngineEvent::ModelLoadFailed { name, error } => {
                             // Same contract fix as `whisper-failed`: the

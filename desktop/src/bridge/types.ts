@@ -69,6 +69,10 @@ export interface ConfigResult {
   history_retention_days: number;
   /** Потолок числа записей истории. 0 — без ограничения. По умолчанию 1000. */
   history_max_entries: number;
+  /** Через сколько минут простоя выгружать модель из оперативной памяти.
+   *  0 — не выгружать. Нет поля — 5 минут: выгрузка включена по умолчанию,
+   *  и старые конфиги получают её вместе с обновлением. */
+  model_unload_after_minutes?: number;
   /** Подробность логов. По умолчанию "info". */
   log_level: "error" | "warn" | "info" | "debug" | "trace";
   /** Разрешить сбор и отправку продуктовой телеметрии. Отсутствие — true. */
@@ -163,6 +167,9 @@ export interface ReplacementRuleMatch {
 
 export interface RuntimeStatusResult {
   model_loaded: boolean;
+  /** Модели нет в памяти, но она выбрана и скачана: вернётся туда сама при
+   *  следующей диктовке. Это не то же самое, что «распознавать нечем». */
+  model_loads_on_demand?: boolean;
   model?: string | null;
   /** Model actually loaded by the engine thread; differs from `model` when a switch failed. */
   loaded_model?: string | null;

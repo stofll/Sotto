@@ -104,7 +104,7 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
-export function StatusPill({ state, pipelineMode, loadedModel, downloadProgress, compact }: { state?: RecordingState; pipelineMode?: string; loadedModel?: string | null; downloadProgress?: DownloadProgress | null; compact?: boolean }) {
+export function StatusPill({ state, pipelineMode, loadedModel, loadsOnDemand, downloadProgress, compact }: { state?: RecordingState; pipelineMode?: string; loadedModel?: string | null; loadsOnDemand?: boolean; downloadProgress?: DownloadProgress | null; compact?: boolean }) {
   const map: Record<RecordingState, { dot: string; text: string; sub: string }> = {
     idle: { dot: "var(--ok)", text: t("Готово"), sub: "" },
     recording: { dot: "var(--rec)", text: t("Идёт запись"), sub: "" },
@@ -123,11 +123,19 @@ export function StatusPill({ state, pipelineMode, loadedModel, downloadProgress,
   // отсутствие модели само становится заголовком, а вторая строка остаётся
   // под режим конвейера, чтобы подпись не дублировала её.
   const idleWithoutModel = !model && !active && current !== "error";
-  const headline = idleWithoutModel ? t("Модель не загружена") : s.text;
+  // Модель, выгруженная по простою, — не пропажа: файл на месте, и первая же
+  // диктовка вернёт её в память. «Не загружена» здесь читалось бы как поломка
+  // и отправляло бы человека чинить работающее.
+  const headline = idleWithoutModel
+    ? (loadsOnDemand ? t("Модель выгружена") : t("Модель не загружена"))
+    : s.text;
   const dot = idleWithoutModel ? "var(--text-mute)" : s.dot;
   const modelLabel = model || t("Модель не загружена");
+  const idleDetail = [loadsOnDemand ? t("вернётся при диктовке") : "", pipelineLabel]
+    .filter(Boolean)
+    .join(" · ");
   const detail = idleWithoutModel
-    ? (pipelineLabel || "")
+    ? idleDetail
     : (pipelineLabel ? `${modelLabel} · ${pipelineLabel}` : modelLabel);
 
   // Свёрнутый сайдбар получает отдельную разметку, а не ту же с погашенными
@@ -208,7 +216,7 @@ export function applyAccent(hex: string) {
   }
 }
 
-export function Sidebar({ tab, onTab, recordingState, pipelineMode, loadedModel, theme, onToggleTheme, downloadProgress, collapsed: sidebarCollapsed }: { tab: TabId; onTab: (tab: TabId) => void; recordingState?: RecordingState; pipelineMode?: string; loadedModel?: string | null; theme: "dark" | "light"; onToggleTheme: () => void; downloadProgress?: DownloadProgress | null; collapsed?: boolean }) {
+export function Sidebar({ tab, onTab, recordingState, pipelineMode, loadedModel, loadsOnDemand, theme, onToggleTheme, downloadProgress, collapsed: sidebarCollapsed }: { tab: TabId; onTab: (tab: TabId) => void; recordingState?: RecordingState; pipelineMode?: string; loadedModel?: string | null; loadsOnDemand?: boolean; theme: "dark" | "light"; onToggleTheme: () => void; downloadProgress?: DownloadProgress | null; collapsed?: boolean }) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
     try {
       const saved = window.localStorage.getItem("sotto.nav.collapsed");
@@ -259,7 +267,7 @@ export function Sidebar({ tab, onTab, recordingState, pipelineMode, loadedModel,
           <span className="theme-toggle__value">{theme === "dark" ? t("Темная") : t("Светлая")}</span>
         </button>
       </div>
-      <div className="sidebar-footer"><StatusPill state={recordingState} pipelineMode={pipelineMode} loadedModel={loadedModel} downloadProgress={downloadProgress} compact={sidebarCollapsed}/></div>
+      <div className="sidebar-footer"><StatusPill state={recordingState} pipelineMode={pipelineMode} loadedModel={loadedModel} loadsOnDemand={loadsOnDemand} downloadProgress={downloadProgress} compact={sidebarCollapsed}/></div>
     </aside>
   );
 }

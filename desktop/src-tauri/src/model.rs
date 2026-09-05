@@ -34,9 +34,9 @@ const WHISPER_LANGUAGES: &[&str] = &[
 /// Двадцать пять европейских языков Parakeet TDT v3 — ровно те, на которых
 /// модель обучалась, а не всё, что нашлось в её словаре токенов.
 ///
-/// Под `cfg(windows)`, как и весь каталог бандлов sherpa: на остальных
+/// Доступно на Windows/macOS, как и весь каталог бандлов sherpa: на остальных
 /// платформах он не собирается, и константа осталась бы мёртвой.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 const PARAKEET_V3_LANGUAGES: &[&str] = &[
     "bg", "hr", "cs", "da", "nl", "en", "et", "fi", "fr", "de", "el", "hu", "it", "lv", "lt", "mt",
     "pl", "pt", "ro", "sk", "sl", "es", "sv", "ru", "uk",
@@ -111,7 +111,7 @@ pub struct BundleModelManifestEntry {
     pub recommended: bool,
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 const GIGAAM_V3_ARTIFACTS: &[BundleArtifactManifestEntry] = &[
     BundleArtifactManifestEntry {
         role: ArtifactRole::Model,
@@ -129,7 +129,7 @@ const GIGAAM_V3_ARTIFACTS: &[BundleArtifactManifestEntry] = &[
     },
 ];
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 const PARAKEET_TDT_V3_ARTIFACTS: &[BundleArtifactManifestEntry] = &[
     BundleArtifactManifestEntry {
         role: ArtifactRole::Encoder,
@@ -173,7 +173,7 @@ const PARAKEET_TDT_V3_ARTIFACTS: &[BundleArtifactManifestEntry] = &[
     },
 ];
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 const PARAKEET_TDT_V2_EN_ARTIFACTS: &[BundleArtifactManifestEntry] = &[
     BundleArtifactManifestEntry {
         role: ArtifactRole::Encoder,
@@ -217,7 +217,7 @@ const PARAKEET_TDT_V2_EN_ARTIFACTS: &[BundleArtifactManifestEntry] = &[
     },
 ];
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 const CANARY_180M_ARTIFACTS: &[BundleArtifactManifestEntry] = &[
     BundleArtifactManifestEntry {
         role: ArtifactRole::Encoder,
@@ -242,7 +242,7 @@ const CANARY_180M_ARTIFACTS: &[BundleArtifactManifestEntry] = &[
     },
 ];
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 const SENSE_VOICE_ARTIFACTS: &[BundleArtifactManifestEntry] = &[
     BundleArtifactManifestEntry {
         role: ArtifactRole::Model,
@@ -260,7 +260,7 @@ const SENSE_VOICE_ARTIFACTS: &[BundleArtifactManifestEntry] = &[
     },
 ];
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 const MOONSHINE_BASE_EN_ARTIFACTS: &[BundleArtifactManifestEntry] = &[
     BundleArtifactManifestEntry {
         role: ArtifactRole::Preprocessor,
@@ -299,7 +299,7 @@ const MOONSHINE_BASE_EN_ARTIFACTS: &[BundleArtifactManifestEntry] = &[
     },
 ];
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 const ZIPFORMER_RU_ARTIFACTS: &[BundleArtifactManifestEntry] = &[
     BundleArtifactManifestEntry {
         role: ArtifactRole::Encoder,
@@ -331,7 +331,7 @@ const ZIPFORMER_RU_ARTIFACTS: &[BundleArtifactManifestEntry] = &[
     },
 ];
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 const ZIPFORMER_RU_STREAMING_ARTIFACTS: &[BundleArtifactManifestEntry] = &[
     BundleArtifactManifestEntry {
         role: ArtifactRole::Encoder,
@@ -363,7 +363,7 @@ const ZIPFORMER_RU_STREAMING_ARTIFACTS: &[BundleArtifactManifestEntry] = &[
     },
 ];
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 const PARAKEET_STREAMING_EN_ARTIFACTS: &[BundleArtifactManifestEntry] = &[
     BundleArtifactManifestEntry {
         role: ArtifactRole::Encoder,
@@ -395,7 +395,7 @@ const PARAKEET_STREAMING_EN_ARTIFACTS: &[BundleArtifactManifestEntry] = &[
     },
 ];
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 pub const BUNDLE_MODEL_MANIFEST: &[BundleModelManifestEntry] = &[
     BundleModelManifestEntry {
         public_id: "gigaam-v3",
@@ -518,7 +518,7 @@ pub const BUNDLE_MODEL_MANIFEST: &[BundleModelManifestEntry] = &[
 
 /// GigaAM is not exposed on targets where its downloaded Sherpa runtime is
 /// not packaged. Whisper remains available on those targets.
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 pub const BUNDLE_MODEL_MANIFEST: &[BundleModelManifestEntry] = &[];
 
 pub fn bundle_manifest() -> &'static [BundleModelManifestEntry] {
@@ -945,6 +945,9 @@ const LEGACY_CACHE_DIR: &str = "whisper-desktop";
 const CACHE_DIR: &str = "sotto";
 
 pub fn models_dir() -> Result<PathBuf, String> {
+    if let Some(dir) = crate::portable::data_dir() {
+        return Ok(dir.join("models"));
+    }
     if let Ok(override_dir) = std::env::var("SPEECH_TO_TEXT_MODELS_DIR") {
         if !override_dir.trim().is_empty() {
             return Ok(PathBuf::from(override_dir));
@@ -1662,9 +1665,9 @@ mod tests {
         assert_eq!(turbo.quantization.as_deref(), Some("q8_0"));
         // В бандле квантуют тяжёлые графы, а словарь остаётся как есть —
         // метку берём с первого размеченного артефакта. Бандлы sherpa есть
-        // только на Windows: на остальных платформах каталог их не содержит,
+        // только на Windows/macOS: на остальных платформах каталог их не содержит,
         // и проверять здесь нечего.
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "macos"))]
         {
             let gigaam = whisper.iter().find(|m| m.id == "gigaam-v3").unwrap();
             assert_eq!(gigaam.quantization.as_deref(), Some("int8"));
@@ -1696,7 +1699,7 @@ mod tests {
         assert!(language_unsupported_message(&["zh", "en"]).contains("язык"));
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     #[test]
     fn parakeet_is_a_multilingual_transducer_bundle() {
         assert_eq!(
@@ -1729,7 +1732,7 @@ mod tests {
 
     /// Роли, а не имена файлов: загрузчик спрашивает у манифеста, где
     /// энкодер, и подмена имени в манифесте обязана доехать до путей.
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     #[test]
     fn transducer_load_spec_resolves_every_artifact_by_role() {
         let entry = bundle_manifest_entry("parakeet-tdt-v3").unwrap();
@@ -1766,7 +1769,7 @@ mod tests {
 
     /// Потоковость — свойство движка, и она обязана доезжать до каталога:
     /// живой предпросмотр выбирает модель именно по этому признаку.
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     #[test]
     fn only_the_streaming_family_is_marked_streaming() {
         assert!(ModelEngine::SherpaStreamingTransducer.is_streaming());
@@ -1787,7 +1790,7 @@ mod tests {
         assert!(!models.iter().any(|m| m.id == "turbo" && m.streaming));
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     #[test]
     fn every_bundle_pins_unique_roles_and_verifiable_artifacts() {
         use std::collections::HashSet;
@@ -1835,7 +1838,7 @@ mod tests {
         }
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     #[test]
     fn gigaam_is_a_closed_cpu_only_bundle() {
         assert_eq!(normalize_model_id("gigaam-v3").unwrap(), "gigaam-v3");
@@ -1950,11 +1953,11 @@ mod tests {
         assert!(verify_artifact(&path, 5, HELLO_SHA).is_err());
     }
 
-    // Здесь и ниже — `#[cfg(windows)]` по той же причине, что и у
+    // Здесь и ниже — ограничение платформ по той же причине, что и у
     // `gigaam_is_a_closed_cpu_only_bundle`: BUNDLE_MODEL_MANIFEST пуст вне
-    // Windows, так что «gigaam-v3» там просто неизвестная модель. Тест не
+    // Windows/macOS, так что «gigaam-v3» там просто неизвестная модель. Тест не
     // проходил бы, а если бы проходил — то вхолостую.
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     #[test]
     fn bundle_recovery_removes_final_dir_when_artifact_is_missing() {
         let dir = tempfile::tempdir().unwrap();
@@ -1966,7 +1969,7 @@ mod tests {
         assert!(!final_dir.exists());
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     #[test]
     fn bundle_recovery_removes_final_dir_when_artifact_size_is_wrong() {
         let dir = tempfile::tempdir().unwrap();
@@ -2026,7 +2029,7 @@ mod tests {
         assert!(discover_local_models_in(dir.path()).is_empty());
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     #[test]
     fn discovery_skips_local_file_that_collides_with_sherpa_id() {
         let dir = tempfile::tempdir().unwrap();
@@ -2117,7 +2120,7 @@ mod tests {
     // Bundle readiness / recovery / discovery / deletion via paths
     // ------------------------------------------------------------------
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     #[test]
     fn bundle_is_ready_at_requires_every_artifact_at_exact_size() {
         let dir = tempfile::tempdir().unwrap();
@@ -2142,7 +2145,7 @@ mod tests {
         assert!(bundle_is_ready_at("gigaam-v3", dir.path()));
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     #[test]
     fn bundle_recovery_returns_false_for_a_missing_dir() {
         let dir = tempfile::tempdir().unwrap();
@@ -2150,7 +2153,7 @@ mod tests {
         assert!(!recover_bundle_if_needed_at("gigaam-v3", dir.path()).unwrap());
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     #[test]
     fn bundle_recovery_wrapper_respects_models_dir() {
         let dir = tempfile::tempdir().unwrap();
@@ -2276,7 +2279,7 @@ mod tests {
         assert!(!tiny.selected && !tiny.loaded, "tiny must be neither");
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     #[test]
     fn list_models_marks_bundle_selected_and_loaded_by_id() {
         let models = list_models("gigaam-v3", Some("gigaam-v3"));

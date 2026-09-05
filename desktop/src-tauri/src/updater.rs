@@ -64,6 +64,9 @@ pub struct DownloadProgress {
 /// установщика, который апдейтер мог бы заменить, — плагин на такой запрос
 /// вернёт ошибку, и показывать её пользователю бессмысленно.
 pub fn unsupported_reason() -> Option<&'static str> {
+    if crate::portable::data_dir().is_some() {
+        return Some("Портативная версия: скачайте новый ZIP и замените файлы приложения, сохранив папку data.");
+    }
     cfg!(debug_assertions).then_some("обновления работают только в собранном приложении")
 }
 

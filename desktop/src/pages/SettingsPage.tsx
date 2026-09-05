@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke, on } from "../bridge";
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { PageHeader, Segmented } from "../components/Shell";
@@ -8,9 +8,10 @@ import { CustomSelect, type SelectOption } from "../components/CustomSelect";
 import { NumberField } from "../components/NumberField";
 import type { ConfigResult, MicrophoneResult, ModelInfo } from "../bridge/types";
 import { getLocale, isLocale, LOCALE_LABELS, LOCALES, setLocale, t, type Locale } from "../i18n";
-import { DEFAULT_HOTKEY } from "../hotkey";
+import { DEFAULT_HOTKEY, normalizeHotkeyKey } from "../hotkey";
 import { fallbackLanguage, fallbackModels, speechLanguages } from "./modelCatalog";
 import { isTelemetryEnabled } from "./telemetrySettings";
+import { modelUnloadMinutes, modelUnloadOptions } from "./modelUnloadSettings";
 
 type Props = {
   config: ConfigResult | null;
@@ -54,26 +55,6 @@ function HotkeyDisplay({ hotkey, fallback, onConfigChanged }: {
 
   const MODIFIERS = new Set(["ctrl", "alt", "shift", "cmd"]);
 
-  function normalizeKey(e: KeyboardEvent): string | null {
-    // Modifier keys come through with both e.key and e.code reflecting the name.
-    if (e.key === "Control" || e.code === "ControlLeft" || e.code === "ControlRight") return "ctrl";
-    if (e.key === "Meta" || e.code === "MetaLeft" || e.code === "MetaRight") return "cmd";
-    if (e.key === "Alt" || e.code === "AltLeft" || e.code === "AltRight") return "alt";
-    if (e.key === "Shift" || e.code === "ShiftLeft" || e.code === "ShiftRight") return "shift";
-    const named: Record<string, string> = {
-      Space: "space", Escape: "escape", Enter: "enter", Tab: "tab",
-      Backspace: "backspace", Delete: "delete",
-      ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down",
-      Home: "home", End: "end", PageUp: "pageup", PageDown: "pagedown",
-    };
-    if (named[e.code]) return named[e.code];
-    if (named[e.key]) return named[e.key];
-    if (/^F\d{1,2}$/.test(e.key)) return e.key.toLowerCase();
-    if (/^F\d{1,2}$/.test(e.code)) return e.code.toLowerCase();
-    // Plain printable characters (latin letters/digits/symbols).
-    if (e.key.length === 1) return e.key.toLowerCase();
-    return null;
-  }
 
   function formatCombo(set: Set<string>): string {
     const MOD_ORDER = ["ctrl", "alt", "shift", "cmd"];
@@ -145,13 +126,13 @@ function HotkeyDisplay({ hotkey, fallback, onConfigChanged }: {
       return false;
     }
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") {
+      if (e.key === "Escape" && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey) {
         e.preventDefault();
         e.stopPropagation();
         cancelRecording();
         return;
       }
-      const token = normalizeKey(e);
+      const token = normalizeHotkeyKey(e);
       if (!token) return;
       // Suppress browser/shortcut interference (Cmd+Space → Spotlight, etc.)
       e.preventDefault();
@@ -159,6 +140,10 @@ function HotkeyDisplay({ hotkey, fallback, onConfigChanged }: {
       // Ignore OS key auto-repeat: the combo is captured once, on the initial
       // press of the non-modifier key, using whatever modifiers are held.
       if (e.repeat) return;
+      if (e.ctrlKey) pressedRef.current.add("ctrl");
+      if (e.altKey) pressedRef.current.add("alt");
+      if (e.shiftKey) pressedRef.current.add("shift");
+      if (e.metaKey) pressedRef.current.add("cmd");
       pressedRef.current.add(token);
       setPressedKeys(new Set(pressedRef.current));
       // A non-modifier is the "main" key — snapshot the current chord and
@@ -167,11 +152,12 @@ function HotkeyDisplay({ hotkey, fallback, onConfigChanged }: {
       if (hasNonModifier(pressedRef.current)) {
         const combo = formatCombo(pressedRef.current);
         pressedRef.current = new Set();
+        setRecording(false);
         void commit(combo);
       }
     }
     function onKeyUp(e: KeyboardEvent) {
-      const token = normalizeKey(e);
+      const token = normalizeHotkeyKey(e);
       if (!token) return;
       // Don't stopPropagation on keyup — let release events through.
       if (pressedRef.current.has(token)) {
@@ -200,7 +186,7 @@ function HotkeyDisplay({ hotkey, fallback, onConfigChanged }: {
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") void commit(value);
-              if (e.key === "Escape") { cancelRecording(); setEditing(false); }
+              if (e.key === "Escape" && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey) { cancelRecording(); setEditing(false); }
             }}
             autoFocus
             disabled={recording}
@@ -350,20 +336,26 @@ function DevicePicker({ device, cpuOnly, onConfigChanged }: { device?: string; c
   // включая унаследованное значение "cuda".
   const current = cpuOnly ? "cpu" : (device === "cpu" ? "cpu" : "gpu");
   // Выбор из двух взаимоисключающих значений — это тумблер, а не список:
-  // оба варианта видны сразу, и раскрывать меню ради них незачем. У CPU-only
-  // модели тумблер гасится, и рядом появляется короткое объяснение «почему».
+  // оба варианта видны сразу, и раскрывать меню ради них незачем.
+  //
+  // У CPU-only модели тумблер гасится, а «почему» переехало в подсказку на
+  // нём самом: спрашивают об этом ровно тогда, когда он погашен, и
+  // спрашивают у него. Постоянная подпись рядом стоила строки текста и
+  // ширины колонки в ряду, которому ширины и так не хватало.
+  const picker = (
+    <Segmented
+      value={current}
+      disabled={cpuOnly}
+      options={[
+        { value: "gpu", label: "GPU", icon: "gpu" },
+        { value: "cpu", label: "CPU", icon: "cpu" },
+      ]}
+      onChange={(next) => { if (!cpuOnly) void onConfigChanged({ device: next as "gpu" | "cpu" }); }}
+    />
+  );
   return (
     <div className="device-picker">
-      <Segmented
-        value={current}
-        disabled={cpuOnly}
-        options={[
-          { value: "gpu", label: "GPU", icon: "gpu" },
-          { value: "cpu", label: "CPU", icon: "cpu" },
-        ]}
-        onChange={(next) => { if (!cpuOnly) void onConfigChanged({ device: next as "gpu" | "cpu" }); }}
-      />
-      {cpuOnly && <span className="device-picker__note">{t("модель работает только на CPU")}</span>}
+      {cpuOnly ? <Hint text={t("Модель работает только на CPU")}>{picker}</Hint> : picker}
     </div>
   );
 }
@@ -414,6 +406,25 @@ function SoundFeedbackControl({ enabled, volume, onConfigChanged }: { enabled: b
         onChange={select}
       />
     </div>
+  );
+}
+
+// Через сколько простоя модель уходит из оперативной памяти. Само значение
+// живёт в ./modelUnloadSettings, потому что его же читает Rust.
+function ModelUnloadControl({ value, onConfigChanged }: { value?: number; onConfigChanged: Props["onConfigChanged"] }) {
+  const current = modelUnloadMinutes(value);
+  const options = modelUnloadOptions(current).map((minutes) => ({
+    value: minutes,
+    // «Никогда» — это не срок, поэтому и не «0 мин».
+    label: minutes === 0 ? t("Никогда") : t("{p0} мин", { p0: minutes }),
+  }));
+  return (
+    <CustomSelect
+      className="custom-select--model-unload"
+      value={current}
+      options={options}
+      onChange={(next) => void onConfigChanged({ model_unload_after_minutes: next })}
+    />
   );
 }
 
@@ -518,6 +529,45 @@ type SidecarErrorPayload = { kind?: string; permission?: string; hint?: string; 
 
 function MicPicker({ microphone, microphones, onConfigChanged }: { microphone?: string | number | null; microphones: MicrophoneResult[]; onConfigChanged: Props["onConfigChanged"] }) {
   const [testing, setTesting] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [devices, setDevices] = useState(microphones);
+  const playback = useRef<AudioContext | null>(null);
+  const nextPlayback = useRef(0);
+
+  function closePlayback() {
+    const context = playback.current;
+    playback.current = null;
+    nextPlayback.current = 0;
+    if (context) void context.close();
+  }
+
+  // Список устройств перечитывается по событию, а не по таймеру: опрос раз в
+  // три секунды гонял перечисление cpal на аудиопотоке всё время, пока открыты
+  // настройки, — в том числе когда окно свёрнуто в трей. Оба момента, когда
+  // подключённый на ходу микрофон должен появиться, ловятся точно: возврат
+  // фокуса в окно и раскрытие самого списка.
+  const pendingRefresh = useRef(false);
+  const disposed = useRef(false);
+  const refreshDevices = useCallback(async () => {
+    if (pendingRefresh.current) return;
+    pendingRefresh.current = true;
+    try {
+      const list = await invoke<MicrophoneResult[]>("list_microphones");
+      if (!disposed.current) setDevices(list);
+    } catch { /* Keep the last successful enumeration during a reconnect. */ }
+    finally { pendingRefresh.current = false; }
+  }, []);
+
+  useEffect(() => {
+    disposed.current = false;
+    const onFocus = () => void refreshDevices();
+    void refreshDevices();
+    window.addEventListener("focus", onFocus);
+    return () => {
+      disposed.current = true;
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [refreshDevices]);
   const [level, setLevel] = useState(0);
   const [peak, setPeak] = useState(0);
   const [micActive, setMicActive] = useState(false);
@@ -536,7 +586,14 @@ function MicPicker({ microphone, microphones, onConfigChanged }: { microphone?: 
     setPeak(0);
     setMicActive(false);
   }
-  const options = [{ label: t("Системный микрофон по умолчанию"), value: null as string | number | null }, ...microphones.map((mic) => ({ label: mic.name || mic.label || String(mic.id ?? mic.index), value: mic.id ?? mic.index ?? null }))];
+  const options = [{ label: t("Системный микрофон по умолчанию"), value: null as string | number | null }, ...devices.map((mic) => ({ label: mic.name || mic.label || String(mic.id ?? mic.index), value: mic.id ?? mic.index ?? null }))];
+
+  const selectedValue = typeof microphone === "number" || (typeof microphone === "string" && /^\d+$/.test(microphone))
+    ? devices.find((mic) => mic.index === Number(microphone))?.id ?? microphone
+    : microphone ?? null;
+  if (selectedValue !== null && !options.some((option) => option.value === selectedValue)) {
+    options.push({ label: t("Микрофон отключён"), value: selectedValue });
+  }
 
   function setRunningStatus(text: string) {
     if (statusTimerRef.current !== null) {
@@ -567,6 +624,20 @@ function MicPicker({ microphone, microphones, onConfigChanged }: { microphone?: 
         else unlisteners.push(fn);
       });
     };
+    subscribe<number[]>("microphone-test-audio", (samples) => {
+      const context = playback.current;
+      if (!context || context.state !== "running" || !samples.length) return;
+      // Bound queued playback when the webview was stalled or hidden.
+      if (nextPlayback.current > context.currentTime + 0.25) return;
+      const buffer = context.createBuffer(1, samples.length, 16000);
+      buffer.copyToChannel(new Float32Array(samples), 0);
+      const source = context.createBufferSource();
+      source.buffer = buffer;
+      source.connect(context.destination);
+      const at = Math.max(context.currentTime + 0.02, nextPlayback.current);
+      source.start(at);
+      nextPlayback.current = at + buffer.duration;
+    });
     subscribe<{ level: number }>("microphone-test-level", (payload) => {
       const raw = Math.max(0, Math.min(1, payload.level ?? 0));
       // Fast-attack / slow-release smoothing so the meter fills left-to-right
@@ -587,16 +658,18 @@ function MicPicker({ microphone, microphones, onConfigChanged }: { microphone?: 
       }
     });
     subscribe<unknown>("microphone-test-started", () => { setTesting(true); setError(null); setRunningStatus(t("Тест микрофона запущен")); });
-    subscribe<unknown>("microphone-test-stopped", () => { setTesting(false); resetMeter(); setStoppedStatus(t("Тест микрофона остановлен")); });
+    subscribe<unknown>("microphone-test-stopped", () => { closePlayback(); setTesting(false); resetMeter(); setStoppedStatus(t("Тест микрофона остановлен")); });
     subscribe<SidecarErrorPayload>("app-error", (payload) => {
-      if (payload?.kind === "permission") {
-        const detail = payload.message ? ` (${payload.message})` : "";
-        setError(t("Нет доступа к микрофону. Откройте «Системные настройки → Конфиденциальность → Микрофон» и разрешите доступ для приложения.{p0}", { p0: detail }));
-      } else if (payload?.message) {
-        setError(String(payload.message));
-      }
+      // События о разрешениях показывает баннер в MainWindow — у него текст под
+      // конкретное разрешение и ссылка в нужную панель системных настроек.
+      // Здесь такой ветки быть не должно: она подписывала любое из них как
+      // «нет доступа к микрофону» с macOS-инструкцией, хотя единственный
+      // источник таких событий — Accessibility на macOS.
+      if (payload?.permission) return;
+      if (payload?.message) setError(String(payload.message));
     });
     subscribe<{ message?: string }>("microphone-test-failed", (payload) => {
+      closePlayback();
       setTesting(false);
       resetMeter();
       setError(payload?.message ?? t("Тест микрофона не удался"));
@@ -604,6 +677,8 @@ function MicPicker({ microphone, microphones, onConfigChanged }: { microphone?: 
     });
     return () => {
       cancelled = true;
+      closePlayback();
+      void invoke("stop_microphone_test").catch(() => {});
       for (const fn of unlisteners) fn();
       if (statusTimerRef.current !== null) {
         window.clearTimeout(statusTimerRef.current);
@@ -613,39 +688,47 @@ function MicPicker({ microphone, microphones, onConfigChanged }: { microphone?: 
   }, []);
 
   async function toggleTest() {
+    if (busy) return;
+    setBusy(true);
     setError(null);
-    if (testing) {
-      try {
+    try {
+      if (testing) {
+        closePlayback();
         await invoke("stop_microphone_test");
         setTesting(false);
         resetMeter();
         setStoppedStatus(t("Тест микрофона остановлен"));
-      } catch (e) {
-        // Force UI consistent even if backend is wedged.
-        setTesting(false);
-        resetMeter();
-        setError(e instanceof Error ? e.message : String(e));
-        setStoppedStatus(t("Ошибка остановки теста"));
+      } else {
+        const context = new AudioContext();
+        playback.current = context;
+        await context.resume();
+        await invoke("start_microphone_test", { microphone: microphone ?? null });
+        setTesting(true);
+        setRunningStatus(t("Тест микрофона запущен"));
       }
-      return;
-    }
-    try {
-      await invoke("start_microphone_test", { microphone });
-      setTesting(true);
-      setRunningStatus(t("Тест микрофона запущен"));
     } catch (e) {
+      closePlayback();
+      setTesting(false);
       setError(e instanceof Error ? e.message : String(e));
-    }
+    } finally { setBusy(false); }
+  }
+
+  async function selectMicrophone(value: string | number | null) {
+    closePlayback();
+    await invoke("stop_microphone_test");
+    setTesting(false);
+    await onConfigChanged({ microphone: value });
   }
 
   return (
     <div>
       <div className="mic-control">
-        <CustomSelect className="custom-select--mic" value={microphone ?? null} options={options.map((option) => ({ ...option, icon: "mic" }))} onChange={(value) => void onConfigChanged({ microphone: value })}/>
-        <button className={`mic-test${testing ? " mic-test--active" : ""}`} type="button" onClick={() => void toggleTest()} title={t("Проверить микрофон")}><Icon name="mic" size={14}/></button>
+        <CustomSelect className="custom-select--mic" value={selectedValue} options={options.map((option) => ({ ...option, icon: "mic" }))} onOpen={() => void refreshDevices()} onChange={(value) => void selectMicrophone(value).catch((e) => setError(String(e)))}/>
+        <button className={`mic-test${testing ? " mic-test--active" : ""}`} type="button" disabled={busy} aria-pressed={testing} onClick={() => void toggleTest()} title={t("Проверить микрофон")}><Icon name="mic" size={14}/></button>
         {status && <span className={`mic-status-chip${status.kind === "stopped" ? " mic-status-chip--stop" : ""}`} role="status" aria-live="polite">{status.text}</span>}
         <MicMeter level={level} peak={peak} active={micActive}/>
       </div>
+      <div style={{ marginTop: 6, color: "var(--text-muted)", fontSize: 11 }}>{t("Нажмите на микрофон, чтобы услышать себя. Используйте наушники, чтобы избежать эха. Нажмите ещё раз, чтобы остановить проверку.")}</div>
       {error && <div role="alert" style={{ marginTop: 6, color: "var(--err)", font: "500 11px/1.4 var(--font-sans)" }}>{error}</div>}
     </div>
   );
@@ -720,7 +803,7 @@ export function SettingsPage({ config, microphones, models, onConfigChanged }: P
           </div>
           <div className="vrule"/>
           <div className="set-cell">
-            <SetLabel title={t("Режим записи")}/>
+            <SetLabel title={t("Режим записи")} hint={t("Переключение: нажмите горячую клавишу, чтобы начать запись, и нажмите снова, чтобы закончить. Удержание: говорите, удерживая горячую клавишу; отпустите её, чтобы закончить запись.")}/>
             <RecordingModeSegmented value={recordingMode} onConfigChanged={onConfigChanged}/>
           </div>
         </div>
@@ -843,6 +926,15 @@ export function SettingsPage({ config, microphones, models, onConfigChanged }: P
           <div className="set-cell">
             <SetLabel title={t("Скорость набора")} hint={t("Скорость ручного набора. В статистике используется формула: символы / скорость набора.")}/>
             <TypingSpeedControl value={config?.typing_speed_cpm} onConfigChanged={onConfigChanged}/>
+          </div>
+          {/* Четвёртая настройка ряда. На узкой карточке — с открытым
+              сайдбаром на минимальной ширине окна — она переходит во второй
+              ряд, а разделитель перед ней прячется: за это отвечает
+              container query в styles.css, меряющий карточку, а не окно. */}
+          <div className="vrule advanced__unload-rule"/>
+          <div className="set-cell advanced__unload-cell">
+            <SetLabel title={t("Выгружать модель")} hint={t("Через сколько минут без диктовки освобождать оперативную память. Модель вернётся в неё сама — в начале следующей записи, пока вы говорите.")}/>
+            <ModelUnloadControl value={config?.model_unload_after_minutes} onConfigChanged={onConfigChanged}/>
           </div>
         </div>
 

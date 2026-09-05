@@ -265,20 +265,32 @@ impl AudioRecorder {
     /// error. The stream is `play()`ed before this returns, so callbacks
     /// start firing immediately.
     pub fn start(&self, device_index: Option<usize>) -> Result<(), String> {
+        self.start_selected(device_index.map(|i| i.to_string()).as_deref())
+    }
+
+    pub fn start_selected(&self, selection: Option<&str>) -> Result<(), String> {
         if self.is_recording.load(Ordering::Acquire) {
             return Err("already recording".into());
         }
 
         let host = cpal::default_host();
-        let device = match device_index {
-            Some(index) => host
-                .input_devices()
-                .map_err(|e| format!("input_devices: {e}"))?
-                .nth(index)
-                .ok_or_else(|| format!("no input device at index {index}"))?,
-            None => host
-                .default_input_device()
-                .ok_or_else(|| "no input device".to_string())?,
+        let device = match selection {
+            Some(value) => {
+                let mut devices = host
+                    .input_devices()
+                    .map_err(|e| format!("input_devices: {e}"))?;
+                if let Some(name) = value.strip_prefix("name:") {
+                    devices.find(|device| device.name().ok().as_deref() == Some(name))
+                } else if let Ok(index) = value.parse::<usize>() {
+                    devices.nth(index)
+                } else {
+                    devices.find(|device| device.name().ok().as_deref() == Some(value))
+                }.ok_or_else(|| format!("Selected microphone is disconnected: {value}. Select an available microphone in Settings."))?
+            }
+            None => host.default_input_device().ok_or_else(|| {
+                "No default input device. Connect a microphone or select one in Settings."
+                    .to_string()
+            })?,
         };
         let supported = device
             .default_input_config()
@@ -482,6 +494,11 @@ impl AudioRecorder {
         }
     }
 
+    /// Self-tests stream audio without retaining an ever-growing recording.
+    pub fn discard_buffer(&self) {
+        crate::mutex_recover::lock(&self.audio_buffer).clear();
+    }
+
     pub fn is_recording(&self) -> bool {
         self.is_recording.load(Ordering::Acquire)
     }
@@ -503,7 +520,9 @@ impl AudioRecorder {
         let host = cpal::default_host();
         match host.input_devices() {
             Ok(devices) => devices
-                .filter_map(|d| d.name().ok().map(|name| DeviceInfo { name }))
+                .map(|d| DeviceInfo {
+                    name: d.name().unwrap_or_else(|_| "Unknown microphone".into()),
+                })
                 .collect(),
             Err(e) => {
                 log::warn!("input_devices failed: {e}");
