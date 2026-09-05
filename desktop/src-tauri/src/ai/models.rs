@@ -1,18 +1,19 @@
-//! Списки моделей, которые провайдер отдаёт сам.
+//! Model lists that the provider serves itself.
 //!
-//! До этого модуля model id вводился руками, а подсказка в UI отсылала
-//! читать документацию. Держать актуальный список в коде нельзя: провайдеры
-//! переименовывают и снимают модели чаще, чем выходят релизы приложения, и
-//! устаревший id молча 404-ит в момент диктовки — то есть тогда, когда
-//! разбираться меньше всего хочется.
+//! Before this module the model id was typed by hand and the UI hint sent you
+//! off to read the documentation. Keeping a current list in the code is not an
+//! option: providers rename and retire models more often than the app ships
+//! releases, and a stale id silently 404s in the middle of a dictation — that
+//! is, exactly when you least want to investigate.
 //!
-//! Запрос уходит только к выбранному провайдеру и только по явному действию
-//! пользователя: подтягивание списка — это сетевой запрос с его ключом.
+//! The request goes only to the selected provider and only on an explicit user
+//! action: pulling the list is a network request made with their key.
 //!
-//! Все пять провайдеров такой эндпоинт имеют — проверено запросом без ключа
-//! по каждому: 200 у публичных, 401/403 у остальных, 404 нет ни у кого.
-//! Различий два, и оба здесь учтены: Anthropic хочет `x-api-key` вместо
-//! `Bearer`, а Gemini — другой путь и другую форму ответа.
+//! All five providers have such an endpoint — verified with a keyless request
+//! against each: 200 for the public ones, 401/403 for the rest, 404 from none.
+//! There are two differences, and both are handled here: Anthropic wants
+//! `x-api-key` instead of `Bearer`, and Gemini uses a different path and a
+//! different response shape.
 
 use std::time::Duration;
 
@@ -20,12 +21,12 @@ use serde_json::Value;
 
 use super::providers::{build_request, ANTHROPIC_BASE_URL, OPENAI_BASE_URL, OPENCODE_GO_BASE_URL};
 
-/// Отдельный таймаут, короче, чем у обычного запроса к LLM: список моделей
-/// тянут из настроек, глядя на спиннер, и полминуты ожидания там читаются
-/// как «зависло», а не «идёт».
+/// A separate timeout, shorter than for an ordinary LLM request: the model list
+/// is pulled from the settings screen while watching a spinner, and half a
+/// minute of waiting there reads as "hung", not as "in progress".
 const FETCH_TIMEOUT_SECS: u64 = 10;
 
-/// Куда стучаться за списком и чем авторизоваться.
+/// Where to knock for the list and what to authorise with.
 struct Endpoint {
     url: String,
     headers: Vec<(String, String)>,
@@ -40,8 +41,8 @@ fn endpoint(provider: &str, base_url: Option<&str>, api_key: &str) -> Result<End
 
     match provider {
         "gemini" => Ok(Endpoint {
-            // Не OpenAI-совместимый: свой путь, своя форма ответа
-            // (см. `parse_models`) и ключ отдельным заголовком.
+            // Not OpenAI-compatible: its own path, its own response shape
+            // (see `parse_models`) and the key in a separate header.
             url: "https://generativelanguage.googleapis.com/v1beta/models".to_string(),
             headers: vec![("x-goog-api-key".to_string(), api_key.to_string())],
         }),
@@ -69,8 +70,9 @@ fn endpoint(provider: &str, base_url: Option<&str>, api_key: &str) -> Result<End
             ),
             headers: bearer(),
         }),
-        // OpenAI-совместимый провайдер задаётся своим base_url, и без него
-        // идти некуда — подставлять сюда чей-то чужой адрес нельзя.
+        // An OpenAI-compatible provider is defined by its own base_url, and
+        // without it there is nowhere to go — substituting somebody else's
+        // address here is not allowed.
         "compatible" => match trimmed {
             Some(base) => Ok(Endpoint {
                 url: format!("{base}/models"),
@@ -82,10 +84,10 @@ fn endpoint(provider: &str, base_url: Option<&str>, api_key: &str) -> Result<End
     }
 }
 
-/// Разобрать ответ в список model id.
+/// Parse the response into a list of model ids.
 ///
-/// Три формы, все встречаются среди подключённых провайдеров:
-/// OpenAI-совместимая `{"data": [{"id": …}]}`, голый массив строк и
+/// Three shapes, all of them seen among the connected providers: the
+/// OpenAI-compatible `{"data": [{"id": …}]}`, a bare array of strings, and
 /// Gemini `{"models": [{"name": "models/…"}]}`.
 fn parse_models(parsed: &Value) -> Vec<String> {
     let from_entry = |entry: &Value| -> Option<String> {
@@ -93,7 +95,7 @@ fn parse_models(parsed: &Value) -> Vec<String> {
             return Some(id.to_string());
         }
         if let Some(name) = entry.get("name").and_then(Value::as_str) {
-            // Gemini возвращает полный путь ресурса; в запросе нужен хвост.
+            // Gemini returns the full resource path; the request needs the tail.
             return Some(name.trim_start_matches("models/").to_string());
         }
         entry.as_str().map(str::to_string)
@@ -118,11 +120,11 @@ fn parse_models(parsed: &Value) -> Vec<String> {
     models
 }
 
-/// Спросить у провайдера, какие модели он готов обслуживать.
+/// Ask the provider which models it is willing to serve.
 ///
-/// Ошибку возвращаем текстом для показа рядом с полем: «список не
-/// подтянулся» не должно выглядеть как «ключ неверный», поэтому вызывающая
-/// сторона не превращает её в модальный тост.
+/// The error is returned as text to be shown next to the field: "the list did
+/// not load" must not look like "the key is wrong", which is why the caller does
+/// not turn it into a modal toast.
 pub async fn fetch_models(
     provider: &str,
     base_url: Option<&str>,
@@ -144,8 +146,8 @@ pub async fn fetch_models(
 
     let status = response.status();
     if !status.is_success() {
-        // Тело ответа не пересказываем целиком: у части провайдеров оно
-        // содержит эхо запроса вместе с заголовками.
+        // The response body is not repeated in full: for some providers it
+        // echoes the request along with its headers.
         return Err(match status.as_u16() {
             401 | 403 => "ключ не подошёл".to_string(),
             404 => "провайдер не отдаёт список моделей".to_string(),
@@ -183,7 +185,7 @@ mod tests {
         assert_eq!(parse_models(&body), vec!["a-model", "b-model"]);
     }
 
-    /// Gemini отдаёт полный путь ресурса, а в запрос нужен хвост.
+    /// Gemini serves the full resource path, while the request needs the tail.
     #[test]
     fn gemini_shape_loses_the_resource_prefix() {
         let body = serde_json::json!({
@@ -195,7 +197,7 @@ mod tests {
         );
     }
 
-    /// У части OpenAI-совместимых провайдеров запись описана `name`, а не `id`.
+    /// Some OpenAI-compatible providers describe an entry with `name`, not `id`.
     #[test]
     fn falls_back_from_id_to_name() {
         let body = serde_json::json!({ "data": [{"name": "some-model"}] });
@@ -218,7 +220,8 @@ mod tests {
     fn anthropic_authenticates_with_its_own_header() {
         let endpoint = endpoint("anthropic", None, "secret").unwrap();
         assert_eq!(endpoint.url, "https://api.anthropic.com/v1/models");
-        // Bearer здесь молча вернул бы 401 — провайдер его не понимает.
+        // Bearer would silently return 401 here — the provider does not
+        // understand it.
         assert!(endpoint
             .headers
             .iter()
@@ -245,9 +248,9 @@ mod tests {
         assert_eq!(endpoint.url, "https://proxy.test/v1/models");
     }
 
-    /// Локальные пресеты (Ollama, LM Studio, vLLM) приходят как
-    /// `compatible` с собственным адресом — для них это самая полезная
-    /// функция, потому что список моделей там меняется чаще всего.
+    /// Local presets (Ollama, LM Studio, vLLM) arrive as `compatible` with their
+    /// own address — for them this is the most useful function of all, because
+    /// their model list changes most often.
     #[test]
     fn compatible_needs_a_base_url() {
         assert!(endpoint("compatible", None, "").is_err());
@@ -262,8 +265,8 @@ mod tests {
     }
 
     // ------------------------------------------------------------------
-    // `fetch_models` против живого (loopback) HTTP — чтобы ветка статуса
-    // и проверка пустого списка не были заперты за сетью.
+    // `fetch_models` against live (loopback) HTTP — so that the status branch
+    // and the empty-list check are not locked away behind the network.
     // ------------------------------------------------------------------
 
     fn mock_models_server(status_line: &str, body: &str) -> String {
