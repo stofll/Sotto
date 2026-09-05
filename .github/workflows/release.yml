@@ -173,8 +173,15 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           # Публичный ingest-токен проекта PostHog, а не личный ключ: он
-          # компилируется в бинарник через option_env!. Пока секрет не задан,
-          # переменная приезжает пустой и телеметрия в сборке — полный no-op.
+          # компилируется в бинарник через option_env!.
+          #
+          # У option_env! нет разницы между «секрета нет» и «телеметрия не
+          # нужна»: пустая переменная — это None, линкер выбрасывает путь
+          # доставки, и сборка успешно завершается молчащим бинарём. Тумблер
+          # в настройках при этом остаётся включённым, так что снаружи такая
+          # сборка неотличима от рабочей. Здесь, в отличие от
+          # build-installer.sh, guard'а нет — переименовали секрет, и релиз
+          # уедет без телеметрии, ничем этого не показав.
           SOTTO_POSTHOG_API_KEY: ${{ secrets.SOTTO_POSTHOG_API_KEY }}
         with:
           projectPath: desktop

@@ -39,13 +39,14 @@ key.
 
 Because the token is a compile-time input, a build that misses it cannot be
 repaired at runtime, and nothing about the running app reveals the difference.
-`scripts/build-installer.sh`, which produces the Windows release, therefore
-takes the token from `~/.tauri/sotto-posthog.key`, refuses to build without
-one, and verifies afterwards that the ingest host actually survived into the
-artifact. `SOTTO_ALLOW_NO_TELEMETRY=1` waives both checks, for a build that is
-meant to report nothing. The release workflow reads the same variable from a
-repository secret; that secret is unset, so a CI build carries no telemetry.
-See [RELEASE.md](RELEASE.md).
+`scripts/build-installer.sh`, for builds made outside CI, therefore takes the
+token from `~/.tauri/sotto-posthog.key`, refuses to build without one, and
+verifies afterwards that the ingest host actually survived into the artifact.
+`SOTTO_ALLOW_NO_TELEMETRY=1` waives both checks, for a build that is meant to
+report nothing. The release workflow reads the same variable from a repository
+secret, which is set, so released builds do carry telemetry — but it has no
+equivalent guard, and would ship a silently reportless release if the secret
+ever went missing. See [RELEASE.md](RELEASE.md).
 
 Without a token the telemetry service is a complete no-op: no outbox rows are
 written, and neither the delivery worker nor the session watcher is started,

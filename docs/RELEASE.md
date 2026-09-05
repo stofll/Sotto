@@ -243,18 +243,26 @@ worker runs, and the linker drops the delivery path out of the binary. Settings
 still shows the toggle as on, so such a build is indistinguishable from a
 working one until the dashboard stays empty.
 
-The Windows build is the release path, and it refuses to produce a silent
-no-op. `build-installer.sh` reads the token from `~/.tauri/sotto-posthog.key`
-(next to the updater signing key, outside the repository); override the
-location with `SOTTO_POSTHOG_KEY_PATH`, or set `SOTTO_POSTHOG_API_KEY` in the
-environment to win over the file. Missing token — the build stops before
-`cargo`. After the build, the script greps the artifact for the ingest host: a
-token that never reached `rustc` fails there, which a check on the variable
-alone would miss.
+The token reaches a build from one of two places, and they must hold the same
+project token:
 
-The release workflow takes the same variable from a repository secret of that
-name. That secret is not set, so a CI build would carry no telemetry — release
-builds are made on Windows through the script above.
+| Build | Source |
+|---|---|
+| tag build in `release.yml` | repository secret `SOTTO_POSTHOG_API_KEY` — **set**, so both targets ship with telemetry |
+| `build-installer.sh`, outside CI | `~/.tauri/sotto-posthog.key`, next to the updater signing key |
+
+For the local script, override the file with `SOTTO_POSTHOG_KEY_PATH`, or set
+`SOTTO_POSTHOG_API_KEY` in the environment to win over it.
+
+The two differ in what happens when the token is missing, and the difference
+matters. The script refuses to produce a silent no-op: no token and it stops
+before `cargo`, and after the build it greps the artifact for the ingest host —
+which catches a token that was set but never reached `rustc`, something a check
+on the variable alone would miss. CI has neither guard. The workflow passes the
+secret straight through, and `option_env!` reads an absent one as `None`, so a
+renamed, rotated-away or expired secret does not fail anything: the release
+builds, installs and behaves identically, and simply never reports. If the
+dashboard goes quiet after a release, suspect the secret before the client.
 
 Pass `SOTTO_ALLOW_NO_TELEMETRY=1` to build deliberately without telemetry; it
 skips both the pre-build guard and the artifact check.
