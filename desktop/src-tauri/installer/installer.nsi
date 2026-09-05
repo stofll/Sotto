@@ -1,25 +1,26 @@
-; Sotto — шаблон NSIS-установщика.
+; Sotto — the NSIS installer template.
 ;
-; Это форк штатного шаблона tauri-bundler 2.9.4
-; (crates/tauri-bundler/src/bundle/windows/nsis/installer.nsi), подключённый
-; через bundle.windows.nsis.template. Файл проходит через handlebars, поэтому
-; выражения в двойных фигурных скобках — подстановки бандлера, а не NSIS.
-; Своих таких скобок сюда писать нельзя: handlebars упадёт на разборе.
+; A fork of the stock tauri-bundler 2.9.4 template
+; (crates/tauri-bundler/src/bundle/windows/nsis/installer.nsi), wired in through
+; bundle.windows.nsis.template. The file goes through handlebars, so expressions
+; in double curly braces are bundler substitutions, not NSIS. Braces of our own
+; must never be written here: handlebars would fail to parse them.
 ;
-; Все наши правки помечены блоками «Sotto:» и ничего не удаляют из оригинала,
-; чтобы обновление форка сводилось к diff'у против нового апстрима:
+; Every edit of ours is marked with a "Sotto:" block and removes nothing from the
+; original, so that updating the fork comes down to a diff against the new
+; upstream:
 ;
-;   1. брендированный текст страниц приветствия и завершения (LangString'и
-;      в самом низу файла);
-;   2. NOSTRETCH для картинок — они отрисованы ровно 150x57 и 164x314,
-;      растягивание их только мылит;
-;   3. предупреждение при отмене установки.
+;   1. branded text for the welcome and finish pages (the LangStrings at the very
+;      bottom of the file);
+;   2. NOSTRETCH for the images — they are drawn at exactly 150x57 and 164x314,
+;      and stretching only blurs them;
+;   3. a warning when the installation is cancelled.
 ;
-; Как обновлять при переходе на новую версию tauri-cli:
+; How to update when moving to a new tauri-cli version:
 ;   1. tar xzf ~/.cargo/registry/cache/*/tauri-bundler-<ver>.crate
-;   2. diff между старым и новым апстримным installer.nsi
-;   3. перенести изменения сюда, сохранив блоки «Sotto:»
-; Версию бандлера показывает Cargo.lock внутри tauri-cli-<ver>.crate.
+;   2. diff the old upstream installer.nsi against the new one
+;   3. port the changes here, keeping the "Sotto:" blocks
+; The bundler version is in the Cargo.lock inside tauri-cli-<ver>.crate.
 
 Unicode true
 ManifestDPIAware true
@@ -54,11 +55,11 @@ ManifestDPIAwareness PerMonitorV2
 ${StrCase}
 ${StrLoc}
 
-; Sotto: !include хуков перенесён вниз, за блок !define. В апстриме он стоит
-; здесь, то есть до объявления PRODUCTNAME/MANUFACTURER, и хук, который на них
-; ссылается, получает не значение, а предупреждение 6000 и пустую строку.
-; Наш installer/hooks.nsh сравнивает записи реестра именно с ними, так что
-; порядок здесь принципиален.
+; Sotto: the hooks !include is moved down, past the !define block. Upstream it
+; sits here, that is before PRODUCTNAME/MANUFACTURER are declared, and a hook
+; that refers to them gets warning 6000 and an empty string instead of a value.
+; Our installer/hooks.nsh compares registry entries against exactly those, so the
+; order matters here.
 
 !define WEBVIEW2APPGUID "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
 
@@ -101,7 +102,7 @@ Var NoShortcutMode
 Var WixMode
 Var OldMainBinaryName
 
-; Sotto: сюда переехал !include хуков — см. комментарий выше по файлу.
+; Sotto: this is where the hooks !include moved to — see the comment above.
 {{#if installer_hooks}}
 !include "{{installer_hooks}}"
 {{/if}}
@@ -165,8 +166,8 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
 ; Installer sidebar image
 !if "${SIDEBARIMAGE}" != ""
   !define MUI_WELCOMEFINISHPAGE_BITMAP "${SIDEBARIMAGE}"
-  ; Sotto: картинка нарисована ровно 164x314 (scripts/make-installer-art.ps1),
-  ; поэтому масштабировать её не надо.
+  ; Sotto: the image is drawn at exactly 164x314
+  ; (scripts/make-installer-art.ps1), so it must not be scaled.
   !define MUI_WELCOMEFINISHPAGE_BITMAP_NOSTRETCH
 !endif
 
@@ -180,14 +181,14 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
 ; Installer header image
 !if "${HEADERIMAGE}" != ""
   !define MUI_HEADERIMAGE_BITMAP "${HEADERIMAGE}"
-  ; Sotto: то же самое для шапки — ровно 150x57.
+  ; Sotto: the same for the header image — exactly 150x57.
   !define MUI_HEADERIMAGE_BITMAP_NOSTRETCH
 !endif
 
 ; Uninstaller header image
 !if "${UNINSTALLERHEADERIMAGE}" != ""
   !define MUI_HEADERIMAGE_UNBITMAP "${UNINSTALLERHEADERIMAGE}"
-  ; Sotto: см. выше.
+  ; Sotto: see above.
   !define MUI_HEADERIMAGE_UNBITMAP_NOSTRETCH
 !endif
 
@@ -201,16 +202,16 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
 !define MUI_LANGDLL_REGISTRY_KEY "${MANUPRODUCTKEY}"
 !define MUI_LANGDLL_REGISTRY_VALUENAME "Installer Language"
 
-; Sotto: спрашивать подтверждение при закрытии установщика на полпути.
+; Sotto: ask for confirmation when the installer is closed halfway through.
 !define MUI_ABORTWARNING
 !define MUI_ABORTWARNING_TEXT "$(sottoAbortWarning)"
 
 ; Installer pages, must be ordered as they appear
 ; 1. Welcome Page
-; Sotto: вместо дефолтного «Вас приветствует мастер установки» — что это за
-; программа и что с ней делать. LangString'и определены в конце файла;
-; ссылаться на них до определения NSIS разрешает (так же устроен $(older)
-; выше по тексту).
+; Sotto: instead of the default "Welcome to the setup wizard" — what this
+; program is and what to do with it. The LangStrings are defined at the end of
+; the file; NSIS allows referring to them before their definition (that is how
+; $(older) above works too).
 !define MUI_WELCOMEPAGE_TITLE "$(sottoWelcomeTitle)"
 !define MUI_WELCOMEPAGE_TEXT "$(sottoWelcomeText)"
 !define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassive
@@ -453,8 +454,8 @@ Var AppStartMenuFolder
 ; Don't auto jump to finish page after installation page,
 ; because the installation page has useful info that can be used debug any issues with the installer.
 !define MUI_FINISHPAGE_NOAUTOCLOSE
-; Sotto: на финише полезнее рассказать, как начать диктовать, чем повторить
-; «установка завершена».
+; Sotto: at the finish it is more useful to say how to start dictating than to
+; repeat "installation complete".
 !define MUI_FINISHPAGE_TITLE "$(sottoFinishTitle)"
 !define MUI_FINISHPAGE_TEXT "$(sottoFinishText)"
 ; Use show readme button in the finish page as a button create a desktop shortcut
@@ -525,12 +526,12 @@ FunctionEnd
   !include "{{this}}"
 {{/each}}
 
-; ── Sotto: свои строки мастера ───────────────────────────────────────────────
-; Определять их можно только после MUI_LANGUAGE — до этого ${LANG_*} ещё нет.
-; Языки перечислены руками, а не циклом по списку языков из конфига:
-; генерировать из него имена констант нечем — helper'а для верхнего регистра
-; у бандлера нет. Добавляете язык в tauri.conf.json — добавьте пару строк и
-; сюда, иначе makensis упадёт на неизвестном ${LANG_*}.
+; ── Sotto: our own wizard strings ───────────────────────────────────────────
+; They can only be defined after MUI_LANGUAGE — before that ${LANG_*} does not
+; exist yet. The languages are listed by hand rather than looped over the list
+; from the config: there is nothing to generate the constant names with — the
+; bundler has no uppercase helper. If you add a language to tauri.conf.json, add
+; a couple of lines here too, or makensis will fail on an unknown ${LANG_*}.
 LangString sottoWelcomeTitle ${LANG_RUSSIAN} "Установка ${PRODUCTNAME}"
 LangString sottoWelcomeTitle ${LANG_ENGLISH} "Install ${PRODUCTNAME}"
 
@@ -546,7 +547,7 @@ LangString sottoFinishText ${LANG_ENGLISH} "The app lives in the tray. You can c
 LangString sottoAbortWarning ${LANG_RUSSIAN} "Прервать установку ${PRODUCTNAME}?"
 LangString sottoAbortWarning ${LANG_ENGLISH} "Cancel the ${PRODUCTNAME} installation?"
 
-; Строки миграции со старого имени — их печатает installer/hooks.nsh.
+; Migration strings for the old name — printed by installer/hooks.nsh.
 LangString sottoMigrating ${LANG_RUSSIAN} "Удаляю предыдущую версию, установленную под прежним именем..."
 LangString sottoMigrating ${LANG_ENGLISH} "Removing the previous version installed under the old name..."
 

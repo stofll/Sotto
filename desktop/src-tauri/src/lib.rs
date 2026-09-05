@@ -1002,13 +1002,9 @@ async fn set_model(
 
 /// Send `SetModel` to the engine thread and await its reply.
 ///
-/// The compute device is read from config here rather than passed in, so
-/// every entry point — the `set_model` command, the startup auto-load, the
-/// reload after the CPU/GPU setting changes, and the return of a model
-/// unloaded by idle — agrees on which device the context gets built for.
-/// Restoring after an idle period differs from a cached spec precisely in that
-/// it re-reads the settings: the compute device may have been changed while the
-/// engine was idle.
+/// Explicit loads read the current compute device from config. Idle restores
+/// do the same in `restore_unloaded_model`, but queue without waiting so capture
+/// can continue while the engine validates and loads the model.
 async fn load_model_into_engine(
     app: &AppHandle,
     engine_cmd_tx: &tokio::sync::mpsc::Sender<crate::whisper::EngineCommand>,
@@ -1044,52 +1040,156 @@ async fn load_model_into_engine(
         .map_err(|e| format!("engine reply dropped: {e}"))?
 }
 
-/// Bring a model unloaded on idle back into memory.
-///
-/// Quietly and along the way: it is called at the start of a dictation while
-/// the person is speaking — by the time recording stops the model is usually
-/// already in place and transcription does not wait on the load. The restore
-/// raises no model-lifecycle events: those drive the UI state, and a dictation
-/// in progress has a state of its own.
-///
-/// Does nothing when the model is already in place, when it is absent from the
-/// settings, or when the file is not downloaded: that is no longer a restore but
-/// an empty configuration, which the application reports separately with the
-/// «нечем распознавать» pill. In cloud mode a local model is not needed at all,
-/// and bringing it back into memory would mean undoing the unload for somebody
-/// who does not use it.
-async fn restore_unloaded_model(app: &AppHandle, state: &AppState) {
-    if crate::mutex_recover::lock(&state.engine_current_model).is_some() {
-        return;
+/// Queue a restore before any preview or transcription commands can follow.
+/// Verification and loading run on the engine thread, in queue order; capture
+/// only does cheap metadata checks. Returns the model that will handle audio,
+/// including one still being restored, so preview can attach immediately.
+fn restore_unloaded_model(app: &AppHandle, state: &AppState) -> Option<String> {
+    let config = crate::config::Config::load(app).ok()?;
+    let loaded = crate::mutex_recover::lock(&state.engine_current_model).clone();
+    let model = recording_model(loaded.as_deref(), config.as_value())?;
+    if loaded.is_some() {
+        return Some(model);
     }
-    let Ok(config) = crate::config::Config::load(app) else {
-        return;
-    };
-    let pipeline_mode = config
-        .as_value()
-        .get("ai_processing")
-        .and_then(|value| value.get("pipeline_mode"))
-        .and_then(Value::as_str)
-        .unwrap_or("local");
-    if pipeline_mode == "cloud" {
-        return;
-    }
-    let Some(model) = config.get_string("model") else {
-        return;
-    };
     if !crate::model::is_downloaded(&model) {
-        return;
+        return None;
     }
-    match load_model_into_engine(
-        app,
-        &state.engine_cmd_tx,
-        &model,
-        crate::whisper::ModelLoadReason::Restore,
-    )
-    .await
+    let result =
+        crate::model::model_load_spec(&model, crate::config::device_uses_gpu(config.as_value()))
+            .and_then(|spec| queue_model_restore(&state.engine_cmd_tx, &model, spec));
+    match result {
+        Ok(()) => Some(model),
+        Err(error) => {
+            log::warn!("не поставили восстановление модели {model} в очередь: {error}");
+            None
+        }
+    }
+}
+
+fn recording_model(loaded: Option<&str>, config: &Value) -> Option<String> {
+    if config
+        .pointer("/ai_processing/pipeline_mode")
+        .and_then(Value::as_str)
+        == Some("cloud")
     {
-        Ok(()) => log::info!("модель {model} возвращена в память после простоя"),
-        Err(error) => log::warn!("не вернули модель {model} в память: {error}"),
+        return None;
+    }
+    loaded
+        .or_else(|| config.get("model").and_then(Value::as_str))
+        .map(str::to_string)
+}
+
+fn queue_model_restore(
+    tx: &tokio::sync::mpsc::Sender<crate::whisper::EngineCommand>,
+    model: &str,
+    spec: crate::model::ModelLoadSpec,
+) -> Result<(), String> {
+    let (reply, _rx) = tokio::sync::oneshot::channel();
+    tx.try_send(crate::whisper::EngineCommand::SetModel {
+        name: model.to_string(),
+        spec,
+        reason: crate::whisper::ModelLoadReason::Restore,
+        reply,
+    })
+    .map_err(|error| format!("engine: {error}"))
+}
+
+#[cfg(test)]
+mod model_restore_tests {
+    use super::{queue_model_restore, recording_model};
+    use crate::model::ModelLoadSpec;
+    use crate::whisper::{EngineCommand, ModelLoadReason};
+    use serde_json::json;
+
+    fn unloaded_spec() -> ModelLoadSpec {
+        ModelLoadSpec::Whisper {
+            path: "missing-test-model.bin".into(),
+            use_gpu: false,
+        }
+    }
+
+    #[test]
+    fn a_short_recording_queues_behind_restore_even_before_the_engine_runs() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(64);
+        // No model files or running engine are needed to start capture. Even
+        // if validation/loading has not begun when recording stops, restoration
+        // already owns the first queue slot.
+        queue_model_restore(&tx, "tiny", unloaded_spec()).unwrap();
+        tx.try_send(EngineCommand::PreviewReset { session_id: 1 })
+            .unwrap();
+        tx.try_send(EngineCommand::PreviewChunk {
+            session_id: 1,
+            samples: vec![0.0; 160],
+        })
+        .unwrap();
+        let (reply, _reply_rx) = tokio::sync::oneshot::channel();
+        tx.try_send(EngineCommand::Transcribe {
+            session_id: 1,
+            audio: std::sync::Arc::new(vec![0.0; 160]),
+            cancel_flag: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            language: None,
+            initial_prompt: None,
+            reply,
+        })
+        .unwrap();
+        assert!(matches!(
+            rx.try_recv().unwrap(),
+            EngineCommand::SetModel {
+                reason: ModelLoadReason::Restore,
+                ..
+            }
+        ));
+        assert!(matches!(
+            rx.try_recv().unwrap(),
+            EngineCommand::PreviewReset { .. }
+        ));
+        assert!(matches!(
+            rx.try_recv().unwrap(),
+            EngineCommand::PreviewChunk { .. }
+        ));
+        assert!(matches!(
+            rx.try_recv().unwrap(),
+            EngineCommand::Transcribe { .. }
+        ));
+    }
+
+    #[test]
+    fn failed_enqueue_does_not_report_a_pending_restore() {
+        let (tx, rx) = tokio::sync::mpsc::channel(1);
+        tx.try_send(EngineCommand::PreviewReset { session_id: 1 })
+            .unwrap();
+        assert!(queue_model_restore(&tx, "tiny", unloaded_spec()).is_err());
+        drop(rx);
+        assert!(queue_model_restore(&tx, "tiny", unloaded_spec()).is_err());
+    }
+
+    #[test]
+    fn capture_uses_selected_model_before_restore_finishes() {
+        let config = json!({"model": "zipformer-ru-streaming"});
+        assert_eq!(
+            recording_model(None, &config).as_deref(),
+            Some("zipformer-ru-streaming")
+        );
+        assert_eq!(
+            recording_model(Some("tiny"), &config).as_deref(),
+            Some("tiny")
+        );
+        assert_eq!(recording_model(None, &json!({})), None);
+        let cloud =
+            json!({"model": "zipformer-ru-streaming", "ai_processing": {"pipeline_mode": "cloud"}});
+        assert_eq!(recording_model(None, &cloud), None);
+        assert_eq!(
+            recording_model(Some("zipformer-ru-streaming"), &cloud),
+            None
+        );
+    }
+
+    #[cfg(any(windows, target_os = "macos"))]
+    #[test]
+    fn an_unloaded_streaming_model_still_arms_preview() {
+        let config = json!({"model": "zipformer-ru-streaming"});
+        let model = recording_model(None, &config).unwrap();
+        assert!(crate::model::model_engine(&model).unwrap().is_streaming());
     }
 }
 
@@ -1694,11 +1794,8 @@ async fn transcribe_file_inner(
         serde_json::json!({ "session_id": session_id }),
     );
 
-    // Here the model restore is awaited rather than fired off in parallel: a
-    // file has no live audio that would leak away during the load, and
-    // transcribing with an empty engine would end in a «модель не загружена»
-    // refusal.
-    restore_unloaded_model(app, state).await;
+    // The same queue orders restoration before file transcription as well.
+    restore_unloaded_model(app, state);
 
     let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
     // Same branch as `stop_recording`: a cloud-configured user has no local
@@ -2246,20 +2343,9 @@ pub(crate) fn on_recording_started(app: &AppHandle) {
         crate::output_volume::duck(cfg.as_value());
     }
     let state = app.state::<AppState>();
-    // The model may have left memory on idle — bring it back now rather than at
-    // the end of the recording: the load runs in parallel with speech and is
-    // usually over by the time it stops. As a separate task, because what starts
-    // here is the recording, not a wait for the model: a second of loading taken
-    // from the start of a dictation is the first words swallowed.
-    if crate::mutex_recover::lock(&state.engine_current_model).is_none() {
-        let restore_app = app.clone();
-        let restore_state = state.inner().clone();
-        tauri::async_runtime::spawn(async move {
-            restore_unloaded_model(&restore_app, &restore_state).await;
-        });
-    }
+    let model = restore_unloaded_model(app, &state);
     let session_id = state.current_session_id.load(Ordering::Acquire);
-    let armed = start_live_preview(&state, session_id);
+    let armed = start_live_preview(&state, session_id, model.as_deref());
     // The overlay sized for live text looks different, and it must know that
     // from the start of the recording rather than from the first recognised
     // word: otherwise the window changes shape mid-phrase.
@@ -2362,7 +2448,7 @@ async fn start_recording(app: AppHandle, state: tauri::State<'_, AppState>) -> R
     Ok(session_id)
 }
 
-/// Tap the audio into the loaded model if it can return text as speech goes on.
+/// Tap audio into the loaded or queued model if it supports live text.
 ///
 /// Called from [`on_recording_started`] rather than from the `start_recording`
 /// command: dictation is launched by a hotkey, which has its own start path, and
@@ -2388,22 +2474,20 @@ fn preview_has_room(capacity: usize) -> bool {
     capacity > PREVIEW_QUEUE_RESERVE
 }
 
-fn start_live_preview(state: &AppState, session_id: u64) -> bool {
-    let loaded = crate::mutex_recover::lock(&state.engine_current_model).clone();
-    let streams = loaded
-        .as_deref()
+fn start_live_preview(state: &AppState, session_id: u64, model: Option<&str>) -> bool {
+    let streams = model
         .and_then(|model| crate::model::model_engine(model).ok())
         .is_some_and(|engine| engine.is_streaming());
     if !streams {
         log::debug!(
             "session {session_id}: live preview off, model {:?} is not streaming",
-            loaded.as_deref().unwrap_or("<none>")
+            model.unwrap_or("<none>")
         );
         return false;
     }
     log::info!(
         "session {session_id}: live preview on, model {:?}",
-        loaded.as_deref().unwrap_or("<none>")
+        model.unwrap_or("<none>")
     );
     // A queue of roughly one second of audio: the cpal callback hands over one
     // chunk per call.
@@ -2748,10 +2832,7 @@ async fn set_microphone_test_monitor(
     enabled: bool,
 ) -> Result<crate::mic_test::MicrophoneTestInfo, String> {
     let test = state.microphone_test.clone();
-    state
-        .audio
-        .call(move || test.set_monitor(enabled))
-        .await?;
+    state.audio.call(move || test.set_monitor(enabled)).await?;
     state.microphone_test.info()
 }
 

@@ -1,39 +1,39 @@
-; Хуки NSIS-установщика Sotto.
+; Hooks for the Sotto NSIS installer.
 ;
-; Подключаются через bundle.windows.nsis.installerHooks. Шаблон вставляет
-; макросы NSIS_HOOK_* внутрь секций Install/Uninstall, поэтому тело макроса
-; исполняется, а вспомогательные Function объявляются здесь же на верхнем
-; уровне.
+; Wired in through bundle.windows.nsis.installerHooks. The template inserts the
+; NSIS_HOOK_* macros inside the Install/Uninstall sections, so a macro body is
+; executed while the helper Functions are declared here at the top level.
 ;
-; !include этого файла в installer/installer.nsi намеренно перенесён ниже
-; блока !define: в апстримном шаблоне он стоит выше, и тогда ${PRODUCTNAME}
-; с ${MANUFACTURER} разворачиваются в пустоту (warning 6000), а весь поиск
-; ниже молча перестаёт находить что бы то ни было.
+; The !include of this file in installer/installer.nsi is deliberately moved
+; below the !define block: in the upstream template it sits above, and then
+; ${PRODUCTNAME} and ${MANUFACTURER} expand to nothing (warning 6000) and the
+; whole search below silently stops finding anything at all.
 ;
-; Файл читается makensis с -INPUTCHARSET UTF8 (его всегда передаёт tauri-
-; bundler), поэтому кодировка — UTF-8. Код при этом намеренно ASCII-only:
-; кириллица есть только в комментариях и не попадает в бинарь.
+; The file is read by makensis with -INPUTCHARSET UTF8 (tauri-bundler always
+; passes it), so the encoding is UTF-8. The code itself is deliberately
+; ASCII-only: non-ASCII appears in comments alone and never reaches the binary.
 
-; Издатель, под которым приложение выпускалось до переименования: до смены
-; идентификатора на com.sotto.app он выводился из com.shepot.app.
+; The publisher the application was released under before the rename: before the
+; identifier changed to com.sotto.app it was derived from com.shepot.app.
 !define LEGACYPUBLISHER "shepot"
 
-; Слот под путь к старой установке — нужен между чтением реестра и ExecWait.
+; A slot for the old installation path — needed between reading the registry
+; and ExecWait.
 Var OldInstallDir
 
 !macro NSIS_HOOK_PREINSTALL
   Call MigrateFromPreviousName
 !macroend
 
-; Ниже — хуки, переехавшие сюда из sherpa-nsis-hooks.nsh. Tauri принимает
-; ровно один installerHooks, поэтому два файла существовать не могут: тот,
-; что указан в tauri.windows.conf.json, молча вытесняет указанный в
-; tauri.conf.json. Именно так и потерялась миграция выше — она не попала в
-; собранный установщик, хотя была прописана в базовом конфиге.
+; Below are the hooks that moved here from sherpa-nsis-hooks.nsh. Tauri accepts
+; exactly one installerHooks, so two files cannot coexist: the one named in
+; tauri.windows.conf.json silently displaces the one named in tauri.conf.json.
+; That is exactly how the migration above went missing — it never reached the
+; built installer even though it was spelled out in the base config.
 
-; sherpa-rs-sys подхватывает нативный ONNX runtime из каталога рядом с
-; исполняемым файлом, а ресурсы Tauri раскладывает в подкаталог. Копируем
-; проверенные DLL к exe после установки и обновления.
+; sherpa-rs-sys picks the native ONNX runtime up from the directory next to the
+; executable, while Tauri lays its resources out in a subdirectory. Copy the
+; verified DLLs next to the exe after an install and after an update.
 !macro NSIS_HOOK_POSTINSTALL
   SetOutPath "$INSTDIR"
   CopyFiles /SILENT "$INSTDIR\sherpa-native\*.dll" "$INSTDIR"
@@ -47,39 +47,41 @@ Var OldInstallDir
   Delete "$INSTDIR\sherpa-onnx-cxx-api.dll"
 !macroend
 
-; Снести установку, сделанную под прежним именем продукта.
+; Remove an installation made under the previous product name.
 ;
-; Зачем: ключ удаления в шаблоне — Uninstall\${PRODUCTNAME}, то есть он
-; завязан на отображаемое имя, а не на bundle id. После переименования
-; «Шёпот» -> «Sotto» штатная проверка «уже установлено» старую копию не
-; видит, и вторая установка встаёт рядом: два каталога, два ярлыка, две
-; записи в «Приложения и возможности».
+; Why: the uninstall key in the template is Uninstall\${PRODUCTNAME}, that is, it
+; is tied to the display name rather than to the bundle id. After the rename from
+; «Шёпот» to "Sotto" the stock "already installed" check does not see the old
+; copy, and a second installation lands beside it: two directories, two
+; shortcuts, two entries in Apps & features.
 ;
-; Ищем не по строке «Шёпот», а по Publisher: бандлер пишет туда второй
-; сегмент идентификатора (com.sotto.app -> sotto). Кириллический литерал в
-; .nsh при этом не нужен, и находится любое прежнее имя продукта.
+; The search goes by Publisher rather than by the string «Шёпот»: the bundler
+; writes the second segment of the identifier there (com.sotto.app -> sotto).
+; That way no Cyrillic literal is needed in the .nsh, and any previous product
+; name is found.
 ;
-; Издателей два. ${MANUFACTURER} — текущий; LEGACYPUBLISHER — тот, что был до
-; переименования, когда идентификатор был com.shepot.app. Установка «Шёпота»
-; подписана именно им, так что без этого литерала она перестала бы находиться
-; вовсе. Удалить его можно будет тогда же, когда и весь этот файл: когда ни
-; одной установки под старым идентификатором не останется.
+; There are two publishers. ${MANUFACTURER} is the current one; LEGACYPUBLISHER
+; is the one from before the rename, when the identifier was com.shepot.app. The
+; «Шёпот» installation is signed with exactly that, so without this literal it
+; would stop being found at all. It can be dropped at the same time as this whole
+; file: once no installation under the old identifier is left.
 ;
-; Каталог установки читается из Software\<publisher>\<product name>, причём
-; publisher берётся тот, по которому совпало ($R2), а не текущий — у старой
-; копии это ветка Software\shepot.
+; The installation directory is read from Software\<publisher>\<product name>,
+; and the publisher taken is the one that matched ($R2), not the current one —
+; for the old copy that is the Software\shepot branch.
 ;
-; Работает и при обновлении через updater (/UPDATE). Именно там это нужнее
-; всего: обновление со «Шёпота» ставит Sotto в новый каталог, а старый
-; никем больше не будет убран. Порядок внутри секции безопасен — хук стоит
-; в её начале, до копирования файлов и до создания ярлыков, так что
-; деинсталлятор успевает снять старые ярлыки раньше, чем появятся новые.
+; This also works for an update through the updater (/UPDATE). That is where it
+; is needed most: an update from «Шёпот» puts Sotto in a new directory and nobody
+; else will ever clear the old one out. The order inside the section is safe —
+; the hook stands at its beginning, before files are copied and before shortcuts
+; are created, so the uninstaller manages to take the old shortcuts down before
+; the new ones appear.
 ;
-; Данные пользователя не трогаем: старый деинсталлятор чистит %APPDATA%
-; только по галочке на странице подтверждения, а мы запускаем его в
-; passive-режиме, где галочки нет. Автозапуск он снимает (Run\<прежнее
-; имя>), но приложение при первом старте сверяет реестр с config.json и
-; восстанавливает запись уже под новым именем — см. apply_autostart в
+; User data is left alone: the old uninstaller only clears %APPDATA% when the
+; checkbox on the confirmation page is ticked, and we run it in passive mode,
+; where there is no checkbox. It does remove the autostart entry (Run\<previous
+; name>), but on its first start the application reconciles the registry against
+; config.json and restores the entry under the new name — see apply_autostart in
 ; lib.rs.
 Function MigrateFromPreviousName
   StrCpy $R0 0
@@ -90,7 +92,7 @@ Function MigrateFromPreviousName
     StrCmp $R1 "" enum_done
     IntOp $R0 $R0 + 1
 
-    ; Текущее имя пропускаем — им занимается штатная страница переустановки.
+    ; Skip the current name — the stock reinstall page deals with that one.
     StrCmp $R1 "${PRODUCTNAME}" enum_loop
 
     ReadRegStr $R2 HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\$R1" "Publisher"
@@ -102,13 +104,15 @@ Function MigrateFromPreviousName
     ReadRegStr $R3 HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\$R1" "UninstallString"
     StrCmp $R3 "" enum_loop
 
-    ; Каталог установки лежит в Software\<publisher>\<prev product name>.
-    ; Без него нельзя передать _?=, а без _?= ExecWait вернётся сразу же:
-    ; деинсталлятор скопирует себя во временный каталог и отвяжется.
+    ; The installation directory lives in
+    ; Software\<publisher>\<prev product name>. Without it _?= cannot be
+    ; passed, and without _?= ExecWait returns immediately: the uninstaller
+    ; copies itself into a temporary directory and detaches.
     ReadRegStr $OldInstallDir HKCU "Software\$R2\$R1" ""
     StrCmp $OldInstallDir "" enum_loop
 
-    ; Страховка от сноса самих себя, если каталоги почему-то совпали.
+    ; Insurance against removing ourselves, should the directories somehow
+    ; coincide.
     StrCmp $OldInstallDir "$INSTDIR" enum_loop
 
     Goto found
@@ -119,33 +123,34 @@ Function MigrateFromPreviousName
     DetailPrint "$(sottoMigrating)"
     HideWindow
     ClearErrors
-    ; Без /UPDATE: старую копию убираем целиком, вместе с её ярлыками и
-    ; записью автозапуска под прежним именем.
+    ; No /UPDATE: the old copy goes entirely, together with its shortcuts and
+    ; its autostart entry under the previous name.
     ExecWait '$R3 /P _?=$OldInstallDir' $R4
     BringToFront
 
     ${If} ${Errors}
     ${OrIf} $R4 <> 0
-      ; Не срываем установку: хуже всего здесь — лишняя запись в списке
-      ; программ, а прерванный установщик оставит пользователя вообще без
-      ; рабочей версии.
+      ; Do not abort the installation: the worst outcome here is a spare entry
+      ; in the program list, whereas an interrupted installer would leave the
+      ; person with no working version at all.
       DetailPrint "$(sottoMigrationFailed)"
       Return
     ${EndIf}
 
-    ; Себя деинсталлятор не удаляет: мы запустили его с _?=, а это режим
-    ; «работать на месте», в котором NSIS не может снести собственный exe.
-    ; Убираем его сами — иначе RMDir ниже споткнётся о непустой каталог и
-    ; от старой установки останется папка с одним файлом.
+    ; The uninstaller does not delete itself: we started it with _?=, and that
+    ; is the "work in place" mode, in which NSIS cannot remove its own exe. We
+    ; remove it ourselves — otherwise the RMDir below trips over a non-empty
+    ; directory and a folder with a single file survives the old installation.
     Delete "$OldInstallDir\uninstall.exe"
-    ; Каталог удаляем, только если он пуст: там могли лежать чужие файлы
-    ; (логи, кеш моделей), и сносить их рекурсивно мы не вправе.
+    ; The directory is removed only if it is empty: it could hold files that
+    ; are not ours (logs, a model cache), and we have no right to delete those
+    ; recursively.
     RMDir "$OldInstallDir"
 
-    ; Ветка Software\<publisher>\<прежнее имя> переживает удаление: штатный
-    ; деинсталлятор чистит её только по галочке «удалить данные», а в
-    ; passive-режиме галочки нет. Хранит она путь установки, которого уже
-    ; не существует, так что оставлять её незачем.
+    ; The Software\<publisher>\<previous name> branch survives the uninstall:
+    ; the stock uninstaller only clears it when the "delete data" box is ticked,
+    ; and in passive mode there is no box. It holds an installation path that no
+    ; longer exists, so there is no reason to keep it.
     DeleteRegKey HKCU "Software\$R2\$R1"
     DeleteRegKey /ifempty HKCU "Software\$R2"
 

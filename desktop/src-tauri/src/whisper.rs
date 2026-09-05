@@ -566,6 +566,12 @@ pub fn engine_thread_main(
                             current_ctx = Some(new_ctx);
                         }
                         crate::model::ModelLoadSpec::Sherpa { engine, files } => {
+                            // Restores are queued synchronously at capture start.
+                            // Hashing here keeps slow disk I/O ahead of all audio
+                            // commands without blocking capture or the UI.
+                            if reason == ModelLoadReason::Restore {
+                                crate::model::verify_bundle_files(&name)?;
+                            }
                             let recognizer = crate::sherpa::SherpaRecognizer::open(
                                 engine,
                                 &files,

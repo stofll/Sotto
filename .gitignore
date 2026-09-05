@@ -24,27 +24,27 @@ desktop/src-tauri/target/
 desktop/src-tauri/gen/
 desktop/src-tauri/.tauri-native/
 
-# --- Локальные данные и загрузки ---
+# --- Local data and uploads ---
 TTS2/uploads/
 
-# --- Пользовательские диагностические записи (не тестовые fixtures) ---
+# --- User diagnostic recordings (not test fixtures) ---
 desktop/src-tauri/logs/recordings/
 desktop/src-tauri/recordings/
 
-# --- Артефакты A/B-экспериментов ---
+# --- A/B experiment artefacts ---
 scripts/ab_*.json
 scripts/ab_run.log
 
-# --- Локальные настройки агентов / IDE ---
+# --- Local agent / IDE settings ---
 .claude/settings.local.json
 .kilo/
 
-# --- Локальные секреты и окружение ---
+# --- Local secrets and environment ---
 .env
 .env.*
 !.env.example
 
-# --- Локальные базы данных ---
+# --- Local databases ---
 *.db
 *.sqlite
 *.sqlite3
@@ -52,10 +52,10 @@ scripts/ab_run.log
 !desktop/src-tauri/tests/fixtures/**/*.sqlite
 !desktop/src-tauri/tests/fixtures/**/*.sqlite3
 
-# --- Локальные package-manager caches ---
+# --- Local package-manager caches ---
 .pnpm-store/
 
-# --- ОС ---
+# --- OS ---
 .DS_Store
 Thumbs.db
 desktop.ini
@@ -63,30 +63,30 @@ desktop.ini
 # from a POSIX shell (git-bash), where `nul` is a normal file, not a device.
 nul
 
-# --- Прочее ---
+# --- Miscellaneous ---
 *.log
 *.pid
 logs/
 
-# --- Локальные черновики, за пределами репозитория ---
-# spike/ и tools/ были выкинуты из публичного репозитория: одноразовые
-# эксперименты, часть из них ещё от Python-стека. Каталоги могут оставаться
-# на машине разработчика, но обратно в git не возвращаются.
+# --- Local drafts, outside the repository ---
+# spike/ and tools/ were dropped from the public repository: one-off
+# experiments, some of them left over from the Python stack. The directories may
+# stay on a developer machine, but they do not come back into git.
 spike/
 tools/
 
-# --- Git worktrees (изоляция фич) ---
+# --- Git worktrees (feature isolation) ---
 .worktrees/
 worktrees/
 
-# --- Агентский scratch (per-task briefs/reports/diffs/ledgers) ---
+# --- Agent scratch (per-task briefs/reports/diffs/ledgers) ---
 .superpowers/
 # --- Local Windows toolchain scripts (not for commit) ---
 /scripts/*.bat
 
-# Вывод cargo-mutants: рабочий каталог прогона, не артефакт проекта.
+# cargo-mutants output: the run working directory, not a project artefact.
 mutants.out/
 mutants.out.old/
 
-# Побочный эффект `cargo test --lib`: тест открывает sqlite в корне крейта.
+# A side effect of `cargo test --lib`: a test opens sqlite in the crate root.
 desktop/src-tauri/sotto.db
