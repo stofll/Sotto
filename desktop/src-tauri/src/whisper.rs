@@ -822,21 +822,24 @@ mod tests {
     }
 
     #[test]
-    fn resolve_model_path_produces_cache_path() {
-        let path = resolve_model_path("large-v3-turbo").unwrap();
-        let path_str = path.to_string_lossy();
-        assert!(path_str.contains("sotto"));
-        assert!(path_str.contains("models"));
-        // `resolve_model_path` is a naive `ggml-{name}.bin` formatter that
-        // predates the catalogue and does not consult it; the catalogue's
-        // own mapping lives in `model::model_path`.
-        assert!(path_str.ends_with("ggml-large-v3-turbo.bin"));
+    fn resolve_model_path_uses_the_models_directory_override() {
+        let dir = tempfile::tempdir().unwrap();
+        let _guard = crate::test_support::EnvGuard::set("SPEECH_TO_TEXT_MODELS_DIR", dir.path());
+        assert_eq!(
+            resolve_model_path("large-v3-turbo").unwrap(),
+            dir.path().join("ggml-large-v3-turbo.bin")
+        );
     }
 
     #[test]
     fn resolve_model_path_creates_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let models = dir.path().join("models");
+        let _guard = crate::test_support::EnvGuard::set("SPEECH_TO_TEXT_MODELS_DIR", &models);
+        assert!(!models.exists());
         let path = resolve_model_path("test-model-temp").unwrap();
-        assert!(path.parent().unwrap().exists());
+        assert_eq!(path.parent(), Some(models.as_path()));
+        assert!(models.is_dir());
     }
 
     #[test]
