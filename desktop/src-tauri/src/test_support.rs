@@ -14,6 +14,10 @@ static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 /// (`models_dir()`, `resolve_model_path`) answer. Without it such a test can
 /// read the variable once before and once after a parallel `EnvGuard` test
 /// flips it, and see two different worlds.
+/// The transducer load-spec test — the only taker — is compiled where the
+/// sherpa transducer is, so the helper is too; elsewhere it would be dead
+/// code under `-D warnings`.
+#[cfg(any(windows, target_os = "macos"))]
 pub fn env_lock() -> std::sync::MutexGuard<'static, ()> {
     ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner())
 }
