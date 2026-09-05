@@ -590,12 +590,20 @@ async fn list_microphones(
         .call(crate::audio::AudioRecorder::list_devices)
         .await
         .unwrap_or_default();
+    // The id is built from the whole list at once, not per device: whether a
+    // name identifies anything depends on the other names next to it.
+    let ids = crate::audio::device_ids(&devices);
     Ok(devices
         .into_iter()
+        .zip(ids)
         .enumerate()
-        .map(|(i, dev)| {
+        .map(|(i, (dev, id))| {
+            // `name` stays null when cpal could not read one. A placeholder
+            // belongs to the interface, which can say it in the user's own
+            // language; here it would only be an English string pretending to
+            // be a device name.
             serde_json::json!({
-                "id": format!("name:{}", dev.name),
+                "id": id,
                 "index": i,
                 "name": dev.name,
                 "label": dev.name,

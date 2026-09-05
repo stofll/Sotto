@@ -20,6 +20,11 @@ type Props = {
   onConfigChanged: (partial: Partial<ConfigResult>) => Promise<ConfigResult | null>;
 };
 
+/** A device whose name cpal could not read still has to be called something. */
+function microphoneLabel(mic: MicrophoneResult): string {
+  return mic.name || mic.label || t("Микрофон {p0}", { p0: (mic.index ?? 0) + 1 });
+}
+
 function hotkeyLabel(hotkey: string | undefined, fallback: string) {
   return (hotkey || fallback).split("+").map((part) => part.trim()).filter(Boolean);
 }
@@ -594,7 +599,7 @@ function MicPicker({ microphone, microphones, onConfigChanged }: { microphone?: 
     setPeak(0);
     setMicActive(false);
   }
-  const options = [{ label: t("Системный микрофон по умолчанию"), value: null as string | number | null }, ...devices.map((mic) => ({ label: mic.name || mic.label || String(mic.id ?? mic.index), value: mic.id ?? mic.index ?? null }))];
+  const options = [{ label: t("Системный микрофон по умолчанию"), value: null as string | number | null }, ...devices.map((mic) => ({ label: microphoneLabel(mic), value: mic.id ?? mic.index ?? null }))];
 
   const selectedValue = typeof microphone === "number" || (typeof microphone === "string" && /^\d+$/.test(microphone))
     ? devices.find((mic) => mic.index === Number(microphone))?.id ?? microphone
@@ -632,12 +637,17 @@ function MicPicker({ microphone, microphones, onConfigChanged }: { microphone?: 
         else unlisteners.push(fn);
       });
     };
-    subscribe<number[]>("microphone-test-audio", (samples) => {
+    // The rate comes with the samples rather than being assumed: capture
+    // resamples to 16 kHz only when the device rate divides into it, and on a
+    // 44.1 kHz microphone the frames arrive at the device's own rate.
+    subscribe<{ sample_rate?: number; samples?: number[] }>("microphone-test-audio", (payload) => {
       const context = playback.current;
-      if (!context || context.state !== "running" || !samples.length) return;
+      const samples = payload?.samples;
+      const sampleRate = payload?.sample_rate;
+      if (!context || context.state !== "running" || !samples?.length || !sampleRate) return;
       // Bound queued playback when the webview was stalled or hidden.
       if (nextPlayback.current > context.currentTime + 0.25) return;
-      const buffer = context.createBuffer(1, samples.length, 16000);
+      const buffer = context.createBuffer(1, samples.length, sampleRate);
       buffer.copyToChannel(new Float32Array(samples), 0);
       const source = context.createBufferSource();
       source.buffer = buffer;

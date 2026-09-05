@@ -43,6 +43,13 @@ pub struct LevelPayload {
     pub level: f32,
 }
 
+/// One frame of echo monitoring: the audio and the rate it was captured at.
+#[derive(Debug, Clone, Serialize)]
+struct MonitorPayload {
+    sample_rate: u32,
+    samples: Vec<f32>,
+}
+
 struct Inner {
     recorder: Option<AudioRecorder>,
     saw_signal: bool,
@@ -226,6 +233,9 @@ impl MicrophoneTest {
                         break;
                     }
                     let raw = recorder.level();
+                    // Read under the same guard as the level: once it is
+                    // dropped, `stop` may take the recorder away.
+                    let sample_rate = recorder.tap_sample_rate();
                     recorder.discard_buffer();
                     // Once we've seen a real signal, remember it so the
                     // silence-watch below doesn't raise a bogus permission
@@ -245,7 +255,21 @@ impl MicrophoneTest {
                     // while the user is actually listening to themselves.
                     let audio: Vec<f32> = samples.try_iter().flatten().collect();
                     if monitor.load(Ordering::Acquire) && !audio.is_empty() {
-                        let _ = poller_app.emit_to("main", "microphone-test-audio", audio);
+                        // The rate travels with the samples. A device whose
+                        // rate the capture resampler cannot divide (44.1 kHz,
+                        // ratio ≈ 2.76) passes its own audio through
+                        // untouched, and playing that back as 16 kHz stretches
+                        // the voice almost threefold and drops it by an octave
+                        // and a half — which sounds like a broken microphone,
+                        // not like a rate mismatch.
+                        let _ = poller_app.emit_to(
+                            "main",
+                            "microphone-test-audio",
+                            MonitorPayload {
+                                sample_rate,
+                                samples: audio,
+                            },
+                        );
                     }
                 }
             }));

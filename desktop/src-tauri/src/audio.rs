@@ -83,7 +83,35 @@ pub fn u8_to_f32(s: u8) -> f32 {
 /// the cpal type (and so we can include extra metadata later).
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct DeviceInfo {
-    pub name: String,
+    /// `None` when cpal cannot read the name. Kept as an absence rather than
+    /// filled with a placeholder: a made-up name is indistinguishable from a
+    /// real one, and [`device_ids`] must not hand out an id that
+    /// [`AudioRecorder::start_selected`] can never match back to a device.
+    pub name: Option<String>,
+}
+
+/// Stable ids for a device list, in enumeration order.
+///
+/// A name survives replugging and reordering, which an index does not — so a
+/// readable, unique name is the id. It stops being an identifier the moment it
+/// stops identifying: two microphones of the same model report the same name,
+/// and some devices report none at all. Those fall back to the position, which
+/// is at least correct for the current enumeration.
+pub fn device_ids(devices: &[DeviceInfo]) -> Vec<String> {
+    let mut seen: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    for device in devices {
+        if let Some(name) = device.name.as_deref() {
+            *seen.entry(name).or_default() += 1;
+        }
+    }
+    devices
+        .iter()
+        .enumerate()
+        .map(|(index, device)| match device.name.as_deref() {
+            Some(name) if seen.get(name) == Some(&1) => format!("name:{name}"),
+            _ => format!("index:{index}"),
+        })
+        .collect()
 }
 
 // ============================================================================
@@ -222,6 +250,14 @@ pub struct AudioRecorder {
     /// RMS level EMA, atomic bit-cast f32. Wrapped in Arc so the callback
     /// can update the SAME bit-cast the public `level()` reads.
     level_ema_bits: Arc<AtomicU32>,
+    /// Rate of the samples the callback actually produces — the target rate
+    /// when the device rate is an integer multiple of it, the device rate
+    /// otherwise (see [`resample_ratio`]). `0` until the first `start`.
+    ///
+    /// Anyone playing the tap back has to know it: assuming the target rate is
+    /// right for every device except the ones the resampler cannot handle, and
+    /// those are exactly the ones where being wrong is audible.
+    tap_sample_rate: AtomicU32,
     stream: Mutex<Option<SendStream>>,
     config: AudioConfig,
 }
@@ -256,6 +292,7 @@ impl AudioRecorder {
             audio_buffer: Arc::new(Mutex::new(Vec::with_capacity(Self::APPROX_CAPACITY))),
             level_ema_bits: Arc::new(AtomicU32::new(0.0_f32.to_bits())),
             live_tap: Arc::new(Mutex::new(None)),
+            tap_sample_rate: AtomicU32::new(0),
             stream: Mutex::new(None),
             config,
         })
@@ -282,6 +319,13 @@ impl AudioRecorder {
                     .map_err(|e| format!("input_devices: {e}"))?;
                 if let Some(name) = value.strip_prefix("name:") {
                     devices.find(|device| device.name().ok().as_deref() == Some(name))
+                } else if let Some(index) = value
+                    .strip_prefix("index:")
+                    .and_then(|index| index.parse::<usize>().ok())
+                {
+                    // Position, for the devices a name cannot identify — see
+                    // [`device_ids`].
+                    devices.nth(index)
                 } else if let Ok(index) = value.parse::<usize>() {
                     devices.nth(index)
                 } else {
@@ -323,6 +367,13 @@ impl AudioRecorder {
         let target_rate = self.config.sample_rate_target;
         let channels_for_cb = channels;
         let sample_rate_for_cb = sample_rate_u32;
+        self.tap_sample_rate.store(
+            match resample_ratio(sample_rate_u32, target_rate) {
+                Some(_) => target_rate,
+                None => sample_rate_u32,
+            },
+            Ordering::Release,
+        );
 
         // Error callback takes StreamError by value in cpal 0.15.
         let err_cb = |err: cpal::StreamError| {
@@ -495,6 +546,16 @@ impl AudioRecorder {
         }
     }
 
+    /// Rate of the samples coming out of [`Self::attach_live_tap`], or the
+    /// configured target before the first `start` — nothing has been produced
+    /// at any other rate yet, so that is the honest answer rather than a guess.
+    pub fn tap_sample_rate(&self) -> u32 {
+        match self.tap_sample_rate.load(Ordering::Acquire) {
+            0 => self.config.sample_rate_target,
+            rate => rate,
+        }
+    }
+
     /// Self-tests stream audio without retaining an ever-growing recording.
     pub fn discard_buffer(&self) {
         crate::mutex_recover::lock(&self.audio_buffer).clear();
@@ -522,7 +583,7 @@ impl AudioRecorder {
         match host.input_devices() {
             Ok(devices) => devices
                 .map(|d| DeviceInfo {
-                    name: d.name().unwrap_or_else(|_| "Unknown microphone".into()),
+                    name: d.name().ok(),
                 })
                 .collect(),
             Err(e) => {
@@ -563,6 +624,22 @@ struct CaptureSinks {
     buffer: Arc<Mutex<Vec<f32>>>,
     level_bits: Arc<AtomicU32>,
     live_tap: Arc<Mutex<Option<std::sync::mpsc::SyncSender<Vec<f32>>>>>,
+}
+
+/// Which block-averaging ratio the callback will apply, or `None` when the
+/// device rate is not an integer multiple of the target and the audio goes
+/// through untouched.
+///
+/// One function rather than a condition repeated in two places: the callback
+/// picks the resampler by it, and [`AudioRecorder::tap_sample_rate`] answers by
+/// it what rate the produced samples actually carry. Written twice, the two
+/// would drift, and the second one lying is worse than not existing — the echo
+/// monitor plays what it is told the rate is.
+fn resample_ratio(device_rate: u32, target_rate: u32) -> Option<usize> {
+    let ratio = device_rate as f32 / target_rate as f32;
+    [1usize, 2, 3, 6]
+        .into_iter()
+        .find(|&candidate| (ratio - candidate as f32).abs() < 0.01)
 }
 
 /// resample, append to buffer. Called from cpal callback (real-time
@@ -622,23 +699,20 @@ fn process_samples(
     // the integer ratio (1, 2, 3, or 6). Anything else (e.g. 44.1 kHz
     // devices where ratio ≈ 2.76) falls through with `mono` and a
     // log::error — async polyphase resampling is out of scope for WS 4a2b.
-    let ratio = sample_rate as f32 / target_rate as f32;
-    let final_audio: Vec<f32> = if ratio == 1.0 {
-        mono
-    } else if (ratio - 3.0).abs() < 0.01 {
-        resample_3_to_1(&mono)
-    } else if (ratio - 2.0).abs() < 0.01 {
-        resample_2_to_1(&mono)
-    } else if (ratio - 6.0).abs() < 0.01 {
-        resample_6_to_1(&mono)
-    } else {
-        log::error!(
-            "unsupported sample rate ratio {:.2} ({} -> {}); using raw audio, ASR will degrade",
-            ratio,
-            sample_rate,
-            target_rate
-        );
-        mono
+    let final_audio: Vec<f32> = match resample_ratio(sample_rate, target_rate) {
+        Some(1) => mono,
+        Some(2) => resample_2_to_1(&mono),
+        Some(3) => resample_3_to_1(&mono),
+        Some(6) => resample_6_to_1(&mono),
+        _ => {
+            log::error!(
+                "unsupported sample rate ratio {:.2} ({} -> {}); using raw audio, ASR will degrade",
+                sample_rate as f32 / target_rate as f32,
+                sample_rate,
+                target_rate
+            );
+            mono
+        }
     };
 
     // The preview tap comes before writing to the buffer and only via a
@@ -921,6 +995,58 @@ mod tests {
             level_bits: Arc::new(AtomicU32::new(level.to_bits())),
             ..CaptureSinks::default()
         }
+    }
+
+    fn named(names: &[Option<&str>]) -> Vec<DeviceInfo> {
+        names
+            .iter()
+            .map(|name| DeviceInfo {
+                name: name.map(str::to_string),
+            })
+            .collect()
+    }
+
+    /// The whole point of a name id: it survives the device list being
+    /// reordered, which is what replugging a USB microphone does.
+    #[test]
+    fn a_unique_name_is_the_identifier() {
+        let ids = device_ids(&named(&[Some("USB Mic"), Some("Built-in")]));
+        assert_eq!(ids, ["name:USB Mic", "name:Built-in"]);
+        let reordered = device_ids(&named(&[Some("Built-in"), Some("USB Mic")]));
+        assert_eq!(reordered[1], ids[0]);
+    }
+
+    /// Two microphones of one model report one name. It cannot tell them apart,
+    /// so it must not pretend to: both fall back to their position, and the
+    /// second one is selectable instead of silently resolving to the first.
+    #[test]
+    fn duplicate_names_fall_back_to_position() {
+        let ids = device_ids(&named(&[Some("USB Mic"), Some("Other"), Some("USB Mic")]));
+        assert_eq!(ids, ["index:0", "name:Other", "index:2"]);
+    }
+
+    /// An unreadable name used to become the literal "Unknown microphone",
+    /// which `start_selected` then looked for among devices that report no name
+    /// at all — and never found.
+    #[test]
+    fn a_nameless_device_is_still_selectable() {
+        let ids = device_ids(&named(&[Some("USB Mic"), None]));
+        assert_eq!(ids, ["name:USB Mic", "index:1"]);
+    }
+
+    /// The rate reported to the echo monitor must be the rate of the samples it
+    /// receives — the target one only while the resampler can reach it.
+    #[test]
+    fn the_reported_tap_rate_follows_the_resampler() {
+        for device_rate in [16_000, 32_000, 48_000, 96_000] {
+            assert!(
+                resample_ratio(device_rate, 16_000).is_some(),
+                "{device_rate}"
+            );
+        }
+        // 44.1 kHz: ratio ≈ 2.76, no integer block size — the callback passes
+        // the device's own audio through, and that is what plays back.
+        assert_eq!(resample_ratio(44_100, 16_000), None);
     }
 
     /// The tap receives exactly what the recording does: already downmixed to

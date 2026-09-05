@@ -15,6 +15,7 @@
 
 export const en: Record<string, string | string[]> = {
   "Микрофон отключён": "Microphone disconnected",
+  "Микрофон {p0}": "Microphone {p0}",
   "Для записи скачайте модель распознавания в разделе «Модели».": "To record, download a speech recognition model in Models.",
   "Переключение\nНажмите горячую клавишу, чтобы начать запись, и нажмите снова, чтобы закончить. Удобно для длинной диктовки.\n\nУдержание\nГоворите, удерживая горячую клавишу, и отпустите её, чтобы закончить. Удобно для коротких фраз.": "Toggle\nPress the shortcut to start recording, then press it again to finish. Good for long dictation.\n\nHold\nSpeak while holding the shortcut, then release it to finish. Good for short phrases.",
 
