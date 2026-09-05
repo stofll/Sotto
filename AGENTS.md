@@ -125,6 +125,9 @@ and keep those rules specific to that subtree.
 
 ## Documentation and completion
 
+- Write commit messages, pull requests, and code comments in English. The
+  app's own UI strings remain Russian: they are the i18n keys, and English
+  translations live in `desktop/src/i18n/en.ts`.
 - Update public guides when a change affects how users accomplish a task,
   configuration, commands, platform support, privacy, or model handling. A purely
   cosmetic change does not need a documentation entry.
