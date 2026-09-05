@@ -99,9 +99,10 @@ const PIPELINE_MODES = () => ([
 
 /** Что именно мешает выбранному режиму дойти до провайдера. */
 function blockerReason(blocker: NonNullable<LlmRouteBlocker>): string {
-  if (blocker === "no_profile") return t("Профиля LLM ещё нет: создайте его в «Интеграциях» и сделайте активным.");
-  if (blocker === "no_model") return t("У активного профиля не выбрана модель.");
-  return t("У активного профиля нет сохранённого API-ключа.");
+  if (blocker === "no_provider") return t("Провайдер LLM не выбран. Настройте его в «Интеграциях».");
+  if (blocker === "invalid_base_url") return t("Для облачного распознавания укажите Base URL с http:// или https://.");
+  if (blocker === "no_model") return t("Модель обработки не выбрана.");
+  return t("Для обработки нет сохранённого API-ключа.");
 }
 
 const EMPTY_KEY_INFO: ApiKeyInfo = { available: false, label: "", masked: "" };
@@ -137,7 +138,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
   // skipped_reason и вставит локальный текст, а пользователь увидит просто
   // «гибрид не работает». Считаем это здесь, чтобы сказать об этом на экране,
   // где режим и выбирают.
-  const routeBlocker = llmRouteBlocker(ai, profiles, apiKeys);
+  const routeBlocker = llmRouteBlocker(config, apiKeys);
 
   // Ключ голосового профиля показывает его собственная строка в списке выше
   // («ключ сохранён» / «нет ключа»), поэтому отдельной переменной под него

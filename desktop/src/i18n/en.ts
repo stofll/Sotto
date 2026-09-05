@@ -494,9 +494,10 @@ export const en: Record<string, string | string[]> = {
   "изменено": "changed",
 
   // ── LLM: профили и провайдеры ──────────────────────────────────────────
-  "Профиля LLM ещё нет: создайте его в «Интеграциях» и сделайте активным.": "There is no LLM profile yet: create one in Integrations and make it active.",
-  "У активного профиля не выбрана модель.": "The active profile has no model selected.",
-  "У активного профиля нет сохранённого API-ключа.": "The active profile has no saved API key.",
+  "Провайдер LLM не выбран. Настройте его в «Интеграциях».": "No LLM provider selected. Configure it in Integrations.",
+  "Для облачного распознавания укажите Base URL с http:// или https://.": "For cloud transcription, enter a Base URL starting with http:// or https://.",
+  "Модель обработки не выбрана.": "No processing model selected.",
+  "Для обработки нет сохранённого API-ключа.": "No saved API key for processing.",
   "Пока этого нет, диктовка вставляет локальный текст без обработки LLM.": "Until then dictation pastes the local text with no LLM pass.",
   "Пока этого нет, распознавать нечем: диктовка завершится ошибкой.": "Until then there is nothing to transcribe with: dictation will fail.",
   "Профили LLM": "LLM profiles",

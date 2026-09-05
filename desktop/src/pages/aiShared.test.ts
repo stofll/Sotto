@@ -173,48 +173,46 @@ describe("порог минимальной длительности", () => {
   });
 });
 
-// Гибридный режим без провайдера вёл себя как локальный: Rust проставлял
-// skipped_reason, текст вставлялся необработанным, и на экране об этом не было
-// ни слова. Тесты держат ворота ровно такими же, как на стороне Rust.
 describe("llmRouteBlocker", () => {
   const withKey = { openai: { available: true, label: "OpenAI", masked: "sk-…12" } };
+  const hybrid = mergeAi(null, { pipeline_mode: "hybrid" });
+  const cloud = mergeAi(hybrid, { pipeline_mode: "cloud", base_url: "https://example.com/v1", stt_model: "whisper-1" });
 
-  it("режиму «только локально» провайдер не нужен", () => {
-    expect(llmRouteBlocker(mergeAi(null, { pipeline_mode: "local" }), [], {})).toBeNull();
+  it("local needs no provider or key", () => {
+    expect(llmRouteBlocker(null, {})).toBeNull();
   });
 
-  it("гибрид без единого профиля называет причину", () => {
-    expect(llmRouteBlocker(mergeAi(null, { pipeline_mode: "hybrid" }), [], {})).toBe("no_profile");
+  it("accepts working flat settings without profiles", () => {
+    expect(hybrid.profiles).toEqual([]);
+    expect(llmRouteBlocker(hybrid, withKey)).toBeNull();
+    expect(llmRouteBlocker(cloud, withKey)).toBeNull();
   });
 
-  it("облачный режим судится по тем же воротам", () => {
-    const base = mergeAi(null, { pipeline_mode: "cloud", active_profile_id: "default" });
-    const profile = normalizeProfile(base, { id: "default", provider: "openai", model: "gpt-4o-mini" });
-    expect(llmRouteBlocker(base, [profile], {})).toBe("no_key");
-    expect(llmRouteBlocker(base, [], {})).toBe("no_profile");
+  it("checks the saved flat settings even if a profile disagrees", () => {
+    const profile = normalizeProfile(hybrid, { id: "default", provider: "openai" });
+    expect(llmRouteBlocker({ ...hybrid, profiles: [profile], api_key_ref: "missing" }, withKey)).toBe("no_key");
   });
 
-  it("профиль без сохранённого ключа не считается рабочим маршрутом", () => {
-    const base = mergeAi(null, { pipeline_mode: "hybrid", active_profile_id: "default" });
-    const profile = normalizeProfile(base, { id: "default", provider: "openai", model: "gpt-4o-mini" });
-    expect(llmRouteBlocker(base, [profile], {})).toBe("no_key");
+  it("identifies missing provider, model and key", () => {
+    expect(llmRouteBlocker({ ...hybrid, provider: "" }, withKey)).toBe("no_provider");
+    expect(llmRouteBlocker({ ...hybrid, model: " " }, withKey)).toBe("no_model");
+    expect(llmRouteBlocker(hybrid, {})).toBe("no_key");
+    expect(llmRouteBlocker(cloud, {})).toBe("no_key");
   });
 
-  it("профиль без модели не считается рабочим маршрутом", () => {
-    const base = mergeAi(null, { pipeline_mode: "hybrid", active_profile_id: "default" });
-    const profile = { ...normalizeProfile(base, { id: "default", provider: "openai" }), model: "" };
-    expect(llmRouteBlocker(base, [profile], withKey)).toBe("no_model");
+  it.each([undefined, "", "  ", "/v1", "example.com", "file:///tmp/model"])("rejects cloud Base URL %s", (base_url) => {
+    expect(llmRouteBlocker({ ...cloud, base_url }, withKey)).toBe("invalid_base_url");
   });
 
-  it("настроенный профиль с ключом претензий не вызывает", () => {
-    const base = mergeAi(null, { pipeline_mode: "hybrid", active_profile_id: "default" });
-    const profile = normalizeProfile(base, { id: "default", provider: "openai", model: "gpt-4o-mini" });
-    expect(llmRouteBlocker(base, [profile], withKey)).toBeNull();
+  it("allows local HTTP servers and does not require a URL for hybrid", () => {
+    expect(llmRouteBlocker({ ...cloud, base_url: "http://localhost:8080/v1" }, withKey)).toBeNull();
+    expect(llmRouteBlocker({ ...hybrid, base_url: "" }, withKey)).toBeNull();
   });
 
-  it("указатель на удалённый профиль читается как первый в списке — как и на странице", () => {
-    const base = mergeAi(null, { pipeline_mode: "hybrid", active_profile_id: "deleted" });
-    const profile = normalizeProfile(base, { id: "default", provider: "openai", model: "gpt-4o-mini" });
-    expect(llmRouteBlocker(base, [profile], withKey)).toBeNull();
+  it("uses stt_model for cloud, including an explicitly empty value", () => {
+    expect(llmRouteBlocker({ ...cloud, provider: "", model: "" }, withKey)).toBeNull();
+    expect(llmRouteBlocker({ ...cloud, stt_model: "" }, withKey)).toBe("no_model");
+    expect(llmRouteBlocker({ ...cloud, stt_model: undefined }, withKey)).toBeNull();
+    expect(llmRouteBlocker({ ...cloud, stt_model: undefined, model: "" }, withKey)).toBe("no_model");
   });
 });

@@ -296,31 +296,25 @@ export function textProfileFor(ai: AiConfig | null, profiles: LlmProfile[], voic
   return profiles.find((profile) => profile.id === id) ?? voiceProfile;
 }
 
-/**
- * Чего не хватает, чтобы LLM-этап вообще запустился в выбранном режиме.
- *
- * Повторяет ворота из `ai_process_text_with_status` на стороне Rust — там
- * пустой провайдер и пустой ключ дают `skipped_reason`, диктовка молча
- * вставляет локальный текст, и со стороны это выглядит как «гибридный режим
- * ничего не делает». Проверка вынесена сюда, чтобы интерфейс мог сказать об
- * этом до записи, а не после неё.
- *
- * `null` значит «маршрут есть» — в том числе для режима «только локально»,
- * которому LLM не нужна вовсе.
- */
-export type LlmRouteBlocker = "no_profile" | "no_model" | "no_key" | null;
+/** Проверяет сохранённый маршрут: Rust читает плоские поля, а не список профилей. */
+export type LlmRouteBlocker = "no_provider" | "no_model" | "no_key" | "invalid_base_url" | null;
 
-export function llmRouteBlocker(ai: AiConfig | null, profiles: LlmProfile[], apiKeys: ApiKeyStatus): LlmRouteBlocker {
+export function llmRouteBlocker(ai: AiConfig | null, apiKeys: ApiKeyStatus): LlmRouteBlocker {
   const mode = ai?.pipeline_mode ?? DEFAULT_AI.pipeline_mode;
   if (mode === "local") return null;
-  const activeId = ai?.active_profile_id || ai?.profile_id || "";
-  // Тот же выбор активного, что и на странице «LLM-обработка»: указатель на
-  // удалённый профиль там читается как «первый в списке», и расхождение между
-  // предупреждением и подсвеченной строкой было бы хуже самой ошибки.
-  const active = profiles.find((profile) => profile.id === activeId) ?? profiles[0] ?? null;
-  if (!active) return "no_profile";
-  if (!active.provider.trim() || !active.model.trim()) return "no_model";
-  if (!apiKeys[profileKeyRef(active)]?.available) return "no_key";
+  if (mode === "cloud") {
+    try {
+      const url = new URL(ai?.base_url ?? "");
+      if (url.protocol !== "http:" && url.protocol !== "https:") return "invalid_base_url";
+    } catch {
+      return "invalid_base_url";
+    }
+  } else if (!ai?.provider?.trim()) {
+    return "no_provider";
+  }
+  const model = mode === "cloud" ? ai?.stt_model ?? ai?.model : ai?.model;
+  if (!model?.trim()) return "no_model";
+  if (!apiKeys[ai?.api_key_ref ?? ""]?.available) return "no_key";
   return null;
 }
 
