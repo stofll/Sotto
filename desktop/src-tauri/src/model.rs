@@ -910,6 +910,19 @@ pub struct ModelStatus {
 }
 
 pub fn normalize_model_id(value: &str) -> Result<&'static str, String> {
+    catalog_model(value)
+        .map(|model| model.id)
+        .ok_or_else(|| format!("UNKNOWN_MODEL: {value}"))
+}
+
+pub struct CatalogModel {
+    pub id: &'static str,
+    pub label: &'static str,
+    pub engine: ModelEngine,
+}
+
+/// Static product metadata only; never discovers files or reads user state.
+pub fn catalog_model(value: &str) -> Option<CatalogModel> {
     let normalized = value.trim().to_ascii_lowercase();
     let public_id = match normalized.as_str() {
         // Keep compatibility with existing config/UI values and accept the
@@ -920,14 +933,21 @@ pub fn normalize_model_id(value: &str) -> Result<&'static str, String> {
     MODELS
         .iter()
         .find(|model| model.id == public_id)
-        .map(|model| model.id)
+        .map(|model| CatalogModel {
+            id: model.id,
+            label: model.label,
+            engine: ModelEngine::Whisper,
+        })
         .or_else(|| {
             BUNDLE_MODEL_MANIFEST
                 .iter()
                 .find(|model| model.public_id == public_id)
-                .map(|model| model.public_id)
+                .map(|model| CatalogModel {
+                    id: model.public_id,
+                    label: model.label,
+                    engine: model.engine,
+                })
         })
-        .ok_or_else(|| format!("UNKNOWN_MODEL: {value}"))
 }
 
 fn definition(model_id: &str) -> Result<&'static ModelDefinition, String> {

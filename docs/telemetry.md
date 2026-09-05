@@ -104,9 +104,13 @@ failure is still a completed transcription and is represented by
 - `stt_engine`: `whisper`, `sherpa`, `cloud_stt`, or `other`
 - `stt_provider`: `local` or the fixed `compatible` adapter for completed
   cloud operations
-- `stt_model`: bundled local ID (`tiny`, `base`, `small`, `medium`,
-  `large-v3`, `turbo`, `gigaam-v3`), `custom_local` for discovered local
-  models, or a sanitized/capped cloud model label
+- `stt_model`: canonical local ID from the application's model catalogue
+  (including all Whisper and Sherpa models available on the platform),
+  `custom_local` for models outside the catalogue, or a sanitized/capped
+  cloud model label. Known aliases are normalized to the catalogue ID.
+- `stt_model_name`: display name from the same catalogue, such as
+  `SenseVoice small` or `Parakeet unified`. Omitted for unknown local models
+  and cloud STT; never derived from a user filename or path.
 - `compute`: `cpu`, `gpu`, `cloud`, or `other` — `other` means the route
   never reached the engine, which is what every failure reports
 - numeric `audio_seconds`, `processing_seconds`, and `time_saved_seconds`
@@ -157,8 +161,9 @@ or arbitrary JSON capture method. Payloads must never include:
 - API keys, custom endpoints, provider responses, or raw errors;
 - microphone names, focused-window details, or application titles.
 
-Bundled local STT IDs are mapped to a fixed allowlist; discovered local model
-names become `custom_local`. A cloud STT model is captured only after a
+The application model catalogue is the allowlist for local STT IDs, display
+names, and engines; discovered local model names become `custom_local` with
+no display name. A cloud STT model is captured only after a
 completed operation. An LLM model is captured only after the provider returned
 a response; a rejected request retains its allow-listed provider but not the
 unvalidated model string. Values are normalized to stable allowlists or
@@ -189,3 +194,10 @@ Use a separate PostHog project for development/staging payload inspection and
 production analytics. Restrict project access, enable MFA, and configure a
 spend limit or billing guard before putting the production ingest token into
 release builds.
+
+Group model usage by `stt_model` for stable counts across display-name changes.
+For readable chart labels, use `stt_model_name` with `stt_model` as the fallback
+for older events, cloud models, and custom models. The display-name field is an
+optional addition to schema version 1. Older `custom_local` events cannot be
+recovered: their original model IDs were discarded before delivery. Compare
+versions using `app_version` when assessing adoption after this change.

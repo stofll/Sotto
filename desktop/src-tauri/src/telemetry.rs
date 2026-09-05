@@ -293,6 +293,8 @@ struct OutcomePayload {
     stt_provider: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     stt_model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stt_model_name: Option<&'static str>,
     compute: &'static str,
     audio_seconds: u64,
     processing_seconds: u64,
@@ -840,18 +842,11 @@ fn external_model_wire(value: Option<&str>, fallback: &'static str) -> Option<St
 /// cache (including filenames and fine-tunes) are intentionally coalesced so
 /// no local path/model name leaves the device.
 fn local_stt_model_wire(value: Option<&str>) -> Option<String> {
-    let value = value?.trim().to_ascii_lowercase();
-    let known = match value.as_str() {
-        "tiny" => "tiny",
-        "base" => "base",
-        "small" => "small",
-        "medium" => "medium",
-        "large-v3" => "large-v3",
-        "turbo" => "turbo",
-        "gigaam-v3" => "gigaam-v3",
-        _ => "custom_local",
-    };
-    Some(known.to_string())
+    Some(
+        crate::model::normalize_model_id(value?)
+            .unwrap_or("custom_local")
+            .to_string(),
+    )
 }
 
 fn stt_model_wire(mode: &'static str, value: Option<&str>) -> Option<String> {
@@ -907,10 +902,10 @@ fn stt_engine_wire(mode: &'static str, model: Option<&str>) -> &'static str {
     if mode == "cloud" {
         return "cloud_stt";
     }
-    match model.unwrap_or("") {
-        "gigaam-v3" => "sherpa",
-        "tiny" | "base" | "small" | "medium" | "large-v3" | "turbo" => "whisper",
-        _ => "other",
+    match model.and_then(crate::model::catalog_model) {
+        Some(model) if model.engine.is_sherpa() => "sherpa",
+        Some(_) => "whisper",
+        None => "other",
     }
 }
 
@@ -957,6 +952,10 @@ fn outcome_payload(
         stt_engine: stt_engine_wire(mode, outcome.stt_model),
         stt_provider: stt_provider_wire(mode, stage.is_none()),
         stt_model: stt_model_wire(mode, outcome.stt_model),
+        stt_model_name: (mode != "cloud")
+            .then(|| outcome.stt_model.and_then(crate::model::catalog_model))
+            .flatten()
+            .map(|model| model.label),
         compute: compute_wire(mode, outcome.compute),
         audio_seconds: round_audio_seconds(outcome.audio_seconds),
         processing_seconds: round_processing_seconds(outcome.stt_millis, outcome.ai_status),
@@ -1404,6 +1403,105 @@ mod tests {
                 .len()
                 <= MAX_EXTERNAL_MODEL_CHARS
         );
+    }
+
+    #[test]
+    fn all_catalog_models_reach_microphone_and_file_events() {
+        let models = crate::model::MODEL_MANIFEST
+            .iter()
+            .map(|model| {
+                (
+                    model.public_id,
+                    format!("Whisper {}", model.public_id),
+                    "whisper",
+                )
+            })
+            .chain(
+                crate::model::BUNDLE_MODEL_MANIFEST
+                    .iter()
+                    .map(|model| (model.public_id, model.label.to_string(), "sherpa")),
+            );
+        for (id, label, engine) in models {
+            for source in [Source::Microphone, Source::File] {
+                for mode in ["local", "hybrid"] {
+                    let outcome = Outcome {
+                        source,
+                        ..completed(mode, Some(id), None)
+                    };
+                    let event = TelemetryEvent::TranscriptionCompleted(outcome_payload(
+                        mode, &outcome, None, None,
+                    ));
+                    let properties = event.properties().unwrap();
+                    assert_eq!(properties["stt_model"], id);
+                    assert_eq!(properties["stt_model_name"], label);
+                    assert_eq!(properties["stt_engine"], engine);
+                    assert_eq!(properties["stt_provider"], "local");
+                    assert_eq!(properties["source"], source.wire());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn catalog_aliases_keep_the_same_analytics_identity() {
+        for input in ["turbo", "large-v3-turbo", " LARGE-V3-TURBO "] {
+            let properties = TelemetryEvent::TranscriptionCompleted(outcome_payload(
+                "local",
+                &completed("local", Some(input), None),
+                None,
+                None,
+            ))
+            .properties()
+            .unwrap();
+            assert_eq!(properties["stt_model"], "turbo");
+            assert_eq!(properties["stt_model_name"], "Whisper turbo");
+            assert_eq!(properties["stt_engine"], "whisper");
+        }
+    }
+
+    #[test]
+    fn model_display_names_never_come_from_user_input() {
+        for mode in ["local", "hybrid", "cloud"] {
+            for input in [
+                None,
+                Some("private-finetune.bin"),
+                Some("C:\\Users\\private\\model.bin"),
+                Some("https://private.test/model"),
+            ] {
+                let properties = TelemetryEvent::TranscriptionCompleted(outcome_payload(
+                    mode,
+                    &completed(mode, input, None),
+                    None,
+                    None,
+                ))
+                .properties()
+                .unwrap();
+                assert!(properties.get("stt_model_name").is_none());
+                if mode != "cloud" {
+                    assert_eq!(properties["stt_engine"], "other");
+                    if input.is_some() {
+                        assert_eq!(properties["stt_model"], "custom_local");
+                    } else {
+                        assert!(properties.get("stt_model").is_none());
+                    }
+                    assert!(!serde_json::to_string(&properties)
+                        .unwrap()
+                        .contains("private"));
+                }
+            }
+        }
+        // A cloud model may share a local ID without using the local catalogue.
+        let properties = TelemetryEvent::TranscriptionCompleted(outcome_payload(
+            "cloud",
+            &completed("cloud", Some("turbo"), None),
+            None,
+            None,
+        ))
+        .properties()
+        .unwrap();
+        assert_eq!(properties["stt_model"], "turbo");
+        assert_eq!(properties["stt_engine"], "cloud_stt");
+        assert!(properties.get("stt_model_name").is_none());
     }
 
     #[test]
