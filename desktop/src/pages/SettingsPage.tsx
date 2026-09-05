@@ -852,7 +852,7 @@ export function SettingsPage({ config, microphones, models, onConfigChanged }: P
           </div>
           <div className="vrule"/>
           <div className="set-cell">
-            <SetLabel title={t("Режим записи")} hint={t("Переключение: нажмите горячую клавишу, чтобы начать запись, и нажмите снова, чтобы закончить. Удержание: говорите, удерживая горячую клавишу; отпустите её, чтобы закончить запись.")}/>
+            <SetLabel title={t("Режим записи")} hint={t("Переключение\nНажмите горячую клавишу, чтобы начать запись, и нажмите снова, чтобы закончить. Удобно для длинной диктовки.\n\nУдержание\nГоворите, удерживая горячую клавишу, и отпустите её, чтобы закончить. Удобно для коротких фраз.")}/>
             <RecordingModeSegmented value={recordingMode} onConfigChanged={onConfigChanged}/>
           </div>
         </div>

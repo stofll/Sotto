@@ -287,7 +287,7 @@ export function ModelActionOverlays({ actions }: { actions: ModelActions }) {
     <>
       {status && createPortal((
         <div
-          className={`model-download-toast${status.closing ? " model-download-toast--closing" : ""}`}
+          className={`model-download-toast${status.kind === "loading" ? " model-download-toast--progress" : ""}${status.closing ? " model-download-toast--closing" : ""}`}
           role={status.kind === "error" ? "alert" : "status"}
           aria-live="polite"
         >
@@ -301,18 +301,19 @@ export function ModelActionOverlays({ actions }: { actions: ModelActions }) {
             <strong>{status.text}</strong>
             {status.detail && <span>{status.detail}</span>}
           </span>
-          {/* Отмена — отдельной кнопкой со словом: крестик рядом означает
-              «убрать тост с глаз», и путать эти два действия дорого. */}
-          {status.cancelModel && (
-            <button
-              className="btn btn--ghost btn--sm model-download-toast__cancel"
-              type="button"
-              onClick={() => void cancelDownload(status.cancelModel!)}
-            >
-              {t("Отменить")}
-            </button>
-          )}
-          <button className="model-download-toast__close" type="button" onClick={dismissStatus} aria-label={t("Закрыть")}>
+          {/* Пока идёт скачивание, крестик отменяет само скачивание, а не
+              прячет тост. Раньше рядом стояли оба: кнопка «Отменить» и
+              крестик со значением «пусть качается, но с глаз долой». Второе
+              никто не искал, а два похожих действия в одном углу стоили
+              дороже, чем спасали. Подпись у крестика меняется вместе с
+              действием, чтобы отмену не нажимали вслепую. */}
+          <button
+            className="model-download-toast__close"
+            type="button"
+            onClick={() => { if (status.cancelModel) void cancelDownload(status.cancelModel); else dismissStatus(); }}
+            aria-label={status.cancelModel ? t("Отменить скачивание") : t("Закрыть")}
+            title={status.cancelModel ? t("Отменить скачивание") : t("Закрыть")}
+          >
             <Icon name="x" size={13}/>
           </button>
           {status.kind === "loading" && (

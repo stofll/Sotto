@@ -714,7 +714,18 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 /* Тост рендерится порталом в body — коробочная модель и шрифт .app-frame
    до него не доходят, задаём их здесь. */
 .model-download-toast, .model-download-toast * { box-sizing: border-box; }
-.model-download-toast { font-family: var(--font-sans); color: var(--text); position: fixed; left: 50%; bottom: 24px; z-index: 180; width: min(380px, calc(100vw - 32px)); min-height: 64px; display: flex; align-items: center; gap: 10px; padding: 11px 10px 13px 12px; overflow: hidden; border: 1px solid var(--border-strong); border-radius: var(--r); background: color-mix(in srgb, var(--surface-1) 97%, black); box-shadow: var(--shadow-3); opacity: 1; transform: translateX(-50%) translateY(0); animation: model-toast-in .2s ease-out both; transition: opacity .22s ease, transform .22s ease; }
+/* Ширины нет вовсе — тост позиционирован, а такой элемент без width сам
+   ужимается по содержимому. На фиксированных 380px короткое «Модель
+   удалена: …» растягивалось на всю ширину, и между текстом и крестиком
+   зияла половина тоста. Предел прежний: те же 380px, когда текста правда
+   много, дальше строка переносится. */
+.model-download-toast { font-family: var(--font-sans); color: var(--text); position: fixed; left: 50%; bottom: 24px; z-index: 180; max-width: min(380px, calc(100vw - 32px)); display: flex; align-items: center; gap: 10px; padding: 11px 10px 11px 12px; overflow: hidden; border: 1px solid var(--border-strong); border-radius: var(--r); background: color-mix(in srgb, var(--surface-1) 97%, black); box-shadow: var(--shadow-3); opacity: 1; transform: translateX(-50%) translateY(0); animation: model-toast-in .2s ease-out both; transition: opacity .22s ease, transform .22s ease; }
+/* Скачивание меряется той же меркой — ширина по содержимому. Постоянную
+   ширину тут держали из страха, что тост задёргается на счётчике, но байты
+   печатаются целыми мегабайтами, и число знаков за всю загрузку меняется
+   пару раз; ширину к тому же почти всегда задаёт название модели, а оно не
+   меняется вовсе. Снизу — место под полосу прогресса. */
+.model-download-toast--progress { padding-bottom: 13px; }
 .model-download-toast--closing { opacity: 0; transform: translateX(-50%) translateY(8px); pointer-events: none; }
 .model-download-toast__icon { flex: 0 0 36px; width: 36px; height: 36px; display: grid; place-items: center; border: 1px solid var(--border-strong); border-radius: 50%; color: var(--accent); background: var(--bg-2); }
 .model-download-toast__icon--loading { animation: model-toast-pulse 1.4s ease-in-out infinite; }
@@ -726,7 +737,6 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 .model-download-toast__copy strong { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font: 600 12.5px/1.25 var(--font-sans); color: var(--text); }
 .model-download-toast__copy > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 500 10.5px/1.2 var(--font-mono); color: var(--text-mute); }
 .model-download-toast__icon--info { color: var(--text-mute); background: var(--surface-2); }
-.model-download-toast__cancel { flex: 0 0 auto; }
 .model-download-toast__close { appearance: none; flex: 0 0 auto; width: 24px; height: 24px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--text-mute); cursor: pointer; }
 .model-download-toast__close:hover { color: var(--text); background: var(--surface-3); }
 .model-download-toast__track { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; overflow: hidden; background: var(--surface-3); }

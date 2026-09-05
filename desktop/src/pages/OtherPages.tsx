@@ -1223,7 +1223,9 @@ export function InfoPage({ version, config, onConfigChanged }: { version?: strin
             <InfoRow label={t("Режим записи")} value={recordingMode}/>
             <InfoRow label={t("Автовставка")} value={config?.auto_paste ? t("Включена") : t("Выключена")}/>
           </div>
-          <p style={{ margin: "12px 0 0", font: "400 11.5px/1.5 var(--font-sans)", color: "var(--ink-mute)" }}>{config?.recording_mode === "push_to_talk" ? t("В режиме удержания запись идет, пока hotkey зажат. Это удобно для коротких фраз.") : t("В режиме переключателя первое нажатие начинает запись, второе останавливает. Это удобно для длинной диктовки.")}</p>
+          {/* Строки «в режиме … запись идёт …» тут не стало: строкой выше
+              стоит сам режим, а как он работает — написано в подсказке к
+              «Режиму записи» в настройках, там же, где его переключают. */}
         </HelpCard>
       </div>
 

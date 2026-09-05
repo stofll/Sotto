@@ -15,7 +15,7 @@
 export const en: Record<string, string | string[]> = {
   "Микрофон отключён": "Microphone disconnected",
   "Для записи скачайте модель распознавания в разделе «Модели».": "To record, download a speech recognition model in Models.",
-  "Переключение: нажмите горячую клавишу, чтобы начать запись, и нажмите снова, чтобы закончить. Удержание: говорите, удерживая горячую клавишу; отпустите её, чтобы закончить запись.": "Toggle: press the shortcut to start recording and press again to finish. Hold: speak while holding the shortcut; release it to finish recording.",
+  "Переключение\nНажмите горячую клавишу, чтобы начать запись, и нажмите снова, чтобы закончить. Удобно для длинной диктовки.\n\nУдержание\nГоворите, удерживая горячую клавишу, и отпустите её, чтобы закончить. Удобно для коротких фраз.": "Toggle\nPress the shortcut to start recording, then press it again to finish. Good for long dictation.\n\nHold\nSpeak while holding the shortcut, then release it to finish. Good for short phrases.",
 
   // ── Навигация и оболочка ───────────────────────────────────────────────
   "Основное": "General",
@@ -72,6 +72,7 @@ export const en: Record<string, string | string[]> = {
   "Загружаю…": "Loading…",
   "Загружаю модель": "Loading model",
   "Загрузка модели": "Loading model",
+  "Отменить скачивание": "Cancel the download",
   "Скачиваю модель": "Downloading model",
   "Скачиваю {p0}": "Downloading {p0}",
   "Переключить модель?": "Switch the model?",
@@ -193,10 +194,6 @@ export const en: Record<string, string | string[]> = {
   "Переключатель": "Toggle",
   "Удерживать": "Hold",
   "Удержание клавиш": "Push to talk",
-  "В режиме переключателя первое нажатие начинает запись, второе останавливает. Это удобно для длинной диктовки.":
-    "In toggle mode the first press starts recording and the second stops it. Good for long dictation.",
-  "В режиме удержания запись идет, пока hotkey зажат. Это удобно для коротких фраз.":
-    "In push-to-talk mode recording runs while the shortcut is held. Good for short phrases.",
 
   // ── Настройки: вставка ─────────────────────────────────────────────────
   "Авто-вставка текста": "Auto-paste",
