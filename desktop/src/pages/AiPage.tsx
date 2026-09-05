@@ -305,7 +305,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
         model: ai.model,
         base_url: ai.base_url ?? "",
         system_prompt: ai.system_prompt,
-        // i18n-ignore: образец русской диктовки для пробного запроса в LLM
+        // i18n-ignore: a Russian dictation sample for the trial LLM request
         text: "ну в общем нужно сегодня встретиться с командой и обсудить следующие шаги",
       });
       setTestResult(result);

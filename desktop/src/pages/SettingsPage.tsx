@@ -670,7 +670,7 @@ function MicPicker({ microphone, microphones, onConfigChanged }: { microphone?: 
     // window, changing the device): there is one capture stream, and when it
     // ends both modes go out.
     subscribe<unknown>("microphone-test-started", () => { setError(null); });
-    subscribe<unknown>("microphone-test-stopped", () => { closePlayback(); setChecking(false); setEcho(false); resetMeter(); });
+    subscribe<unknown>("microphone-test-stopped", () => { closePlayback(); setChecking(false); setEcho(false); resetMeter(); setStoppedStatus(t("Проверка остановлена")); });
     subscribe<SidecarErrorPayload>("app-error", (payload) => {
       // Permission events are shown by the banner in MainWindow — it has text
       // for the specific permission and a link into the right system settings
@@ -707,11 +707,16 @@ function MicPicker({ microphone, microphones, onConfigChanged }: { microphone?: 
     await invoke("start_microphone_test", { microphone: microphone ?? null, monitor });
   }
 
+  // Плашку гасит и здесь, и в обработчике `microphone-test-stopped`: у
+  // «работает» нет своего таймера, снять её может только сообщение об
+  // остановке. Без этого смена микрофона на ходу оставляла зелёное «Эхо
+  // включено» висеть на странице навсегда.
   async function stopCapture() {
     closePlayback();
     setChecking(false);
     setEcho(false);
     resetMeter();
+    setStoppedStatus(t("Проверка остановлена"));
     await invoke("stop_microphone_test");
   }
 
@@ -722,7 +727,10 @@ function MicPicker({ microphone, microphones, onConfigChanged }: { microphone?: 
     try {
       if (checking) {
         setChecking(false);
-        if (!echo) await stopCapture();
+        // Захват остаётся жить ради эха, но индикатор — часть выключенного
+        // режима: без сброса он продолжал бы прыгать под погашенной кнопкой.
+        if (echo) resetMeter();
+        else await stopCapture();
         setStoppedStatus(t("Проверка микрофона остановлена"));
       } else {
         await startCapture(echo);
@@ -781,7 +789,11 @@ function MicPicker({ microphone, microphones, onConfigChanged }: { microphone?: 
           <button className={`mic-test${checking ? " mic-test--active" : ""}`} type="button" disabled={busy} aria-pressed={checking} aria-label={t("Проверка микрофона")} onClick={() => void toggleCheck()}><Icon name="mic" size={14}/></button>
         </Hint>
         {status && <span className={`mic-status-chip${status.kind === "stopped" ? " mic-status-chip--stop" : ""}`} role="status" aria-live="polite">{status.text}</span>}
-        <MicMeter level={level} peak={peak} active={micActive}/>
+        {/* Индикатор показывает только проверка уровня. Поток захвата общий с
+            эхом, и события уровня идут при любом из режимов — без этого
+            условия одно включённое эхо рисовало бы бегающую полосу, а сама
+            кнопка проверки при этом стояла бы погашенной. */}
+        <MicMeter level={checking ? level : 0} peak={checking ? peak : 0} active={checking && micActive}/>
       </div>
       {error && <div role="alert" style={{ marginTop: 6, color: "var(--err)", font: "500 11px/1.4 var(--font-sans)" }}>{error}</div>}
     </div>

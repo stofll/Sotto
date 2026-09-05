@@ -214,9 +214,15 @@ function ModelCard({ model, active, busy, onSelect, onDownload, onDelete }: {
   // selection was not marked at all, and the selected model was
   // indistinguishable from a merely downloaded one — memory is reported
   // separately by the «В памяти» label.
+  //
+  // Green requires the file as well as the selection. `selectedId` is whatever
+  // the config names, downloaded or not, and on a fresh install that is
+  // `large-v3` with nothing on disk: without this condition the very first
+  // screen marked a model as working right next to the app's own "nothing to
+  // transcribe with" pill.
   const state = [
     "model-card2",
-    active ? "model-card2--active" : installed ? "model-card2--installed" : "",
+    active && installed ? "model-card2--active" : installed ? "model-card2--installed" : "",
   ].filter(Boolean).join(" ");
   return (
     // The whole card is the selection button: a separate «Выбрать» repeated

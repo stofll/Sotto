@@ -1702,8 +1702,8 @@ async fn transcribe_file_inner(
 
     let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
     // Same branch as `stop_recording`: a cloud-configured user has no local
-    // model loaded, and sending `Transcribe` would fail with "модель не
-    // загружена" for a reason that has nothing to do with their setup.
+    // model loaded, and sending `Transcribe` would fail with «модель не
+    // загружена» for a reason that has nothing to do with their setup.
     let command = if pipeline_mode == "cloud" {
         // Built before the move: the request borrows the samples that the
         // command is about to take ownership of.
@@ -2211,7 +2211,7 @@ pub(crate) fn build_dictation_command(
         });
     }
     // A cloud-configured user has no local model loaded, so sending
-    // `Transcribe` would fail with "модель не загружена" for a reason that
+    // `Transcribe` would fail with «модель не загружена» for a reason that
     // has nothing to do with their setup.
     let request = build_cloud_stt_request(app, &audio).map_err(|error| {
         log::error!("session {session_id}: cloud STT setup failed: {error}");
@@ -2735,12 +2735,23 @@ async fn stop_microphone_test(
 ///
 /// Separate from start/stop so switching echo on or off does not restart
 /// the capture stream — the level meter keeps running across the toggle.
+///
+/// Dispatched through the audio worker like its two neighbours, even though it
+/// only flips an atomic: the `inner` mutex it takes is the same one `start`
+/// holds across `AudioRecorder::start_selected`, and opening a WASAPI device can
+/// take hundreds of milliseconds. Nothing but a `busy` flag on the frontend
+/// keeps the two commands apart today, and that invariant lives in another
+/// language on the far side of an IPC boundary.
 #[tauri::command]
 async fn set_microphone_test_monitor(
     state: tauri::State<'_, AppState>,
     enabled: bool,
 ) -> Result<crate::mic_test::MicrophoneTestInfo, String> {
-    state.microphone_test.set_monitor(enabled);
+    let test = state.microphone_test.clone();
+    state
+        .audio
+        .call(move || test.set_monitor(enabled))
+        .await?;
     state.microphone_test.info()
 }
 

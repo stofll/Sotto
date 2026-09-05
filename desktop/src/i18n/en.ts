@@ -154,6 +154,7 @@ export const en: Record<string, string | string[]> = {
   "Проверка микрофона": "Microphone check",
   "Проверка микрофона запущена": "Microphone check started",
   "Проверка микрофона остановлена": "Microphone check stopped",
+  "Проверка остановлена": "Check stopped",
   "Индикатор показывает уровень сигнала. Скажите что-нибудь: полоса должна доходить до середины и не упираться в край.": "The meter shows the input level. Say something: the bar should reach about halfway without hitting the end.",
   "Эхо": "Echo",
   "Эхо включено": "Echo on",

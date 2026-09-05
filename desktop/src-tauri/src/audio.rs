@@ -555,7 +555,6 @@ pub fn display_level(raw_rms: f32) -> f32 {
     ((db - FLOOR_DB) / (CEIL_DB - FLOOR_DB)).clamp(0.0, 1.0)
 }
 
-/// Process f32 samples: gate on `is_recording`, update RMS, mono mixdown,
 /// Where the recording callback puts its output: the full recording, the level
 /// meter, and an optional tap for the live preview. One struct rather than three
 /// arguments — the callback holds them together for its entire lifetime.

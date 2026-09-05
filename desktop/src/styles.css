@@ -733,7 +733,9 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
    without a width shrink-wraps to its content. At a fixed 380px a short
    «Модель удалена: …» stretched across the full width and half the toast gaped
    between the text and the close button. The limit is unchanged: the same 380px
-   when there really is a lot of text, beyond which the line wraps. */
+   when there really is a lot of text, beyond which the line wraps.
+   `min-height` is gone for the same reason: the 36px icon plus padding already
+   sets the floor, and the 64px minimum only added air under a single line. */
 .model-download-toast { font-family: var(--font-sans); color: var(--text); position: fixed; left: 50%; bottom: 24px; z-index: 180; max-width: min(380px, calc(100vw - 32px)); display: flex; align-items: center; gap: 10px; padding: 11px 10px 11px 12px; overflow: hidden; border: 1px solid var(--border-strong); border-radius: var(--r); background: color-mix(in srgb, var(--surface-1) 97%, black); box-shadow: var(--shadow-3); opacity: 1; transform: translateX(-50%) translateY(0); animation: model-toast-in .2s ease-out both; transition: opacity .22s ease, transform .22s ease; }
 /* A download is measured the same way — width by content. A constant width was
    kept here out of fear the toast would twitch on the counter, but the bytes
@@ -1583,10 +1585,11 @@ button.card { appearance: none; font: inherit; color: inherit; }
    Redesign additions (Stage 7) — Stats (KPI tiles, charts, breakdown)
    ================================================================ */
 
-/* auto-fit rather than fixed columns: the tiles simply run in order and wrap
-   when they no longer fit. There used to be two grids of five — at a medium
-   width each produced a row of four with a lone fifth beneath it (4/1/4/1); now
-   there is one grid and the last row is the only incomplete one. */
+/* One grid for all the tiles, not two. `auto-fit` was already here; what
+   changed is that the tiles stopped being split into two containers of five.
+   At a medium width each container produced a row of four with a lone fifth
+   beneath it (4/1/4/1); now the tiles run in order and the last row is the only
+   incomplete one. */
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));

@@ -549,7 +549,7 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
   const findRef = useRef<HTMLInputElement>(null);
 
   // ── A shared preview of the whole local pass ───────────────────────────
-  // i18n-ignore: образец русской диктовки, показывает работу очистки и замен
+  // i18n-ignore: a Russian dictation sample showing cleanup and replacements
   const [previewText, setPreviewText] = useState("эээ ну в общем, я я хочу сказать что тайпскрипт мы обсудим в понед и я потом отправлю мой мейл");
   const [previewResult, setPreviewResult] = useState("");
   const [previewMatches, setPreviewMatches] = useState<PreviewReplacementsResult["matched_rules"]>([]);
