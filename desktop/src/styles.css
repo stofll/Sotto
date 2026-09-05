@@ -294,7 +294,7 @@ button, input, textarea, select { font: inherit; }
 /* Толщина рамки — внутренней тенью, а не border-width: та съела бы пиксель
    у содержимого, и карточки в сетке разъехались бы на строку выше. */
 .model-card2--installed { border-color: var(--border-accent); box-shadow: inset 0 0 0 1px var(--border-accent); }
-.model-card2--memory { border-color: color-mix(in srgb, var(--ok) 55%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ok) 55%, transparent); }
+.model-card2--active { border-color: color-mix(in srgb, var(--ok) 55%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ok) 55%, transparent); }
 /* Подпись, а не значок: в карточке из трёх коротких строк пилюля весит
    больше, чем сообщает, а цвет слова говорит то же самое. */
 /* Три точки прижаты к правому краю заголовка и выровнены по центру: в
@@ -310,7 +310,6 @@ button, input, textarea, select { font: inherit; }
 .card-menu__item--danger:hover { background: var(--err-soft); border-color: color-mix(in srgb, var(--err) 25%, transparent); }
 .model-card2__state { font: 500 11.5px/1.2 var(--font-sans); white-space: nowrap; }
 .model-card2__state--memory { color: var(--ok); }
-.model-card2__state--disk { color: var(--accent); }
 .model-card2__state--own { color: var(--text-mute); }
 /* По базовой линии, а не по центру: подпись вдвое мельче названия, и
    центрированная по коробке она сидит выше его строки — глаз равняет текст

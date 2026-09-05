@@ -207,12 +207,14 @@ function ModelCard({ model, active, busy, onSelect, onDownload, onDelete }: {
   const installed = model.downloaded || model.local;
   const languages = languageList(model);
   const metadata = modelMetadata(model);
-  let installedClass = "";
-  if (installed) installedClass = model.loaded ? "model-card2--memory" : "model-card2--installed";
+  // Контур отвечает на один вопрос — «какая из них сейчас работает»:
+  // зелёный у выбранной, рыжий у скачанной про запас, обычный у той, что
+  // ещё качать. Раньше зелёным помечалась модель в памяти, а выбор не
+  // помечался вовсе, и выбранная модель была неотличима от просто
+  // скачанной — про память отдельно говорит подпись «В памяти».
   const state = [
     "model-card2",
-    installedClass,
-    active ? "model-card2--active" : "",
+    active ? "model-card2--active" : installed ? "model-card2--installed" : "",
   ].filter(Boolean).join(" ");
   return (
     // Вся карточка — кнопка выбора: отдельная «Выбрать» повторяла собой то,
@@ -231,20 +233,13 @@ function ModelCard({ model, active, busy, onSelect, onDownload, onDelete }: {
     >
       <div className="model-card2__head">
         <span className="model-card2__name">{model.label}</span>
-        {/* «Скачана» и «загружена» по-русски слишком похожи, чтобы различать
-            ими диск и память. Про память говорим прямо. */}
+        {/* Про память — подписью, про диск и выбор — контуром: по-русски
+            «скачана» и «загружена» слишком похожи, чтобы двумя подписями
+            рядом разводить файл на диске и модель в оперативной памяти. */}
         {model.loaded && (
           <span className="model-card2__state model-card2__state--memory" title={t("Модель загружена в оперативную память и распознаёт прямо сейчас.")}>
             {t("В памяти")}
           </span>
-        )}
-        {installed && !model.loaded && (
-          <span className="model-card2__state model-card2__state--disk" title={t("Файл модели лежит на диске — интернет для неё больше не нужен.")}>
-            {t("Скачана")}
-          </span>
-        )}
-        {active && !model.loaded && (
-          <span className="model-card2__state model-card2__state--disk">{t("Выбрана")}</span>
         )}
         {model.local && <span className="model-card2__state model-card2__state--own">{t("Свой файл")}</span>}
         {/* Свой файл тоже удаляется отсюда. Отличается он не наличием кнопки,
