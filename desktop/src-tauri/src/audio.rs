@@ -214,10 +214,10 @@ pub struct AudioRecorder {
     /// so external callers (Tauri commands) can poll cheaply.
     is_recording: AtomicBool,
     audio_buffer: Arc<Mutex<Vec<f32>>>, // Arc — callback needs 'static + Send
-    /// Ответвление звука для живого предпросмотра. Полная запись копится в
-    /// `audio_buffer` как и раньше — эта очередь только дублирует куски по
-    /// дороге. Ограниченная и неблокирующая: предпросмотр имеет право
-    /// отстать и потерять кусок, запись — нет.
+    /// An audio tap for the live preview. The full recording accumulates in
+    /// `audio_buffer` as before — this queue merely duplicates chunks along the
+    /// way. Bounded and non-blocking: the preview is allowed to fall behind and
+    /// lose a chunk, the recording is not.
     live_tap: Arc<Mutex<Option<std::sync::mpsc::SyncSender<Vec<f32>>>>>,
     /// RMS level EMA, atomic bit-cast f32. Wrapped in Arc so the callback
     /// can update the SAME bit-cast the public `level()` reads.
@@ -227,8 +227,9 @@ pub struct AudioRecorder {
 }
 
 impl AudioRecorder {
-    /// Хватает на пять минут записи с 48 кГц. Это подсказка аллокатору, а не
-    /// предел: `Vec` растёт сам, а настоящую частоту устройства узнаёт
+    /// Enough for five minutes of recording at 48 kHz. This is a hint to the
+    /// allocator, not a limit: `Vec` grows on its own, and the device's real
+    /// sample rate is learned by
     /// `start()`.
     const APPROX_CAPACITY: usize = 48_000 * 60 * 5;
 
@@ -236,18 +237,18 @@ impl AudioRecorder {
     /// lazily via `start()`, so a missing or broken device does not prevent
     /// `new()` from succeeding.
     ///
-    /// Раньше здесь опрашивалось устройство по умолчанию — ровно ради того,
-    /// чтобы уточнить ёмкость буфера. Выгода: `Vec` мог один раз не
-    /// перевыделиться. Цена: `default_input_device()` и следом
-    /// `default_input_config()` уходят в WASAPI, и на машине, где звуковой
-    /// стек формально есть, но не работоспособен, этот опрос уносит процесс
-    /// целиком — STATUS_ACCESS_VIOLATION без стека и без сообщения. Так
-    /// падала Windows-джоба CI (#51), где нет ни звукового устройства, ни
-    /// интерактивной сессии: перечисление устройств проходило, а опрос
-    /// конфигурации — нет.
+    /// This used to query the default device — precisely in order to refine the
+    /// buffer capacity. The gain: `Vec` might avoid one reallocation. The cost:
+    /// `default_input_device()` followed by `default_input_config()` go into
+    /// WASAPI, and on a machine where the audio stack formally exists but is not
+    /// operational, that query takes down the whole process —
+    /// STATUS_ACCESS_VIOLATION with no stack and no message. That is how the
+    /// Windows CI job (#51) crashed, where there is neither an audio device nor
+    /// an interactive session: enumerating devices went through, querying the
+    /// configuration did not.
     ///
-    /// Конструктор рекордера — не то место, где стоит трогать нативный
-    /// стек: до записи ещё может не дойти, а упасть уже можно.
+    /// A recorder constructor is not the place to touch the native stack:
+    /// recording may never happen, yet crashing already can.
     pub fn new(config: AudioConfig) -> Result<Self, String> {
         Ok(Self {
             state: Mutex::new(RecorderState::Idle),
@@ -463,8 +464,8 @@ impl AudioRecorder {
         Ok(Some(Arc::new(taken)))
     }
 
-    /// Снимок приёмников для колбэка. Все три — `Arc`, так что колбэк
-    /// пишет ровно в то, что читают публичные методы.
+    /// A snapshot of the sinks for the callback. All three are `Arc`s, so the
+    /// callback writes into exactly what the public methods read.
     fn capture_sinks(&self) -> CaptureSinks {
         CaptureSinks {
             buffer: Arc::clone(&self.audio_buffer),
@@ -473,11 +474,11 @@ impl AudioRecorder {
         }
     }
 
-    /// Подключить ответвление живого звука и получить приёмник кусков.
+    /// Attach the live audio tap and obtain a receiver of chunks.
     ///
-    /// Ёмкость задаётся в кусках, а не в секундах: колбэк отдаёт по куску за
-    /// вызов, и очередь на несколько десятков кусков — это порядка секунды
-    /// звука при типичном размере буфера cpal.
+    /// The capacity is given in chunks rather than seconds: the callback hands
+    /// over one chunk per call, and a queue of a few dozen chunks is on the
+    /// order of a second of audio at a typical cpal buffer size.
     pub fn attach_live_tap(&self, capacity_chunks: usize) -> std::sync::mpsc::Receiver<Vec<f32>> {
         let (tx, rx) = std::sync::mpsc::sync_channel(capacity_chunks.max(1));
         if let Ok(mut guard) = self.live_tap.lock() {
@@ -486,8 +487,8 @@ impl AudioRecorder {
         rx
     }
 
-    /// Отцепить ответвление. Приёмник на другом конце увидит разрыв канала и
-    /// завершит свой цикл сам.
+    /// Detach the tap. The receiver on the other end will see the channel break
+    /// and end its own loop.
     pub fn detach_live_tap(&self) {
         if let Ok(mut guard) = self.live_tap.lock() {
             *guard = None;
@@ -555,9 +556,9 @@ pub fn display_level(raw_rms: f32) -> f32 {
 }
 
 /// Process f32 samples: gate on `is_recording`, update RMS, mono mixdown,
-/// Куда колбэк записи складывает результат: полная запись, индикатор уровня
-/// и необязательное ответвление на живой предпросмотр. Одной структурой, а
-/// не тремя аргументами, — колбэк держит их вместе весь свой срок жизни.
+/// Where the recording callback puts its output: the full recording, the level
+/// meter, and an optional tap for the live preview. One struct rather than three
+/// arguments — the callback holds them together for its entire lifetime.
 #[derive(Clone, Default)]
 struct CaptureSinks {
     buffer: Arc<Mutex<Vec<f32>>>,
@@ -641,10 +642,10 @@ fn process_samples(
         mono
     };
 
-    // Ответвление на предпросмотр — до записи в буфер и только
-    // неблокирующей отправкой: очередь переполнена значит предпросмотр не
-    // успевает, и терять надо его, а не диктовку. Клонирование происходит
-    // лишь когда ответвление подключено.
+    // The preview tap comes before writing to the buffer and only via a
+    // non-blocking send: a full queue means the preview is not keeping up, and
+    // it is the preview that should be dropped, not the dictation. The clone
+    // happens only when a tap is attached.
     if let Ok(guard) = live_tap.lock() {
         if let Some(tx) = guard.as_ref() {
             let _ = tx.try_send(final_audio.clone());
@@ -785,9 +786,9 @@ mod tests {
         // audio_buffer. stop() should return Ok(None) (no audio) without
         // panicking on the missing Stream (None branch is exercised).
         //
-        // Заодно это проверка на то, что конструктор не трогает звуковое
-        // устройство: тест обязан проходить на машине без звука и без
-        // интерактивной сессии, где нативный опрос ронял процесс (#51).
+        // This doubles as a check that the constructor does not touch the audio
+        // device: the test must pass on a machine with no audio and no
+        // interactive session, where the native query crashed the process (#51).
         let recorder = AudioRecorder::new(AudioConfig::default())
             .expect("AudioRecorder::new should succeed even without a real device");
         let result = recorder.stop();
@@ -893,8 +894,8 @@ mod tests {
         );
     }
 
-    /// Ровно R сэмплов — это один блок, а не «слишком коротко». Ловит
-    /// подмену `len < R` на `==`/`<=` во всех трёх ресемплерах.
+    /// Exactly R samples is one block, not "too short". Catches swapping
+    /// `len < R` for `==`/`<=` in all three resamplers.
     #[test]
     fn resample_helpers_respect_the_ratio_boundary() {
         assert_eq!(resample_3_to_1(&[1.0, 2.0, 3.0]), vec![2.0]);
@@ -902,8 +903,8 @@ mod tests {
         assert_eq!(resample_6_to_1(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]), vec![3.5]);
     }
 
-    /// Непериодичный вход: индекс блока обязан сдвигаться (`i * 2`), иначе
-    /// все блоки схлопнутся в первый.
+    /// Non-periodic input: the block index must advance (`i * 2`), otherwise all
+    /// blocks collapse into the first one.
     #[test]
     fn resample_2_to_1_uses_distinct_blocks() {
         assert_eq!(resample_2_to_1(&[0.0, 1.0, 2.0, 3.0]), vec![0.5, 2.5]);
@@ -914,8 +915,8 @@ mod tests {
         assert_eq!(display_level(f32::NAN), 0.0);
     }
 
-    /// Приёмники для теста: запись и уровень как в бою, ответвление
-    /// отключено. Тест, которому нужно ответвление, ставит его сам.
+    /// Sinks for a test: recording and level as in production, the tap
+    /// disconnected. A test that needs the tap installs it itself.
     fn test_sinks(level: f32) -> CaptureSinks {
         CaptureSinks {
             level_bits: Arc::new(AtomicU32::new(level.to_bits())),
@@ -923,8 +924,8 @@ mod tests {
         }
     }
 
-    /// Ответвление получает ровно то же, что и запись: уже сведённое в моно
-    /// и приведённое к целевой частоте.
+    /// The tap receives exactly what the recording does: already downmixed to
+    /// mono and resampled to the target rate.
     #[test]
     fn the_live_tap_gets_the_same_audio_as_the_recording() {
         let is_recording = Arc::new(AtomicBool::new(true));
@@ -932,7 +933,7 @@ mod tests {
         let (tx, rx) = std::sync::mpsc::sync_channel(4);
         *sinks.live_tap.lock().unwrap() = Some(tx);
 
-        // Стерео на 32 кГц: колбэк обязан свести в моно и проредить вдвое.
+        // Stereo at 32 kHz: the callback must downmix to mono and halve the rate.
         let data = vec![1.0_f32, 1.0, 0.5, 0.5, 0.25, 0.25, 0.75, 0.75];
         process_samples(&data, 2, 32_000, 16_000, &is_recording, &sinks);
 
@@ -941,12 +942,12 @@ mod tests {
         assert_eq!(chunk.len(), 2);
     }
 
-    /// Главный инвариант: предпросмотр имеет право отстать, диктовка — нет.
+    /// The core invariant: the preview may fall behind, the dictation may not.
     #[test]
     fn a_full_live_queue_never_costs_the_recording() {
         let is_recording = Arc::new(AtomicBool::new(true));
         let sinks = test_sinks(0.0);
-        // Очередь на один кусок: второй вызов её переполнит.
+        // A one-chunk queue: the second call overflows it.
         let (tx, rx) = std::sync::mpsc::sync_channel(1);
         *sinks.live_tap.lock().unwrap() = Some(tx);
 
@@ -961,7 +962,7 @@ mod tests {
             "запись потеряла звук"
         );
         assert_eq!(rx.try_recv().map(|c| c.len()), Ok(4));
-        // Переполнение просто теряет куски, не блокируя колбэк.
+        // Overflow simply drops chunks without blocking the callback.
         assert!(rx.try_recv().is_err());
     }
 
@@ -974,9 +975,9 @@ mod tests {
         assert_eq!(sinks.buffer.lock().unwrap().len(), 4);
     }
 
-    /// Флаг записи и приёмники, через которые пишет `process_samples`.
-    /// `level` засевает EMA, чтобы тест отличал «сглажено от предыдущего
-    /// уровня» от «посчитано с нуля».
+    /// The recording flag and the sinks `process_samples` writes through.
+    /// `level` seeds the EMA so the test can tell "smoothed from the previous
+    /// level" apart from "computed from scratch".
     fn recording_sink(level: f32) -> (Arc<AtomicBool>, CaptureSinks) {
         (Arc::new(AtomicBool::new(true)), test_sinks(level))
     }

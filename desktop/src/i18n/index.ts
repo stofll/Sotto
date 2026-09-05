@@ -1,17 +1,19 @@
-//! Локализация интерфейса.
+//! UI localization.
 //!
-//! Ключ — сам русский текст, как в gettext. Своих идентификаторов нет
-//! намеренно: реестр ключей надо вести параллельно с кодом, он расходится,
-//! и `t("settings.autoPaste.hint")` невозможно вычитать глазами. Здесь
-//! отсутствующий перевод падает на ключ, то есть на русский оригинал —
-//! худший случай это смешанный язык, а не пустая кнопка.
+//! The key is the Russian text itself, as in gettext. There are deliberately
+//! no separate identifiers: a key registry has to be maintained in parallel
+//! with the code, it drifts apart, and `t("settings.autoPaste.hint")` cannot be
+//! proof-read by eye. Here a missing translation falls back to the key, that is
+//! to the Russian original — the worst case is mixed language, not a blank
+//! button.
 //!
-//! Цена: правка русской копии рвёт связь с переводом. Это ловится скриптом
-//! `check-i18n.mjs`, который сверяет ключи в коде с ключами в словаре.
+//! The price: editing the Russian copy breaks the link to the translation.
+//! That is caught by `check-i18n.mjs`, which reconciles the keys in the code
+//! with the keys in the dictionary.
 //!
-//! Что сюда НЕ попадает: системные промпты LLM, примеры диктовки в
-//! предпросмотре форматирования и словарь слов-паразитов. Они относятся к
-//! языку речи, а не интерфейса, и переключаться вместе с ним не должны.
+//! What does NOT belong here: LLM system prompts, the dictation samples in the
+//! formatting preview, and the filler-word dictionary. Those belong to the
+//! language of speech, not of the interface, and must not switch along with it.
 
 import { useSyncExternalStore } from "react";
 
@@ -25,11 +27,11 @@ export const LOCALE_LABELS: Record<Locale, string> = {
   en: "English",
 };
 
-/** Словарь: ключ (русский) → перевод. Массив — формы множественного числа. */
+/** Dictionary: key (Russian) → translation. An array holds plural forms. */
 export type Dictionary = Record<string, string | string[]>;
 
 const DICTIONARIES: Record<Locale, Dictionary | null> = {
-  ru: null, // русский — это сами ключи, словарь не нужен
+  ru: null, // Russian is the keys themselves, no dictionary needed
   en,
 };
 
@@ -53,16 +55,16 @@ export function subscribeLocale(listener: () => void): () => void {
 }
 
 /**
- * Подписка на смену языка. Достаточно вызвать один раз в корне: `t()`
- * читает модульное состояние, так что перерисовки корня хватает, чтобы
- * обновилось всё дерево. Отдельный хук в каждом компоненте только
- * размножил бы подписки без пользы.
+ * Subscription to a language change. Calling it once at the root is enough:
+ * `t()` reads module state, so re-rendering the root is sufficient for the whole
+ * tree to update. A separate hook in every component would only multiply
+ * subscriptions to no benefit.
  */
 export function useLocale(): Locale {
   return useSyncExternalStore(subscribeLocale, getLocale, getLocale);
 }
 
-/** Язык системы, если он нам известен. Иначе русский — язык оригинала. */
+/** The system language, if we know it. Otherwise Russian — the original. */
 export function detectLocale(): Locale {
   const tags = typeof navigator === "undefined" ? [] : navigator.languages ?? [navigator.language];
   for (const tag of tags) {
@@ -77,26 +79,26 @@ export function isLocale(value: unknown): value is Locale {
 }
 
 /**
- * Применить язык из конфига. Пустое значение — «как в системе»: у старых
- * конфигов поля нет вовсе, и подставлять им русский только потому, что
- * приложение писалось на русском, неправильно.
+ * Apply the language from config. An empty value means "follow the system":
+ * old configs have no such field at all, and forcing Russian on them merely
+ * because the app was written in Russian would be wrong.
  */
 export function applyLocaleFromConfig(value: unknown) {
   setLocale(isLocale(value) ? value : detectLocale());
 }
 
 /**
- * Тег для `toLocaleDateString`. Даты и числа должны следовать за языком
- * интерфейса, иначе получается «Aug 15» в русской версии.
+ * Tag for `toLocaleDateString`. Dates and numbers must follow the UI language,
+ * otherwise you get "Aug 15" in the Russian build.
  */
 export function localeTag(): string {
   return current === "ru" ? "ru-RU" : "en-US";
 }
 
 /**
- * Подставляет `{name}` из `params`. Плейсхолдер без значения остаётся как
- * есть: видимая `{count}` в интерфейсе — это баг, который надо заметить, а
- * молчаливая пустота — баг, который не заметят.
+ * Substitutes `{name}` from `params`. A placeholder with no value is left as
+ * is: a visible `{count}` in the UI is a bug that should be noticed, while a
+ * silent blank is a bug that will not be.
  */
 function interpolate(template: string, params?: Record<string, string | number>): string {
   if (!params) return template;
@@ -109,7 +111,7 @@ function lookup(key: string): string | string[] | undefined {
   return DICTIONARIES[current]?.[key];
 }
 
-/** Перевести строку. Ключ — русский оригинал. */
+/** Translate a string. The key is the Russian original. */
 export function t(key: string, params?: Record<string, string | number>): string {
   const found = lookup(key);
   const template = typeof found === "string" ? found : key;
@@ -117,12 +119,12 @@ export function t(key: string, params?: Record<string, string | number>): string
 }
 
 /**
- * Формы множественного числа.
+ * Plural forms.
  *
- * Русский требует три формы, английский две, и подобрать их можно только
- * зная язык — поэтому это отдельная функция, а не `t()` с параметром.
- * `forms` — русские формы (одна / две / пять); перевод хранит свои в
- * массиве той длины, которая нужна его языку.
+ * Russian needs three forms, English two, and picking them requires knowing the
+ * language — which is why this is a separate function rather than `t()` with a
+ * parameter. `forms` holds the Russian forms (one / two / five); a translation
+ * keeps its own in an array of whatever length its language needs.
  */
 export function tPlural(count: number, forms: [string, string, string], params?: Record<string, string | number>): string {
   const found = lookup(forms.join("|"));
@@ -131,7 +133,7 @@ export function tPlural(count: number, forms: [string, string, string], params?:
   return interpolate(localized[index] ?? localized[localized.length - 1], { count, ...params });
 }
 
-/** Ключ, под которым `tPlural` ищет формы. Нужен скрипту проверки. */
+/** The key under which `tPlural` looks up forms. Needed by the check script. */
 export function pluralKey(forms: [string, string, string]): string {
   return forms.join("|");
 }

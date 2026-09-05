@@ -209,31 +209,31 @@ pub fn device_uses_gpu(config: &Value) -> bool {
     resolve_device(config) == DEVICE_GPU
 }
 
-/// Ключ: через сколько минут простоя выгружать модель из оперативной памяти.
+/// Key: after how many idle minutes the model is unloaded from RAM.
 pub const MODEL_UNLOAD_KEY: &str = "model_unload_after_minutes";
 
-/// Сколько минут простоя ждут, если в конфиге ничего не сказано.
+/// How many idle minutes to wait when the config says nothing.
 ///
-/// Модель большого размера держит в памяти несколько гигабайт, и между
-/// диктовками они не нужны никому. Пять минут — компромисс: диктуют
-/// очередями, и внутри очереди повторная загрузка обошлась бы дороже
-/// освобождённой памяти.
+/// A large model holds several gigabytes in memory, and between dictations
+/// nobody needs them. Five minutes is the compromise: people dictate in bursts,
+/// and within a burst reloading would cost more than the freed memory is worth.
 pub const DEFAULT_MODEL_UNLOAD_MINUTES: u64 = 5;
 
-/// Значения, которые предлагает интерфейс. Конфиг правят и руками, поэтому
-/// [`model_unload_after_minutes`] принимает любое число из диапазона, а не
-/// только эти четыре.
+/// The values the interface offers. The config is also edited by hand, so
+/// [`model_unload_after_minutes`] accepts any number in the range, not just
+/// these four.
 pub const MODEL_UNLOAD_CHOICES: [u64; 4] = [0, 5, 10, 30];
 
-/// Сутки простоя — это уже «никогда», просто записанное числом. Верхняя
-/// граница нужна не пользователю, а таймеру: `Duration` из тысяч минут
-/// ничем не лучше отключённой выгрузки, а выглядит как работающая настройка.
+/// A day of idling is already "never", just written as a number. The upper
+/// bound exists for the timer rather than the user: a `Duration` of thousands of
+/// minutes is no better than unloading being off, yet it looks like a working
+/// setting.
 const MAX_MODEL_UNLOAD_MINUTES: u64 = 24 * 60;
 
-/// Через сколько минут простоя выгружать модель. `0` — не выгружать.
+/// After how many idle minutes to unload the model. `0` — never unload.
 ///
-/// Отсутствие ключа — не «никогда», а значение по умолчанию: выгрузка
-/// включена, и старые конфиги получают её вместе с обновлением.
+/// A missing key does not mean "never" but the default: unloading is on, and
+/// old configs receive it along with the update.
 pub fn model_unload_after_minutes(config: &Value) -> u64 {
     let minutes = config
         .get(MODEL_UNLOAD_KEY)
@@ -301,8 +301,8 @@ fn validate_speech_route(candidate: &Value) -> Result<(), String> {
     let Some(languages) = crate::model::model_languages(model) else {
         return Ok(());
     };
-    // Язык не записан вместе с моделью — берём первый из её списка: именно
-    // на него настройки переключатся сами.
+    // The language is not stored next to the model — take the first from its
+    // list: that is exactly the one the settings will switch to on their own.
     let language = candidate
         .get("language")
         .and_then(Value::as_str)
@@ -606,11 +606,11 @@ mod tests {
         assert_eq!(on_disk.as_value(), &returned);
     }
 
-    // Единственное правило `validate` — про GigaAM, а GigaAM намеренно
-    // Windows-only (см. sherpa-rs в Cargo.toml). Вне Windows «gigaam-v3» —
-    // неизвестная модель, `validate_speech_route` выходит на первой же
-    // проверке, и тесты либо падают, либо зеленеют вхолостую. Отсюда
-    // `#[cfg(windows)]` здесь и у двух тестов ниже.
+    // The only rule `validate` has is about GigaAM, and GigaAM is deliberately
+    // Windows-only (see sherpa-rs in Cargo.toml). Outside Windows "gigaam-v3" is
+    // an unknown model, `validate_speech_route` bails out at the very first
+    // check, and the tests either fail or go green for nothing. Hence the
+    // `#[cfg(windows)]` here and on the two tests below.
     #[cfg(windows)]
     #[test]
     fn validate_refuses_a_russian_only_model_in_another_language() {
@@ -639,9 +639,9 @@ mod tests {
     /// settings command. A refused patch must also leave the previous config
     /// intact rather than half-applying it.
     ///
-    /// Windows-only не по существу шва, а потому, что отвергнуть нечего:
-    /// единственная пара, которую `validate` бракует, — это GigaAM с чужим
-    /// языком. Появится правило без привязки к платформе — снять `cfg`.
+    /// Windows-only not because of the seam itself but because there is nothing
+    /// to reject: the only pair `validate` rules out is GigaAM with a foreign
+    /// language. Once a platform-independent rule appears, drop the `cfg`.
     #[cfg(windows)]
     #[test]
     fn merge_patch_refuses_an_invalid_pair_and_leaves_the_file_alone() {
@@ -656,8 +656,8 @@ mod tests {
         assert_eq!(Config::load_at(&path).unwrap().as_value(), &before);
     }
 
-    /// Ключа нет — выгрузка всё равно включена: иначе обновление тихо
-    /// оставило бы всех, кто уже пользуется приложением, без неё.
+    /// No key still means unloading is on: otherwise the update would quietly
+    /// leave everyone already using the app without it.
     #[test]
     fn a_config_without_the_key_still_unloads_after_five_minutes() {
         assert_eq!(
@@ -674,7 +674,7 @@ mod tests {
         );
     }
 
-    /// Значение не из списка интерфейса — тоже значение: конфиг правят руками.
+    /// A value outside the UI list is still a value: configs are edited by hand.
     #[test]
     fn a_hand_written_interval_is_taken_as_written() {
         assert_eq!(
@@ -683,8 +683,8 @@ mod tests {
         );
     }
 
-    /// Мусор и отрицательные числа не выключают выгрузку, а откатывают её к
-    /// умолчанию: «не смогли прочитать» — это не «просили никогда».
+    /// Garbage and negative numbers do not disable unloading but roll it back to
+    /// the default: "we could not read it" is not "you asked for never".
     #[test]
     fn unreadable_values_fall_back_to_the_default() {
         for value in [json!("пять"), json!(-5), json!(null), json!(5.5)] {

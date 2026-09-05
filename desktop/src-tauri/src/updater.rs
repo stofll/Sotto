@@ -1,40 +1,42 @@
-//! Самообновление через `tauri-plugin-updater`.
+//! Self-update via `tauri-plugin-updater`.
 //!
-//! Плагин ходит за `latest.json` на GitHub Releases, сверяет minisign-подпись
-//! с публичным ключом из `tauri.conf.json` и ставит артефакт. Здесь — только
-//! обёртка над ним: три команды и события прогресса.
+//! The plugin fetches `latest.json` from GitHub Releases, verifies the minisign
+//! signature against the public key in `tauri.conf.json`, and installs the
+//! artifact. This module is only a wrapper over it: three commands and progress
+//! events.
 //!
-//! Что подпись даёт и чего не даёт: minisign подтверждает, что артефакт не
-//! подменили по дороге, и что его собрал держатель приватного ключа. Он **не**
-//! Authenticode: без сертификата подписи кода Windows покажет SmartScreen с
-//! «неизвестным издателем» и на установке, и на каждом обновлении.
+//! What the signature does and does not give: minisign confirms that the
+//! artifact was not swapped in transit and that it was built by the holder of
+//! the private key. It is **not** Authenticode: without a code-signing
+//! certificate Windows will show SmartScreen's "unknown publisher" both on
+//! install and on every update.
 //!
-//! Обновление никогда не ставится само. Проверка при старте — тихая, ошибки
-//! в ней не всплывают: сеть может быть недоступна, релизов может не быть
-//! вовсе, и ни то ни другое не повод дёргать пользователя. Скачивание
-//! начинается только по явному нажатию.
+//! An update is never installed on its own. The check at startup is silent and
+//! its errors do not surface: the network may be unreachable, there may be no
+//! releases at all, and neither is a reason to bother the user. Downloading
+//! starts only on an explicit click.
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 use tauri_plugin_updater::UpdaterExt;
 
-/// Событие прогресса скачивания. `total` приходит из `Content-Length` и
-/// может отсутствовать — тогда фронт показывает неопределённый индикатор.
+/// Download progress event. `total` comes from `Content-Length` and may be
+/// absent — in that case the frontend shows an indeterminate indicator.
 pub const PROGRESS_EVENT: &str = "update-download-progress";
 
-/// Что известно про доступное обновление. `available: false` — актуальная
-/// версия; это нормальный ответ, а не ошибка.
+/// What is known about an available update. `available: false` means the
+/// version is current; that is a normal answer, not an error.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct UpdateInfo {
     pub available: bool,
-    /// Версия, которая стоит сейчас.
+    /// The version currently installed.
     pub current_version: String,
-    /// Версия из манифеста. `None`, когда обновления нет.
+    /// The version from the manifest. `None` when there is no update.
     pub version: Option<String>,
-    /// Дата публикации в том виде, в каком её положили в манифест (RFC 3339).
+    /// Publication date exactly as it was put into the manifest (RFC 3339).
     pub date: Option<String>,
-    /// Текст «что нового». В манифесте это одно поле `notes`; форматирование
-    /// (markdown, списки) остаётся на совести релизных заметок.
+    /// The "what's new" text. In the manifest this is a single `notes` field;
+    /// formatting (markdown, lists) is the release notes' own responsibility.
     pub notes: Option<String>,
 }
 
@@ -50,19 +52,19 @@ impl UpdateInfo {
     }
 }
 
-/// Прогресс скачивания в байтах. Долю считает фронт: ему всё равно нужны
-/// сами байты, чтобы показать «12 из 34 МБ».
+/// Download progress in bytes. The fraction is computed by the frontend: it
+/// needs the raw byte counts anyway to show "12 of 34 MB".
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct DownloadProgress {
     pub downloaded: u64,
     pub total: Option<u64>,
 }
 
-/// Причина, по которой проверку нет смысла даже начинать.
+/// The reason why starting the check makes no sense at all.
 ///
-/// Обновлять можно только установленную сборку: у `cargo tauri dev` нет
-/// установщика, который апдейтер мог бы заменить, — плагин на такой запрос
-/// вернёт ошибку, и показывать её пользователю бессмысленно.
+/// Only an installed build can be updated: `cargo tauri dev` has no installer
+/// for the updater to replace — the plugin answers such a request with an error,
+/// and showing it to the user is pointless.
 pub fn unsupported_reason() -> Option<&'static str> {
     if crate::portable::data_dir().is_some() {
         return Some("Портативная версия: скачайте новый ZIP и замените файлы приложения, сохранив папку data.");
@@ -70,7 +72,7 @@ pub fn unsupported_reason() -> Option<&'static str> {
     cfg!(debug_assertions).then_some("обновления работают только в собранном приложении")
 }
 
-/// Спросить сервер про обновление.
+/// Ask the server about an update.
 pub async fn check(app: &AppHandle) -> Result<UpdateInfo, String> {
     let current = app.package_info().version.to_string();
     if let Some(reason) = unsupported_reason() {
@@ -91,11 +93,11 @@ pub async fn check(app: &AppHandle) -> Result<UpdateInfo, String> {
     }
 }
 
-/// Скачать и поставить обновление, затем перезапустить приложение.
+/// Download and install the update, then restart the application.
 ///
-/// Проверка выполняется заново, а не берётся из результата [`check`]:
-/// `Update` из плагина не переживает границу IPC, и повторный запрос всё
-/// равно дешевле, чем держать его в состоянии между двумя командами.
+/// The check is performed again rather than taken from [`check`]'s result: the
+/// plugin's `Update` does not survive the IPC boundary, and repeating the
+/// request is still cheaper than holding it in state between two commands.
 pub async fn install(app: &AppHandle) -> Result<(), String> {
     if let Some(reason) = unsupported_reason() {
         return Err(reason.to_string());
@@ -121,8 +123,8 @@ pub async fn install(app: &AppHandle) -> Result<(), String> {
         .await
         .map_err(|e| e.to_string())?;
 
-    // На Windows installMode = passive: инсталлятор уже запущен и попросит
-    // закрыть приложение. Выходим сами, чтобы он не ждал.
+    // On Windows installMode = passive: the installer is already running and
+    // will ask to close the application. We exit ourselves so it does not wait.
     app.restart();
 }
 
@@ -141,8 +143,8 @@ mod tests {
 
     #[test]
     fn progress_keeps_an_unknown_total_unknown() {
-        // Сервер без Content-Length — законный случай: фронт показывает
-        // неопределённый индикатор, а не 0 %.
+        // A server without Content-Length is a legitimate case: the frontend
+        // shows an indeterminate indicator rather than 0 %.
         let json = serde_json::to_value(DownloadProgress {
             downloaded: 5,
             total: None,
@@ -154,7 +156,7 @@ mod tests {
 
     #[test]
     fn dev_builds_never_check() {
-        // Тесты идут в debug, так что причина обязана быть.
+        // Tests run in debug, so a reason is guaranteed to be present.
         assert_eq!(
             unsupported_reason(),
             Some("обновления работают только в собранном приложении")

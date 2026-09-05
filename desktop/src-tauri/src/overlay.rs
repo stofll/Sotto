@@ -21,12 +21,12 @@ use super::windows::win_util::{
 const OVERLAY_LABEL: &str = "overlay";
 const OVERLAY_WIDTH: f64 = 308.0;
 const OVERLAY_HEIGHT: f64 = 64.0;
-/// Размер окна под потоковую модель: живой текст не помещается в таблетку.
+/// Window size for a streaming model: live text does not fit in the pill.
 ///
-/// Окно, а не только плашка внутри него: у оверлея прозрачный фон, но клики
-/// он всё равно перехватывает, поэтому держать его большим постоянно значит
-/// накрыть невидимой полосой треть экрана. Растём только на время диктовки
-/// потоковой моделью.
+/// The window, not just the pill inside it: the overlay has a transparent
+/// background but still intercepts clicks, so keeping it large permanently means
+/// covering a third of the screen with an invisible strip. We grow only for the
+/// duration of a dictation with a streaming model.
 const OVERLAY_STREAM_WIDTH: f64 = 600.0;
 const OVERLAY_STREAM_HEIGHT: f64 = 150.0;
 // Where the window is born, before `position_overlay` places it. -32000 is
@@ -299,10 +299,10 @@ pub fn ensure_window(app: &AppHandle) -> Result<(), String> {
         let hwnd = extract_hwnd(&window)?;
         crate::windows::overlay_diag::snapshot(hwnd, "ensure_window:after-build");
         unsafe {
-            // Щит ставится до правки стилей, а не после: он должен стоять
-            // раньше любого кадра, а не раньше любого стиля. Стили после
-            // него всё равно применятся — они идут через SetWindowLongPtrW,
-            // а не через оконную процедуру.
+            // The guard is installed before the styles are edited, not after:
+            // it must precede any frame, not any style. Styles applied after it
+            // still take effect — they go through SetWindowLongPtrW, not through
+            // the window procedure.
             if let Err(e) = install_nc_guard(hwnd) {
                 eprintln!("[overlay] non-client guard not installed: {e}");
             }
@@ -428,23 +428,23 @@ fn target_monitor(window: &tauri::WebviewWindow) -> Option<tauri::Monitor> {
         .and_then(|v| v.into_iter().next())
 }
 
-/// На сколько поднять оверлей над нижней кромкой монитора.
+/// How far to lift the overlay above the bottom edge of the monitor.
 const BOTTOM_OFFSET: i32 = 96;
 
-/// Где на мониторе должен стоять оверлей: по центру по горизонтали, у
-/// нижнего края с отступом.
+/// Where on the monitor the overlay belongs: centred horizontally, near the
+/// bottom edge with an offset.
 ///
-/// Вынесено из [`position_overlay`] отдельной функцией, потому что это
-/// единственная арифметика в модуле, а проверить её на месте было нечем —
-/// всё остальное здесь требует настоящего окна и монитора. Ошибка тут
-/// ничего не роняет: она тихо ставит оверлей не туда, и заметно это только
-/// на втором мониторе или на нестандартном разрешении, то есть у того, кто
-/// про это не напишет.
+/// Split out of [`position_overlay`] into its own function because this is the
+/// only arithmetic in the module and there was nothing to test it against in
+/// place — everything else here needs a real window and monitor. A mistake here
+/// crashes nothing: it quietly puts the overlay in the wrong spot, and that is
+/// only visible on a second monitor or a non-standard resolution — that is, to
+/// someone who will not report it.
 ///
-/// Всё считается смещением **внутри** монитора и только потом прибавляется
-/// к его началу. Клампить абсолютную координату нельзя: у монитора слева от
-/// основного начало отрицательное, и `max(0)` над абсолютом выдавил бы
-/// оверлей на основной экран.
+/// Everything is computed as an offset **inside** the monitor and only then
+/// added to its origin. Clamping the absolute coordinate is not allowed: a
+/// monitor to the left of the primary one has a negative origin, and `max(0)`
+/// over an absolute value would squeeze the overlay onto the primary screen.
 fn overlay_origin(
     monitor_pos: (i32, i32),
     monitor_size: (u32, u32),
@@ -454,9 +454,10 @@ fn overlay_origin(
     let (monitor_x, monitor_y) = monitor_pos;
     let (monitor_w, monitor_h) = monitor_size;
     let (window_w, window_h) = window_size;
-    // Окно шире монитора — прижимаем к левой кромке, а не уводим влево.
+    // Window wider than the monitor — snap to the left edge instead of pushing
+    // it further left.
     let x = monitor_x + ((monitor_w as i32 - window_w as i32) / 2).max(0);
-    // Монитор ниже, чем окно с отступом, — прижимаем к верхней кромке.
+    // Monitor shorter than the window plus its offset — snap to the top edge.
     let y = monitor_y + (monitor_h as i32 - window_h as i32 - bottom_offset).max(0);
     (x, y)
 }
@@ -504,11 +505,11 @@ fn position_overlay(window: &tauri::WebviewWindow) -> Result<(), String> {
     Ok(())
 }
 
-/// Переключить оверлей между таблеткой и окном под живой текст.
+/// Switch the overlay between the pill and the window sized for live text.
 ///
-/// Зовётся из окна оверлея, когда диктовка идёт потоковой моделью.
-/// Позиция пересчитывается после смены размера: оверлей прижат к низу и
-/// выровнен по центру, и без пересчёта он расползался бы вправо и вниз.
+/// Called from the overlay window when the dictation runs on a streaming model.
+/// The position is recomputed after a resize: the overlay is pinned to the
+/// bottom and centred, and without recomputing it would creep right and down.
 #[command]
 pub fn set_overlay_streaming(app: AppHandle, streaming: bool) -> Result<(), String> {
     let Some(window) = app.get_webview_window(OVERLAY_LABEL) else {
@@ -521,8 +522,8 @@ pub fn set_overlay_streaming(app: AppHandle, streaming: bool) -> Result<(), Stri
     };
     let current = window.inner_size().map_err(|e| e.to_string())?;
     let scale = window.scale_factor().unwrap_or(1.0);
-    // Сравнение в физических пикселях: на дробном масштабе логический размер
-    // туда-обратно не сходится, и окно дёргалось бы каждый кадр.
+    // The comparison is in physical pixels: at fractional scaling the logical
+    // size does not round-trip, and the window would twitch every frame.
     if (current.width as f64 - width * scale).abs() < 1.0
         && (current.height as f64 - height * scale).abs() < 1.0
     {
@@ -754,7 +755,7 @@ pub fn subscribe_engine_events(app: &AppHandle) {
 mod tests {
     use super::*;
 
-    /// Оверлей 308×64 — размер из tauri.conf.json.
+    /// Overlay 308×64 — the size from tauri.conf.json.
     const OVERLAY: (u32, u32) = (308, 64);
     const FHD: (u32, u32) = (1920, 1080);
 
@@ -771,9 +772,9 @@ mod tests {
         assert!(y + 64 < 1080, "оверлей должен не доходить до нижней кромки");
     }
 
-    /// Монитор слева от основного имеет отрицательное начало. Клампить
-    /// абсолютную координату здесь означало бы утащить оверлей на основной
-    /// экран — то есть не на тот монитор, куда человек диктует.
+    /// A monitor to the left of the primary one has a negative origin. Clamping
+    /// the absolute coordinate here would drag the overlay onto the primary
+    /// screen — that is, onto the wrong monitor for the person dictating.
     #[test]
     fn a_monitor_left_of_the_primary_keeps_the_overlay() {
         let (x, y) = overlay_origin((-1920, 0), FHD, OVERLAY, BOTTOM_OFFSET);
@@ -788,22 +789,22 @@ mod tests {
         assert_eq!(y, 1080 + 1080 - 64 - BOTTOM_OFFSET);
     }
 
-    /// Окно шире монитора: прижимаем к левой кромке, а не уводим за неё.
+    /// Window wider than the monitor: snap to the left edge, do not go past it.
     #[test]
     fn a_window_wider_than_the_monitor_pins_to_the_left_edge() {
         let (x, _y) = overlay_origin((100, 0), (200, 1080), OVERLAY, BOTTOM_OFFSET);
         assert_eq!(x, 100, "ушёл левее монитора");
     }
 
-    /// Монитор ниже, чем окно с отступом: прижимаем к верхней кромке.
+    /// Monitor shorter than the window plus its offset: snap to the top edge.
     #[test]
     fn a_monitor_shorter_than_the_window_pins_to_the_top_edge() {
         let (_x, y) = overlay_origin((0, 50), (1920, 100), OVERLAY, BOTTOM_OFFSET);
         assert_eq!(y, 50, "ушёл выше монитора");
     }
 
-    /// Масштабирование не должно ломать центровку: координаты физические,
-    /// и на 4K оверлей обязан оставаться посередине.
+    /// Scaling must not break centring: the coordinates are physical, and on 4K
+    /// the overlay is still required to sit in the middle.
     #[test]
     fn centring_holds_on_a_larger_monitor() {
         let (x, _y) = overlay_origin((0, 0), (3840, 2160), OVERLAY, BOTTOM_OFFSET);

@@ -10,17 +10,17 @@ use std::sync::Arc;
 use tauri::{AppHandle, Manager};
 use tokio::sync::{mpsc as tmpsc, oneshot};
 
-/// Кто просит загрузить модель — и, следовательно, кому об этом знать.
+/// Who is asking for the model to load — and therefore who should know.
 ///
-/// Загрузку, начатую пользователем, показывают: он её ждёт. Возврат модели,
-/// выгруженной по простою, идёт параллельно записи, и те же события затёрли
-/// бы «Идёт запись» надписью «Загружаю модель» — про диктовку, которая в
-/// этот момент прекрасно пишется.
+/// A load started by the user is shown: they are waiting for it. Bringing back
+/// a model unloaded on idle happens in parallel with recording, and the same
+/// events would overwrite "Идёт запись" with "Загружаю модель" — about a
+/// dictation that is being recorded perfectly well at that very moment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModelLoadReason {
-    /// Пользователь выбрал модель, сменил устройство, запустил приложение.
+    /// The user picked a model, changed the device, or started the app.
     Requested,
-    /// Модель вернули в память после выгрузки по простою.
+    /// The model was brought back into memory after an idle unload.
     Restore,
 }
 
@@ -58,20 +58,20 @@ pub enum EngineCommand {
     SetModel {
         name: String,
         spec: crate::model::ModelLoadSpec,
-        /// Показывать ли загрузку. См. [`ModelLoadReason`].
+        /// Whether to surface the load. See [`ModelLoadReason`].
         reason: ModelLoadReason,
         reply: oneshot::Sender<Result<(), String>>,
     },
-    /// Кусок звука для живого предпросмотра.
+    /// A chunk of audio for the live preview.
     ///
-    /// Отдельная команда, а не побочный эффект `Transcribe`: предпросмотр
-    /// идёт во время записи, когда расшифровывать ещё нечего. Непотоковая
-    /// модель эту команду молча проглатывает.
+    /// A separate command rather than a side effect of `Transcribe`: the
+    /// preview runs while recording, when there is nothing to transcribe yet. A
+    /// non-streaming model swallows this command silently.
     PreviewChunk {
         session_id: u64,
         samples: Vec<f32>,
     },
-    /// Забыть накопленную гипотезу перед новой диктовкой.
+    /// Forget the accumulated hypothesis before a new dictation.
     PreviewReset {
         session_id: u64,
     },
@@ -81,13 +81,13 @@ pub enum EngineCommand {
     UnloadModel {
         reply: oneshot::Sender<()>,
     },
-    /// Выгрузить модель, если движок простаивает дольше `after`.
+    /// Unload the model if the engine has been idle for longer than `after`.
     ///
-    /// Решает сам движок, а не тот, кто прислал команду: между решением и
-    /// его исполнением очередь успевает принять диктовку, и «выгрузи» без
-    /// проверки выгрузило бы модель ровно перед тем, как она понадобится.
-    /// Здесь же простой и измеряется — по последней команде, а не по
-    /// внешним признакам занятости.
+    /// The engine decides for itself rather than whoever sent the command:
+    /// between the decision and its execution the queue has time to accept a
+    /// dictation, and an unchecked "unload" would drop the model right before it
+    /// is needed. Idleness is measured here too — by the last command, not by
+    /// external signs of being busy.
     UnloadIdle {
         after: std::time::Duration,
     },
@@ -112,15 +112,15 @@ pub enum EngineEvent {
     ModelReady {
         name: String,
     },
-    /// Модель выгружена из памяти по простою.
+    /// The model was unloaded from memory on idle.
     ModelUnloaded {
         name: String,
     },
-    /// Модель вернулась в память после выгрузки по простою.
+    /// The model came back into memory after an idle unload.
     ///
-    /// Отдельно от `ModelReady`: тот ведёт конечный автомат интерфейса
-    /// («загружаю» → «готово»), а здесь нужно только обновить списки —
-    /// состояние диктовки в этот момент принадлежит самой диктовке.
+    /// Separate from `ModelReady`: that one drives the UI state machine
+    /// ("loading" → "ready"), while here only the lists need refreshing — at
+    /// that moment the dictation state belongs to the dictation itself.
     ModelRestored {
         name: String,
     },
@@ -135,8 +135,8 @@ pub enum EngineEvent {
         session_id: u64,
         result: Result<InferenceResult, String>,
     },
-    /// Растущая гипотеза во время диктовки. Показывать можно, вставлять
-    /// нельзя: следующий кусок звука вправе переписать уже показанное.
+    /// The growing hypothesis during a dictation. It may be displayed but not
+    /// inserted: the next chunk of audio is free to rewrite what was shown.
     PreviewText {
         session_id: u64,
         text: String,
@@ -161,26 +161,27 @@ pub struct InferenceResult {
     pub audio_seconds: f64,
 }
 
-/// Что делать с куском живого предпросмотра.
+/// What to do with a live-preview chunk.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PreviewAction {
-    /// Кусок опоздавшей диктовки — выбросить.
+    /// A chunk from a dictation that arrived too late — drop it.
     Skip,
-    /// Первый кусок новой диктовки — забыть прошлую гипотезу и начать с нуля.
+    /// The first chunk of a new dictation — forget the previous hypothesis and
+    /// start from scratch.
     Restart,
-    /// Продолжение текущей.
+    /// A continuation of the current one.
     Continue,
 }
 
-/// Кому принадлежит кусок предпросмотра.
+/// Which dictation a preview chunk belongs to.
 ///
-/// Ответвление звука отцепляют при остановке, но в его очереди остаётся до
-/// секунды уже записанного, и поток-пересыльщик честно дочитывает её —
-/// иногда уже после того, как началась следующая диктовка. Без этой
-/// проверки такой кусок докармливает распознаватель хвостом прошлой фразы,
-/// и первая гипотеза новой начинается с чужих слов.
+/// The audio tap is detached on stop, but up to a second of already-recorded
+/// audio remains in its queue, and the forwarding thread honestly drains it —
+/// sometimes after the next dictation has already begun. Without this check such
+/// a chunk feeds the recognizer the tail of the previous phrase, and the first
+/// hypothesis of the new one starts with someone else's words.
 ///
-/// Номера сессий растут, поэтому меньший номер — это всегда прошлое.
+/// Session numbers only grow, so a smaller number is always the past.
 pub fn preview_action(current: Option<u64>, incoming: u64) -> PreviewAction {
     match current {
         Some(active) if active == incoming => PreviewAction::Continue,
@@ -212,24 +213,24 @@ pub fn engine_thread_main(
     let mut current_state: Option<whisper_rs::WhisperState> = None;
     // Sherpa's C recognizer is !Send/!Sync and stays on this engine thread.
     let mut current_sherpa: Option<crate::sherpa::SherpaRecognizer> = None;
-    // Последняя отправленная гипотеза. Куски приходят по несколько десятков
-    // в секунду, а текст меняется куда реже: без этой памяти overlay получал
-    // бы полсотни одинаковых событий в секунду.
+    // The last hypothesis sent. Chunks arrive several dozen times a second
+    // while the text changes far more rarely: without this memory the overlay
+    // would receive fifty identical events per second.
     let mut last_preview = String::new();
     let mut preview_session: Option<u64> = None;
-    // Когда движок в последний раз работал. Отсюда считается простой, по
-    // которому модель уходит из памяти (`UnloadIdle`).
+    // When the engine last did work. Idleness is measured from here, and it is
+    // what takes the model out of memory (`UnloadIdle`).
     let mut last_activity = std::time::Instant::now();
 
     while let Some(cmd) = cmd_rx.blocking_recv() {
-        // Отметка ставится на приходе команды, а не на её завершении: у
-        // длинных веток есть короткие выходы через `continue`, и хвост
-        // цикла до них не доживает. Расшифровки, которые сами длятся
-        // дольше простоя, доставляют отметку ещё раз в конце — их начало
-        // к моменту следующей проверки уже слишком старое.
+        // The mark is set when a command arrives, not when it completes: long
+        // branches have short exits via `continue`, and the tail of the loop
+        // never reaches them. Transcriptions that themselves run longer than the
+        // idle timeout set the mark again at the end — by the next check their
+        // start is already too old.
         //
-        // Сама проверка простоя работой не считается: иначе движок
-        // отодвигал бы свой таймер каждым тиком и не дожил бы до него.
+        // The idle check itself does not count as work: otherwise the engine
+        // would push its own timer forward on every tick and never reach it.
         if !matches!(cmd, EngineCommand::UnloadIdle { .. }) {
             last_activity = std::time::Instant::now();
         }
@@ -300,8 +301,8 @@ pub fn engine_thread_main(
                         );
                         continue;
                     }
-                    // Одноязычная модель знает свой язык лучше запроса; у
-                    // остальных отчитываемся тем, что просили.
+                    // A monolingual model knows its language better than the
+                    // request does; for the rest we report what was asked for.
                     let reported_language = match languages {
                         Some([single]) => Some((*single).to_string()),
                         _ => requested.map(str::to_string),
@@ -593,12 +594,13 @@ pub fn engine_thread_main(
                         });
                     }
                     Err(err_msg) => {
-                        // Провалившийся возврат молчит здесь не потому, что
-                        // он не важен, а потому, что о нём скажет расшифровка,
-                        // которая идёт следом: она упрётся в пустой движок и
-                        // покажет ровно ту же беду словами про модель. Плашка
-                        // «не удалось загрузить» посреди записи объяснила бы
-                        // её раньше времени и не тому, кто её вызвал.
+                        // A failed restore stays silent here not because it
+                        // does not matter, but because the transcription that
+                        // follows will report it: it will hit an empty engine
+                        // and show exactly the same trouble in words about the
+                        // model. A "failed to load" pill in the middle of a
+                        // recording would explain it too early and to the wrong
+                        // person.
                         if reason == ModelLoadReason::Requested {
                             let _ = event_tx.blocking_send(EngineEvent::ModelLoadFailed {
                                 name,
@@ -628,9 +630,9 @@ pub fn engine_thread_main(
                     PreviewAction::Continue => {}
                 }
                 match recognizer.feed_preview(16_000, &samples) {
-                    // Непотоковая модель гипотезы не отдаёт — молчим, а не
-                    // шлём пустой текст: пустая строка стёрла бы уже
-                    // показанное в overlay.
+                    // A non-streaming model returns no hypothesis — we stay
+                    // silent rather than send empty text: an empty string would
+                    // wipe what the overlay already shows.
                     Ok(None) => {}
                     Ok(Some(text)) => {
                         if text != last_preview {
@@ -645,8 +647,8 @@ pub fn engine_thread_main(
                 }
             }
             EngineCommand::PreviewReset { session_id } => {
-                // Сессию запоминаем даже без распознавателя: она решает
-                // судьбу опоздавших кусков, а не только чистку состояния.
+                // The session is remembered even without a recognizer: it
+                // decides the fate of late chunks, not just state cleanup.
                 preview_session = Some(session_id);
                 last_preview.clear();
                 if let Some(recognizer) = current_sherpa.as_mut() {
@@ -677,8 +679,8 @@ pub fn engine_thread_main(
                     idle.as_secs(),
                     after.as_secs()
                 );
-                // Порядок как в `UnloadModel`: состояние держит сырые
-                // указатели внутрь контекста и умирает первым.
+                // Same order as in `UnloadModel`: the state holds raw pointers
+                // into the context and must die first.
                 *crate::mutex_recover::lock(&engine_current_model) = None;
                 current_state = None;
                 current_sherpa = None;
@@ -803,18 +805,19 @@ pub fn engine_thread_main(
     log::info!("whisper engine thread exiting");
 }
 
-/// Занято ли приложение прямо сейчас — по человеческим меркам, не по своим.
+/// Whether the app is busy right now — by human measure, not by its own.
 ///
-/// Пока диктуют, очередь команд пуста: звук копится в записи и придёт одной
-/// командой в самом конце. Для движка это неотличимо от простоя, и без этой
-/// проверки модель успевала бы уйти из памяти ровно посередине фразы.
-/// Расшифровка файла держит движок так же — задолго до `Transcribe`, ещё на
-/// раскодировании. Знает об этом только состояние приложения, поэтому здесь
-/// поток движка единственный раз смотрит наружу.
+/// While someone is dictating the command queue is empty: audio accumulates in
+/// the recording and arrives as a single command at the very end. To the engine
+/// that is indistinguishable from idling, and without this check the model would
+/// leave memory right in the middle of a phrase. Transcribing a file holds the
+/// engine the same way — long before `Transcribe`, already during decoding. Only
+/// the application state knows about this, which is why this is the one place
+/// where the engine thread looks outward.
 fn app_is_busy(app: &AppHandle) -> bool {
     let Some(state) = app.try_state::<crate::state::AppState>() else {
-        // Движок стартует раньше, чем состояние регистрируют. Значит, ни
-        // записи, ни файла ещё нет — и занятости тоже.
+        // The engine starts before the state is registered. So there is neither
+        // a recording nor a file yet — and no busyness either.
         return false;
     };
     state.recorder.is_recording() || state.is_engine_busy()
@@ -887,18 +890,19 @@ mod tests {
 
     #[test]
     fn a_late_chunk_of_the_previous_dictation_never_reaches_the_new_one() {
-        // Ответвление звука отцепляют при остановке, но в его очереди
-        // остаётся до секунды записанного, и пересыльщик дочитывает её уже
-        // после старта следующей диктовки. Без этого правила хвост прошлой
-        // фразы докармливал распознаватель, и новая начиналась с чужих слов.
+        // The audio tap is detached on stop, but up to a second of recorded
+        // audio stays in its queue, and the forwarder drains it after the next
+        // dictation has started. Without this rule the tail of the previous
+        // phrase fed the recognizer, and the new one began with alien words.
         assert_eq!(preview_action(Some(7), 6), PreviewAction::Skip);
 
-        // Первый кусок новой диктовки — сигнал забыть прошлую гипотезу.
+        // The first chunk of a new dictation signals to forget the previous
+        // hypothesis.
         assert_eq!(preview_action(Some(6), 7), PreviewAction::Restart);
         assert_eq!(preview_action(None, 7), PreviewAction::Restart);
 
-        // Своё продолжаем, ничего не сбрасывая: сброс посреди фразы стёр бы
-        // уже разобранное.
+        // Our own we continue without resetting anything: a reset mid-phrase
+        // would erase what has already been decoded.
         assert_eq!(preview_action(Some(7), 7), PreviewAction::Continue);
     }
 
