@@ -9,7 +9,7 @@ assignees: ''
 
 ## Pre-release
 
-- [ ] Version is consistent across all package/bundle metadata and the user-facing changelog
+- [ ] `sh scripts/check-version.sh vX.Y.Z` — every version source agrees with the tag
 - [ ] `cargo outdated --exit-code 1` — no outdated deps
 - [ ] `cargo audit` — no advisories
 - [ ] `cargo fmt --all -- --check` — clean
@@ -18,29 +18,33 @@ assignees: ''
 - [ ] `pnpm exec tsc --noEmit` — clean
 - [ ] `pnpm test` — green
 - [ ] `pnpm build` — clean
+- [ ] `pnpm bundle:check` — every window within budget
+- [ ] `pnpm i18n:check` — no untranslated keys, no Cyrillic outside `t()`
 - [ ] `pnpm tauri build` — smoke test passes
-- [ ] Code signing secrets present in protected CI storage (Windows cert, Apple notarization)
-- [ ] Signing tested locally (`pnpm tauri build --bundles msi` / `--bundles dmg`)
+- [ ] `sh scripts/release.sh` — dry run passes on `main`
 
 ## Tag & Build
 
-- [ ] `git tag vX.Y.Z`
+- [ ] `git tag -a -m 'release X.Y.Z' vX.Y.Z` on `main`
 - [ ] `git push origin vX.Y.Z`
-- [ ] CI build succeeds for every target currently configured in `.github/workflows/release.yml`
-- [ ] Checksums generated (`sha256sum *.dmg *.msi *.exe > SHA256SUMS.txt`)
+- [ ] Both matrix targets in `.github/workflows/release.yml` succeed
+- [ ] "Проверить, что в бинаре нет путей сборочной машины" is green — a red one
+      is a reason not to publish the draft
+- [ ] `SHA256SUMS.txt` attached by the `checksums` job
+- [ ] SBOM and license report attached by the `sbom` job
 
 ## Publish
 
-- [ ] GitHub Release created from tag `vX.Y.Z`
-- [ ] Release notes filled in (Security / Performance / New Features / Bug Fixes)
-- [ ] Assets uploaded for the actual CI target matrix, with `SHA256SUMS.txt` where applicable
-- [ ] "What's new" entry written
+- [ ] Draft installed and smoke-tested on each target before publishing
+- [ ] Release body written for users — the updater shows it as "what's new"
+- [ ] Draft published (this is what makes the update visible to existing installs)
+- [ ] Update from the previous version actually offered and applied
 
 ## Post-release
 
 - [ ] New issues and release health monitored after publication
 - [ ] Monitoring for new issues (first 24 h)
-- [ ] Rollback procedure documented if needed
+- [ ] Rollback lever known: un-latest the release, see `docs/RELEASE.md`
 
 ## Notes
 
