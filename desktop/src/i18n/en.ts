@@ -1,23 +1,24 @@
-// Английский словарь. Ключ — русский оригинал (см. i18n/index.ts).
+// The English dictionary. The key is the Russian original (see i18n/index.ts).
 //
-// Чего здесь намеренно нет:
-//   • примеры диктовки и слов-паразитов («ну, типа, как бы») — они
-//     демонстрируют работу русского форматтера, английского аналога у них
-//     нет, и подменять их выдуманным примером хуже, чем показать русский;
-//   • системные промпты LLM — они про язык речи;
-//   • строки вида «Whisper», «LLM», «Diff», в которых нечего переводить.
-// Всё это падает на ключ, то есть остаётся русским. Скрипт check-i18n.mjs
-// знает про этот список и не считает их пропущенными.
+// What is deliberately absent here:
+//   • dictation samples and filler words («ну, типа, как бы») — they demonstrate
+//     the Russian formatter at work, they have no English counterpart, and
+//     substituting an invented example is worse than showing the Russian one;
+//   • the LLM system prompts — they are about the language of speech;
+//   • strings such as «Whisper», «LLM», «Diff», in which there is nothing to
+//     translate.
+// All of these fall back to the key, that is they stay Russian. The
+// check-i18n.mjs script knows about this list and does not count them missing.
 //
-// Формы множественного числа лежат массивом: русский требует три, английский
-// две, и tPlural берёт нужную по длине массива.
+// Plural forms are stored as an array: Russian needs three, English two, and
+// tPlural picks the right one by the array's length.
 
 export const en: Record<string, string | string[]> = {
   "Микрофон отключён": "Microphone disconnected",
   "Для записи скачайте модель распознавания в разделе «Модели».": "To record, download a speech recognition model in Models.",
   "Переключение\nНажмите горячую клавишу, чтобы начать запись, и нажмите снова, чтобы закончить. Удобно для длинной диктовки.\n\nУдержание\nГоворите, удерживая горячую клавишу, и отпустите её, чтобы закончить. Удобно для коротких фраз.": "Toggle\nPress the shortcut to start recording, then press it again to finish. Good for long dictation.\n\nHold\nSpeak while holding the shortcut, then release it to finish. Good for short phrases.",
 
-  // ── Навигация и оболочка ───────────────────────────────────────────────
+  // ── Navigation and shell ───────────────────────────────────────────────
   "Основное": "General",
   "Настройки": "Settings",
   "Обработка": "Processing",
@@ -57,7 +58,7 @@ export const en: Record<string, string | string[]> = {
   "Локально + LLM": "Local + LLM",
   "Облако": "Cloud",
 
-  // ── Состояния записи ───────────────────────────────────────────────────
+  // ── Recording states ───────────────────────────────────────────────────
   "Готово": "Ready",
   "Идёт запись": "Recording",
   "Запись": "Recording",
@@ -99,7 +100,7 @@ export const en: Record<string, string | string[]> = {
   "Отменить": "Cancel",
   "Отмена": "Cancel",
 
-  // ── Ошибки записи и разрешений ─────────────────────────────────────────
+  // ── Recording and permission errors ────────────────────────────────────
   "Ошибка": "Error",
   "Нужно разрешение macOS —": "macOS permission required —",
   "После выдачи прав перезапустите приложение.": "Restart the app after granting access.",
@@ -125,7 +126,7 @@ export const en: Record<string, string | string[]> = {
   "Не удалось повторить LLM-обработку: {p0}": "Could not retry LLM processing: {p0}",
   "Комбинация {p0} зарезервирована системой. Выберите другую.": "{p0} is reserved by the system. Pick another shortcut.",
 
-  // ── Горячие клавиши ────────────────────────────────────────────────────
+  // ── Hotkeys ────────────────────────────────────────────────────────────
   "Горячая клавиша": "Shortcut",
   "Диктовка. Пойдёт ли текст в LLM, решает режим обработки на вкладке «ИИ».":
     "Dictation. Whether the text goes through the LLM is decided by the processing mode on the AI tab.",
@@ -136,7 +137,7 @@ export const en: Record<string, string | string[]> = {
   "Записать": "Record",
   "Открыть папку логов": "Open the log folder",
 
-  // ── Настройки: язык, устройство, микрофон ──────────────────────────────
+  // ── Settings: language, device, microphone ─────────────────────────────
   "Язык": "Speech language",
   "Язык речи": "Speech language",
   "Язык, на котором вы диктуете: модель распознаёт речь именно как его. «Авто» определяет язык по самой записи — это чуть медленнее и иногда ошибается на коротких фразах. На язык интерфейса не влияет.":
@@ -161,7 +162,7 @@ export const en: Record<string, string | string[]> = {
   "Тест микрофона не удался": "Microphone test failed",
   "Ошибка теста микрофона": "Microphone test error",
 
-  // ── Настройки: модель и режим ──────────────────────────────────────────
+  // ── Settings: model and mode ───────────────────────────────────────────
   "Модель": "Model",
   "Модель не загружена": "No model loaded",
   "Модель выгружена": "Model unloaded",
@@ -195,7 +196,7 @@ export const en: Record<string, string | string[]> = {
   "Удерживать": "Hold",
   "Удержание клавиш": "Push to talk",
 
-  // ── Настройки: вставка ─────────────────────────────────────────────────
+  // ── Settings: pasting ──────────────────────────────────────────────────
   "Авто-вставка текста": "Auto-paste",
   "Автовставка": "Auto-paste",
   "Сразу вставлять распознанный текст в активное поле. Если выключить, текст останется только в буфере обмена.":
@@ -211,7 +212,7 @@ export const en: Record<string, string | string[]> = {
   "симв/мин": "cpm",
   "Скорость ручного набора из настроек": "Manual typing speed from settings",
 
-  // ── Настройки: звук, автозапуск, история ───────────────────────────────
+  // ── Settings: sound, autostart, history ────────────────────────────────
   "Звуковые сигналы": "Sound cues",
   "Сигналы отмечают начало записи, завершение, вставку текста и ошибку.":
     "Cues mark recording start, completion, text insertion, and errors.",
@@ -243,7 +244,7 @@ export const en: Record<string, string | string[]> = {
   "{count} запись|{count} записи|{count} записей": ["{count} entry", "{count} entries"],
   "{p0} дней сохранено в истории": "{p0} days kept in history",
 
-  // ── Общие действия ─────────────────────────────────────────────────────
+  // ── Common actions ─────────────────────────────────────────────────────
   "Сохранить": "Save",
   "Синхронизировано": "In sync",
   "Есть изменения": "Unsaved changes",
@@ -295,7 +296,7 @@ export const en: Record<string, string | string[]> = {
   "Создаю…": "Creating…",
   "В доработке": "Work in progress",
 
-  // ── Обзор и подзаголовки страниц ───────────────────────────────────────
+  // ── Overview and page subtitles ────────────────────────────────────────
   "Только локально": "Local only",
   "Локальное распознавание + LLM": "Local transcription + LLM",
   "STT на этом компьютере. LLM не вызывается.": "STT on this computer. No LLM call.",
@@ -307,7 +308,7 @@ export const en: Record<string, string | string[]> = {
   "Режим обработки": "Processing mode",
   "Главный переключатель всего локального пайплайна": "The master switch for the whole local pipeline",
 
-  // ── Pipeline записи ────────────────────────────────────────────────────
+  // ── Recording pipeline ─────────────────────────────────────────────────
   "Pipeline записи": "Recording pipeline",
   "Как пользоваться": "How to use it",
   "Откройте окно, куда нужно вставить результат.": "Open the window where the text should land.",
@@ -337,7 +338,7 @@ export const en: Record<string, string | string[]> = {
   "Готовый текст вставляется в исходное окно, а запись сохраняется в истории вместе с raw/formatted/final версиями и статистикой обработки.":
     "The finished text is pasted into the original window, and the entry is stored in history with its raw, formatted and final versions plus processing stats.",
 
-  // ── История ────────────────────────────────────────────────────────────
+  // ── History ────────────────────────────────────────────────────────────
   "История транскрипций": "Transcription history",
   "История пуста": "History is empty",
   "Здесь будут появляться последние транскрипции. Хранятся локально, не покидают этот компьютер.":
@@ -436,7 +437,7 @@ export const en: Record<string, string | string[]> = {
   "модель сократила текст": "model shortened the text",
   "провайдер не выбран": "no provider selected",
 
-  // ── Форматирование ─────────────────────────────────────────────────────
+  // ── Formatting ─────────────────────────────────────────────────────────
   "Включить форматирование": "Enable formatting",
   "Убирать артефакты распознавания": "Strip transcription artefacts",
   "«субтитры сделал…», «спасибо за просмотр», [Music]; если кроме них ничего нет — вставка отменяется":
@@ -472,7 +473,7 @@ export const en: Record<string, string | string[]> = {
   "Diff: до LLM → финальный": "Diff: pre-LLM → final",
   "Свой файл": "Custom file",
 
-  // ── Замены ─────────────────────────────────────────────────────────────
+  // ── Replacements ───────────────────────────────────────────────────────
   "Нет правил замены": "No replacement rules",
   "— правил пока нет": "— no rules yet",
   "Создать замену": "Create a replacement",
@@ -499,7 +500,7 @@ export const en: Record<string, string | string[]> = {
   "без изменений": "unchanged",
   "изменено": "changed",
 
-  // ── LLM: профили и провайдеры ──────────────────────────────────────────
+  // ── LLM: profiles and providers ────────────────────────────────────────
   "Провайдер LLM не выбран. Настройте его в «Интеграциях».": "No LLM provider selected. Configure it in Integrations.",
   "Для облачного распознавания укажите Base URL с http:// или https://.": "For cloud transcription, enter a Base URL starting with http:// or https://.",
   "Модель обработки не выбрана.": "No processing model selected.",
@@ -555,7 +556,7 @@ export const en: Record<string, string | string[]> = {
   "Ollama (локально)": "Ollama (local)",
   "vLLM (локально)": "vLLM (local)",
 
-  // ── LLM: промпт и параметры ────────────────────────────────────────────
+  // ── LLM: prompt and parameters ─────────────────────────────────────────
   "Системный промпт": "System prompt",
   "Системный промпт сохранён.": "System prompt saved.",
   "Сохранить промпт": "Save prompt",
@@ -608,7 +609,7 @@ export const en: Record<string, string | string[]> = {
   "по умолчанию:": "default:",
   "текущий:": "current:",
 
-  // ── API-ключи ──────────────────────────────────────────────────────────
+  // ── API keys ───────────────────────────────────────────────────────────
   "API-ключ": "API key",
   "Новый API-ключ": "New API key",
   "Добавить ключ": "Add key",
@@ -671,7 +672,7 @@ export const en: Record<string, string | string[]> = {
   "Поднять": "Move up",
   "Опустить": "Move down",
 
-  // ── Статистика ─────────────────────────────────────────────────────────
+  // ── Statistics ─────────────────────────────────────────────────────────
   "Распознаваний": "Transcriptions",
   "распознаваний": "transcriptions",
   "Распознаваний по дням": "Transcriptions per day",
@@ -715,7 +716,7 @@ export const en: Record<string, string | string[]> = {
   "Ответ не разобрался": "Could not parse the response",
   "Обновить": "Refresh",
 
-  // ── Диагностика и обновления ───────────────────────────────────────────
+  // ── Diagnostics and updates ────────────────────────────────────────────
   "Диагностика": "Diagnostics",
   "Подробность логов": "Log level",
   "Размер логов": "Log size",
@@ -741,7 +742,7 @@ export const en: Record<string, string | string[]> = {
   "{p0} МБ": "{p0} MB",
   "{p0} КБ": "{p0} KB",
 
-  // ── Прочее ─────────────────────────────────────────────────────────────
+  // ── Miscellaneous ──────────────────────────────────────────────────────
   "Оранжевый": "Orange",
   "Синий": "Blue",
   "Зелёный": "Green",
@@ -779,7 +780,7 @@ export const en: Record<string, string | string[]> = {
   "например: gpt-oss-120b": "for example: gpt-oss-120b",
   "Обработка:": "Processing:",
 
-  // ── Обработка → Текст ──────────────────────────────────────────────────
+  // ── Processing → Text ──────────────────────────────────────────────────
   "Введите текст для проверки обработки": "Enter text to test processing",
   "Весь локальный проход: очистка и замены — ровно то, что уходит в модель или во вставку.":
     "The whole local pass: cleanup and replacements — exactly what goes to the model or into the paste.",
@@ -790,7 +791,7 @@ export const en: Record<string, string | string[]> = {
   "Diff: исходный → после обработки": "Diff: original → after processing",
   "слово|слова|слов": ["word", "words"],
 
-  // ── Интеграции ─────────────────────────────────────────────────────────
+  // ── Integrations ───────────────────────────────────────────────────────
   "Ключ сохранён. Привяжите его к профилю в поле «Key ref».": "Key saved. Bind it to a profile via the “Key ref” field.",
   "Один профиль = одна связка provider + ключ + модель. Создаются и редактируются они в «Интеграциях»; здесь профиль только выбирают.": "One profile = one provider + key + model triple. They are created and edited in Integrations; here you only pick one.",
   "Переименовать профиль": "Rename profile",

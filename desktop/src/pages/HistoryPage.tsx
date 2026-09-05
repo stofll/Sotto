@@ -265,12 +265,13 @@ function groupByDay(entries: HistoryEntry[]): Array<{ key: string; label: string
   return groups;
 }
 
-/** Подпись под заголовком: что именно сейчас хранится. 0 — без ограничения. */
+/** The caption under the heading: what exactly is kept right now. 0 means no
+ *  limit. */
 function describeRetention(maxAgeSeconds: number, maxEntries: number): string {
   const parts: string[] = [];
   if (maxAgeSeconds > 0) {
     const days = Math.round(maxAgeSeconds / 86400);
-    // Меньше суток — счёт всё-таки в часах, иначе выйдет «0 дней».
+    // Under a day the count is in hours after all, otherwise it reads "0 days".
     parts.push(days >= 1
       ? tPlural(days, ["{count} день", "{count} дня", "{count} дней"])
       : t("{p0} ч", { p0: Math.round(maxAgeSeconds / 3600) }));
@@ -282,7 +283,7 @@ function describeRetention(maxAgeSeconds: number, maxEntries: number): string {
 
 export function HistoryPage() {
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
-  // Совпадает с RetentionPolicy::default в src-tauri/src/history.rs.
+  // Matches RetentionPolicy::default in src-tauri/src/history.rs.
   const [maxAgeSeconds, setMaxAgeSeconds] = useState(30 * 24 * 3600);
   const [maxEntries, setMaxEntries] = useState(1000);
   const [loading, setLoading] = useState(true);

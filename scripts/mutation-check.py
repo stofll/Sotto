@@ -14,7 +14,7 @@ ROOT = r"D:/Project/speech-to-text"
 RUST = os.path.join(ROOT, "desktop/src-tauri")
 FRONT = os.path.join(ROOT, "desktop")
 
-# (метка, файл, что заменить, на что, как гонять, фильтр)
+# (label, file, what to replace, with what, how to run, filter)
 MUTATIONS = [
     ("отмена больше не перебивает результат", "desktop/src-tauri/src/lib.rs",
      "    if cancelled {\n        return Completion::Cancelled;\n    }", "",
@@ -68,8 +68,8 @@ MUTATIONS = [
     ("короткие термины снова не проходят", "desktop/src-tauri/src/formatter.rs",
      "        0..=6 => 1,", "        0..=6 => 0,",
      "rust", "custom_words_tests"),
-    # Набор даём мы, а не пользователь, поэтому мутации здесь — не порча
-    # логики, а плохая запись в данных: ровно то, от чего сторожа и стоят.
+    # We supply the preset, not the user, so mutations here are not corrupted
+    # logic but a bad entry in the data: exactly what the guards are there for.
     ("в набор попал термин, садящийся на обычную речь", "desktop/src-tauri/src/formatter.rs",
      '    "thread",\n];', '    "thread",\n    "buffer",\n];',
      "rust", "custom_words_tests"),
@@ -172,10 +172,10 @@ MUTATIONS = [
      "        .chain((1..=keep).skip(usize::MAX).map(|index| archive_path(path, index)))",
      "rust", "structured_log"),
 
-    # ── Высокорисковые инварианты ───────────────────────────────────────
-    # Здесь молчаливый отказ дороже всего: удаление чужих данных, приём
-    # подменённого файла модели, пропуск переписанного LLM текста. Тест на
-    # каждое из этого был, но никто не проверял, что он способен упасть.
+    # ── High-risk invariants ────────────────────────────────────────────
+    # A silent failure costs most here: deleting somebody else's data, accepting
+    # a substituted model file, letting text rewritten by the LLM through. There
+    # was a test for each of these, but nobody had checked it could fail.
 
     ("история удаляет свежие записи вместо старых", "desktop/src-tauri/src/history.rs",
      '"DELETE FROM history WHERE timestamp <= ?1"',
@@ -203,10 +203,11 @@ MUTATIONS = [
     ("страховка не срабатывает ни на какой длине", "desktop/src-tauri/src/ai/fidelity.rs",
      "const MIN_WORDS_TO_JUDGE: usize = 40;", "const MIN_WORDS_TO_JUDGE: usize = usize::MAX;",
      "rust", "ai::fidelity"),
-    # Инверсия trim_matches: обрезаются буквы вместо пунктуации, и токен из
-    # одного тире перестаёт отбрасываться. Первая версия этой мутации
-    # добавляла .filter(|_| true) — то есть не меняла поведение вовсе,
-    # и «пропущено» говорило о ней самой, а не о тесте.
+    # Inverting trim_matches: letters are trimmed instead of punctuation, and a
+    # token consisting of a single dash stops being discarded. The first version
+    # of this mutation added .filter(|_| true) — that is, it changed no behaviour
+    # at all, and "missed" said something about the mutation rather than the
+    # test.
     ("одинокая пунктуация снова считается словом", "desktop/src-tauri/src/ai/fidelity.rs",
      "                .trim_matches(|c: char| !c.is_alphanumeric())",
      "                .trim_matches(|c: char| c.is_alphanumeric())",
@@ -240,8 +241,9 @@ for label, relpath, find, repl, kind, filt in MUTATIONS:
         else:
             results.append((label, "ПРОПУЩЕНО"))
     finally:
-        # Из снимка, а не git checkout: файл может содержать незакоммиченную
-        # работу, и откат до HEAD унёс бы её вместе с мутацией.
+        # From the snapshot rather than git checkout: the file may hold
+        # uncommitted work, and rolling back to HEAD would carry it away along
+        # with the mutation.
         io.open(path, "w", encoding="utf-8").write(src)
     print(f"  {results[-1][1]:>18}  {label}", flush=True)
 

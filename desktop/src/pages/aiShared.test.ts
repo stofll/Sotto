@@ -102,9 +102,9 @@ describe("system prompt presets", () => {
   it.each(presets)("%s forbids replacing words with synonyms", (_id, prompt) => {
     // The reported failure: «мало-мальский» came back as «малый».
     expect(prompt).toContain("Do NOT replace words with synonyms");
-    // Инструкции переведены на английский, образцы лексики — нет: правило
-    // держится показом, а на английской паре слов оно перестало бы
-    // демонстрироваться для русской диктовки.
+    // The instructions are in English, the lexical samples are not: the rule
+    // holds by demonstration, and on an English pair of words it would stop
+    // being demonstrated for Russian dictation.
     expect(prompt).toContain("мало-мальск");
   });
 
@@ -147,9 +147,10 @@ describe("activeConfigFromProfile", () => {
   });
 });
 
-// Порог существует ради «не гонять LLM на случайный чих», но по умолчанию он
-// молча съедал обычные короткие диктовки: текст вставлялся необработанным, и
-// со стороны это выглядит как сломанная LLM, а не как сработавшая настройка.
+// The threshold exists so as "not to run the LLM on a stray sneeze", but by
+// default it silently ate ordinary short dictations: the text was inserted
+// unprocessed, and from outside that looks like a broken LLM rather than a
+// setting doing its job.
 describe("порог минимальной длительности", () => {
   it("по умолчанию не отсекает ничего", () => {
     expect(DEFAULT_AI.llm_min_duration_seconds).toBe(0);

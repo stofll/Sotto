@@ -30,8 +30,8 @@ function hotkeyParts(value?: string) {
   });
 }
 
-// Всё, кроме явного "cpu", — GPU (Rust: `resolve_device`). Раньше здесь
-// сравнивалось с "cuda", из-за чего трей писал «CPU» на любом другом значении.
+// Anything but an explicit "cpu" is GPU (Rust: `resolve_device`). This used to
+// compare against "cuda", which made the tray print «CPU» for any other value.
 function deviceLabel(device?: string | null) {
   if (!device) return "—";
   if (device === "cloud") return t("Облако");
