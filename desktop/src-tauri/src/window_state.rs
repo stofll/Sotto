@@ -1,18 +1,18 @@
-//! Размер главного окна между запусками.
+//! Main window size between launches.
 //!
-//! Запись отделена от события `Resized` намеренно: за одно протягивание рамки
-//! Windows присылает десятки событий, и запись каждого означала бы десятки
-//! обращений к диску подряд — все с промежуточными размерами, которые никому
-//! не нужны. Актуальная геометрия живёт в памяти, на диск уходит не чаще
-//! раза в секунду, а последнее состояние досылается при закрытии окна.
+//! Writing is deliberately decoupled from the `Resized` event: one drag of the
+//! frame makes Windows send dozens of events, and writing each would mean dozens
+//! of consecutive disk writes — all with intermediate sizes nobody needs. The
+//! current geometry lives in memory, reaches disk at most once a second, and the
+//! final state is flushed when the window closes.
 
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use tauri::{Manager, WindowEvent};
 
-/// Совпадает с `tauri.conf.json` → `app.windows[0]`: там же заданы `minWidth`
-/// и `minHeight`, поэтому меньшие размеры сохранёнными быть не могут.
+/// Matches `tauri.conf.json` → `app.windows[0]`: `minWidth` and `minHeight` are
+/// set there too, so smaller sizes can never be the saved ones.
 const DEFAULT_WIDTH: f64 = 1000.0;
 const DEFAULT_HEIGHT: f64 = 710.0;
 const WRITE_INTERVAL: Duration = Duration::from_secs(1);
@@ -26,7 +26,7 @@ struct Geometry {
 
 struct State {
     geometry: Option<Geometry>,
-    /// Изменения, которые ещё не дошли до диска.
+    /// Changes that have not reached disk yet.
     dirty: bool,
     last_write: Option<Instant>,
 }
@@ -61,8 +61,8 @@ fn write(app: &tauri::AppHandle, geometry: &Geometry) {
     }
 }
 
-/// Развёрнутое окно не сообщает размер, к которому оно вернётся, — свой
-/// прошлый размер оно должно донести до файла нетронутым.
+/// A maximized window does not report the size it will return to — it must
+/// carry its previous size through to the file untouched.
 fn merge(old: Option<Geometry>, width: f64, height: f64, maximized: bool) -> Geometry {
     if maximized {
         let old = old.unwrap_or(Geometry {
@@ -87,7 +87,7 @@ fn due_for_write(last_write: Option<Instant>, now: Instant) -> bool {
     }
 }
 
-/// Досылает на диск то, что не успело уйти по таймеру.
+/// Flushes whatever the timer did not manage to write.
 fn flush(app: &tauri::AppHandle) {
     let mut guard = crate::mutex_recover::lock(&STATE);
     if !guard.dirty {
@@ -98,8 +98,8 @@ fn flush(app: &tauri::AppHandle) {
     };
     guard.dirty = false;
     guard.last_write = Some(Instant::now());
-    // Файл пишется без удержания замка: обращение к диску не должно
-    // задерживать поток событий окна.
+    // The file is written without holding the lock: disk access must not stall
+    // the window event thread.
     drop(guard);
     write(app, &geometry);
 }
@@ -120,8 +120,8 @@ pub fn restore(app: &tauri::AppHandle) {
                 let _ = window.maximize();
             }
         }
-        // Прочитанное кладётся в память целиком, даже если размер отвергнут:
-        // иначе первое же `Resized` пошло бы перечитывать тот же файл.
+        // What was read goes into memory in full, even if the size was rejected:
+        // otherwise the very first `Resized` would go and re-read the same file.
         crate::mutex_recover::lock(&STATE).geometry = Some(g);
     }
 }
@@ -142,8 +142,9 @@ pub fn handle(window: &tauri::Window, event: &WindowEvent) {
             });
         }
     }
-    // Окно закрывают не только крестиком: «Выход» в трее рушит окно, минуя
-    // `CloseRequested`, и без этой ветки последний размер терялся бы.
+    // Windows are not closed only by the X: "Quit" in the tray destroys the
+    // window bypassing `CloseRequested`, and without this branch the last size
+    // would be lost.
     if let WindowEvent::Destroyed = event {
         flush(window.app_handle());
     }
@@ -163,8 +164,8 @@ pub fn handle(window: &tauri::Window, event: &WindowEvent) {
         let now = Instant::now();
         guard.geometry = Some(geometry.clone());
         if !due_for_write(guard.last_write, now) {
-            // Промежуточный размер остаётся в памяти: его допишет либо
-            // следующее событие после паузы, либо закрытие окна.
+            // The intermediate size stays in memory: it will be written either
+            // by the next event after a pause, or by the window closing.
             guard.dirty = true;
             return;
         }

@@ -1,26 +1,26 @@
 /**
- * Через сколько простоя модель уходит из оперативной памяти.
+ * How long the model stays idle before leaving RAM.
  *
- * Значения продублированы в `src-tauri/src/config.rs`: настройку читают обе
- * стороны, и разойтись им нельзя — интерфейс показывал бы одно, а движок
- * выгружал бы по другому.
+ * The values are duplicated in `src-tauri/src/config.rs`: both sides read this
+ * setting and they must not diverge — the UI would show one thing while the
+ * engine unloaded by another.
  */
 
-/** Нет значения в конфиге — выгружаем через пять минут, а не «никогда». */
+/** No value in the config — unload after five minutes, not "never". */
 export const DEFAULT_MODEL_UNLOAD_MINUTES = 5;
 
-/** `0` — не выгружать. */
+/** `0` — do not unload. */
 export const MODEL_UNLOAD_CHOICES = [5, 10, 30, 0];
 
-/** Сутки — это уже «никогда», просто записанное числом. */
+/** A day is already "never", just written as a number. */
 const MAX_MODEL_UNLOAD_MINUTES = 24 * 60;
 
 /**
- * Что на самом деле делает движок при таком значении конфига.
+ * What the engine actually does for such a config value.
  *
- * Мусор и отрицательные числа откатываются к умолчанию, а не выключают
- * выгрузку: «не смогли прочитать» — это не «просили никогда». Порядок тот
- * же, что и в `config::model_unload_after_minutes`.
+ * Garbage and negative numbers fall back to the default rather than disabling
+ * unloading: "we could not read it" is not "you asked for never". The order is
+ * the same as in `config::model_unload_after_minutes`.
  */
 export function modelUnloadMinutes(value: number | undefined | null): number {
   if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
@@ -30,16 +30,16 @@ export function modelUnloadMinutes(value: number | undefined | null): number {
 }
 
 /**
- * Значения для списка в настройках.
+ * Values for the settings dropdown.
  *
- * Конфиг правят и руками, и число оттуда может не совпасть ни с одним
- * пунктом. Тогда пункт добавляется, а не подменяется ближайшим: настройка
- * работает ровно так, как записана, и список обязан это показывать —
- * иначе первое же открытие настроек молча переписало бы её.
+ * The config is also edited by hand, and a number from there may match no item
+ * at all. In that case the item is added rather than replaced by the nearest
+ * one: the setting works exactly as written, and the list has to show that —
+ * otherwise merely opening settings would silently rewrite it.
  */
 export function modelUnloadOptions(current: number): number[] {
   const minutes = [...new Set([...MODEL_UNLOAD_CHOICES, current])].filter((value) => value > 0);
   minutes.sort((a, b) => a - b);
-  // «Никогда» последним: это не самый долгий срок, а отказ от срока.
+  // «Никогда» goes last: it is not the longest interval but the refusal of one.
   return [...minutes, 0];
 }

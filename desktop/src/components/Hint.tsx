@@ -2,27 +2,27 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "re
 import { createPortal } from "react-dom";
 import { Icon } from "./Icon";
 
-const GAP = 8;      // зазор между значком и пузырём
-const MARGIN = 8;   // минимальный отступ пузыря от края окна
+const GAP = 8;      // gap between the icon and the bubble
+const MARGIN = 8;   // minimum distance from the bubble to the window edge
 
 /**
- * Подсказка с пузырём.
+ * A hint with a bubble.
  *
- * Без `children` это привычный значок «i». С `children` якорем становится сам
- * контрол: подсказку про него спрашивают, наводя на него, а не на значок
- * рядом — так объяснение, зачем погашен переключатель устройства, живёт на
- * самом переключателе и не занимает строки в вёрстке.
+ * Without `children` this is the familiar "i" icon. With `children` the control
+ * itself becomes the anchor: people ask about it by hovering over it, not over
+ * an icon next to it — so the explanation of why a device toggle is greyed out
+ * lives on the toggle itself and takes no rows in the layout.
  *
- * Пузырь рендерится порталом в body с position: fixed и координатами,
- * посчитанными от значка: absolute-пузырь внутри страницы обрезался
- * скроллером .main-body, стоило подсказке оказаться у края карточки.
- * Позиция зажимается в окно по горизонтали и переворачивается вниз,
- * если сверху не хватает места.
+ * The bubble is portalled into body with position: fixed and coordinates
+ * computed from the icon: an absolute bubble inside the page was clipped by the
+ * .main-body scroller as soon as the hint landed near a card edge. The position
+ * is clamped to the window horizontally and flips downward when there is not
+ * enough room above.
  */
-// Ни размера, ни отступа в пропсах: раньше каждое место вызова задавало их
-// само (13/18, 11/14, 10/13, 12/16), и расстояние от подписи до значка нигде
-// не совпадало. Геометрия одна и живёт в CSS — эталоном взята строка
-// «Горячая клавиша» в настройках.
+// Neither size nor offset is a prop: every call site used to set them itself
+// (13/18, 11/14, 10/13, 12/16), and the distance from label to icon matched
+// nowhere. The geometry is single and lives in CSS — the reference is the
+// «Горячая клавиша» row in settings.
 export function Hint({ text, children }: { text: string; children?: ReactNode }) {
   const anchorRef = useRef<HTMLSpanElement>(null);
   const bubbleRef = useRef<HTMLDivElement>(null);
@@ -44,8 +44,8 @@ export function Hint({ text, children }: { text: string; children?: ReactNode })
     setPos({ left, top });
   }, [open, text]);
 
-  // Пузырь зафиксирован относительно окна и за прокруткой не следует —
-  // проще закрыть его, чем пересчитывать на каждый кадр скролла.
+  // The bubble is fixed relative to the window and does not follow scrolling —
+  // closing it is simpler than recomputing on every scroll frame.
   useEffect(() => {
     if (!open) return;
     const close = () => setOpen(false);
@@ -61,12 +61,14 @@ export function Hint({ text, children }: { text: string; children?: ReactNode })
     <span
       ref={anchorRef}
       className={children ? "hint-anchor" : "hint"}
-      // Значок сам по себе фокус не получает — ему его дают, иначе подсказка
-      // существует только для мыши. Обёртке вокруг контрола свой фокус не
-      // нужен и вреден: он встаёт лишней остановкой перед самим контролом.
+      // The icon does not take focus on its own — it is given focus, otherwise
+      // the hint exists for the mouse only. A wrapper around a control needs no
+      // focus of its own and is harmed by it: it becomes an extra stop before
+      // the control itself.
       tabIndex={children ? undefined : 0}
-      // Имя обёртки заменило бы собой имя контрола внутри, поэтому текст
-      // уходит скринридеру отдельной строкой, а не подписью на якоре.
+      // A name on the wrapper would replace the name of the control inside, so
+      // the text goes to the screen reader as a separate line rather than as a
+      // label on the anchor.
       aria-label={children ? undefined : text}
       onMouseEnter={() => setOpen(true)}
       onMouseLeave={() => setOpen(false)}

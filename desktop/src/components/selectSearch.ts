@@ -1,18 +1,18 @@
 /**
- * Отбор пунктов выпадающего списка по набранному.
+ * Filtering dropdown items by what was typed.
  *
- * Отдельным модулем, а не внутри компонента: правило поиска — это то, что
- * ломается незаметно (нашлось не то, не нашлось нужное), и проверять его
- * надо без React.
+ * A separate module rather than living inside the component: a search rule is
+ * the kind of thing that breaks silently (the wrong item matched, the right one
+ * missed), and it has to be testable without React.
  */
 export type SearchableOption = { label: string; meta?: string };
 
 /**
- * Подходит ли пункт под набранное.
+ * Whether an item matches what was typed.
  *
- * Ищем и по названию, и по коду: язык знают по-разному — кто-то наберёт
- * «нем», кто-то «de». Регистр приводим локально, иначе турецкая «i» ищется
- * не так, как выглядит.
+ * We search both the label and the code: people know languages differently —
+ * one types «нем», another «de». Case is folded with the locale-aware call,
+ * otherwise the Turkish «i» does not match the way it looks.
  */
 export function optionMatches(option: SearchableOption, query: string): boolean {
   const needle = query.trim().toLocaleLowerCase();

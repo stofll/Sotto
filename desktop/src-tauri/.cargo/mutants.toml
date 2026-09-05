@@ -1,11 +1,11 @@
-# Мутационный прогон (issue #32, план 2026-08-28-mutation-coverage.md).
+# Mutation run (issue #32, plan 2026-08-28-mutation-coverage.md).
 #
-# Прогон гоняем только по юнит-тестам: сборка --all-targets тянет
-# интеграционные тесты, бенчи и примеры и стоит 24 с против 5 с на мутанта.
-# Погрешность замерена — 9 мутантов из 1025.
+# We run against unit tests only: an --all-targets build drags in integration
+# tests, benches and examples and costs 24 s against 5 s per mutant. The error
+# this introduces was measured — 9 mutants out of 1025.
 additional_cargo_args = ["--lib"]
 
-# Win32/FFI-обвязка: юнит-тестами не берётся, мутанты здесь — шум.
+# Win32/FFI glue: not reachable by unit tests, mutants here are noise.
 exclude_globs = [
     "src/windows/**",
     "src/windows_util.rs",
@@ -18,144 +18,146 @@ exclude_globs = [
 ]
 
 exclude_re = [
-    # Болванки трейта FormatStep: name/description/enabled/set_enabled.
+    # FormatStep trait stubs: name/description/enabled/set_enabled.
     '<impl FormatStep for \w+>::(name|description|enabled|set_enabled)',
-    # Тексты для человека и служебные Display.
+    # Human-facing text and utility Display impls.
     '::fmt',
 
-    # --- Очередь 1 (2026-08-28-mutation-coverage.md) ---
+    # --- Queue 1 (2026-08-28-mutation-coverage.md) ---
 
-    # secret_store: FFI-обёртки над keyring (запись в реальный Credential
-    # Manager). Композиция KeyMeta вынесена в key_meta_from и покрыта тестом.
+    # secret_store: FFI wrappers over keyring (writing to the real Credential
+    # Manager). KeyMeta composition is extracted into key_meta_from and covered.
     'get_key',
     'delete_key',
 
-    # model_download: обвязка над fs2::available_space и шим поверх
-    # free_space_verdict (чистая проверка вынесена и покрыта тестом).
+    # model_download: glue over fs2::available_space and a shim over
+    # free_space_verdict (the pure check is extracted and covered by a test).
     'available_bytes',
     'ensure_free_space',
 
-    # config: шимы над config_path/app_config_dir — логика вынесена в *_at
-    # и *_from, которые покрыты тестами.
+    # config: shims over config_path/app_config_dir — the logic is extracted
+    # into *_at and *_from, which are covered by tests.
     'load_hotkey -> ',
     'config_path -> ',
     'Config::save -> ',
     'migrate_legacy_device -> ',
     'save_with_merge_patch -> ',
 
-    # db: эквивалентные мутанты run_migrations. `current < N` → `<=` для
-    # v1/v2 повторно применяет идемпотентный CREATE IF NOT EXISTS (без
-    # эффекта), для v4 недостижимо из-за guard `current >= SCHEMA_VERSION`.
-    # Ступень v3 (ALTER TABLE ADD COLUMN) ловится тестом
-    # run_migrations_from_v3_must_not_reapply_v3, но попадает под тот же
-    # текст описания.
+    # db: equivalent mutants in run_migrations. `current < N` → `<=` re-applies
+    # the idempotent CREATE IF NOT EXISTS for v1/v2 (no effect), and for v4 is
+    # unreachable because of the `current >= SCHEMA_VERSION` guard. The v3 step
+    # (ALTER TABLE ADD COLUMN) is caught by
+    # run_migrations_from_v3_must_not_reapply_v3, but falls under the same
+    # description text.
     'replace < with <= in run_migrations',
 
-    # history: select_limit (тернарник `max_entries > 0` → -1) дублирует
-    # DELETE-ограничение выше, поэтому подмена `>` → `<` эквивалентна.
-    # Остальные `>` → `<` в list_history_from ловятся тестами.
+    # history: select_limit (the `max_entries > 0` ternary → -1) duplicates the
+    # DELETE limit above, so swapping `>` → `<` is equivalent. The remaining
+    # `>` → `<` in list_history_from are caught by tests.
     'replace > with < in list_history_from',
 
-    # model: возврат статической таблицы и шимы над models_dir() (логика
-    # вынесена в *_at / *_in и покрыта тестами).
+    # model: returning a static table, plus shims over models_dir() (the logic
+    # is extracted into *_at / *_in and covered by tests).
     'bundle_manifest -> ',
     'bundle_is_ready -> ',
     'verify_bundle_files -> ',
-    # Размер буфера чтения при хешировании (64 KiB): `+` даёт 1088 байт и
-    # безвреден — меняется только размер чанка, не результат хеша.
+    # Read buffer size when hashing (64 KiB): `+` yields 1088 bytes and is
+    # harmless — only the chunk size changes, not the hash result.
     'replace \* with \+ in verify_artifact',
-    # Эквивалентный мутант: guard `error.kind() == NotFound` → `true` делает
-    # любую ошибку stat неотличимой от «каталога нет», но другие ошибки stat
-    # в юнит-тесте не воспроизводимы.
+    # Equivalent mutant: the `error.kind() == NotFound` guard → `true` makes any
+    # stat error indistinguishable from "the directory is missing", but other
+    # stat errors are not reproducible in a unit test.
     'NotFound with true',
 
-    # --- Очередь 2 (ai/*, cloud_stt) ---
+    # --- Queue 2 (ai/*, cloud_stt) ---
 
-    # providers: геттеры name() — константы, а не логика.
+    # providers: the name() getters are constants, not logic.
     '>::name',
-    # providers: ветка лога о неизвестной модели — только log::info.
+    # providers: the unknown-model log branch is only a log::info.
     'delete ! in <impl Provider for OpenCodeGoProvider>::complete',
-    # providers: сетевой слой send_request и статический клиент покрываются
-    # интеграционными тестами tests/ai_mock_test.rs — прогон --lib их не видит.
+    # providers: the send_request network layer and the static client are
+    # covered by tests/ai_mock_test.rs — a --lib run does not see them.
     'send_request',
     'shared_client',
-    # providers: сдвиг `close + 1` в tokenise_path эквивалентен — следующий
-    # find('[') пересинхронизирует позицию при любом off-by-one.
+    # providers: shifting `close + 1` in tokenise_path is equivalent — the next
+    # find('[') resynchronises the position on any off-by-one.
     'in tokenise_path',
-    # cloud_stt: BYTE_RATE = SAMPLE_RATE * NUM_CHANNELS * … / 8, а NUM_CHANNELS=1,
-    # поэтому `*` → `/` даёт тот же результат (эквивалент).
+    # cloud_stt: BYTE_RATE = SAMPLE_RATE * NUM_CHANNELS * … / 8, and NUM_CHANNELS
+    # is 1, so `*` → `/` gives the same result (equivalent).
     'src/cloud_stt.rs:75:',
-    # cloud_stt: ветка HTTP-статуса и truncate покрываются интеграционными
-    # тестами tests/cloud_stt_mock_test.rs — прогон --lib их не видит.
+    # cloud_stt: the HTTP status branch and truncate are covered by
+    # tests/cloud_stt_mock_test.rs — a --lib run does not see them.
     'delete ! in transcribe',
     'truncate',
-    # step: `min_duration > 0` → `>=` эквивалентен — при min=0 вторая часть
-    # условия (`audio < 0`) ложна для любого реального (неотрицательного) звука.
+    # step: `min_duration > 0` → `>=` is equivalent — with min = 0 the second
+    # half of the condition (`audio < 0`) is false for any real audio.
     'replace > with >= in duration_below_threshold',
-    # step: форматирование времени дня инвариантно к сдвигу на целые сутки —
-    # `-` → `+` и `day_of_year * 86400` → `/` не меняют hours/minutes (mod 24/60).
+    # step: time-of-day formatting is invariant under whole-day shifts — `-` → `+`
+    # and `day_of_year * 86400` → `/` do not change hours/minutes (mod 24/60).
     'replace - with \+ in format_timestamp',
     'replace \* with / in format_timestamp',
-    # step: рука `"anthropic"` в build_provider дублирует фолбэк `_` (тоже
-    # AnthropicProvider) — удаление руки даёт тот же результат.
+    # step: the `"anthropic"` arm in build_provider duplicates the `_` fallback
+    # (also AnthropicProvider) — removing the arm gives the same result.
     'delete match arm "anthropic" in build_provider',
 
-    # --- Очередь 3 (vad, wav, …) ---
+    # --- Queue 3 (vad, wav, …) ---
 
-    # vad: проверка кадра `len < FRAME` → `==`/`<=` различима только на вводе
-    # ровно в один кадр, который VAD без контекста не признаёт речью; порог
-    # `predict > 0.5` → `>=` различается только при score ровно 0.5. Обе
-    # мутации эквивалентны на любом практическом вводе.
+    # vad: the frame check `len < FRAME` → `==`/`<=` is distinguishable only on
+    # input of exactly one frame, which VAD does not accept as speech without
+    # context; the `predict > 0.5` threshold → `>=` differs only when the score
+    # is exactly 0.5. Both mutations are equivalent on any practical input.
     'replace < with == in speech_range',
     'replace < with <= in speech_range',
     'replace > with >= in speech_range',
 
-    # audio_file: guard `rate > 0` → `>=` — rate из спеки декодера не бывает
-    # нулевым; ветка защищает только от деления на ноль.
+    # audio_file: the `rate > 0` guard → `>=` — a rate from the decoder spec is
+    # never zero; the branch only guards against division by zero.
     'replace > with >= in decode_with_limit',
-    # audio_file: guard UnexpectedEof → `true` — прочие IoError в чтении
-    # локального файла не встречаются, различие невоспроизводимо в тесте.
+    # audio_file: the UnexpectedEof guard → `true` — other IoErrors do not occur
+    # when reading a local file, the difference is not reproducible in a test.
     'match guard e\.kind\(\) == std::io::ErrorKind::UnexpectedEof with true',
-    # audio_file: reserve(...) — только подсказка ёмкости, не влияет на выход.
+    # audio_file: reserve(...) is only a capacity hint, it does not affect output.
     'src/audio_file.rs:213:',
-    # audio_file: арифметика resample-петли поверх rubato. `ratio /` → `%`
-    # даёт абсурдный, но валидный множитель (бесконечный прогон); `<` → `<=`
-    # и `expected_len + delay` → `*` гасятся truncate; буфер `in_chunk.len()
-    # < needed` → `==`/`>` эквивалентны, т.к. needed постоянен (FixedAsync::Input).
+    # audio_file: arithmetic of the resample loop over rubato. `ratio /` → `%`
+    # gives an absurd but valid multiplier (an endless run); `<` → `<=` and
+    # `expected_len + delay` → `*` are absorbed by truncate; the buffer check
+    # `in_chunk.len() < needed` → `==`/`>` is equivalent, since needed is
+    # constant (FixedAsync::Input).
     'replace / with % in resample_to_target',
     'replace < with <= in resample_to_target',
     'replace < with == in resample_to_target',
     'replace < with > in resample_to_target',
     'replace \+ with \* in resample_to_target',
 
-    # audio: методы AudioRecorder общаются с реальным аудиоустройством (cpal),
-    # юнит-тестом без железа не берутся.
+    # audio: AudioRecorder methods talk to a real audio device (cpal) and are
+    # not reachable by a unit test without hardware.
     'AudioRecorder::start',
     'AudioRecorder::stop',
     'AudioRecorder::is_recording',
     'AudioRecorder::level',
     'AudioRecorder::list_devices',
-    # audio: `channels > 1` → `>=` эквивалентен — для одного канала
-    # chunks_exact(1) даёт тот же массив; `delete !` в ветке misaligned —
-    # только log::warn; `<` → `<=` в проверке ratio эквивалентен — точный
-    # ratio даёт 0.0, а порог 0.01.
+    # audio: `channels > 1` → `>=` is equivalent — for a single channel
+    # chunks_exact(1) yields the same array; deleting the `!` in the misaligned
+    # branch only affects a log::warn; `<` → `<=` in the ratio check is
+    # equivalent — an exact ratio gives 0.0 against a 0.01 threshold.
     'replace > with >= in process_samples',
     'delete ! in process_samples',
     'replace < with <= in process_samples',
 
-    # --- Очередь 3 (formatter) ---
+    # --- Queue 3 (formatter) ---
 
-    # formatter: рука `"word"` дублирует фолбэк `_ => Word`.
+    # formatter: the `"word"` arm duplicates the `_ => Word` fallback.
     'delete match arm "word" in ReplacementRule::from_value',
-    # formatter: `!rules.is_empty()` на выходе из формы-массива — объект не
-    # может быть массивом, фолбэк ниже не сработает, ветка эквивалентна.
+    # formatter: `!rules.is_empty()` on the array-form exit — an object cannot
+    # be an array, the fallback below never fires, the branch is equivalent.
     'src/formatter.rs:386:',
-    # formatter: 'ъ'|'ь' дают "" — как и фолбэк `_`.
+    # formatter: 'ъ' | 'ь' produce "" — same as the `_` fallback.
     'src/formatter.rs:1077:',
-    # formatter: обход сегментов в HallucinationCleaner::apply. Поведение
-    # (галлюцинации убираются, диктовка выживает) покрыто тестами; оставшиеся
-    # мутанты — сдвиг индексов i/j/seg_start/end_byte в обходе, который на
-    # реальных входах эквивалентен (или, для `+=` → `*=`, зацикливается).
+    # formatter: segment traversal in HallucinationCleaner::apply. The behaviour
+    # (hallucinations removed, dictation survives) is covered by tests; the
+    # remaining mutants shift the i/j/seg_start/end_byte indices in the
+    # traversal, which on real input is equivalent (or, for `+=` → `*=`, loops
+    # forever).
     'replace < with (==|>|<=) in <impl FormatStep for HallucinationCleaner>::apply',
     'replace > with (==|<|>=) in <impl FormatStep for HallucinationCleaner>::apply',
     'replace && with \|\| in <impl FormatStep for HallucinationCleaner>::apply',
@@ -163,18 +165,19 @@ exclude_re = [
     'replace \+= with (-=|\*=) in <impl FormatStep for HallucinationCleaner>::apply',
     'replace \+ with (-|\*) in <impl FormatStep for HallucinationCleaner>::apply',
     # formatter: apply_case_of — guard `first.is_lowercase()` → `true`
-    # эквивалентен: capitalize уже заглавной буквы — no-op.
+    # equivalent: capitalize on an already-capital letter is a no-op.
     'replace match guard first\.is_lowercase\(\) with true in apply_case_of',
-    # formatter: best_match — `n > 1` → `>=` (для n=1 trimmed=0, эффекта нет)
-    # и tie-break `score < best_score` → `>`/`with false` (поведение уже
-    # покрыто the_longer_term_wins; мутация меняет только порядок итерации).
+    # formatter: best_match — `n > 1` → `>=` (for n = 1 trimmed is 0, no effect)
+    # and the tie-break `score < best_score` → `>` / `with false` (the behaviour
+    # is already covered by the_longer_term_wins; the mutation only changes the
+    # iteration order).
     'replace > with >= in CustomWordsCorrector::best_match',
     'replace < with > in CustomWordsCorrector::best_match',
     'replace match guard score < best_score with false in CustomWordsCorrector::best_match',
-    # formatter: обходы токенов в DuplicateWordsRemover / PhraseLoopCollapser /
-    # CustomWordsCorrector::apply / collapse_phrase_loops. Поведение покрыто
-    # тестами (dedupe, collapse, dictionary); мутации `+=`/`!=`/`-` в while-
-    # циклах зацикливаются, а границы `>`/`<` дают пустые токены (эквивалент).
+    # formatter: token traversal in DuplicateWordsRemover / PhraseLoopCollapser /
+    # CustomWordsCorrector::apply / collapse_phrase_loops. The behaviour is
+    # covered by tests (dedupe, collapse, dictionary); `+=`/`!=`/`-` mutations in
+    # the while loops hang, and the `>`/`<` bounds produce empty tokens.
     'replace \+= with (-=|\*=) in <impl FormatStep for CustomWordsCorrector>::apply',
     'replace != with == in <impl FormatStep for DuplicateWordsRemover>::apply',
     'replace != with == in <impl FormatStep for PhraseLoopCollapser>::apply',
@@ -184,13 +187,13 @@ exclude_re = [
     'replace - with / in collapse_phrase_loops',
     'delete ! in collapse_phrase_loops',
     'replace \+= with (-=|\*=) in collapse_phrase_loops',
-    # formatter: ещё три мутанта в разборе повторов не проходят, а зависают,
-    # и прогон помечает их таймаутом. `repeats *= 1` не двигает счётчик;
-    # `start * (n * repeats)` при start = 0 не двигает позицию; снятый `!` в
-    # поиске конца разделителя оставляет rest на месте, и внешний while
-    # крутится вечно. Поведение самих функций закрыто тестами на схлопывание
-    # повторов, а держать в прогоне три мутанта по минуте каждый — только
-    # удлинять его.
+    # formatter: three more mutants in repeat parsing do not fail but hang, and
+    # the run marks them as timeouts. `repeats *= 1` never advances the counter;
+    # `start * (n * repeats)` with start = 0 never advances the position;
+    # dropping the `!` in the separator-end search leaves rest in place and the
+    # outer while spins forever. The behaviour of these functions is covered by
+    # the repeat-collapsing tests, and keeping three mutants at a minute each
+    # only makes the run longer.
     'replace \+ with \* in count_phrase_repeats',
     'replace \+= with \*= in count_phrase_repeats',
     'delete ! in tokenize_loop_words',
