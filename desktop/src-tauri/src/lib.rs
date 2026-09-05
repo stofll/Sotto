@@ -3,6 +3,8 @@ pub mod ai;
 mod audio;
 mod audio_file;
 mod audio_worker;
+#[cfg(any(target_os = "macos", test))]
+mod autostart;
 mod clipboard;
 pub mod cloud_stt;
 pub mod config;
@@ -2672,15 +2674,8 @@ fn apply_autostart(app: &AppHandle) {
     apply_autostart_inner(app, false)
 }
 
-/// Same, but rewriting an entry that is already in the wanted state.
-///
-/// Called once at startup, because the entry stores the *path* to the
-/// executable and the OS never revisits it. Renaming the binary
-/// (`whisper-desktop` → `Sotto`) left every existing entry pointing at a file
-/// that no longer exists, and `is_enabled()` still answered "on": it only
-/// checks that the record is there, not where it leads. So an entry that
-/// looks correct is rewritten once per launch — a registry value on Windows,
-/// a LaunchAgent plist on macOS — and any stale path heals itself.
+/// Refresh the executable path after an update, even if an entry exists.
+/// Keep the old entry until its replacement is ready.
 fn refresh_autostart(app: &AppHandle) {
     apply_autostart_inner(app, true)
 }
@@ -2702,21 +2697,31 @@ fn apply_autostart_inner(app: &AppHandle, rewrite_when_unchanged: bool) {
             return;
         }
     };
-    if current == wanted {
-        if !(rewrite_when_unchanged && wanted) {
-            return;
-        }
-        // Пересоздаём запись целиком: путь в ней меняет только повторная
-        // регистрация, отдельного «обнови путь» у плагина нет.
-        if let Err(error) = manager.disable() {
-            log::warn!("autostart entry could not be refreshed: {error}");
-            return;
-        }
+    if current == wanted && !(rewrite_when_unchanged && wanted) {
+        return;
     }
-    let result = if wanted {
-        manager.enable()
+    let result: Result<(), String> = if wanted {
+        // Windows enable() overwrites the Run value without deleting it.
+        // The macOS plugin truncates the plist, so write it atomically instead.
+        #[cfg(target_os = "macos")]
+        {
+            (|| {
+                let home = dirs::home_dir().ok_or("home directory unavailable")?;
+                let name = &app.package_info().name;
+                let path = home
+                    .join("Library/LaunchAgents")
+                    .join(format!("{name}.plist"));
+                let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+                crate::autostart::write_launch_agent(&path, name, &exe, AUTOSTART_ARG)
+                    .map_err(|e| e.to_string())
+            })()
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            manager.enable().map_err(|e| e.to_string())
+        }
     } else {
-        manager.disable()
+        manager.disable().map_err(|e| e.to_string())
     };
     match result {
         Ok(()) => log::info!("autostart set to {wanted}"),
