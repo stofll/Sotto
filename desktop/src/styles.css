@@ -1551,6 +1551,10 @@ button.card { appearance: none; font: inherit; color: inherit; }
    Redesign additions (Stage 7) — Stats (KPI tiles, charts, breakdown)
    ================================================================ */
 
+/* auto-fit, а не фиксированные колонки: плитки просто идут подряд и
+   переносятся, когда не помещаются. Раньше их было две сетки по пять — на
+   средней ширине каждая давала ряд из четырёх и одинокую пятую под ним
+   (4/1/4/1); теперь сетка одна и последний ряд — единственный неполный. */
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));

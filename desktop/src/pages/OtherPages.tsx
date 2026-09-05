@@ -296,9 +296,6 @@ export function StatsPage({ stats, typingSpeedCpm = 240, onRefresh }: { stats: S
         <Stat label={t("Ручной набор")} value={formatDuration(manualTypingSeconds)} sub={t("Символы / {p0} симв/мин.", { p0: speedCpm.toLocaleString(localeTag()) })}/>
         <Stat label={t("Чистая экономия")} value={formatSignedDuration(netSavedSeconds)} sub={t("минус аудио и обработка")} accent={netSavedSeconds >= 0} hint={t("Оценка ручного набора минус длительность аудио и обработка.")}/>
         <Stat label={t("Активных дней")} value={String(activeDays)} sub={t("{p0} дней сохранено в истории", { p0: history.length })}/>
-      </div>
-
-      <div className="stats-grid">
         <Stat label={t("Аудио")} value={formatDuration(audioSeconds)} sub={periodSub} hint={t("Суммарная длительность записанных фрагментов.")}/>
         <Stat label={t("Обработка")} value={formatShortDuration(processingSeconds)} sub={t("{p0} на запись", { p0: formatShortDuration(averageProcessing) })} hint={t("STT {p0} + форматирование {p1} + LLM {p2}.", { p0: formatShortDuration(whisperSeconds), p1: formatShortDuration(formatSeconds), p2: formatShortDuration(llmSeconds) })}/>
         <Stat label="LLM" value={`${llmUsed.toLocaleString(localeTag())}/${llmAttempts.toLocaleString(localeTag())}`} sub={t("успешно, fallback: {p0}", { p0: llmFallbacks.toLocaleString(localeTag()) })}/>
