@@ -1735,15 +1735,25 @@ button.card { appearance: none; font: inherit; color: inherit; }
 
 /* Кнопка занимает всю свободную ширину, чтобы попадать в неё было легко;
    переключатели лежат снаружи — иначе клик по switch схлопывал бы карточку. */
+/* Три элемента шапки выравниваются в один ряд двумя правилами.
+   Текст — по базовой линии, а не по центру коробок: у заголовка line-height 1,
+   у счётчика было 1.7, и центрированные коробки разной высоты ставили «0/0»
+   выше строки заголовка — глаз равняет текст по низу букв.
+   Счётчику тут же line-height приравнен к единице: его пустое поле снизу
+   растягивало строку на 4px ниже заголовка, и центрированный по ней значок
+   сворачивания уезжал под текст. Плашки — не текст, базовой линии у них
+   нет, поэтому они остаются по центру. */
 .fold__toggle {
-  display: flex; align-items: center; gap: 8px;
+  display: flex; align-items: baseline; gap: 8px;
   flex: 1 1 auto; min-width: 0;
   padding: 12px; margin: 0;
   background: transparent; border: 0; cursor: pointer;
   color: inherit; font: inherit; text-align: left;
 }
 .fold__toggle:hover .fold__title { color: var(--accent-text); }
-.fold__chev { display: inline-flex; flex-shrink: 0; color: var(--ink-faint); transition: transform .18s, color .12s; }
+.fold__toggle .head-count { line-height: 1; }
+.fold__toggle > .pill { align-self: center; }
+.fold__chev { display: inline-flex; flex-shrink: 0; align-self: center; color: var(--ink-faint); transition: transform .18s, color .12s; }
 .fold__chev[data-open="true"] { transform: rotate(90deg); color: var(--accent); }
 /* Ужимается многоточием, а не выталкивает соседей: в узкой колонке шапка
    «Замены» с двумя плашками состояния переставала помещаться, и содержимое
