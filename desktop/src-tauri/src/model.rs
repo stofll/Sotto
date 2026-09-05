@@ -1761,6 +1761,10 @@ mod tests {
     #[cfg(any(windows, target_os = "macos"))]
     #[test]
     fn transducer_load_spec_resolves_every_artifact_by_role() {
+        // `model_load_spec` resolves `models_dir()` internally and the
+        // assertion re-reads it; a parallel `EnvGuard` test flipping the
+        // override between the two made the paths disagree.
+        let _env = crate::test_support::env_lock();
         let entry = bundle_manifest_entry("parakeet-tdt-v3").unwrap();
         let spec = model_load_spec("parakeet-tdt-v3", true).unwrap();
         let ModelLoadSpec::Sherpa { engine, files } = spec else {
