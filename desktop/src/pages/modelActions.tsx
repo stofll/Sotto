@@ -14,35 +14,34 @@ export type ModelOperationStatus = {
   detail?: string;
   progress?: number | null;
   closing?: boolean;
-  /** Идентификатор модели, если эту операцию можно прервать. */
+  /** The model id, if this operation can be interrupted. */
   cancelModel?: string;
 };
 
 type Params = {
   models: ModelInfo[];
-  /** Идентификатор выбранной сейчас модели — нужен, чтобы откатиться. */
+  /** The id of the currently selected model — needed in order to roll back. */
   value: string;
   language?: string;
   onConfigChanged: (partial: Partial<ConfigResult>) => Promise<ConfigResult | null>;
   onModelsChanged: (models: ModelInfo[]) => void;
-  /** Закрыть меню перед показом модалки; на странице каталога закрывать нечего. */
+  /** Close the menu before showing the modal; on the catalog page there is
+   *  nothing to close. */
   onBeforeDialog?: () => void;
 };
 
 /**
- * Скачивание, удаление и переключение моделей — одним набором на всё
- * приложение.
+ * Downloading, deleting and switching models — one set for the whole app.
  *
- * Выпадающий список в настройках и страница каталога делают с моделями одно
- * и то же, но выглядят по-разному. Разъехавшиеся копии этой логики означали
- * бы, что модель, скачанная из одного места, ведёт себя не так, как та же
- * модель, скачанная из другого, — поэтому вся она живёт здесь, а разметка
- * остаётся за вызывающим.
+ * The dropdown in settings and the catalog page do the same things to models
+ * while looking different. Copies of this logic drifting apart would mean that a
+ * model downloaded from one place behaves unlike the same model downloaded from
+ * another — so all of it lives here and the markup is left to the caller.
  */
 export function useModelActions({ models, value, language, onConfigChanged, onModelsChanged, onBeforeDialog }: Params) {
-  // Списки, а не по одному идентификатору: загрузок может идти несколько, и
-  // завершение первой снимало отметку «занято» со всех остальных — карточка
-  // второй снова предлагала «Скачать» посреди её собственной загрузки.
+  // Lists rather than a single id: several downloads may be running, and
+  // finishing the first cleared the "busy" mark from all the rest — the second
+  // one's card offered «Скачать» again in the middle of its own download.
   const [deleting, setDeleting] = useState<string[]>([]);
   const [downloading, setDownloading] = useState<string[]>([]);
   const [status, setStatus] = useState<ModelOperationStatus | null>(null);
@@ -51,13 +50,14 @@ export function useModelActions({ models, value, language, onConfigChanged, onMo
   const [pendingSelect, setPendingSelect] = useState<ModelInfo | null>(null);
   const toastDismissTimer = useRef<number | null>(null);
   const toastRemoveTimer = useRef<number | null>(null);
-  // Модели, отмену которых уже попросили. Байты, отправленные до того, как
-  // скачиватель заметил флаг, ещё идут — и без этой отметки они возвращали
-  // бы тосту «Скачиваю…» и кнопку отмены поверх уже нажатой.
+  // Models whose cancellation has already been requested. Bytes sent before the
+  // downloader noticed the flag are still in flight — and without this mark they
+  // would bring the toast back to «Скачиваю…» with a cancel button on top of one
+  // already pressed.
   const cancelRequested = useRef<Set<string>>(new Set());
-  // Тот же список, что и в состоянии, но доступный синхронно: состояние
-  // обновляется к следующему кадру, а два быстрых клика по одной кнопке
-  // случаются в одном.
+  // The same list as in state but readable synchronously: state updates by the
+  // next frame, while two quick clicks on one button happen within a single
+  // frame.
   const inFlight = useRef<Set<string>>(new Set());
 
   function clearToastTimers() {
@@ -99,8 +99,8 @@ export function useModelActions({ models, value, language, onConfigChanged, onMo
     return () => { unlisten?.(); };
   }, [models]);
 
-  // Esc закрывает подтверждение. `useOutsideClose` тут не помощник: к моменту
-  // показа модалки меню уже закрыто, и его слушатель снят.
+  // Esc closes the confirmation. `useOutsideClose` is no help here: by the time
+  // the modal is shown the menu is already closed and its listener removed.
   useEffect(() => {
     if (!pendingDownload && !pendingDelete && !pendingSelect) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -113,9 +113,9 @@ export function useModelActions({ models, value, language, onConfigChanged, onMo
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [pendingDownload, pendingDelete, pendingSelect]);
 
-  // Язык у одноязычной модели прижимается к её языку тем же патчем, которым
-  // сохраняется сама модель: отдельная запись оставила бы окно, в котором
-  // конфиг ссылается на невозможную пару.
+  // For a monolingual model the language is pinned to its own by the same patch
+  // that saves the model itself: a separate write would leave a window in which
+  // the config points at an impossible pair.
   function persistWithLanguageRule(model: ModelInfo) {
     const next = fallbackLanguage(model, language);
     return (patch: Partial<ConfigResult>) => onConfigChanged(
@@ -124,25 +124,26 @@ export function useModelActions({ models, value, language, onConfigChanged, onMo
   }
 
   /**
-   * Клик по модели.
+   * A click on a model.
    *
-   * Спрашиваем до переключения, а не после: смена модели выгружает из
-   * памяти прежнюю и занимает памятью новую — на слабой машине это секунды
-   * ожидания, и случайно ткнув мимо, пользователь получал бы их без всякой
-   * причины.
+   * We ask before switching rather than after: changing the model unloads the
+   * previous one from memory and fills memory with the new one — on a weak
+   * machine that is seconds of waiting, and a user who mis-clicked would get
+   * them for no reason at all.
    */
   function requestSelect(model: ModelInfo) {
-    // Идёт своя загрузка — клик по карточке молчит: предлагать скачать то,
-    // что уже качается, значит открыть окно, кнопка в котором ничего не
-    // сделает.
+    // Its own download is running — a click on the card stays silent: offering
+    // to download what is already downloading means opening a dialog whose
+    // button will do nothing.
     if (inFlight.current.has(model.id)) return;
-    // Клик по уже выбранной модели ничего не меняет — и спрашивать не о чем.
+    // A click on an already selected model changes nothing — there is nothing
+    // to ask about.
     if (model.id === value) return;
     onBeforeDialog?.();
-    // Не скачанную модель движок активировать не может, и раньше клик по ней
-    // заканчивался красной строкой «model tiny not downloaded». Но выбор
-    // модели — это намерение ею пользоваться, а не ошибка: спрашиваем,
-    // качать ли, вместо того чтобы отчитываться о невозможном.
+    // The engine cannot activate a model that is not downloaded, and a click on
+    // one used to end in a red line saying "model tiny not downloaded". But
+    // selecting a model is an intention to use it, not a mistake: we ask whether
+    // to download it instead of reporting the impossible.
     if (!model.downloaded && !model.local) {
       setPendingDownload(model);
       return;
@@ -194,11 +195,11 @@ export function useModelActions({ models, value, language, onConfigChanged, onMo
   }
 
   /**
-   * Отмена скачивания.
+   * Cancelling a download.
    *
-   * Тост не закрываем: команда возвращается не мгновенно, и пропавший тост
-   * выглядел бы как «отменилось», когда байты ещё идут. Итог покажет сам
-   * `startDownload`, дождавшись ответа.
+   * The toast is not closed: the command does not return instantly, and a
+   * vanished toast would look like "it cancelled" while bytes are still in
+   * flight. `startDownload` will show the outcome itself once it has an answer.
    */
   async function cancelDownload(modelId: string) {
     cancelRequested.current.add(modelId);
@@ -211,17 +212,17 @@ export function useModelActions({ models, value, language, onConfigChanged, onMo
   }
 
   async function startDownload(model: ModelInfo) {
-    // Вторая загрузка той же модели писала бы тот же `*.part`; бэкенд её
-    // тоже отклонит, но объяснять пользователю ошибку, которую мы сами и
-    // допустили, — плохой способ её не допускать.
+    // A second download of the same model would write the same `*.part`; the
+    // backend rejects it too, but explaining to the user an error we allowed
+    // ourselves is a poor way of not allowing it.
     if (inFlight.current.has(model.id)) return;
     inFlight.current.add(model.id);
     cancelRequested.current.delete(model.id);
     setDownloading((current) => (current.includes(model.id) ? current : [...current, model.id]));
     showStatus({ kind: "loading", text: t("Скачиваю {p0}", { p0: model.label }), detail: model.size, progress: null, cancelModel: model.id });
     try {
-      // `null` — отменено: пользователь получил ровно то, что просил, и
-      // это не ошибка.
+      // `null` means cancelled: the user got exactly what they asked for, and
+      // that is not an error.
       const outcome = await tauriInvoke<unknown>("download_model", { model: model.id });
       if (outcome == null) {
         showStatus({ kind: "info", text: t("Загрузка отменена"), detail: model.label }, 5000);
@@ -229,7 +230,7 @@ export function useModelActions({ models, value, language, onConfigChanged, onMo
       }
       const next = await invoke<ModelInfo[]>("list_models");
       onModelsChanged(next);
-      // Скачали — значит, хотели пользоваться: включаем сразу.
+      // Downloaded means they wanted to use it: we switch to it right away.
       try {
         await loadThenPersistModel(
           model.id,
@@ -257,7 +258,7 @@ export function useModelActions({ models, value, language, onConfigChanged, onMo
     dismissStatus,
     deleting,
     downloading,
-    /** Занята ли карточка этой модели своей собственной операцией. */
+    /** Whether this model's card is busy with an operation of its own. */
     isBusy: (id: string) => downloading.includes(id) || deleting.includes(id),
     pendingDownload,
     pendingDelete,
@@ -278,8 +279,8 @@ export function useModelActions({ models, value, language, onConfigChanged, onMo
 export type ModelActions = ReturnType<typeof useModelActions>;
 
 /**
- * Тост прогресса и оба подтверждения. Рендерится через портал, поэтому
- * вызывающему безразлично, где в разметке он это поставит.
+ * The progress toast and both confirmations. Rendered through a portal, so the
+ * caller does not care where in the markup it places this.
  */
 export function ModelActionOverlays({ actions }: { actions: ModelActions }) {
   const { status, dismissStatus, cancelDownload, pendingDownload, pendingDelete, pendingSelect, setPendingDownload, setPendingDelete, setPendingSelect, startDownload, deleteModel, selectModel } = actions;
@@ -301,12 +302,13 @@ export function ModelActionOverlays({ actions }: { actions: ModelActions }) {
             <strong>{status.text}</strong>
             {status.detail && <span>{status.detail}</span>}
           </span>
-          {/* Пока идёт скачивание, крестик отменяет само скачивание, а не
-              прячет тост. Раньше рядом стояли оба: кнопка «Отменить» и
-              крестик со значением «пусть качается, но с глаз долой». Второе
-              никто не искал, а два похожих действия в одном углу стоили
-              дороже, чем спасали. Подпись у крестика меняется вместе с
-              действием, чтобы отмену не нажимали вслепую. */}
+          {/* While a download is running the close button cancels the download
+              itself rather than hiding the toast. Both used to stand side by
+              side: an «Отменить» button and a close button meaning "let it
+              download, just out of my sight". Nobody looked for the second, and
+              two similar actions in one corner cost more than they saved. The
+              close button's label changes along with its action so cancellation
+              is never pressed blindly. */}
           <button
             className="model-download-toast__close"
             type="button"
@@ -354,9 +356,9 @@ export function ModelActionOverlays({ actions }: { actions: ModelActions }) {
       ), document.body)}
       {pendingSelect && createPortal((
         <div className="modal-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) setPendingSelect(null); }}>
-          {/* Крестик здесь лишний: «Отмена» рядом делает то же самое, а
-              две кнопки закрытия в окне из одного вопроса — это выбор без
-              разницы. */}
+          {/* A close button is redundant here: «Отмена» next to it does the
+              same thing, and two closing buttons in a dialog asking one
+              question is a choice without a difference. */}
           <div className="modal" role="dialog" aria-modal="true" aria-label={t("Переключить модель?")} style={{ width: "min(320px, 100%)" }}>
             <div className="modal__head">
               <h2>{t("Переключить модель?")}</h2>
@@ -378,9 +380,10 @@ export function ModelActionOverlays({ actions }: { actions: ModelActions }) {
               <button className="modal__close" type="button" onClick={() => setPendingDelete(null)} aria-label={t("Закрыть")}><Icon name="x" size={14}/></button>
             </div>
             <div className="modal__body">
-              {/* Своё и скачанное удаляются одинаково, а последствия разные:
-                  каталожную модель приложение вернёт само, чужой файл —
-                  никогда. Разговор об этом идёт здесь, до удаления. */}
+              {/* A user's own file and a downloaded one are deleted the same
+                  way, but the consequences differ: a catalog model the app will
+                  bring back itself, a foreign file never. That conversation
+                  happens here, before the deletion. */}
               <p style={{ margin: 0, font: "400 13px/1.5 var(--font-sans)", color: pendingDelete.local ? "var(--warn)" : "var(--ink-mute)" }}>
                 {pendingDelete.local
                   ? t("Файл «{p0}» ({p1}) будет удалён с диска навсегда. Это ваш файл: скачать его заново приложение не сможет.", { p0: pendingDelete.label, p1: pendingDelete.size })

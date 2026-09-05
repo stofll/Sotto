@@ -26,12 +26,13 @@
   --accent-soft: rgba(230, 138, 61, 0.14);
   --accent-soft-2: rgba(230, 138, 61, 0.26);
   --accent-ink: #1a1208;
-  /* Акцент как цвет текста. На тёмном фоне это тот же --accent-strong,
-     на светлом он даёт контраст 2.1 и читается только вблизи, поэтому
-     светлая тема подменяет токен затемнённой версией. Отдельный токен, а
-     не переопределение --accent-strong, потому что applyAccent() пишет
-     акцентные переменные инлайном в style корня — инлайн бьёт любой
-     блок [data-theme], а --accent-text инлайном не пишется. */
+  /* The accent as a text colour. On a dark background this is the same as
+     --accent-strong; on a light one it gives a contrast of 2.1 and is only
+     readable up close, so the light theme replaces the token with a darkened
+     version. A separate token rather than an override of --accent-strong,
+     because applyAccent() writes the accent variables inline into the root's
+     style — inline beats any [data-theme] block, and --accent-text is never
+     written inline. */
   --accent-text: var(--accent-strong);
 
   --ok: #4ade80;       --ok-soft: rgba(74, 222, 128, 0.14);
@@ -65,17 +66,17 @@
 
   --sidebar-w: 240px;
   --sidebar-collapsed-w: 52px;
-  /* Строка титулбара выше кнопок окна: в ней слева стоит название, и на
-     38 px оно упиралось в верхнюю кромку. Кнопки при этом остаются прижатыми
-     к верху — их место у Windows определено, а название дышит. */
+  /* The title-bar row is taller than the window buttons: the name sits at its
+     left, and at 38 px it pressed against the top edge. The buttons stay
+     pinned to the top — Windows fixes their place — while the name breathes. */
   --titlebar-h: 50px;
   --footer-h: 44px;
 
-  /* Никаких Inter / JetBrains Mono: их грузил Google Fonts из index.html,
-     а CDN убран — приложение не должно ходить в сеть за шрифтом. Локально
-     их тоже нет, и держать их первыми в стеке значит врать про то, чем
-     на самом деле рисуется интерфейс. Первым идёт то, что реально может
-     оказаться в системе, дальше — системный шрифт платформы. */
+  /* No Inter / JetBrains Mono: Google Fonts loaded them from index.html, and
+     the CDN is gone — the app must not go to the network for a font. They are
+     not present locally either, and keeping them first in the stack means lying
+     about what the interface is actually drawn with. First comes what may
+     genuinely be on the system, then the platform's system font. */
   --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, Menlo, monospace;
 
@@ -96,9 +97,9 @@
   --accent-line: var(--accent-soft-2);
   --accent-deep: var(--accent-strong);
   --r-xs: 4px;
-  /* Одна высота для всех контролов в строках настроек. Каждый из них по
-     отдельности выглядел нормально, но 28/30/32/34/36 в соседних ячейках
-     читались как случайность, а не как замысел. */
+  /* One height for every control in the settings rows. Each looked fine on its
+     own, but 28/30/32/34/36 in neighbouring cells read as an accident rather
+     than a design. */
   --control-h: 36px;
   --r-sm: var(--radius-sm);
   --r: var(--radius);
@@ -129,9 +130,9 @@
   --accent-soft: rgba(230, 138, 61, 0.16);
   --accent-soft-2: rgba(230, 138, 61, 0.30);
 
-  /* Выводится из выбранного акцента, а не задаётся литералом: акцент
-     переключаемый (см. ACCENT_OPTIONS), и все четыре варианта после этого
-     смешения дают на светлой подложке от 4.8 до 6.5. */
+  /* Derived from the chosen accent rather than written as a literal: the accent
+     is switchable (see ACCENT_OPTIONS), and after this mix all four options give
+     between 4.8 and 6.5 on a light background. */
   --accent-text: color-mix(in srgb, var(--accent) 55%, #12101a);
 
   /* The dark theme's status colours are pastels chosen to glow against
@@ -230,9 +231,9 @@ button, input, textarea, select { font: inherit; }
 .app-frame { font-family: var(--font-sans); color: var(--text); background: var(--bg); font-feature-settings: "ss01", "cv11"; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; letter-spacing: -0.005em; }
 .app-frame ::selection { background: var(--accent-soft); }
 .app-frame ::-webkit-scrollbar { width: 0; height: 0; }
-/* Точечный возврат скроллбара. Прятать полосу можно там, где содержимое
-   очевидно продолжается; в поле на дюжину строк, где текста ещё на три
-   экрана, невидимый скролл — это спрятанный текст. */
+/* Bringing the scrollbar back in one specific place. Hiding the bar is fine
+   where the content obviously continues; in a twelve-line field holding another
+   three screens of text, an invisible scrollbar is hidden text. */
 .app-frame .scroll-visible::-webkit-scrollbar { width: 10px; height: 10px; }
 .app-frame .scroll-visible::-webkit-scrollbar-track { background: transparent; }
 .app-frame .scroll-visible::-webkit-scrollbar-thumb { background: var(--surface-4); border: 2px solid transparent; background-clip: padding-box; border-radius: 999px; }
@@ -244,8 +245,8 @@ button, input, textarea, select { font: inherit; }
 .btn--ghost:hover { background: var(--surface-2); color: var(--text); }
 .btn--primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; box-shadow: 0 1px 0 rgba(255,255,255,0.18) inset, 0 1px 0 rgba(0,0,0,0.18); }
 .btn--primary:hover { background: #ffb649; color: var(--accent-ink); }
-/* Квадратная кнопка под одну иконку: без неё padding кнопки растягивал
-   корзину в прямоугольник шире, чем сама иконка. */
+/* A square button for a single icon: without it the button's padding stretched
+   the trash can into a rectangle wider than the icon itself. */
 .btn--icon { width: 32px; padding: 0; flex: 0 0 auto; }
 .btn--sm { height: 28px; padding: 0 10px; font-size: 12px; }
 .btn--sm.btn--icon { width: 28px; padding: 0; }
@@ -253,12 +254,12 @@ button, input, textarea, select { font: inherit; }
 .btn:disabled:hover { background: var(--surface-2); color: var(--text-1); }
 .btn--ghost:disabled:hover { background: transparent; color: var(--text-2); }
 
-/* Каталог моделей. Плитка вместо строки: карточка складывает название,
-   языки и вес в три коротких ряда вместо одной длинной строки, а в двух
-   колонках на экран помещается вдвое больше моделей. */
-/* Одна строка: поиск тянется, язык и «только скачанные» занимают ровно
-   столько, сколько им нужно. Переносить нечего — на узком окне сжимается
-   поиск. */
+/* The model catalog. A tile instead of a row: the card folds the name,
+   languages and size into three short rows instead of one long line, and two
+   columns fit twice as many models on screen. */
+/* One row: the search stretches while the language and «только скачанные»
+   take exactly what they need. There is nothing to wrap — on a narrow window
+   the search shrinks. */
 .model-catalog__toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
 .model-catalog__search { position: relative; display: flex; align-items: center; flex: 1 1 auto; min-width: 120px; color: var(--text-mute); }
 .model-catalog__search svg { position: absolute; left: 10px; pointer-events: none; }
@@ -266,12 +267,12 @@ button, input, textarea, select { font: inherit; }
 .model-catalog__toolbar .custom-select { flex: 0 0 auto; width: auto; min-width: 132px; }
 .model-catalog__toolbar .checkbox-row { flex: 0 0 auto; white-space: nowrap; font-size: 12.5px; }
 .model-catalog__section { margin-bottom: 16px; }
-/* Заголовок семейства — заголовок, а не подпись: мелкий мономошрифт капсом
-   читался как техническая метка, хотя это единственная навигация по
-   каталогу и кнопка сворачивания заодно. */
-/* Ширина по содержимому: кнопка во всю строку означала, что клик в пустоту
-   справа от названия сворачивает семейство — попасть в неё легче, чем в само
-   название. */
+/* A family heading is a heading, not a caption: small monospace in caps read
+   as a technical label, even though it is the only navigation through the
+   catalog and the collapse button as well. */
+/* Width by content: a full-row button meant that a click into the emptiness to
+   the right of the name collapsed the family — easier to hit than the name
+   itself. */
 .model-catalog__section-title { appearance: none; width: fit-content; margin: 0 0 8px; padding: 2px 0; display: flex; align-items: center; gap: 8px; border: 0; background: transparent; font: 600 15px/1.25 var(--font-sans); color: var(--text); cursor: pointer; text-align: left; }
 .model-catalog__section-title:hover { color: var(--accent); }
 .model-catalog__chev { flex: 0 0 auto; transition: transform .16s ease; }
@@ -279,63 +280,66 @@ button, input, textarea, select { font: inherit; }
 .model-catalog__empty { padding: 22px 16px; text-align: center; color: var(--text-2); }
 .model-catalog__empty p { margin: 0; font: 400 13px/1.5 var(--font-sans); }
 
-/* auto-fill, а не фиксированные две колонки: на узком окне карточки честно
-   схлопываются в одну, а на широком их станет три — сетка следует за
-   местом, а не за числом, вписанным в стили. */
+/* auto-fill rather than a fixed two columns: on a narrow window the cards
+   honestly collapse into one, and on a wide one there will be three — the grid
+   follows the available space, not a number written into the styles. */
 .model-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; }
-/* Состояние модели несёт рамка, а не фон: фон под цвет страницы съедал
-   карточку целиком, и нескачанные модели переставали быть карточками.
-   Зелёная — модель в оперативной памяти, распознаёт прямо сейчас; рыжая —
-   лежит на диске; обычная — её ещё нет. Фон у всех один: карточка, залитая
-   иначе остальных, читается как выломанная из сетки. */
+/* The model's state is carried by the border, not the background: a background
+   matching the page colour ate the whole card, and models not yet downloaded
+   stopped looking like cards. Green — the selected model; orange — one sitting
+   on disk; plain — one that is not there yet. The background is the same for
+   all: a card filled differently from the rest reads as torn out of the grid. */
 .model-card2 { display: flex; flex-direction: column; gap: 7px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface-1); min-width: 0; cursor: pointer; transition: border-color .14s ease, background .14s ease; }
 .model-card2:hover { background: var(--surface-2); }
 .model-card2:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-/* Толщина рамки — внутренней тенью, а не border-width: та съела бы пиксель
-   у содержимого, и карточки в сетке разъехались бы на строку выше. */
+/* Border thickness comes from an inset shadow rather than border-width: that
+   would eat a pixel from the content and the cards in the grid would drift a
+   row upward. */
 .model-card2--installed { border-color: var(--border-accent); box-shadow: inset 0 0 0 1px var(--border-accent); }
 .model-card2--active { border-color: color-mix(in srgb, var(--ok) 55%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ok) 55%, transparent); }
-/* Подпись, а не значок: в карточке из трёх коротких строк пилюля весит
-   больше, чем сообщает, а цвет слова говорит то же самое. */
-/* Три точки прижаты к правому краю заголовка и выровнены по центру: в
-   ряду, выровненном по базовой линии, иконке равняться не по чему. */
+/* A caption rather than a badge: on a card of three short rows a pill weighs
+   more than it says, while the colour of the word says the same thing. */
+/* The three dots are pinned to the right edge of the heading and centred: in a
+   baseline-aligned row an icon has nothing to align to. */
 .model-card2__menu { margin-left: auto; align-self: center; flex: 0 0 auto; }
 .model-card2__more { appearance: none; width: 26px; height: 26px; display: grid; place-items: center; padding: 0; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--text-mute); cursor: pointer; }
 .model-card2__more:hover { background: var(--surface-3); color: var(--text); }
-/* Ширина фиксированная и через составной селектор: у общего меню стоит
-   `width: max-content`, а внутри него пункт занимает всю ширину — вместе это
-   схлопывало меню до ширины кнопки, и «Удалить» переносилось по букве. */
+/* The width is fixed and set through a compound selector: the shared menu has
+   `width: max-content` while an item inside takes the full width — together
+   that collapsed the menu to the button's width and «Удалить» wrapped letter by
+   letter. */
 .custom-select__menu.card-menu { width: 168px; }
 .card-menu__item--danger { color: var(--err); }
 .card-menu__item--danger:hover { background: var(--err-soft); border-color: color-mix(in srgb, var(--err) 25%, transparent); }
 .model-card2__state { font: 500 11.5px/1.2 var(--font-sans); white-space: nowrap; }
 .model-card2__state--memory { color: var(--ok); }
 .model-card2__state--own { color: var(--text-mute); }
-/* По базовой линии, а не по центру: подпись вдвое мельче названия, и
-   центрированная по коробке она сидит выше его строки — глаз равняет текст
-   по низу букв, а не по середине. */
-/* Высота обеих строк-обрамлений задана, а не следует за содержимым: три
-   точки есть только у скачанной модели, кнопка скачивания — только у
-   нескачанной, и без запаса под них строки внутри карточек стояли на разной
-   высоте у соседей по ряду. */
+/* By baseline rather than by centre: the caption is half the size of the name,
+   and centred by its box it sits above the name's line — the eye aligns text by
+   the bottom of the letters, not by the middle. */
+/* The height of both framing rows is fixed rather than following the content:
+   the three dots exist only on a downloaded model and the download button only
+   on one not yet downloaded, and without room reserved for them the rows inside
+   the cards sat at different heights across a row of neighbours. */
 .model-card2__head { display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; min-width: 0; min-height: 26px; }
 .model-card2__name { font: 600 14.5px/1.25 var(--font-sans); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .model-card2__params { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .model-card2__param { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; font: 500 12px/1.35 var(--font-sans); color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* Ужимается перечисление языков — оно длинное; короткие свойства рядом с
-   ним не должны исчезать первыми. */
+/* What shrinks is the list of languages — it is the long one; the short
+   properties beside it must not be the first to disappear. */
 .model-card2__param--wide { flex: 0 1 auto; min-width: 0; }
 .model-card2__param svg { flex: 0 0 auto; color: var(--text-mute); }
-/* Вес и действия в одном ряду: они отвечают на два половины одного вопроса
-   — «сколько это стоит» и «беру». */
-/* Параметры прижаты к низу карточки, а не висят сразу под языками: в сетке
-   карточки одной высоты, и строка, оканчивающаяся на разной высоте у
-   соседей, читается как сбой вёрстки. */
-/* Высота подвала — 28 под кнопку плюс 10 отступа: min-height считается по
-   внешней рамке, и запас в 28 оказывался на отступ короче кнопки.
-   Содержимое прижато к низу, а не по центру: параметры должны лежать на
-   нижней границе карточки, а по центру подвала они всплывали над кнопкой
-   соседней карточки. */
+/* Size and actions share one row: they answer the two halves of a single
+   question — "what does it cost" and "I'll take it". */
+/* The parameters are pinned to the bottom of the card rather than hanging
+   right under the languages: in the grid the cards are of equal height, and a
+   line ending at a different height on neighbours reads as a layout fault. */
+/* The footer height is 28 for the button plus 10 of padding: min-height is
+   measured on the outer box, and a reserve of 28 came out one padding shorter
+   than the button.
+   The content is pinned to the bottom rather than centred: the parameters must
+   rest on the card's bottom edge, whereas centred in the footer they floated
+   above the button of the neighbouring card. */
 .model-card2__foot { display: flex; align-items: flex-end; justify-content: space-between; gap: 8px; min-height: 38px; margin-top: auto; padding-top: 10px; }
 .model-card2__meta { font: 500 9.5px/1.3 var(--font-mono); letter-spacing: 0.03em; color: var(--text-mute); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .model-card2__actions { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
@@ -364,12 +368,12 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
  .section-title { font: 500 11px/1 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-mute); }
 .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .kbd { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 20px; padding: 0 6px; border-radius: 5px; background: var(--surface-3); border: 1px solid var(--border-strong); border-bottom-width: 2px; font: 500 11px/1 var(--font-mono); color: var(--text-1); }
-/* ── Сегментированный переключатель ─────────────────────────────────────
-   Выбранный сегмент подсвечивает не собственный фон, а подложка под ним:
-   только так переключение читается как перемещение, а не как перекраска двух
-   кнопок разом. Позицию и ширину подложке считает сам компонент — сегменты
-   бывают разной ширины. Кривая та же, что у сайдбара: начинает быстро и
-   мягко доезжает. */
+/* ── Segmented switch ───────────────────────────────────────────────────
+   The selected segment is highlighted not by its own background but by a
+   backdrop beneath it: only that way does switching read as movement rather
+   than as repainting two buttons at once. The component computes the backdrop's
+   position and width itself — segments come in different widths. The easing is
+   the same as the sidebar's: it starts fast and glides to a stop. */
 .segmented {
   position: relative;
   display: inline-flex;
@@ -390,7 +394,7 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 }
 .segmented__option {
   appearance: none;
-  position: relative; /* поверх подложки */
+  position: relative; /* above the backdrop */
   display: inline-flex; align-items: center; gap: 6px;
   height: 26px; padding: 0 12px;
   border: 0; border-radius: 4px;
@@ -398,15 +402,15 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
   color: var(--text-2);
   font: 500 12px/1 var(--font-sans);
   cursor: pointer;
-  /* Цвет догоняет подложку чуть быстрее, чем она едет: подпись, меняющая
-     цвет ровно в момент прибытия, выглядит запаздывающей. */
+  /* The colour catches up with the backdrop slightly faster than it travels: a
+     caption that changes colour exactly on arrival looks late. */
   transition: color .18s ease;
 }
 .segmented__option[data-selected="true"] { color: var(--text); }
 .segmented__option:disabled { cursor: not-allowed; }
 .segmented__option:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-/* Движение здесь — украшение, и системная просьба его убрать важнее. */
+/* The motion here is decoration, and the system's request to remove it wins. */
 @media (prefers-reduced-motion: reduce) {
   .segmented__thumb, .segmented__option { transition: none; }
 }
@@ -416,10 +420,10 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 .switch[data-on="true"] { background: var(--accent); border-color: transparent; }
 .switch[data-on="true"]::after { transform: translateX(14px); background: var(--accent-ink); }
 
-/* Чекбокс. Тот же язык, что и .switch: акцентная заливка во включённом
-   состоянии, --accent-ink для галочки, то же фокус-кольцо, что у .field.
-   Галочка нарисована двумя границами повёрнутого псевдоэлемента, чтобы не
-   тянуть SVG в каждый инстанс. */
+/* Checkbox. The same language as .switch: an accent fill when on,
+   --accent-ink for the tick, the same focus ring as .field. The tick is drawn
+   with two borders of a rotated pseudo-element so as not to drag an SVG into
+   every instance. */
 .checkbox {
   appearance: none; -webkit-appearance: none;
   position: relative; flex: 0 0 auto; margin: 0;
@@ -441,24 +445,26 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 .checkbox:checked { background: var(--accent); border-color: transparent; }
 .checkbox:checked::after { opacity: 1; transform: rotate(42deg) scale(1); }
 .checkbox:disabled { cursor: not-allowed; opacity: 0.45; }
-/* Подпись рядом с выключенным чекбоксом гасится вместе с ним — иначе
-   читается как активная опция, которую просто забыли включить. */
+/* The caption next to a disabled checkbox is dimmed along with it — otherwise
+   it reads as an active option somebody simply forgot to turn on. */
 .checkbox-row { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; }
 .checkbox-row:has(.checkbox:disabled) { cursor: not-allowed; }
 .label-with-hint { display: inline-flex; align-items: center; gap: 5px; }
 
 .win { background: var(--bg-0); border-radius: var(--r-lg); overflow: hidden; box-shadow: var(--shadow-3); height: 100%; display: grid; grid-template-rows: auto 1fr; }
 .win__layout { display: grid; grid-template-columns: var(--sidebar-w) 1fr; min-height: 0; position: relative; transition: grid-template-columns .34s cubic-bezier(.32,.72,0,1); }
-/* Кривая разворачивания начинается рывком и долго доезжает — на открытии это
-   читается как отзывчивость, а на закрытии тот же рывок выглядит как щелчок.
-   Поэтому у сворачивания своя, симметричная кривая и чуть большая длительность:
-   параметры перехода берутся из того правила, в которое элемент едет. */
+/* The expand easing starts with a jolt and takes a long time to settle — on
+   opening that reads as responsiveness, while on closing the same jolt looks
+   like a snap. So collapsing gets its own symmetric easing and a slightly
+   longer duration: transition parameters are taken from the rule the element is
+   travelling into. */
 .win__layout.collapsed { grid-template-columns: var(--sidebar-collapsed-w) 1fr; transition: grid-template-columns .4s cubic-bezier(.6,.04,.24,1); }
 .win__sidebar { background: var(--bg-1); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden; }
 .win__main { display: flex; flex-direction: column; min-height: 0; background: var(--bg-2); overflow-y: auto; }
-/* Титулбар держит те же колонки, что и layout под ним: рельс слева
-   продолжает сайдбар, правая часть — фон страницы. Никакой собственной
-   подложки и линии снизу — граница проходит там же, где граница сайдбара. */
+/* The title bar keeps the same columns as the layout beneath it: the rail on
+   the left continues the sidebar, the right part is the page background. No
+   background of its own and no bottom line — the boundary runs exactly where
+   the sidebar's boundary runs. */
 .titlebar { height: var(--titlebar-h); display: grid; grid-template-columns: var(--sidebar-w) 1fr; flex: 0 0 auto; transition: grid-template-columns .34s cubic-bezier(.32,.72,0,1); }
 .win.collapsed .titlebar { grid-template-columns: var(--sidebar-collapsed-w) 1fr; transition: grid-template-columns .4s cubic-bezier(.6,.04,.24,1); }
 .titlebar__rail { background: var(--bg-1); border-right: 1px solid var(--line); display: flex; align-items: center; min-width: 0; }
@@ -477,17 +483,18 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 .nav__group-items[data-collapsed="true"] { grid-template-rows: 0fr; opacity: .4; }
 .nav__group-items > div { overflow: hidden; }
 .nav__item { position: relative; appearance: none; border: 0; background: transparent; display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 10px; border-radius: var(--r-sm); color: var(--text-2); font: 500 13px/1 var(--font-sans); cursor: pointer; transition: background .12s ease, color .12s ease; width: 100%; text-align: left; }
-/* Подпись не выключается, а сжимается в ноль и гаснет: display:none рвал бы
-   переход на полпути, и сворачивание читалось как рывок. При сворачивании
-   текст уходит первым, а при разворачивании начинает проявляться сразу с
-   первого кадра: пауза перед его появлением читалась не как анимация, а как
-   подтормаживающая загрузка. Ширина панели проявляет текст слева направо
-   сама — обрезкой, — и прозрачность лишь смягчает эту границу. */
+/* The caption is not switched off but squeezed to zero and faded: display:none
+   would tear the transition halfway and collapsing would read as a jolt. When
+   collapsing, the text goes first; when expanding, it starts appearing from the
+   very first frame: a pause before it showed up read not as animation but as a
+   sluggish load. The panel's width reveals the text left to right on its own —
+   by clipping — and the opacity merely softens that edge. */
 .nav__item span:nth-child(2), .nav__group span, .theme-toggle__text, .theme-toggle__value { white-space: nowrap; opacity: 1; transition: opacity .3s ease-out; }
 .nav__item:hover { background: var(--surface-2); color: var(--text); }
 .nav__item[aria-selected="true"] { background: var(--surface-2); color: var(--text); }
-/* Полоска активного раздела — отдельным элементом, а не inset-тенью: тень
-   обрезается радиусом кнопки и вырождается в скруглённый серп. */
+/* The active section's stripe is a separate element rather than an inset
+   shadow: a shadow is clipped by the button's radius and degenerates into a
+   rounded crescent. */
 .nav__item[aria-selected="true"]::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; border-radius: 0; background: var(--accent); }
 .nav__count { margin-left: auto; font: 500 11px/1 var(--font-mono); color: var(--text-mute); }
 .sidebar-actions { margin-top: auto; padding: 0 8px 8px; }
@@ -497,9 +504,9 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 .theme-toggle__text { font: 500 12px/1 var(--font-sans); }
 .theme-toggle__value { margin-left: auto; font: 500 11px/1 var(--font-mono); color: var(--text-mute); }
 .sidebar-footer { border-top: 1px solid var(--border); padding: 8px; }
-/* Свёрнутая плашка статуса рисуется другой разметкой, поэтому при
-   разворачивании её текст монтируется заново и появлялся мгновенно, обгоняя
-   остальные подписи. Догоняем их анимацией той же длительности. */
+/* The collapsed status pill is drawn with different markup, so when expanding
+   its text is mounted anew and appeared instantly, outrunning the other
+   captions. We catch up with them using an animation of the same duration. */
 .status-pill__text { animation: status-pill-text-in .3s ease-out both; }
 @keyframes status-pill-text-in { from { opacity: 0; } to { opacity: 1; } }
 .main-header { flex: 0 0 auto; padding: 22px 32px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; }
@@ -523,14 +530,15 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 .setting__label h3 { margin: 0; font: 500 14px/1.2 var(--font-sans); letter-spacing: -0.01em; display: inline-flex; align-items: center; gap: 5px; }
 .setting__label p { margin: 0; font: 400 12px/1.45 var(--font-sans); color: var(--text-2); max-width: 180px; }
 .setting__control { min-width: 0; }
-/* Единая геометрия значка подсказки. Эталон — строка «Горячая клавиша» в
-   настройках: 14 px значок, 5 px до подписи. Расстояние задаёт gap строки,
-   поэтому все контейнеры с подсказкой держат одно и то же значение. */
+/* One geometry for the hint icon. The reference is the «Горячая клавиша» row
+   in settings: a 14 px icon, 5 px to the caption. The distance is set by the
+   row's gap, so every container with a hint keeps the same value. */
 .hint { position: relative; flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; border-radius: 50%; color: var(--text-mute); cursor: help; outline: none; }
 .hint:hover,
 .hint:focus-visible { color: var(--accent); background: var(--accent-soft-2); }
-/* Тот же пузырь, но якорь — сам контрол. Ни размера, ни цвета: обёртка
-   обязана быть невидимой, иначе она переоформит то, что оборачивает. */
+/* The same bubble, but the anchor is the control itself. No size and no
+   colour: the wrapper must be invisible, otherwise it restyles what it
+   wraps. */
 .hint-anchor { display: inline-flex; align-items: center; min-width: 0; cursor: help; }
 .hint-bubble {
   box-sizing: border-box;
@@ -540,9 +548,9 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
   border: 1px solid var(--border-strong); border-radius: var(--r-sm);
   background: var(--surface-3); color: var(--text-1);
   box-shadow: var(--shadow-2);
-  /* Значок подсказки живёт и в uppercase-подписях (.stat__label,
-     .section-label) — регистр и трекинг сбрасываем явно, иначе текст
-     пузыря наследует их и печатается капсом. */
+  /* The hint icon also lives inside uppercase captions (.stat__label,
+     .section-label) — case and tracking are reset explicitly, otherwise the
+     bubble's text inherits them and prints in caps. */
   font: 400 12px/1.45 var(--font-sans);
   text-transform: none; letter-spacing: normal; text-align: left;
   white-space: pre-line; pointer-events: none;
@@ -566,8 +574,8 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 .hotkey-display__keys { display: inline-flex; align-items: center; gap: 5px; height: var(--control-h); padding: 0 10px; background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: var(--r-sm); flex: 0 0 auto; }
 .hotkey-display .btn { flex: 0 0 auto; height: var(--control-h); padding: 0 9px; }
 .hotkey-display .hotkey-display__edit { width: var(--control-h); padding: 0; justify-content: center; }
-/* Режим правки живёт в той же ячейке, что и клавиши, — кнопки в нём тоже
-   держат общую высоту, иначе строка дёргается при входе в правку. */
+/* Edit mode lives in the same cell as the keys — its buttons keep the shared
+   height too, otherwise the row twitches on entering edit mode. */
 .hotkey-edit .btn { height: var(--control-h); }
 .hotkey-record-chip { display: inline-flex; align-items: center; gap: 10px; padding: 6px 10px; background: var(--accent-soft); border: 1px solid var(--accent-line); border-radius: var(--r-sm); animation: hotkey-record-chip-in .15s ease-out; }
 .hotkey-record-chip__hint { font: 500 11px/1 var(--font-sans); color: var(--accent-text); letter-spacing: 0.01em; }
@@ -604,15 +612,17 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 .custom-select--language { width: min(100%, 190px); }
 .custom-select--mic { width: 100%; }
 .custom-select__button { appearance: none; position: relative; width: 100%; min-height: var(--control-h); display: flex; align-items: center; gap: 8px; padding: 7px 30px 7px 10px; border: 1px solid var(--border-strong); border-radius: var(--r-sm); background: var(--surface-2); color: var(--text); text-align: left; cursor: pointer; transition: background .12s ease, border-color .12s ease, box-shadow .12s ease; }
-/* Ни наведение, ни открытое состояние акцентом не подсвечиваются: что меню
-   открыто, и так видно по самому меню и по повёрнутой стрелке. Остаётся сдвиг
-   фона и границы — этого хватает, чтобы элемент читался как нажимаемый.
-   Обводка при :focus-visible — не украшение, а единственный признак фокуса
-   для клавиатуры, поэтому она сохранена. */
+/* Neither hover nor the open state is highlighted with the accent: that the
+   menu is open is already visible from the menu itself and the rotated chevron.
+   What remains is a shift of background and border — enough for the element to
+   read as pressable.
+   The outline on :focus-visible is not decoration but the only sign of focus
+   for the keyboard, so it is kept. */
 .custom-select__button:hover,
 .custom-select__button[aria-expanded="true"] { background: var(--surface-3); border-color: var(--border-strong); }
 .custom-select__button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-/* Селектор в одной строке с подписью: подпись по ширине текста, остальное ему. */
+/* The select shares a row with its caption: the caption takes the width of its
+   text, the rest goes to the select. */
 .custom-select--grow { flex: 1 1 auto; min-width: 0; }
 .custom-select__button:disabled { opacity: .45; cursor: not-allowed; border-color: var(--border-strong); background: var(--surface-2); box-shadow: none; }
 .custom-select__text { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
@@ -622,47 +632,51 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 .custom-select__button[aria-expanded="true"] .custom-select__chev { transform: translateY(-50%) rotate(180deg); }
 .custom-select__menu, .custom-select__menu * { box-sizing: border-box; }
 .custom-select__menu { --menu-bg: color-mix(in srgb, var(--surface-1) 96%, black); position: fixed; width: max-content; max-width: min(420px, calc(100vw - 32px)); padding: 6px; border: 1px solid var(--border-strong); border-radius: var(--r); background: var(--menu-bg); box-shadow: var(--shadow-3); font-family: var(--font-sans); color: var(--text); z-index: 1100; overflow: auto; }
-/* Меню живёт порталом в body — не внутри `.custom-select` и не внутри
-   `.app-frame`. Поэтому до него не достаёт ни общее правило скрытия полос
-   прокрутки (отсюда системная полоса в списке языков), ни селекторы вида
-   `.custom-select--мой-модификатор .custom-select__menu`: такие правила
-   молча не применяются. Всё, что нужно меню, вешается на само меню. */
+/* The menu lives portalled into body — not inside `.custom-select` and not
+   inside `.app-frame`. So neither the general scrollbar-hiding rule reaches it
+   (hence the system bar in the language list) nor selectors of the form
+   `.custom-select--my-modifier .custom-select__menu`: such rules silently do
+   not apply. Everything the menu needs is set on the menu itself. */
 .custom-select__menu { scrollbar-width: thin; scrollbar-color: var(--surface-4) transparent; }
 .custom-select__menu::-webkit-scrollbar { width: 10px; height: 10px; }
 .custom-select__menu::-webkit-scrollbar-track { background: transparent; }
 .custom-select__menu::-webkit-scrollbar-thumb { background: var(--surface-4); border: 2px solid transparent; background-clip: padding-box; border-radius: 999px; }
 .custom-select__menu::-webkit-scrollbar-thumb:hover { background: var(--border-accent); background-clip: padding-box; }
-/* Полоса прокрутки принадлежит тому, кто прокручивается. Пока прокручивался
-   внутренний список, полоса и начиналась под поиском — от него до низа, а не
-   по всей высоте окна. Поэтому прокручивается само меню, а поле поиска
-   прилипает к его верху: полоса идёт по правому краю целиком, поле остаётся
-   на месте, пункты уезжают под него.
-   Боковых отступов у меню в этом режиме нет — иначе полоса отступила бы от
-   края; воздух вокруг пунктов и поля даёт их собственный padding. */
+/* The scrollbar belongs to whoever scrolls. While the inner list was the one
+   scrolling, the bar also started below the search box — from it to the bottom
+   rather than along the full height of the window. So the menu itself scrolls
+   and the search field sticks to its top: the bar runs down the entire right
+   edge, the field stays put, and the items slide under it.
+   The menu has no side padding in this mode — otherwise the bar would step away
+   from the edge; the air around the items and the field comes from their own
+   padding. */
 .custom-select__menu--search { display: block; padding: 0 0 6px; overflow: auto; }
-/* Поиск здесь не поле в форме, а заголовок меню, поэтому рамка вдвое тоньше
-   обычной, а подсветка фокуса — вдвое уже: в меню коробка внутри коробки
-   стоит слишком дорого, а сообщать о фокусе почти нечего — курсор в поле
-   стоит с самого открытия.
-   Отступы те же, что у списка: слева шесть, справа ноль. Поле и пункт от
-   этого одной ширины, и правый край у них общий — полоса прокрутки. */
+/* The search here is not a form field but the menu's heading, so its border is
+   half the usual thickness and the focus highlight half as wide: a box inside a
+   box costs too much in a menu, and there is barely anything to announce about
+   focus — the cursor has been in the field since it opened.
+   The padding matches the list: six on the left, zero on the right. That makes
+   the field and an item the same width, and they share a right edge — the
+   scrollbar. */
 .custom-select__menu--search .custom-select__search { position: sticky; top: 0; z-index: 1; margin: 0; padding: 6px 0 6px 6px; background: var(--menu-bg); }
 .custom-select__menu--search .custom-select__search .field { border-width: 0.5px; background: transparent; box-shadow: none; }
 .custom-select__menu--search .custom-select__search .field:focus { border-color: var(--border-accent); box-shadow: 0 0 0 1.5px var(--accent-soft-2); }
-/* Иконка позиционируется от края обёртки, а у неё теперь свой отступ. */
+/* The icon is positioned from the wrapper's edge, and the wrapper now has
+   padding of its own. */
 .custom-select__menu--search .custom-select__search svg { left: 14px; }
-/* Справа отступа нет: пункт должен доходить до самой полосы прокрутки.
-   Воздух между текстом и полосой даёт собственный padding пункта. */
+/* No padding on the right: an item must reach all the way to the scrollbar.
+   The air between the text and the bar comes from the item's own padding. */
 .custom-select__list { padding: 0 0 0 6px; }
 .custom-select__search { position: relative; display: flex; align-items: center; flex: 0 0 auto; color: var(--text-mute); }
 .custom-select__search svg { position: absolute; left: 10px; pointer-events: none; }
 .custom-select__search .field { width: 100%; height: 30px; padding-left: 30px; }
 .custom-select__empty { margin: 0; padding: 10px 9px; font: 400 12px/1.4 var(--font-sans); color: var(--text-mute); }
-/* Код языка — уточнение к названию, а не вторая строка: он короткий,
-   читается вместе с названием и своей строки не заслуживает. Скобки рисует
-   CSS, чтобы оформление не пришлось вшивать в данные и переводить.
-   Класс нужен и кнопке, и меню: меню уезжает порталом в body, и селектор от
-   кнопки до него не достаёт. */
+/* A language code is a clarification of the name, not a second line: it is
+   short, reads together with the name and does not deserve a line of its own.
+   The brackets are drawn by CSS so the styling need not be baked into the data
+   and translated.
+   Both the button and the menu need the class: the menu leaves via a portal
+   into body, and a selector from the button does not reach it. */
 .custom-select--inline-meta .custom-select__text,
 .custom-select__menu--inline-meta .custom-select__text { flex-direction: row; align-items: baseline; gap: 5px; }
 .custom-select--inline-meta .custom-select__meta,
@@ -676,14 +690,15 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 .custom-select__option[aria-selected="true"] { background: var(--surface-2); border-color: var(--border); }
 .custom-select__option[aria-selected="true"] { border-color: var(--border-accent); }
 .custom-select__option:disabled { opacity: .42; cursor: not-allowed; background: transparent; border-color: transparent; }
-/* Раньше карточку с открытым меню приходилось поднимать над соседями: меню
-   лежало внутри неё и попадало под стекинг-контексты от fade-in анимации.
-   Теперь все три меню уходят порталом в body и ни с кем не соревнуются. */
+/* A card with an open menu used to be lifted above its neighbours: the menu
+   lay inside it and fell under stacking contexts created by the fade-in
+   animation. Now all three menus leave via a portal into body and compete with
+   nobody. */
 .model-select { position: relative; }
 .model-select__summary-state { font: 500 10.5px/1 var(--font-sans); color: var(--text-mute); white-space: nowrap; }
 .model-select__summary-state--loaded { color: var(--ok); }
-/* Меню совпадает по ширине с управляющей плиткой. Двухстрочная строка
-   показывает размер и RAM без широкой отдельной колонки и значков «i». */
+/* The menu matches the width of the tile that controls it. A two-line row
+   shows the size and RAM without a wide separate column and «i» icons. */
 .model-select__menu, .model-select__menu * { box-sizing: border-box; }
 .model-select__menu { position: fixed; max-width: calc(100vw - 32px); overflow: auto; padding: 0; border: 1px solid var(--border-strong); border-radius: var(--r); background: color-mix(in srgb, var(--surface-1) 96%, black); box-shadow: var(--shadow-3); font-family: var(--font-sans); color: var(--text); z-index: 1100; }
 .model-select__option { appearance: none; position: relative; width: 100%; min-height: 48px; display: grid; grid-template-columns: minmax(0, 1fr) 20px 20px; gap: 7px; align-items: center; padding: 6px 10px 6px 14px; border: 0; border-top: 1px solid var(--border); border-radius: 0; background: transparent; color: var(--text); text-align: left; cursor: pointer; }
@@ -692,9 +707,9 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 .model-select__option:hover { background: var(--surface-2); }
 .model-select__option[aria-selected="true"] { background: linear-gradient(90deg, var(--accent-soft-2), var(--accent-soft)); }
 .model-select__option[aria-selected="true"]::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; border-radius: 0; background: var(--accent); }
-/* Подгруппы в меню моделей. Заголовок несёт семейство, поэтому в самих
-   строках движок и совместимость печатать больше не надо. Меню плотное
-   намеренно: это список из семи строк, а не страница. */
+/* Subgroups in the model menu. The heading carries the family, so the rows
+   themselves no longer need to print the engine and compatibility. The menu is
+   dense on purpose: it is a list of seven rows, not a page. */
 .model-select__group + .model-select__group { margin-top: 0; border-top: 1px solid var(--border-strong); padding-top: 0; }
 .model-select__group-label { padding: 9px 14px 7px; font: 500 9.5px/1 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-dim); }
 .model-select__option-main { min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
@@ -703,7 +718,7 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 .model-select__option-meta { max-width: 100%; font: 500 10px/1.15 var(--font-mono); color: var(--text-mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .model-select__loaded-text { flex: 0 0 auto; font: 500 9px/1 var(--font-sans); color: var(--ok); white-space: nowrap; }
 .model-select__option[aria-selected="true"] .model-select__option-name { color: var(--accent-text); }
-/* Статус внутри строки заметно компактнее обычных плашек интерфейса. */
+/* A status inside a row is noticeably more compact than the usual UI pills. */
 .model-select__option .tag { height: 15px; padding: 0 5px; font-size: 8.5px; gap: 3px; flex: 0 0 auto; }
 .model-select__action { display: grid; place-items: center; }
 .model-select__check { color: var(--accent); display: grid; place-items: center; }
@@ -711,20 +726,20 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 .model-select__delete:hover { color: var(--err); background: rgba(239,94,107,0.12); }
 .model-select__download { width: 20px; height: 20px; border-radius: 5px; display: grid; place-items: center; color: var(--text-mute); cursor: pointer; }
 .model-select__download:hover { color: var(--accent); background: rgba(251,191,36,0.12); }
-/* Тост рендерится порталом в body — коробочная модель и шрифт .app-frame
-   до него не доходят, задаём их здесь. */
+/* The toast is rendered through a portal into body — .app-frame's box model
+   and font do not reach it, so they are set here. */
 .model-download-toast, .model-download-toast * { box-sizing: border-box; }
-/* Ширины нет вовсе — тост позиционирован, а такой элемент без width сам
-   ужимается по содержимому. На фиксированных 380px короткое «Модель
-   удалена: …» растягивалось на всю ширину, и между текстом и крестиком
-   зияла половина тоста. Предел прежний: те же 380px, когда текста правда
-   много, дальше строка переносится. */
+/* There is no width at all — the toast is positioned, and such an element
+   without a width shrink-wraps to its content. At a fixed 380px a short
+   «Модель удалена: …» stretched across the full width and half the toast gaped
+   between the text and the close button. The limit is unchanged: the same 380px
+   when there really is a lot of text, beyond which the line wraps. */
 .model-download-toast { font-family: var(--font-sans); color: var(--text); position: fixed; left: 50%; bottom: 24px; z-index: 180; max-width: min(380px, calc(100vw - 32px)); display: flex; align-items: center; gap: 10px; padding: 11px 10px 11px 12px; overflow: hidden; border: 1px solid var(--border-strong); border-radius: var(--r); background: color-mix(in srgb, var(--surface-1) 97%, black); box-shadow: var(--shadow-3); opacity: 1; transform: translateX(-50%) translateY(0); animation: model-toast-in .2s ease-out both; transition: opacity .22s ease, transform .22s ease; }
-/* Скачивание меряется той же меркой — ширина по содержимому. Постоянную
-   ширину тут держали из страха, что тост задёргается на счётчике, но байты
-   печатаются целыми мегабайтами, и число знаков за всю загрузку меняется
-   пару раз; ширину к тому же почти всегда задаёт название модели, а оно не
-   меняется вовсе. Снизу — место под полосу прогресса. */
+/* A download is measured the same way — width by content. A constant width was
+   kept here out of fear the toast would twitch on the counter, but the bytes
+   are printed in whole megabytes and the digit count changes a couple of times
+   over an entire download; besides, the width is almost always set by the model
+   name, which does not change at all. Below is room for the progress bar. */
 .model-download-toast--progress { padding-bottom: 13px; }
 .model-download-toast--closing { opacity: 0; transform: translateX(-50%) translateY(8px); pointer-events: none; }
 .model-download-toast__icon { flex: 0 0 36px; width: 36px; height: 36px; display: grid; place-items: center; border: 1px solid var(--border-strong); border-radius: 50%; color: var(--accent); background: var(--bg-2); }
@@ -732,8 +747,8 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 .model-download-toast__icon--ok { color: var(--ok); background: var(--ok-soft); border-color: color-mix(in srgb, var(--ok) 28%, transparent); }
 .model-download-toast__icon--error { color: var(--err); background: var(--err-soft); border-color: color-mix(in srgb, var(--err) 28%, transparent); }
 .model-download-toast__copy { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
-/* Заголовок переносится на вторую строку: названия моделей длинные, а
-   обрезанное имя не отвечает на вопрос, что именно качается. */
+/* The headline wraps to a second line: model names are long, and a truncated
+   name does not answer the question of what exactly is downloading. */
 .model-download-toast__copy strong { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font: 600 12.5px/1.25 var(--font-sans); color: var(--text); }
 .model-download-toast__copy > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 500 10.5px/1.2 var(--font-mono); color: var(--text-mute); }
 .model-download-toast__icon--info { color: var(--text-mute); background: var(--surface-2); }
@@ -754,9 +769,9 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 .mic-status-chip { display: inline-flex; align-items: center; padding: 4px 9px; font: 600 11px/1 var(--font-sans); border-radius: 999px; background: var(--accent-soft-2); color: var(--accent); border: 1px solid var(--border-accent); margin-left: 8px; letter-spacing: 0.01em; box-shadow: 0 1px 0 rgba(0,0,0,0.25); white-space: nowrap; animation: mic-status-chip-in .18s ease-out; }
 .mic-status-chip--stop { background: var(--surface-3); color: var(--text); border-color: var(--border); }
 @keyframes mic-status-chip-in { from { opacity: 0; transform: translateY(-2px); } to { opacity: 1; transform: translateY(0); } }
-/* Две кнопки рядом — два режима, и без подписи их путают. Пояснение висит
-   на самой кнопке подсказкой: постоянный текст под строкой занимал четыре
-   строки вёрстки ради того, что читают один раз. */
+/* Two buttons side by side are two modes, and without a caption they get
+   confused. The explanation hangs on the button itself as a hint: permanent
+   text under the row took four rows of layout for something read once. */
 .mic-control .hint-anchor { flex: 0 0 auto; }
 /* Left-to-right VU meter: segments fill with the current loudness so the test
    shows how well/loud you're heard. Colour zones flag quiet / good / too-hot. */
@@ -799,10 +814,10 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 .heatmap-cell { position: relative; cursor: default; transition: transform .1s ease, box-shadow .1s ease; }
 .heatmap-cell:hover { transform: translateY(-1px); box-shadow: 0 0 0 1px var(--accent-line), 0 4px 12px rgba(0,0,0,0.25); z-index: 20; }
 .heatmap-popover { position: absolute; left: 50%; bottom: calc(100% + 8px); min-width: 190px; padding: 10px 12px; border: 1px solid var(--border-strong); border-radius: var(--r-sm); background: color-mix(in srgb, var(--surface-1) 96%, black); color: var(--text-2); box-shadow: var(--shadow-2); font: 500 11px/1.45 var(--font-mono); opacity: 0; pointer-events: none; transform: translateX(-50%) translateY(4px); transition: opacity .12s ease, transform .12s ease; }
-/* Пузырь шириной 190 px, центрированный на клетке шириной ~10, вылезает на
-   90 px в каждую сторону. У крайних недель это уводило его за область
-   содержимого, и `overflow: auto` на .win__main срезал его. Крайние колонки
-   выравниваются по своему краю, а не по центру. */
+/* A 190 px bubble centred on a ~10 px cell overhangs by 90 px on each side. On
+   the outermost weeks that took it past the content area and `overflow: auto`
+   on .win__main clipped it. The edge columns align to their own edge rather
+   than to the centre. */
 .heatmap-week:first-child .heatmap-popover,
 .heatmap-week:nth-child(2) .heatmap-popover { left: 0; transform: translateX(-6px) translateY(4px); }
 .heatmap-week:first-child .heatmap-cell:hover .heatmap-popover,
@@ -811,7 +826,8 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 .heatmap-week:nth-last-child(2) .heatmap-popover { left: auto; right: 0; transform: translateX(6px) translateY(4px); }
 .heatmap-week:last-child .heatmap-cell:hover .heatmap-popover,
 .heatmap-week:nth-last-child(2) .heatmap-cell:hover .heatmap-popover { transform: translateX(6px) translateY(0); }
-/* Хвостик остаётся над своей клеткой, а не под серединой уехавшего пузыря. */
+/* The tail stays above its own cell rather than under the middle of the
+   shifted bubble. */
 .heatmap-week:first-child .heatmap-popover::after,
 .heatmap-week:nth-child(2) .heatmap-popover::after { left: 12px; }
 .heatmap-week:last-child .heatmap-popover::after,
@@ -891,8 +907,9 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
   .split-setting-cell + .split-setting-cell { padding-left: 0; margin-left: 0; border-left: 0; border-top: 1px solid var(--border); }
   .typing-speed-card { grid-template-columns: 1fr; align-items: flex-start; }
   .typing-speed-control { justify-content: flex-start; flex-wrap: wrap; }
-  /* Строка меню моделей больше не переносится на узких окнах: после переезда
-     веса и RAM под значок «i» в ней осталось имя и две иконки по 20px. */
+  /* A model menu row no longer wraps on narrow windows: after the size and RAM
+     moved under the «i» icon, all that is left in it is the name and two 20px
+     icons. */
 }
 
 /* AI page — profile list (compact rows) */
@@ -959,11 +976,12 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 .wizard-provider-card .name { font: 600 12px/1.15 var(--font-sans); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wizard-provider-card .meta { font: 500 10px/1.2 var(--font-mono); color: var(--text-mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 3px; }
 
-/* Расшифровка аудиофайла — отдельная зона, а не кнопка в общем ряду.
+/* Transcribing an audio file is its own zone, not a button in the common row.
 
-   Выше по карточке вводят текст, здесь — речь: два разных входа в обработку,
-   и рамка разделяет их честнее, чем вторая строка кнопок. Пунктир и
-   подсветка на `data-active` — про то, что сюда можно бросить файл. */
+   Higher up the card text is entered, here speech is: two different entrances
+   into processing, and a border separates them more honestly than a second row
+   of buttons. The dashes and the `data-active` highlight say a file can be
+   dropped here. */
 .audio-drop {
   display: flex;
   align-items: center;
@@ -1026,13 +1044,13 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
    Redesign additions (Stage 1)
    ================================================================ */
 
-/* Свернуть сайдбар — кнопка в строке логотипа.
+/* Collapsing the sidebar is a button in the logo row.
 
-   Раньше это был круг верхом на границе панели: absolute поверх линии, он не
-   принадлежал ни сайдбару, ни содержимому и читался как навигация уровня
-   страницы. Кнопка внутри объекта, которым управляет, такого вопроса не
-   задаёт. Она видна всегда, в обоих состояниях, и одним и тем же значком:
-   элемент, который надо сначала найти наведением, не найдут. */
+   It used to be a circle riding the panel's edge: absolute on top of the line,
+   it belonged neither to the sidebar nor to the content and read as page-level
+   navigation. A button inside the object it controls raises no such question.
+   It is always visible, in both states, and with the same glyph: an element you
+   must first find by hovering will not be found. */
 .sidebar-brand__toggle {
   appearance: none;
   position: relative;
@@ -1054,18 +1072,18 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
    but triggered by the React state so the manual handle works too). */
 .win__layout.collapsed .nav__count,
 .win__layout.collapsed .accent-swatch-row { display: none; }
-/* Сворачивание: сначала гаснет текст (120 мс), только потом едет геометрия.
-   Разворачивание наоборот — панель разъезжается, и подписи проявляются на
-   готовом месте. Ни в одну сторону текст не двигается вместе с краем. */
+/* Collapsing: the text fades first (120 ms), only then does the geometry move.
+   Expanding is the reverse — the panel opens and the captions appear in a place
+   already prepared. In neither direction does the text travel with the edge. */
 .win__layout.collapsed .nav__item span:nth-child(2),
 .win__layout.collapsed .theme-toggle__text,
 .win__layout.collapsed .theme-toggle__value,
 .win.collapsed .sidebar-brand__name { opacity: 0; transition: opacity .26s cubic-bezier(.4,0,.7,1); }
-/* Заголовок группы гаснет быстрее прочих: следом схлопывается его высота, и
-   текст, доживший до этого, был бы сплющен по вертикали. */
+/* A group heading fades faster than the rest: its height collapses right
+   after, and text that survived that long would be squashed vertically. */
 .win__layout.collapsed .nav__group span { opacity: 0; transition: opacity .16s ease; }
-/* Заголовок группы схлопывается по высоте — иначе в свёрнутом рельсе
-   остались бы пустые полосы там, где были подписи. */
+/* A group heading collapses in height — otherwise the collapsed rail would be
+   left with empty stripes where the captions used to be. */
 .win__layout.collapsed .nav__group { height: 0; padding-top: 0; padding-bottom: 0; opacity: 0; pointer-events: none; transition: height .4s cubic-bezier(.6,.04,.24,1) .16s, padding .4s cubic-bezier(.6,.04,.24,1) .16s, opacity .16s ease; }
 .win.collapsed .sidebar-brand { padding: 0 12px; gap: 0; transition: padding .4s cubic-bezier(.6,.04,.24,1); }
 
@@ -1111,8 +1129,8 @@ button.card { appearance: none; font: inherit; color: inherit; }
 
 /* Pill — softer/rounder alt to legacy .tag, with semantic color variants and optional dot */
 .pill { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border-radius: 999px; font: 500 11.5px/1.7 var(--font-sans); background: var(--bg-4); color: var(--ink-dim); border: 1px solid var(--line); white-space: nowrap; }
-/* Рамка выводится из самого статусного цвета: литералы здесь были
-   тёмнотемными и на светлой подложке давали чужой оттенок. */
+/* The border is derived from the status colour itself: the literals here were
+   dark-on-dark and gave an alien tint on a light background. */
 .pill.ok    { background: var(--ok-soft);   color: var(--ok);   border-color: color-mix(in srgb, var(--ok) 25%, transparent); }
 .pill.warn  { background: var(--warn-soft); color: var(--warn); border-color: color-mix(in srgb, var(--warn) 25%, transparent); }
 .pill.err   { background: var(--err-soft);  color: var(--err);  border-color: color-mix(in srgb, var(--err) 25%, transparent); }
@@ -1129,12 +1147,13 @@ button.card { appearance: none; font: inherit; color: inherit; }
 
 /* Grid templates */
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-/* Пара «до → после»: средняя колонка под стрелку направления. Колонки
-   именно minmax(0, 1fr), а не 1fr, — иначе textarea и длинный diff не дают
-   им сжаться и ряд уезжает за край. */
+/* A «до → после» pair: the middle column holds the direction arrow. The
+   columns are specifically minmax(0, 1fr) rather than 1fr — otherwise the
+   textarea and a long diff stop them shrinking and the row runs off the
+   edge. */
 .preview-pair { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 14px; align-items: stretch; }
-/* Вертикальный вариант той же стрелки: на «Заменах» карточки лежат друг под
-   другом, и указывать вправо ей там не на что. */
+/* The vertical variant of the same arrow: under «Замены» the cards lie one
+   under another and there is nothing to the right for it to point at. */
 .preview-pair__arrow--down { align-self: center; transform: rotate(90deg); }
 .preview-pair__arrow {
   align-self: center;
@@ -1143,28 +1162,29 @@ button.card { appearance: none; font: inherit; color: inherit; }
   border: 1px solid var(--line); border-radius: 50%;
   background: var(--bg-2); color: var(--ink-mute);
 }
-/* Шапка карточек предпросмотра: заголовок блока с подсказкой, под ним подпись
-   шага. Обе карточки держат подпись на одном месте — левым краем над своим
-   содержимым, — поэтому «до» и «после» читаются как одна пара. */
+/* The header of the preview cards: a block heading with a hint, and the step's
+   caption under it. Both cards keep the caption in the same place — left edge
+   above their own content — so «до» and «после» read as one pair. */
 .preview-card__head { display: grid; justify-items: start; gap: 12px; margin-bottom: 10px; }
 .preview-card__title { margin: 0; font: 600 14px/1.2 var(--font-sans); color: var(--ink); display: inline-flex; align-items: center; gap: 5px; }
 .preview-card__step { font: 500 10.5px/1 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-mute); }
-/* Результат — акцентный шаг: цвет остался от прежней пилюли, подложка ушла. */
+/* The result is the accented step: the colour is left over from the former
+   pill, the background is gone. */
 .preview-card__step--after { color: var(--accent-text); }
 
 .grid-auto { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
-/* Ступени полей у `.page` на 1100 px здесь больше нет. Она пришла из вёрстки
-   сайтов, где окно бывает и 320 px и поля обязаны сжиматься; у приложения
-   окно не бывает уже 1000 px (`minWidth` в tauri.conf.json), и 1100 попадало
-   не в узкий крайний случай, а в середину обычного рабочего размера. Разрыв
-   был виден весь — страница целиком сдвигалась на 4 px вниз и 6 вправо, —
-   а выгода составляла те самые 6 px с каждой стороны.
-   Ступень на 820 px оставлена: она ниже минимальной ширины окна и потому
-   никогда не срабатывает, но описывает поведение на случай, если минимум
-   когда-нибудь опустят. */
+/* The padding step for `.page` at 1100 px is gone. It came from web layout,
+   where a window can be 320 px and the padding has to shrink; the app's window
+   is never narrower than 1000 px (`minWidth` in tauri.conf.json), and 1100 fell
+   not into a narrow edge case but into the middle of an ordinary working size.
+   The jump was visible in full — the whole page shifted 4 px down and 6 right —
+   while the gain was those very 6 px on each side.
+   The 820 px step is kept: it is below the minimum window width and therefore
+   never fires, but it describes the behaviour should that minimum ever be
+   lowered. */
 @media (max-width: 820px) { .grid-2 { grid-template-columns: 1fr; } .page { padding: 16px 16px 24px; } }
-/* В одну колонку стрелка перестаёт указывать вправо — она разворачивается
-   вниз, туда, где теперь лежит результат. */
+/* In a single column the arrow stops pointing right — it turns downward, to
+   where the result now lies. */
 @media (max-width: 820px) {
   .preview-pair { grid-template-columns: minmax(0, 1fr); }
   .preview-pair__arrow { justify-self: center; transform: rotate(90deg); }
@@ -1209,22 +1229,22 @@ button.card { appearance: none; font: inherit; color: inherit; }
    ================================================================ */
 
 .set-cell { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-/* Высота подписи не зависит от того, есть ли у неё подсказка: значок «i»
-   ростом 14 px, текст — 11.5, и без этой строки соседние ячейки в ряду
-   начинали свои контролы с разной высоты. Разъезжались из-за этого
-   «Язык речи» с «Языком интерфейса» и «Горячая клавиша» с «Режимом
-   записи» — везде, где подсказка есть у одной ячейки из пары. */
+/* A caption's height does not depend on whether it has a hint: the «i» icon is
+   14 px tall and the text is 11.5, and without this line neighbouring cells in a
+   row started their controls at different heights. That is what pulled «Язык
+   речи» apart from «Язык интерфейса» and «Горячая клавиша» from «Режим
+   записи» — everywhere one cell of a pair has a hint. */
 .set-label { font: 500 11.5px/1 var(--font-sans); color: var(--ink-mute); display: inline-flex; align-items: center; gap: 5px; min-height: 14px; }
-/* Подписи у чекбоксов и селектов внутри строк набраны так же, как .set-label:
-   в одной строке два разных кегля подписей читаются как сбой вёрстки. Держим
-   их одним правилом, чтобы кегль не пришлось править в четырёх местах. */
+/* Captions on checkboxes and selects inside rows are set like .set-label: two
+   different caption sizes in one row read as a layout fault. We keep them in a
+   single rule so the size does not have to be edited in four places. */
 .behavior-row__paste-options .checkbox-row,
 .behavior-row__duck .checkbox-row,
 .advanced__autostart-row .checkbox-row,
 .sound-feedback-control__label { font: 500 11.5px/1 var(--font-sans); color: var(--ink-mute); }
 
-/* Текст только для скринридера: в потоке не занимает места, поэтому им можно
-   озвучивать то, что на экране показано значком или цветом. */
+/* Text for the screen reader only: it takes no space in the flow, so it can
+   voice what the screen shows with an icon or a colour. */
 .sr-only {
   position: absolute; width: 1px; height: 1px;
   margin: -1px; padding: 0; border: 0;
@@ -1237,30 +1257,31 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .behavior-row, .lang-row {
   display: flex; gap: 16px; align-items: stretch; flex-wrap: wrap;
 }
-/* Строка поведения — одна строка, набранная слева направо.
-   Двух предыдущих подходов не осталось намеренно. При flex-grow на ячейках
-   группы разъезжались по всей карточке, и между ними стояла пустота; при
-   гриде с брейкпоинтами колонки равнялись друг под друга и давали ту же
-   пустоту, только по расписанию. Здесь ни одна группа не растёт: строка
-   занимает ровно столько, сколько занимает её содержимое.
-   Переносится она тоже группами — ячейка целиком уходит на вторую строку,
-   а не рвётся посередине, — и до этого доходит только на узком окне. */
+/* The behaviour row is one line, set left to right.
+   Neither of the two previous approaches survives, on purpose. With flex-grow on
+   the cells the groups spread across the whole card with emptiness between them;
+   with a grid and breakpoints the columns lined up under one another and gave
+   the same emptiness, only on a schedule. Here no group grows: the row takes
+   exactly as much as its content takes.
+   It wraps by groups too — a whole cell moves to the second line rather than
+   tearing in the middle — and that only happens on a narrow window. */
 .behavior-row--primary {
   align-items: center;
   gap: 10px 12px;
 }
-/* Ячейки не растут (иначе между ними появляется воздух), но ужиматься умеют:
-   это единственный клапан, если перевод окажется длиннее русского. */
+/* The cells do not grow (otherwise air appears between them) but they can
+   shrink: that is the only relief valve if a translation turns out longer than
+   the Russian. */
 .behavior-row--primary > .set-cell { flex: 0 1 auto; }
-/* Две ячейки и волосок между ними. Колонок было пять — след от третьей
-   ячейки с выбором модели, которая уехала на свою страницу: две лишние
-   дорожки остались пустыми и забирали треть ширины, отчего «Удерживать» не
-   помещалось в переключатель и вылезало за его рамку.
-   Сам переключатель режима ширину колонки не наследует: он `inline-flex` и
-   меряется своими словами — как «Язык интерфейса» строкой ниже. Пока он
-   тянулся во всю колонку, а кнопки делили её поровну (`flex: 1 1 0`),
-   подложка под выбранным режимом меняла ширину на каждый пиксель размера
-   окна; у ширины по содержимому такой зависимости нет вовсе. */
+/* Two cells and a hairline between them. There used to be five columns — a
+   trace of a third cell with the model picker that moved to its own page: two
+   spare tracks stayed empty and took a third of the width, which is why
+   «Удерживать» did not fit in the switch and spilled past its border.
+   The mode switch itself does not inherit the column width: it is `inline-flex`
+   and is measured by its own words — like «Язык интерфейса» a row below. While
+   it stretched across the whole column and the buttons split it evenly
+   (`flex: 1 1 0`), the backdrop under the selected mode changed width with every
+   pixel of the window size; width by content has no such dependency at all. */
 .capture-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 1px minmax(0, 1fr);
@@ -1268,21 +1289,21 @@ button.card { appearance: none; font: inherit; color: inherit; }
   align-items: stretch;
 }
 .capture-row .model-select { width: 100%; max-width: none; }
-/* В этих трёх строках переключатель стоит рядом с полноразмерными контролами
-   и обязан быть с ними одного роста. Вокруг сегмента 3px внутреннего отступа
-   и 1px рамки с каждой стороны — их и вычитаем, чтобы сегмент не отстал от
-   --control-h, если тот поменяют. Подложка тянется за ним сама: её высота
-   задана краями, а не числом. */
+/* In these three rows the switch stands next to full-size controls and must
+   match their height. Around a segment there is 3px of padding and 1px of border
+   on each side — those are subtracted so the segment does not fall behind
+   --control-h if that is ever changed. The backdrop follows on its own: its
+   height is set by its edges, not by a number. */
 .capture-row__recording-mode .segmented__option,
 .lang-row__ui-language .segmented__option,
 .device-picker .segmented__option { height: calc(var(--control-h) - 8px); }
-/* Языки — два узких контрола. Растягивать их на половину карточки каждый
-   значило бы налить внутрь кнопок пустоты; ширину задаёт содержимое. */
+/* The languages are two narrow controls. Stretching each to half the card
+   would mean pouring emptiness into the buttons; the content sets the width. */
 .lang-row > .set-cell { flex: 0 0 auto; min-width: 150px; }
-/* Ячейки строки — `min-width: 0` от `.set-cell`, то есть ужимаются ниже
-   ширины содержимого. С `nowrap` на всей ячейке содержимое не ужималось, а
-   вылезало за её границы и наезжало на соседнюю. Переносим по элементам:
-   неразрывны отдельные подписи, а не группа целиком. */
+/* The row's cells carry `min-width: 0` from `.set-cell`, that is they shrink
+   below their content width. With `nowrap` on the whole cell the content did not
+   shrink but spilled past its bounds and overlapped the neighbour. We wrap per
+   element: individual captions are unbreakable, not the group as a whole. */
 .behavior-row__paste-options {
   flex-direction: row;
   align-items: center;
@@ -1290,8 +1311,8 @@ button.card { appearance: none; font: inherit; color: inherit; }
   flex-wrap: wrap;
 }
 .behavior-row__paste-options .checkbox-row { white-space: nowrap; }
-/* Приглушение: подпись, кнопка проверки и её статус живут в одну строку,
-   поэтому ячейка здесь горизонтальная, а не столбец, как остальные. */
+/* Ducking: the caption, the test button and its status live on one line, so
+   this cell is horizontal rather than a column like the rest. */
 .behavior-row__duck {
   flex-direction: row;
   align-items: center;
@@ -1299,40 +1320,40 @@ button.card { appearance: none; font: inherit; color: inherit; }
   flex-wrap: wrap;
 }
 .behavior-row__duck .checkbox-row { white-space: nowrap; }
-/* Кнопка проверки и её статус: место занято всегда, скрывается только
-   видимость — иначе включение приглушения меняло высоту карточки. Статус
-   обрезается многоточием, чтобы длинная ошибка не переносила строку. */
+/* The test button and its status: the space is always occupied and only
+   visibility is toggled — otherwise turning ducking on changed the card's
+   height. The status is ellipsised so a long error does not wrap the line. */
 .behavior-row__duck-button { height: 26px; width: 26px; padding: 0; justify-content: center; flex: 0 0 auto; }
 .behavior-row__duck-button[data-visible="false"] { visibility: hidden; }
 .behavior-row__duck-button[data-state="done"] { color: var(--ok); }
 .behavior-row__duck-button[data-state="error"] { color: var(--err); }
-/* Единственная ячейка строки с контролом фиксированной ширины. Подпись,
-   съехав на строку выше селекта, меняла бы высоту всей карточки. */
+/* The only cell in the row with a fixed-width control. A caption slipping onto
+   a line above the select would change the height of the whole card. */
 .sound-feedback-control { display: flex; align-items: center; gap: 10px; min-width: 0; flex-wrap: nowrap; }
 .sound-feedback-control__label { white-space: nowrap; }
-/* Ширина под самый длинный вариант — «Выключено» / «Off». Замерено: на 112px
-   он уже обрезается многоточием, поэтому 118 — минимум с запасом на пиксель
-   округления, а не произвольное число. */
+/* The width fits the longest option — «Выключено» / «Off». Measured: at 112px
+   it is already ellipsised, so 118 is the minimum plus a pixel of rounding
+   slack, not an arbitrary number. */
 .set-cell .custom-select.custom-select--sound-volume { width: 118px; max-width: 118px; }
 
 .device-picker { display: flex; align-items: center; gap: 10px; min-width: 0; }
 
-/* Ряд настроек меряется по карточке, а не по окну: сайдбар забирает у неё
-   свои двести с лишним пикселей, и медиазапрос этой разницы не видит — с
-   ним ряд на минимальной ширине окна уезжал за правый край при открытом
-   сайдбаре и складывался раньше времени при закрытом. */
+/* A settings row is measured against the card, not the window: the sidebar
+   takes its two hundred-odd pixels from it, and a media query does not see that
+   difference — with one, at the minimum window width the row ran off the right
+   edge with the sidebar open and folded too early with it closed. */
 .card.advanced { container-type: inline-size; }
 .advanced__main-row {
   display: grid;
-  /* Колонки по содержимому, а не долями. Доли раздавали ширину не тем: самой
-     узкой настройке — GPU/CPU — доставалась самая большая, а «Хранить
-     историю» не хватало своих 245 px, и «1000 записей» прыгала на вторую
-     строку. `auto` даёт каждой ровно её ширину.
-     Свободное место при этом копится в конце ряда, а не растекается по
-     промежуткам: разделитель — волосяная линия, и полсотни пикселей пустоты
-     с каждой её стороны читались не как «между настройками», а как «здесь
-     что-то потеряли». Так же устроены и обе строки с флажками ниже —
-     плотно слева, свободное место справа. */
+  /* Columns by content rather than by fractions. Fractions handed the width to
+     the wrong ones: the narrowest setting — GPU/CPU — got the largest share,
+     while «Хранить историю» was short of its 245 px and «1000 записей» jumped
+     to a second line. `auto` gives each exactly its own width.
+     The free space then piles up at the end of the row instead of spreading
+     through the gaps: the separator is a hairline, and fifty pixels of emptiness
+     on each side of it read not as "between the settings" but as "something got
+     lost here". Both checkbox rows below are built the same way — tight on the
+     left, free space on the right. */
   grid-template-columns: auto 1px auto 1px auto 1px auto;
   justify-content: start;
   column-gap: 16px;
@@ -1341,17 +1362,19 @@ button.card { appearance: none; font: inherit; color: inherit; }
   margin-top: 14px;
 }
 .advanced__history-cell { width: max-content; max-width: 100%; justify-self: center; }
-/* Узкая карточка: четыре настройки в строку не помещаются (≈717 px вместе с
-   промежутками). Колонок остаётся три, и последняя настройка переходит во
-   второй ряд. Разделитель перед ней снят из потока, а не спрятан видимостью:
-   иначе он занял бы первую колонку второго ряда, а настройка — вторую. */
+/* A narrow card: four settings do not fit on one row (≈717 px including the
+   gaps). Three columns remain and the last setting moves to a second row. The
+   separator before it is taken out of the flow rather than hidden by
+   visibility: otherwise it would occupy the first column of the second row and
+   the setting the second. */
 @container (max-width: 760px) {
   .advanced__main-row { grid-template-columns: auto 1px auto 1px auto; }
   .advanced__unload-rule { display: none; }
 }
 
-/* Уточнения к авто-вставке и выключатели «поставил один раз» набраны
-   одинаково: это соседние строки одного блока, а не разные по весу секции. */
+/* The auto-paste clarifications and the "set once and forget" toggles are set
+   alike: they are adjacent rows of one block, not sections of differing
+   weight. */
 .advanced__paste-row {
   display: flex;
   align-items: center;
@@ -1373,7 +1396,7 @@ button.card { appearance: none; font: inherit; color: inherit; }
   border-top: 1px solid var(--line-soft);
 }
 
-/* Свёрнутый блок «Дополнительно» на странице настроек. */
+/* The collapsed «Дополнительно» block on the settings page. */
 .advanced > summary { list-style: none; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; font: 500 11.5px/1 var(--font-sans); color: var(--ink-mute); user-select: none; outline: none; }
 .advanced > summary::-webkit-details-marker { display: none; }
 .advanced > summary:hover,
@@ -1390,14 +1413,14 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .set-cell .custom-select { width: 100%; max-width: none; }
 .set-cell .hotkey-display { flex-wrap: wrap; }
 .capture-row .hotkey-display { flex-wrap: nowrap; }
-/* …кроме языка речи: содержимое там короткое, и полная ширина ячейки
-   превращается в пустую полосу справа от подписи. */
+/* …except the speech language: the content there is short, and the cell's full
+   width turns into an empty strip to the right of the caption. */
 .lang-row .custom-select--language { width: 100%; max-width: 210px; }
-/* …и кроме срока выгрузки. Ширина под самый длинный вариант — «Никогда» /
-   «Never»: 13px/500 даёт ему ~62px, плюс 40px на отступы и шеврон. Селект во
-   всю колонку был бы вдвое шире собственного текста. Правило стоит здесь, а
-   не рядом с самой ячейкой: выше него `.set-cell .custom-select` с той же
-   специфичностью возвращает ширину колонки. */
+/* …and except the unload delay. The width fits the longest option — «Никогда»
+   / «Never»: 13px/500 gives it ~62px, plus 40px for padding and the chevron. A
+   select spanning the column would be twice as wide as its own text. The rule
+   sits here rather than next to the cell itself: above it `.set-cell
+   .custom-select` with the same specificity restores the column width. */
 .advanced__unload-cell .custom-select { width: 104px; max-width: 104px; }
 
 @media (max-width: 900px) {
@@ -1560,10 +1583,10 @@ button.card { appearance: none; font: inherit; color: inherit; }
    Redesign additions (Stage 7) — Stats (KPI tiles, charts, breakdown)
    ================================================================ */
 
-/* auto-fit, а не фиксированные колонки: плитки просто идут подряд и
-   переносятся, когда не помещаются. Раньше их было две сетки по пять — на
-   средней ширине каждая давала ряд из четырёх и одинокую пятую под ним
-   (4/1/4/1); теперь сетка одна и последний ряд — единственный неполный. */
+/* auto-fit rather than fixed columns: the tiles simply run in order and wrap
+   when they no longer fit. There used to be two grids of five — at a medium
+   width each produced a row of four with a lone fifth beneath it (4/1/4/1); now
+   there is one grid and the last row is the only incomplete one. */
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
@@ -1595,8 +1618,8 @@ button.card { appearance: none; font: inherit; color: inherit; }
 }
 .stat.accent .stat__value { color: var(--accent-text); }
 .stat__sub { font: 400 11.5px/1.4 var(--font-sans); color: var(--ink-mute); }
-/* Акцентная подложка светлее обычной карточки, и --ink-mute на ней уже не
-   дотягивает до 4.5 — на этих плитках вторичный текст поднимается на тон. */
+/* The accent background is lighter than an ordinary card, and --ink-mute on it
+   no longer reaches 4.5 — on these tiles the secondary text moves up a tone. */
 .stat.accent .stat__label, .stat.accent .stat__sub { color: var(--ink-dim); }
 
 .stats-charts { display: grid; grid-template-columns: 2fr 1fr; gap: 14px; margin-bottom: 14px; }
@@ -1705,8 +1728,8 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .ai-mode-card__desc { font: 400 12px/1.5 var(--font-sans); color: var(--ink-mute); }
 .ai-mode-card[data-selected="true"] .ai-mode-card__desc { color: var(--ink-dim); }
 
-/* Предупреждение под сеткой режимов: жёлтая плашка того же вида, что и
-   «у профиля свой промпт» ниже на странице. */
+/* The warning under the mode grid: a yellow pill of the same kind as «у
+   профиля свой промпт» further down the page. */
 .ai-mode-warning {
   display: flex; align-items: flex-start; gap: 8px; flex-wrap: wrap;
   margin-top: 10px; padding: 9px 11px;
@@ -1720,7 +1743,7 @@ button.card { appearance: none; font: inherit; color: inherit; }
 }
 
 /* ================================================================
-   «Обработка → Текст» — сворачиваемые карточки и общий предпросмотр
+   «Обработка → Текст» — collapsible cards and a shared preview
    ================================================================ */
 
 .text-grid {
@@ -1734,25 +1757,26 @@ button.card { appearance: none; font: inherit; color: inherit; }
 
 .fold__head {
   display: flex; align-items: center; gap: 10px;
-  /* Аварийный клапан на случай длинного перевода: если заголовок со счётчиком
-     и переключатель не умещаются в строку, переключатель уходит вниз, а не
-     ужимает заголовок многоточием до нуля. В русском и английском не
-     срабатывает — справа остался один переключатель. */
+  /* A relief valve for a long translation: if the heading with its counter and
+     the switch do not fit on one line, the switch drops below rather than
+     ellipsising the heading down to nothing. It never fires in Russian or
+     English — only one switch is left on the right. */
   flex-wrap: wrap; row-gap: 4px;
   padding: 0 12px 0 0;
   min-height: 44px;
 }
 
-/* Кнопка занимает всю свободную ширину, чтобы попадать в неё было легко;
-   переключатели лежат снаружи — иначе клик по switch схлопывал бы карточку. */
-/* Три элемента шапки выравниваются в один ряд двумя правилами.
-   Текст — по базовой линии, а не по центру коробок: у заголовка line-height 1,
-   у счётчика было 1.7, и центрированные коробки разной высоты ставили «0/0»
-   выше строки заголовка — глаз равняет текст по низу букв.
-   Счётчику тут же line-height приравнен к единице: его пустое поле снизу
-   растягивало строку на 4px ниже заголовка, и центрированный по ней значок
-   сворачивания уезжал под текст. Плашки — не текст, базовой линии у них
-   нет, поэтому они остаются по центру. */
+/* The button takes all the free width so it is easy to hit; the switches lie
+   outside it — otherwise a click on a switch would collapse the card. */
+/* Three elements of the header are aligned into one row by two rules.
+   The text goes by baseline rather than by the centre of the boxes: the heading
+   has line-height 1 while the counter had 1.7, and centring boxes of different
+   heights put «0/0» above the heading's line — the eye aligns text by the bottom
+   of the letters.
+   The counter's line-height is set to one right here: its empty space below
+   stretched the row 4px past the heading, and the collapse chevron, centred on
+   that row, drifted below the text. Pills are not text and have no baseline to
+   share, so they stay centred. */
 .fold__toggle {
   display: flex; align-items: baseline; gap: 8px;
   flex: 1 1 auto; min-width: 0;
@@ -1765,39 +1789,39 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .fold__toggle > .pill { align-self: center; }
 .fold__chev { display: inline-flex; flex-shrink: 0; align-self: center; color: var(--ink-faint); transition: transform .18s, color .12s; }
 .fold__chev[data-open="true"] { transform: rotate(90deg); color: var(--accent); }
-/* Ужимается многоточием, а не выталкивает соседей: в узкой колонке шапка
-   «Замены» с двумя плашками состояния переставала помещаться, и содержимое
-   кнопки наезжало на переключатель справа. */
+/* It ellipsises rather than pushing its neighbours out: in a narrow column the
+   «Замены» header with two state pills stopped fitting and the button's content
+   ran over the switch on the right. */
 .fold__title { font: 600 13.5px/1 var(--font-sans); color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 
-/* Счётчик у заголовка — цифра, а не состояние: плашка вокруг неё спорила по
-   весу с самим заголовком и путала счёт с плашками состояния («активный»,
-   «не сохранено»), которые рядом остаются в баблах. */
+/* The counter beside the heading is a number, not a state: a pill around it
+   competed in weight with the heading itself and confused the count with the
+   state pills («активный», «не сохранено») that remain as bubbles nearby. */
 .head-count { font: 500 10.5px/1.7 var(--font-mono); color: var(--ink-dim); white-space: nowrap; flex-shrink: 0; }
 
 .fold__aside { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .fold__body { border-top: 1px solid var(--line-soft); }
 
-/* Внутренний список (правила очистки, правила замен) — своя рамка внутри
-   уже нарисованной карточки была бы двойной. */
+/* An inner list (cleanup rules, replacement rules) — a border of its own
+   inside an already drawn card would be a double one. */
 .fold__rows { border: 1px solid var(--line-soft); border-radius: var(--r-sm); overflow: hidden; }
 .fold__body > .fold__rows { border: 0; border-radius: 0; }
 
-/* Порог опущен ниже минимальной ширины окна (1000 px): раньше он совпадал с
-   ней, и страница открывалась в одну колонку — ровно в том размере, в котором
-   приложение теперь и запускается. Правило оставлено на случай, если
-   minWidth когда-нибудь опустят. */
+/* The breakpoint is lowered below the minimum window width (1000 px): it used
+   to coincide with it, and the page opened in a single column — at exactly the
+   size the app now launches in. The rule is kept in case minWidth is ever
+   lowered. */
 @media (max-width: 820px) {
   .text-grid { grid-template-columns: 1fr; }
 }
 
 /* ================================================================
-   «Интеграции» — профили провайдеров и слоты ключей на одной странице
+   «Интеграции» — provider profiles and key slots on one page
    ================================================================ */
 
-/* Базовое правило для .icon-btn. Раньше класс был описан только внутри
-   .profile-row и .keys-row, поэтому в любом другом месте он давал голую
-   системную кнопку WebView2 — чужеродную рядом с .btn. */
+/* The base rule for .icon-btn. The class used to be described only inside
+   .profile-row and .keys-row, so anywhere else it produced a bare WebView2
+   system button — alien next to .btn. */
 .icon-btn {
   appearance: none; border: 0; background: transparent; color: var(--text-mute);
   width: 26px; height: 26px; border-radius: 5px;
@@ -1809,8 +1833,8 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .icon-btn:disabled:hover { background: transparent; color: var(--text-mute); }
 .icon-btn--danger:hover { background: rgba(239,94,107,0.12); color: var(--err); }
 
-/* Строка профиля больше не одна большая кнопка: внутрь встают карандаш,
-   копия, удаление и поле переименования, а кнопка в кнопке невалидна. */
+/* A profile row is no longer one big button: a pencil, a copy, a delete and a
+   rename field go inside it, and a button inside a button is invalid. */
 .prov-row--split { padding-right: 8px; }
 .prov-row__main {
   flex: 1 1 auto; min-width: 0;
@@ -1820,9 +1844,9 @@ button.card { appearance: none; font: inherit; color: inherit; }
   color: inherit; font: inherit; text-align: left;
 }
 .prov-row__tools { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
-/* Инструменты строки проявляются по наведению и фокусу: три иконки в каждой
-   строке постоянно — это шум, а невидимая совсем кнопка недоступна с
-   клавиатуры. */
+/* A row's tools appear on hover and focus: three icons in every row at all
+   times are noise, while a wholly invisible button is unreachable from the
+   keyboard. */
 .prov-row__tools .icon-btn { opacity: 0; transition: opacity .12s; }
 .prov-row:hover .prov-row__tools .icon-btn,
 .prov-row__tools .icon-btn:focus-visible { opacity: 1; }

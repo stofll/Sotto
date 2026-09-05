@@ -278,13 +278,13 @@ function SetLabel({ title, hint }: { title: string; hint?: string }) {
   );
 }
 
-// Язык интерфейса. Отдельно от LanguagePicker намеренно: тот про язык речи,
-// и путать их дорого — выбрав «English» в надежде переключить интерфейс,
-// пользователь сломает распознавание русской диктовки.
+// The UI language. Deliberately separate from LanguagePicker: that one is about
+// the speech language, and confusing the two is expensive — picking «English» in
+// the hope of switching the interface breaks Russian dictation.
 function UiLanguagePicker({ value, onConfigChanged }: { value?: Locale; onConfigChanged: (patch: Partial<ConfigResult>) => Promise<unknown> }) {
   const current = value ?? getLocale();
-  // Обёртка — ради высоты: Segmented стилизован инлайном, дотянуться до его
-  // кнопок можно только через класс снаружи.
+  // The wrapper exists for the height: Segmented is styled inline, and its
+  // buttons can only be reached through a class from outside.
   return (
     <div className="lang-row__ui-language">
       <Segmented
@@ -292,8 +292,8 @@ function UiLanguagePicker({ value, onConfigChanged }: { value?: Locale; onConfig
         options={LOCALES.map((locale) => ({ value: locale, label: LOCALE_LABELS[locale] }))}
         onChange={(next) => {
           if (!isLocale(next)) return;
-          // Применяем сразу, не дожидаясь ответа: сохранение может занять
-          // сотни миллисекунд, а переключатель должен отзываться мгновенно.
+          // Applied at once without waiting for the answer: saving may take
+          // hundreds of milliseconds while a switch must respond instantly.
           setLocale(next);
           void onConfigChanged({ ui_language: next });
         }}
@@ -303,16 +303,17 @@ function UiLanguagePicker({ value, onConfigChanged }: { value?: Locale; onConfig
 }
 
 function LanguagePicker({ language, model, models, onConfigChanged }: { language?: string; model?: ModelInfo; models: ModelInfo[]; onConfigChanged: Props["onConfigChanged"] }) {
-  // Модель с закрытым списком языков сама решает за этот список: и
-  // английские сборки Whisper, и GigaAM на чужом языке выдают не ошибку, а
-  // мусор.
+  // A model with a closed language list decides for that list itself: both
+  // English-only Whisper builds and GigaAM produce garbage rather than an error
+  // on a foreign language.
   const correction = fallbackLanguage(model, language);
   useEffect(() => {
     if (correction) void onConfigChanged({ language: correction });
   }, [correction, onConfigChanged]);
-  // Тот же список, что и в каталоге: странно уметь скачать немецкую модель и
-  // не уметь сказать, что диктуешь по-немецки. Флагов здесь нет намеренно —
-  // язык не страна, и у английского с арабским их по десятку.
+  // The same list as in the catalog: it would be odd to be able to download a
+  // German model yet unable to say you are dictating in German. There are
+  // deliberately no flags — a language is not a country, and English and Arabic
+  // have a dozen each.
   const options = useMemo<Array<SelectOption<string>>>(
     () => [
       { value: "auto", label: t("Авто"), icon: "globe" },
@@ -328,20 +329,21 @@ function LanguagePicker({ language, model, models, onConfigChanged }: { language
   return <CustomSelect className="custom-select--language" value={value} options={options} searchable inlineMeta onChange={(next) => void onConfigChanged({ language: next })}/>;
 }
 
-// Смена устройства перезагружает модель на стороне Rust — это единственный
-// момент, когда whisper.cpp применяет use_gpu. Пока идёт перезагрузка,
-// прилетают штатные model-loading / model-ready.
+// Changing the device reloads the model on the Rust side — that is the only
+// moment whisper.cpp applies use_gpu. While the reload runs, the usual
+// model-loading / model-ready events arrive.
 function DevicePicker({ device, cpuOnly, onConfigChanged }: { device?: string; cpuOnly?: boolean; onConfigChanged: Props["onConfigChanged"] }) {
-  // Всё, кроме явного "cpu", — GPU: так же считает Rust (`resolve_device`),
-  // включая унаследованное значение "cuda".
+  // Anything but an explicit "cpu" is GPU: Rust reckons the same way
+  // (`resolve_device`), including the legacy value "cuda".
   const current = cpuOnly ? "cpu" : (device === "cpu" ? "cpu" : "gpu");
-  // Выбор из двух взаимоисключающих значений — это тумблер, а не список:
-  // оба варианта видны сразу, и раскрывать меню ради них незачем.
+  // A choice between two mutually exclusive values is a switch, not a list:
+  // both options are visible at once and there is no point opening a menu for
+  // them.
   //
-  // У CPU-only модели тумблер гасится, а «почему» переехало в подсказку на
-  // нём самом: спрашивают об этом ровно тогда, когда он погашен, и
-  // спрашивают у него. Постоянная подпись рядом стоила строки текста и
-  // ширины колонки в ряду, которому ширины и так не хватало.
+  // For a CPU-only model the switch is disabled and the "why" moved into a hint
+  // on the switch itself: people ask about it exactly when it is disabled, and
+  // they ask it. A permanent caption beside it cost a line of text and a column
+  // of width in a row that was already short of width.
   const picker = (
     <Segmented
       value={current}
@@ -366,24 +368,24 @@ const SOUND_VOLUME_PRESETS = () => ([
   { label: t("Громко"), value: 0.7 },
 ]);
 const DEFAULT_SOUND_VOLUME = 0.35;
-// Псевдо-громкость для пункта «Выключено». Для пользователя «включены ли сигналы»
-// и «насколько громко» — один выбор, поэтому и контрол один: отдельный тумблер
-// стоил второго клика и держал селект в disabled, ничего при этом не решая.
+// A pseudo-volume for the «Выключено» option. To the user "are the sounds on"
+// and "how loud" are one choice, so there is one control: a separate switch cost
+// a second click and kept the select disabled while deciding nothing.
 const SOUND_OFF = 0;
 
-// Звуковые сигналы диктовки: старт записи, конец, вставка текста, ошибка.
-// Значения по умолчанию продублированы в src-tauri/src/sounds.rs.
+// Dictation sound cues: recording start, end, text insertion, error. The
+// defaults are duplicated in src-tauri/src/sounds.rs.
 function SoundFeedbackControl({ enabled, volume, onConfigChanged }: { enabled: boolean; volume: number; onConfigChanged: Props["onConfigChanged"] }) {
   const presets = SOUND_VOLUME_PRESETS();
   const knownVolume = presets.some((preset) => preset.value === volume) ? volume : DEFAULT_SOUND_VOLUME;
-  // Проигрываем выбранное значение сразу: громкость на слух не выбирается
-  // по названию пресета.
+  // We play the chosen value immediately: volume is not picked by ear from the
+  // name of a preset.
   function preview(nextVolume: number) {
     void tauriInvoke("preview_sound_cue", { cue: "done", volume: nextVolume }).catch(() => {});
   }
 
-  // «Выключено» не трогает sound_volume: вернув сигналы, пользователь получает ту
-  // же громкость, которую выбирал раньше.
+  // «Выключено» does not touch sound_volume: on bringing the cues back the user
+  // gets the same volume they chose before.
   function select(next: number) {
     if (next === SOUND_OFF) {
       void onConfigChanged({ sound_feedback: false });
@@ -409,13 +411,13 @@ function SoundFeedbackControl({ enabled, volume, onConfigChanged }: { enabled: b
   );
 }
 
-// Через сколько простоя модель уходит из оперативной памяти. Само значение
-// живёт в ./modelUnloadSettings, потому что его же читает Rust.
+// After how much idling the model leaves RAM. The value itself lives in
+// ./modelUnloadSettings because Rust reads the very same one.
 function ModelUnloadControl({ value, onConfigChanged }: { value?: number; onConfigChanged: Props["onConfigChanged"] }) {
   const current = modelUnloadMinutes(value);
   const options = modelUnloadOptions(current).map((minutes) => ({
     value: minutes,
-    // «Никогда» — это не срок, поэтому и не «0 мин».
+    // «Никогда» is not a duration, hence not "0 min" either.
     label: minutes === 0 ? t("Никогда") : t("{p0} мин", { p0: minutes }),
   }));
   return (
@@ -428,7 +430,7 @@ function ModelUnloadControl({ value, onConfigChanged }: { value?: number; onConf
   );
 }
 
-// Продублировано в src-tauri/src/history.rs (RetentionPolicy::default).
+// Duplicated in src-tauri/src/history.rs (RetentionPolicy::default).
 const DEFAULT_HISTORY_RETENTION_DAYS = 30;
 const DEFAULT_HISTORY_MAX_ENTRIES = 1000;
 const MAX_HISTORY_RETENTION_DAYS = 3650;
@@ -440,8 +442,8 @@ function HistoryRetentionControl({ days, maxEntries, onConfigChanged }: { days: 
   useEffect(() => { setDraftDays(String(days)); }, [days]);
   useEffect(() => { setDraftEntries(String(maxEntries)); }, [maxEntries]);
 
-  // Совпадает с проверкой в Rust: значение вне диапазона там откатывается к
-  // дефолту, так что до конфига оно доезжать не должно.
+  // Matches the check in Rust: a value outside the range is rolled back to the
+  // default there, so it must never reach the config.
   function clamp(raw: string, fallback: number, max: number) {
     const parsed = Number(raw);
     if (!Number.isFinite(parsed)) return fallback;
@@ -528,10 +530,11 @@ function nextActive(prev: boolean, level: number): boolean {
 type SidecarErrorPayload = { kind?: string; permission?: string; hint?: string; message?: string };
 
 function MicPicker({ microphone, microphones, onConfigChanged }: { microphone?: string | number | null; microphones: MicrophoneResult[]; onConfigChanged: Props["onConfigChanged"] }) {
-  // Проверка уровня и эхо — два разных режима на одном потоке захвата.
-  // Раньше кнопка была одна и включала оба сразу: чтобы посмотреть на
-  // индикатор, приходилось слушать себя в колонках и ловить самовозбуждение.
-  // Поэтому флага два, а поток живёт, пока включён хотя бы один из них.
+  // The level check and echo are two different modes on one capture stream.
+  // There used to be a single button turning both on at once: to look at the
+  // meter you had to listen to yourself through the speakers and catch the
+  // feedback. Hence two flags, while the stream lives as long as at least one of
+  // them is on.
   const [checking, setChecking] = useState(false);
   const [echo, setEcho] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -546,11 +549,11 @@ function MicPicker({ microphone, microphones, onConfigChanged }: { microphone?: 
     if (context) void context.close();
   }
 
-  // Список устройств перечитывается по событию, а не по таймеру: опрос раз в
-  // три секунды гонял перечисление cpal на аудиопотоке всё время, пока открыты
-  // настройки, — в том числе когда окно свёрнуто в трей. Оба момента, когда
-  // подключённый на ходу микрофон должен появиться, ловятся точно: возврат
-  // фокуса в окно и раскрытие самого списка.
+  // The device list is re-read on an event rather than on a timer: polling every
+  // three seconds drove cpal enumeration on the audio thread the whole time the
+  // settings were open — including with the window minimised to the tray. Both
+  // moments when a microphone plugged in mid-session should appear are caught
+  // precisely: focus returning to the window and the list itself being opened.
   const pendingRefresh = useRef(false);
   const disposed = useRef(false);
   const refreshDevices = useCallback(async () => {
@@ -662,17 +665,18 @@ function MicPicker({ microphone, microphones, onConfigChanged }: { microphone?: 
         setMicActive(active);
       }
     });
-    // Режимы включают обработчики кнопок — они знают, какой из двух нажали.
-    // Здесь остаётся только внешняя остановка (скрытие окна, смена устройства):
-    // поток захвата один, и с его концом гаснут оба режима.
+    // The modes are switched on by the button handlers — they know which of the
+    // two was pressed. What is left here is only an external stop (hiding the
+    // window, changing the device): there is one capture stream, and when it
+    // ends both modes go out.
     subscribe<unknown>("microphone-test-started", () => { setError(null); });
     subscribe<unknown>("microphone-test-stopped", () => { closePlayback(); setChecking(false); setEcho(false); resetMeter(); });
     subscribe<SidecarErrorPayload>("app-error", (payload) => {
-      // События о разрешениях показывает баннер в MainWindow — у него текст под
-      // конкретное разрешение и ссылка в нужную панель системных настроек.
-      // Здесь такой ветки быть не должно: она подписывала любое из них как
-      // «нет доступа к микрофону» с macOS-инструкцией, хотя единственный
-      // источник таких событий — Accessibility на macOS.
+      // Permission events are shown by the banner in MainWindow — it has text
+      // for the specific permission and a link into the right system settings
+      // pane. There must be no such branch here: it labelled every one of them
+      // as "no microphone access" with macOS instructions, even though the only
+      // source of such events is Accessibility on macOS.
       if (payload?.permission) return;
       if (payload?.message) setError(String(payload.message));
     });
@@ -696,8 +700,9 @@ function MicPicker({ microphone, microphones, onConfigChanged }: { microphone?: 
     };
   }, []);
 
-  // Захват общий на оба режима: старт идемпотентен, остановка — только когда
-  // второй режим тоже выключен, иначе выход из эха гасил бы индикатор.
+  // The capture is shared by both modes: start is idempotent, and stop happens
+  // only when the second mode is off as well — otherwise leaving echo would kill
+  // the meter.
   async function startCapture(monitor: boolean) {
     await invoke("start_microphone_test", { microphone: microphone ?? null, monitor });
   }
@@ -742,8 +747,8 @@ function MicPicker({ microphone, microphones, onConfigChanged }: { microphone?: 
         if (!checking) await stopCapture();
         setStoppedStatus(t("Эхо выключено"));
       } else {
-        // Контекст открывается до старта захвата: браузерный autoplay-гейт
-        // снимается только внутри обработчика клика.
+        // The context is opened before the capture starts: the browser's
+        // autoplay gate lifts only inside a click handler.
         const context = new AudioContext();
         playback.current = context;
         await context.resume();
@@ -766,9 +771,9 @@ function MicPicker({ microphone, microphones, onConfigChanged }: { microphone?: 
     <div>
       <div className="mic-control">
         <CustomSelect className="custom-select--mic" value={selectedValue} options={options.map((option) => ({ ...option, icon: "mic" }))} onOpen={() => void refreshDevices()} onChange={(value) => void selectMicrophone(value).catch((e) => setError(String(e)))}/>
-        {/* Наушники стоят первыми: слева от них — список устройств, и эхо
-            отвечает на первый вопрос про новый микрофон («меня вообще
-            слышно и как?»), а индикатор уровня уточняет громкость. */}
+        {/* Headphones come first: the device list is to their left, and echo
+            answers the first question about a new microphone ("can I be heard
+            at all, and how?"), while the level meter refines the volume. */}
         <Hint text={t("Возвращает ваш голос обратно, чтобы вы слышали себя таким, каким вас слышит программа: шум, хрипы, гулкость комнаты. Только в наушниках: через колонки микрофон поймает сам себя.")}>
           <button className={`mic-test${echo ? " mic-test--active" : ""}`} type="button" disabled={busy} aria-pressed={echo} aria-label={t("Эхо")} onClick={() => void toggleEcho()}><Icon name="headphones" size={14}/></button>
         </Hint>
@@ -826,12 +831,12 @@ export function SettingsPage({ config, microphones, models, onConfigChanged }: P
       setDuckTest("error");
     }
   }
-  // Настройкам нужна только выбранная модель — за её характеристиками
-  // (язык, CPU-only) следуют язык речи и выбор устройства.
+  // Settings need only the selected model — the speech language and the device
+  // choice follow from its properties (language, CPU-only).
   const selectedModelInfo = (models.length ? models : fallbackModels()).find((item) => item.id === model);
   const recordingMode = config?.recording_mode ?? "toggle";
-  // Одна подпись на все места, где состояние проверки называется словами:
-  // подсказка кнопки и строка для скринридера обязаны говорить одно и то же.
+  // One caption for every place the test's state is put into words: the
+  // button's hint and the screen-reader line must say the same thing.
   const duckTestLabel = duckTest === "running" ? t("Проверяем приглушение…")
     : duckTest === "done" ? t("Громкость восстановлена")
     : duckTest === "error" ? duckTestError
@@ -841,9 +846,9 @@ export function SettingsPage({ config, microphones, models, onConfigChanged }: P
     <div className="page">
       <PageHeader title={t("Настройки")}/>
 
-      {/* 1. Capture row: hotkey · recording mode — одна строка через vrule.
-          Выбор модели живёт на своей странице: здесь он дублировал каталог,
-          а вместе с ним и скачивание с удалением. */}
+      {/* 1. Capture row: hotkey · recording mode — one row split by a vrule.
+          The model picker lives on its own page: here it duplicated the catalog,
+          and with it downloading and deleting. */}
       <section className="card" style={{ padding: "12px 16px", marginBottom: 10 }}>
         <div className="capture-row">
           <div className="set-cell">
@@ -858,9 +863,9 @@ export function SettingsPage({ config, microphones, models, onConfigChanged }: P
         </div>
       </section>
 
-      {/* 2. Languages — 2 cols. Названия разводят две настройки между собой,
-          а подсказка у языка речи отвечает на следующий вопрос: что будет,
-          если продиктовать не на нём. */}
+      {/* 2. Languages — 2 cols. The names separate the two settings from each
+          other, while the hint on the speech language answers the next
+          question: what happens if you dictate in another one. */}
       <section className="card" style={{ padding: "12px 16px", marginBottom: 10 }}>
         <div className="lang-row">
           <div className="set-cell">
@@ -882,14 +887,14 @@ export function SettingsPage({ config, microphones, models, onConfigChanged }: P
         </div>
       </section>
 
-      {/* 4. Behaviour row: настройки вставки — одна последовательность
-          чекбоксов; отдельный тумблер создавал ложную визуальную иерархию. */}
+      {/* 4. Behaviour row: the paste settings as one sequence of checkboxes; a
+          separate switch created a false visual hierarchy. */}
       <section className="card" style={{ padding: "12px 16px" }}>
         <div className="behavior-row behavior-row--primary">
-          {/* «Пробел в конце» и «Enter после вставки» переехали в
-              «Дополнительно»: обе зависят от авто-вставки, обе ставят один раз
-              под свой сценарий — и втроём эти подписи не давали строке
-              поместиться на узком окне. */}
+          {/* «Пробел в конце» and «Enter после вставки» moved into
+              «Дополнительно»: both depend on auto-paste, both are set once for
+              a particular scenario — and all three captions together kept the
+              row from fitting on a narrow window. */}
           <div className="set-cell behavior-row__paste-options">
             <span className="label-with-hint">
               <label className="checkbox-row">
@@ -908,12 +913,13 @@ export function SettingsPage({ config, microphones, models, onConfigChanged }: P
             />
           </div>
           <div className="vrule"/>
-          {/* Приглушение — не обработка записи, а то, что приложение делает с
-              системой, пока пишет; и переключают его ситуативно: в наушниках
-              не нужно, с колонок нужно. Отсюда соседство со вставкой, а не
-              место в «Дополнительно». Подпись короткая: «на время записи»
-              договаривает подсказка, а в строке эти три слова стоили того
-              места, из-за которого строка и переставала помещаться. */}
+          {/* Ducking is not processing of the recording but what the app does
+              to the system while recording; and it is toggled situationally:
+              unnecessary with headphones, necessary with speakers. Hence its
+              place next to pasting rather than inside «Дополнительно». The
+              caption is short: the hint finishes the thought with "while
+              recording", and in the row those three words cost exactly the
+              space that kept it from fitting. */}
           <div className="set-cell behavior-row__duck">
             <span className="label-with-hint">
               <label className="checkbox-row">
@@ -922,13 +928,13 @@ export function SettingsPage({ config, microphones, models, onConfigChanged }: P
               </label>
               <HintIcon text={t("На время записи убавить общую громкость и вернуть её после. Нужно, если пишете с колонок: звук из них попадает в микрофон.")}/>
             </span>
-            {/* Вся проверка — одна кнопка-значок, и результат показывает она
-                же: галочка или красный знак вместо слов рядом. Так строка
-                занимает одну и ту же ширину во всех состояниях — а раньше
-                появление кнопки, а потом и статуса, переносило ячейку на
-                вторую строку и меняло высоту карточки прямо под курсором.
-                Текст результата никуда не делся: он в подсказке кнопки и в
-                скрытой строке для скринридера. */}
+            {/* The whole test is a single icon button, and the same button
+                shows the result: a tick or a red mark instead of words beside
+                it. That way the row takes the same width in every state —
+                whereas the button appearing, and then the status, used to push
+                the cell onto a second line and change the card's height right
+                under the cursor. The result text has not gone anywhere: it is in
+                the button's hint and in the hidden screen-reader line. */}
             <button
               className="btn btn--ghost behavior-row__duck-button"
               type="button"
@@ -948,9 +954,9 @@ export function SettingsPage({ config, microphones, models, onConfigChanged }: P
         </div>
       </section>
 
-      {/* 5. Всё, что настраивают один раз или не настраивают никогда. Свёрнуто
-          намеренно: на верхнем уровне эти контролы стоили новому
-          пользователю больше, чем экономили опытному. */}
+      {/* 5. Everything that is configured once or never. Collapsed on purpose:
+          at the top level these controls cost a new user more than they saved an
+          experienced one. */}
       <details className="card advanced" style={{ padding: "12px 16px", marginTop: 10 }}>
         <summary>
           <Icon name="chev-down" size={13}/>
@@ -976,10 +982,10 @@ export function SettingsPage({ config, microphones, models, onConfigChanged }: P
             <SetLabel title={t("Скорость набора")} hint={t("Скорость ручного набора. В статистике используется формула: символы / скорость набора.")}/>
             <TypingSpeedControl value={config?.typing_speed_cpm} onConfigChanged={onConfigChanged}/>
           </div>
-          {/* Четвёртая настройка ряда. На узкой карточке — с открытым
-              сайдбаром на минимальной ширине окна — она переходит во второй
-              ряд, а разделитель перед ней прячется: за это отвечает
-              container query в styles.css, меряющий карточку, а не окно. */}
+          {/* The row's fourth setting. On a narrow card — with the sidebar open
+              at the minimum window width — it moves to a second row and the
+              separator before it is hidden: that is handled by a container
+              query in styles.css which measures the card, not the window. */}
           <div className="vrule advanced__unload-rule"/>
           <div className="set-cell advanced__unload-cell">
             <SetLabel title={t("Выгружать модель")} hint={t("Через сколько минут без диктовки освобождать оперативную память. Модель вернётся в неё сама — в начале следующей записи, пока вы говорите.")}/>
@@ -987,9 +993,9 @@ export function SettingsPage({ config, microphones, models, onConfigChanged }: P
           </div>
         </div>
 
-        {/* Уточнения к авто-вставке: работают, только когда она включена, и
-            выключенными выглядят приглушённо — иначе флажок, который ничего не
-            делает, читается как сломанный. */}
+        {/* Clarifications to auto-paste: they work only when it is on, and when
+            disabled they look dimmed — otherwise a checkbox that does nothing
+            reads as broken. */}
         <div className="advanced__paste-row">
           <label className="checkbox-row" style={{ color: autoPaste ? "var(--ink-mute)" : "var(--ink-faint)" }}>
             <input className="checkbox" type="checkbox" disabled={!autoPaste} checked={config?.paste_trailing_space ?? false} onChange={(e) => void onConfigChanged({ paste_trailing_space: e.target.checked })}/>
@@ -1004,14 +1010,14 @@ export function SettingsPage({ config, microphones, models, onConfigChanged }: P
           </span>
         </div>
 
-        {/* Автозапуск ставят один раз за установку — ровно тот случай, ради
-            которого блок и свёрнут. Обрезки тишины здесь больше нет: vad.rs
-            сам отказывается резать, когда речь не найдена или экономия меньше
-            секунды, так что выключателю было нечего чинить. Ключ trim_silence
-            в config.json по-прежнему читается — как отладочный.
-            Согласие на телеметрию стоит здесь же: это такой же выключатель
-            «поставил один раз», и отдельный подраздел под одну строку был
-            тяжелее самой строки. */}
+        {/* Autostart is set once per installation — exactly the case this block
+            is collapsed for. Silence trimming is no longer here: vad.rs refuses
+            to trim by itself when no speech is found or the saving is under a
+            second, so there was nothing for the switch to fix. The trim_silence
+            key in config.json is still read — as a debug option.
+            The telemetry consent sits here too: it is the same kind of "set once
+            and forget" switch, and a separate subsection for a single row was
+            heavier than the row itself. */}
         <div className="advanced__autostart-row">
           <span className="label-with-hint">
             <label className="checkbox-row">

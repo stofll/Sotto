@@ -12,15 +12,15 @@ use sha2::Digest;
 
 const MIN_VALID_MODEL_BYTES: u64 = 10 * 1024 * 1024;
 
-/// Все GGML-модели каталога — из одного семейства; у бандлов оно своё.
+/// Every GGML model in the catalog comes from one family; bundles have theirs.
 const WHISPER_FAMILY: &str = "Whisper";
 
-/// Языки многоязычного Whisper, ISO 639-1 (с парой исключений вроде `yue`,
-/// как их называет сама модель).
+/// Languages of multilingual Whisper, ISO 639-1 (with a couple of exceptions
+/// such as `yue`, as the model itself names them).
 ///
-/// Список выписан целиком, а не свёрнут в «многоязычная»: пользователь
-/// спрашивает не «много ли языков», а «есть ли мой», и ответить на это может
-/// только перечисление.
+/// The list is spelled out in full rather than folded into "multilingual": the
+/// user does not ask "are there many languages" but "is mine there", and only
+/// an enumeration can answer that.
 const WHISPER_LANGUAGES: &[&str] = &[
     "en", "zh", "de", "es", "ru", "ko", "fr", "ja", "pt", "tr", "pl", "ca", "nl", "ar", "sv", "it",
     "id", "hi", "fi", "vi", "he", "uk", "el", "ms", "cs", "ro", "da", "hu", "ta", "no", "th", "ur",
@@ -31,11 +31,11 @@ const WHISPER_LANGUAGES: &[&str] = &[
     "ha", "ba", "jw", "su", "yue",
 ];
 
-/// Двадцать пять европейских языков Parakeet TDT v3 — ровно те, на которых
-/// модель обучалась, а не всё, что нашлось в её словаре токенов.
+/// The twenty-five European languages of Parakeet TDT v3 — exactly the ones the
+/// model was trained on, not everything found in its token vocabulary.
 ///
-/// Доступно на Windows/macOS, как и весь каталог бандлов sherpa: на остальных
-/// платформах он не собирается, и константа осталась бы мёртвой.
+/// Available on Windows/macOS, like the whole sherpa bundle catalog: on other
+/// platforms it is not built and the constant would be dead.
 #[cfg(any(windows, target_os = "macos"))]
 const PARAKEET_V3_LANGUAGES: &[&str] = &[
     "bg", "hr", "cs", "da", "nl", "en", "et", "fi", "fr", "de", "el", "hu", "it", "lv", "lt", "mt",
@@ -73,8 +73,8 @@ pub enum ArtifactRole {
     Encoder,
     Decoder,
     Joiner,
-    /// Moonshine раскладывает декодер на два графа и выносит извлечение
-    /// признаков в отдельный препроцессор.
+    /// Moonshine splits the decoder into two graphs and moves feature
+    /// extraction into a separate preprocessor.
     Preprocessor,
     CachedDecoder,
     UncachedDecoder,
@@ -96,14 +96,14 @@ pub struct BundleModelManifestEntry {
     pub directory_name: &'static str,
     pub artifacts: &'static [BundleArtifactManifestEntry],
     pub engine: ModelEngine,
-    /// Семейство, под заголовком которого модель стоит в каталоге. Имя
-    /// собственное и приходит с бэкенда готовым: новое семейство не должно
-    /// требовать правки фронтенда, чтобы получить заголовок.
+    /// The family under whose heading the model stands in the catalog. It is a
+    /// proper name and arrives from the backend ready-made: a new family must
+    /// not require a frontend change to get a heading.
     pub family: &'static str,
-    /// Языки, которые модель умеет, если их список закрыт. Модель, которую
-    /// просят о чужом языке, не падает — она молча выдаёт мусор, поэтому
-    /// пара отвергается заранее. `None` — модель многоязычная и ограничений
-    /// не накладывает.
+    /// The languages the model supports, if its list is closed. A model asked
+    /// about a foreign language does not fail — it silently produces garbage, so
+    /// the pair is rejected up front. `None` — the model is multilingual and
+    /// imposes no restrictions.
     pub languages: Option<&'static [&'static str]>,
     pub label: &'static str,
     pub size: &'static str,
@@ -415,9 +415,9 @@ pub const BUNDLE_MODEL_MANIFEST: &[BundleModelManifestEntry] = &[
         artifacts: CANARY_180M_ARTIFACTS,
         engine: ModelEngine::SherpaCanary,
         family: "Canary",
-        // Модель знает четыре языка, но пара языков задаётся при создании
-        // распознавателя, а не на каждой расшифровке. У нас она закреплена
-        // английской — см. `sherpa::OfflineRecognizer::canary`.
+        // The model knows four languages, but the language pair is set when
+        // the recognizer is created rather than per transcription. Ours is
+        // pinned to English — see `sherpa::OfflineRecognizer::canary`.
         languages: Some(&["en"]),
         label: "Canary 180M Flash",
         size: "198 MB",
@@ -467,8 +467,8 @@ pub const BUNDLE_MODEL_MANIFEST: &[BundleModelManifestEntry] = &[
         engine: ModelEngine::SherpaStreamingTransducer,
         family: "Zipformer",
         languages: Some(&["ru"]),
-        // «small» — из имени самой модели у апстрима, а не наша выдумка:
-        // так она отличается от обычной Zipformer, у которой то же имя.
+        // "small" comes from the model's own upstream name, not our invention:
+        // that is how it differs from the plain Zipformer of the same name.
         label: "Zipformer small",
         size: "27 MB",
         ram: "~0.3 GB",
@@ -481,10 +481,10 @@ pub const BUNDLE_MODEL_MANIFEST: &[BundleModelManifestEntry] = &[
         engine: ModelEngine::SherpaStreamingTransducer,
         family: "Parakeet",
         languages: Some(&["en"]),
-        // Апстрим выкладывает три варианта с разным заглядыванием вперёд:
-        // 240, 560 и 1120 мс. Взят средний — на 240 мс текст появляется
-        // быстрее, но чаще переписывается задним числом, а именно
-        // переписывание и раздражает в живом предпросмотре.
+        // Upstream publishes three variants with different look-ahead: 240, 560
+        // and 1120 ms. The middle one is taken — at 240 ms the text appears
+        // sooner but is rewritten retroactively more often, and it is precisely
+        // the rewriting that grates in a live preview.
         label: "Parakeet unified",
         size: "632 MB",
         ram: "~1.4 GB",
@@ -600,8 +600,8 @@ pub const MODEL_MANIFEST: &[ModelManifestEntry] = &[
         sha256: "317eb69c11673c9de1e1f0d459b253999804ec71ac4c23c17ecf5fbe24e259a1",
         recommended: true,
     },
-    // Английские сборки Whisper. Многоязычная голова у них обучена прочь,
-    // поэтому русская речь превращается в мусор — язык у них закреплён.
+    // English-only Whisper builds. Their multilingual head is trained away, so
+    // Russian speech turns into garbage — their language is pinned.
     ModelManifestEntry {
         public_id: "tiny.en",
         file_name: "ggml-tiny.en-q8_0.bin",
@@ -666,8 +666,8 @@ struct ModelDefinition {
     label: &'static str,
     size: &'static str,
     ram: &'static str,
-    /// См. [`BundleModelManifestEntry::languages`]: у английских сборок
-    /// Whisper многоязычная голова обучена прочь.
+    /// See [`BundleModelManifestEntry::languages`]: English-only Whisper builds
+    /// have their multilingual head trained away.
     languages: Option<&'static [&'static str]>,
     recommended: bool,
 }
@@ -785,17 +785,17 @@ pub struct ModelInfo {
     /// Whisper follows the configured CPU/GPU setting at load time.
     pub compute_backend: String,
     pub cpu_only: bool,
-    /// Семейство модели («Whisper», «GigaAM», …) — заголовок группы в
-    /// каталоге. `None` у файла, найденного в папке моделей: семейство
-    /// чужого `.bin` неизвестно.
+    /// The model's family ("Whisper", "GigaAM", …) — the group heading in the
+    /// catalog. `None` for a file found in the models folder: the family of a
+    /// foreign `.bin` is unknown.
     pub family: Option<String>,
-    /// Закрытый список языков модели; `None` — многоязычная. Управляет и
-    /// фильтром каталога, и выбором языка речи в настройках.
+    /// The model's closed language list; `None` means multilingual. It drives
+    /// both the catalog filter and the speech language choice in settings.
     pub languages: Option<Vec<String>>,
-    /// Умеет ли модель показывать текст по ходу диктовки.
+    /// Whether the model can show text as the dictation goes.
     pub streaming: bool,
-    /// Квантование весов: `q8_0`, `int8`, `f16`. `None` — неизвестно, так
-    /// бывает только у чужого файла из папки моделей.
+    /// Weight quantisation: `q8_0`, `int8`, `f16`. `None` means unknown, which
+    /// happens only for a foreign file from the models folder.
     pub quantization: Option<String>,
 }
 
@@ -807,8 +807,8 @@ pub enum ModelEngine {
     SherpaCanary,
     SherpaMoonshine,
     SherpaSenseVoice,
-    /// Потоковый трансдьюсер: единственное семейство, которое умеет отдавать
-    /// текст по ходу речи, а не после остановки записи.
+    /// A streaming transducer: the only family that can return text as speech
+    /// goes rather than after the recording stops.
     SherpaStreamingTransducer,
 }
 
@@ -826,15 +826,15 @@ impl ModelEngine {
         !matches!(self, Self::Whisper)
     }
 
-    /// Отдаёт ли движок текст по ходу речи. Живой предпросмотр выбирает
-    /// модель только среди таких; остальные молчат до конца записи.
+    /// Whether the engine returns text as speech goes. The live preview picks a
+    /// model only among these; the rest stay silent until the recording ends.
     pub const fn is_streaming(self) -> bool {
         matches!(self, Self::SherpaStreamingTransducer)
     }
 
-    /// Файлы, без которых семейство не грузится. Единственное место, где это
-    /// знание живёт: по нему и собирается спецификация загрузки, и
-    /// проверяется полнота манифеста в тестах.
+    /// The files without which a family will not load. The single place this
+    /// knowledge lives: it is what the load spec is assembled from and what the
+    /// tests check the manifest's completeness against.
     pub const fn required_roles(self) -> &'static [ArtifactRole] {
         match self {
             Self::Whisper => &[],
@@ -875,17 +875,17 @@ pub enum ModelLoadSpec {
         path: PathBuf,
         use_gpu: bool,
     },
-    /// Любое семейство sherpa одной формой: движок плюс файлы по ролям.
-    /// Раньше на каждое семейство здесь был свой вариант, и добавление
-    /// нового означало правку и здесь, и в потоке движка, хотя ни тот, ни
-    /// другой про семейства ничего знать не обязаны.
+    /// Any sherpa family in one shape: the engine plus files by role. There
+    /// used to be a variant per family here, and adding a new one meant editing
+    /// both this and the engine thread, even though neither is obliged to know
+    /// anything about families.
     Sherpa {
         engine: ModelEngine,
         files: BundleFiles,
     },
 }
 
-/// Пути к файлам бандла, разложенные по ролям.
+/// Paths to a bundle's files, laid out by role.
 #[derive(Debug, Clone)]
 pub struct BundleFiles(Vec<(ArtifactRole, PathBuf)>);
 
@@ -958,9 +958,9 @@ fn definition(model_id: &str) -> Result<&'static ModelDefinition, String> {
         .ok_or_else(|| format!("UNKNOWN_MODEL: {model_id}"))
 }
 
-/// Каталог кэша до переименования приложения в Sotto. Существует только ради
-/// переезда: у тех, кто ставил ранние сборки, здесь лежат уже скачанные
-/// модели — это гигабайты, и терять их из-за смены имени нельзя.
+/// The cache directory from before the app was renamed to Sotto. It exists only
+/// for the migration: those who installed early builds have already-downloaded
+/// models here — gigabytes of them, and losing those to a rename is not on.
 const LEGACY_CACHE_DIR: &str = "whisper-desktop";
 const CACHE_DIR: &str = "sotto";
 
@@ -978,13 +978,13 @@ pub fn models_dir() -> Result<PathBuf, String> {
     Ok(migrate_legacy_cache(&cache).join("models"))
 }
 
-/// Вернуть каталог кэша, по дороге переселив старый, если он ещё не переселён.
+/// Return the cache directory, migrating the old one along the way if it has
+/// not been migrated yet.
 ///
-/// Переименование — одно движение в пределах одного тома, поэтому копии и
-/// половинчатого состояния не возникает. Если переименовать не вышло (права,
-/// открытый файл, том только на чтение), возвращаем старый путь: работающие
-/// модели важнее аккуратного имени каталога, а повторить попытку можно на
-/// следующем запуске.
+/// A rename is a single move within one volume, so no copy and no half-state
+/// arises. If the rename failed (permissions, an open file, a read-only volume)
+/// we return the old path: working models matter more than a tidy directory
+/// name, and the attempt can be repeated on the next launch.
 fn migrate_legacy_cache(cache: &Path) -> PathBuf {
     let current = cache.join(CACHE_DIR);
     let legacy = cache.join(LEGACY_CACHE_DIR);
@@ -1026,8 +1026,8 @@ pub fn model_engine(model_id: &str) -> Result<ModelEngine, String> {
     }
 }
 
-/// Объяснить ограничение модели на языке интерфейса. Живёт рядом с самим
-/// правилом, чтобы новая одноязычная модель не уехала без сообщения.
+/// Explain the model's restriction in the UI language. It lives next to the
+/// rule itself so a new monolingual model does not ship without a message.
 pub fn language_unsupported_message(languages: &[&str]) -> String {
     match languages {
         ["en"] => crate::ui_text::t("Эта модель распознаёт только английскую речь."),
@@ -1036,8 +1036,8 @@ pub fn language_unsupported_message(languages: &[&str]) -> String {
     }
 }
 
-/// Закрытый список языков модели, если он у неё закрыт. Многоязычные модели
-/// каталога возвращают `None`.
+/// The model's closed language list, if its list is closed. Multilingual models
+/// in the catalog return `None`.
 pub fn model_languages(model_id: &str) -> Option<&'static [&'static str]> {
     let id = normalize_model_id(model_id).ok()?;
     MODELS
@@ -1052,8 +1052,8 @@ pub fn model_languages(model_id: &str) -> Option<&'static [&'static str]> {
         })
 }
 
-/// Умеет ли модель распознавать этот язык. `auto` и пустая строка означают
-/// «пусть решает модель» и проходят всегда.
+/// Whether the model can transcribe this language. `auto` and an empty string
+/// mean "let the model decide" and always pass.
 pub fn model_supports_language(model_id: &str, language: &str) -> bool {
     if language.is_empty() || language == "auto" {
         return true;
@@ -1071,9 +1071,9 @@ pub fn model_load_spec(model_id: &str, use_gpu: bool) -> Result<ModelLoadSpec, S
     }
     let entry = bundle_manifest_entry(model_id)?;
     let dir = models_dir()?.join(entry.directory_name);
-    // Собираем только те роли, которых движок ждёт: лишний файл в бандле
-    // молча игнорируется, недостающий останавливает загрузку здесь, а не на
-    // C-границе, где sherpa отвечает падением процесса.
+    // We collect only the roles the engine expects: a surplus file in a bundle
+    // is silently ignored, a missing one stops the load here rather than at the
+    // C boundary, where sherpa answers by crashing the process.
     let mut files = Vec::with_capacity(engine.required_roles().len());
     for role in engine.required_roles() {
         files.push((*role, dir.join(artifact_named(entry, *role)?)));
@@ -1260,16 +1260,17 @@ fn verify_bundle_files_at(model_id: &str, root: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Проверить один файл бандла: есть, нужного размера, нужного содержимого.
+/// Check one bundle file: present, of the right size, with the right content.
 ///
-/// Отдельной функцией, потому что иначе проверку содержимого нечем накрыть
-/// тестом: первый артефакт GigaAM весит 224 МБ, и до второго — того, что
-/// поместился бы в тест, — выполнение не доходит. Из-за этого ветка
-/// SHA-256 не исполнялась ни в одном прогоне: её можно было удалить
-/// целиком, и весь набор остался бы зелёным.
+/// A separate function, because otherwise there is nothing to cover the content
+/// check with a test: GigaAM's first artifact weighs 224 MB, and execution never
+/// reaches the second — the one that would fit in a test. Because of that the
+/// SHA-256 branch ran in no test at all: it could have been deleted outright and
+/// the whole suite would still be green.
 ///
-/// Проверка идёт от дешёвого к дорогому: наличие, потом размер, и только
-/// потом хеш. Размер отсекает оборванную закачку, не читая двести мегабайт.
+/// The check goes from cheap to expensive: presence, then size, and only then
+/// the hash. Size rejects a truncated download without reading two hundred
+/// megabytes.
 fn verify_artifact(path: &Path, expected_bytes: u64, sha256: &str) -> Result<(), String> {
     let metadata = std::fs::metadata(path)
         .map_err(|error| format!("MODEL_MISSING: {}: {error}", path.display()))?;
@@ -1363,18 +1364,18 @@ pub fn remove_bundle_path(path: &Path) -> Result<bool, String> {
 /// directory themselves — see [`discover_local_models`]. Discovery is what
 /// makes quantised turbo builds and third-party Whisper fine-tunes usable
 /// without touching the inference code.
-/// Метки квантования, которые встречаются в именах файлов манифеста.
+/// Quantisation markers that occur in the manifest's file names.
 const QUANTIZATION_TAGS: &[&str] = &["q8_0", "q6_k", "q5_1", "q5_0", "q4_1", "q4_0", "int8"];
 
-/// Точность GGML-сборок whisper.cpp без метки в имени.
+/// The precision of whisper.cpp GGML builds with no marker in the name.
 const GGML_DEFAULT_PRECISION: &str = "f16";
 
-/// Квантование по имени файла.
+/// Quantisation from the file name.
 ///
-/// Читаем имя, а не держим рядом ещё одно поле: имена в манифесте наши и
-/// прибиты константами вместе с размером и суммой, а отдельное поле про
-/// квантование забыли бы обновить при первой же замене сборки — и оно
-/// врало бы, ничего при этом не ломая.
+/// We read the name rather than keep yet another field beside it: the names in
+/// the manifest are ours and are nailed down as constants together with the size
+/// and the checksum, whereas a separate quantisation field would be forgotten on
+/// the very first build swap — and would lie without breaking anything.
 pub fn quantization_of(file_name: &str) -> Option<&'static str> {
     QUANTIZATION_TAGS
         .iter()
@@ -1402,7 +1403,8 @@ pub fn list_models(selected: &str, loaded_model_id: Option<&str>) -> Vec<ModelIn
             .languages
             .map(|codes| codes.iter().map(|c| c.to_string()).collect()),
         streaming: false,
-        // Без метки в имени GGML-сборка идёт в исходной точности.
+        // With no marker in the name a GGML build ships at its source
+        // precision.
         quantization: Some(
             quantization_of(model.file_stem)
                 .unwrap_or(GGML_DEFAULT_PRECISION)
@@ -1427,8 +1429,8 @@ pub fn list_models(selected: &str, loaded_model_id: Option<&str>) -> Vec<ModelIn
             .languages
             .map(|codes| codes.iter().map(|c| c.to_string()).collect()),
         streaming: model.engine.is_streaming(),
-        // По первому размеченному артефакту: в бандле квантуют тяжёлые
-        // графы, а словарь и препроцессор остаются как есть.
+        // By the first marked artifact: inside a bundle the heavy graphs are
+        // quantised while the vocabulary and preprocessor stay as they are.
         quantization: model
             .artifacts
             .iter()
@@ -1454,8 +1456,9 @@ pub fn list_models(selected: &str, loaded_model_id: Option<&str>) -> Vec<ModelIn
             family: None,
             languages: None,
             streaming: false,
-            // Метка в имени — единственное, что о чужом файле можно узнать
-            // не открывая его; её отсутствие честнее догадки.
+            // A marker in the name is the only thing that can be learned about
+            // a foreign file without opening it; its absence is more honest
+            // than a guess.
             quantization: quantization_of(&stem).map(str::to_string),
         }
     });
@@ -1494,8 +1497,8 @@ pub fn delete_cached_model(model_id: &str) -> Result<bool, String> {
 mod tests {
     use super::*;
 
-    /// Переезд кэша стоит гигабайтов трафика, если сломается: у пользователя
-    /// прежних сборок в старом каталоге лежат уже скачанные модели.
+    /// A broken cache migration costs gigabytes of traffic: a user of earlier
+    /// builds has already-downloaded models in the old directory.
     mod cache_migration {
         use super::*;
 
@@ -1513,8 +1516,9 @@ mod tests {
             assert!(!root.path().join(LEGACY_CACHE_DIR).exists());
         }
 
-        /// Уже переехавший каталог трогать нельзя: старый мог остаться от
-        /// параллельно стоящей сборки, и его содержимое затёрло бы новое.
+        /// An already-migrated directory must not be touched: the old one may
+        /// be left over from a build installed alongside, and its contents would
+        /// overwrite the new.
         #[test]
         fn an_existing_new_directory_wins_over_the_legacy_one() {
             let root = tempfile::tempdir().unwrap();
@@ -1648,25 +1652,27 @@ mod tests {
         assert_eq!(entry.public_id, "turbo");
     }
 
-    /// Английская сборка Whisper на русской речи выдаёт мусор, а не ошибку,
-    /// поэтому язык у неё закреплён так же жёстко, как у GigaAM.
+    /// An English-only Whisper build produces garbage rather than an error on
+    /// Russian speech, so its language is pinned as firmly as GigaAM's.
     #[test]
     fn quantization_is_read_from_the_file_name() {
-        // Отдельное поле рядом с URL забыли бы обновить при первой же замене
-        // сборки, и оно врало бы, ничего при этом не ломая. Имя файла врать
-        // не может: по нему модель и качается.
+        // A separate field next to the URL would be forgotten on the very first
+        // build swap and would lie without breaking anything. A file name cannot
+        // lie: it is what the model is downloaded by.
         assert_eq!(quantization_of("medium-q8_0"), Some("q8_0"));
         assert_eq!(quantization_of("large-v3-turbo-q8_0"), Some("q8_0"));
         assert_eq!(quantization_of("encoder.int8.onnx"), Some("int8"));
-        // Без метки — исходная точность, и выдумывать за файл нечего.
+        // No marker means source precision, and there is nothing to invent on
+        // the file's behalf.
         assert_eq!(quantization_of("large-v3"), None);
         assert_eq!(quantization_of("tokens.txt"), None);
     }
 
     #[test]
     fn every_catalogue_model_says_how_it_is_quantised() {
-        // Вопрос «что именно я качаю» — про вес и точность сразу, и пустое
-        // место вместо ответа хуже, чем ответ «f16».
+        // The question "what exactly am I downloading" is about size and
+        // precision at once, and blank space instead of an answer is worse than
+        // the answer "f16".
         for model in list_models("tiny", None) {
             if model.local {
                 continue;
@@ -1683,10 +1689,10 @@ mod tests {
         assert_eq!(large.quantization.as_deref(), Some("f16"));
         let turbo = whisper.iter().find(|m| m.id == "turbo").unwrap();
         assert_eq!(turbo.quantization.as_deref(), Some("q8_0"));
-        // В бандле квантуют тяжёлые графы, а словарь остаётся как есть —
-        // метку берём с первого размеченного артефакта. Бандлы sherpa есть
-        // только на Windows/macOS: на остальных платформах каталог их не содержит,
-        // и проверять здесь нечего.
+        // Inside a bundle the heavy graphs are quantised while the vocabulary
+        // stays as it is — the marker is taken from the first marked artifact.
+        // sherpa bundles exist only on Windows/macOS: on other platforms the
+        // catalog does not contain them and there is nothing to check here.
         #[cfg(any(windows, target_os = "macos"))]
         {
             let gigaam = whisper.iter().find(|m| m.id == "gigaam-v3").unwrap();
@@ -1698,15 +1704,15 @@ mod tests {
     fn english_whisper_builds_are_pinned_to_english() {
         assert_eq!(model_languages("small.en"), Some(&["en"][..]));
         assert_eq!(model_languages("medium.en"), Some(&["en"][..]));
-        // Многоязычные сборки перечисляют языки явно: «многоязычная» —
-        // не ответ на вопрос «есть ли там мой язык».
+        // Multilingual builds list their languages explicitly: "multilingual"
+        // is not an answer to "is my language in there".
         assert!(model_supports_language("small", "de"));
         assert!(model_supports_language("turbo", "ru"));
         assert!(!model_supports_language("small.en", "de"));
         assert_eq!(model_engine("small.en").unwrap(), ModelEngine::Whisper);
         assert!(!model_supports_language("small.en", "ru"));
         assert!(model_supports_language("small.en", "en"));
-        // Многоязычная модель не ограничивает ничего, «auto» проходит везде.
+        // A multilingual model restricts nothing; "auto" passes everywhere.
         assert!(model_supports_language("small.en", "auto"));
     }
 
@@ -1714,8 +1720,8 @@ mod tests {
     fn a_one_language_model_explains_its_own_limit() {
         assert!(language_unsupported_message(&["en"]).contains("англ"));
         assert!(language_unsupported_message(&["ru"]).contains("русск"));
-        // У модели с несколькими языками перечислять их в ошибке нечем —
-        // сообщение общее, но всё равно про язык.
+        // For a model with several languages there is no way to list them in
+        // the error — the message is generic but still about the language.
         assert!(language_unsupported_message(&["zh", "en"]).contains("язык"));
     }
 
@@ -1726,10 +1732,10 @@ mod tests {
             model_engine("parakeet-tdt-v3").unwrap(),
             ModelEngine::SherpaTransducer
         );
-        // Многоязычная модель не должна получить языковое ограничение
-        // GigaAM: с ним диктовка на английском была бы отклонена.
-        // Двадцать пять европейских языков, а не «многоязычная»: русский
-        // в списке есть, а, скажем, японского нет, и это важно.
+        // A multilingual model must not inherit GigaAM's language restriction:
+        // with it an English dictation would be rejected.
+        // Twenty-five European languages rather than "multilingual": Russian is
+        // in the list while, say, Japanese is not, and that matters.
         assert!(model_supports_language("parakeet-tdt-v3", "ru"));
         assert!(model_supports_language("parakeet-tdt-v3", "de"));
         assert!(!model_supports_language("parakeet-tdt-v3", "ja"));
@@ -1750,8 +1756,8 @@ mod tests {
         }
     }
 
-    /// Роли, а не имена файлов: загрузчик спрашивает у манифеста, где
-    /// энкодер, и подмена имени в манифесте обязана доехать до путей.
+    /// Roles, not file names: the loader asks the manifest where the encoder is,
+    /// and swapping a name in the manifest must reach the paths.
     #[cfg(any(windows, target_os = "macos"))]
     #[test]
     fn transducer_load_spec_resolves_every_artifact_by_role() {
@@ -1761,8 +1767,8 @@ mod tests {
             panic!("трансдьюсер загружен не как sherpa: {spec:?}");
         };
         assert_eq!(engine, ModelEngine::SherpaTransducer);
-        // Имена — литералами, а не через `artifact_named`: сверка функции с
-        // самой собой прошла бы и при перепутанных ролях.
+        // The names are literals rather than fetched via `artifact_named`:
+        // checking a function against itself would pass even with roles swapped.
         let name =
             |path: &std::path::Path| path.file_name().unwrap().to_string_lossy().into_owned();
         assert_eq!(
@@ -1787,8 +1793,8 @@ mod tests {
             .starts_with(models_dir().unwrap().join(entry.directory_name)));
     }
 
-    /// Потоковость — свойство движка, и она обязана доезжать до каталога:
-    /// живой предпросмотр выбирает модель именно по этому признаку.
+    /// Streaming is a property of the engine and must reach the catalog: the
+    /// live preview picks a model by exactly this trait.
     #[cfg(any(windows, target_os = "macos"))]
     #[test]
     fn only_the_streaming_family_is_marked_streaming() {
@@ -1804,7 +1810,7 @@ mod tests {
         let offline = models.iter().find(|m| m.id == "zipformer-ru").unwrap();
         assert!(streaming.streaming);
         assert!(!offline.streaming);
-        // Обе русские, обе на одном семействе — различает их только движок.
+        // Both Russian, both in one family — only the engine tells them apart.
         assert_eq!(streaming.family.as_deref(), Some("Zipformer"));
         assert_eq!(offline.family.as_deref(), Some("Zipformer"));
         assert!(!models.iter().any(|m| m.id == "turbo" && m.streaming));
@@ -1899,16 +1905,16 @@ mod tests {
     }
 
     // ------------------------------------------------------------------
-    // Проверка артефакта бандла
+    // Bundle artifact verification
     //
-    // Ветка SHA-256 до этих тестов не исполнялась ни разу: через
-    // `verify_bundle_files_at` до неё не добраться, потому что первый
-    // артефакт GigaAM весит 224 МБ. Хеш — единственное, что отличает
-    // докачанный до конца файл от подменённого, так что «тест на это есть»
-    // здесь не формальность.
+    // Before these tests the SHA-256 branch never ran once: it cannot be
+    // reached through `verify_bundle_files_at` because GigaAM's first artifact
+    // weighs 224 MB. The hash is the only thing that tells a fully downloaded
+    // file from a substituted one, so "there is a test for it" is no formality
+    // here.
     // ------------------------------------------------------------------
 
-    /// sha256("hello") — эталон для тестов ниже.
+    /// sha256("hello") — the reference for the tests below.
     const HELLO_SHA: &str = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824";
 
     #[test]
@@ -1920,7 +1926,7 @@ mod tests {
         assert!(verify_artifact(&path, 5, HELLO_SHA).is_ok());
     }
 
-    /// Регистр хеша в манифесте не должен решать судьбу закачки.
+    /// The case of the hash in the manifest must not decide a download's fate.
     #[test]
     fn the_expected_hash_is_compared_case_insensitively() {
         let dir = tempfile::tempdir().unwrap();
@@ -1930,8 +1936,8 @@ mod tests {
         assert!(verify_artifact(&path, 5, &HELLO_SHA.to_uppercase()).is_ok());
     }
 
-    /// Главный случай: файл дошёл целиком и нужного размера, но содержимое
-    /// не то. Ни наличие, ни размер этого не ловят — только хеш.
+    /// The main case: the file arrived complete and at the right size, but the
+    /// content is wrong. Neither presence nor size catches that — only the hash.
     #[test]
     fn an_artifact_of_the_right_size_but_wrong_content_is_rejected() {
         let dir = tempfile::tempdir().unwrap();
@@ -1962,8 +1968,8 @@ mod tests {
         assert!(error.starts_with("MODEL_MISSING"), "got: {error}");
     }
 
-    /// Пустой файл — типичный результат оборванной закачки: он существует,
-    /// открывается, но нулевого размера.
+    /// An empty file is the typical result of a broken download: it exists, it
+    /// opens, and it is zero bytes long.
     #[test]
     fn an_empty_artifact_is_rejected() {
         let dir = tempfile::tempdir().unwrap();
@@ -1973,10 +1979,10 @@ mod tests {
         assert!(verify_artifact(&path, 5, HELLO_SHA).is_err());
     }
 
-    // Здесь и ниже — ограничение платформ по той же причине, что и у
-    // `gigaam_is_a_closed_cpu_only_bundle`: BUNDLE_MODEL_MANIFEST пуст вне
-    // Windows/macOS, так что «gigaam-v3» там просто неизвестная модель. Тест не
-    // проходил бы, а если бы проходил — то вхолостую.
+    // Here and below the platform restriction is there for the same reason as
+    // in `gigaam_is_a_closed_cpu_only_bundle`: BUNDLE_MODEL_MANIFEST is empty
+    // outside Windows/macOS, so "gigaam-v3" is simply an unknown model there.
+    // The test would not pass, and if it did it would pass for nothing.
     #[cfg(any(windows, target_os = "macos"))]
     #[test]
     fn bundle_recovery_removes_final_dir_when_artifact_is_missing() {
@@ -2084,11 +2090,11 @@ mod tests {
         assert!(path.to_string_lossy().ends_with("russian-finetune.bin"));
     }
 
-    /// Раньше здесь стоял отказ: приложение не скачивало этот файл и не
-    /// смогло бы его вернуть. Отказ убран — вместе с ним ушла и модель,
-    /// которую список показывал, но убрать из этого списка было нечем.
-    /// Единственное, чего быть не должно, — ошибки на уже отсутствующем
-    /// файле: интерфейс показал бы её как «не удалось удалить».
+    /// There used to be a refusal here: the app had not downloaded this file
+    /// and could not bring it back. The refusal is gone — and with it the model
+    /// the list showed but offered no way to remove from that same list. The one
+    /// thing that must not happen is an error on an already-missing file: the UI
+    /// would show it as "deletion failed".
     #[test]
     fn deleting_an_absent_own_file_is_not_an_error() {
         let dir = tempfile::tempdir().unwrap();
@@ -2248,8 +2254,8 @@ mod tests {
         assert!(!dir.path().join("ggml-tiny.bin").exists());
     }
 
-    /// Свой файл каталогу неизвестен, и раньше удаление на нём отказывало:
-    /// список показывал модель, которую нельзя убрать из этого же списка.
+    /// A user's own file is unknown to the catalog, and deletion used to refuse
+    /// on it: the list showed a model that could not be removed from that list.
     #[test]
     fn delete_cached_model_removes_a_file_the_user_added() {
         let dir = tempfile::tempdir().unwrap();
@@ -2259,7 +2265,7 @@ mod tests {
             .unwrap()
             .set_len(MIN_VALID_MODEL_BYTES)
             .unwrap();
-        // Именно так этот файл и назван в списке моделей.
+        // This is exactly how the file is named in the model list.
         assert_eq!(
             discover_local_models_in(dir.path()),
             vec![("ggml-my-finetune".to_string(), MIN_VALID_MODEL_BYTES)],
@@ -2270,9 +2276,10 @@ mod tests {
         assert!(discover_local_models_in(dir.path()).is_empty());
     }
 
-    /// Идентификатор своего файла приходит с фронтенда, и путь из него
-    /// собирается конкатенацией. Выход за каталог моделей должен упираться в
-    /// ту же проверку, что и на загрузке, а не в удачное стечение имён.
+    /// The identifier of a user's own file comes from the frontend, and the path
+    /// is assembled from it by concatenation. Escaping the models directory must
+    /// run into the same check as a download does, not into a lucky coincidence
+    /// of names.
     #[test]
     fn delete_cached_model_refuses_to_walk_out_of_the_models_directory() {
         let dir = tempfile::tempdir().unwrap();
