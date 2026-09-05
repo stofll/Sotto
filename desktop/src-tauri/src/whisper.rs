@@ -534,6 +534,25 @@ pub fn engine_thread_main(
                 reason,
                 reply,
             } => {
+                // A restore of what is already in memory is a restore that
+                // arrived too late. Capture queues one whenever nothing is
+                // loaded, and "loaded" only becomes true when the load
+                // finishes — so a second dictation started while the first
+                // restore was still reading gigabytes off disk queues its own.
+                // Honouring it would drop a working model and rebuild it from
+                // scratch, re-hashing the bundle on the way, while the
+                // transcription it was meant to serve waits behind that in the
+                // queue. The queue is ordered, so by the time a duplicate is
+                // read the original has either succeeded — and this is it — or
+                // failed, leaving the slot empty for a genuine retry.
+                if reason == ModelLoadReason::Restore
+                    && crate::mutex_recover::lock(&engine_current_model).as_deref()
+                        == Some(name.as_str())
+                {
+                    log::debug!("model {name} is already back in memory, skipping restore");
+                    let _ = reply.send(Ok(()));
+                    continue;
+                }
                 if reason == ModelLoadReason::Requested {
                     let _ =
                         event_tx.blocking_send(EngineEvent::ModelLoading { name: name.clone() });
