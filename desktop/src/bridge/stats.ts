@@ -46,10 +46,20 @@ export async function clearHistory(): Promise<{ deleted: number }> {
  * shows the result next to the current text and decides what to do with it.
  *
  * `profileId` picks one of the saved AI profiles; omit it to use the one
- * configured for dictation.
+ * configured for dictation. `systemPrompt` is that profile's prompt already
+ * resolved against its preset (`effectiveSystemPrompt`) — Rust stores presets
+ * nowhere and expects finished text, exactly as on the dictation path.
  */
-export async function previewHistoryAiProcessing(id: number, profileId?: string): Promise<HistoryAiPreview> {
-    return await rustInvoke<HistoryAiPreview>("preview_history_ai_processing", { id, profileId: profileId ?? null });
+export async function previewHistoryAiProcessing(
+    id: number,
+    profileId?: string,
+    systemPrompt?: string,
+): Promise<HistoryAiPreview> {
+    return await rustInvoke<HistoryAiPreview>("preview_history_ai_processing", {
+        id,
+        profileId: profileId ?? null,
+        systemPrompt: systemPrompt ?? null,
+    });
 }
 
 /**

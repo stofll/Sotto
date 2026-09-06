@@ -14,6 +14,7 @@ import { confirmDestructive } from "../components/ConfirmDialog";
 import { CustomSelect } from "../components/CustomSelect";
 import { DiffBlock } from "../components/DiffBlock";
 import type { ConfigResult, HistoryAiPreview, HistoryEntry } from "../bridge/types";
+import { effectiveSystemPrompt } from "./aiShared";
 import { localeTag, t, tPlural } from "../i18n";
 
 type AiConfig = ConfigResult["ai_processing"];
@@ -152,6 +153,16 @@ function processingStatsText(entry: HistoryEntry): string {
   return typeof replacements === "number" && replacements > 0 ? t("{p0} · Замен {p1}", { p0: timing, p1: replacements }) : timing;
 }
 
+/** The prompt the chosen profile runs on, resolved here because the presets
+ *  are the frontend's: a profile that never edited its own carries an empty
+ *  `system_prompt` and means «my `prompt_preset`» by it. Rust inherits the
+ *  dictation prompt for an empty one, which is the right answer only when no
+ *  profile was chosen at all. */
+export function reprocessPrompt(aiConfig: AiConfig | null, profileId: string): string | undefined {
+  const profile = (aiConfig?.profiles ?? []).find((item) => item.id === profileId);
+  return profile ? effectiveSystemPrompt(profile) : undefined;
+}
+
 /** The text a manual run is fed: the local-processing result if there is one,
  *  otherwise whatever the row currently shows. Same fallback as the Rust side.
  *  A successful earlier run is not a reason to refuse — «прогнать другим
@@ -258,6 +269,10 @@ export function HistoryPage() {
   const [reprocessApplying, setReprocessApplying] = useState(false);
   const [reprocessPreview, setReprocessPreview] = useState<HistoryAiPreview | null>(null);
   const [reprocessError, setReprocessError] = useState<string | null>(null);
+  // Which run the panel is waiting for. A ref rather than state: it is read
+  // inside an awaited closure, where a state variable would still hold the
+  // value it had when the request left.
+  const reprocessRunRef = useRef(0);
   const [currentAiConfig, setCurrentAiConfig] = useState<AiConfig | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -356,11 +371,7 @@ export function HistoryPage() {
       }
       return changed ? next : prev;
     });
-    if (reprocessId !== null && !ids.has(reprocessId)) {
-      setReprocessId(null);
-      setReprocessPreview(null);
-      setReprocessError(null);
-    }
+    if (reprocessId !== null && !ids.has(reprocessId)) setReprocessTarget(null);
   }, [entries, reprocessId]);
 
   function flashNotice(text: string) {
@@ -470,29 +481,49 @@ export function HistoryPage() {
   }
 
   // The panel opens on the profile the entry was processed with, when that
-  // profile still exists, and on the dictation one otherwise.
+  // profile still exists, and on the dictation one otherwise. An id no profile
+  // answers to is not passed on: Rust refuses an unknown one outright, and
+  // `active_profile_id` outlives the list it points into — `DEFAULT_AI` fills
+  // it in as «default» on a config that has no profiles at all. Empty means
+  // «the flat fields», which is what those configs actually run on.
   function openReprocess(entry: HistoryEntry) {
     const profiles = currentAiConfig?.profiles ?? [];
-    const previous = entry.ai_processing?.profile_id ?? "";
-    const known = profiles.some((profile) => profile.id === previous);
-    setReprocessId(entry.id);
-    setReprocessProfileId(known ? previous : currentAiConfig?.active_profile_id ?? "");
-    setReprocessPreview(null);
-    setReprocessError(null);
+    const known = (id: string) => (profiles.some((profile) => profile.id === id) ? id : "");
+    setReprocessTarget(entry.id);
+    setReprocessProfileId(known(entry.ai_processing?.profile_id ?? "") || known(currentAiConfig?.active_profile_id ?? ""));
   }
 
   function closeReprocess() {
-    setReprocessId(null);
+    setReprocessTarget(null);
+  }
+
+  /// Opening, closing and switching panels all invalidate whatever is in
+  /// flight: a run belongs to the panel it was started from, and its answer
+  /// arrives seconds later, by which time that panel may be showing another
+  /// entry. Applying a preview that outlived its panel would write one entry's
+  /// LLM output onto a different row.
+  function setReprocessTarget(id: number | null) {
+    reprocessRunRef.current += 1;
+    setReprocessId(id);
     setReprocessPreview(null);
     setReprocessError(null);
+    setReprocessRunning(false);
+    setReprocessApplying(false);
   }
 
   async function runReprocess(entry: HistoryEntry) {
+    const run = ++reprocessRunRef.current;
+    const current = () => reprocessRunRef.current === run;
     setReprocessRunning(true);
     setReprocessError(null);
     setReprocessPreview(null);
     try {
-      const preview = await previewHistoryAiProcessing(entry.id, reprocessProfileId || undefined);
+      const preview = await previewHistoryAiProcessing(
+        entry.id,
+        reprocessProfileId || undefined,
+        reprocessProfileId ? reprocessPrompt(currentAiConfig, reprocessProfileId) : undefined,
+      );
+      if (!current()) return;
       if (preview.ok) {
         setReprocessPreview(preview);
         return;
@@ -503,31 +534,38 @@ export function HistoryPage() {
         ? t("LLM не вернула текст: {p0}", { p0: aiSkipLabel(preview.reason) })
         : t("LLM не вернула текст."));
     } catch (e) {
+      if (!current()) return;
       setReprocessError(e instanceof Error ? e.message : String(e));
     } finally {
-      setReprocessRunning(false);
+      if (current()) setReprocessRunning(false);
     }
   }
 
   async function applyReprocess(entry: HistoryEntry) {
     const preview = reprocessPreview;
     if (!preview) return;
+    // The row is merged either way — the write has happened, and the entry it
+    // happened to is the one this call captured. Only the panel's own state is
+    // conditional: by the time the answer comes back it may be somebody else's
+    // panel, and closing it would take away a preview nobody had ruled on.
+    const run = reprocessRunRef.current;
+    const stillOpen = () => reprocessRunRef.current === run;
     setReprocessApplying(true);
     setReprocessError(null);
     try {
       const result = await applyHistoryAiProcessing(entry.id, preview.text, preview.ai_json, preview.stats_json);
       const updated = result.entry;
       if (!result.updated || !updated) {
-        setReprocessError(t("Не удалось сохранить результат."));
+        if (stillOpen()) setReprocessError(t("Не удалось сохранить результат."));
         return;
       }
       setEntries((current) => current.map((item) => item.id === updated.id ? updated : item));
-      closeReprocess();
+      if (stillOpen()) closeReprocess();
       flashNotice(t("Текст заменен результатом LLM"));
     } catch (e) {
-      setReprocessError(e instanceof Error ? e.message : String(e));
+      if (stillOpen()) setReprocessError(e instanceof Error ? e.message : String(e));
     } finally {
-      setReprocessApplying(false);
+      if (stillOpen()) setReprocessApplying(false);
     }
   }
 
@@ -1089,15 +1127,21 @@ function ActionsMenu({ open, onToggle, actions }: {
 }
 
 /** Profiles to choose between: the name, and under it the model it actually
- *  calls — a profile name alone does not say where the text is going. */
-function reprocessProfileOptions(aiConfig: AiConfig | null): Array<{ value: string; label: string; meta?: string }> {
+ *  calls — a profile name alone does not say where the text is going.
+ *
+ *  The empty id is not a profile but the route the flat fields describe, and it
+ *  needs a row of its own all the same: it is what a config with no profiles
+ *  runs on, and `CustomSelect` renders nothing at all when the value it is
+ *  given matches no option. */
+export function reprocessProfileOptions(aiConfig: AiConfig | null, value: string): Array<{ value: string; label: string; meta?: string }> {
   const profiles: AiProfile[] = aiConfig?.profiles ?? [];
-  if (profiles.length === 0) return [{ value: "", label: aiTargetText(aiConfig) }];
-  return profiles.map((profile) => ({
+  const options = profiles.map((profile) => ({
     value: profile.id,
     label: profile.name,
     meta: profile.model?.trim() || undefined,
   }));
+  if (options.some((option) => option.value === value)) return options;
+  return [{ value, label: aiTargetText(aiConfig) }, ...options];
 }
 
 /**
@@ -1130,7 +1174,7 @@ function ReprocessPanel({
         <div style={{ flex: "0 1 auto", minWidth: 180 }}>
           <CustomSelect
             value={profileId}
-            options={reprocessProfileOptions(aiConfig)}
+            options={reprocessProfileOptions(aiConfig, profileId)}
             onChange={onProfileId}
             disabled={busy}
             inlineMeta
