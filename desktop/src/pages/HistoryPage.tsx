@@ -10,6 +10,7 @@ import {
 } from "../bridge/stats";
 import { PageHeader, Segmented } from "../components/Shell";
 import { Icon } from "../components/Icon";
+import { Hint } from "../components/Hint";
 import { DiffBlock } from "../components/DiffBlock";
 import type { ConfigResult, HistoryEntry, HistoryRetryAiResult } from "../bridge/types";
 import { localeTag, t, tPlural } from "../i18n";
@@ -661,9 +662,11 @@ export function HistoryPage() {
               { value: "cards", label: t("Карточки") },
               { value: "list", label: t("Список") },
             ]}/>
-            <button className="btn btn--ghost" onClick={() => setGroupedByDay((v) => !v)} title={groupedByDay ? t("Выключить группировку по дням") : t("Группировать по дням")} aria-pressed={groupedByDay}>
-              <Icon name="clock" size={12}/> {groupedByDay ? t("По дням") : t("Без групп")}
-            </button>
+            <Hint text={groupedByDay ? t("Выключить группировку по дням") : t("Группировать по дням")}>
+              <button className="btn btn--ghost" onClick={() => setGroupedByDay((v) => !v)} aria-pressed={groupedByDay}>
+                <Icon name="clock" size={12}/> {groupedByDay ? t("По дням") : t("Без групп")}
+              </button>
+            </Hint>
             <button className="btn btn--ghost" onClick={() => void handleClearAll()} disabled={entries.length === 0}>
               <Icon name="trash" size={12}/>  {t("Очистить всё")} </button>
           </>
@@ -837,7 +840,9 @@ function FiltersBar({
           ]}
         />
         {filterIsActive && (
-          <button className="btn btn--ghost" onClick={onReset} title={t("Сбросить фильтры")}><Icon name="x" size={11}/>  {t("Сбросить")}</button>
+          <Hint text={t("Сбросить фильтры")}>
+            <button className="btn btn--ghost" onClick={onReset}><Icon name="x" size={11}/>  {t("Сбросить")}</button>
+          </Hint>
         )}
       </div>
     </section>
@@ -986,11 +991,12 @@ function EntryCard(props: {
         </div>
 
         {compact ? (
-          <div
-            onClick={onToggleDetails}
-            style={{ font: "400 13px/1.4 var(--font-sans)", color: "var(--text)", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", cursor: "pointer" }}
-            title={t("Развернуть")}
-          >{entry.text}</div>
+          <Hint text={t("Развернуть")} className="hint-anchor--block">
+            <div
+              onClick={onToggleDetails}
+              style={{ font: "400 13px/1.4 var(--font-sans)", color: "var(--text)", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", cursor: "pointer" }}
+            >{entry.text}</div>
+          </Hint>
         ) : editing ? (
           <div style={{ display: "grid", gap: 6 }}>
             <textarea
@@ -1079,16 +1085,17 @@ function EntryCard(props: {
 
       <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: compact ? 0 : 140, alignItems: "stretch" }}>
         <div style={{ display: "flex", gap: 4 }}>
+          <Hint text={t("Скопировать в буфер обмена")} style={{ flex: 1, minWidth: 0 }}>
           <button
             className={copiedId === entry.id ? "btn btn--primary" : "btn btn--ghost"}
             onClick={onCopy}
-            title={t("Скопировать в буфер обмена")}
             aria-label={t("Скопировать")}
-            style={{ flex: 1, height: 28 }}
+            style={{ width: "100%", height: 28 }}
           >
             <Icon name={copiedId === entry.id ? "check" : "copy"} size={12}/>
             {compact ? null : (copiedId === entry.id ? t("Скопировано") : t("Копировать"))}
           </button>
+          </Hint>
           <ActionsMenu
             open={menuOpen}
             onToggle={onToggleMenu}
@@ -1122,17 +1129,18 @@ function ActionsMenu({ open, onToggle, actions }: {
 }) {
   return (
     <div data-menu-root style={{ position: "relative" }}>
-      <button
-        className="btn btn--ghost"
-        onClick={onToggle}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-label={t("Действия")}
-        title={t("Другие действия")}
-        style={{ height: 28, padding: "0 8px" }}
-      >
-        <Icon name="more" size={12}/>
-      </button>
+      <Hint text={t("Другие действия")}>
+        <button
+          className="btn btn--ghost"
+          onClick={onToggle}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-label={t("Действия")}
+          style={{ height: 28, padding: "0 8px" }}
+        >
+          <Icon name="more" size={12}/>
+        </button>
+      </Hint>
       {open && (
         <div
           role="menu"
@@ -1201,19 +1209,23 @@ function AiActionButton({ action, target, processing, disabled, onClick }: {
   const idleIcon = isRetry ? "wand" : "spark";
   return (
     <div style={{ display: "grid", gap: 4 }}>
-      <button
-        className="btn btn--ghost"
-        onClick={onClick}
-        disabled={disabled}
-        aria-busy={processing}
-        aria-live="polite"
-        title={processing ? `${aiActionTitle(action)} · ${target}` : t("{p0} текст в LLM ({p1})", { p0: isRetry ? t("Повторно отправить") : t("Отправить"), p1: target })}
-        aria-label={processing ? aiActionTitle(action) : idleLabel}
-        style={{ height: 28, width: "100%" }}
+      <Hint
+        text={processing ? `${aiActionTitle(action)} · ${target}` : t("{p0} текст в LLM ({p1})", { p0: isRetry ? t("Повторно отправить") : t("Отправить"), p1: target })}
+        className="hint-anchor--block"
       >
-        {processing ? <span className="mini-spinner" aria-hidden="true"/> : <Icon name={idleIcon} size={12}/>}
-        {processing ? t("Обрабатываю…") : idleLabel}
-      </button>
+        <button
+          className="btn btn--ghost"
+          onClick={onClick}
+          disabled={disabled}
+          aria-busy={processing}
+          aria-live="polite"
+          aria-label={processing ? aiActionTitle(action) : idleLabel}
+          style={{ height: 28, width: "100%" }}
+        >
+          {processing ? <span className="mini-spinner" aria-hidden="true"/> : <Icon name={idleIcon} size={12}/>}
+          {processing ? t("Обрабатываю…") : idleLabel}
+        </button>
+      </Hint>
       {processing ? (
         <div aria-hidden="true" style={{ position: "relative", height: 2, borderRadius: 999, overflow: "hidden", background: "var(--surface-4)" }}>
           <div style={{ position: "absolute", inset: 0, width: "45%", borderRadius: 999, background: "var(--accent)", animation: "progress-sweep 1.3s ease-in-out infinite" }} />
@@ -1294,26 +1306,28 @@ function HistoryTextBlock({ title, text, muted = false, collapsible = false, col
     <div style={{ marginTop: muted ? 10 : 0 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: collapsed ? 0 : 4 }}>
         <div style={{ flex: "0 1 auto", minWidth: 0, font: "600 10px/1 var(--font-mono)", color: muted ? "var(--text-mute)" : "var(--text-2)", textTransform: "uppercase", letterSpacing: "0.04em" }}>{title}</div>
-        <button
-          className={copied ? "btn btn--primary" : "btn btn--ghost"}
-          onClick={onCopy}
-          title={t("Копировать: {p0}", { p0: title })}
-          aria-label={t("Копировать блок {p0}", { p0: title })}
-          style={{ height: 22, padding: "0 6px" }}
-        >
-          <Icon name={copied ? "check" : "copy"} size={10}/>
-        </button>
+        <Hint text={t("Копировать: {p0}", { p0: title })}>
+          <button
+            className={copied ? "btn btn--primary" : "btn btn--ghost"}
+            onClick={onCopy}
+            aria-label={t("Копировать блок {p0}", { p0: title })}
+            style={{ height: 22, padding: "0 6px" }}
+          >
+            <Icon name={copied ? "check" : "copy"} size={10}/>
+          </button>
+        </Hint>
         {collapsible && (
+          <Hint text={collapsed ? t("Развернуть блок") : t("Свернуть блок")}>
           <button
             className="btn btn--ghost"
             onClick={onToggle}
-            title={collapsed ? t("Развернуть блок") : t("Свернуть блок")}
             aria-label={collapsed ? t("Развернуть блок {p0}", { p0: title }) : t("Свернуть блок {p0}", { p0: title })}
             aria-expanded={!collapsed}
             style={{ height: 22, padding: "0 6px" }}
           >
             <Icon name={collapsed ? "chev-down" : "chev"} size={10} style={{ transform: collapsed ? undefined : "rotate(90deg)" }}/>
           </button>
+          </Hint>
         )}
       </div>
       {!collapsed && (

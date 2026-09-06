@@ -83,15 +83,16 @@ export function Brand({ collapsed, onToggleCollapse }: { collapsed?: boolean; on
     <div className="sidebar-brand">
       <div className="sidebar-brand__name">Sotto</div>
       {onToggleCollapse && (
-        <button
-          className="sidebar-brand__toggle"
-          type="button"
-          onClick={onToggleCollapse}
-          aria-label={label}
-          title={label}
-        >
-          <Icon name="panel" size={15}/>
-        </button>
+        <Hint text={label}>
+          <button
+            className="sidebar-brand__toggle"
+            type="button"
+            onClick={onToggleCollapse}
+            aria-label={label}
+          >
+            <Icon name="panel" size={15}/>
+          </button>
+        </Hint>
       )}
     </div>
   );
@@ -249,13 +250,21 @@ export function Sidebar({ tab, onTab, recordingState, pipelineMode, loadedModel,
               </button>
               <div className="nav__group-items" data-collapsed={isCollapsed ? "true" : "false"}>
                 <div>
-                  {group.items.map((item) => (
-                    <button key={item.id} className="nav__item" aria-selected={tab === item.id} onClick={() => onTab(item.id)} title={sidebarCollapsed ? item.label : undefined}>
-                      <span style={{ color: tab === item.id ? "var(--accent)" : "var(--text-mute)", display: "flex" }}><Icon name={item.icon} size={15}/></span>
-                      <span>{item.label}</span>
-                      {item.count != null && <span className="nav__count">{item.count}</span>}
-                    </button>
-                  ))}
+                  {group.items.map((item) => {
+                    const button = (
+                      <button key={item.id} className="nav__item" aria-selected={tab === item.id} onClick={() => onTab(item.id)}>
+                        <span style={{ color: tab === item.id ? "var(--accent)" : "var(--text-mute)", display: "flex" }}><Icon name={item.icon} size={15}/></span>
+                        <span>{item.label}</span>
+                        {item.count != null && <span className="nav__count">{item.count}</span>}
+                      </button>
+                    );
+                    // Collapsed, the item is an icon and the name lives in the
+                    // bubble. Expanded, the name is right there — a hint that
+                    // repeats what is written is noise.
+                    return sidebarCollapsed
+                      ? <Hint key={item.id} text={item.label} className="hint-anchor--block">{button}</Hint>
+                      : button;
+                  })}
                 </div>
               </div>
             </div>

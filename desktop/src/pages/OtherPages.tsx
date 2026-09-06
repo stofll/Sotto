@@ -4,6 +4,7 @@ import type { ConfigResult, PreviewFormatResult, PreviewReplacementsResult, Repl
 import { PageHeader, SectionLabel, Segmented, Switch } from "../components/Shell";
 import { Icon } from "../components/Icon";
 import { Hint } from "../components/Hint";
+import { CustomSelect, type SelectOption } from "../components/CustomSelect";
 import { DiffBlock } from "../components/DiffBlock";
 import { localeTag, t, tPlural } from "../i18n";
 import { DEFAULT_HOTKEY } from "../hotkey";
@@ -779,7 +780,7 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
             /* There is no "enabled" pill next to the switch: it said exactly
                what the switch's position said, and in a narrow column it pushed
                the header onto a second line. */
-            aside={<span title={masterRule.sub}><Switch on={formatting.enabled} onChange={(next) => void saveFormatting({ enabled: next })}/></span>}
+            aside={<Hint text={masterRule.sub}><Switch on={formatting.enabled} onChange={(next) => void saveFormatting({ enabled: next })}/></Hint>}
           >
             <div className="fold__rows">
               {cleanRules.map((opt, i) => {
@@ -805,7 +806,7 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
               <span className="head-count">{activeCount}/{rules.length}</span>
               {!saved && <span className="pill warn">{t("не сохранено")}</span>}
             </>}
-            aside={<span title={paused ? t("Замены на паузе") : t("Замены применяются")}><Switch on={!paused} onChange={(next) => void setPaused(!next)}/></span>}
+            aside={<Hint text={paused ? t("Замены на паузе") : t("Замены применяются")}><Switch on={!paused} onChange={(next) => void setPaused(!next)}/></Hint>}
           >
             <div style={{ padding: "10px 12px", display: "grid", gap: 10 }}>
               <div className="flex-row" style={{ gap: 8, flexWrap: "wrap" }}>
@@ -821,7 +822,7 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
                 {visibleRules.length === 0 ? <ReplacementsEmptyState/> : <div>{visibleRules.map((rule, index) => <div key={rule.id} style={{ padding: 10, display: "grid", gap: 8, borderBottom: index < visibleRules.length - 1 ? "1px solid var(--line-soft)" : "none", opacity: rule.enabled ? 1 : 0.66 }}>
                   <div className="flex-row" style={{ gap: 8, flexWrap: "wrap" }}><Switch on={rule.enabled} onChange={(enabled) => updateRule(rule.id, { enabled })}/><span className="pill mono">{MATCH_LABELS()[rule.match]}</span><span className="pill mono">{rule.usage_count || 0}  {t("сраб.")}</span>{!rule.replace && <span className="pill warn">{t("удаляет текст")}</span>}<div style={{ marginLeft: "auto", display: "flex", gap: 4 }}><button className="btn btn--ghost" style={{ height: 24, padding: "0 7px" }} onClick={() => moveRule(rule.id, -1)} disabled={index === 0} aria-label={t("Поднять")}><Icon name="chev-down" size={12} style={{ transform: "rotate(180deg)" }}/></button><button className="btn btn--ghost" style={{ height: 24, padding: "0 7px" }} onClick={() => moveRule(rule.id, 1)} disabled={index === visibleRules.length - 1} aria-label={t("Опустить")}><Icon name="chev-down" size={12}/></button><button className="btn btn--ghost" style={{ height: 24, padding: "0 7px", color: "var(--err)" }} onClick={() => deleteRule(rule.id)} aria-label={t("Удалить")}><Icon name="trash" size={12}/></button></div></div>
                   <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 24px minmax(0, 1fr)", gap: 8, alignItems: "center" }}><input ref={index === 0 ? findRef : undefined} className="field mono" value={rule.find} onChange={(e) => updateRule(rule.id, { find: e.target.value })} placeholder={t("что искать")} style={{ height: 30 }}/><Icon name="arrow-right" size={13} style={{ color: "var(--ink-mute)" }}/><input className="field mono" value={rule.replace} onChange={(e) => updateRule(rule.id, { replace: e.target.value })} placeholder={t("на что заменить")} style={{ height: 30 }}/></div>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 8 }}><select className="field" value={rule.match} onChange={(e) => updateRule(rule.id, { match: e.target.value as ReplacementMatchMode })} style={{ height: 30 }}>{Object.entries(MATCH_LABELS()).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><label className="pill" style={{ justifyContent: "center", cursor: "pointer" }}><input className="checkbox" type="checkbox" checked={rule.case_sensitive} onChange={(e) => updateRule(rule.id, { case_sensitive: e.target.checked })}/> Aa</label><label className="pill" style={{ justifyContent: "center", cursor: "pointer" }}><input className="checkbox" type="checkbox" checked={rule.preserve_case} onChange={(e) => updateRule(rule.id, { preserve_case: e.target.checked })}/>  {t("Регистр")}</label></div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 8 }}><CustomSelect<string> value={rule.match} options={Object.entries(MATCH_LABELS()).map<SelectOption<string>>(([value, label]) => ({ value, label }))} onChange={(next) => updateRule(rule.id, { match: next as ReplacementMatchMode })}/><label className="pill" style={{ justifyContent: "center", cursor: "pointer" }}><input className="checkbox" type="checkbox" checked={rule.case_sensitive} onChange={(e) => updateRule(rule.id, { case_sensitive: e.target.checked })}/> Aa</label><label className="pill" style={{ justifyContent: "center", cursor: "pointer" }}><input className="checkbox" type="checkbox" checked={rule.preserve_case} onChange={(e) => updateRule(rule.id, { preserve_case: e.target.checked })}/>  {t("Регистр")}</label></div>
                 </div>)}</div>}
                 {formError && <div style={{ padding: "10px 12px", color: "var(--err)", font: "500 12px/1.4 var(--font-sans)", borderTop: "1px solid var(--line)" }}>{formError}</div>}
               </div>
@@ -869,9 +870,10 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
                     {presets.map(([id, words]) => {
                       const on = (formatting.enabled_presets ?? []).includes(id);
                       return (
-                        <button key={id} className={on ? "btn btn--primary" : "btn btn--ghost"} type="button" style={{ height: 24, padding: "0 8px", font: "500 11px/1 var(--font-sans)" }} onClick={() => togglePreset(id)} title={`${words.length} ${tPlural(words.length, ["термин", "термина", "терминов"])}`}>
+                        <Hint key={id} text={`${words.length} ${tPlural(words.length, ["термин", "термина", "терминов"])}`}><button className={on ? "btn btn--primary" : "btn btn--ghost"} type="button" style={{ height: 24, padding: "0 8px", font: "500 11px/1 var(--font-sans)" }} onClick={() => togglePreset(id)}>
                           <Icon name={on ? "check" : "plus"} size={11}/> {PRESET_LABELS()[id] ?? id}
                         </button>
+                        </Hint>
                       );
                     })}
                   </div>
@@ -1141,9 +1143,14 @@ function DiagnosticsCard({ config, onConfigChanged }: { config: ConfigResult | n
         <InfoRow
           label={t("Подробность логов")}
           value={
-            <select className="field mono" style={{ height: 28, padding: "0 6px" }} value={logLevel} disabled={!onConfigChanged} onChange={(e) => void onConfigChanged?.({ log_level: e.target.value as ConfigResult["log_level"] })}>
-              {LOG_LEVELS.map((level) => <option key={level} value={level}>{level}</option>)}
-            </select>
+            <div style={{ width: 150 }}>
+              <CustomSelect<string>
+                value={logLevel}
+                disabled={!onConfigChanged}
+                options={LOG_LEVELS.map<SelectOption<string>>((level) => ({ value: level, label: level }))}
+                onChange={(next) => void onConfigChanged?.({ log_level: next as ConfigResult["log_level"] })}
+              />
+            </div>
           }
         />
         <InfoRow
@@ -1157,19 +1164,23 @@ function DiagnosticsCard({ config, onConfigChanged }: { config: ConfigResult | n
         <InfoRow
           label={t("Сохранять записи в WAV")}
           value={
-            <label className="checkbox-row" style={{ justifyContent: "flex-end" }} title={t("Класть каждую запись рядом с логами. Нужно, чтобы воспроизвести жалобу «распознало не то».")}>
+            <Hint text={t("Класть каждую запись рядом с логами. Нужно, чтобы воспроизвести жалобу «распознало не то».")}>
+            <label className="checkbox-row" style={{ justifyContent: "flex-end" }}>
               <input className="checkbox" type="checkbox" checked={saveRecordings} disabled={!onConfigChanged} onChange={(e) => void onConfigChanged?.({ debug_save_recordings: e.target.checked })}/>
               <span style={{ color: "var(--ink-mute)", font: "500 11.5px/1 var(--font-sans)" }}>{saveRecordings ? t("включено") : t("выключено")}</span>
             </label>
+            </Hint>
           }
         />
         <InfoRow
           label={t("Диагностика оверлея")}
           value={
-            <label className="checkbox-row" style={{ justifyContent: "flex-end" }} title={t("Писать в лог стили и список окон на каждом показе и скрытии оверлея. Нужно только для разбора мигающей системной рамки; в логи попадают заголовки открытых окон.")}>
+            <Hint text={t("Писать в лог стили и список окон на каждом показе и скрытии оверлея. Нужно только для разбора мигающей системной рамки; в логи попадают заголовки открытых окон.")}>
+            <label className="checkbox-row" style={{ justifyContent: "flex-end" }}>
               <input className="checkbox" type="checkbox" checked={overlayDiag} disabled={!onConfigChanged} onChange={(e) => void onConfigChanged?.({ debug_overlay_diag: e.target.checked })}/>
               <span style={{ color: "var(--ink-mute)", font: "500 11.5px/1 var(--font-sans)" }}>{overlayDiag ? t("включено") : t("выключено")}</span>
             </label>
+            </Hint>
           }
         />
       </div>

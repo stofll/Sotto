@@ -1,8 +1,7 @@
-import { useMemo, useRef, useState, type ReactNode } from "react";
-import { createPortal } from "react-dom";
+import { useMemo, useState } from "react";
 import { Icon } from "./Icon";
-import { useOutsideClose } from "./CustomSelect";
-import { useAnchoredMenu } from "./anchoredMenu";
+import { CustomSelect, type SelectOption } from "./CustomSelect";
+import { ModelCombobox } from "./ModelCombobox";
 import {
   COMPATIBLE_PRESETS,
   LogoMark,
@@ -59,64 +58,6 @@ function initialState(seed: ProfileWizardSeed | undefined): WizardState {
     newKey: "",
     newKeyLabel: "",
   };
-}
-
-function ModelCombobox({ value, suggestions, onChange, onCommit, placeholder }: {
-  value: string;
-  suggestions: string[];
-  onChange: (next: string) => void;
-  onCommit: () => void;
-  placeholder?: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement | null>(null);
-  const { menuRef, style: menuStyle } = useAnchoredMenu(open, rootRef, 240);
-  useOutsideClose(open, rootRef, () => setOpen(false), menuRef);
-
-  const filtered = useMemo(() => {
-    const q = value.trim().toLowerCase();
-    if (!q) return suggestions;
-    return suggestions.filter((s) => s.toLowerCase().includes(q));
-  }, [value, suggestions]);
-
-  const menu = (body: ReactNode) => createPortal(
-    <div className="combobox__menu" role="listbox" ref={menuRef} style={menuStyle}>{body}</div>,
-    document.body,
-  );
-
-  return (
-    <div className="combobox" ref={rootRef}>
-      <input
-        className="field mono"
-        value={value}
-        onChange={(e) => { onChange(e.target.value); if (!open) setOpen(true); }}
-        onFocus={() => setOpen(true)}
-        onBlur={() => { window.setTimeout(() => { setOpen(false); onCommit(); }, 120); }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") { setOpen(false); onCommit(); }
-          if (e.key === "Escape") setOpen(false);
-        }}
-        placeholder={placeholder}
-        style={{ width: "100%", height: 34 }}
-      />
-      {open && menu(filtered.length > 0
-        ? filtered.map((s) => (
-          <button
-            key={s}
-            type="button"
-            className="combobox__option"
-            aria-selected={s === value}
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => { onChange(s); setOpen(false); onCommit(); }}
-          >
-            {s}
-            {s === value && <span className="meta"><Icon name="check" size={12}/></span>}
-          </button>
-        ))
-        : <div className="combobox__empty">{t("Нет известных моделей — введите id вручную.")}</div>
-      )}
-    </div>
-  );
 }
 
 /** An empty field is a hint, a malformed value is an error. */
@@ -279,12 +220,19 @@ export function ProfileWizard({ apiKeys, existingProfiles, seed, onClose, onCrea
               {availableKeys.length > 0 && (
                 <div style={{ display: "grid", gap: 6 }}>
                   <span style={{ font: "500 11px/1.4 var(--font-mono)", color: "var(--text-mute)" }}>{t("Использовать существующий слот:")}</span>
-                  <select className="field" value={state.reuseKeyRef ?? ""} onChange={(e) => update({ reuseKeyRef: e.target.value || null })} style={{ height: 36 }}>
-                    <option value="">{t("— Новый ключ —")}</option>
-                    {availableKeys.map(({ ref, info }) => (
-                      <option key={ref} value={ref}>{info.label || ref} · {info.masked}</option>
-                    ))}
-                  </select>
+                  <CustomSelect<string>
+                    value={state.reuseKeyRef ?? ""}
+                    inlineMeta
+                    options={[
+                      { value: "", label: t("— Новый ключ —") },
+                      ...availableKeys.map<SelectOption<string>>(({ ref, info }) => ({
+                        value: ref,
+                        label: info.label || ref,
+                        meta: info.masked,
+                      })),
+                    ]}
+                    onChange={(next) => update({ reuseKeyRef: next || null })}
+                  />
                 </div>
               )}
               {!state.reuseKeyRef && (

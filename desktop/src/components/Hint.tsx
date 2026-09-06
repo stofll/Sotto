@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Icon } from "./Icon";
 
@@ -23,7 +23,10 @@ const MARGIN = 8;   // minimum distance from the bubble to the window edge
 // (13/18, 11/14, 10/13, 12/16), and the distance from label to icon matched
 // nowhere. The geometry is single and lives in CSS — the reference is the
 // «Горячая клавиша» row in settings.
-export function Hint({ text, children }: { text: string; children?: ReactNode }) {
+// `className` and `style` go on the anchor. Wrapping a button turns the anchor
+// into the flex or grid item in its place, so whatever held that place —
+// `flex: 1`, `margin-left: auto`, a full-width cell — has to move onto it.
+export function Hint({ text, children, className, style }: { text: string; children?: ReactNode; className?: string; style?: CSSProperties }) {
   const anchorRef = useRef<HTMLSpanElement>(null);
   const bubbleRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
@@ -60,7 +63,8 @@ export function Hint({ text, children }: { text: string; children?: ReactNode })
   return (
     <span
       ref={anchorRef}
-      className={children ? "hint-anchor" : "hint"}
+      className={`${children ? "hint-anchor" : "hint"}${className ? ` ${className}` : ""}`}
+      style={style}
       // The icon does not take focus on its own — it is given focus, otherwise
       // the hint exists for the mouse only. A wrapper around a control needs no
       // focus of its own and is harmed by it: it becomes an extra stop before

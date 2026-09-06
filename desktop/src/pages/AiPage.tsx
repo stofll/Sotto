@@ -132,8 +132,8 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
   const profiles = useMemo(() => profilesForAi(baseAi), [baseAi]);
   // With no saved profiles (fresh install) fall back to a working profile
   // derived from the flat active config, purely to keep the editors below
-  // bound to something. It is NOT rendered in the profile list, so a clean
-  // install shows an empty list rather than a phantom OpenAI profile.
+  // bound to something. It is NOT offered in the profile picker, so a clean
+  // install shows the empty state rather than a phantom OpenAI profile.
   const fallbackProfile = useMemo(() => normalizeProfile(baseAi, {}), [baseAi]);
   const activeProfile = profiles.find((item) => item.id === baseAi.active_profile_id) ?? profiles[0] ?? fallbackProfile;
   const ai = useMemo(() => activeConfigFromProfile(baseAi, activeProfile, profiles), [baseAi, activeProfile, profiles]);
@@ -144,10 +144,10 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
   // where the mode is chosen.
   const routeBlocker = llmRouteBlocker(config, apiKeys);
 
-  // The voice profile's key is shown by its own row in the list above («ключ
-  // сохранён» / «нет ключа»), so there is no separate variable for it here any
-  // more — the manual processing panel judges by its own profile.
+  // The active profile's key, for the card at the top of the page. The manual
+  // processing panel below judges by its own profile, not by this one.
   const activeKeyRef = profileKeyRef(activeProfile);
+  const activeKeyInfo = apiKeys[activeKeyRef] ?? EMPTY_KEY_INFO;
 
   // Manual text processing may run on a different profile from dictation: they
   // have different jobs, and a model good at cleaning speech need not be the
@@ -432,73 +432,62 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
       <section className="card" style={{ padding: 18, marginBottom: 14 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 12 }}>
           <h2 style={{ margin: 0, font: "600 14px/1.2 var(--font-sans)", display: "inline-flex", alignItems: "center", gap: 5 }}>
-             {t("Профили LLM")} <Hint text={t("Один профиль = одна связка provider + ключ + модель. Создаются и редактируются они в «Интеграциях»; здесь профиль только выбирают.")}/>
-            <span className="head-count">{profiles.length}</span>
+             {t("Активный профиль")} <Hint text={t("Один профиль = одна связка provider + ключ + модель. Создаются и редактируются они в «Интеграциях»; здесь профиль только выбирают.")}/>
           </h2>
           <button className="btn btn--ghost" onClick={() => onNavigate("integrations")}>
             <Icon name="server" size={12}/>{t("Управлять профилями")}<Icon name="arrow-right" size={11}/>
           </button>
         </div>
-        <div className="profile-list">
-            {/* A link to «Интеграции» here was the third in a row: the same
-                button stands in the page header and in this card's heading. */}
-            {profiles.length === 0 && (
-              <div style={{ padding: "16px 14px", color: "var(--ink-mute)", font: "400 12px/1.5 var(--font-sans)" }}>
-                {t("Профилей пока нет. Настройки LLM ниже применяются к базовой конфигурации; профиль нужен, чтобы хранить несколько связок «провайдер + ключ + модель».")}
-              </div>
-            )}
-            {profiles.map((profile) => {
-              const itemProvider = PROVIDERS.find((item) => item.id === profile.provider) ?? PROVIDERS[0];
-              const itemKeyInfo = apiKeys[profileKeyRef(profile)] ?? EMPTY_KEY_INFO;
-              const selected = profile.id === activeProfile.id;
-              return (
-                <div
-                  key={profile.id}
-                  className="profile-row"
-                  data-selected={selected}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => void saveAi({ active_profile_id: profile.id })}
-                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); void saveAi({ active_profile_id: profile.id }); } }}
-                >
-                  <span className="dot" style={{ background: itemProvider.dot }}/>
-                  <span className="name">{profile.name}</span>
-                  <span className="meta">{itemProvider.name} · {profile.model}</span>
-                  <span className="key-state" data-ok={itemKeyInfo.available}>
-                    {itemKeyInfo.available ? (itemKeyInfo.masked || t("ключ сохранён")) : t("нет ключа")}
-                  </span>
-                  <span className="activate-cell">
-                    {selected ? (
-                      <span className="pill accent" style={{ whiteSpace: "nowrap" }}><Icon name="check" size={11}/>  {t("Активный")}</span>
-                    ) : (
-                      <button
-                        className="btn btn--ghost"
-                        title={t("Сделать этот профиль активным для pipeline")}
-                        onClick={(e) => { e.stopPropagation(); void saveAi({ active_profile_id: profile.id }); showMessage(t("Активный профиль: «{p0}».", { p0: profile.name })); }}
-                        style={{ height: 26, whiteSpace: "nowrap" }}
-                      >{t("Сделать активным")}</button>
-                    )}
-                  </span>
-                  <span className="actions">
-                    {selected && (
-                      <button
-                        className="btn btn--primary"
-                        title={t("Прогнать образец через активный профиль с его промптом и увидеть ответ модели (списывает токены)")}
-                        disabled={testLoading || !ai.model.trim()}
-                        onClick={(e) => { e.stopPropagation(); void runTestPrompt(); }}
-                        style={{ height: 26 }}
-                      ><Icon name="spark" size={12}/>{testLoading ? t("Отправляю…") : t("Пробный запрос")}</button>
-                    )}
-                  </span>
-                </div>
-              );
-            })}
+
+        {/* A picker rather than a list of rows. The full list with its own
+            «Сделать активным» buttons stood here as well as in «Интеграциях» —
+            two places to do the same thing, and the row actions there and here
+            looked nothing alike. Switching the active profile is a frequent
+            action and stays; everything else about a profile is edited where
+            profiles live. */}
+        {profiles.length === 0 ? (
+          <div className="list-empty">
+            <span>{t("Профилей пока нет. Настройки LLM ниже применяются к базовой конфигурации; профиль нужен, чтобы хранить несколько связок «провайдер + ключ + модель».")}</span>
+            <button className="btn btn--ghost" onClick={() => onNavigate("integrations")}>
+              <Icon name="plus" size={12}/>  {t("Создать профиль")} </button>
           </div>
+        ) : (
+          <div className="active-profile">
+            <div className="active-profile__pick">
+              <CustomSelect<string>
+                value={activeProfile.id}
+                inlineMeta
+                options={profiles.map((profile) => {
+                  const itemProvider = PROVIDERS.find((item) => item.id === profile.provider) ?? PROVIDERS[0];
+                  return { value: profile.id, label: profile.name, meta: `${itemProvider.name} · ${profile.model}` };
+                })}
+                onChange={(next) => {
+                  if (next === activeProfile.id) return;
+                  void saveAi({ active_profile_id: next });
+                  const picked = profiles.find((profile) => profile.id === next);
+                  if (picked) showMessage(t("Активный профиль: «{p0}».", { p0: picked.name }));
+                }}
+              />
+            </div>
+            <span className={activeKeyInfo.available ? "pill ok dot mono" : "pill warn"}>
+              {activeKeyInfo.available ? (activeKeyInfo.masked || t("ключ сохранён")) : t("нет ключа")}
+            </span>
+            <Hint text={t("Прогнать образец через активный профиль с его промптом и увидеть ответ модели (списывает токены)")}>
+              <button
+                className="btn btn--primary"
+                disabled={testLoading || !ai.model.trim()}
+                onClick={() => void runTestPrompt()}
+              ><Icon name="spark" size={12}/>{testLoading ? t("Отправляю…") : t("Пробный запрос")}</button>
+            </Hint>
+          </div>
+        )}
           {testResult && (
             <div style={{ display: "grid", gap: 6, marginTop: 12, padding: 10, borderRadius: 8, background: "var(--bg-2)", border: "1px solid var(--line)" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <span className={testResult.available && !testResult.fallback ? "pill ok" : "pill warn"}>{testResult.available ? t("Ответ получен") : (testResult.fallback ? t("Запрос отправлен, fallback") : t("Запрос не отправлен"))}</span>
-                <button className="icon-btn" title={t("Закрыть")} onClick={() => setTestResult(null)} style={{ marginLeft: "auto" }}><Icon name="x" size={12}/></button>
+                <Hint text={t("Закрыть")} style={{ marginLeft: "auto" }}>
+                  <button className="icon-btn" aria-label={t("Закрыть")} onClick={() => setTestResult(null)}><Icon name="x" size={12}/></button>
+                </Hint>
               </div>
               {(testResult.message || testResult.provider_error || testResult.skipped_reason) && <div style={{ font: "500 11px/1.45 var(--font-mono)", color: testResult.available ? "var(--text-mute)" : "var(--err)", whiteSpace: "pre-wrap" }}>{testResult.provider_error || testResult.message || testResult.skipped_reason}</div>}
               <ProviderSnippet result={testResult}/>
@@ -562,16 +551,16 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
                 {SYSTEM_PROMPT_PRESETS().map((preset) => {
                   const active = promptDraft.trim() === preset.prompt.trim();
                   return (
-                    <button
-                      key={preset.id}
-                      type="button"
-                      className={active ? "btn btn--primary" : "btn btn--ghost"}
-                      onClick={() => setPromptDraft(preset.prompt)}
-                      title={preset.description}
-                      style={{ height: 26 }}
-                    >
-                      {preset.label}
-                    </button>
+                    <Hint key={preset.id} text={preset.description}>
+                      <button
+                        type="button"
+                        className={active ? "btn btn--primary" : "btn btn--ghost"}
+                        onClick={() => setPromptDraft(preset.prompt)}
+                        style={{ height: 26 }}
+                      >
+                        {preset.label}
+                      </button>
+                    </Hint>
                   );
                 })}
                 <span style={{ font: "400 11px/1.3 var(--font-sans)", color: "var(--ink-mute)" }}>
@@ -595,13 +584,14 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
                   disabled={!promptDraft.trim() || promptDraft === (activeProfile.system_prompt ?? "")}
                 >
                   <Icon name="check" size={12}/>{t("Сохранить промпт")} </button>
-                <button
-                  className="btn btn--ghost"
-                  onClick={() => void resetPrompt()}
-                  disabled={!promptCustom && promptDraft.trim() === builtinPrompt.trim()}
-                  title={t("Вернуть встроенный промпт и снова получать его правки")}
-                >
-                  <Icon name="refresh" size={12}/>{t("Вернуть встроенный")} </button>
+                <Hint text={t("Вернуть встроенный промпт и снова получать его правки")}>
+                  <button
+                    className="btn btn--ghost"
+                    onClick={() => void resetPrompt()}
+                    disabled={!promptCustom && promptDraft.trim() === builtinPrompt.trim()}
+                  >
+                    <Icon name="refresh" size={12}/>{t("Вернуть встроенный")} </button>
+                </Hint>
                 <span style={{ marginLeft: "auto", font: "500 11px/1 var(--font-mono)", color: "var(--ink-mute)" }}>
                   {promptDraft.length}{outputContract ? ` + ${outputContract.length}` : ""}  {t("симв.")}</span>
               </div>

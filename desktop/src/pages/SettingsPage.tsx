@@ -245,13 +245,14 @@ function HotkeyDisplay({ hotkey, fallback, onConfigChanged }: {
       <div className="hotkey-display__keys">
         {hotkeyLabel(hotkey, fallback).map((key, i, arr) => <span key={`${key}-${i}`} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><span className="kbd">{key}</span>{i < arr.length - 1 && <span style={{ color: "var(--text-mute)" }}>+</span>}</span>)}
       </div>
-      <button
-        className="btn btn--ghost hotkey-display__edit"
-        type="button"
-        title={t("Изменить")}
-        aria-label={t("Изменить")}
-        onClick={() => { setValue(hotkey || fallback); setEditing(true); }}
-      ><Icon name="pencil" size={13}/></button>
+      <Hint text={t("Изменить")}>
+        <button
+          className="btn btn--ghost hotkey-display__edit"
+          type="button"
+          aria-label={t("Изменить")}
+          onClick={() => { setValue(hotkey || fallback); setEditing(true); }}
+        ><Icon name="pencil" size={13}/></button>
+      </Hint>
     </div>
   );
 }
@@ -959,20 +960,21 @@ export function SettingsPage({ config, microphones, models, portable, onConfigCh
                 the cell onto a second line and change the card's height right
                 under the cursor. The result text has not gone anywhere: it is in
                 the button's hint and in the hidden screen-reader line. */}
-            <button
-              className="btn btn--ghost behavior-row__duck-button"
-              type="button"
-              data-state={duckTest}
-              data-visible={duckOutput ? "true" : "false"}
-              disabled={!duckOutput || duckTest === "running"}
-              tabIndex={duckOutput ? undefined : -1}
-              aria-hidden={duckOutput ? undefined : true}
-              onClick={() => void testOutputDuck()}
-              title={duckTestLabel}
-              aria-label={duckTestLabel}
-            >
-              <Icon name={duckTest === "done" ? "check" : duckTest === "error" ? "x" : "test"} size={12}/>
-            </button>
+            <Hint text={duckTestLabel}>
+              <button
+                className="btn btn--ghost behavior-row__duck-button"
+                type="button"
+                data-state={duckTest}
+                data-visible={duckOutput ? "true" : "false"}
+                disabled={!duckOutput || duckTest === "running"}
+                tabIndex={duckOutput ? undefined : -1}
+                aria-hidden={duckOutput ? undefined : true}
+                onClick={() => void testOutputDuck()}
+                aria-label={duckTestLabel}
+              >
+                <Icon name={duckTest === "done" ? "check" : duckTest === "error" ? "x" : "test"} size={12}/>
+              </button>
+            </Hint>
             <span className="sr-only" role="status">{duckTest === "idle" ? "" : duckTestLabel}</span>
           </div>
         </div>

@@ -13,10 +13,10 @@ export type SelectOption<T extends string | number | null> = {
   disabled?: boolean;
 };
 
-function optionTitle<T extends string | number | null>(option?: SelectOption<T>) {
-  if (!option) return undefined;
-  return option.meta ? `${option.label} - ${option.meta}` : option.label;
-}
+// There is deliberately no `title` on the button or on the options: it repeated
+// word for word what is written in them. It was there as a fallback for a label
+// clipped to an ellipsis, but the menu is laid out to its content — the full
+// text is one click away, and until then the bubble said «neura — neura».
 
 /**
  * `alsoRef` is for a menu portalled into body: in the DOM it lies outside
@@ -100,7 +100,7 @@ export function CustomSelect<T extends string | number | null>({ value, options,
 
   return (
     <div className={`custom-select ${inlineMeta ? "custom-select--inline-meta " : ""}${className}`} ref={rootRef}>
-      <button className="custom-select__button" type="button" disabled={disabled} aria-haspopup="listbox" aria-expanded={open} title={optionTitle(selected)} onClick={() => { if (!open) onOpen?.(); setOpen((current) => !current); }}>
+      <button className="custom-select__button" type="button" disabled={disabled} aria-haspopup="listbox" aria-expanded={open} onClick={() => { if (!open) onOpen?.(); setOpen((current) => !current); }}>
         {selected.icon && <Icon name={selected.icon} size={14}/>}
         <span className="custom-select__text">
           <span className="custom-select__label">{selected.label}</span>
@@ -136,13 +136,13 @@ export function CustomSelect<T extends string | number | null>({ value, options,
             {visible.map((option, index) => {
               const active = option.value === selected.value || (option.value == null && selected.value == null);
               return (
-                <button key={`${option.value ?? "default"}-${index}`} className="custom-select__option" type="button" role="option" aria-selected={active} disabled={disabled || option.disabled} aria-disabled={disabled || option.disabled} title={optionTitle(option)} onClick={() => pick(option)}>
+                <button key={`${option.value ?? "default"}-${index}`} className="custom-select__option" type="button" role="option" aria-selected={active} disabled={disabled || option.disabled} aria-disabled={disabled || option.disabled} onClick={() => pick(option)}>
                   {option.icon && <Icon name={option.icon} size={14}/>}
                   <span className="custom-select__text">
                     <span className="custom-select__label">{option.label}</span>
                     {option.meta && <span className="custom-select__meta">{option.meta}</span>}
                   </span>
-                  {active && <Icon name="check" size={14}/>}
+                  {active && <span className="custom-select__check"><Icon name="check" size={14}/></span>}
                 </button>
               );
             })}
