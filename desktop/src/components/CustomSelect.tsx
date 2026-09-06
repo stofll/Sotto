@@ -52,7 +52,7 @@ export function useOutsideClose(
   }, [open, ref, onClose, alsoRef]);
 }
 
-export function CustomSelect<T extends string | number | null>({ value, options, onChange, onOpen, className = "", disabled = false, searchable = false, inlineMeta = false }: { value: T; options: Array<SelectOption<T>>; onChange: (value: T) => void; onOpen?: () => void; className?: string; disabled?: boolean; searchable?: boolean; inlineMeta?: boolean }) {
+export function CustomSelect<T extends string | number | null>({ value, options, onChange, onOpen, className = "", disabled = false, searchable = false, inlineMeta = false, metaSeparator = "parens" }: { value: T; options: Array<SelectOption<T>>; onChange: (value: T) => void; onOpen?: () => void; className?: string; disabled?: boolean; searchable?: boolean; inlineMeta?: boolean; metaSeparator?: "parens" | "dash" }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -92,6 +92,10 @@ export function CustomSelect<T extends string | number | null>({ value, options,
 
   if (!selected) return null;
 
+  // The menu is portalled into body, so a modifier put on the root would not
+  // reach it: both need the class.
+  const metaMod = inlineMeta && metaSeparator === "dash" ? "meta-dash" : "";
+
   const pick = (option: SelectOption<T>) => {
     if (disabled || option.disabled) return;
     setOpen(false);
@@ -99,7 +103,7 @@ export function CustomSelect<T extends string | number | null>({ value, options,
   };
 
   return (
-    <div className={`custom-select ${inlineMeta ? "custom-select--inline-meta " : ""}${className}`} ref={rootRef}>
+    <div className={`custom-select ${inlineMeta ? "custom-select--inline-meta " : ""}${metaMod ? `custom-select--${metaMod} ` : ""}${className}`} ref={rootRef}>
       <button className="custom-select__button" type="button" disabled={disabled} aria-haspopup="listbox" aria-expanded={open} onClick={() => { if (!open) onOpen?.(); setOpen((current) => !current); }}>
         {selected.icon && <Icon name={selected.icon} size={14}/>}
         <span className="custom-select__text">
@@ -109,7 +113,7 @@ export function CustomSelect<T extends string | number | null>({ value, options,
         <Icon name="chev-down" size={14} className="custom-select__chev"/>
       </button>
       {open && createPortal((
-        <div className={`custom-select__menu${searchable ? " custom-select__menu--search" : ""}${inlineMeta ? " custom-select__menu--inline-meta" : ""}`} role="listbox" ref={menuRef} style={menuStyle}>
+        <div className={`custom-select__menu${searchable ? " custom-select__menu--search" : ""}${inlineMeta ? " custom-select__menu--inline-meta" : ""}${metaMod ? ` custom-select__menu--${metaMod}` : ""}`} role="listbox" ref={menuRef} style={menuStyle}>
           {searchable && (
             <div className="custom-select__search">
               <Icon name="search" size={13}/>

@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { invoke, on } from "../bridge";
 import type { ConfigResult, PreviewFormatResult, PreviewReplacementsResult, ReplacementMatchMode, ReplacementRule, StatsResult, TextFormattingConfig, UpdateDownloadProgress, UpdateInfo } from "../bridge/types";
-import { PageHeader, SectionLabel, Segmented, Switch } from "../components/Shell";
+import { Card, CardHead, PageHeader, SectionLabel, Segmented, Switch } from "../components/Shell";
 import { Icon } from "../components/Icon";
 import { Hint } from "../components/Hint";
+import { confirmDestructive } from "../components/ConfirmDialog";
 import { CustomSelect, type SelectOption } from "../components/CustomSelect";
 import { DiffBlock } from "../components/DiffBlock";
 import { localeTag, t, tPlural } from "../i18n";
@@ -144,14 +145,14 @@ function buildDailySeries(history: DailyStats[], range: StatsRange): DailyStats[
 }
 
 function Heatmap({ history }: { history: DailyStats[] }) {
-  const colors = ["var(--surface-2)", "rgba(246,169,59,0.18)", "rgba(246,169,59,0.40)", "rgba(246,169,59,0.65)", "var(--accent)"];
+  const colors = ["var(--bg-2)", "rgba(246,169,59,0.18)", "rgba(246,169,59,0.40)", "rgba(246,169,59,0.65)", "var(--accent)"];
   const cells = buildDailySeries(history, "year");
   const max = Math.max(1, ...cells.map((item) => item.count));
   const monthLabels = [0, 4, 8].map((week) => {
     const cell = cells[Math.min(cells.length - 1, week * 7)];
     return new Date(`${cell.date}T00:00:00`).toLocaleDateString(localeTag(), { month: "short" }).replace(".", "");
   });
-  return <div><div style={{ display: "flex", justifyContent: "space-around", marginBottom: 8, paddingLeft: 28 }}>{monthLabels.map((m, i) => <span key={`${m}-${i}`} style={{ font: "500 10px/1 var(--font-mono)", color: "var(--text-mute)" }}>{m}</span>)}</div><div style={{ display: "flex", gap: 8 }}><div style={{ display: "flex", flexDirection: "column", justifyContent: "space-between", font: "500 10px/1 var(--font-mono)", color: "var(--text-mute)", paddingTop: 1, paddingBottom: 1 }}>{[t("Пн"), "", t("Ср"), "", t("Пт"), "", ""].map((d, i) => <span key={i} style={{ height: 12 }}>{d}</span>)}</div><div style={{ display: "grid", gridTemplateColumns: "repeat(12, minmax(10px, 1fr))", gap: 3, flex: 1 }}>{Array.from({ length: 12 }).map((_, w) => <div key={w} className="heatmap-week" style={{ display: "grid", gridTemplateRows: "repeat(7, 1fr)", gap: 3 }}>{Array.from({ length: 7 }).map((_, d) => { const item = cells[w * 7 + d]; const level = item.count === 0 ? 0 : Math.max(1, Math.ceil((item.count / max) * 4)); return <div key={item.date} className="heatmap-cell" style={{ width: "100%", aspectRatio: 1, borderRadius: 3, background: colors[level] }}><div className="heatmap-popover" role="tooltip"><div className="heatmap-popover__title">{longDateLabel(item.date)}</div><div>{item.count.toLocaleString(localeTag())}  {t("распознаваний")}</div><div>{item.chars.toLocaleString(localeTag())}  {t("символов")}</div><div>{t("Аудио:")} {formatShortDuration(item.audio_seconds)}</div><div>{t("Обработка:")} {formatShortDuration(item.processing_seconds)}</div>{item.llm_attempts > 0 && <div>LLM: {item.llm_used}/{item.llm_attempts}  {t("успешно")}</div>}{item.llm_tokens > 0 && <div>{t("Токены:")} {item.llm_tokens.toLocaleString(localeTag())}</div>}</div></div>; })}</div>)}</div></div></div>;
+  return <div><div style={{ display: "flex", justifyContent: "space-around", marginBottom: 8, paddingLeft: 28 }}>{monthLabels.map((m, i) => <span key={`${m}-${i}`} style={{ font: "500 10px/1 var(--font-mono)", color: "var(--ink-mute)" }}>{m}</span>)}</div><div style={{ display: "flex", gap: 8 }}><div style={{ display: "flex", flexDirection: "column", justifyContent: "space-between", font: "500 10px/1 var(--font-mono)", color: "var(--ink-mute)", paddingTop: 1, paddingBottom: 1 }}>{[t("Пн"), "", t("Ср"), "", t("Пт"), "", ""].map((d, i) => <span key={i} style={{ height: 12 }}>{d}</span>)}</div><div style={{ display: "grid", gridTemplateColumns: "repeat(12, minmax(10px, 1fr))", gap: 3, flex: 1 }}>{Array.from({ length: 12 }).map((_, w) => <div key={w} className="heatmap-week" style={{ display: "grid", gridTemplateRows: "repeat(7, 1fr)", gap: 3 }}>{Array.from({ length: 7 }).map((_, d) => { const item = cells[w * 7 + d]; const level = item.count === 0 ? 0 : Math.max(1, Math.ceil((item.count / max) * 4)); return <div key={item.date} className="heatmap-cell" style={{ width: "100%", aspectRatio: 1, borderRadius: 3, background: colors[level] }}><div className="heatmap-popover" role="tooltip"><div className="heatmap-popover__title">{longDateLabel(item.date)}</div><div>{item.count.toLocaleString(localeTag())}  {t("распознаваний")}</div><div>{item.chars.toLocaleString(localeTag())}  {t("символов")}</div><div>{t("Аудио:")} {formatShortDuration(item.audio_seconds)}</div><div>{t("Обработка:")} {formatShortDuration(item.processing_seconds)}</div>{item.llm_attempts > 0 && <div>LLM: {item.llm_used}/{item.llm_attempts}  {t("успешно")}</div>}{item.llm_tokens > 0 && <div>{t("Токены:")} {item.llm_tokens.toLocaleString(localeTag())}</div>}</div></div>; })}</div>)}</div></div></div>;
 }
 
 function Stat({ label, value, sub, accent = false, hint }: { label: string; value: string; sub: string; accent?: boolean; hint?: string }) {
@@ -442,9 +443,9 @@ function downloadTextFile(filename: string, text: string, mime = "application/js
 
 function ReplacementsEmptyState() {
   return (
-    <div style={{ display: "grid", placeItems: "center", padding: "46px 24px", color: "var(--text-mute)", textAlign: "center" }}>
+    <div style={{ display: "grid", placeItems: "center", padding: "46px 24px", color: "var(--ink-mute)", textAlign: "center" }}>
       <div style={{ marginBottom: 12, opacity: 0.75 }}><Icon name="replace" size={32}/></div>
-      <div style={{ font: "500 14px/1.3 var(--font-sans)", color: "var(--text-2)" }}>{t("Нет правил замены")}</div>
+      <div style={{ font: "500 14px/1.3 var(--font-sans)", color: "var(--ink-dim)" }}>{t("Нет правил замены")}</div>
       <div style={{ marginTop: 6, maxWidth: 390, font: "400 12px/1.5 var(--font-sans)" }}>{t("Добавьте слово или фразу, которые нужно автоматически исправлять после распознавания.")}</div>
     </div>
   );
@@ -594,21 +595,6 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
     setSaved(true);
   }, [JSON.stringify(config?.replacement_rules ?? []), JSON.stringify(config?.replacements ?? {})]);
 
-  useEffect(() => {
-    let unlisten: (() => void) | null = null;
-    on<{ find: string; replace?: string }>("prefill-replacement", (payload) => {
-      const find = (payload?.find ?? "").trim();
-      if (!find) return;
-      setRules((current) => [makeReplacementRule(find, payload.replace ?? ""), ...current]);
-      setSaved(false);
-      // The rule arrived from the history — the replacements card may be
-      // collapsed, and the draft would end up out of sight.
-      setFolds((current) => ({ ...current, repl: true }));
-      window.setTimeout(() => findRef.current?.focus(), 0);
-    }).then((fn) => { unlisten = fn; });
-    return () => { unlisten?.(); };
-  }, []);
-
   // Two calls for one preview: `preview_format` gives the full local result
   // (cleanup AND replacements at once), while `preview_replacements` gives only
   // metadata about which rules fired. The first does not return that.
@@ -681,8 +667,14 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
     setSaved(false);
   }
 
-  function deleteRule(id: string) {
-    setRules((current) => current.filter((rule) => rule.id !== id));
+  async function deleteRule(id: string) {
+    const rule = rules.find((item) => item.id === id);
+    const label = rule?.find?.trim();
+    const question = label
+      ? t("Удалить правило «{p0}»? Это действие нельзя отменить.", { p0: label })
+      : t("Удалить это правило? Это действие нельзя отменить.");
+    if (!await confirmDestructive(question)) return;
+    setRules((current) => current.filter((item) => item.id !== id));
     setSaved(false);
   }
 
@@ -820,7 +812,7 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
 
               <div className="fold__rows">
                 {visibleRules.length === 0 ? <ReplacementsEmptyState/> : <div>{visibleRules.map((rule, index) => <div key={rule.id} style={{ padding: 10, display: "grid", gap: 8, borderBottom: index < visibleRules.length - 1 ? "1px solid var(--line-soft)" : "none", opacity: rule.enabled ? 1 : 0.66 }}>
-                  <div className="flex-row" style={{ gap: 8, flexWrap: "wrap" }}><Switch on={rule.enabled} onChange={(enabled) => updateRule(rule.id, { enabled })}/><span className="pill mono">{MATCH_LABELS()[rule.match]}</span><span className="pill mono">{rule.usage_count || 0}  {t("сраб.")}</span>{!rule.replace && <span className="pill warn">{t("удаляет текст")}</span>}<div style={{ marginLeft: "auto", display: "flex", gap: 4 }}><button className="btn btn--ghost" style={{ height: 24, padding: "0 7px" }} onClick={() => moveRule(rule.id, -1)} disabled={index === 0} aria-label={t("Поднять")}><Icon name="chev-down" size={12} style={{ transform: "rotate(180deg)" }}/></button><button className="btn btn--ghost" style={{ height: 24, padding: "0 7px" }} onClick={() => moveRule(rule.id, 1)} disabled={index === visibleRules.length - 1} aria-label={t("Опустить")}><Icon name="chev-down" size={12}/></button><button className="btn btn--ghost" style={{ height: 24, padding: "0 7px", color: "var(--err)" }} onClick={() => deleteRule(rule.id)} aria-label={t("Удалить")}><Icon name="trash" size={12}/></button></div></div>
+                  <div className="flex-row" style={{ gap: 8, flexWrap: "wrap" }}><Switch on={rule.enabled} onChange={(enabled) => updateRule(rule.id, { enabled })}/><span className="pill mono">{MATCH_LABELS()[rule.match]}</span><span className="pill mono">{rule.usage_count || 0}  {t("сраб.")}</span>{!rule.replace && <span className="pill warn">{t("удаляет текст")}</span>}<div style={{ marginLeft: "auto", display: "flex", gap: 4 }}><button className="btn btn--ghost" style={{ height: 24, padding: "0 7px" }} onClick={() => moveRule(rule.id, -1)} disabled={index === 0} aria-label={t("Поднять")}><Icon name="chev-down" size={12} style={{ transform: "rotate(180deg)" }}/></button><button className="btn btn--ghost" style={{ height: 24, padding: "0 7px" }} onClick={() => moveRule(rule.id, 1)} disabled={index === visibleRules.length - 1} aria-label={t("Опустить")}><Icon name="chev-down" size={12}/></button><button className="btn btn--ghost" style={{ height: 24, padding: "0 7px", color: "var(--err)" }} onClick={() => void deleteRule(rule.id)} aria-label={t("Удалить")}><Icon name="trash" size={12}/></button></div></div>
                   <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 24px minmax(0, 1fr)", gap: 8, alignItems: "center" }}><input ref={index === 0 ? findRef : undefined} className="field mono" value={rule.find} onChange={(e) => updateRule(rule.id, { find: e.target.value })} placeholder={t("что искать")} style={{ height: 30 }}/><Icon name="arrow-right" size={13} style={{ color: "var(--ink-mute)" }}/><input className="field mono" value={rule.replace} onChange={(e) => updateRule(rule.id, { replace: e.target.value })} placeholder={t("на что заменить")} style={{ height: 30 }}/></div>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 8 }}><CustomSelect<string> value={rule.match} options={Object.entries(MATCH_LABELS()).map<SelectOption<string>>(([value, label]) => ({ value, label }))} onChange={(next) => updateRule(rule.id, { match: next as ReplacementMatchMode })}/><label className="pill" style={{ justifyContent: "center", cursor: "pointer" }}><input className="checkbox" type="checkbox" checked={rule.case_sensitive} onChange={(e) => updateRule(rule.id, { case_sensitive: e.target.checked })}/> Aa</label><label className="pill" style={{ justifyContent: "center", cursor: "pointer" }}><input className="checkbox" type="checkbox" checked={rule.preserve_case} onChange={(e) => updateRule(rule.id, { preserve_case: e.target.checked })}/>  {t("Регистр")}</label></div>
                 </div>)}</div>}
@@ -890,7 +882,7 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
             utility caption into an accent that competed with the card's own
             content. */}
         <div className="flex-col" style={{ gap: 12, minWidth: 0 }}>
-          <div className="card" style={{ padding: 18 }}>
+          <Card>
             <div className="preview-card__head">
               <h2 className="preview-card__title">
                 {t("Живой предпросмотр")}
@@ -899,9 +891,9 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
               <span className="preview-card__step">{t("До")}</span>
             </div>
             <textarea className="field mono" value={previewText} onChange={(e) => setPreviewText(e.target.value)} placeholder={t("Введите текст для проверки обработки")} style={{ width: "100%", minHeight: 145, padding: 12, resize: "vertical", lineHeight: 1.55 }}/>
-          </div>
+          </Card>
           <div className="preview-pair__arrow preview-pair__arrow--down" aria-hidden="true"><Icon name="arrow-right" size={14}/></div>
-          <div className="card" style={{ padding: 18 }}>
+          <Card>
             <div className="preview-card__head">
               <span className="preview-card__step preview-card__step--after">{t("После")}</span>
             </div>
@@ -915,8 +907,8 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
               <div className="flex-row" style={{ flexWrap: "wrap", gap: 6, marginTop: 10 }}>{previewMatches?.length ? previewMatches.map((item) => <span className={matchesAreHypothetical ? "pill" : "pill ok"} key={`${item.id}-${item.find}`}>{item.find}: {item.count}</span>) : <span className="pill">{t("Сработало 0 правил")} {rules.length === 0 ? t("— правил пока нет") : ""}</span>}</div>
               {matchesAreHypothetical && previewMatches?.length ? <div style={{ marginTop: 6, font: "400 11px/1.4 var(--font-sans)", color: "var(--warn)" }}>{t("Замены на паузе: правила совпали бы, но в результат выше не попали.")}</div> : null}
             </>}
-          </div>
-          <section className="card" style={{ padding: 14 }}>
+          </Card>
+          <Card pad="rows">
             <div style={{ font: "600 13px/1.2 var(--font-sans)", color: "var(--ink)", display: "inline-flex", alignItems: "center", gap: 5, marginBottom: 8 }}>
               {t("Добавить правило-пример")}
               <Hint text={t("Нажмите, чтобы создать правило — оно сразу попадёт в список слева и в предпросмотр.")}/>
@@ -926,7 +918,7 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
                 rule that never fires. */}
               {/* i18n-ignore */}
               {[["щас", "сейчас"], ["тайпскрипт", "TypeScript"], ["мой мейл", "name@example.com"], ["смайл", ":)"]].map(([find, replace]) => <button key={find} className="btn btn--ghost" onClick={() => addRule(find, replace)} style={{ height: 26 }}><span className="mono">{find}</span><Icon name="arrow-right" size={11}/><span className="mono">{replace}</span></button>)}</div>
-          </section>
+          </Card>
         </div>
       </div>
     </div>
@@ -939,15 +931,15 @@ function hotkeyParts(hotkey?: string): string[] {
 }
 
 function KbdSequence({ keys }: { keys: string[] }) {
-  return <span style={{ display: "inline-flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>{keys.map((key, i) => <span key={`${key}-${i}`} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><span className="kbd">{key}</span>{i < keys.length - 1 && <span style={{ color: "var(--text-mute)" }}>+</span>}</span>)}</span>;
+  return <span style={{ display: "inline-flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>{keys.map((key, i) => <span key={`${key}-${i}`} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><span className="kbd">{key}</span>{i < keys.length - 1 && <span style={{ color: "var(--ink-mute)" }}>+</span>}</span>)}</span>;
 }
 
 function HelpCard({ title, icon, children, accent = false }: { title: string; icon?: string; children: ReactNode; accent?: boolean }) {
   return (
-    <section className={`card${accent ? " accent" : ""}`} style={{ padding: 20, minWidth: 0 }}>
-      <h2 style={{ margin: "0 0 14px", display: "flex", alignItems: "center", gap: 8, font: "600 14px/1.2 var(--font-sans)", color: "var(--ink)" }}>{icon && <span style={{ color: "var(--accent-text)", display: "flex" }}><Icon name={icon} size={15}/></span>}{title}</h2>
+    <Card accent={accent} style={{ minWidth: 0 }}>
+      <CardHead title={title} icon={icon}/>
       {children}
-    </section>
+    </Card>
   );
 }
 
@@ -1035,7 +1027,7 @@ function UpdatesCard({ version }: { version?: string | null }) {
       {state.kind === "available" && state.info.notes && (
         <div style={{ marginTop: 12 }}>
           <SectionLabel>{t("Что нового")}</SectionLabel>
-          <div style={{ maxHeight: 180, overflow: "auto", padding: "10px 12px", borderRadius: "var(--r-sm)", background: "var(--bg-2)", border: "1px solid var(--line)", font: "400 12px/1.55 var(--font-sans)", color: "var(--ink-dim)", whiteSpace: "pre-wrap" }}>
+          <div style={{ maxHeight: 180, overflow: "auto", padding: "10px 12px", borderRadius: "var(--radius-sm)", background: "var(--bg-2)", border: "1px solid var(--line)", font: "400 12px/1.55 var(--font-sans)", color: "var(--ink-dim)", whiteSpace: "pre-wrap" }}>
             {state.info.notes}
           </div>
         </div>
@@ -1043,7 +1035,7 @@ function UpdatesCard({ version }: { version?: string | null }) {
 
       {state.kind === "downloading" && (
         <div style={{ marginTop: 12 }}>
-          <div style={{ position: "relative", height: 4, borderRadius: 999, background: "var(--surface-3)", overflow: "hidden" }}>
+          <div style={{ position: "relative", height: 4, borderRadius: 999, background: "var(--bg-4)", overflow: "hidden" }}>
             {percent != null
               ? <div style={{ position: "absolute", inset: 0, width: `${percent}%`, background: "var(--accent)", borderRadius: 999, transition: "width 200ms ease" }}/>
               : <div style={{ position: "absolute", inset: 0, width: "40%", background: "linear-gradient(90deg, transparent, var(--accent), transparent)", animation: "progress-sweep 1.15s ease-in-out infinite", borderRadius: 999 }}/>}
@@ -1097,7 +1089,6 @@ function DiagnosticsCard({ config, onConfigChanged }: { config: ConfigResult | n
   const [report, setReport] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [logsBytes, setLogsBytes] = useState<number | null>(null);
-  const [confirmClear, setConfirmClear] = useState(false);
   const logLevel = config?.log_level ?? "info";
   const saveRecordings = config?.debug_save_recordings ?? false;
   const overlayDiag = config?.debug_overlay_diag ?? false;
@@ -1112,12 +1103,7 @@ function DiagnosticsCard({ config, onConfigChanged }: { config: ConfigResult | n
   // has already happened, and a mis-click erases exactly what brought the person
   // to this page.
   async function clearLogs() {
-    if (!confirmClear) {
-      setConfirmClear(true);
-      window.setTimeout(() => setConfirmClear(false), 4000);
-      return;
-    }
-    setConfirmClear(false);
+    if (!await confirmDestructive(t("Очистить логи? Это действие нельзя отменить."), t("Очистить"))) return;
     try {
       setLogsBytes(await invoke<number>("clear_logs"));
     } catch {
@@ -1191,7 +1177,7 @@ function DiagnosticsCard({ config, onConfigChanged }: { config: ConfigResult | n
           <Icon name="copy" size={12}/> {copied ? t("Скопировано") : t("Скопировать сводку")}
         </button>
         <button className="btn btn--ghost" type="button" onClick={() => void clearLogs()}>
-          <Icon name="trash" size={12}/> {confirmClear ? t("Точно очистить?") : t("Очистить логи")}
+          <Icon name="trash" size={12}/> {t("Очистить логи")}
         </button>
       </div>
       {report && (

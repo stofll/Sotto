@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Icon } from "./Icon";
 import { Hint } from "./Hint";
@@ -132,7 +132,7 @@ export function StatusPill({ state, pipelineMode, loadedModel, loadsOnDemand, do
   const headline = idleWithoutModel
     ? (loadsOnDemand ? t("Модель выгружена") : t("Модель не загружена"))
     : s.text;
-  const dot = idleWithoutModel ? "var(--text-mute)" : s.dot;
+  const dot = idleWithoutModel ? "var(--ink-mute)" : s.dot;
   const modelLabel = model || t("Модель не загружена");
   const idleDetail = [loadsOnDemand ? t("вернётся при диктовке") : "", pipelineLabel]
     .filter(Boolean)
@@ -148,7 +148,7 @@ export function StatusPill({ state, pipelineMode, loadedModel, loadsOnDemand, do
   if (compact) {
     const title = detail ? `${headline} · ${detail}` : headline;
     return (
-      <div title={title} style={{ display: "grid", placeItems: "center", height: 42, borderRadius: "var(--r)", background: "var(--surface-2)", border: isCloud ? "1px solid var(--border-accent)" : "1px solid var(--border)" }}>
+      <div title={title} style={{ display: "grid", placeItems: "center", height: 42, borderRadius: "var(--radius)", background: "var(--bg-2)", border: isCloud ? "1px solid var(--accent-soft-2)" : "1px solid var(--line)" }}>
         <span style={{ width: 8, height: 8, borderRadius: "50%", background: dot, boxShadow: active ? `0 0 0 4px ${dot}22` : "none", animation: active ? "rec-halo 1.4s ease-out infinite" : "none" }}/>
       </div>
     );
@@ -163,15 +163,15 @@ export function StatusPill({ state, pipelineMode, loadedModel, loadsOnDemand, do
       ? `${formatBytes(downloaded)} / ${formatBytes(total)}${percent != null ? ` · ${percent}%` : ""}`
       : t("{p0} (размер уточняется…)", { p0: formatBytes(downloaded) });
     return (
-      <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: "10px 12px", background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: "var(--r)" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: "10px 12px", background: "var(--bg-2)", border: "1px solid var(--line)", borderRadius: "var(--radius)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <span style={{ width: 8, height: 8, borderRadius: "50%", background: s.dot, boxShadow: `0 0 0 4px ${s.dot}22`, animation: "rec-halo 1.4s ease-out infinite", flex: "0 0 auto" }}/>
           <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ font: "500 12px/1.1 var(--font-sans)", color: "var(--text)" }}>{headline}</div>
-            <div style={{ font: "500 10px/1 var(--font-mono)", color: "var(--text-mute)", marginTop: 3, letterSpacing: "0.04em" }}>{detail}</div>
+            <div style={{ font: "500 12px/1.1 var(--font-sans)", color: "var(--ink)" }}>{headline}</div>
+            <div style={{ font: "500 10px/1 var(--font-mono)", color: "var(--ink-mute)", marginTop: 3, letterSpacing: "0.04em" }}>{detail}</div>
           </div>
         </div>
-        <div style={{ position: "relative", height: 4, borderRadius: 999, background: "var(--surface-3)", overflow: "hidden" }}>
+        <div style={{ position: "relative", height: 4, borderRadius: 999, background: "var(--bg-4)", overflow: "hidden" }}>
           {percent != null
             ? <div style={{ position: "absolute", inset: 0, width: `${percent}%`, background: "var(--accent)", borderRadius: 999, transition: "width 200ms ease" }}/>
             : <div style={{ position: "absolute", inset: 0, width: "40%", background: "linear-gradient(90deg, transparent, var(--accent), transparent)", animation: "progress-sweep 1.15s ease-in-out infinite", borderRadius: 999 }}/>
@@ -182,11 +182,11 @@ export function StatusPill({ state, pipelineMode, loadedModel, loadsOnDemand, do
   }
 
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: "var(--surface-2)", border: isCloud ? "1px solid var(--border-accent)" : "1px solid var(--border)", borderRadius: "var(--r)" }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: "var(--bg-2)", border: isCloud ? "1px solid var(--accent-soft-2)" : "1px solid var(--line)", borderRadius: "var(--radius)" }}>
       <span style={{ width: 8, height: 8, borderRadius: "50%", background: dot, boxShadow: active ? `0 0 0 4px ${dot}22` : "none", animation: active ? "rec-halo 1.4s ease-out infinite" : "none", flex: "0 0 auto" }}/>
       <div className="status-pill__text" style={{ minWidth: 0, flex: 1 }}>
-        <div style={{ font: "500 12px/1.1 var(--font-sans)", color: "var(--text)", display: "flex", alignItems: "center", gap: 6 }}>{headline}{isCloud && <span className="tag tag--rec" style={{ height: 16, fontSize: 9, padding: "0 5px" }}>Cloud</span>}</div>
-        {detail && <div style={{ font: "500 10px/1.2 var(--font-mono)", color: "var(--text-mute)", marginTop: 3, letterSpacing: "0.04em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={detail}>{detail}</div>}
+        <div style={{ font: "500 12px/1.1 var(--font-sans)", color: "var(--ink)", display: "flex", alignItems: "center", gap: 6 }}>{headline}{isCloud && <span className="tag tag--rec" style={{ height: 16, fontSize: 9, padding: "0 5px" }}>Cloud</span>}</div>
+        {detail && <div style={{ font: "500 10px/1.2 var(--font-mono)", color: "var(--ink-mute)", marginTop: 3, letterSpacing: "0.04em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={detail}>{detail}</div>}
       </div>
     </div>
   );
@@ -215,7 +215,6 @@ export function applyAccent(hex: string) {
     const r = parseInt(m[1], 16), g = parseInt(m[2], 16), b = parseInt(m[3], 16);
     root.style.setProperty("--accent-soft", `rgba(${r}, ${g}, ${b}, 0.14)`);
     root.style.setProperty("--accent-soft-2", `rgba(${r}, ${g}, ${b}, 0.26)`);
-    root.style.setProperty("--accent-line", `rgba(${r}, ${g}, ${b}, 0.32)`);
   }
 }
 
@@ -253,7 +252,7 @@ export function Sidebar({ tab, onTab, recordingState, pipelineMode, loadedModel,
                   {group.items.map((item) => {
                     const button = (
                       <button key={item.id} className="nav__item" aria-selected={tab === item.id} onClick={() => onTab(item.id)}>
-                        <span style={{ color: tab === item.id ? "var(--accent)" : "var(--text-mute)", display: "flex" }}><Icon name={item.icon} size={15}/></span>
+                        <span style={{ color: tab === item.id ? "var(--accent)" : "var(--ink-mute)", display: "flex" }}><Icon name={item.icon} size={15}/></span>
                         <span>{item.label}</span>
                         {item.count != null && <span className="nav__count">{item.count}</span>}
                       </button>
@@ -284,7 +283,7 @@ export function Sidebar({ tab, onTab, recordingState, pipelineMode, loadedModel,
 }
 
 export function MainHeader({ title, subtitle, right, className, titleExtra, breadcrumb }: { title: string; subtitle?: string; right?: ReactNode; className?: string; titleExtra?: ReactNode; breadcrumb?: string }) {
-  return <header className={["main-header", className].filter(Boolean).join(" ")}><div>{breadcrumb && <div style={{ marginBottom: 6, font: "500 10px/1 var(--font-mono)", color: "var(--text-mute)", letterSpacing: "0.08em", textTransform: "uppercase" }}>{breadcrumb}</div>}<h1>{title}{titleExtra}</h1>{subtitle && <p>{subtitle}</p>}</div>{right && <div>{right}</div>}</header>;
+  return <header className={["main-header", className].filter(Boolean).join(" ")}><div>{breadcrumb && <div style={{ marginBottom: 6, font: "500 10px/1 var(--font-mono)", color: "var(--ink-mute)", letterSpacing: "0.08em", textTransform: "uppercase" }}>{breadcrumb}</div>}<h1>{title}{titleExtra}</h1>{subtitle && <p>{subtitle}</p>}</div>{right && <div>{right}</div>}</header>;
 }
 
 /** Redesigned page header used by Stage-2+ pages. Renders inside `.page`. */
@@ -301,6 +300,48 @@ export function PageHeader({ title, sub, actions }: { title: string; sub?: strin
 }
 
 /** Small uppercase mono section label used inside redesigned pages. */
+/** The one section card.
+ *
+ *  `pad` is a name, not a number, on purpose: the padding of a card is a
+ *  decision about what kind of card it is, and while it was written inline the
+ *  same `.card` came out at 18, 14, 20, `12px 16px`, `10px 14px` and
+ *  `4px 22px` on neighbouring pages. See `.card` in styles.css for what each
+ *  name means. */
+export function Card({ pad = "default", accent, className, style, children }: {
+  pad?: "default" | "rows" | "settings" | "flush";
+  accent?: boolean;
+  className?: string;
+  style?: CSSProperties;
+  children: ReactNode;
+}) {
+  const classes = ["card", pad === "default" ? "" : `card--${pad}`, accent ? "accent" : "", className ?? ""];
+  return <section className={classes.filter(Boolean).join(" ")} style={style}>{children}</section>;
+}
+
+/** The heading row of a card. `actions` go to the right edge; `sub` is the
+ *  explanatory line under the title, `hint` the «i» beside it. */
+export function CardHead({ title, sub, hint, icon, actions }: {
+  title: string;
+  sub?: string;
+  hint?: string;
+  icon?: string;
+  actions?: ReactNode;
+}) {
+  return (
+    <div className="card-head">
+      <div className="card-head__text">
+        <h2 className="card-head__title">
+          {icon && <span className="card-head__icon"><Icon name={icon} size={15}/></span>}
+          {title}
+          {hint && <Hint text={hint}/>}
+        </h2>
+        {sub && <p className="card-head__sub">{sub}</p>}
+      </div>
+      {actions && <div className="card-head__actions">{actions}</div>}
+    </div>
+  );
+}
+
 export function SectionLabel({ children }: { children: ReactNode }) {
   return <div className="section-label">{children}</div>;
 }
@@ -390,7 +431,7 @@ export function Segmented({ value, options, onChange, disabled = false }: { valu
 }
 
 export function Bars({ value = 0.6, color = "var(--accent)", segments = 24 }: { value?: number; color?: string; segments?: number }) {
-  return <div style={{ display: "flex", gap: 2, height: 14, alignItems: "center" }}>{Array.from({ length: segments }).map((_, i) => <span key={i} style={{ width: 3, height: i / segments < value ? 4 + (i % 5) * 2 : 4, background: i / segments < value ? color : "var(--surface-3)", borderRadius: 1 }}/>)}</div>;
+  return <div style={{ display: "flex", gap: 2, height: 14, alignItems: "center" }}>{Array.from({ length: segments }).map((_, i) => <span key={i} style={{ width: 3, height: i / segments < value ? 4 + (i % 5) * 2 : 4, background: i / segments < value ? color : "var(--bg-4)", borderRadius: 1 }}/>)}</div>;
 }
 
 export function Waveform({ bars = 28, color = "var(--accent)" }: { bars?: number; color?: string }) {

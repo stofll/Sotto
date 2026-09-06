@@ -53,7 +53,7 @@ function rowButtonStyle(extra?: CSSProperties): CSSProperties {
     appearance: "none",
     border: 0,
     background: "transparent",
-    color: "var(--text-1)",
+    color: "var(--ink)",
     display: "flex",
     alignItems: "center",
     gap: 10,
@@ -191,21 +191,21 @@ export function TrayApp() {
 
   return (
     <div className="app-frame" style={{ width: "100%", height: "100%", background: "transparent", position: "relative", paddingBottom: 7, overflow: "hidden" }}>
-      <div style={{ position: "relative", background: "var(--surface-1)", borderRadius: 12, border: "1px solid var(--border-strong)", boxShadow: "0 24px 64px rgba(0,0,0,0.5), 0 1px 0 rgba(255,255,255,0.04) inset", overflow: "hidden", fontFamily: "var(--font-sans)" }}>
-        <div style={{ padding: "14px 16px 12px", background: "linear-gradient(160deg, rgba(246,169,59,0.10), rgba(246,169,59,0.02))", borderBottom: "1px solid var(--border)" }}>
+      <div style={{ position: "relative", background: "var(--bg-3)", borderRadius: 12, border: "1px solid var(--line-strong)", boxShadow: "0 24px 64px rgba(0,0,0,0.5), 0 1px 0 rgba(255,255,255,0.04) inset", overflow: "hidden", fontFamily: "var(--font-sans)" }}>
+        <div style={{ padding: "14px 16px 12px", background: "linear-gradient(160deg, rgba(246,169,59,0.10), rgba(246,169,59,0.02))", borderBottom: "1px solid var(--line)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ font: "600 13px/1 var(--font-sans)" }}>Sotto</div>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}><span style={{ width: 6, height: 6, borderRadius: "50%", background: isRecording ? "var(--rec)" : recordingState === "loading" ? "var(--accent)" : "var(--ok)" }}/><span style={{ font: "500 11px/1 var(--font-mono)", color: "var(--text-2)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{subtitle}</span></div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}><span style={{ width: 6, height: 6, borderRadius: "50%", background: isRecording ? "var(--rec)" : recordingState === "loading" ? "var(--accent)" : "var(--ok)" }}/><span style={{ font: "500 11px/1 var(--font-mono)", color: "var(--ink-dim)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{subtitle}</span></div>
             </div>
           </div>
         </div>
         <div style={{ padding: "14px 14px 8px" }}>
-          <button onClick={toggleRecording} style={{ width: "100%", appearance: "none", cursor: "pointer", padding: "12px 14px", borderRadius: 10, background: "var(--surface-2)", border: "1px solid var(--border-strong)", display: "flex", alignItems: "center", gap: 12, color: "var(--text)", textAlign: "left" }}>
+          <button onClick={toggleRecording} style={{ width: "100%", appearance: "none", cursor: "pointer", padding: "12px 14px", borderRadius: 10, background: "var(--bg-2)", border: "1px solid var(--line-strong)", display: "flex", alignItems: "center", gap: 12, color: "var(--ink)", textAlign: "left" }}>
             <div style={{ width: 32, height: 32, borderRadius: "50%", background: isRecording ? "var(--accent)" : "var(--rec)", display: "grid", placeItems: "center", color: "white", flex: "0 0 auto" }}><Icon name={isRecording ? "pause" : "mic"} size={15}/></div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ font: "500 13px/1.1 var(--font-sans)" }}>{isRecording ? t("Остановить запись") : t("Начать запись")}</div>
-              <div style={{ display: "flex", gap: 4, marginTop: 4, alignItems: "center", flexWrap: "wrap" }}>{parts.map((part, index) => <span key={`${part}-${index}`} style={{ display: "inline-flex", gap: 4, alignItems: "center" }}>{index > 0 && <span style={{ color: "var(--text-mute)", fontSize: 10 }}>+</span>}<span className="kbd" style={{ height: 18, fontSize: 10 }}>{part}</span></span>)}</div>
+              <div style={{ display: "flex", gap: 4, marginTop: 4, alignItems: "center", flexWrap: "wrap" }}>{parts.map((part, index) => <span key={`${part}-${index}`} style={{ display: "inline-flex", gap: 4, alignItems: "center" }}>{index > 0 && <span style={{ color: "var(--ink-mute)", fontSize: 10 }}>+</span>}<span className="kbd" style={{ height: 18, fontSize: 10 }}>{part}</span></span>)}</div>
             </div>
           </button>
           {error && <div style={{ marginTop: 8, color: "var(--err)", font: "500 11px/1.35 var(--font-sans)" }}>{error}</div>}
@@ -215,19 +215,19 @@ export function TrayApp() {
             { icon: "mic", label: t("Микрофон"), right: micLabel, tab: "settings" as TabId },
             { icon: "cpu", label: t("Модель"), right: modelLabel, tab: "settings" as TabId },
             { icon: "globe", label: t("Язык"), right: LANGUAGE_LABEL()[config?.language ?? "ru"] ?? config?.language ?? t("Русский"), tab: "settings" as TabId },
-          ].map((row) => <button key={row.label} style={rowButtonStyle()} onClick={() => void openMain(row.tab)}><span style={{ color: "var(--text-2)", display: "flex" }}><Icon name={row.icon} size={14}/></span><span style={{ font: "500 12px/1 var(--font-sans)", color: "var(--text-1)" }}>{row.label}</span><span style={{ marginLeft: "auto", font: "500 11px/1 var(--font-mono)", color: "var(--text-mute)", maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.right}</span><span style={{ color: "var(--text-mute)" }}><Icon name="chev" size={13}/></span></button>)}
+          ].map((row) => <button key={row.label} style={rowButtonStyle()} onClick={() => void openMain(row.tab)}><span style={{ color: "var(--ink-dim)", display: "flex" }}><Icon name={row.icon} size={14}/></span><span style={{ font: "500 12px/1 var(--font-sans)", color: "var(--ink)" }}>{row.label}</span><span style={{ marginLeft: "auto", font: "500 11px/1 var(--font-mono)", color: "var(--ink-mute)", maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.right}</span><span style={{ color: "var(--ink-mute)" }}><Icon name="chev" size={13}/></span></button>)}
         </div>
-        <div role="menu" style={{ borderTop: "1px solid var(--border)", padding: 6, display: "flex", flexDirection: "column", gap: 1 }}>
+        <div role="menu" style={{ borderTop: "1px solid var(--line)", padding: 6, display: "flex", flexDirection: "column", gap: 1 }}>
           {[
             { icon: "sliders", label: t("Настройки"), right: "Ctrl+Win+,", action: () => openMain("settings") },
             { icon: "chart", label: t("Статистика"), action: () => openMain("stats") },
             { icon: "replace", label: config?.replacements_paused ? t("Возобновить замены") : t("Пауза замен"), action: () => saveConfig({ replacements_paused: !(config?.replacements_paused ?? false) }) },
             { icon: "info", label: t("Справка"), action: () => openMain("info") },
-          ].map((item) => <button role="menuitem" key={item.label} style={rowButtonStyle({ padding: "8px 10px" })} onClick={() => void item.action()}><span style={{ color: "var(--text-2)", display: "flex" }}><Icon name={item.icon} size={14}/></span><span style={{ font: "500 12px/1 var(--font-sans)", color: "var(--text-1)", flex: 1 }}>{item.label}</span>{item.right && <span className="mono" style={{ font: "500 10px/1 var(--font-mono)", color: "var(--text-mute)" }}>{item.right}</span>}</button>)}
+          ].map((item) => <button role="menuitem" key={item.label} style={rowButtonStyle({ padding: "8px 10px" })} onClick={() => void item.action()}><span style={{ color: "var(--ink-dim)", display: "flex" }}><Icon name={item.icon} size={14}/></span><span style={{ font: "500 12px/1 var(--font-sans)", color: "var(--ink)", flex: 1 }}>{item.label}</span>{item.right && <span className="mono" style={{ font: "500 10px/1 var(--font-mono)", color: "var(--ink-mute)" }}>{item.right}</span>}</button>)}
         </div>
-        <div style={{ borderTop: "1px solid var(--border)", padding: "8px 16px", display: "flex", alignItems: "center" }}><button style={{ appearance: "none", border: 0, background: "transparent", cursor: "pointer", font: "500 12px/1 var(--font-sans)", color: "var(--text-2)", padding: 0 }} onClick={() => tauriInvoke("hide_tray_popup").catch(() => {})}>{t("Скрыть меню")}</button></div>
+        <div style={{ borderTop: "1px solid var(--line)", padding: "8px 16px", display: "flex", alignItems: "center" }}><button style={{ appearance: "none", border: 0, background: "transparent", cursor: "pointer", font: "500 12px/1 var(--font-sans)", color: "var(--ink-dim)", padding: 0 }} onClick={() => tauriInvoke("hide_tray_popup").catch(() => {})}>{t("Скрыть меню")}</button></div>
       </div>
-      <div style={{ position: "absolute", bottom: 1, right: 34, width: 12, height: 12, background: "var(--surface-1)", transform: "rotate(45deg)", borderRight: "1px solid var(--border-strong)", borderBottom: "1px solid var(--border-strong)" }}/>
+      <div style={{ position: "absolute", bottom: 1, right: 34, width: 12, height: 12, background: "var(--bg-3)", transform: "rotate(45deg)", borderRight: "1px solid var(--line-strong)", borderBottom: "1px solid var(--line-strong)" }}/>
     </div>
   );
 }

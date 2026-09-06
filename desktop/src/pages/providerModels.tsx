@@ -162,7 +162,7 @@ export function ModelField({ cacheKey, value, onChange, onCommit, fallbackSugges
                 </div>
             )}
             {!error && fetched && countShown && (
-                <div style={{ font: "500 10px/1.4 var(--font-sans)", color: "var(--text-mute)" }}>
+                <div style={{ font: "500 10px/1.4 var(--font-sans)", color: "var(--ink-mute)" }}>
                     {t("вариантов от провайдера: {p0}", { p0: fetched.length })}
                 </div>
             )}

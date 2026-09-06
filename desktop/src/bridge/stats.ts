@@ -1,20 +1,20 @@
 import { rustInvoke } from "./rustInvoke";
 import type {
     StatsResult,
+    HistoryAiPreview,
     HistoryEntry,
     HistoryListResult,
     HistoryRetryAiResult,
-    HistoryUpdateTextResult,
 } from "./types";
 
 // Re-export types from types.ts — single source of truth (do not duplicate).
 // WS 4b Task 13.
 export type {
     StatsResult,
+    HistoryAiPreview,
     HistoryEntry,
     HistoryListResult,
     HistoryRetryAiResult,
-    HistoryUpdateTextResult,
 };
 
 /**
@@ -37,26 +37,39 @@ export async function deleteHistoryEntry(id: number): Promise<{ deleted: boolean
     return await rustInvoke<{ deleted: boolean }>("delete_history_entry", { id });
 }
 
-/**
- * Update entry text. Returns the refreshed entry so the caller can merge it
- * into local state without an extra `listHistory()` round-trip.
- */
-export async function updateHistoryEntryText(id: number, text: string): Promise<HistoryUpdateTextResult> {
-    return await rustInvoke<HistoryUpdateTextResult>("update_history_entry_text", { id, text });
-}
-
 export async function clearHistory(): Promise<{ deleted: number }> {
     return await rustInvoke<{ deleted: number }>("clear_history");
 }
 
 /**
- * Re-run AI processing on an existing entry. Rust reads the row, calls
- * Python's `compute_ai_for_retry` for the LLM step, and persists the result.
+ * Re-run the LLM over an existing entry WITHOUT storing anything: the caller
+ * shows the result next to the current text and decides what to do with it.
  *
- * Return shape `HistoryRetryAiResult { updated, entry?, reason? }` mirrors the
- * legacy Python handler so callers can do `result.updated && result.entry`
- * pattern matching.
+ * `profileId` picks one of the saved AI profiles; omit it to use the one
+ * configured for dictation.
  */
-export async function retryHistoryAiProcessing(id: number): Promise<HistoryRetryAiResult> {
-    return await rustInvoke<HistoryRetryAiResult>("retry_history_ai_processing", { id });
+export async function previewHistoryAiProcessing(id: number, profileId?: string): Promise<HistoryAiPreview> {
+    return await rustInvoke<HistoryAiPreview>("preview_history_ai_processing", { id, profileId: profileId ?? null });
+}
+
+/**
+ * Store a previewed result on its entry. `aiJson` / `statsJson` come from the
+ * preview unchanged, so the row's badge and timings describe the run that was
+ * accepted rather than an older attempt.
+ *
+ * Returns the refreshed entry so the caller can merge it into local state
+ * without an extra `listHistory()` round-trip.
+ */
+export async function applyHistoryAiProcessing(
+    id: number,
+    text: string,
+    aiJson: string,
+    statsJson: string,
+): Promise<HistoryRetryAiResult> {
+    return await rustInvoke<HistoryRetryAiResult>("apply_history_ai_processing", {
+        id,
+        text,
+        aiJson,
+        statsJson,
+    });
 }

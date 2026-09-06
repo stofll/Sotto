@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { invoke, on } from "../bridge";
-import { PageHeader, SettingRow } from "../components/Shell";
+import { Card, CardHead, PageHeader, SettingRow } from "../components/Shell";
 import { Icon } from "../components/Icon";
 import { Hint } from "../components/Hint";
 import {
@@ -88,7 +88,7 @@ function ProviderSnippet({ result }: { result: AiRunResult }) {
       <summary style={{ cursor: "pointer", font: "500 11px/1.4 var(--font-sans)", color: "var(--ink-mute)" }}>
         {result.http_status ? t("Ответ провайдера (HTTP {p0})", { p0: result.http_status }) : t("Ответ провайдера")}
       </summary>
-      <pre className="scroll-visible" style={{ margin: "6px 0 0", padding: 10, maxHeight: 180, overflow: "auto", borderRadius: "var(--r-sm)", background: "var(--bg-2)", border: "1px solid var(--line)", font: "400 11px/1.5 var(--font-mono)", color: "var(--ink-mute)", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+      <pre className="scroll-visible" style={{ margin: "6px 0 0", padding: 10, maxHeight: 180, overflow: "auto", borderRadius: "var(--radius-sm)", background: "var(--bg-2)", border: "1px solid var(--line)", font: "400 11px/1.5 var(--font-mono)", color: "var(--ink-mute)", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
         {result.response_snippet}
       </pre>
     </details>
@@ -429,78 +429,82 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
 
       {message && <div style={{ padding: "10px 12px", borderRadius: 8, background: "var(--bg-2)", border: "1px solid var(--line)", font: "500 12px/1.4 var(--font-sans)", marginBottom: 14 }}>{message}</div>}
 
-      <section className="card" style={{ padding: 18, marginBottom: 14 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 12 }}>
-          <h2 style={{ margin: 0, font: "600 14px/1.2 var(--font-sans)", display: "inline-flex", alignItems: "center", gap: 5 }}>
-             {t("Активный профиль")} <Hint text={t("Один профиль = одна связка provider + ключ + модель. Создаются и редактируются они в «Интеграциях»; здесь профиль только выбирают.")}/>
-          </h2>
-          <button className="btn btn--ghost" onClick={() => onNavigate("integrations")}>
-            <Icon name="server" size={12}/>{t("Управлять профилями")}<Icon name="arrow-right" size={11}/>
-          </button>
-        </div>
+      <div className="card-stack">
+        <Card>
+          <CardHead
+            title={t("Активный профиль")}
+            hint={t("Один профиль = одна связка provider + ключ + модель. Создаются и редактируются они в «Интеграциях»; здесь профиль только выбирают.")}
+            actions={
+              <button className="btn btn--ghost" onClick={() => onNavigate("integrations")}>
+                <Icon name="server" size={12}/>{t("Управлять профилями")}<Icon name="arrow-right" size={11}/>
+              </button>
+            }
+          />
 
-        {/* A picker rather than a list of rows. The full list with its own
-            «Сделать активным» buttons stood here as well as in «Интеграциях» —
-            two places to do the same thing, and the row actions there and here
-            looked nothing alike. Switching the active profile is a frequent
-            action and stays; everything else about a profile is edited where
-            profiles live. */}
-        {profiles.length === 0 ? (
-          <div className="list-empty">
-            <span>{t("Профилей пока нет. Настройки LLM ниже применяются к базовой конфигурации; профиль нужен, чтобы хранить несколько связок «провайдер + ключ + модель».")}</span>
-            <button className="btn btn--ghost" onClick={() => onNavigate("integrations")}>
-              <Icon name="plus" size={12}/>  {t("Создать профиль")} </button>
-          </div>
-        ) : (
-          <div className="active-profile">
-            <div className="active-profile__pick">
-              <CustomSelect<string>
-                value={activeProfile.id}
-                inlineMeta
-                options={profiles.map((profile) => {
-                  const itemProvider = PROVIDERS.find((item) => item.id === profile.provider) ?? PROVIDERS[0];
-                  return { value: profile.id, label: profile.name, meta: `${itemProvider.name} · ${profile.model}` };
-                })}
-                onChange={(next) => {
-                  if (next === activeProfile.id) return;
-                  void saveAi({ active_profile_id: next });
-                  const picked = profiles.find((profile) => profile.id === next);
-                  if (picked) showMessage(t("Активный профиль: «{p0}».", { p0: picked.name }));
-                }}
-              />
+          {/* A picker rather than a list of rows. The full list with its own
+              «Сделать активным» buttons stood here as well as in «Интеграциях» —
+              two places to do the same thing, and the row actions there and here
+              looked nothing alike. Switching the active profile is a frequent
+              action and stays; everything else about a profile is edited where
+              profiles live. */}
+          {profiles.length === 0 ? (
+            <div className="list-empty">
+              <span>{t("Профилей пока нет. Настройки LLM ниже применяются к базовой конфигурации; профиль нужен, чтобы хранить несколько связок «провайдер + ключ + модель».")}</span>
+              <button className="btn btn--ghost" onClick={() => onNavigate("integrations")}>
+                <Icon name="plus" size={12}/>  {t("Создать профиль")} </button>
             </div>
-            <span className={activeKeyInfo.available ? "pill ok dot mono" : "pill warn"}>
-              {activeKeyInfo.available ? (activeKeyInfo.masked || t("ключ сохранён")) : t("нет ключа")}
-            </span>
-            <Hint text={t("Прогнать образец через активный профиль с его промптом и увидеть ответ модели (списывает токены)")}>
-              <button
-                className="btn btn--primary"
-                disabled={testLoading || !ai.model.trim()}
-                onClick={() => void runTestPrompt()}
-              ><Icon name="spark" size={12}/>{testLoading ? t("Отправляю…") : t("Пробный запрос")}</button>
-            </Hint>
-          </div>
-        )}
-          {testResult && (
-            <div style={{ display: "grid", gap: 6, marginTop: 12, padding: 10, borderRadius: 8, background: "var(--bg-2)", border: "1px solid var(--line)" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span className={testResult.available && !testResult.fallback ? "pill ok" : "pill warn"}>{testResult.available ? t("Ответ получен") : (testResult.fallback ? t("Запрос отправлен, fallback") : t("Запрос не отправлен"))}</span>
-                <Hint text={t("Закрыть")} style={{ marginLeft: "auto" }}>
-                  <button className="icon-btn" aria-label={t("Закрыть")} onClick={() => setTestResult(null)}><Icon name="x" size={12}/></button>
-                </Hint>
+          ) : (
+            <div className="active-profile">
+              <div className="active-profile__pick">
+                <CustomSelect<string>
+                  value={activeProfile.id}
+                  inlineMeta
+                  options={profiles.map((profile) => {
+                    const itemProvider = PROVIDERS.find((item) => item.id === profile.provider) ?? PROVIDERS[0];
+                    return { value: profile.id, label: profile.name, meta: `${itemProvider.name} · ${profile.model}` };
+                  })}
+                  onChange={(next) => {
+                    if (next === activeProfile.id) return;
+                    void saveAi({ active_profile_id: next });
+                    const picked = profiles.find((profile) => profile.id === next);
+                    if (picked) showMessage(t("Активный профиль: «{p0}».", { p0: picked.name }));
+                  }}
+                />
               </div>
-              {(testResult.message || testResult.provider_error || testResult.skipped_reason) && <div style={{ font: "500 11px/1.45 var(--font-mono)", color: testResult.available ? "var(--text-mute)" : "var(--err)", whiteSpace: "pre-wrap" }}>{testResult.provider_error || testResult.message || testResult.skipped_reason}</div>}
-              <ProviderSnippet result={testResult}/>
-              {testResult.output && <div style={{ padding: 10, borderRadius: 6, background: "var(--surface-2)", border: "1px solid var(--border)", font: "400 12px/1.5 var(--font-sans)", whiteSpace: "pre-wrap" }}>{testResult.output}</div>}
+              <span className={activeKeyInfo.available ? "pill ok dot mono" : "pill warn"}>
+                {activeKeyInfo.available ? (activeKeyInfo.masked || t("ключ сохранён")) : t("нет ключа")}
+              </span>
+              <Hint text={t("Прогнать образец через активный профиль с его промптом и увидеть ответ модели (списывает токены)")}>
+                <button
+                  className="btn btn--primary"
+                  disabled={testLoading || !ai.model.trim()}
+                  onClick={() => void runTestPrompt()}
+                ><Icon name="spark" size={12}/>{testLoading ? t("Отправляю…") : t("Пробный запрос")}</button>
+              </Hint>
             </div>
           )}
-        </section>
+            {testResult && (
+              <div style={{ display: "grid", gap: 6, marginTop: 12, padding: 10, borderRadius: 8, background: "var(--bg-2)", border: "1px solid var(--line)" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span className={testResult.available && !testResult.fallback ? "pill ok" : "pill warn"}>{testResult.available ? t("Ответ получен") : (testResult.fallback ? t("Запрос отправлен, fallback") : t("Запрос не отправлен"))}</span>
+                  <Hint text={t("Закрыть")} style={{ marginLeft: "auto" }}>
+                    <button className="icon-btn" aria-label={t("Закрыть")} onClick={() => setTestResult(null)}><Icon name="x" size={12}/></button>
+                  </Hint>
+                </div>
+                {(testResult.message || testResult.provider_error || testResult.skipped_reason) && <div style={{ font: "500 11px/1.45 var(--font-mono)", color: testResult.available ? "var(--ink-mute)" : "var(--err)", whiteSpace: "pre-wrap" }}>{testResult.provider_error || testResult.message || testResult.skipped_reason}</div>}
+                <ProviderSnippet result={testResult}/>
+                {testResult.output && <div style={{ padding: 10, borderRadius: 6, background: "var(--bg-2)", border: "1px solid var(--line)", font: "400 12px/1.5 var(--font-sans)", whiteSpace: "pre-wrap" }}>{testResult.output}</div>}
+              </div>
+            )}
+        </Card>
 
-        <section className="card" style={{ padding: 18, marginBottom: 14 }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 12 }}>
-            <h2 style={{ margin: 0, font: "600 14px/1.2 var(--font-sans)" }}>{t("Режим обработки")}</h2>
-            <span style={{ font: "400 11.5px/1 var(--font-sans)", color: "var(--ink-mute)" }}>{t("текущий:")} <span className="mono" style={{ color: "var(--accent-text)" }}>{ai.pipeline_mode}</span></span>
-          </div>
+        <Card>
+          <CardHead
+            title={t("Режим обработки")}
+            actions={
+              <span style={{ font: "400 11.5px/1 var(--font-sans)", color: "var(--ink-mute)" }}>{t("текущий:")} <span className="mono" style={{ color: "var(--accent-text)" }}>{ai.pipeline_mode}</span></span>
+            }
+          />
           <div className="ai-mode-grid">
             {PIPELINE_MODES().map((mode) => (
               <button key={mode.id} className="ai-mode-card" data-selected={ai.pipeline_mode === mode.id} onClick={() => void saveAi({ pipeline_mode: mode.id })} type="button">
@@ -526,9 +530,9 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
               </span>
             </div>
           )}
-        </section>
+        </Card>
 
-        <section className="card" style={{ padding: "4px 22px", marginBottom: 14 }}>
+        <Card pad="settings">
           <SettingRow title={t("Системный промпт")} stack hint={t("Инструкции, которые отправляются модели перед каждым запросом. Шаблон поддерживает плейсхолдеры {{language}} и {{transcript}}.")}>
             <div style={{ display: "grid", gap: 8 }}>
               {/* A profile with its own text silently stops receiving edits to
@@ -536,7 +540,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
                   April went around without the rule "do not replace words with
                   synonyms". */}
               {promptCustom && (
-                <div className="flex-row" style={{ gap: 8, flexWrap: "wrap", padding: "7px 10px", borderRadius: "var(--r-sm)", background: "var(--warn-soft)", border: "1px solid rgba(251,191,36,0.30)" }}>
+                <div className="flex-row" style={{ gap: 8, flexWrap: "wrap", padding: "7px 10px", borderRadius: "var(--radius-sm)", background: "var(--warn-soft)", border: "1px solid rgba(251,191,36,0.30)" }}>
                   <Icon name="info" size={13} style={{ color: "var(--warn)", flex: "0 0 auto" }}/>
                   <span style={{ font: "500 11.5px/1.4 var(--font-sans)", color: "var(--ink)" }}>
                     {t("У профиля свой промпт — правки встроенного до него не доходят.")}
@@ -564,7 +568,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
                   );
                 })}
                 <span style={{ font: "400 11px/1.3 var(--font-sans)", color: "var(--ink-mute)" }}>
-                   {t("Кликни пресет, сохрани и протестируй на длинной записи через «Повторить LLM» в истории.")} </span>
+                   {t("Кликни пресет, сохрани и протестируй на длинной записи через «Обработать через LLM» в истории.")} </span>
               </div>
               {/* There is deliberately no "expand" button: the box is a dozen
                   lines tall as it is, a visible scrollbar shows how much text is
@@ -597,7 +601,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
               </div>
 
               {outputContract ? (
-                <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10, display: "grid", gap: 8 }}>
+                <div style={{ borderTop: "1px solid var(--line)", paddingTop: 10, display: "grid", gap: 8 }}>
                   <button
                     className="btn btn--ghost"
                     type="button"
@@ -634,7 +638,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <NumberField className="mono" min={0} step={5} value={ai.llm_min_duration_seconds ?? 0}
                   onValueChange={(next) => void saveAi({ llm_min_duration_seconds: Math.max(0, Number(next) || 0) })} style={{ width: 90, height: 34 }}/>
-                <span style={{ font: "500 12px/1 var(--font-sans)", color: "var(--text-2)" }}>{t("секунд")}</span>
+                <span style={{ font: "500 12px/1 var(--font-sans)", color: "var(--ink-dim)" }}>{t("секунд")}</span>
               </div>
             </div>
             <div className="split-setting-cell">
@@ -644,21 +648,20 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <NumberField className="mono" min={1} max={60} step={1} value={ai.llm_timeout_seconds ?? 12}
                   onValueChange={(next) => void saveAi({ llm_timeout_seconds: Math.max(1, Math.min(60, Number(next) || 12)) })} style={{ width: 90, height: 34 }}/>
-                <span style={{ font: "500 12px/1 var(--font-sans)", color: "var(--text-2)" }}>{t("секунд")}</span>
+                <span style={{ font: "500 12px/1 var(--font-sans)", color: "var(--ink-dim)" }}>{t("секунд")}</span>
               </div>
             </div>
           </div>
-        </section>
+        </Card>
 
-        <section className="card" style={{ padding: 18 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10, gap: 10, flexWrap: "wrap" }}>
-            <div>
-              <div style={{ font: "600 14px/1.2 var(--font-sans)", color: "var(--ink)" }}>{t("Обработать текст")}</div>
-              <div style={{ font: "400 11.5px/1.3 var(--font-sans)", color: "var(--ink-mute)", marginTop: 2 }}>{t("Любой текст, не связанный с диктовкой")}</div>
-            </div>
-            {/* This used to say only "by the active profile's rules" — with no
-                way to learn which model. The selector both names it and lets it
-                be separated from dictation. */}
+        {/* The «Обрабатывает» selector used to say only "by the active
+            profile's rules" — with no way to learn which model. It both names
+            it and lets it be separated from dictation. */}
+        <Card>
+          <CardHead
+            title={t("Обработать текст")}
+            sub={t("Любой текст, не связанный с диктовкой")}
+            actions={
             <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 230 }}>
               <span className="set-label" style={{ whiteSpace: "nowrap" }}>{t("Обрабатывает")}</span>
               <CustomSelect
@@ -678,7 +681,8 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
                 className="custom-select--grow"
               />
             </div>
-          </div>
+            }
+          />
           <textarea className="field mono" value={manualText} onChange={(e) => setManualText(e.target.value)} placeholder={t("Вставьте текст для обработки через выбранную LLM")} style={{ width: "100%", minHeight: 150, padding: 12, resize: "vertical", lineHeight: 1.55 }}/>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
             <button className="btn btn--primary" onClick={() => void runManualProcessing()} disabled={manualLoading || !manualText.trim() || !textProfile.model.trim()}>
@@ -728,13 +732,13 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
               {fileResult.ai_status?.skipped_reason && (
                 <div style={{ font: "500 11px/1.45 var(--font-mono)", color: "var(--ink-mute)", whiteSpace: "pre-wrap" }}>{fileResult.ai_status.skipped_reason}</div>
               )}
-              <div style={{ padding: 12, borderRadius: "var(--r-sm)", background: "var(--bg-2)", border: "1px solid var(--line)", font: "400 13px/1.55 var(--font-sans)", color: "var(--ink)", whiteSpace: "pre-wrap" }}>{fileResult.text}</div>
+              <div style={{ padding: 12, borderRadius: "var(--radius-sm)", background: "var(--bg-2)", border: "1px solid var(--line)", font: "400 13px/1.55 var(--font-sans)", color: "var(--ink)", whiteSpace: "pre-wrap" }}>{fileResult.text}</div>
               {/* We show the raw stage only when it differs — otherwise it is
                   simply a second copy of the same text. */}
               {fileResult.raw_text !== fileResult.text && (
                 <details>
                   <summary style={{ cursor: "pointer", font: "500 11px/1.4 var(--font-sans)", color: "var(--ink-mute)" }}>{t("Whisper без обработки")}</summary>
-                  <div style={{ marginTop: 6, padding: 12, borderRadius: "var(--r-sm)", background: "var(--bg-2)", border: "1px solid var(--line)", font: "400 13px/1.55 var(--font-sans)", color: "var(--ink-mute)", whiteSpace: "pre-wrap" }}>{fileResult.raw_text}</div>
+                  <div style={{ marginTop: 6, padding: 12, borderRadius: "var(--radius-sm)", background: "var(--bg-2)", border: "1px solid var(--line)", font: "400 13px/1.55 var(--font-sans)", color: "var(--ink-mute)", whiteSpace: "pre-wrap" }}>{fileResult.raw_text}</div>
                 </details>
               )}
             </div>
@@ -747,10 +751,11 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
               </div>
               {(manualResult.message || manualResult.provider_error || manualResult.skipped_reason) && <div style={{ font: "500 11px/1.45 var(--font-mono)", color: manualResult.provider_error || manualResult.skipped_reason ? "var(--err)" : "var(--ink-mute)", whiteSpace: "pre-wrap" }}>{manualResult.provider_error || manualResult.message || manualResult.skipped_reason}</div>}
               <ProviderSnippet result={manualResult}/>
-              {manualResult.output && <div style={{ padding: 12, borderRadius: "var(--r-sm)", background: "var(--bg-2)", border: "1px solid var(--line)", font: "400 13px/1.55 var(--font-sans)", color: "var(--ink)", whiteSpace: "pre-wrap" }}>{manualResult.output}</div>}
+              {manualResult.output && <div style={{ padding: 12, borderRadius: "var(--radius-sm)", background: "var(--bg-2)", border: "1px solid var(--line)", font: "400 13px/1.55 var(--font-sans)", color: "var(--ink)", whiteSpace: "pre-wrap" }}>{manualResult.output}</div>}
             </div>
           )}
-        </section>
+        </Card>
+      </div>
     </div>
   );
 }

@@ -407,7 +407,7 @@ export function OverlayApp() {
   } as const;
 
   return (
-    <div className="app-frame" style={{ position: "fixed", inset: 0, padding: 0, background: "transparent", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", fontFamily: "var(--font-sans)", color: "var(--text)", letterSpacing: 0 }}>
+    <div className="app-frame" style={{ position: "fixed", inset: 0, padding: 0, background: "transparent", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", fontFamily: "var(--font-sans)", color: "var(--ink)", letterSpacing: 0 }}>
       <div style={shell}>
         {streaming ? (
           // The text takes the full width and lives below the top row: on a
@@ -473,7 +473,7 @@ function StateDetail({ state, levels, pastedLength, polishingMs, errorText, aiPr
       </div>
     );
   }
-  return <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", font: "600 14px/1.2 var(--font-sans)", color: "var(--text-2)", textAlign: "left" }}>{detail.text}</div>;
+  return <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", font: "600 14px/1.2 var(--font-sans)", color: "var(--ink-dim)", textAlign: "left" }}>{detail.text}</div>;
 }
 
 /// A live feed of the hypothesis: the end is always in view.
@@ -496,7 +496,7 @@ function PreviewPane({ text }: { text: string }) {
   }, [text]);
   if (!text) {
     return (
-      <div style={{ flex: 1, display: "flex", alignItems: "center", font: "500 12px/1.3 var(--font-sans)", color: "var(--text-2)", opacity: 0.6 }}>
+      <div style={{ flex: 1, display: "flex", alignItems: "center", font: "500 12px/1.3 var(--font-sans)", color: "var(--ink-dim)", opacity: 0.6 }}>
         {t("Говорите — текст появится здесь")}
       </div>
     );
@@ -509,7 +509,7 @@ function PreviewPane({ text }: { text: string }) {
         overflow: "hidden",
         wordBreak: "break-word",
         font: "500 14px/1.45 var(--font-sans)",
-        color: "var(--text)",
+        color: "var(--ink)",
         opacity: 0.96,
         textAlign: "left",
       }}
@@ -542,7 +542,7 @@ function ProgressStrip({ label }: { label?: string }) {
       <div style={{ position: "relative", height: 4, borderRadius: 999, background: "rgba(255,255,255,0.08)", overflow: "hidden", flex: 1 }}>
         <div style={{ position: "absolute", inset: 0, width: "40%", borderRadius: 999, background: "linear-gradient(90deg, transparent, var(--accent), transparent)", animation: "progress-sweep 1.15s ease-in-out infinite" }}/>
       </div>
-      {label && <span style={{ font: "500 11px/1 var(--font-sans)", color: "var(--text-2)", whiteSpace: "nowrap" }}>{label}</span>}
+      {label && <span style={{ font: "500 11px/1 var(--font-sans)", color: "var(--ink-dim)", whiteSpace: "nowrap" }}>{label}</span>}
     </div>
   );
 }

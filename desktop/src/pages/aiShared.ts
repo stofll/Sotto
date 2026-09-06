@@ -146,7 +146,7 @@ export function PROVIDER_CATALOG(): CatalogEntry[] {
     meta: preset.baseUrl,
     logo: preset.logo,
     icon: "brand-compatible",
-    color: "var(--text-2)",
+    color: "var(--ink-dim)",
     preset,
   }));
   return [...providers, ...presets].sort((a, b) => a.name.localeCompare(b.name));
@@ -418,10 +418,10 @@ export function activeConfigFromProfile(ai: AiConfig, profile: LlmProfile, profi
   });
 }
 
-export function LogoMark({ logo, fallback, color = "var(--text-2)", size = 16 }: { logo?: string; fallback: string; color?: string; size?: number }) {
+export function LogoMark({ logo, fallback, color = "var(--ink-dim)", size = 16 }: { logo?: string; fallback: string; color?: string; size?: number }) {
   return createElement(
     "span",
-    { style: { width: size + 8, height: size + 8, borderRadius: "var(--r-sm)", display: "grid", placeItems: "center", color, background: logo ? "#fff" : "var(--surface-3)", border: logo ? "1px solid rgba(0,0,0,0.08)" : "1px solid var(--border)", boxShadow: logo ? "0 1px 2px rgba(0,0,0,0.18)" : "none", flex: "0 0 auto" } },
+    { style: { width: size + 8, height: size + 8, borderRadius: "var(--radius-sm)", display: "grid", placeItems: "center", color, background: logo ? "#fff" : "var(--bg-4)", border: logo ? "1px solid rgba(0,0,0,0.08)" : "1px solid var(--line)", boxShadow: logo ? "0 1px 2px rgba(0,0,0,0.18)" : "none", flex: "0 0 auto" } },
     logo
       ? createElement("img", { src: `/logos/${logo}`, alt: "", width: size, height: size, draggable: false, style: { display: "block", objectFit: "contain" } })
       : createElement(Icon, { name: fallback, size }),

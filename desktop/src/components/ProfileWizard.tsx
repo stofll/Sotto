@@ -82,7 +82,7 @@ export function hasUnsavedInput({ step, isCustom, baseUrl }: { step: number; isC
 
 /** An empty field is a hint, a malformed value is an error. */
 function checkTone(level: "error" | "warn", raw: string): string {
-  if (!raw.trim()) return "var(--text-mute)";
+  if (!raw.trim()) return "var(--ink-mute)";
   return level === "error" ? "var(--err)" : "var(--warn)";
 }
 
@@ -317,7 +317,7 @@ export function ProfileWizard({ apiKeys, existingProfiles, seed, onClose, onCrea
               <div className="wizard-section">
                 <div className="wizard-label">{t("Вручную")}</div>
                 <button className="wizard-provider-card wizard-provider-card--custom" data-selected={isCustom} onClick={pickCustom}>
-                  <LogoMark fallback="brand-compatible" color="var(--text-2)" size={22}/>
+                  <LogoMark fallback="brand-compatible" color="var(--ink-dim)" size={22}/>
                   <div style={{ minWidth: 0 }}>
                     <div className="name">{t("Своя конфигурация")}</div>
                     <div className="meta">{t("Base URL и Model ID заполняются вручную, без пресета")}</div>
@@ -373,7 +373,7 @@ export function ProfileWizard({ apiKeys, existingProfiles, seed, onClose, onCrea
                 );
               })}
               {catalog.length === 0 && (
-                <div style={{ font: "500 12px/1.4 var(--font-sans)", color: "var(--text-mute)" }}>
+                <div style={{ font: "500 12px/1.4 var(--font-sans)", color: "var(--ink-mute)" }}>
                   {t("Ничего не найдено — заполните адрес вручную.")}
                 </div>
               )}
@@ -398,7 +398,7 @@ export function ProfileWizard({ apiKeys, existingProfiles, seed, onClose, onCrea
                 <>
                   {availableKeys.length > 0 && (
                     <div style={{ display: "grid", gap: 6 }}>
-                      <span style={{ font: "500 11px/1.4 var(--font-mono)", color: "var(--text-mute)" }}>{t("Использовать существующий слот:")}</span>
+                      <span style={{ font: "500 11px/1.4 var(--font-mono)", color: "var(--ink-mute)" }}>{t("Использовать существующий слот:")}</span>
                       <CustomSelect<string>
                         value={state.reuseKeyRef ?? ""}
                         inlineMeta
@@ -506,7 +506,7 @@ export function ProfileWizard({ apiKeys, existingProfiles, seed, onClose, onCrea
               <div className="modal__title"><h2 id="wizard-close-title">{t("Закрыть мастер?")}</h2></div>
             </div>
             <div className="modal__body">
-              <div style={{ font: "500 12.5px/1.45 var(--font-sans)", color: "var(--text-2)" }}>
+              <div style={{ font: "500 12.5px/1.45 var(--font-sans)", color: "var(--ink-dim)" }}>
                 {t("Введённые данные не сохранятся.")}
               </div>
             </div>

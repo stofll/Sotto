@@ -1,22 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { emit } from "@tauri-apps/api/event";
-import { confirmDestructive, invoke, on } from "../bridge";
+import { invoke, on } from "../bridge";
 import {
+    applyHistoryAiProcessing,
     clearHistory,
     deleteHistoryEntry,
     listHistory,
-    retryHistoryAiProcessing,
-    updateHistoryEntryText,
+    previewHistoryAiProcessing,
 } from "../bridge/stats";
-import { PageHeader, Segmented } from "../components/Shell";
+import { Card, PageHeader, Segmented } from "../components/Shell";
 import { Icon } from "../components/Icon";
 import { Hint } from "../components/Hint";
+import { confirmDestructive } from "../components/ConfirmDialog";
+import { CustomSelect } from "../components/CustomSelect";
 import { DiffBlock } from "../components/DiffBlock";
-import type { ConfigResult, HistoryEntry, HistoryRetryAiResult } from "../bridge/types";
+import type { ConfigResult, HistoryAiPreview, HistoryEntry } from "../bridge/types";
 import { localeTag, t, tPlural } from "../i18n";
 
 type AiConfig = ConfigResult["ai_processing"];
-type ProcessingAction = "process" | "retry";
+type AiProfile = NonNullable<AiConfig["profiles"]>[number];
 type ViewMode = "cards" | "list";
 type StatusFilter = "all" | "processed" | "fallback" | "skipped";
 type DateFilter = "all" | "today" | "week";
@@ -118,7 +119,7 @@ function aiStatusColor(entry: HistoryEntry): string {
   const ai = entry.ai_processing;
   if (ai?.attempted && ai.used) return "var(--ok)";
   if (ai?.attempted && ai.fallback) return "var(--err)";
-  return "var(--text-mute)";
+  return "var(--ink-mute)";
 }
 
 function aiTargetText(ai: Pick<AiConfig, "provider" | "model"> | HistoryEntry["ai_processing"] | null | undefined): string {
@@ -151,19 +152,12 @@ function processingStatsText(entry: HistoryEntry): string {
   return typeof replacements === "number" && replacements > 0 ? t("{p0} · Замен {p1}", { p0: timing, p1: replacements }) : timing;
 }
 
-function aiActionTitle(action: ProcessingAction): string {
-  return action === "retry" ? t("Повторная LLM-обработка") : t("Первичная LLM-обработка");
-}
-
-function canRetryAiProcessing(entry: HistoryEntry): boolean {
-  return !!(entry.ai_processing?.attempted && entry.ai_processing?.fallback && (entry.formatted_text || entry.text));
-}
-
-function canProcessAiProcessing(entry: HistoryEntry): boolean {
-  if (!entry.text?.trim()) return false;
-  if (entry.ai_processing?.attempted && entry.ai_processing?.used) return false;
-  if (canRetryAiProcessing(entry)) return false;
-  return true;
+/** The text a manual run is fed: the local-processing result if there is one,
+ *  otherwise whatever the row currently shows. Same fallback as the Rust side.
+ *  A successful earlier run is not a reason to refuse — «прогнать другим
+ *  профилем» is the most common thing to want from a processed entry. */
+function reprocessSource(entry: HistoryEntry): string {
+  return (entry.formatted_text || entry.text || "").trim();
 }
 
 async function copyToClipboard(text: string): Promise<boolean> {
@@ -186,42 +180,6 @@ async function copyToClipboard(text: string): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-function downloadTextFile(filename: string, text: string, mime = "text/markdown;charset=utf-8") {
-  const blob = new Blob([text], { type: mime });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
-function entryToMarkdown(entry: HistoryEntry): string {
-  const date = new Date(entry.timestamp * 1000).toLocaleString(localeTag());
-  const lines: string[] = [
-    t("# Транскрипция · {p0}", { p0: date }),
-    "",
-    t("- Модель транскрибации: {p0}", { p0: transcriptionModelLabel(entry) }),
-    "",
-    entry.text || "",
-  ];
-  if (entry.formatted_text && entry.formatted_text !== entry.text) {
-    lines.push("", t("## До LLM, после локальной обработки"), "", entry.formatted_text);
-  }
-  if (entry.raw_text && entry.raw_text !== entry.formatted_text && entry.raw_text !== entry.text) {
-    lines.push("", t("## Распознавание без обработки"), "", entry.raw_text);
-  }
-  const ai = entry.ai_processing;
-  if (ai && (ai.provider || ai.model)) {
-    lines.push("", "## LLM", "", t("- Провайдер: {p0}", { p0: ai.provider ?? "-" }), t("- Модель: {p0}", { p0: ai.model ?? "-" }));
-    if (ai.profile_name) lines.push(t("- Профиль: {p0}", { p0: ai.profile_name }));
-    if (ai.error_type) lines.push(t("- Ошибка: {p0}", { p0: ai.error_type }));
-  }
-  return lines.join("\n");
 }
 
 function entryHasDetails(entry: HistoryEntry): boolean {
@@ -292,8 +250,14 @@ export function HistoryPage() {
   const [copiedBlockKey, setCopiedBlockKey] = useState<string | null>(null);
   const [expandedBlockKeys, setExpandedBlockKeys] = useState<Set<string>>(() => new Set());
   const [expandedDetailIds, setExpandedDetailIds] = useState<Set<number>>(() => new Set());
-  const [retryingId, setRetryingId] = useState<number | null>(null);
-  const [processingAction, setProcessingAction] = useState<ProcessingAction | null>(null);
+  // Manual LLM processing: one panel at a time, and everything it produced
+  // lives here until it is either stored or dropped.
+  const [reprocessId, setReprocessId] = useState<number | null>(null);
+  const [reprocessProfileId, setReprocessProfileId] = useState<string>("");
+  const [reprocessRunning, setReprocessRunning] = useState(false);
+  const [reprocessApplying, setReprocessApplying] = useState(false);
+  const [reprocessPreview, setReprocessPreview] = useState<HistoryAiPreview | null>(null);
+  const [reprocessError, setReprocessError] = useState<string | null>(null);
   const [currentAiConfig, setCurrentAiConfig] = useState<AiConfig | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -307,9 +271,6 @@ export function HistoryPage() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set());
   const [openMenuId, setOpenMenuId] = useState<number | null>(null);
   const [diffEntryIds, setDiffEntryIds] = useState<Set<number>>(() => new Set());
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const [editingText, setEditingText] = useState("");
-  const [savingEditId, setSavingEditId] = useState<number | null>(null);
   const [freshIds, setFreshIds] = useState<Set<number>>(() => new Set());
 
   const seenIdsRef = useRef<Set<number>>(new Set());
@@ -382,7 +343,8 @@ export function HistoryPage() {
     return () => document.removeEventListener("mousedown", onDocClick);
   }, [openMenuId]);
 
-  // Drop selection / editing for entries that disappeared (TTL expiry, delete).
+  // Drop selection / an open panel for entries that disappeared (TTL expiry,
+  // delete).
   useEffect(() => {
     const ids = new Set(entries.map((e) => e.id));
     setSelectedIds((prev) => {
@@ -394,11 +356,12 @@ export function HistoryPage() {
       }
       return changed ? next : prev;
     });
-    if (editingId !== null && !ids.has(editingId)) {
-      setEditingId(null);
-      setEditingText("");
+    if (reprocessId !== null && !ids.has(reprocessId)) {
+      setReprocessId(null);
+      setReprocessPreview(null);
+      setReprocessError(null);
     }
-  }, [entries, editingId]);
+  }, [entries, reprocessId]);
 
   function flashNotice(text: string) {
     setNotice(text);
@@ -474,6 +437,7 @@ export function HistoryPage() {
   }
 
   async function handleDelete(entry: HistoryEntry) {
+    if (!await confirmDestructive(t("Удалить эту запись? Это действие нельзя отменить."))) return;
     try {
       await deleteHistoryEntry(entry.id);
       setEntries((current) => current.filter((e) => e.id !== entry.id));
@@ -505,117 +469,70 @@ export function HistoryPage() {
     else setError(t("Не удалось скопировать."));
   }
 
-  // Merge the row back even when the pass failed: it now carries the
-  // AiStatus of the attempt that just ran, which is what renders the
-  // provider error and the "LLM: пропущено · …" badge inline on the entry.
-  // The toast only says that something went wrong; the row says what.
-  function mergeRetryResult(result: HistoryRetryAiResult) {
-    const updatedEntry = result.entry;
-    if (!updatedEntry) return;
-    setEntries((current) => current.map((item) => item.id === updatedEntry.id ? updatedEntry : item));
+  // The panel opens on the profile the entry was processed with, when that
+  // profile still exists, and on the dictation one otherwise.
+  function openReprocess(entry: HistoryEntry) {
+    const profiles = currentAiConfig?.profiles ?? [];
+    const previous = entry.ai_processing?.profile_id ?? "";
+    const known = profiles.some((profile) => profile.id === previous);
+    setReprocessId(entry.id);
+    setReprocessProfileId(known ? previous : currentAiConfig?.active_profile_id ?? "");
+    setReprocessPreview(null);
+    setReprocessError(null);
   }
 
-  async function handleRetryAi(entry: HistoryEntry) {
-    setRetryingId(entry.id);
-    setProcessingAction("retry");
-    setError(null);
+  function closeReprocess() {
+    setReprocessId(null);
+    setReprocessPreview(null);
+    setReprocessError(null);
+  }
+
+  async function runReprocess(entry: HistoryEntry) {
+    setReprocessRunning(true);
+    setReprocessError(null);
+    setReprocessPreview(null);
     try {
-      const result = await retryHistoryAiProcessing(entry.id);
-      mergeRetryResult(result);
-      if (!result.updated) {
-        setError(result.reason ? t("Не удалось повторить LLM-обработку: {p0}", { p0: aiSkipLabel(result.reason) }) : t("Не удалось повторить LLM-обработку."));
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setRetryingId((current) => current === entry.id ? null : current);
-      setProcessingAction(null);
-    }
-  }
-
-  async function handleProcessAi(entry: HistoryEntry) {
-    setRetryingId(entry.id);
-    setProcessingAction("process");
-    setError(null);
-    try {
-      // process_history_ai alias — reused via retryHistoryAiProcessing (Rust single entry point).
-      const result = await retryHistoryAiProcessing(entry.id);
-      mergeRetryResult(result);
-      if (!result.updated) {
-        setError(result.reason ? t("Не удалось обработать через LLM: {p0}", { p0: aiSkipLabel(result.reason) }) : t("Не удалось обработать через LLM."));
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setRetryingId((current) => current === entry.id ? null : current);
-      setProcessingAction(null);
-    }
-  }
-
-  function startEdit(entry: HistoryEntry) {
-    setEditingId(entry.id);
-    setEditingText(entry.text);
-    setOpenMenuId(null);
-  }
-
-  function cancelEdit() {
-    setEditingId(null);
-    setEditingText("");
-  }
-
-  async function saveEdit() {
-    if (editingId === null) return;
-    const trimmed = editingText.trim();
-    if (!trimmed) {
-      setError(t("Текст не может быть пустым."));
-      return;
-    }
-    setSavingEditId(editingId);
-    try {
-      const result = await updateHistoryEntryText(editingId, trimmed);
-      if (!result.updated || !result.entry) {
-        setError(result.reason ? t("Не удалось сохранить: {p0}", { p0: result.reason }) : t("Не удалось сохранить."));
+      const preview = await previewHistoryAiProcessing(entry.id, reprocessProfileId || undefined);
+      if (preview.ok) {
+        setReprocessPreview(preview);
         return;
       }
-      const updated = result.entry;
-      setEntries((current) => current.map((item) => item.id === updated.id ? updated : item));
-      setEditingId(null);
-      setEditingText("");
-      flashNotice(t("Текст обновлен"));
+      // A refusal stays in the panel and nothing is written: the row keeps
+      // describing the last run that actually produced text.
+      setReprocessError(preview.reason
+        ? t("LLM не вернула текст: {p0}", { p0: aiSkipLabel(preview.reason) })
+        : t("LLM не вернула текст."));
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setReprocessError(e instanceof Error ? e.message : String(e));
     } finally {
-      setSavingEditId((current) => current === editingId ? null : current);
+      setReprocessRunning(false);
     }
   }
 
-  function handleExport(entry: HistoryEntry) {
-    const date = new Date(entry.timestamp * 1000);
-    const stamp = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, "0")}${String(date.getDate()).padStart(2, "0")}-${String(date.getHours()).padStart(2, "0")}${String(date.getMinutes()).padStart(2, "0")}${String(date.getSeconds()).padStart(2, "0")}`;
-    downloadTextFile(`transcription-${stamp}.md`, entryToMarkdown(entry));
-    setOpenMenuId(null);
-    flashNotice(t("Файл сохранен"));
-  }
-
-  async function handleUseAsPrompt(entry: HistoryEntry) {
-    const ok = await copyToClipboard(entry.text);
-    setOpenMenuId(null);
-    if (ok) flashNotice(t("Скопировано. Вставьте в LLM-обработка → Системный промпт."));
-    else setError(t("Не удалось скопировать."));
-  }
-
-  async function handleCreateReplacementRule(entry: HistoryEntry) {
-    const selected = window.getSelection()?.toString().trim();
-    const find = selected || entry.text.slice(0, 80).trim();
-    if (!find) return;
-    await emit("navigate-tab", "text");
-    await emit("prefill-replacement", { find, replace: "" });
-    setOpenMenuId(null);
-    flashNotice(t("Черновик правила открыт в разделе замен."));
+  async function applyReprocess(entry: HistoryEntry) {
+    const preview = reprocessPreview;
+    if (!preview) return;
+    setReprocessApplying(true);
+    setReprocessError(null);
+    try {
+      const result = await applyHistoryAiProcessing(entry.id, preview.text, preview.ai_json, preview.stats_json);
+      const updated = result.entry;
+      if (!result.updated || !updated) {
+        setReprocessError(t("Не удалось сохранить результат."));
+        return;
+      }
+      setEntries((current) => current.map((item) => item.id === updated.id ? updated : item));
+      closeReprocess();
+      flashNotice(t("Текст заменен результатом LLM"));
+    } catch (e) {
+      setReprocessError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setReprocessApplying(false);
+    }
   }
 
   async function handleClearAll() {
-    if (!await confirmDestructive(t("Очистить всю историю? Это действие нельзя отменить."))) return;
+    if (!await confirmDestructive(t("Очистить всю историю? Это действие нельзя отменить."), t("Очистить"))) return;
     try {
       await clearHistory();
       setEntries([]);
@@ -680,7 +597,7 @@ export function HistoryPage() {
           </div>
         )}
         {notice && (
-          <div role="status" aria-live="polite" style={{ padding: "10px 12px", borderRadius: 8, background: "var(--accent-soft-2)", border: "1px solid var(--border-accent)", color: "var(--text)", font: "500 12px/1.35 var(--font-sans)" }}>{notice}</div>
+          <div role="status" aria-live="polite" style={{ padding: "10px 12px", borderRadius: 8, background: "var(--accent-soft-2)", border: "1px solid var(--accent-soft-2)", color: "var(--ink)", font: "500 12px/1.35 var(--font-sans)" }}>{notice}</div>
         )}
 
         {entries.length > 0 && (
@@ -748,26 +665,22 @@ export function HistoryPage() {
                       copiedId={copiedId}
                       onCopy={() => void handleCopy(entry)}
                       onDelete={() => void handleDelete(entry)}
-                      onExport={() => handleExport(entry)}
-                      onUseAsPrompt={() => void handleUseAsPrompt(entry)}
-                      onCreateReplacementRule={() => void handleCreateReplacementRule(entry)}
-                      onStartEdit={() => startEdit(entry)}
-                      onCancelEdit={cancelEdit}
-                      onSaveEdit={() => void saveEdit()}
-                      editing={editingId === entry.id}
-                      editingText={editingText}
-                      onEditingTextChange={setEditingText}
-                      saving={savingEditId === entry.id}
-                      isProcessing={retryingId === entry.id}
-                      processingAction={processingAction}
-                      retryingAny={retryingId !== null}
                       currentAiConfig={currentAiConfig}
                       copiedBlockKey={copiedBlockKey}
                       onCopyBlock={handleCopyBlock}
                       expandedBlockKeys={expandedBlockKeys}
                       onToggleBlock={toggleBlock}
-                      onRetryAi={() => void handleRetryAi(entry)}
-                      onProcessAi={() => void handleProcessAi(entry)}
+                      reprocessOpen={reprocessId === entry.id}
+                      onOpenReprocess={() => openReprocess(entry)}
+                      onCloseReprocess={closeReprocess}
+                      reprocessProfileId={reprocessProfileId}
+                      onReprocessProfileId={setReprocessProfileId}
+                      reprocessRunning={reprocessRunning}
+                      reprocessApplying={reprocessApplying}
+                      reprocessPreview={reprocessPreview}
+                      reprocessError={reprocessError}
+                      onRunReprocess={() => void runReprocess(entry)}
+                      onApplyReprocess={() => void applyReprocess(entry)}
                       menuOpen={openMenuId === entry.id}
                       onToggleMenu={() => setOpenMenuId((current) => current === entry.id ? null : entry.id)}
                     />
@@ -795,7 +708,7 @@ function FiltersBar({
   filterIsActive: boolean;
 }) {
   return (
-    <section className="card" style={{ padding: "10px 14px" }}>
+    <Card pad="rows">
       <div className="flex-row" style={{ gap: 12, flexWrap: "wrap", alignItems: "center" }}>
         <label className="input-search" style={{ flex: "1 1 260px", minWidth: 200 }}>
           <span className="input-search__icon"><Icon name="search" size={13}/></span>
@@ -845,7 +758,7 @@ function FiltersBar({
           </Hint>
         )}
       </div>
-    </section>
+    </Card>
   );
 }
 
@@ -865,12 +778,12 @@ function BulkBar({ count, totalVisible, allVisibleSelected, onSelectAllVisible, 
       style={{
         position: "sticky", top: 0, zIndex: 5,
         display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center",
-        padding: "8px 12px", borderRadius: "var(--r-sm)",
-        background: "var(--accent-soft-2)", border: "1px solid var(--border-accent)",
+        padding: "8px 12px", borderRadius: "var(--radius-sm)",
+        background: "var(--accent-soft-2)", border: "1px solid var(--accent-soft-2)",
         boxShadow: "0 2px 12px rgba(0,0,0,0.12)",
       }}
     >
-      <span style={{ font: "600 12px/1 var(--font-sans)", color: "var(--text)" }}>{t("Выбрано:")} {count}</span>
+      <span style={{ font: "600 12px/1 var(--font-sans)", color: "var(--ink)" }}>{t("Выбрано:")} {count}</span>
       {!allVisibleSelected && totalVisible > count && (
         <button className="btn btn--ghost" onClick={onSelectAllVisible}><Icon name="check" size={11}/>{t("Выделить видимые (")}{totalVisible})</button>
       )}
@@ -894,56 +807,51 @@ function EntryCard(props: {
   copiedId: number | null;
   onCopy: () => void;
   onDelete: () => void;
-  onExport: () => void;
-  onUseAsPrompt: () => void;
-  onCreateReplacementRule: () => void;
-  onStartEdit: () => void;
-  onCancelEdit: () => void;
-  onSaveEdit: () => void;
-  editing: boolean;
-  editingText: string;
-  onEditingTextChange: (v: string) => void;
-  saving: boolean;
-  isProcessing: boolean;
-  processingAction: ProcessingAction | null;
-  retryingAny: boolean;
   currentAiConfig: AiConfig | null;
   copiedBlockKey: string | null;
   onCopyBlock: (key: string, text: string) => void;
   expandedBlockKeys: Set<string>;
   onToggleBlock: (key: string) => void;
-  onRetryAi: () => void;
-  onProcessAi: () => void;
+  reprocessOpen: boolean;
+  onOpenReprocess: () => void;
+  onCloseReprocess: () => void;
+  reprocessProfileId: string;
+  onReprocessProfileId: (id: string) => void;
+  reprocessRunning: boolean;
+  reprocessApplying: boolean;
+  reprocessPreview: HistoryAiPreview | null;
+  reprocessError: string | null;
+  onRunReprocess: () => void;
+  onApplyReprocess: () => void;
   menuOpen: boolean;
   onToggleMenu: () => void;
 }) {
   const {
     entry, viewMode, selected, onToggleSelected, detailsExpanded, onToggleDetails,
-    diffOn, onToggleDiff, fresh, copiedId, onCopy, onDelete, onExport, onUseAsPrompt, onCreateReplacementRule,
-    onStartEdit, onCancelEdit, onSaveEdit, editing, editingText, onEditingTextChange, saving,
-    isProcessing, processingAction, retryingAny, currentAiConfig,
+    diffOn, onToggleDiff, fresh, copiedId, onCopy, onDelete,
+    currentAiConfig,
     copiedBlockKey, onCopyBlock, expandedBlockKeys, onToggleBlock,
-    onRetryAi, onProcessAi, menuOpen, onToggleMenu,
+    reprocessOpen, onOpenReprocess, onCloseReprocess, reprocessProfileId, onReprocessProfileId,
+    reprocessRunning, reprocessApplying, reprocessPreview, reprocessError,
+    onRunReprocess, onApplyReprocess, menuOpen, onToggleMenu,
   } = props;
 
-  const compact = viewMode === "list" && !detailsExpanded && !editing;
+  const compact = viewMode === "list" && !detailsExpanded;
   const formattedKey = `${entry.id}:formatted`;
   const rawKey = `${entry.id}:raw`;
-  const canRetry = canRetryAiProcessing(entry);
-  const canProcess = canProcessAiProcessing(entry);
+  const canReprocess = reprocessSource(entry).length > 0;
   const hasDetails = entryHasDetails(entry);
   const canDiff = !!(entry.formatted_text && entry.formatted_text !== entry.text);
-  const actionTarget = aiTargetText(currentAiConfig);
   const aiBadgeColor = aiStatusColor(entry);
   const profileLabel = aiProfileLabel(entry);
   const sttLabel = transcriptionModelLabel(entry);
 
   const borderStyle = selected
-    ? "1px solid var(--border-accent)"
-    : fresh ? "1px solid var(--border-accent)" : "1px solid var(--border)";
+    ? "1px solid var(--accent-soft-2)"
+    : fresh ? "1px solid var(--accent-soft-2)" : "1px solid var(--line)";
   const cardBackground = selected
     ? "var(--accent-soft-2)"
-    : fresh ? "linear-gradient(180deg, var(--accent-soft-2), var(--surface-2))" : "var(--surface-2)";
+    : fresh ? "linear-gradient(180deg, var(--accent-soft-2), var(--bg-2))" : "var(--bg-2)";
 
   return (
     <article
@@ -952,7 +860,7 @@ function EntryCard(props: {
         gridTemplateColumns: "auto 1fr auto",
         gap: 10,
         padding: compact ? "8px 10px" : 12,
-        borderRadius: "var(--r-sm)",
+        borderRadius: "var(--radius-sm)",
         background: cardBackground,
         border: borderStyle,
         alignItems: "start",
@@ -979,51 +887,33 @@ function EntryCard(props: {
               boxShadow: aiStatusKind(entry) === "processed" ? "0 0 0 3px color-mix(in srgb, var(--ok) 18%, transparent)" : undefined,
             }}
           />
-          <span style={{ font: "500 11px/1 var(--font-mono)", color: "var(--text-mute)", letterSpacing: "0.04em" }}>{formatTime(entry.timestamp)}</span>
-          <span style={{ font: "400 11px/1 var(--font-sans)", color: "var(--text-faint)" }}>· {relativeAge(entry.timestamp)}</span>
-          <span style={{ font: "500 11px/1 var(--font-mono)", color: "var(--text-mute)" }} title={t("Модель первичной транскрибации: {p0}", { p0: sttLabel })}>
+          <span style={{ font: "500 11px/1 var(--font-mono)", color: "var(--ink-mute)", letterSpacing: "0.04em" }}>{formatTime(entry.timestamp)}</span>
+          <span style={{ font: "400 11px/1 var(--font-sans)", color: "var(--ink-faint)" }}>· {relativeAge(entry.timestamp)}</span>
+          <span style={{ font: "500 11px/1 var(--font-mono)", color: "var(--ink-mute)" }} title={t("Модель первичной транскрибации: {p0}", { p0: sttLabel })}>
             · {t("STT: {p0}", { p0: sttLabel })}
           </span>
           {profileLabel && (
-            <span style={{ font: "500 11px/1 var(--font-mono)", color: "var(--text-mute)" }} title={aiStatusText(entry)}>· {t("AI: {p0}", { p0: profileLabel })}</span>
+            <span style={{ font: "500 11px/1 var(--font-mono)", color: "var(--ink-mute)" }} title={aiStatusText(entry)}>· {t("AI: {p0}", { p0: profileLabel })}</span>
           )}
-          {fresh && <span className="tag" style={{ height: 18, fontSize: 9, background: "var(--accent-soft-2)", borderColor: "var(--border-accent)", color: "var(--text)" }}>{t("новое")}</span>}
+          {fresh && <span className="tag" style={{ height: 18, fontSize: 9, background: "var(--accent-soft-2)", borderColor: "var(--accent-soft-2)", color: "var(--ink)" }}>{t("новое")}</span>}
         </div>
 
         {compact ? (
           <Hint text={t("Развернуть")} className="hint-anchor--block">
             <div
               onClick={onToggleDetails}
-              style={{ font: "400 13px/1.4 var(--font-sans)", color: "var(--text)", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", cursor: "pointer" }}
+              style={{ font: "400 13px/1.4 var(--font-sans)", color: "var(--ink)", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", cursor: "pointer" }}
             >{entry.text}</div>
           </Hint>
-        ) : editing ? (
-          <div style={{ display: "grid", gap: 6 }}>
-            <textarea
-              value={editingText}
-              onChange={(e) => onEditingTextChange(e.target.value)}
-              autoFocus
-              rows={Math.min(12, Math.max(3, editingText.split("\n").length + 1))}
-              style={{ width: "100%", padding: 8, borderRadius: "var(--r-sm)", border: "1px solid var(--border-accent)", background: "var(--surface-1)", color: "var(--text)", font: "400 13px/1.5 var(--font-sans)", resize: "vertical" }}
-            />
-            <div style={{ display: "flex", gap: 6 }}>
-              <button className="btn btn--primary" onClick={onSaveEdit} disabled={saving}>
-                {saving ? <span className="mini-spinner" aria-hidden="true"/> : <Icon name="check" size={12}/>}
-                {saving ? t("Сохраняю") : t("Сохранить")}
-              </button>
-              <button className="btn btn--ghost" onClick={onCancelEdit} disabled={saving}><Icon name="x" size={12}/>{t("Отмена")}</button>
-              <span style={{ marginLeft: "auto", alignSelf: "center", font: "400 11px/1 var(--font-mono)", color: "var(--text-mute)" }}>{editingText.length}  {t("симв.")}</span>
-            </div>
-          </div>
         ) : (
           <>
             <div
               title={t("{p0} симв.", { p0: entry.length })}
-              style={{ font: "400 13px/1.5 var(--font-sans)", color: "var(--text)", whiteSpace: "pre-wrap", overflowWrap: "break-word" }}
+              style={{ font: "400 13px/1.5 var(--font-sans)", color: "var(--ink)", whiteSpace: "pre-wrap", overflowWrap: "break-word" }}
             >
               {entry.text}
             </div>
-            {(hasDetails || canDiff) && (
+            {(hasDetails || canDiff || canReprocess) && (
               <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 6 }}>
                 {hasDetails && (
                   <button className="btn btn--ghost" onClick={onToggleDetails} aria-expanded={detailsExpanded} style={{ height: 24 }}>
@@ -1036,10 +926,34 @@ function EntryCard(props: {
                     <Icon name="compare" size={11}/>{diffOn ? t("Скрыть diff") : t("Сравнить с до-LLM")}
                   </button>
                 )}
+                {canReprocess && (
+                  <button
+                    className="btn btn--ghost"
+                    onClick={reprocessOpen ? onCloseReprocess : onOpenReprocess}
+                    aria-expanded={reprocessOpen}
+                    style={{ height: 24 }}
+                  >
+                    <Icon name="wand" size={11}/>{t("Обработать через LLM")}
+                  </button>
+                )}
               </div>
             )}
             {diffOn && canDiff && (
               <DiffBlock before={entry.formatted_text || ""} after={entry.text}/>
+            )}
+            {reprocessOpen && (
+              <ReprocessPanel
+                entry={entry}
+                aiConfig={currentAiConfig}
+                profileId={reprocessProfileId}
+                onProfileId={onReprocessProfileId}
+                running={reprocessRunning}
+                applying={reprocessApplying}
+                preview={reprocessPreview}
+                error={reprocessError}
+                onRun={onRunReprocess}
+                onApply={onApplyReprocess}
+              />
             )}
             {detailsExpanded && (
               <div style={{ marginTop: 10, display: "grid", gap: 0 }}>
@@ -1083,40 +997,24 @@ function EntryCard(props: {
         )}
       </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: compact ? 0 : 140, alignItems: "stretch" }}>
-        <div style={{ display: "flex", gap: 4 }}>
-          <Hint text={t("Скопировать в буфер обмена")} style={{ flex: 1, minWidth: 0 }}>
+      <div style={{ display: "flex", gap: 4, alignItems: "start" }}>
+        <Hint text={copiedId === entry.id ? t("Скопировано") : t("Скопировать в буфер обмена")}>
           <button
             className={copiedId === entry.id ? "btn btn--primary" : "btn btn--ghost"}
             onClick={onCopy}
             aria-label={t("Скопировать")}
-            style={{ width: "100%", height: 28 }}
+            style={{ height: 30, padding: "0 9px" }}
           >
-            <Icon name={copiedId === entry.id ? "check" : "copy"} size={12}/>
-            {compact ? null : (copiedId === entry.id ? t("Скопировано") : t("Копировать"))}
+            <Icon name={copiedId === entry.id ? "check" : "copy"} size={15}/>
           </button>
-          </Hint>
-          <ActionsMenu
-            open={menuOpen}
-            onToggle={onToggleMenu}
-            actions={[
-              { label: t("Изменить текст"), icon: "pencil", onClick: onStartEdit, disabled: editing },
-              { label: t("Экспорт .md"), icon: "download", onClick: onExport },
-              { label: t("Использовать как промпт"), icon: "spark", onClick: onUseAsPrompt },
-              { label: t("Создать замену"), icon: "replace", onClick: onCreateReplacementRule },
-              { label: t("Удалить"), icon: "trash", onClick: onDelete, danger: true },
-            ]}
-          />
-        </div>
-        {!compact && (canRetry || canProcess) && (
-          <AiActionButton
-            action={isProcessing && processingAction ? processingAction : canRetry ? "retry" : "process"}
-            target={actionTarget}
-            processing={isProcessing}
-            disabled={retryingAny}
-            onClick={canRetry ? onRetryAi : onProcessAi}
-          />
-        )}
+        </Hint>
+        <ActionsMenu
+          open={menuOpen}
+          onToggle={onToggleMenu}
+          actions={[
+            { label: t("Удалить"), icon: "trash", onClick: onDelete, danger: true },
+          ]}
+        />
       </div>
     </article>
   );
@@ -1129,18 +1027,16 @@ function ActionsMenu({ open, onToggle, actions }: {
 }) {
   return (
     <div data-menu-root style={{ position: "relative" }}>
-      <Hint text={t("Другие действия")}>
-        <button
-          className="btn btn--ghost"
-          onClick={onToggle}
-          aria-haspopup="menu"
-          aria-expanded={open}
-          aria-label={t("Действия")}
-          style={{ height: 28, padding: "0 8px" }}
-        >
-          <Icon name="more" size={12}/>
-        </button>
-      </Hint>
+      <button
+        className="btn btn--ghost"
+        onClick={onToggle}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={t("Действия")}
+        style={{ height: 30, padding: "0 9px" }}
+      >
+        <Icon name="more" size={15}/>
+      </button>
       {open && (
         <div
           role="menu"
@@ -1148,11 +1044,11 @@ function ActionsMenu({ open, onToggle, actions }: {
             position: "absolute",
             right: 0,
             top: "calc(100% + 4px)",
-            minWidth: 200,
+            minWidth: 100,
             padding: 4,
-            background: "var(--surface-1)",
-            border: "1px solid var(--border-strong)",
-            borderRadius: "var(--r-sm)",
+            background: "var(--bg-3)",
+            border: "1px solid var(--line-strong)",
+            borderRadius: "var(--radius-sm)",
             boxShadow: "0 8px 24px rgba(0,0,0,0.25)",
             zIndex: 10,
             display: "grid",
@@ -1175,12 +1071,12 @@ function ActionsMenu({ open, onToggle, actions }: {
                 border: 0,
                 borderRadius: 4,
                 background: "transparent",
-                color: action.danger ? "var(--err)" : "var(--text)",
+                color: action.danger ? "var(--err)" : "var(--ink)",
                 font: "500 12px/1.1 var(--font-sans)",
                 textAlign: "left",
                 opacity: action.disabled ? 0.5 : 1,
               }}
-              onMouseEnter={(ev) => { (ev.currentTarget as HTMLButtonElement).style.background = "var(--surface-3)"; }}
+              onMouseEnter={(ev) => { (ev.currentTarget as HTMLButtonElement).style.background = "var(--bg-4)"; }}
               onMouseLeave={(ev) => { (ev.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
             >
               <Icon name={action.icon} size={12}/>{action.label}
@@ -1192,51 +1088,75 @@ function ActionsMenu({ open, onToggle, actions }: {
   );
 }
 
-// Single compact LLM-action control for a history entry. The processing
-// state lives INSIDE the button (spinner + "Обрабатываю…") so the card
-// never grows a separate notice box, and a fixed second line under the
-// button holds either the target-model caption (idle) or a thin progress
-// bar (processing) — the block height is identical in both states.
-function AiActionButton({ action, target, processing, disabled, onClick }: {
-  action: ProcessingAction;
-  target: string;
-  processing: boolean;
-  disabled: boolean;
-  onClick: () => void;
+/** Profiles to choose between: the name, and under it the model it actually
+ *  calls — a profile name alone does not say where the text is going. */
+function reprocessProfileOptions(aiConfig: AiConfig | null): Array<{ value: string; label: string; meta?: string }> {
+  const profiles: AiProfile[] = aiConfig?.profiles ?? [];
+  if (profiles.length === 0) return [{ value: "", label: aiTargetText(aiConfig) }];
+  return profiles.map((profile) => ({
+    value: profile.id,
+    label: profile.name,
+    meta: profile.model?.trim() || undefined,
+  }));
+}
+
+/**
+ * Manual LLM processing of one entry: pick a profile, run it, keep the result
+ * or leave it.
+ *
+ * The run and the write are separate steps — «Прогнать» only asks the model,
+ * and the history changes on «Заменить текст». The control this replaced
+ * overwrote the row on the first click, with no way back and no way to see
+ * what changed.
+ */
+function ReprocessPanel({
+  entry, aiConfig, profileId, onProfileId, running, applying, preview, error, onRun, onApply,
+}: {
+  entry: HistoryEntry;
+  aiConfig: AiConfig | null;
+  profileId: string;
+  onProfileId: (id: string) => void;
+  running: boolean;
+  applying: boolean;
+  preview: HistoryAiPreview | null;
+  error: string | null;
+  onRun: () => void;
+  onApply: () => void;
 }) {
-  const isRetry = action === "retry";
-  const idleLabel = isRetry ? t("Повторить LLM") : t("Обработать");
-  const idleIcon = isRetry ? "wand" : "spark";
+  const busy = running || applying;
   return (
-    <div style={{ display: "grid", gap: 4 }}>
-      <Hint
-        text={processing ? `${aiActionTitle(action)} · ${target}` : t("{p0} текст в LLM ({p1})", { p0: isRetry ? t("Повторно отправить") : t("Отправить"), p1: target })}
-        className="hint-anchor--block"
-      >
-        <button
-          className="btn btn--ghost"
-          onClick={onClick}
-          disabled={disabled}
-          aria-busy={processing}
-          aria-live="polite"
-          aria-label={processing ? aiActionTitle(action) : idleLabel}
-          style={{ height: 28, width: "100%" }}
-        >
-          {processing ? <span className="mini-spinner" aria-hidden="true"/> : <Icon name={idleIcon} size={12}/>}
-          {processing ? t("Обрабатываю…") : idleLabel}
-        </button>
-      </Hint>
-      {processing ? (
-        <div aria-hidden="true" style={{ position: "relative", height: 2, borderRadius: 999, overflow: "hidden", background: "var(--surface-4)" }}>
-          <div style={{ position: "absolute", inset: 0, width: "45%", borderRadius: 999, background: "var(--accent)", animation: "progress-sweep 1.3s ease-in-out infinite" }} />
+    <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
+      <div className="flex-row" style={{ gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+        <div style={{ flex: "0 1 auto", minWidth: 180 }}>
+          <CustomSelect
+            value={profileId}
+            options={reprocessProfileOptions(aiConfig)}
+            onChange={onProfileId}
+            disabled={busy}
+            inlineMeta
+            metaSeparator="dash"
+          />
         </div>
-      ) : (
-        <span
-          title={t("Ручная обработка использует текущие настройки ИИ, а не модель, которая была активна во время записи.")}
-          style={{ font: "500 9.5px/1.3 var(--font-mono)", color: "var(--text-mute)", textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-        >
-           {t("через")} {target}
-        </span>
+        <button className="btn btn--primary" onClick={onRun} disabled={busy} aria-busy={running} style={{ height: "var(--control-h)" }}>
+          {running && <span className="mini-spinner" aria-hidden="true"/>}
+          {running ? t("Обрабатываю…") : t("Запустить")}
+        </button>
+      </div>
+
+      {error && (
+        <div role="alert" style={{ font: "500 11.5px/1.4 var(--font-sans)", color: "var(--err)" }}>{error}</div>
+      )}
+
+      {preview && (
+        <div style={{ display: "grid", gap: 8 }}>
+          <DiffBlock before={entry.text} after={preview.text} title={t("Diff: сейчас → новый вариант")}/>
+          <div>
+            <button className="btn btn--primary" onClick={onApply} disabled={busy} aria-busy={applying} style={{ height: 26 }}>
+              {applying ? <span className="mini-spinner" aria-hidden="true"/> : <Icon name="check" size={11}/>}
+              {applying ? t("Сохраняю") : t("Заменить текст")}
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -1248,13 +1168,13 @@ function StatTile({ label, value }: { label: string; value: string }) {
       display: "grid",
       gap: 3,
       padding: "8px 10px",
-      background: "var(--surface-1)",
-      borderRadius: "var(--r-sm)",
-      border: "1px solid var(--border)",
+      background: "var(--bg-3)",
+      borderRadius: "var(--radius-sm)",
+      border: "1px solid var(--line)",
       minWidth: 0,
     }}>
-      <span style={{ font: "600 12.5px/1 var(--font-mono)", color: "var(--text)" }}>{value}</span>
-      <span style={{ font: "500 9.5px/1 var(--font-mono)", color: "var(--text-mute)", textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</span>
+      <span style={{ font: "600 12.5px/1 var(--font-mono)", color: "var(--ink)" }}>{value}</span>
+      <span style={{ font: "500 9.5px/1 var(--font-mono)", color: "var(--ink-mute)", textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</span>
     </div>
   );
 }
@@ -1305,7 +1225,7 @@ function HistoryTextBlock({ title, text, muted = false, collapsible = false, col
   return (
     <div style={{ marginTop: muted ? 10 : 0 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: collapsed ? 0 : 4 }}>
-        <div style={{ flex: "0 1 auto", minWidth: 0, font: "600 10px/1 var(--font-mono)", color: muted ? "var(--text-mute)" : "var(--text-2)", textTransform: "uppercase", letterSpacing: "0.04em" }}>{title}</div>
+        <div style={{ flex: "0 1 auto", minWidth: 0, font: "600 10px/1 var(--font-mono)", color: muted ? "var(--ink-mute)" : "var(--ink-dim)", textTransform: "uppercase", letterSpacing: "0.04em" }}>{title}</div>
         <Hint text={t("Копировать: {p0}", { p0: title })}>
           <button
             className={copied ? "btn btn--primary" : "btn btn--ghost"}
@@ -1331,7 +1251,7 @@ function HistoryTextBlock({ title, text, muted = false, collapsible = false, col
         )}
       </div>
       {!collapsed && (
-        <div style={{ font: "400 13px/1.5 var(--font-sans)", color: muted ? "var(--text-2)" : "var(--text)", whiteSpace: "pre-wrap", overflowWrap: "break-word" }}>
+        <div style={{ font: "400 13px/1.5 var(--font-sans)", color: muted ? "var(--ink-dim)" : "var(--ink)", whiteSpace: "pre-wrap", overflowWrap: "break-word" }}>
           {text}
         </div>
       )}
@@ -1341,9 +1261,9 @@ function HistoryTextBlock({ title, text, muted = false, collapsible = false, col
 
 function EmptyState({ icon, title, hint }: { icon: string; title: string; hint: string }) {
   return (
-    <div style={{ display: "grid", placeItems: "center", padding: "48px 24px", color: "var(--text-mute)", textAlign: "center" }}>
+    <div style={{ display: "grid", placeItems: "center", padding: "48px 24px", color: "var(--ink-mute)", textAlign: "center" }}>
       <div style={{ marginBottom: 12, opacity: 0.7 }}><Icon name={icon} size={32}/></div>
-      <div style={{ font: "500 14px/1.3 var(--font-sans)", color: "var(--text-2)" }}>{title}</div>
+      <div style={{ font: "500 14px/1.3 var(--font-sans)", color: "var(--ink-dim)" }}>{title}</div>
       {hint && <div style={{ marginTop: 6, maxWidth: 380, font: "400 12px/1.5 var(--font-sans)" }}>{hint}</div>}
     </div>
   );

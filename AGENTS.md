@@ -58,6 +58,10 @@ and keep those rules specific to that subtree.
 - Reuse tokens and styles from `desktop/src/styles.css` and components from
   `desktop/src/components/`. Do not introduce a new color, spacing, shadow, or
   control variant when an existing one serves the same purpose.
+- One name per token: a value has a single variable, and a theme overrides that
+  variable. Do not add an alias for an existing token.
+- Cards are the `Card` component; their padding is one of its named `pad`
+  variants, never an inline style.
 - Use the existing i18n functions: Russian source text is the key, and English
   translations live in `desktop/src/i18n/en.ts`. Evaluate translations at
   render/call time, not in module-level constants.
