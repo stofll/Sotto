@@ -102,7 +102,7 @@ function ProviderSnippet({ result }: { result: AiRunResult }) {
 const PIPELINE_MODES = () => ([
   { id: "local", title: t("Только локально"), sub: t("STT на этом компьютере. LLM не вызывается."), icon: "shield" },
   { id: "hybrid", title: t("Локальное распознавание + LLM"), sub: t("Распознаем локально, затем отправляем текст в LLM для обработки."), icon: "wand" },
-  { id: "cloud", title: t("Облачное распознавание"), sub: t("Аудио уходит на OpenAI-совместимый эндпоинт /audio/transcriptions. Нужны Base URL, модель и ключ активного профиля."), icon: "spark" },
+  { id: "cloud", title: t("Облачное распознавание"), sub: t("Запись целиком уходит провайдеру и распознаётся у него. Локальная модель не нужна."), icon: "spark" },
 ] as const);
 
 /** Why a request cannot leave. One wording and one shape for the dictation
@@ -517,7 +517,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
             </div>
           ) : (
             <div className="active-profile">
-              <span className="active-profile__label">{t("Профиль")}</span>
+              <span className="picker-label">{t("Профиль")}</span>
               <div className="active-profile__pick">
                 <CustomSelect<string>
                   value={activeProfile.id}
@@ -717,28 +717,28 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
         <Card>
           <CardHead
             title={t("Обработать текст")}
-            sub={t("Любой текст, не связанный с диктовкой")}
-            actions={
+            actions={profiles.length > 0 && (
             <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 230 }}>
-              <span className="set-label" style={{ whiteSpace: "nowrap" }}>{t("Обрабатывает")}</span>
-              <CustomSelect
-                value={textInheritsVoice ? "" : textProfile.id}
-                options={[
-                  { value: "", label: t("Как для диктовки"), meta: `${activeProfile.name} · ${activeProfile.model}`, icon: "mic" },
-                  ...profiles
-                    .filter((profile) => profile.id !== activeProfile.id)
-                    .map((profile) => ({
-                      value: profile.id,
-                      label: profile.name,
-                      meta: `${PROVIDERS.find((item) => item.id === profile.provider)?.name ?? profile.provider} · ${profile.model}`,
-                      icon: "spark",
-                    })),
-                ]}
-                onChange={(next) => void onConfigChanged({ ai_processing: mergeAi(baseAi, { text_profile_id: next }) })}
+              <span className="picker-label">{t("Обрабатывает")}</span>
+              {/* The same picker as in the route card: profile name, then
+                  provider and model. It used to lead with «Как для диктовки»
+                  and two icons, which named the arrangement rather than the
+                  thing chosen — and named it in a vocabulary this row was alone
+                  in using. Inheritance did not go away, it just stopped being a
+                  row of its own: picking the dictation profile writes the empty
+                  id that keeps following it. */}
+              <CustomSelect<string>
+                value={textInheritsVoice ? activeProfile.id : textProfile.id}
+                inlineMeta
+                options={profiles.map((profile) => {
+                  const itemProvider = PROVIDERS.find((item) => item.id === profile.provider) ?? PROVIDERS[0];
+                  return { value: profile.id, label: profile.name, meta: `${itemProvider.name} · ${profile.model}` };
+                })}
+                onChange={(next) => void onConfigChanged({ ai_processing: mergeAi(baseAi, { text_profile_id: next === activeProfile.id ? "" : next }) })}
                 className="custom-select--grow"
               />
             </div>
-            }
+            )}
           />
           <textarea className="field mono" value={manualText} onChange={(e) => setManualText(e.target.value)} placeholder={t("Вставьте текст для обработки через выбранную LLM")} style={{ width: "100%", minHeight: 150, padding: 12, resize: "vertical", lineHeight: 1.55 }}/>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10, flexWrap: "wrap" }}>

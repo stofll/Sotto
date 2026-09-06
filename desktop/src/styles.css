@@ -333,7 +333,7 @@ button, input, textarea, select { font: inherit; }
    from `rows` instead, or a 14-row prompt renders as a 34px slit. Textareas
    that set an inline min-height were unaffected and stay where they were. */
 textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: vertical; }
-.number-field { position: relative; display: inline-flex; min-width: 0; }
+.number-field { position: relative; display: inline-flex; min-width: 0; height: 34px; }
 .number-field__input { width: 100%; height: 100%; padding-right: 23px; text-align: right; appearance: textfield; -moz-appearance: textfield; }
 .number-field__input::-webkit-inner-spin-button,
 .number-field__input::-webkit-outer-spin-button { appearance: none; -webkit-appearance: none; margin: 0; }
@@ -938,7 +938,8 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
    content was pushed off-centre by the overflow long before the row wrapped. */
 .active-profile > *, .active-profile .hint-anchor, .active-profile .btn { flex: 0 0 auto; }
 .active-profile__pick { flex: 1 1 260px; min-width: 200px; }
-.active-profile__label { font: 600 10px/1 var(--font-mono); color: var(--ink-mute); text-transform: uppercase; letter-spacing: 0.05em; }
+/* The caption of a profile picker, wherever one stands. */
+.picker-label { font: 600 10px/1 var(--font-mono); color: var(--ink-mute); text-transform: uppercase; letter-spacing: 0.05em; white-space: nowrap; }
 /* The profile the mode above will be routed through. */
 .ai-mode-grid + .active-profile,
 .ai-mode-grid + .list-empty { margin-top: 14px; }

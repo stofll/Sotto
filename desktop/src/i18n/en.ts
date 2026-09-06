@@ -293,9 +293,9 @@ export const en: Record<string, string | string[]> = {
   "STT на этом компьютере. LLM не вызывается.": "STT on this computer. No LLM call.",
   "Распознаем локально, затем отправляем текст в LLM для обработки.":
     "Transcribe locally, then send the text to an LLM.",
-  "Аудио уходит на OpenAI-совместимый эндпоинт /audio/transcriptions. Нужны Base URL, модель и ключ активного профиля.":
-    "Audio goes to an OpenAI-compatible /audio/transcriptions endpoint. Needs a base URL, a model and the active profile's key.",
   "Облачное распознавание": "Cloud transcription",
+  "Запись целиком уходит провайдеру и распознаётся у него. Локальная модель не нужна.":
+    "The whole recording goes to the provider and is transcribed there. No local model needed.",
   "Режим обработки": "Processing mode",
   "Главный переключатель всего локального пайплайна": "The master switch for the whole local pipeline",
 
@@ -606,9 +606,7 @@ export const en: Record<string, string | string[]> = {
   "Профиль снова использует встроенный промпт.": "The profile uses the built-in prompt again.",
   "Ответ провайдера": "Provider response",
   "Ответ провайдера (HTTP {p0})": "Provider response (HTTP {p0})",
-  "Любой текст, не связанный с диктовкой": "Any text, unrelated to dictation",
   "Обрабатывает": "Processed by",
-  "Как для диктовки": "Same as dictation",
   "Вставьте текст для обработки через выбранную LLM": "Paste text to process with the selected LLM",
   "Вставьте текст для обработки.": "Paste some text to process.",
   "Без LLM": "No LLM",
