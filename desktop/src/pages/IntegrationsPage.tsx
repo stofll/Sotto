@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { invoke } from "../bridge";
+import { confirmDestructive, invoke } from "../bridge";
 import { PageHeader, SectionLabel } from "../components/Shell";
 import { Icon } from "../components/Icon";
 import { Hint } from "../components/Hint";
@@ -21,7 +21,7 @@ import {
   type AiConfig,
   type LlmProfile,
 } from "./aiShared";
-import { collectSlots, EMPTY_KEY_INFO, type Slot } from "./apiKeySlots";
+import { collectSlots, EMPTY_KEY_INFO, withKeySlot, type KeySlotRecord, type Slot } from "./apiKeySlots";
 import { ModelField, useProviderModels } from "./providerModels";
 
 type Props = {
@@ -31,7 +31,6 @@ type Props = {
   onApiKeysChanged: (next: ApiKeyStatus) => void;
 };
 
-type KeySlotRecord = NonNullable<ConfigResult["ai_processing"]["key_slots"]>[number];
 
 type TestResponse = { available: boolean; message?: string; provider_error?: string; output?: string };
 
@@ -261,20 +260,37 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
 
   async function deleteProfile(target: LlmProfile) {
     if (!ai) return;
-    if (!window.confirm(t("Удалить профиль «{p0}»? API-ключ не удаляется автоматически.", { p0: target.name }))) return;
+    if (!await confirmDestructive(t("Удалить профиль «{p0}»? Ключ останется в списке, не привязанным к профилю.", { p0: target.name }))) return;
+    // The key is not deleted with the profile, so its ref has to survive the
+    // profile it was created with — otherwise it is lost, see `withKeySlot`.
+    // This covers profiles made before the wizard began registering them.
+    const keyRef = profileKeyRef(target);
+    const keySlots = apiKeys[keyRef]?.available
+      ? withKeySlot(ai.key_slots ?? [], {
+          ref: keyRef,
+          label: apiKeys[keyRef].label || target.name,
+          provider: target.provider,
+        })
+      : (ai.key_slots ?? []);
     const nextProfiles = profiles.filter((profile) => profile.id !== target.id);
     if (nextProfiles.length === 0) {
       // The last profile was deleted: the flat LLM fields stay operational and
       // only the reference to the active one goes out — the same state as on a
       // fresh install.
-      await saveAi(mergeAi(ai, { profiles: [], active_profile_id: "", profile_id: "" }), t("Профиль удалён."));
+      await saveAi(
+        mergeAi(ai, { profiles: [], active_profile_id: "", profile_id: "", key_slots: keySlots }),
+        t("Профиль удалён."),
+      );
       return;
     }
     const nextActiveId = ai.active_profile_id === target.id
       ? nextProfiles[0].id
       : (ai.active_profile_id || nextProfiles[0].id);
     const nextActive = nextProfiles.find((profile) => profile.id === nextActiveId) ?? nextProfiles[0];
-    await saveAi(activeConfigFromProfile(ai, nextActive, nextProfiles), t("Профиль удалён."));
+    await saveAi(
+      { ...activeConfigFromProfile(ai, nextActive, nextProfiles), key_slots: keySlots },
+      t("Профиль удалён."),
+    );
   }
 
   function toggleProfile(id: string) {
@@ -338,8 +354,18 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
       onApiKeysChanged({ ...apiKeys, [payload.newKey.ref]: { available: true, label: result.label, masked: result.masked } });
     }
     const nextProfiles = [...profiles, payload.profile];
+    const nextConfig = activeConfigFromProfile(ai, payload.profile, nextProfiles);
+    // The key is registered right away, not only once the profile goes: a ref
+    // the app has not written down is a ref it can never ask the store about.
+    const keySlots = payload.newKey
+      ? withKeySlot(ai.key_slots ?? [], {
+          ref: payload.newKey.ref,
+          label: payload.newKey.label,
+          provider: payload.profile.provider,
+        })
+      : (ai.key_slots ?? []);
     await saveAi(
-      activeConfigFromProfile(ai, payload.profile, nextProfiles),
+      { ...nextConfig, key_slots: keySlots },
       t("Профиль «{p0}» создан.", { p0: payload.profile.name }),
     );
     setExpandedProfiles((prev) => new Set([...prev, payload.profile.id]));
@@ -381,16 +407,16 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
   }
 
   async function deleteSlot(slot: Slot) {
-    if (!window.confirm(t("Удалить ключ «{p0}»? Профили, ссылающиеся на этот слот, останутся без ключа.", { p0: slot.title }))) return;
+    if (!await confirmDestructive(t("Удалить ключ «{p0}»? Профили, ссылающиеся на этот слот, останутся без ключа.", { p0: slot.title }))) return;
     await invoke<{ deleted: boolean }>("delete_api_key", { key_id: slot.ref });
     const next = { ...apiKeys };
     next[slot.ref] = EMPTY_KEY_INFO;
     onApiKeysChanged(next);
-    // A profile-less slot exists only as an entry in the config — we remove that
-    // too, otherwise the row hangs there empty forever.
-    if (slot.kind === "standalone") {
-      await saveKeySlots((ai?.key_slots ?? []).filter((item) => item.ref !== slot.ref));
-    }
+    // The registry entry goes with the key, whatever kind of row it was shown
+    // as: it exists to remember a ref that has a key behind it, and this one no
+    // longer has. A row belonging to a live profile stays — drawn from the
+    // profile, now without a key.
+    await saveKeySlots((ai?.key_slots ?? []).filter((item) => item.ref !== slot.ref));
     showMessage(t("Ключ удалён."));
   }
 
@@ -465,7 +491,7 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
           one of them. It is shown once there is enough on the page for looking
           things up to beat reading them. */}
       {slots.length + draftProfiles.length > 3 && (
-        <label className="input-search page-search">
+        <label className="input-search input-search--clearable page-search">
           <span className="input-search__icon"><Icon name="search" size={13}/></span>
           <input
             className="field"
@@ -475,7 +501,7 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
             onChange={(e) => setSearch(e.target.value)}
           />
           {search && (
-            <button type="button" className="icon-btn page-search__clear" onClick={() => setSearch("")} aria-label={t("Очистить поиск")}>
+            <button type="button" className="icon-btn input-search__clear" onClick={() => setSearch("")} aria-label={t("Очистить поиск")}>
               <Icon name="x" size={12}/>
             </button>
           )}
@@ -779,10 +805,9 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
                       <Hint text={replaceRevealed ? t("Скрыть ключ") : t("Показать ключ")}>
                         <button
                           type="button"
-                          className="btn btn--ghost"
+                          className="btn btn--icon field-reveal"
                           onClick={() => setReplaceRevealed((v) => !v)}
                           aria-label={replaceRevealed ? t("Скрыть ключ") : t("Показать ключ")}
-                          style={{ height: 30 }}
                         >
                           <Icon name={replaceRevealed ? "eye-off" : "eye"} size={13}/>
                         </button>
@@ -846,7 +871,7 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
                   <Hint text={newRevealed ? t("Скрыть ключ") : t("Показать ключ")}>
                     <button
                       type="button"
-                      className="btn btn--ghost"
+                      className="btn btn--icon field-reveal"
                       onClick={() => setNewRevealed((v) => !v)}
                       aria-label={newRevealed ? t("Скрыть ключ") : t("Показать ключ")}
                     >

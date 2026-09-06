@@ -5,6 +5,10 @@
 
 import { describe, it, expect } from "vitest";
 import {
+  COMPATIBLE_PRESETS,
+  PROVIDERS,
+  PROVIDER_CATALOG,
+  catalogGroup,
   DEFAULT_AI,
   profilesForAi,
   activeConfigFromProfile,
@@ -215,5 +219,46 @@ describe("llmRouteBlocker", () => {
     expect(llmRouteBlocker({ ...cloud, stt_model: "" }, withKey)).toBe("no_model");
     expect(llmRouteBlocker({ ...cloud, stt_model: undefined }, withKey)).toBeNull();
     expect(llmRouteBlocker({ ...cloud, stt_model: undefined, model: "" }, withKey)).toBe("no_model");
+  });
+});
+
+describe("PROVIDER_CATALOG", () => {
+  it("puts every entry of both lists on a shelf, except the blank", () => {
+    const catalog = PROVIDER_CATALOG();
+    const expected = PROVIDERS.filter((p) => p.id !== "compatible").length + COMPATIBLE_PRESETS().length;
+
+    expect(catalog).toHaveLength(expected);
+    // `compatible` is the hand-typed profile, and the wizard offers it above
+    // the shelves — in the catalogue it would read as a provider named
+    // «OpenAI-compatible».
+    expect(catalog.some((entry) => entry.id === "compatible")).toBe(false);
+  });
+
+  it("says what to do with a card by exactly one of the two fields", () => {
+    for (const entry of PROVIDER_CATALOG()) {
+      expect(Boolean(entry.provider) !== Boolean(entry.preset)).toBe(true);
+    }
+  });
+
+  // The grouping is the whole point of the catalogue: an adapter of its own is
+  // not what makes an entry a vendor, and the two lists must not show through.
+  it("groups by what the entry is, not by which adapter serves it", () => {
+    const groupOf = (id: string) => PROVIDER_CATALOG().find((entry) => entry.id === id)?.group;
+
+    // Its own adapter, and a preset for the shared one — the same shelf.
+    expect(groupOf("openai")).toBe("vendor");
+    expect(groupOf("deepseek")).toBe("vendor");
+    expect(groupOf("mistral")).toBe("vendor");
+    // Resellers, likewise on both sides of the split.
+    expect(groupOf("opencode-go")).toBe("aggregator");
+    expect(groupOf("openrouter")).toBe("aggregator");
+    // Not providers at all.
+    expect(groupOf("ollama")).toBe("local");
+    expect(groupOf("lmstudio")).toBe("local");
+    expect(groupOf("vllm")).toBe("local");
+  });
+
+  it("calls an unknown id a vendor — the common case for a new entry", () => {
+    expect(catalogGroup("some-new-provider")).toBe("vendor");
   });
 });

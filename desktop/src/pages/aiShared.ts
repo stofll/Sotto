@@ -74,6 +74,84 @@ export const COMPATIBLE_PRESETS = () => ([
   { id: "vllm", name: t("vLLM (локально)"), baseUrl: "http://localhost:8000/v1", suggestedModel: "your-model", signupHint: "docs.vllm.ai", logo: "vllm.svg" },
 ]);
 
+/**
+ * Which shelf an entry sits on in the wizard's catalogue.
+ *
+ * Deliberately not the split the two lists above make. Under the hood an entry
+ * is either a provider with an adapter of its own (`PROVIDERS`, dispatched by
+ * `build_provider` on the Rust side) or a base URL handed to the shared
+ * OpenAI-compatible client (`COMPATIBLE_PRESETS`) — but that is a fact about
+ * our code, not about the choice being made. The headings used to say «прямой
+ * провайдер» and «OpenAI-compatible пресеты», which put DeepSeek, Mistral,
+ * MiniMax and Moonshot — first-party APIs every one of them, as direct as
+ * OpenAI — into the second group, next to Ollama, which is not a provider at
+ * all. Whether a vendor speaks the OpenAI wire format is our problem to solve,
+ * not a question to ask at the first step.
+ */
+export type CatalogGroup = "vendor" | "aggregator" | "local";
+
+/** Sell access to other people's models rather than serving their own. */
+const AGGREGATOR_IDS = new Set(["opencode-go", "openrouter", "opencode"]);
+/** Run on the user's own machine: no account, no key, no bill. */
+const LOCAL_IDS = new Set(["lmstudio", "ollama", "vllm"]);
+
+/** A new entry is a vendor unless listed above — that is the common case. */
+export function catalogGroup(id: string): CatalogGroup {
+  if (AGGREGATOR_IDS.has(id)) return "aggregator";
+  if (LOCAL_IDS.has(id)) return "local";
+  return "vendor";
+}
+
+export const CATALOG_GROUPS = (): Array<{ id: CatalogGroup; label: string }> => ([
+  { id: "vendor", label: t("Провайдеры") },
+  { id: "aggregator", label: t("Агрегаторы") },
+  { id: "local", label: t("Локально") },
+]);
+
+export type CatalogEntry = {
+  id: string;
+  name: string;
+  group: CatalogGroup;
+  /// The endpoint. Shown only for the local group, where the port is what you
+  /// check against the server you have running; elsewhere the brand is the
+  /// whole answer and the address is confirmed on the last step anyway.
+  meta: string;
+  logo?: string;
+  icon: string;
+  color: string;
+  /// Exactly one of the two is set, and it decides what picking the card does.
+  provider?: ProviderConfig;
+  preset?: CompatiblePreset;
+};
+
+/** Both lists as one catalogue, sorted by name inside a group. */
+export function PROVIDER_CATALOG(): CatalogEntry[] {
+  const providers = PROVIDERS
+    // The blank has its own place in the wizard, above the shelves.
+    .filter((provider) => provider.id !== "compatible")
+    .map<CatalogEntry>((provider) => ({
+      id: provider.id,
+      name: provider.name,
+      group: catalogGroup(provider.id),
+      meta: "",
+      logo: provider.logo,
+      icon: provider.icon,
+      color: provider.dot,
+      provider,
+    }));
+  const presets = COMPATIBLE_PRESETS().map<CatalogEntry>((preset) => ({
+    id: preset.id,
+    name: preset.name,
+    group: catalogGroup(preset.id),
+    meta: preset.baseUrl,
+    logo: preset.logo,
+    icon: "brand-compatible",
+    color: "var(--text-2)",
+    preset,
+  }));
+  return [...providers, ...presets].sort((a, b) => a.name.localeCompare(b.name));
+}
+
 // Both presets are one prompt with two differing blocks: whether lists may be
 // emitted and what counts as an acceptable single-line paragraph. They used to
 // be two complete copies and had already begun to diverge in wording, whereas an

@@ -22,6 +22,9 @@ export interface ProviderModelsQuery {
     provider: string;
     baseUrl?: string;
     apiKeyRef?: string;
+    /// A key that has no ref yet — the wizard has it typed but not saved. The
+    /// stored key wins when the ref resolves to one; see `model_request_key`.
+    apiKey?: string;
 }
 
 /** How long «вариантов от провайдера: N» stays on screen. It is a receipt for
@@ -72,6 +75,7 @@ export function useProviderModels(): ProviderModelsState {
                 provider: query.provider,
                 base_url: query.baseUrl ?? null,
                 api_key_ref: query.apiKeyRef ?? null,
+                api_key: query.apiKey ?? null,
             });
             setModels((current) => ({ ...current, [cacheKey]: list }));
             setLoadedAt((current) => ({ ...current, [cacheKey]: Date.now() }));
@@ -85,7 +89,7 @@ export function useProviderModels(): ProviderModelsState {
     return { models, loadedAt, loadingKey, errors, load };
 }
 
-export function ModelField({ cacheKey, value, onChange, onCommit, fallbackSuggestions, query, state, inputStyle }: {
+export function ModelField({ cacheKey, value, onChange, onCommit, fallbackSuggestions, query, state, inputStyle, placeholder }: {
     cacheKey: string;
     value: string;
     onChange: (next: string) => void;
@@ -100,6 +104,7 @@ export function ModelField({ cacheKey, value, onChange, onCommit, fallbackSugges
     query: ProviderModelsQuery;
     state: ProviderModelsState;
     inputStyle?: React.CSSProperties;
+    placeholder?: string;
 }) {
     const [openSignal, setOpenSignal] = useState(0);
     const fetched = state.models[cacheKey];
@@ -131,6 +136,7 @@ export function ModelField({ cacheKey, value, onChange, onCommit, fallbackSugges
                     suggestions={suggestions}
                     onChange={onChange}
                     onCommit={() => onCommit?.()}
+                    placeholder={placeholder}
                     openSignal={openSignal}
                 />
                 {/* The app's own bubble rather than the browser's `title`: the

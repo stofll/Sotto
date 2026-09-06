@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { collectSlots } from "./apiKeySlots";
+import { collectSlots, withKeySlot } from "./apiKeySlots";
 import type { ApiKeyStatus, ConfigResult } from "../bridge/types";
 
 type Ai = ConfigResult["ai_processing"];
@@ -67,5 +67,33 @@ describe("collectSlots", () => {
     const slots = collectSlots(config, { key_a: filled, key_b: filled, openai: filled });
 
     expect(slots.map((s) => s.ref).sort()).toEqual(["key_a", "key_b", "openai"]);
+  });
+});
+
+describe("withKeySlot", () => {
+  // The bug: three keys in the store, two rows on the page. The third belonged
+  // to a profile that had been deleted, and since the OS store cannot be
+  // enumerated, its ref was gone — the key sat in Credential Manager with
+  // nothing in the app pointing at it.
+  it("keeps the key of a deleted profile on the page", () => {
+    const record = { ref: "key_profile_mq8j7rjc", label: "neura", provider: "compatible" };
+    const config = ai({ profiles: [], key_slots: withKeySlot([], record) });
+    const keys: ApiKeyStatus = { key_profile_mq8j7rjc: filled };
+
+    const slots = collectSlots(config, keys);
+
+    const slot = slots.find((item) => item.ref === record.ref);
+    expect(slot?.kind).toBe("standalone");
+    expect(slot?.title).toBe("neura");
+  });
+
+  it("registers a ref once, however often it is written down", () => {
+    const record = { ref: "key_a", label: "A", provider: "compatible" };
+    const once = withKeySlot([], record);
+
+    expect(withKeySlot(once, record)).toHaveLength(1);
+    // Same ref, later label — the first record stands. The label is edited
+    // through «Заменить ключ», not by re-registering.
+    expect(withKeySlot(once, { ...record, label: "renamed" })[0].label).toBe("A");
   });
 });

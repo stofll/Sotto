@@ -10,6 +10,23 @@ export function profileKeyRef(profile: Pick<LlmProfile, "id" | "provider" | "api
   return profile.api_key_ref || (profile.id === "default" ? profile.provider : `key_${profile.id}`);
 }
 
+export type KeySlotRecord = NonNullable<ConfigResult["ai_processing"]["key_slots"]>[number];
+
+/**
+ * Writes a ref down in the list of known key slots, if it is not there already.
+ *
+ * The OS store cannot be enumerated — `has_api_key` only answers about a ref
+ * somebody already knows (see `key_slots` in bridge/types). A key created by
+ * the wizard together with its profile was known through that profile alone,
+ * so deleting the profile — which deliberately leaves the key in place — threw
+ * the ref away: the key stayed in Credential Manager with nothing in the UI
+ * pointing at it, impossible to see, reuse or delete. Every key the app creates
+ * is registered here, and the record outlives the profile.
+ */
+export function withKeySlot(slots: KeySlotRecord[], record: KeySlotRecord): KeySlotRecord[] {
+  return slots.some((item) => item.ref === record.ref) ? slots : [...slots, record];
+}
+
 export type Slot = {
   ref: string;
   kind: "profile" | "default" | "standalone";

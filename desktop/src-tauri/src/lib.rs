@@ -2005,11 +2005,28 @@ async fn set_hotkey(
     config.save(&app).map_err(|e| format!("config save: {e}"))
 }
 
+/// Which key `fetch_provider_models` sends: the stored one whenever the ref
+/// resolved to something, and only otherwise the value handed in.
+///
+/// The order matters. A profile being edited passes both — its ref, and
+/// whatever sits in the wizard's field from an earlier visit — and the store
+/// is the truth about what that profile actually authenticates with.
+fn model_request_key(stored: String, passed: Option<String>) -> String {
+    if !stored.trim().is_empty() {
+        return stored;
+    }
+    passed.map(|value| value.trim().to_string()).unwrap_or_default()
+}
+
 /// Ask a provider which models it currently serves.
 ///
-/// The key is looked up from the secret store here rather than passed in:
-/// the frontend knows the ref, never the value, and this endpoint should
-/// not become the one place that changes that.
+/// The key normally comes from the secret store: the frontend holds a ref and
+/// not the value. `api_key` is the exception this was widened for — in the
+/// «Новый профиль» wizard the key has been typed but not yet saved, so there is
+/// no ref to look up, and without it the «запросить модели» button would be
+/// dead in exactly the flow that needs it most. The value crosses the same IPC
+/// boundary as `save_api_key`, which the wizard calls moments later with the
+/// same string; a ref, when it resolves, still wins.
 ///
 /// Errors come back as plain strings for display next to the model field.
 /// A failed list is not a failed configuration — the user can still type a
@@ -2019,13 +2036,15 @@ async fn fetch_provider_models(
     provider: String,
     base_url: Option<String>,
     api_key_ref: Option<String>,
+    api_key: Option<String>,
 ) -> Result<Vec<String>, String> {
-    let api_key = match api_key_ref.filter(|value| !value.trim().is_empty()) {
+    let stored = match api_key_ref.filter(|value| !value.trim().is_empty()) {
         Some(reference) => crate::secret_store::get_key(&reference)
             .map_err(|e| format!("secret_store get_key({reference}): {e}"))?
             .unwrap_or_default(),
         None => String::new(),
     };
+    let api_key = model_request_key(stored, api_key);
     crate::ai::models::fetch_models(&provider, base_url.as_deref(), &api_key).await
 }
 
@@ -2133,6 +2152,33 @@ fn has_transcription_route(
     selected_downloaded: bool,
 ) -> bool {
     pipeline_mode == "cloud" || loaded_model.is_some() || selected_downloaded
+}
+
+#[cfg(test)]
+mod model_request_key_tests {
+    use super::model_request_key;
+
+    /// The wizard's case: nothing is stored under the ref yet, because the key
+    /// is still only in the field.
+    #[test]
+    fn falls_back_to_the_value_handed_in() {
+        assert_eq!(model_request_key(String::new(), Some("sk-typed".into())), "sk-typed");
+        assert_eq!(model_request_key("   ".into(), Some("sk-typed".into())), "sk-typed");
+    }
+
+    /// An existing profile passes both. The store is what it authenticates
+    /// with, so a stale field must not quietly take over.
+    #[test]
+    fn the_stored_key_wins_when_there_is_one() {
+        assert_eq!(model_request_key("sk-stored".into(), Some("sk-typed".into())), "sk-stored");
+    }
+
+    /// A local server needs no key at all, and neither side has one.
+    #[test]
+    fn an_empty_result_is_a_valid_answer() {
+        assert_eq!(model_request_key(String::new(), None), "");
+        assert_eq!(model_request_key(String::new(), Some("  ".into())), "");
+    }
 }
 
 #[cfg(test)]
