@@ -20,6 +20,8 @@ import {
   SYSTEM_PROMPT_PRESETS,
   textProfileFor,
   llmRouteBlocker,
+  profileGap,
+  profileKeyInfo,
   type LlmProfile,
 } from "./aiShared";
 
@@ -219,6 +221,39 @@ describe("llmRouteBlocker", () => {
     expect(llmRouteBlocker({ ...cloud, stt_model: "" }, withKey)).toBe("no_model");
     expect(llmRouteBlocker({ ...cloud, stt_model: undefined }, withKey)).toBeNull();
     expect(llmRouteBlocker({ ...cloud, stt_model: undefined, model: "" }, withKey)).toBe("no_model");
+  });
+});
+
+describe("profileGap", () => {
+  const base = mergeAi(null, {});
+  const saved = (patch: Partial<LlmProfile>) => normalizeProfile(base, { id: "voice", name: "Voice", provider: "openai", model: "gpt-4o-mini", ...patch });
+  const inSlot = { key_voice: { available: true, label: "OpenAI", masked: "sk-…12" } };
+
+  it("passes a profile whose key sits in its own slot", () => {
+    expect(profileGap(saved({}), inSlot)).toBeNull();
+  });
+
+  it("names what is missing", () => {
+    // `normalizeProfile` always supplies a provider, so an empty one can only
+    // arrive from a config written by hand — which is exactly when saying
+    // «провайдер не выбран» instead of silently sending nowhere matters.
+    expect(profileGap({ id: "voice", provider: "", model: "gpt-4o-mini", api_key_ref: "key_voice" }, inSlot)).toBe("no_provider");
+    expect(profileGap(saved({ model: "  " }), inSlot)).toBe("no_model");
+    expect(profileGap(saved({}), {})).toBe("no_key");
+  });
+
+  /** The pill next to the picker and the note under the manual panel read the
+   *  key the same way, or one of them would contradict the other. */
+  it("reads the default profile's key from the bare provider id", () => {
+    const legacy = normalizeProfile(base, { id: "default", provider: "openai", model: "gpt-4o-mini", api_key_ref: "" });
+    const byProvider = { openai: { available: true, label: "OpenAI", masked: "sk-…12" } };
+    expect(profileKeyInfo(legacy, byProvider).available).toBe(true);
+    expect(profileGap(legacy, byProvider)).toBeNull();
+  });
+
+  it("reports no key rather than throwing on an unknown slot", () => {
+    expect(profileKeyInfo(saved({ api_key_ref: "gone" }), inSlot).available).toBe(false);
+    expect(profileGap(saved({ api_key_ref: "gone" }), inSlot)).toBe("no_key");
   });
 });
 

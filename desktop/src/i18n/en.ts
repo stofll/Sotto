@@ -562,14 +562,18 @@ export const en: Record<string, string | string[]> = {
   // ── LLM: prompt and parameters ─────────────────────────────────────────
   "Системный промпт": "System prompt",
   "Системный промпт сохранён.": "System prompt saved.",
+  "Маршрут обработки": "Processing route",
+  "Что происходит с записью после диктовки: где распознаётся речь и вызывается ли LLM.":
+    "What happens to a recording after dictation: where speech is recognised, and whether the LLM is called.",
+  "Профиль": "Profile",
+  "В этом режиме профиль и промпт не используются: LLM не вызывается.":
+    "This mode uses neither the profile nor the prompt: the LLM is never called.",
+  "Панель работает на профиле «{p0}».": "This panel runs on the “{p0}” profile.",
   "Сохранить промпт": "Save prompt",
   "Что приложение дописывает к промпту": "What the app appends to your prompt",
   "Эти правила отправляются после твоего промпта при каждом запросе — они одинаковы для всех пресетов и профилей, и их нельзя отредактировать. Показаны, чтобы было видно, что модель получает целиком.": "These rules are sent after your prompt on every request. They are the same for every preset and profile and cannot be edited — shown here so you can see everything the model receives.",
-  "Инструкции, которые отправляются модели перед каждым запросом. Шаблон поддерживает плейсхолдеры {{language}} и {{transcript}}.":
-    "Instructions sent to the model with every request. The template supports the {{language}} and {{transcript}} placeholders.",
-  "Пресеты:": "Presets:",
-  "Кликни пресет, сохрани и протестируй на длинной записи через «Обработать через LLM» в истории.":
-    "Pick a preset, save it, then try it on a long recording with “Process with the LLM” in the history.",
+  "Инструкции, которые отправляются модели перед каждым запросом. Шаблон поддерживает плейсхолдеры {{language}} и {{transcript}}. Выбери пресет, сохрани и протестируй на длинной записи через «Обработать через LLM» в истории.":
+    "Instructions sent to the model with every request. The template supports the {{language}} and {{transcript}} placeholders. Pick a preset, save it, then try it on a long recording with “Process with the LLM” in the history.",
   "Только абзацы. Безопасно для любых текстовых полей.": "Paragraphs only. Safe for any text field.",
   "Абзацы + маркированные/нумерованные списки при явном перечислении.":
     "Paragraphs plus bulleted and numbered lists when the speech clearly enumerates.",
@@ -648,7 +652,6 @@ export const en: Record<string, string | string[]> = {
   "ключ сохранён": "key saved",
   "Ключ сохранён.": "Key saved.",
   "Ключ удалён.": "Key deleted.",
-  "Ключ профиля не задан.": "The profile has no key.",
   "Удалить ключ «{p0}»? Профили, ссылающиеся на этот слот, останутся без ключа.":
     "Delete the key “{p0}”? Profiles pointing at this slot will be left without one.",
   "Сохранять записи в WAV": "Save recordings as WAV",
@@ -756,7 +759,6 @@ export const en: Record<string, string | string[]> = {
   "Раздел статистики загружается как часть MVP.": "The statistics section ships as part of the MVP.",
   "Справочный раздел будет подключен позже.": "The help section will be wired up later.",
   "{p0} копия": "{p0} copy",
-  "model не задан": "no model set",
   "LLM не настроена, вставлен локальный текст": "LLM is not set up, local text pasted",
   "LLM не ответила, вставлен локальный текст": "The LLM did not answer; local text was pasted",
   "Лимит LLM, вставлен локальный текст": "LLM rate limit; local text was pasted",
@@ -782,7 +784,6 @@ export const en: Record<string, string | string[]> = {
 
   // ── Integrations ───────────────────────────────────────────────────────
   "Ключ сохранён. Привяжите его к профилю в поле «Key ref».": "Key saved. Bind it to a profile via the “Key ref” field.",
-  "Один профиль = одна связка provider + ключ + модель. Создаются и редактируются они в «Интеграциях»; здесь профиль только выбирают.": "One profile = one provider + key + model triple. They are created and edited in Integrations; here you only pick one.",
   "Провайдеры и ключи": "Providers and keys",
   "Профилей ещё нет. Профиль — это связка «провайдер + ключ + модель»; из него LLM-обработка берёт всё, что ей нужно.": "No profiles yet. A profile is a provider + key + model triple; LLM processing takes everything it needs from it.",
   "Профилей пока нет. Настройки LLM ниже применяются к базовой конфигурации; профиль нужен, чтобы хранить несколько связок «провайдер + ключ + модель».": "No profiles yet. The LLM settings below apply to the base config; a profile lets you keep several provider + key + model triples.",

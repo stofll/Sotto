@@ -1,6 +1,6 @@
 import { createElement } from "react";
 import { Icon } from "../components/Icon";
-import type { ApiKeyStatus, ConfigResult } from "../bridge/types";
+import type { ApiKeyInfo, ApiKeyStatus, ConfigResult } from "../bridge/types";
 import { t } from "../i18n";
 
 export type AiConfig = ConfigResult["ai_processing"];
@@ -397,6 +397,41 @@ export function llmRouteBlocker(ai: AiConfig | null, apiKeys: ApiKeyStatus): Llm
   if (!model?.trim()) return "no_model";
   if (!apiKeys[ai?.api_key_ref ?? ""]?.available) return "no_key";
   return null;
+}
+
+export const EMPTY_KEY_INFO: ApiKeyInfo = { available: false, label: "", masked: "" };
+
+/** The key slot a profile actually reads. `profileKeyRef` names it, but a
+ *  profile from before the slots existed keeps its key under the bare provider
+ *  id, so the lookup falls back to that. */
+export function profileKeyInfo(
+  profile: Pick<LlmProfile, "id" | "provider" | "api_key_ref">,
+  apiKeys: ApiKeyStatus,
+): ApiKeyInfo {
+  const ref = profileKeyRef(profile);
+  return apiKeys[ref] ?? (profile.id === "default" ? apiKeys[profile.provider] ?? EMPTY_KEY_INFO : EMPTY_KEY_INFO);
+}
+
+/** The question `llmRouteBlocker` asks of the dictation route, asked of one
+ *  saved profile. Manual processing may run on a different profile, and it used
+ *  to answer in its own words («model не задан», «Ключ профиля не задан.») for
+ *  the same two states the route card already had wording for. */
+export function profileGap(
+  profile: Pick<LlmProfile, "id" | "provider" | "model" | "api_key_ref">,
+  apiKeys: ApiKeyStatus,
+): LlmRouteBlocker {
+  if (!profile.provider?.trim()) return "no_provider";
+  if (!profile.model?.trim()) return "no_model";
+  if (!profileKeyInfo(profile, apiKeys).available) return "no_key";
+  return null;
+}
+
+/** What exactly stops the request from reaching the provider. */
+export function gapReason(gap: NonNullable<LlmRouteBlocker>): string {
+  if (gap === "no_provider") return t("Провайдер LLM не выбран. Настройте его в «Интеграциях».");
+  if (gap === "invalid_base_url") return t("Для облачного распознавания укажите Base URL с http:// или https://.");
+  if (gap === "no_model") return t("Модель обработки не выбрана.");
+  return t("Для обработки нет сохранённого API-ключа.");
 }
 
 export function activeConfigFromProfile(ai: AiConfig, profile: LlmProfile, profiles: LlmProfile[]): AiConfig {

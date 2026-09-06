@@ -918,6 +918,10 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
    button in one row. */
 .active-profile { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .active-profile__pick { flex: 1 1 260px; min-width: 200px; }
+.active-profile__label { font: 600 10px/1 var(--font-mono); color: var(--ink-mute); text-transform: uppercase; letter-spacing: 0.05em; }
+/* The profile the mode above will be routed through. */
+.ai-mode-grid + .active-profile,
+.ai-mode-grid + .list-empty { margin-top: 14px; }
 .profile-add { appearance: none; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 32px; padding: 0 12px; border-radius: var(--radius-sm); border: 1px dashed var(--line-strong); background: transparent; color: var(--ink-dim); font: 500 12px/1 var(--font-sans); }
 .profile-add:hover:not(:disabled) { background: var(--bg-2); color: var(--ink); border-color: var(--accent-soft-2); }
 .profile-add--primary { background: var(--accent); color: var(--accent-ink); border-style: solid; border-color: transparent; box-shadow: 0 1px 0 rgba(255,255,255,0.18) inset, 0 1px 0 rgba(0,0,0,0.18); }
@@ -1783,6 +1787,7 @@ button.card { appearance: none; font: inherit; color: inherit; }
   transition: border-color .15s, background .15s;
 }
 .ai-mode-card:hover:not(:disabled) { border-color: var(--accent-soft-2); }
+.ai-mode-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .ai-mode-card[data-selected="true"] {
   border-color: var(--accent);
   background: var(--accent-soft);
@@ -1805,15 +1810,21 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .ai-mode-card__desc { font: 400 12px/1.5 var(--font-sans); color: var(--ink-mute); }
 .ai-mode-card[data-selected="true"] .ai-mode-card__desc { color: var(--ink-dim); }
 
-/* The warning under the mode grid: a yellow pill of the same kind as «у
+/* Why a request cannot leave — under the route, and under the manual panel
+   when it runs on a profile of its own. A yellow pill of the same kind as «у
    профиля свой промпт» further down the page. */
-.ai-mode-warning {
+.route-note {
   display: flex; align-items: flex-start; gap: 8px; flex-wrap: wrap;
   margin-top: 10px; padding: 9px 11px;
   border-radius: var(--radius-sm);
   background: var(--warn-soft);
   border: 1px solid rgba(251,191,36,0.30);
 }
+
+/* Local-only mode: the profile and the prompt above are simply not used. Said
+   in words rather than by dimming the row — the profile can still be prepared
+   here, and a greyed control that answers clicks is its own puzzle. */
+.route-idle { margin: 10px 0 0; font: 400 11.5px/1.45 var(--font-sans); color: var(--ink-mute); }
 
 @media (max-width: 900px) {
   .ai-mode-grid { grid-template-columns: 1fr; }
