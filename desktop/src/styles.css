@@ -705,6 +705,11 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 .custom-select__option:disabled { opacity: .42; cursor: not-allowed; background: transparent; border-color: transparent; }
 .custom-select__option > .custom-select__text { grid-column: 2; }
 .custom-select__option > .custom-select__check { grid-column: 3; justify-self: end; display: inline-flex; }
+/* No option in this menu has an icon, so the column reserved for one is not
+   just empty — it also drops its gutter in front of every row. */
+.custom-select__menu--no-icons .custom-select__option { grid-template-columns: minmax(0, 1fr) 18px; }
+.custom-select__menu--no-icons .custom-select__option > .custom-select__text { grid-column: 1; }
+.custom-select__menu--no-icons .custom-select__option > .custom-select__check { grid-column: 2; }
 /* A card with an open menu used to be lifted above its neighbours: the menu
    lay inside it and fell under stacking contexts created by the fade-in
    animation. Now all three menus leave via a portal into body and compete with

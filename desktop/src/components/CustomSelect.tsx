@@ -95,6 +95,12 @@ export function CustomSelect<T extends string | number | null>({ value, options,
   // The menu is portalled into body, so a modifier put on the root would not
   // reach it: both need the class.
   const metaMod = inlineMeta && metaSeparator === "dash" ? "meta-dash" : "";
+  // An option row reserves a column for the icon so that rows with and without
+  // one line up. When no option in the list has an icon the reserved column is
+  // zero wide — but the grid still draws its gutter, and every row in the menu
+  // started 8px in from nothing. Read from `options` rather than the filtered
+  // list, so a search that hides the only icon does not shift the rows.
+  const menuHasIcons = options.some((option) => option.icon);
 
   const pick = (option: SelectOption<T>) => {
     if (disabled || option.disabled) return;
@@ -113,7 +119,7 @@ export function CustomSelect<T extends string | number | null>({ value, options,
         <Icon name="chev-down" size={14} className="custom-select__chev"/>
       </button>
       {open && createPortal((
-        <div className={`custom-select__menu${searchable ? " custom-select__menu--search" : ""}${inlineMeta ? " custom-select__menu--inline-meta" : ""}${metaMod ? ` custom-select__menu--${metaMod}` : ""}`} role="listbox" ref={menuRef} style={menuStyle}>
+        <div className={`custom-select__menu${searchable ? " custom-select__menu--search" : ""}${inlineMeta ? " custom-select__menu--inline-meta" : ""}${metaMod ? ` custom-select__menu--${metaMod}` : ""}${menuHasIcons ? "" : " custom-select__menu--no-icons"}`} role="listbox" ref={menuRef} style={menuStyle}>
           {searchable && (
             <div className="custom-select__search">
               <Icon name="search" size={13}/>
