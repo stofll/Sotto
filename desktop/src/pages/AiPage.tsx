@@ -444,15 +444,11 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
 
   return (
     <div className="page">
-      <PageHeader
-        title={t("LLM-обработка")}
-        actions={<>
-          {profiles.length > 0
-            ? <span className="pill accent" title={t("Активный профиль · {p0} / {p1}", { p0: provider.name, p1: ai.model })}>{activeProfile.name}</span>
-            : <span className="pill" title={t("Профили ещё не созданы")}>{t("нет профилей")}</span>}
-          <button className="btn btn--ghost" onClick={() => onNavigate("integrations")}><Icon name="server" size={12}/>{t("Интеграции")}</button>
-        </>}
-      />
+      {/* No actions in the header. The profile pill repeated the picker two
+          rows below it, and «Интеграции» repeated «Управлять профилями» in the
+          same row as that picker — a second copy of both, further from what
+          they act on. */}
+      <PageHeader title={t("LLM-обработка")}/>
 
       {message && <div style={{ padding: "10px 12px", borderRadius: 8, background: "var(--bg-2)", border: "1px solid var(--line)", font: "500 12px/1.4 var(--font-sans)", marginBottom: 14 }}>{message}</div>}
 
@@ -546,7 +542,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
                 ><Icon name="spark" size={12}/>{testLoading ? t("Отправляю…") : t("Пробный запрос")}</button>
               </Hint>
               <button className="btn btn--ghost" onClick={() => onNavigate("integrations")}>
-                <Icon name="server" size={12}/>{t("Управлять профилями")}<Icon name="arrow-right" size={11}/>
+                <Icon name="server" size={12}/>{t("Управлять профилями")}
               </button>
               <button
                 className="btn btn--ghost"
@@ -567,44 +563,25 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
               happened to be picked here. */}
           {advancedShown && (
             <div className="route-advanced">
-              <div className="split-setting-grid split-setting-grid--3">
-                <div className="split-setting-cell">
-                  <div>
-                    <h3>{t("Порог LLM")}<Hint text={t("LLM запускается только для записей не короче этого значения. 0 = обрабатывать все.")}/></h3>
-                    <p>{t("у профиля свой")}</p>
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <NumberField className="mono" min={0} step={5} value={ai.llm_min_duration_seconds ?? 0}
-                      onValueChange={(next) => void saveAi({ llm_min_duration_seconds: Math.max(0, Number(next) || 0) })} style={{ width: 90, height: 34 }}/>
-                    <span style={{ font: "500 12px/1 var(--font-sans)", color: "var(--ink-dim)" }}>{t("секунд")}</span>
-                  </div>
-                </div>
-                <div className="split-setting-cell">
-                  <div>
-                    <h3>{t("Таймаут LLM")}<Hint text={t("Если провайдер не ответит за это время — вставится локально обработанный текст и fallback запишется в историю.")}/></h3>
-                    <p>{t("у профиля свой")}</p>
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <NumberField className="mono" min={1} max={60} step={1} value={ai.llm_timeout_seconds ?? 12}
-                      onValueChange={(next) => void saveAi({ llm_timeout_seconds: Math.max(1, Math.min(60, Number(next) || 12)) })} style={{ width: 90, height: 34 }}/>
-                    <span style={{ font: "500 12px/1 var(--font-sans)", color: "var(--ink-dim)" }}>{t("секунд")}</span>
-                  </div>
-                </div>
-                {/* Read by Rust since cloud transcription existed, and until now
-                    changeable only by hand-editing config.json. Unlike the two
-                    beside it this one is not stored on the profile — hence the
-                    different caption. */}
-                <div className="split-setting-cell">
-                  <div>
-                    <h3>{t("Таймаут облачного STT")}<Hint text={t("Сколько ждать ответа /audio/transcriptions в облачном режиме. Распознавать больше нечем, поэтому по истечении диктовка завершится ошибкой.")}/></h3>
-                    <p>{t("для всех профилей")}</p>
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <NumberField className="mono" min={5} max={300} step={5} value={ai.cloud_stt_timeout_seconds ?? 45}
-                      onValueChange={(next) => void saveAi({ cloud_stt_timeout_seconds: Math.max(5, Math.min(300, Number(next) || 45)) })} style={{ width: 90, height: 34 }}/>
-                    <span style={{ font: "500 12px/1 var(--font-sans)", color: "var(--ink-dim)" }}>{t("секунд")}</span>
-                  </div>
-                </div>
+              <div className="route-advanced__cell">
+                <h3>{t("Порог LLM")}<Hint text={t("LLM запускается только для записей не короче этого значения. 0 = обрабатывать все. Значение своё у каждого профиля.")}/></h3>
+                <NumberField className="mono" min={0} step={5} value={ai.llm_min_duration_seconds ?? 0}
+                  onValueChange={(next) => void saveAi({ llm_min_duration_seconds: Math.max(0, Number(next) || 0) })} style={{ width: 84 }}/>
+                <span className="route-advanced__unit">{t("секунд")}</span>
+              </div>
+              <div className="route-advanced__cell">
+                <h3>{t("Таймаут LLM")}<Hint text={t("Если провайдер не ответит за это время — вставится локально обработанный текст и fallback запишется в историю. Значение своё у каждого профиля.")}/></h3>
+                <NumberField className="mono" min={1} max={60} step={1} value={ai.llm_timeout_seconds ?? 12}
+                  onValueChange={(next) => void saveAi({ llm_timeout_seconds: Math.max(1, Math.min(60, Number(next) || 12)) })} style={{ width: 84 }}/>
+                <span className="route-advanced__unit">{t("секунд")}</span>
+              </div>
+              {/* Read by Rust since cloud transcription existed, and until now
+                  changeable only by hand-editing config.json. */}
+              <div className="route-advanced__cell">
+                <h3>{t("Таймаут облачного STT")}<Hint text={t("Сколько ждать ответа /audio/transcriptions в облачном режиме. Распознавать больше нечем, поэтому по истечении диктовка завершится ошибкой. Значение общее для всех профилей.")}/></h3>
+                <NumberField className="mono" min={5} max={300} step={5} value={ai.cloud_stt_timeout_seconds ?? 45}
+                  onValueChange={(next) => void saveAi({ cloud_stt_timeout_seconds: Math.max(5, Math.min(300, Number(next) || 45)) })} style={{ width: 84 }}/>
+                <span className="route-advanced__unit">{t("секунд")}</span>
               </div>
             </div>
           )}

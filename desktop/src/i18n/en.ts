@@ -495,7 +495,6 @@ export const en: Record<string, string | string[]> = {
   "Пока этого нет, распознавать нечем: диктовка завершится ошибкой.": "Until then there is nothing to transcribe with: dictation will fail.",
   "Профили провайдеров": "Provider profiles",
   "Активный профиль": "Active profile",
-  "Активный профиль · {p0} / {p1}": "Active profile · {p0} / {p1}",
   "Активный профиль: «{p0}».": "Active profile: “{p0}”.",
   "Новый профиль": "New profile",
   "Показать список моделей": "Show the model list",
@@ -523,8 +522,6 @@ export const en: Record<string, string | string[]> = {
   "Профиль «{p0}» теперь активный.": "Profile “{p0}” is now active.",
   "Профиль переименован.": "Profile renamed.",
   "Профиль удалён.": "Profile deleted.",
-  "Профили ещё не созданы": "No profiles yet",
-  "нет профилей": "no profiles",
   "Провайдер": "Provider",
   "Провайдеры": "Providers",
   "Агрегаторы": "Aggregators",
@@ -579,17 +576,15 @@ export const en: Record<string, string | string[]> = {
     "Paragraphs plus bulleted and numbered lists when the speech clearly enumerates.",
   "Со списками": "With lists",
   "Порог LLM": "LLM threshold",
-  "LLM запускается только для записей не короче этого значения. 0 = обрабатывать все.":
-    "The LLM only runs for recordings at least this long. 0 processes everything.",
   "Таймаут LLM": "LLM timeout",
   "LLM timeout {p0} с": "LLM timeout {p0} s",
-  "Если провайдер не ответит за это время — вставится локально обработанный текст и fallback запишется в историю.":
-    "If the provider does not answer in time, the locally processed text is pasted and the fallback is recorded in the history.",
   "Таймаут облачного STT": "Cloud STT timeout",
-  "Сколько ждать ответа /audio/transcriptions в облачном режиме. Распознавать больше нечем, поэтому по истечении диктовка завершится ошибкой.":
-    "How long to wait for /audio/transcriptions in cloud mode. There is nothing else to transcribe with, so dictation fails once it runs out.",
-  "у профиля свой": "per profile",
-  "для всех профилей": "all profiles",
+  "Сколько ждать ответа /audio/transcriptions в облачном режиме. Распознавать больше нечем, поэтому по истечении диктовка завершится ошибкой. Значение общее для всех профилей.":
+    "How long to wait for /audio/transcriptions in cloud mode. There is nothing else to transcribe with, so dictation fails once it runs out. One value for every profile.",
+  "Если провайдер не ответит за это время — вставится локально обработанный текст и fallback запишется в историю. Значение своё у каждого профиля.":
+    "If the provider does not answer in time, the locally processed text is pasted and the fallback is recorded in the history. Each profile has its own value.",
+  "LLM запускается только для записей не короче этого значения. 0 = обрабатывать все. Значение своё у каждого профиля.":
+    "The LLM only runs for recordings at least this long. 0 processes everything. Each profile has its own value.",
   "Отправить пробный запрос в {p0} ({p1})? Запрос уйдёт провайдеру и спишет токены.":
     "Send a trial request to {p0} ({p1})? It goes to the provider and spends tokens.",
   "Отправить": "Send",

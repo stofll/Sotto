@@ -211,7 +211,18 @@ button, input, textarea, select { font: inherit; }
 .app-frame .scroll-visible::-webkit-scrollbar-thumb { background: var(--bg-5); border: 2px solid transparent; background-clip: padding-box; border-radius: 999px; }
 .app-frame .scroll-visible::-webkit-scrollbar-thumb:hover { background: var(--accent-soft-2); background-clip: padding-box; }
 
-.btn { appearance: none; border: 1px solid var(--line-strong); background: var(--bg-2); color: var(--ink); font: 500 13px/1 var(--font-sans); height: 32px; padding: 0 12px; border-radius: var(--radius-sm); display: inline-flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; transition: background .12s ease, border-color .12s ease, color .12s ease; }
+.btn { appearance: none; border: 1px solid var(--line-strong); background: var(--bg-2); color: var(--ink); font: 500 13px/1 var(--font-sans); height: 32px; padding: 0 12px; border-radius: var(--radius-sm); display: inline-flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer; transition: background .12s ease, border-color .12s ease, color .12s ease; }
+/* Optical, not geometric, centring of a label that starts with an icon.
+   Every glyph in `Icon` is drawn inset inside its 16-unit viewBox — the server
+   rack spans 2.5..13.5, the plus 3..13 — so at 12px the drawn mark starts ~2px
+   inside its own box. The button centres the boxes, which leaves ~14px of
+   visible space to the left of the mark against 12px to the right of the text,
+   and a 10px hole between the mark and the first letter against a nominal 8px.
+   The pair reads as shoved right and loosely tied; measured at 8× on
+   «Интеграции». Both corrections are the inset itself.
+   Not for `.btn--icon`, where the box IS the button and the inset is what
+   centres the mark. */
+.btn:not(.btn--icon) > svg:first-child { margin-left: -2px; }
 .btn:hover:not(:disabled) { background: var(--bg-4); color: var(--ink); }
 .btn--ghost { background: transparent; border-color: transparent; color: var(--ink-dim); }
 .btn--ghost:hover:not(:disabled) { background: var(--bg-2); color: var(--ink); }
@@ -671,8 +682,13 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
    into body, and a selector from the button does not reach it. */
 .custom-select--inline-meta .custom-select__text,
 .custom-select__menu--inline-meta .custom-select__text { flex-direction: row; align-items: baseline; gap: 5px; }
+/* When the row is too narrow for both, the model id gives way — not the name.
+   It used to be the other way round: the meta was pinned at its full width and
+   «neura» came out as «Ope…» in a menu with room to spare. */
+.custom-select--inline-meta .custom-select__label,
+.custom-select__menu--inline-meta .custom-select__label { flex: 0 0 auto; }
 .custom-select--inline-meta .custom-select__meta,
-.custom-select__menu--inline-meta .custom-select__meta { flex: 0 0 auto; }
+.custom-select__menu--inline-meta .custom-select__meta { flex: 0 1 auto; min-width: 0; }
 .custom-select--inline-meta .custom-select__meta::before,
 .custom-select__menu--inline-meta .custom-select__meta::before { content: "("; }
 .custom-select--inline-meta .custom-select__meta::after,
@@ -788,7 +804,6 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 .mic-meter__seg[data-zone="hot"].is-peak { background: var(--meter-hot); box-shadow: 0 0 5px rgba(255,90,82,0.6); }
 .mic-meter--active { border-color: color-mix(in srgb, var(--rec) 40%, var(--line)); }
 .split-setting-grid { display: grid; grid-template-columns: 1fr 1fr; }
-.split-setting-grid--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .split-setting-cell { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 14px 0; }
 .split-setting-cell + .split-setting-cell { padding-left: 18px; margin-left: 18px; border-left: 1px solid var(--line); }
 .memory-control { display: flex; gap: 8px; align-items: center; min-width: 0; }
@@ -1831,12 +1846,19 @@ button.card { appearance: none; font: inherit; color: inherit; }
    here, and a greyed control that answers clicks is its own puzzle. */
 /* The fold under the profile row: settings that are set once and then never
    touched. Its own top rule, so an expanded block does not read as part of the
-   row that opened it. */
-.route-advanced { margin-top: 12px; border-top: 1px solid var(--line); }
-.route-advanced .split-setting-cell { padding-bottom: 0; }
-/* Which of the two scopes a field belongs to — this profile, or every one of
-   them. Quiet: it is a footnote to the name, not a second name. */
-.route-advanced .split-setting-cell p { margin-top: 2px; font: 400 10.5px/1.4 var(--font-mono); color: var(--ink-mute); }
+   row that opened it.
+   Each field sits next to its own name. `.split-setting-grid`, which this
+   started as, puts the name in a `1fr` column and the field at the far edge of
+   it — half a card of blank in between — and draws a rule between the cells.
+   Three short settings in a row need neither the stretch nor the fences. */
+.route-advanced {
+  display: flex; flex-wrap: wrap; gap: 10px 26px;
+  margin-top: 12px; padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.route-advanced__cell { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.route-advanced__cell h3 { margin: 0; font: 500 13px/1.2 var(--font-sans); letter-spacing: -0.01em; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.route-advanced__unit { font: 500 12px/1 var(--font-sans); color: var(--ink-dim); }
 
 .route-idle { margin: 10px 0 0; font: 400 11.5px/1.45 var(--font-sans); color: var(--ink-mute); }
 
