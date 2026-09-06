@@ -585,6 +585,14 @@ export const en: Record<string, string | string[]> = {
   "LLM timeout {p0} с": "LLM timeout {p0} s",
   "Если провайдер не ответит за это время — вставится локально обработанный текст и fallback запишется в историю.":
     "If the provider does not answer in time, the locally processed text is pasted and the fallback is recorded in the history.",
+  "Таймаут облачного STT": "Cloud STT timeout",
+  "Сколько ждать ответа /audio/transcriptions в облачном режиме. Распознавать больше нечем, поэтому по истечении диктовка завершится ошибкой.":
+    "How long to wait for /audio/transcriptions in cloud mode. There is nothing else to transcribe with, so dictation fails once it runs out.",
+  "у профиля свой": "per profile",
+  "для всех профилей": "all profiles",
+  "Отправить пробный запрос в {p0} ({p1})? Запрос уйдёт провайдеру и спишет токены.":
+    "Send a trial request to {p0} ({p1})? It goes to the provider and spends tokens.",
+  "Отправить": "Send",
   "Тест пройден — LLM ответила.": "Test passed — the LLM answered.",
   "Проверить связь": "Check connection",
   "Короткий запрос к провайдеру: жив ли ключ и отвечает ли эндпоинт":
@@ -649,7 +657,6 @@ export const en: Record<string, string | string[]> = {
   "Обрабатываю текст · {p0} с": "Cleaning up the text · {p0} s",
   "запись короче порога": "recording shorter than the threshold",
   "режим «локально» — LLM выключена": "local mode — the LLM is off",
-  "ключ сохранён": "key saved",
   "Ключ сохранён.": "Key saved.",
   "Ключ удалён.": "Key deleted.",
   "Удалить ключ «{p0}»? Профили, ссылающиеся на этот слот, останутся без ключа.":

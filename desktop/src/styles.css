@@ -788,6 +788,7 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 .mic-meter__seg[data-zone="hot"].is-peak { background: var(--meter-hot); box-shadow: 0 0 5px rgba(255,90,82,0.6); }
 .mic-meter--active { border-color: color-mix(in srgb, var(--rec) 40%, var(--line)); }
 .split-setting-grid { display: grid; grid-template-columns: 1fr 1fr; }
+.split-setting-grid--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .split-setting-cell { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 14px 0; }
 .split-setting-cell + .split-setting-cell { padding-left: 18px; margin-left: 18px; border-left: 1px solid var(--line); }
 .memory-control { display: flex; gap: 8px; align-items: center; min-width: 0; }
@@ -917,6 +918,10 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 /* The active profile on «LLM-обработка»: a picker, its key state and the test
    button in one row. */
 .active-profile { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+/* The picker is the only part of the row allowed to give up width. A button
+   is a flex item like any other, and while it could shrink, its centred
+   content was pushed off-centre by the overflow long before the row wrapped. */
+.active-profile > *, .active-profile .hint-anchor, .active-profile .btn { flex: 0 0 auto; }
 .active-profile__pick { flex: 1 1 260px; min-width: 200px; }
 .active-profile__label { font: 600 10px/1 var(--font-mono); color: var(--ink-mute); text-transform: uppercase; letter-spacing: 0.05em; }
 /* The profile the mode above will be routed through. */
@@ -1824,6 +1829,15 @@ button.card { appearance: none; font: inherit; color: inherit; }
 /* Local-only mode: the profile and the prompt above are simply not used. Said
    in words rather than by dimming the row — the profile can still be prepared
    here, and a greyed control that answers clicks is its own puzzle. */
+/* The fold under the profile row: settings that are set once and then never
+   touched. Its own top rule, so an expanded block does not read as part of the
+   row that opened it. */
+.route-advanced { margin-top: 12px; border-top: 1px solid var(--line); }
+.route-advanced .split-setting-cell { padding-bottom: 0; }
+/* Which of the two scopes a field belongs to — this profile, or every one of
+   them. Quiet: it is a footnote to the name, not a second name. */
+.route-advanced .split-setting-cell p { margin-top: 2px; font: 400 10.5px/1.4 var(--font-mono); color: var(--ink-mute); }
+
 .route-idle { margin: 10px 0 0; font: 400 11.5px/1.45 var(--font-sans); color: var(--ink-mute); }
 
 @media (max-width: 900px) {

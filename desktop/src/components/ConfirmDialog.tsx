@@ -18,6 +18,15 @@ import { t } from "../i18n";
  * somehow fails to be answered destroys nothing.
  */
 export function confirmDestructive(message: string, confirmLabel = t("Удалить")): Promise<boolean> {
+  return confirmAction(message, { label: confirmLabel, icon: "trash" });
+}
+
+/** The same question about something that is not destructive but still costs
+ *  something — a request that spends tokens. Only the confirm button differs:
+ *  a trash can over «Отправить» would describe the wrong action. */
+export function confirmAction(message: string, { label, icon = "check" }: { label: string; icon?: string }): Promise<boolean> {
+  const confirmLabel = label;
+  const confirmIcon = icon;
   return new Promise((resolve) => {
     const previous = document.activeElement as HTMLElement | null;
     const answer = (ok: boolean) => {
@@ -27,7 +36,7 @@ export function confirmDestructive(message: string, confirmLabel = t("Удали
       previous?.focus?.();
       resolve(ok);
     };
-    render(<ConfirmDialog message={message} confirmLabel={confirmLabel} onAnswer={answer}/>);
+    render(<ConfirmDialog message={message} confirmLabel={confirmLabel} confirmIcon={confirmIcon} onAnswer={answer}/>);
   });
 }
 
@@ -45,9 +54,10 @@ function render(dialog: React.ReactNode) {
   root.render(dialog);
 }
 
-function ConfirmDialog({ message, confirmLabel, onAnswer }: {
+function ConfirmDialog({ message, confirmLabel, confirmIcon, onAnswer }: {
   message: string;
   confirmLabel: string;
+  confirmIcon: string;
   onAnswer: (ok: boolean) => void;
 }) {
   useEffect(() => {
@@ -72,7 +82,7 @@ function ConfirmDialog({ message, confirmLabel, onAnswer }: {
         </div>
         <div className="modal__foot">
           <button className="btn btn--primary" type="button" autoFocus onClick={() => onAnswer(true)}>
-            <Icon name="trash" size={12}/>{confirmLabel}
+            <Icon name={confirmIcon} size={12}/>{confirmLabel}
           </button>
           <button className="btn btn--ghost" type="button" onClick={() => onAnswer(false)}>{t("Отмена")}</button>
         </div>

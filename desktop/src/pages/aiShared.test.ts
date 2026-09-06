@@ -19,6 +19,7 @@ import {
   STRUCTURED_SYSTEM_PROMPT,
   SYSTEM_PROMPT_PRESETS,
   textProfileFor,
+  isLocalEndpoint,
   llmRouteBlocker,
   profileGap,
   profileKeyInfo,
@@ -221,6 +222,33 @@ describe("llmRouteBlocker", () => {
     expect(llmRouteBlocker({ ...cloud, stt_model: "" }, withKey)).toBe("no_model");
     expect(llmRouteBlocker({ ...cloud, stt_model: undefined }, withKey)).toBeNull();
     expect(llmRouteBlocker({ ...cloud, stt_model: undefined, model: "" }, withKey)).toBe("no_model");
+  });
+});
+
+describe("isLocalEndpoint", () => {
+  it.each([
+    "http://localhost:1234/v1",
+    "http://127.0.0.1:8080/v1",
+    "http://[::1]:8080/v1",
+    "https://ollama.localhost/v1",
+    "HTTP://LocalHost:11434",
+  ])("recognises %s as this machine", (url) => {
+    expect(isLocalEndpoint(url)).toBe(true);
+  });
+
+  /** Anything not provably local is treated as paid: the confirmation is the
+   *  safe answer, and skipping it wrongly is the expensive mistake. */
+  it.each([
+    "https://api.openai.com/v1",
+    "https://localhost.example.com/v1",
+    "https://notlocalhost/v1",
+    "example.com",
+    "",
+    "   ",
+    undefined,
+    null,
+  ])("treats %s as remote", (url) => {
+    expect(isLocalEndpoint(url)).toBe(false);
   });
 });
 

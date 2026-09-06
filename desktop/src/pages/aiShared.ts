@@ -434,6 +434,21 @@ export function gapReason(gap: NonNullable<LlmRouteBlocker>): string {
   return t("Для обработки нет сохранённого API-ключа.");
 }
 
+/** A provider served from this machine: `localhost`, a loopback address, or a
+ *  `*.localhost` name. Its requests cost nothing, which is the whole question a
+ *  «this will spend tokens» confirmation is asking. */
+export function isLocalEndpoint(baseUrl?: string | null): boolean {
+  if (!baseUrl?.trim()) return false;
+  try {
+    const host = new URL(baseUrl).hostname.toLowerCase();
+    // `URL` strips the brackets of an IPv6 literal from `hostname`, but not
+    // every engine agrees, so both spellings are listed.
+    return host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]" || host.endsWith(".localhost");
+  } catch {
+    return false;
+  }
+}
+
 export function activeConfigFromProfile(ai: AiConfig, profile: LlmProfile, profiles: LlmProfile[]): AiConfig {
   return mergeAi(ai, {
     active_profile_id: profile.id,

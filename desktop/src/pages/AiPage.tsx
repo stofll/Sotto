@@ -8,12 +8,12 @@ import {
   activeConfigFromProfile,
   effectiveSystemPrompt,
   gapReason,
+  isLocalEndpoint,
   mergeAi,
   presetPrompt,
   promptIsCustom,
   normalizeProfile,
   profileGap,
-  profileKeyInfo,
   profileKeyRef,
   llmRouteBlocker,
   profilesForAi,
@@ -24,6 +24,7 @@ import {
   type LlmRouteBlocker,
 } from "./aiShared";
 import { CustomSelect } from "../components/CustomSelect";
+import { confirmAction } from "../components/ConfirmDialog";
 import { NumberField } from "../components/NumberField";
 import type { ApiKeyStatus, ConfigResult } from "../bridge/types";
 import { t } from "../i18n";
@@ -155,8 +156,10 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
 
   // The active profile's key, for the card at the top of the page. The manual
   // processing panel below judges by its own profile, not by this one.
+  // No key pill next to the picker: which key a profile is bound to is decided
+  // in «Интеграциях», and the one thing this page needs to know about it —
+  // that it is missing — the route note below says in words.
   const activeKeyRef = profileKeyRef(activeProfile);
-  const activeKeyInfo = profileKeyInfo(activeProfile, apiKeys);
 
   // Manual text processing may run on a different profile from dictation: they
   // have different jobs, and a model good at cleaning speech need not be the
@@ -180,6 +183,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
   // lie in exactly the place it is shown for.
   const [outputContract, setOutputContract] = useState("");
   const [contractShown, setContractShown] = useState(false);
+  const [advancedShown, setAdvancedShown] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [testLoading, setTestLoading] = useState(false);
   const [testResult, setTestResult] = useState<AiRunResult | null>(null);
@@ -302,7 +306,21 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
     showMessage(t("Профиль снова использует встроенный промпт."));
   }
 
+  /** A trial request is a real request: it goes to the provider and it spends
+   *  tokens, off one click and with nothing of the user's own in it. The hint
+   *  on the button said so, and a hint is read after the click at best.
+   *
+   *  Not asked for a provider on this machine — a local endpoint costs nothing,
+   *  and a modal in front of a free request is friction that teaches people to
+   *  dismiss the modal. */
   async function runTestPrompt() {
+    if (!isLocalEndpoint(ai.base_url)) {
+      const confirmed = await confirmAction(
+        t("Отправить пробный запрос в {p0} ({p1})? Запрос уйдёт провайдеру и спишет токены.", { p0: provider.name, p1: ai.model }),
+        { label: t("Отправить"), icon: "spark" },
+      );
+      if (!confirmed) return;
+    }
     setTestLoading(true);
     setTestResult(null);
     try {
@@ -499,7 +517,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
             <div className="list-empty">
               <span>{t("Профилей пока нет. Настройки LLM ниже применяются к базовой конфигурации; профиль нужен, чтобы хранить несколько связок «провайдер + ключ + модель».")}</span>
               <button className="btn btn--ghost" onClick={() => onNavigate("integrations")}>
-                <Icon name="plus" size={12}/>  {t("Создать профиль")} </button>
+                <Icon name="plus" size={12}/>{t("Создать профиль")}</button>
             </div>
           ) : (
             <div className="active-profile">
@@ -520,9 +538,6 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
                   }}
                 />
               </div>
-              <span className={activeKeyInfo.available ? "pill ok dot mono" : "pill warn"}>
-                {activeKeyInfo.available ? (activeKeyInfo.masked || t("ключ сохранён")) : t("нет ключа")}
-              </span>
               <Hint text={t("Прогнать образец через активный профиль с его промптом и увидеть ответ модели (списывает токены)")}>
                 <button
                   className="btn btn--primary"
@@ -533,6 +548,64 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
               <button className="btn btn--ghost" onClick={() => onNavigate("integrations")}>
                 <Icon name="server" size={12}/>{t("Управлять профилями")}<Icon name="arrow-right" size={11}/>
               </button>
+              <button
+                className="btn btn--ghost"
+                type="button"
+                aria-expanded={advancedShown}
+                onClick={() => setAdvancedShown((current) => !current)}
+              >
+                <Icon name={advancedShown ? "chev-up" : "chev-down"} size={12}/>{t("Дополнительно")}
+              </button>
+            </div>
+          )}
+
+          {/* Set once and then never touched — the same case the «Дополнительно»
+              block in «Настройках» is collapsed for. They stay on this page and
+              not there because the first two are stored on the profile, and
+              «Настройки» has no notion of which profile is active: two fields
+              that look like app settings would quietly edit whichever profile
+              happened to be picked here. */}
+          {advancedShown && (
+            <div className="route-advanced">
+              <div className="split-setting-grid split-setting-grid--3">
+                <div className="split-setting-cell">
+                  <div>
+                    <h3>{t("Порог LLM")}<Hint text={t("LLM запускается только для записей не короче этого значения. 0 = обрабатывать все.")}/></h3>
+                    <p>{t("у профиля свой")}</p>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <NumberField className="mono" min={0} step={5} value={ai.llm_min_duration_seconds ?? 0}
+                      onValueChange={(next) => void saveAi({ llm_min_duration_seconds: Math.max(0, Number(next) || 0) })} style={{ width: 90, height: 34 }}/>
+                    <span style={{ font: "500 12px/1 var(--font-sans)", color: "var(--ink-dim)" }}>{t("секунд")}</span>
+                  </div>
+                </div>
+                <div className="split-setting-cell">
+                  <div>
+                    <h3>{t("Таймаут LLM")}<Hint text={t("Если провайдер не ответит за это время — вставится локально обработанный текст и fallback запишется в историю.")}/></h3>
+                    <p>{t("у профиля свой")}</p>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <NumberField className="mono" min={1} max={60} step={1} value={ai.llm_timeout_seconds ?? 12}
+                      onValueChange={(next) => void saveAi({ llm_timeout_seconds: Math.max(1, Math.min(60, Number(next) || 12)) })} style={{ width: 90, height: 34 }}/>
+                    <span style={{ font: "500 12px/1 var(--font-sans)", color: "var(--ink-dim)" }}>{t("секунд")}</span>
+                  </div>
+                </div>
+                {/* Read by Rust since cloud transcription existed, and until now
+                    changeable only by hand-editing config.json. Unlike the two
+                    beside it this one is not stored on the profile — hence the
+                    different caption. */}
+                <div className="split-setting-cell">
+                  <div>
+                    <h3>{t("Таймаут облачного STT")}<Hint text={t("Сколько ждать ответа /audio/transcriptions в облачном режиме. Распознавать больше нечем, поэтому по истечении диктовка завершится ошибкой.")}/></h3>
+                    <p>{t("для всех профилей")}</p>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <NumberField className="mono" min={5} max={300} step={5} value={ai.cloud_stt_timeout_seconds ?? 45}
+                      onValueChange={(next) => void saveAi({ cloud_stt_timeout_seconds: Math.max(5, Math.min(300, Number(next) || 45)) })} style={{ width: 90, height: 34 }}/>
+                    <span style={{ font: "500 12px/1 var(--font-sans)", color: "var(--ink-dim)" }}>{t("секунд")}</span>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
@@ -617,14 +690,14 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
                   onClick={() => void savePrompt()}
                   disabled={!promptDraft.trim() || promptDraft === (activeProfile.system_prompt ?? "")}
                 >
-                  <Icon name="check" size={12}/>{t("Сохранить промпт")} </button>
+                  <Icon name="check" size={12}/>{t("Сохранить промпт")}</button>
                 <Hint text={t("Вернуть встроенный промпт и снова получать его правки")}>
                   <button
                     className="btn btn--ghost"
                     onClick={() => void resetPrompt()}
                     disabled={!promptCustom && promptDraft.trim() === builtinPrompt.trim()}
                   >
-                    <Icon name="refresh" size={12}/>{t("Вернуть встроенный")} </button>
+                    <Icon name="refresh" size={12}/>{t("Вернуть встроенный")}</button>
                 </Hint>
                 <span style={{ marginLeft: "auto", font: "500 11px/1 var(--font-mono)", color: "var(--ink-mute)" }}>
                   {promptDraft.length}{outputContract ? ` + ${outputContract.length}` : ""}  {t("симв.")}</span>
@@ -639,7 +712,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
                     style={{ justifySelf: "start" }}
                   >
                     <Icon name={contractShown ? "chev-up" : "chev-down"} size={12}/>
-                    {t("Что приложение дописывает к промпту")} </button>
+                    {t("Что приложение дописывает к промпту")}</button>
                   {contractShown ? (
                     <>
                       <p style={{ margin: 0, font: "400 11.5px/1.45 var(--font-sans)", color: "var(--ink-mute)" }}>
@@ -657,34 +730,6 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
                   ) : null}
                 </div>
               ) : null}
-            </div>
-          </div>
-        </Card>
-
-        {/* ══ 3.3 ══ When to call and how long to wait is a policy about the
-            call, not about the text of the prompt. These two sat at the bottom
-            of the prompt card only because there was room there. */}
-        <Card pad="settings">
-          <div className="split-setting-grid">
-            <div className="split-setting-cell">
-              <div>
-                <h3>{t("Порог LLM")}<Hint text={t("LLM запускается только для записей не короче этого значения. 0 = обрабатывать все.")}/></h3>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <NumberField className="mono" min={0} step={5} value={ai.llm_min_duration_seconds ?? 0}
-                  onValueChange={(next) => void saveAi({ llm_min_duration_seconds: Math.max(0, Number(next) || 0) })} style={{ width: 90, height: 34 }}/>
-                <span style={{ font: "500 12px/1 var(--font-sans)", color: "var(--ink-dim)" }}>{t("секунд")}</span>
-              </div>
-            </div>
-            <div className="split-setting-cell">
-              <div>
-                <h3>{t("Таймаут LLM")}<Hint text={t("Если провайдер не ответит за это время — вставится локально обработанный текст и fallback запишется в историю.")}/></h3>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <NumberField className="mono" min={1} max={60} step={1} value={ai.llm_timeout_seconds ?? 12}
-                  onValueChange={(next) => void saveAi({ llm_timeout_seconds: Math.max(1, Math.min(60, Number(next) || 12)) })} style={{ width: 90, height: 34 }}/>
-                <span style={{ font: "500 12px/1 var(--font-sans)", color: "var(--ink-dim)" }}>{t("секунд")}</span>
-              </div>
             </div>
           </div>
         </Card>
