@@ -178,6 +178,7 @@ async fn run_history_entry_ai(
     app: &AppHandle,
     id: u64,
     profile_id: Option<String>,
+    system_prompt: Option<String>,
 ) -> Result<
     (
         crate::ai::step::AiConfig,
@@ -209,6 +210,13 @@ async fn run_history_entry_ai(
     ai_cfg.language = speech_language(Some(&config));
     ai_cfg.pipeline_mode = manual_llm_mode(&ai_cfg.pipeline_mode).to_string();
     apply_ai_profile(&mut ai_cfg, ai, profile_id.as_deref())?;
+    // Rust is handed finished prompt text here exactly as it is on the
+    // dictation path — it knows nothing about presets. The caller resolves the
+    // chosen profile's `prompt_preset` for us; nothing to resolve leaves the
+    // profile's own prompt standing.
+    if let Some(prompt) = system_prompt.filter(|value| !value.trim().is_empty()) {
+        ai_cfg.system_prompt = prompt;
+    }
 
     // 4. Look up the API key from the secret store.
     let api_key = if ai_cfg.api_key_ref.is_empty() {
@@ -273,12 +281,23 @@ fn apply_ai_profile(
     cfg.api_key_ref = str_field(profile, "api_key_ref");
     cfg.profile_id = profile_id.to_string();
     cfg.profile_name = str_field(profile, "name");
-    // Empty means "inherit": a profile that never overrode the prompt or the
-    // base URL must not blank out the ones that are configured.
+    // Empty means "inherit" — but only from a config describing the same
+    // provider. A base URL is the address of one provider's API: carrying LM
+    // Studio's port over to an Anthropic profile does not leave the field
+    // unset, it points the request at the wrong server, and
+    // `AnthropicProvider::new` takes any `Some` in preference to its own
+    // endpoint.
     let base_url = str_field(profile, "base_url");
     if !base_url.is_empty() {
         cfg.base_url = Some(base_url);
+    } else if cfg.provider != str_field(ai, "provider") {
+        cfg.base_url = None;
     }
+    // The prompt is the one field a profile may legitimately leave empty while
+    // still meaning something specific: empty says «use my `prompt_preset`»,
+    // and the preset texts live in the frontend (`effectiveSystemPrompt`), so
+    // the resolved text arrives alongside `profile_id` — see
+    // `run_history_entry_ai`. What is inherited here is only the last resort.
     let system_prompt = str_field(profile, "system_prompt");
     if !system_prompt.is_empty() {
         cfg.system_prompt = system_prompt;
@@ -313,18 +332,21 @@ struct HistoryAiPreview {
 
 /// Re-run the LLM over a history entry and return the result without storing
 /// it. `profile_id` picks one of the saved AI profiles; `None` uses the one
-/// configured for dictation.
+/// configured for dictation. `system_prompt` is that profile's prompt already
+/// resolved against its preset — the presets are the frontend's, and a profile
+/// that never edited its own carries an empty `system_prompt` field.
 #[tauri::command]
 async fn preview_history_ai_processing(
     state: tauri::State<'_, AppState>,
     app: AppHandle,
     id: u64,
     profile_id: Option<String>,
+    system_prompt: Option<String>,
 ) -> Result<HistoryAiPreview, String> {
     app.state::<telemetry::Telemetry>()
         .begin_usage_session(telemetry::SessionTrigger::Llm);
     let (ai_cfg, outcome, ai_json, stats_json) =
-        run_history_entry_ai(&state, &app, id, profile_id).await?;
+        run_history_entry_ai(&state, &app, id, profile_id, system_prompt).await?;
     Ok(HistoryAiPreview {
         ok: outcome.status.used,
         text: outcome.text,
@@ -4688,6 +4710,17 @@ mod retry_ai_tests {
         assert_eq!(cfg.profile_name, "Точный");
         assert_eq!(cfg.system_prompt, "перепиши аккуратно");
         assert_eq!(cfg.llm_timeout_seconds, 60);
+    }
+
+    /// Switching provider drops an inherited base URL. The flat one is LM
+    /// Studio's port; leaving it in place would send the Anthropic request to
+    /// `http://localhost:1234/v1/messages` instead of the provider's endpoint.
+    #[test]
+    fn a_chosen_profile_does_not_inherit_another_providers_base_url() {
+        let ai = ai_processing_with_profiles();
+        let mut cfg = ai_config_from(&ai);
+        apply_ai_profile(&mut cfg, &ai, Some("precise")).unwrap();
+        assert_eq!(cfg.base_url, None);
     }
 
     /// A profile that never overrode the prompt or the base URL inherits
