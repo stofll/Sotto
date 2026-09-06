@@ -1,4 +1,6 @@
 import { t } from "../i18n";
+import { isLocalBaseUrl } from "./baseUrlFormat";
+import { catalogGroup } from "./aiShared";
 
 /**
  * Validation of an API key value at the wizard step, before a profile exists.
@@ -23,9 +25,6 @@ import { t } from "../i18n";
  */
 export type KeyCheckCode = "empty" | "whitespace" | "charset" | "placeholder" | "prefix" | "length";
 export type KeyCheck = { level: "error" | "warn"; code: KeyCheckCode; message: string } | null;
-
-/** Providers that do not check the key: any string is acceptable there. */
-const LOCAL_PRESETS = new Set(["lmstudio", "ollama", "vllm"]);
 
 /** The prefix a provider's key starts with today. */
 const PREFIXES: Record<string, string> = {
@@ -75,7 +74,7 @@ export function checkApiKey(provider: string, presetId: string | null, raw: stri
 
   // From here on these are guesses about a specific provider. Local servers do
   // not look at the key, so there is nothing to guess about.
-  if (presetId && LOCAL_PRESETS.has(presetId)) return null;
+  if (presetId && catalogGroup(presetId) === "local") return null;
 
   const expected = PREFIXES[presetId ?? provider];
   if (expected && !value.startsWith(expected)) {
@@ -90,4 +89,22 @@ export function checkApiKey(provider: string, presetId: string | null, raw: stri
 /** Whether the key step can be left behind. */
 export function apiKeyBlocks(check: KeyCheck): boolean {
   return check?.level === "error";
+}
+
+/**
+ * The value written into the slot when the endpoint does not check the key.
+ *
+ * «Без ключа» cannot mean an empty slot: `ai_process_text` treats an empty key
+ * as `missing_api_key` and skips the LLM before it ever reaches the provider,
+ * and `llmRouteBlocker` refuses a route whose slot holds nothing. A local
+ * server accepts any token, so a placeholder is the honest way to say «нечего
+ * спрашивать» — and it keeps the profile a normal one, with a slot that can be
+ * filled in later if the server is put behind auth.
+ */
+export const LOCAL_KEY_VALUE = "local";
+
+/** Whether the key step has anything to ask for at all. */
+export function keyIsOptional(presetId: string | null, baseUrl: string): boolean {
+  if (presetId && catalogGroup(presetId) === "local") return true;
+  return isLocalBaseUrl(baseUrl);
 }

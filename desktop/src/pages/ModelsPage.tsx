@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { invoke } from "../bridge";
 import { PageHeader } from "../components/Shell";
 import { Icon } from "../components/Icon";
+import { Hint } from "../components/Hint";
 import { CustomSelect, useOutsideClose, type SelectOption } from "../components/CustomSelect";
 import { useAnchoredMenu } from "../components/anchoredMenu";
 import type { ConfigResult, ModelInfo } from "../bridge/types";
@@ -282,16 +283,17 @@ function ModelCard({ model, active, busy, onSelect, onDownload, onDelete }: {
             the single action means spending a row on the obvious. */}
         {!installed && (
           <span className="model-card2__actions">
-            <button
-              className="btn btn--primary btn--icon btn--sm"
-              type="button"
-              title={t("Скачать модель")}
-              aria-label={t("Скачать модель")}
-              disabled={busy}
-              onClick={(event) => { event.stopPropagation(); onDownload(); }}
-            >
-              {busy ? <span className="mini-spinner"/> : <Icon name="download" size={14}/>}
-            </button>
+            <Hint text={t("Скачать модель")}>
+              <button
+                className="btn btn--primary btn--icon btn--sm"
+                type="button"
+                aria-label={t("Скачать модель")}
+                disabled={busy}
+                onClick={(event) => { event.stopPropagation(); onDownload(); }}
+              >
+                {busy ? <span className="mini-spinner"/> : <Icon name="download" size={14}/>}
+              </button>
+            </Hint>
           </span>
         )}
       </div>

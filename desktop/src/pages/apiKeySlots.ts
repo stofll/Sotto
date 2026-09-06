@@ -1,13 +1,26 @@
-import { PROVIDERS } from "./aiShared";
+// Both of these used to be declared here as well, character for character.
+// One of the two copies is the one callers get, depending on which import they
+// happened to write, and a change to either would have silently applied to
+// half the app.
+import { EMPTY_KEY_INFO, PROVIDERS, profileKeyRef } from "./aiShared";
 import type { ApiKeyInfo, ApiKeyStatus, ConfigResult } from "../bridge/types";
 import { t } from "../i18n";
 
-type LlmProfile = NonNullable<ConfigResult["ai_processing"]["profiles"]>[number];
+export type KeySlotRecord = NonNullable<ConfigResult["ai_processing"]["key_slots"]>[number];
 
-export const EMPTY_KEY_INFO: ApiKeyInfo = { available: false, label: "", masked: "" };
-
-export function profileKeyRef(profile: Pick<LlmProfile, "id" | "provider" | "api_key_ref">): string {
-  return profile.api_key_ref || (profile.id === "default" ? profile.provider : `key_${profile.id}`);
+/**
+ * Writes a ref down in the list of known key slots, if it is not there already.
+ *
+ * The OS store cannot be enumerated — `has_api_key` only answers about a ref
+ * somebody already knows (see `key_slots` in bridge/types). A key created by
+ * the wizard together with its profile was known through that profile alone,
+ * so deleting the profile — which deliberately leaves the key in place — threw
+ * the ref away: the key stayed in Credential Manager with nothing in the UI
+ * pointing at it, impossible to see, reuse or delete. Every key the app creates
+ * is registered here, and the record outlives the profile.
+ */
+export function withKeySlot(slots: KeySlotRecord[], record: KeySlotRecord): KeySlotRecord[] {
+  return slots.some((item) => item.ref === record.ref) ? slots : [...slots, record];
 }
 
 export type Slot = {

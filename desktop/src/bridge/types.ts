@@ -359,10 +359,24 @@ export interface HistoryRetryAiResult {
   reason?: string;
 }
 
-export interface HistoryUpdateTextResult {
-  updated: boolean;
-  entry?: HistoryEntry;
+/**
+ * A dry run of LLM processing over a history entry: the text is produced but
+ * not stored, so the panel can show it next to the current one.
+ *
+ * `ai_json` / `stats_json` are the two DB columns the write needs. They are
+ * opaque here on purpose — they are handed back to `applyHistoryAiProcessing`
+ * unchanged so the stored status describes the run that was accepted.
+ */
+export interface HistoryAiPreview {
+  ok: boolean;
+  text: string;
   reason?: string;
+  provider: string;
+  model: string;
+  profile_name: string;
+  elapsed_seconds: number;
+  ai_json: string;
+  stats_json: string;
 }
 
 export interface PreviewReplacementsResult {

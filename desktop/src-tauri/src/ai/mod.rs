@@ -4,7 +4,7 @@
 //! OpenCode Go, OpenAI-compatible), the orchestrator
 //! (`ai_process_text_with_status`), and the reasoning-tag stripper
 //! into a single Rust module that the dispatcher and the
-//! `retry_history_ai_processing` Tauri command call directly.
+//! `preview_history_ai_processing` Tauri command call directly.
 //!
 //! No Python sidecar round-trip. The pipeline parity with
 //! `ai_processor._step.ai_process_text_with_status` is covered by

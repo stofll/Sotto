@@ -1,16 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { invoke, on } from "../bridge";
-import { PageHeader, SettingRow } from "../components/Shell";
+import { Card, CardHead, PageHeader, Segmented } from "../components/Shell";
 import { Icon } from "../components/Icon";
 import { Hint } from "../components/Hint";
 import {
   activeConfigFromProfile,
   effectiveSystemPrompt,
+  gapReason,
   mergeAi,
   presetPrompt,
   promptIsCustom,
   normalizeProfile,
+  profileGap,
   profileKeyRef,
   llmRouteBlocker,
   profilesForAi,
@@ -21,8 +23,10 @@ import {
   type LlmRouteBlocker,
 } from "./aiShared";
 import { CustomSelect } from "../components/CustomSelect";
+import { confirmAction } from "../components/ConfirmDialog";
+import { isLocalBaseUrl } from "./baseUrlFormat";
 import { NumberField } from "../components/NumberField";
-import type { ApiKeyInfo, ApiKeyStatus, ConfigResult } from "../bridge/types";
+import type { ApiKeyStatus, ConfigResult } from "../bridge/types";
 import { t } from "../i18n";
 
 type AiRunResult = {
@@ -88,7 +92,7 @@ function ProviderSnippet({ result }: { result: AiRunResult }) {
       <summary style={{ cursor: "pointer", font: "500 11px/1.4 var(--font-sans)", color: "var(--ink-mute)" }}>
         {result.http_status ? t("Ответ провайдера (HTTP {p0})", { p0: result.http_status }) : t("Ответ провайдера")}
       </summary>
-      <pre className="scroll-visible" style={{ margin: "6px 0 0", padding: 10, maxHeight: 180, overflow: "auto", borderRadius: "var(--r-sm)", background: "var(--bg-2)", border: "1px solid var(--line)", font: "400 11px/1.5 var(--font-mono)", color: "var(--ink-mute)", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+      <pre className="scroll-visible" style={{ margin: "6px 0 0", padding: 10, maxHeight: 180, overflow: "auto", borderRadius: "var(--radius-sm)", background: "var(--bg-2)", border: "1px solid var(--line)", font: "400 11px/1.5 var(--font-mono)", color: "var(--ink-mute)", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
         {result.response_snippet}
       </pre>
     </details>
@@ -98,18 +102,24 @@ function ProviderSnippet({ result }: { result: AiRunResult }) {
 const PIPELINE_MODES = () => ([
   { id: "local", title: t("Только локально"), sub: t("STT на этом компьютере. LLM не вызывается."), icon: "shield" },
   { id: "hybrid", title: t("Локальное распознавание + LLM"), sub: t("Распознаем локально, затем отправляем текст в LLM для обработки."), icon: "wand" },
-  { id: "cloud", title: t("Облачное распознавание"), sub: t("Аудио уходит на OpenAI-совместимый эндпоинт /audio/transcriptions. Нужны Base URL, модель и ключ активного профиля."), icon: "spark" },
+  { id: "cloud", title: t("Облачное распознавание"), sub: t("Запись целиком уходит провайдеру и распознаётся у него. Локальная модель не нужна."), icon: "spark" },
 ] as const);
 
-/** What exactly stops the chosen mode from reaching the provider. */
-function blockerReason(blocker: NonNullable<LlmRouteBlocker>): string {
-  if (blocker === "no_provider") return t("Провайдер LLM не выбран. Настройте его в «Интеграциях».");
-  if (blocker === "invalid_base_url") return t("Для облачного распознавания укажите Base URL с http:// или https://.");
-  if (blocker === "no_model") return t("Модель обработки не выбрана.");
-  return t("Для обработки нет сохранённого API-ключа.");
+/** Why a request cannot leave. One wording and one shape for the dictation
+ *  route and for the manual panel below, which may run on another profile: the
+ *  two used to describe the same two states in different words and different
+ *  colours. */
+function GapNote({ gap, consequence }: { gap: LlmRouteBlocker; consequence?: string }) {
+  if (!gap) return null;
+  return (
+    <div role="alert" className="route-note">
+      <Icon name="info" size={13} style={{ color: "var(--warn)", flex: "0 0 auto", marginTop: 1 }}/>
+      <span style={{ font: "500 11.5px/1.45 var(--font-sans)", color: "var(--ink)" }}>
+        {gapReason(gap)}{consequence ? ` ${consequence}` : ""}
+      </span>
+    </div>
+  );
 }
-
-const EMPTY_KEY_INFO: ApiKeyInfo = { available: false, label: "", masked: "" };
 
 type Props = {
   config: AiConfig | null;
@@ -132,8 +142,8 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
   const profiles = useMemo(() => profilesForAi(baseAi), [baseAi]);
   // With no saved profiles (fresh install) fall back to a working profile
   // derived from the flat active config, purely to keep the editors below
-  // bound to something. It is NOT rendered in the profile list, so a clean
-  // install shows an empty list rather than a phantom OpenAI profile.
+  // bound to something. It is NOT offered in the profile picker, so a clean
+  // install shows the empty state rather than a phantom OpenAI profile.
   const fallbackProfile = useMemo(() => normalizeProfile(baseAi, {}), [baseAi]);
   const activeProfile = profiles.find((item) => item.id === baseAi.active_profile_id) ?? profiles[0] ?? fallbackProfile;
   const ai = useMemo(() => activeConfigFromProfile(baseAi, activeProfile, profiles), [baseAi, activeProfile, profiles]);
@@ -144,9 +154,11 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
   // where the mode is chosen.
   const routeBlocker = llmRouteBlocker(config, apiKeys);
 
-  // The voice profile's key is shown by its own row in the list above («ключ
-  // сохранён» / «нет ключа»), so there is no separate variable for it here any
-  // more — the manual processing panel judges by its own profile.
+  // The active profile's key, for the card at the top of the page. The manual
+  // processing panel below judges by its own profile, not by this one.
+  // No key pill next to the picker: which key a profile is bound to is decided
+  // in «Интеграциях», and the one thing this page needs to know about it —
+  // that it is missing — the route note below says in words.
   const activeKeyRef = profileKeyRef(activeProfile);
 
   // Manual text processing may run on a different profile from dictation: they
@@ -157,7 +169,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
     [baseAi, profiles, activeProfile],
   );
   const textKeyRef = profileKeyRef(textProfile);
-  const textKeyInfo = apiKeys[textKeyRef] ?? (textProfile.id === "default" ? apiKeys[textProfile.provider] ?? EMPTY_KEY_INFO : EMPTY_KEY_INFO);
+  const textGap = profileGap(textProfile, apiKeys);
   const textInheritsVoice = textProfile.id === activeProfile.id;
 
   // The built-in prompt for the profile's preset and what will actually go to
@@ -171,6 +183,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
   // lie in exactly the place it is shown for.
   const [outputContract, setOutputContract] = useState("");
   const [contractShown, setContractShown] = useState(false);
+  const [advancedShown, setAdvancedShown] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [testLoading, setTestLoading] = useState(false);
   const [testResult, setTestResult] = useState<AiRunResult | null>(null);
@@ -293,7 +306,21 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
     showMessage(t("Профиль снова использует встроенный промпт."));
   }
 
+  /** A trial request is a real request: it goes to the provider and it spends
+   *  tokens, off one click and with nothing of the user's own in it. The hint
+   *  on the button said so, and a hint is read after the click at best.
+   *
+   *  Not asked for a provider on this machine — a local endpoint costs nothing,
+   *  and a modal in front of a free request is friction that teaches people to
+   *  dismiss the modal. */
   async function runTestPrompt() {
+    if (!isLocalBaseUrl(ai.base_url)) {
+      const confirmed = await confirmAction(
+        t("Отправить пробный запрос в {p0} ({p1})? Запрос уйдёт провайдеру и спишет токены.", { p0: provider.name, p1: ai.model }),
+        { label: t("Отправить"), icon: "spark" },
+      );
+      if (!confirmed) return;
+    }
     setTestLoading(true);
     setTestResult(null);
     try {
@@ -334,7 +361,12 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
         provider: textProfile.provider,
         model: textProfile.model,
         base_url: textProfile.base_url ?? "",
-        system_prompt: textProfile.system_prompt ?? ai.system_prompt,
+        // Resolved against the preset rather than passed on raw: a profile that
+        // never edited its prompt stores an empty string, and `??` lets an
+        // empty string through — so the panel ran the chosen profile on the
+        // dictation profile's prompt, and a «structured» preset quietly asked
+        // for plain paragraphs.
+        system_prompt: effectiveSystemPrompt(textProfile),
       });
       setManualResult(result);
     } catch (e) {
@@ -417,137 +449,204 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
 
   return (
     <div className="page">
-      <PageHeader
-        title={t("LLM-обработка")}
-        actions={<>
-          {profiles.length > 0
-            ? <span className="pill accent" title={t("Активный профиль · {p0} / {p1}", { p0: provider.name, p1: ai.model })}>{activeProfile.name}</span>
-            : <span className="pill" title={t("Профили ещё не созданы")}>{t("нет профилей")}</span>}
-          <button className="btn btn--ghost" onClick={() => onNavigate("integrations")}><Icon name="server" size={12}/>{t("Интеграции")}</button>
-        </>}
-      />
+      {/* No actions in the header. The profile pill repeated the picker two
+          rows below it, and «Интеграции» repeated «Управлять профилями» in the
+          same row as that picker — a second copy of both, further from what
+          they act on. */}
+      <PageHeader title={t("LLM-обработка")}/>
 
       {message && <div style={{ padding: "10px 12px", borderRadius: 8, background: "var(--bg-2)", border: "1px solid var(--line)", font: "500 12px/1.4 var(--font-sans)", marginBottom: 14 }}>{message}</div>}
 
-      <section className="card" style={{ padding: 18, marginBottom: 14 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 12 }}>
-          <h2 style={{ margin: 0, font: "600 14px/1.2 var(--font-sans)", display: "inline-flex", alignItems: "center", gap: 5 }}>
-             {t("Профили LLM")} <Hint text={t("Один профиль = одна связка provider + ключ + модель. Создаются и редактируются они в «Интеграциях»; здесь профиль только выбирают.")}/>
-            <span className="head-count">{profiles.length}</span>
-          </h2>
-          <button className="btn btn--ghost" onClick={() => onNavigate("integrations")}>
-            <Icon name="server" size={12}/>{t("Управлять профилями")}<Icon name="arrow-right" size={11}/>
-          </button>
-        </div>
-        <div className="profile-list">
-            {/* A link to «Интеграции» here was the third in a row: the same
-                button stands in the page header and in this card's heading. */}
-            {profiles.length === 0 && (
-              <div style={{ padding: "16px 14px", color: "var(--ink-mute)", font: "400 12px/1.5 var(--font-sans)" }}>
-                {t("Профилей пока нет. Настройки LLM ниже применяются к базовой конфигурации; профиль нужен, чтобы хранить несколько связок «провайдер + ключ + модель».")}
-              </div>
-            )}
-            {profiles.map((profile) => {
-              const itemProvider = PROVIDERS.find((item) => item.id === profile.provider) ?? PROVIDERS[0];
-              const itemKeyInfo = apiKeys[profileKeyRef(profile)] ?? EMPTY_KEY_INFO;
-              const selected = profile.id === activeProfile.id;
+      <div className="card-stack">
+        {/* Mode and profile are one chain, and they used to be two cards: the
+            mode decides whether an LLM is called at all, the profile supplies
+            the provider, key and model it is called with, and the blocker says
+            where the chain is broken. Reading «why is hybrid silent?» meant
+            tying the key pill in one card to the warning in the next. */}
+        <Card>
+          <CardHead
+            title={t("Маршрут обработки")}
+            hint={t("Что происходит с записью после диктовки: где распознаётся речь и вызывается ли LLM.")}
+            actions={
+              <span style={{ font: "400 11.5px/1 var(--font-sans)", color: "var(--ink-mute)" }}>{t("текущий:")} <span className="mono" style={{ color: "var(--accent-text)" }}>{ai.pipeline_mode}</span></span>
+            }
+          />
+          {/* A radiogroup, not three loose buttons: it is a choice of one of
+              three, and a screen reader announced it as three unrelated
+              controls with no arrow-key movement between them. */}
+          <div className="ai-mode-grid" role="radiogroup" aria-label={t("Режим обработки")}>
+            {PIPELINE_MODES().map((mode, index, modes) => {
+              const selected = ai.pipeline_mode === mode.id;
               return (
-                <div
-                  key={profile.id}
-                  className="profile-row"
+                <button
+                  key={mode.id}
+                  type="button"
+                  className="ai-mode-card"
+                  role="radio"
+                  aria-checked={selected}
+                  tabIndex={selected ? 0 : -1}
                   data-selected={selected}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => void saveAi({ active_profile_id: profile.id })}
-                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); void saveAi({ active_profile_id: profile.id }); } }}
+                  onClick={() => void saveAi({ pipeline_mode: mode.id })}
+                  onKeyDown={(e) => {
+                    const step = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1
+                      : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
+                    if (!step) return;
+                    e.preventDefault();
+                    const next = modes[(index + step + modes.length) % modes.length];
+                    void saveAi({ pipeline_mode: next.id });
+                    const grid = e.currentTarget.parentElement;
+                    grid?.querySelectorAll<HTMLButtonElement>(".ai-mode-card")[modes.indexOf(next)]?.focus();
+                  }}
                 >
-                  <span className="dot" style={{ background: itemProvider.dot }}/>
-                  <span className="name">{profile.name}</span>
-                  <span className="meta">{itemProvider.name} · {profile.model}</span>
-                  <span className="key-state" data-ok={itemKeyInfo.available}>
-                    {itemKeyInfo.available ? (itemKeyInfo.masked || t("ключ сохранён")) : t("нет ключа")}
-                  </span>
-                  <span className="activate-cell">
-                    {selected ? (
-                      <span className="pill accent" style={{ whiteSpace: "nowrap" }}><Icon name="check" size={11}/>  {t("Активный")}</span>
-                    ) : (
-                      <button
-                        className="btn btn--ghost"
-                        title={t("Сделать этот профиль активным для pipeline")}
-                        onClick={(e) => { e.stopPropagation(); void saveAi({ active_profile_id: profile.id }); showMessage(t("Активный профиль: «{p0}».", { p0: profile.name })); }}
-                        style={{ height: 26, whiteSpace: "nowrap" }}
-                      >{t("Сделать активным")}</button>
-                    )}
-                  </span>
-                  <span className="actions">
-                    {selected && (
-                      <button
-                        className="btn btn--primary"
-                        title={t("Прогнать образец через активный профиль с его промптом и увидеть ответ модели (списывает токены)")}
-                        disabled={testLoading || !ai.model.trim()}
-                        onClick={(e) => { e.stopPropagation(); void runTestPrompt(); }}
-                        style={{ height: 26 }}
-                      ><Icon name="spark" size={12}/>{testLoading ? t("Отправляю…") : t("Пробный запрос")}</button>
-                    )}
-                  </span>
-                </div>
+                  <div className="ai-mode-card__head">
+                    <span className="ai-mode-card__icon"><Icon name={mode.icon} size={15}/></span>
+                    <span className="ai-mode-card__title">{mode.title}</span>
+                  </div>
+                  <div className="ai-mode-card__desc">{mode.sub}</div>
+                </button>
               );
             })}
           </div>
+
+          {/* A picker rather than a list of rows. The full list with its own
+              «Сделать активным» buttons stood here as well as in «Интеграциях» —
+              two places to do the same thing, and the row actions there and here
+              looked nothing alike. Switching the active profile is a frequent
+              action and stays; everything else about a profile is edited where
+              profiles live. */}
+          {profiles.length === 0 ? (
+            <div className="list-empty">
+              <span>{t("Профилей пока нет. Настройки LLM ниже применяются к базовой конфигурации; профиль нужен, чтобы хранить несколько связок «провайдер + ключ + модель».")}</span>
+              <button className="btn btn--ghost" onClick={() => onNavigate("integrations")}>
+                <Icon name="plus" size={12}/>{t("Создать профиль")}</button>
+            </div>
+          ) : (
+            <div className="active-profile">
+              <span className="picker-label">{t("Профиль")}</span>
+              <div className="active-profile__pick">
+                <CustomSelect<string>
+                  value={activeProfile.id}
+                  inlineMeta
+                  options={profiles.map((profile) => {
+                    const itemProvider = PROVIDERS.find((item) => item.id === profile.provider) ?? PROVIDERS[0];
+                    return { value: profile.id, label: profile.name, meta: `${itemProvider.name} · ${profile.model}` };
+                  })}
+                  onChange={(next) => {
+                    if (next === activeProfile.id) return;
+                    void saveAi({ active_profile_id: next });
+                    const picked = profiles.find((profile) => profile.id === next);
+                    if (picked) showMessage(t("Активный профиль: «{p0}».", { p0: picked.name }));
+                  }}
+                />
+              </div>
+              <Hint text={t("Прогнать образец через активный профиль с его промптом и увидеть ответ модели (списывает токены)")}>
+                <button
+                  className="btn btn--primary"
+                  disabled={testLoading || !ai.model.trim()}
+                  onClick={() => void runTestPrompt()}
+                ><Icon name="spark" size={12}/>{testLoading ? t("Отправляю…") : t("Пробный запрос")}</button>
+              </Hint>
+              <button className="btn btn--ghost" onClick={() => onNavigate("integrations")}>
+                <Icon name="server" size={12}/>{t("Управлять профилями")}
+              </button>
+              <button
+                className="btn btn--ghost"
+                type="button"
+                aria-expanded={advancedShown}
+                onClick={() => setAdvancedShown((current) => !current)}
+              >
+                <Icon name={advancedShown ? "chev-up" : "chev-down"} size={12}/>{t("Дополнительно")}
+              </button>
+            </div>
+          )}
+
+          {/* Set once and then never touched — the same case the «Дополнительно»
+              block in «Настройках» is collapsed for. They stay on this page and
+              not there because the first two are stored on the profile, and
+              «Настройки» has no notion of which profile is active: two fields
+              that look like app settings would quietly edit whichever profile
+              happened to be picked here. */}
+          {advancedShown && (
+            <div className="route-advanced">
+              <div className="route-advanced__cell">
+                <h3>{t("Порог LLM")}<Hint text={t("LLM запускается только для записей не короче этого значения. 0 = обрабатывать все. Значение своё у каждого профиля.")}/></h3>
+                <NumberField className="mono" min={0} step={5} value={ai.llm_min_duration_seconds ?? 0}
+                  onValueChange={(next) => void saveAi({ llm_min_duration_seconds: Math.max(0, Number(next) || 0) })} style={{ width: 84 }}/>
+                <span className="route-advanced__unit">{t("секунд")}</span>
+              </div>
+              <div className="route-advanced__cell">
+                <h3>{t("Таймаут LLM")}<Hint text={t("Если провайдер не ответит за это время — вставится локально обработанный текст и fallback запишется в историю. Значение своё у каждого профиля.")}/></h3>
+                <NumberField className="mono" min={1} max={60} step={1} value={ai.llm_timeout_seconds ?? 12}
+                  onValueChange={(next) => void saveAi({ llm_timeout_seconds: Math.max(1, Math.min(60, Number(next) || 12)) })} style={{ width: 84 }}/>
+                <span className="route-advanced__unit">{t("секунд")}</span>
+              </div>
+              {/* Read by Rust since cloud transcription existed, and until now
+                  changeable only by hand-editing config.json. */}
+              <div className="route-advanced__cell">
+                <h3>{t("Таймаут облачного STT")}<Hint text={t("Сколько ждать ответа /audio/transcriptions в облачном режиме. Распознавать больше нечем, поэтому по истечении диктовка завершится ошибкой. Значение общее для всех профилей.")}/></h3>
+                <NumberField className="mono" min={5} max={300} step={5} value={ai.cloud_stt_timeout_seconds ?? 45}
+                  onValueChange={(next) => void saveAi({ cloud_stt_timeout_seconds: Math.max(5, Math.min(300, Number(next) || 45)) })} style={{ width: 84 }}/>
+                <span className="route-advanced__unit">{t("секунд")}</span>
+              </div>
+            </div>
+          )}
+
+          {/* In local-only mode nothing above the profile is used. Saying so
+              beats dimming the row: the profile can still be prepared here, and
+              a greyed-out control that answers clicks is its own puzzle. */}
+          {ai.pipeline_mode === "local"
+            ? <p className="route-idle">{t("В этом режиме профиль и промпт не используются: LLM не вызывается.")}</p>
+            : <GapNote
+                gap={routeBlocker}
+                consequence={ai.pipeline_mode === "cloud"
+                  ? t("Пока этого нет, распознавать нечем: диктовка завершится ошибкой.")
+                  : t("Пока этого нет, диктовка вставляет локальный текст без обработки LLM.")}
+              />}
           {testResult && (
             <div style={{ display: "grid", gap: 6, marginTop: 12, padding: 10, borderRadius: 8, background: "var(--bg-2)", border: "1px solid var(--line)" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <span className={testResult.available && !testResult.fallback ? "pill ok" : "pill warn"}>{testResult.available ? t("Ответ получен") : (testResult.fallback ? t("Запрос отправлен, fallback") : t("Запрос не отправлен"))}</span>
-                <button className="icon-btn" title={t("Закрыть")} onClick={() => setTestResult(null)} style={{ marginLeft: "auto" }}><Icon name="x" size={12}/></button>
+                <Hint text={t("Закрыть")} style={{ marginLeft: "auto" }}>
+                  <button className="icon-btn" aria-label={t("Закрыть")} onClick={() => setTestResult(null)}><Icon name="x" size={12}/></button>
+                </Hint>
               </div>
-              {(testResult.message || testResult.provider_error || testResult.skipped_reason) && <div style={{ font: "500 11px/1.45 var(--font-mono)", color: testResult.available ? "var(--text-mute)" : "var(--err)", whiteSpace: "pre-wrap" }}>{testResult.provider_error || testResult.message || testResult.skipped_reason}</div>}
+              {(testResult.message || testResult.provider_error || testResult.skipped_reason) && <div style={{ font: "500 11px/1.45 var(--font-mono)", color: testResult.available ? "var(--ink-mute)" : "var(--err)", whiteSpace: "pre-wrap" }}>{testResult.provider_error || testResult.message || testResult.skipped_reason}</div>}
               <ProviderSnippet result={testResult}/>
-              {testResult.output && <div style={{ padding: 10, borderRadius: 6, background: "var(--surface-2)", border: "1px solid var(--border)", font: "400 12px/1.5 var(--font-sans)", whiteSpace: "pre-wrap" }}>{testResult.output}</div>}
+              {testResult.output && <div style={{ padding: 10, borderRadius: 6, background: "var(--bg-2)", border: "1px solid var(--line)", font: "400 12px/1.5 var(--font-sans)", whiteSpace: "pre-wrap" }}>{testResult.output}</div>}
             </div>
           )}
-        </section>
+        </Card>
 
-        <section className="card" style={{ padding: 18, marginBottom: 14 }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 12 }}>
-            <h2 style={{ margin: 0, font: "600 14px/1.2 var(--font-sans)" }}>{t("Режим обработки")}</h2>
-            <span style={{ font: "400 11.5px/1 var(--font-sans)", color: "var(--ink-mute)" }}>{t("текущий:")} <span className="mono" style={{ color: "var(--accent-text)" }}>{ai.pipeline_mode}</span></span>
-          </div>
-          <div className="ai-mode-grid">
-            {PIPELINE_MODES().map((mode) => (
-              <button key={mode.id} className="ai-mode-card" data-selected={ai.pipeline_mode === mode.id} onClick={() => void saveAi({ pipeline_mode: mode.id })} type="button">
-                <div className="ai-mode-card__head">
-                  <span className="ai-mode-card__icon"><Icon name={mode.icon} size={15}/></span>
-                  <span className="ai-mode-card__title">{mode.title}</span>
-                </div>
-                <div className="ai-mode-card__desc">{mode.sub}</div>
-              </button>
-            ))}
-          </div>
-          {/* One line with no heading and no button: the route to «Интеграции»
-              already lies two cards above, and a heading would repeat what the
-              reason itself says. */}
-          {routeBlocker && (
-            <div role="alert" className="ai-mode-warning">
-              <Icon name="info" size={13} style={{ color: "var(--warn)", flex: "0 0 auto", marginTop: 1 }}/>
-              <span style={{ font: "500 11.5px/1.45 var(--font-sans)", color: "var(--ink)" }}>
-                {blockerReason(routeBlocker)}{" "}
-                {ai.pipeline_mode === "cloud"
-                  ? t("Пока этого нет, распознавать нечем: диктовка завершится ошибкой.")
-                  : t("Пока этого нет, диктовка вставляет локальный текст без обработки LLM.")}
-              </span>
-            </div>
-          )}
-        </section>
-
-        <section className="card" style={{ padding: "4px 22px", marginBottom: 14 }}>
-          <SettingRow title={t("Системный промпт")} stack hint={t("Инструкции, которые отправляются модели перед каждым запросом. Шаблон поддерживает плейсхолдеры {{language}} и {{transcript}}.")}>
+        <Card>
+          {/* The presets are a choice of one of two, so they are a Segmented in
+              the card's head. As a row of buttons they shared a flex line with
+              a sentence of prose, and on a narrow window the two wrapped into
+              each other. */}
+          <CardHead
+            title={t("Системный промпт")}
+            hint={t("Инструкции, которые отправляются модели перед каждым запросом. Шаблон поддерживает плейсхолдеры {{language}} и {{transcript}}. Выбери пресет, сохрани и протестируй на длинной записи через «Обработать через LLM» в истории.")}
+            actions={
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span className="picker-label">{t("Пресет")}</span>
+                <Segmented
+                  value={SYSTEM_PROMPT_PRESETS().find((preset) => promptDraft.trim() === preset.prompt.trim())?.id ?? ""}
+                  options={SYSTEM_PROMPT_PRESETS().map((preset) => ({ value: preset.id, label: preset.label }))}
+                  onChange={(next) => {
+                    const preset = SYSTEM_PROMPT_PRESETS().find((item) => item.id === next);
+                    if (preset) setPromptDraft(preset.prompt);
+                  }}
+                />
+              </div>
+            }
+          />
+          <div>
             <div style={{ display: "grid", gap: 8 }}>
               {/* A profile with its own text silently stops receiving edits to
                   the built-in prompt. While that was invisible, a config from
                   April went around without the rule "do not replace words with
                   synonyms". */}
               {promptCustom && (
-                <div className="flex-row" style={{ gap: 8, flexWrap: "wrap", padding: "7px 10px", borderRadius: "var(--r-sm)", background: "var(--warn-soft)", border: "1px solid rgba(251,191,36,0.30)" }}>
+                <div className="flex-row" style={{ gap: 8, flexWrap: "wrap", padding: "7px 10px", borderRadius: "var(--radius-sm)", background: "var(--warn-soft)", border: "1px solid rgba(251,191,36,0.30)" }}>
                   <Icon name="info" size={13} style={{ color: "var(--warn)", flex: "0 0 auto" }}/>
                   <span style={{ font: "500 11.5px/1.4 var(--font-sans)", color: "var(--ink)" }}>
                     {t("У профиля свой промпт — правки встроенного до него не доходят.")}
@@ -557,34 +656,16 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
                   </button>
                 </div>
               )}
-              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                <span style={{ font: "600 10px/1 var(--font-mono)", color: "var(--ink-mute)", textTransform: "uppercase", letterSpacing: "0.05em" }}>{t("Пресеты:")}</span>
-                {SYSTEM_PROMPT_PRESETS().map((preset) => {
-                  const active = promptDraft.trim() === preset.prompt.trim();
-                  return (
-                    <button
-                      key={preset.id}
-                      type="button"
-                      className={active ? "btn btn--primary" : "btn btn--ghost"}
-                      onClick={() => setPromptDraft(preset.prompt)}
-                      title={preset.description}
-                      style={{ height: 26 }}
-                    >
-                      {preset.label}
-                    </button>
-                  );
-                })}
-                <span style={{ font: "400 11px/1.3 var(--font-sans)", color: "var(--ink-mute)" }}>
-                   {t("Кликни пресет, сохрани и протестируй на длинной записи через «Повторить LLM» в истории.")} </span>
-              </div>
-              {/* There is deliberately no "expand" button: the box is a dozen
-                  lines tall as it is, a visible scrollbar shows how much text is
-                  left, and the height can always be dragged by the corner. */}
+              {/* There is deliberately no "expand" button: a visible scrollbar
+                  shows how much text is left, and the height can always be
+                  dragged by the corner. Eight rows rather than twelve — at
+                  twelve the box filled half the window and pushed the panel
+                  below it off the bottom edge. */}
               <textarea
                 className="field mono scroll-visible"
                 value={promptDraft}
                 onChange={(e) => setPromptDraft(e.target.value)}
-                rows={12}
+                rows={8}
                 style={{ width: "100%", resize: "vertical", fontSize: 12 }}
                 spellCheck={false}
               />
@@ -594,20 +675,21 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
                   onClick={() => void savePrompt()}
                   disabled={!promptDraft.trim() || promptDraft === (activeProfile.system_prompt ?? "")}
                 >
-                  <Icon name="check" size={12}/>{t("Сохранить промпт")} </button>
-                <button
-                  className="btn btn--ghost"
-                  onClick={() => void resetPrompt()}
-                  disabled={!promptCustom && promptDraft.trim() === builtinPrompt.trim()}
-                  title={t("Вернуть встроенный промпт и снова получать его правки")}
-                >
-                  <Icon name="refresh" size={12}/>{t("Вернуть встроенный")} </button>
+                  <Icon name="check" size={12}/>{t("Сохранить промпт")}</button>
+                <Hint text={t("Вернуть встроенный промпт и снова получать его правки")}>
+                  <button
+                    className="btn btn--ghost"
+                    onClick={() => void resetPrompt()}
+                    disabled={!promptCustom && promptDraft.trim() === builtinPrompt.trim()}
+                  >
+                    <Icon name="refresh" size={12}/>{t("Вернуть встроенный")}</button>
+                </Hint>
                 <span style={{ marginLeft: "auto", font: "500 11px/1 var(--font-mono)", color: "var(--ink-mute)" }}>
                   {promptDraft.length}{outputContract ? ` + ${outputContract.length}` : ""}  {t("симв.")}</span>
               </div>
 
               {outputContract ? (
-                <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10, display: "grid", gap: 8 }}>
+                <div style={{ borderTop: "1px solid var(--line)", paddingTop: 10, display: "grid", gap: 8 }}>
                   <button
                     className="btn btn--ghost"
                     type="button"
@@ -615,7 +697,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
                     style={{ justifySelf: "start" }}
                   >
                     <Icon name={contractShown ? "chev-up" : "chev-down"} size={12}/>
-                    {t("Что приложение дописывает к промпту")} </button>
+                    {t("Что приложение дописывает к промпту")}</button>
                   {contractShown ? (
                     <>
                       <p style={{ margin: 0, font: "400 11.5px/1.45 var(--font-sans)", color: "var(--ink-mute)" }}>
@@ -634,69 +716,45 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
                 </div>
               ) : null}
             </div>
-          </SettingRow>
-
-          <div className="split-setting-grid">
-            <div className="split-setting-cell">
-              <div>
-                <h3>{t("Порог LLM")}<Hint text={t("LLM запускается только для записей не короче этого значения. 0 = обрабатывать все.")}/></h3>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <NumberField className="mono" min={0} step={5} value={ai.llm_min_duration_seconds ?? 0}
-                  onValueChange={(next) => void saveAi({ llm_min_duration_seconds: Math.max(0, Number(next) || 0) })} style={{ width: 90, height: 34 }}/>
-                <span style={{ font: "500 12px/1 var(--font-sans)", color: "var(--text-2)" }}>{t("секунд")}</span>
-              </div>
-            </div>
-            <div className="split-setting-cell">
-              <div>
-                <h3>{t("Таймаут LLM")}<Hint text={t("Если провайдер не ответит за это время — вставится локально обработанный текст и fallback запишется в историю.")}/></h3>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <NumberField className="mono" min={1} max={60} step={1} value={ai.llm_timeout_seconds ?? 12}
-                  onValueChange={(next) => void saveAi({ llm_timeout_seconds: Math.max(1, Math.min(60, Number(next) || 12)) })} style={{ width: 90, height: 34 }}/>
-                <span style={{ font: "500 12px/1 var(--font-sans)", color: "var(--text-2)" }}>{t("секунд")}</span>
-              </div>
-            </div>
           </div>
-        </section>
+        </Card>
 
-        <section className="card" style={{ padding: 18 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10, gap: 10, flexWrap: "wrap" }}>
-            <div>
-              <div style={{ font: "600 14px/1.2 var(--font-sans)", color: "var(--ink)" }}>{t("Обработать текст")}</div>
-              <div style={{ font: "400 11.5px/1.3 var(--font-sans)", color: "var(--ink-mute)", marginTop: 2 }}>{t("Любой текст, не связанный с диктовкой")}</div>
-            </div>
-            {/* This used to say only "by the active profile's rules" — with no
-                way to learn which model. The selector both names it and lets it
-                be separated from dictation. */}
+        {/* The «Обрабатывает» selector used to say only "by the active
+            profile's rules" — with no way to learn which model. It both names
+            it and lets it be separated from dictation. */}
+        <Card>
+          <CardHead
+            title={t("Обработать текст")}
+            actions={profiles.length > 0 && (
             <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 230 }}>
-              <span className="set-label" style={{ whiteSpace: "nowrap" }}>{t("Обрабатывает")}</span>
-              <CustomSelect
-                value={textInheritsVoice ? "" : textProfile.id}
-                options={[
-                  { value: "", label: t("Как для диктовки"), meta: `${activeProfile.name} · ${activeProfile.model}`, icon: "mic" },
-                  ...profiles
-                    .filter((profile) => profile.id !== activeProfile.id)
-                    .map((profile) => ({
-                      value: profile.id,
-                      label: profile.name,
-                      meta: `${PROVIDERS.find((item) => item.id === profile.provider)?.name ?? profile.provider} · ${profile.model}`,
-                      icon: "spark",
-                    })),
-                ]}
-                onChange={(next) => void onConfigChanged({ ai_processing: mergeAi(baseAi, { text_profile_id: next }) })}
+              <span className="picker-label">{t("Обрабатывает")}</span>
+              {/* The same picker as in the route card: profile name, then
+                  provider and model. It used to lead with «Как для диктовки»
+                  and two icons, which named the arrangement rather than the
+                  thing chosen — and named it in a vocabulary this row was alone
+                  in using. Inheritance did not go away, it just stopped being a
+                  row of its own: picking the dictation profile writes the empty
+                  id that keeps following it. */}
+              <CustomSelect<string>
+                value={textInheritsVoice ? activeProfile.id : textProfile.id}
+                inlineMeta
+                options={profiles.map((profile) => {
+                  const itemProvider = PROVIDERS.find((item) => item.id === profile.provider) ?? PROVIDERS[0];
+                  return { value: profile.id, label: profile.name, meta: `${itemProvider.name} · ${profile.model}` };
+                })}
+                onChange={(next) => void onConfigChanged({ ai_processing: mergeAi(baseAi, { text_profile_id: next === activeProfile.id ? "" : next }) })}
                 className="custom-select--grow"
               />
             </div>
-          </div>
+            )}
+          />
           <textarea className="field mono" value={manualText} onChange={(e) => setManualText(e.target.value)} placeholder={t("Вставьте текст для обработки через выбранную LLM")} style={{ width: "100%", minHeight: 150, padding: 12, resize: "vertical", lineHeight: 1.55 }}/>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
-            <button className="btn btn--primary" onClick={() => void runManualProcessing()} disabled={manualLoading || !manualText.trim() || !textProfile.model.trim()}>
+            <button className="btn btn--primary" onClick={() => void runManualProcessing()} disabled={manualLoading || !manualText.trim() || !!textGap}>
               <Icon name="spark" size={12}/>{manualLoading ? t("Обрабатываю…") : t("Обработать")}
             </button>
-            {!textProfile.model.trim() && <span style={{ font: "500 11px/1.35 var(--font-mono)", color: "var(--err)" }}>{t("model не задан")}</span>}
-            {!textKeyInfo.available && <span style={{ font: "500 11px/1.35 var(--font-mono)", color: "var(--err)" }}>{t("Ключ профиля не задан.")}</span>}
           </div>
+          <GapNote gap={textGap} consequence={textInheritsVoice ? undefined : t("Панель работает на профиле «{p0}».", { p0: textProfile.name })}/>
           {/* Its own zone rather than another button in the row: higher up the
               card is text entry, here is speech, and these are two different
               entrances into processing. They used to be separated only by a
@@ -738,13 +796,13 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
               {fileResult.ai_status?.skipped_reason && (
                 <div style={{ font: "500 11px/1.45 var(--font-mono)", color: "var(--ink-mute)", whiteSpace: "pre-wrap" }}>{fileResult.ai_status.skipped_reason}</div>
               )}
-              <div style={{ padding: 12, borderRadius: "var(--r-sm)", background: "var(--bg-2)", border: "1px solid var(--line)", font: "400 13px/1.55 var(--font-sans)", color: "var(--ink)", whiteSpace: "pre-wrap" }}>{fileResult.text}</div>
+              <div style={{ padding: 12, borderRadius: "var(--radius-sm)", background: "var(--bg-2)", border: "1px solid var(--line)", font: "400 13px/1.55 var(--font-sans)", color: "var(--ink)", whiteSpace: "pre-wrap" }}>{fileResult.text}</div>
               {/* We show the raw stage only when it differs — otherwise it is
                   simply a second copy of the same text. */}
               {fileResult.raw_text !== fileResult.text && (
                 <details>
                   <summary style={{ cursor: "pointer", font: "500 11px/1.4 var(--font-sans)", color: "var(--ink-mute)" }}>{t("Whisper без обработки")}</summary>
-                  <div style={{ marginTop: 6, padding: 12, borderRadius: "var(--r-sm)", background: "var(--bg-2)", border: "1px solid var(--line)", font: "400 13px/1.55 var(--font-sans)", color: "var(--ink-mute)", whiteSpace: "pre-wrap" }}>{fileResult.raw_text}</div>
+                  <div style={{ marginTop: 6, padding: 12, borderRadius: "var(--radius-sm)", background: "var(--bg-2)", border: "1px solid var(--line)", font: "400 13px/1.55 var(--font-sans)", color: "var(--ink-mute)", whiteSpace: "pre-wrap" }}>{fileResult.raw_text}</div>
                 </details>
               )}
             </div>
@@ -757,10 +815,11 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
               </div>
               {(manualResult.message || manualResult.provider_error || manualResult.skipped_reason) && <div style={{ font: "500 11px/1.45 var(--font-mono)", color: manualResult.provider_error || manualResult.skipped_reason ? "var(--err)" : "var(--ink-mute)", whiteSpace: "pre-wrap" }}>{manualResult.provider_error || manualResult.message || manualResult.skipped_reason}</div>}
               <ProviderSnippet result={manualResult}/>
-              {manualResult.output && <div style={{ padding: 12, borderRadius: "var(--r-sm)", background: "var(--bg-2)", border: "1px solid var(--line)", font: "400 13px/1.55 var(--font-sans)", color: "var(--ink)", whiteSpace: "pre-wrap" }}>{manualResult.output}</div>}
+              {manualResult.output && <div style={{ padding: 12, borderRadius: "var(--radius-sm)", background: "var(--bg-2)", border: "1px solid var(--line)", font: "400 13px/1.55 var(--font-sans)", color: "var(--ink)", whiteSpace: "pre-wrap" }}>{manualResult.output}</div>}
             </div>
           )}
-        </section>
+        </Card>
+      </div>
     </div>
   );
 }

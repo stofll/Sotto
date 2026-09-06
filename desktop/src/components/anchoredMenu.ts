@@ -16,6 +16,7 @@ import { useLayoutEffect, useRef, useState, type CSSProperties, type RefObject }
 const GAP = 6;
 const MARGIN = 8;
 const MIN_USABLE = 140;
+const MIN_MENU_W = 180;
 
 export type AnchoredMenu = {
   menuRef: RefObject<HTMLDivElement | null>;
@@ -76,7 +77,12 @@ export function useAnchoredMenu(
       setBox({
         left: Math.min(Math.max(MARGIN, wanted), maxLeft),
         top: flipped ? Math.max(MARGIN, anchor.top - GAP - shown) : anchor.bottom + GAP,
-        minWidth: anchor.width,
+        // The menu is as wide as its own content (`width: max-content` in the
+        // stylesheet), not as wide as the button. Stretching it to the button
+        // left a field-wide strip of empty space beside three short model ids;
+        // the floor only keeps a menu hung off a narrow button — an icon, a
+        // «…» — from collapsing to the width of one word.
+        minWidth: Math.min(anchor.width, MIN_MENU_W),
         maxHeight: height,
         flipped,
       });

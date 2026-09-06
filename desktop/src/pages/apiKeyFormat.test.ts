@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { apiKeyBlocks, checkApiKey } from "./apiKeyFormat";
+import { apiKeyBlocks, checkApiKey, keyIsOptional } from "./apiKeyFormat";
 
 const OPENAI_KEY = "sk-proj-0123456789abcdefghij";
 
@@ -70,5 +70,19 @@ describe("checkApiKey", () => {
     const check = checkApiKey("compatible", "mistral", "abc123");
     expect(check?.code).toBe("length");
     expect(apiKeyBlocks(check)).toBe(false);
+  });
+});
+
+describe("keyIsOptional", () => {
+  it("asks for nothing when the endpoint runs on this machine", () => {
+    expect(keyIsOptional("ollama", "http://localhost:11434/v1")).toBe(true);
+    // A hand-typed address has no preset behind it — the host is all there is.
+    expect(keyIsOptional(null, "http://127.0.0.1:8000/v1")).toBe(true);
+  });
+
+  it("still asks when the address goes out to a provider", () => {
+    expect(keyIsOptional(null, "https://api.deepseek.com/v1")).toBe(false);
+    expect(keyIsOptional("cerebras", "https://api.cerebras.ai/v1")).toBe(false);
+    expect(keyIsOptional(null, "")).toBe(false);
   });
 });

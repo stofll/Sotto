@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke, on } from "../bridge";
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
-import { PageHeader, Segmented } from "../components/Shell";
+import { Card, PageHeader, Segmented } from "../components/Shell";
 import { Icon } from "../components/Icon";
 import { Hint } from "../components/Hint";
 import { CustomSelect, type SelectOption } from "../components/CustomSelect";
@@ -227,7 +227,7 @@ function HotkeyDisplay({ hotkey, fallback, onConfigChanged }: {
                   return parts.map((part, i, arr) => (
                     <span key={`${part}-${i}`} className="hotkey-record-chip__key" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
                       <span className="kbd">{part}</span>
-                      {i < arr.length - 1 && <span style={{ color: "var(--text-mute)" }}>+</span>}
+                      {i < arr.length - 1 && <span style={{ color: "var(--ink-mute)" }}>+</span>}
                     </span>
                   ));
                 })()
@@ -243,15 +243,16 @@ function HotkeyDisplay({ hotkey, fallback, onConfigChanged }: {
   return (
     <div className="hotkey-display">
       <div className="hotkey-display__keys">
-        {hotkeyLabel(hotkey, fallback).map((key, i, arr) => <span key={`${key}-${i}`} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><span className="kbd">{key}</span>{i < arr.length - 1 && <span style={{ color: "var(--text-mute)" }}>+</span>}</span>)}
+        {hotkeyLabel(hotkey, fallback).map((key, i, arr) => <span key={`${key}-${i}`} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><span className="kbd">{key}</span>{i < arr.length - 1 && <span style={{ color: "var(--ink-mute)" }}>+</span>}</span>)}
       </div>
-      <button
-        className="btn btn--ghost hotkey-display__edit"
-        type="button"
-        title={t("Изменить")}
-        aria-label={t("Изменить")}
-        onClick={() => { setValue(hotkey || fallback); setEditing(true); }}
-      ><Icon name="pencil" size={13}/></button>
+      <Hint text={t("Изменить")}>
+        <button
+          className="btn btn--ghost hotkey-display__edit"
+          type="button"
+          aria-label={t("Изменить")}
+          onClick={() => { setValue(hotkey || fallback); setEditing(true); }}
+        ><Icon name="pencil" size={13}/></button>
+      </Hint>
     </div>
   );
 }
@@ -830,7 +831,7 @@ function TypingSpeedControl({ value, onConfigChanged }: { value?: number; onConf
     <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <NumberField className="mono" min={60} max={900} step={10} value={draft} onValueChange={setDraft} onStepCommit={(next) => void save(next)} onBlur={() => void save()} onKeyDown={(e) => { if (e.key === "Enter") void save(); }} style={{ width: 78, height: "var(--control-h)", flex: "0 0 auto" }}/>
-        <span style={{ font: "500 12px/1 var(--font-sans)", color: "var(--text-2)", whiteSpace: "nowrap" }}>{t("симв/мин")}</span>
+        <span style={{ font: "500 12px/1 var(--font-sans)", color: "var(--ink-dim)", whiteSpace: "nowrap" }}>{t("симв/мин")}</span>
       </div>
     </div>
   );
@@ -870,207 +871,210 @@ export function SettingsPage({ config, microphones, models, portable, onConfigCh
     <div className="page">
       <PageHeader title={t("Настройки")}/>
 
-      {/* 1. Capture row: hotkey · recording mode — one row split by a vrule.
-          The model picker lives on its own page: here it duplicated the catalog,
-          and with it downloading and deleting. */}
-      <section className="card" style={{ padding: "12px 16px", marginBottom: 10 }}>
-        <div className="capture-row">
+      <div className="card-stack card-stack--rows">
+        {/* 1. Capture row: hotkey · recording mode — one row split by a vrule.
+            The model picker lives on its own page: here it duplicated the catalog,
+            and with it downloading and deleting. */}
+        <Card pad="rows">
+          <div className="capture-row">
+            <div className="set-cell">
+              <SetLabel title={t("Горячая клавиша")} hint={t("Диктовка. Пойдёт ли текст в LLM, решает режим обработки на вкладке «ИИ».")}/>
+              <HotkeyDisplay hotkey={config?.hotkey} fallback={DEFAULT_HOTKEY} onConfigChanged={onConfigChanged}/>
+            </div>
+            <div className="vrule"/>
+            <div className="set-cell">
+              <SetLabel title={t("Режим записи")} hint={t("Переключение\nНажмите горячую клавишу, чтобы начать запись, и нажмите снова, чтобы закончить. Удобно для длинной диктовки.\n\nУдержание\nГоворите, удерживая горячую клавишу, и отпустите её, чтобы закончить. Удобно для коротких фраз.")}/>
+              <RecordingModeSegmented value={recordingMode} onConfigChanged={onConfigChanged}/>
+            </div>
+          </div>
+        </Card>
+
+        {/* 2. Languages — 2 cols. The names separate the two settings from each
+            other, while the hint on the speech language answers the next
+            question: what happens if you dictate in another one. */}
+        <Card pad="rows">
+          <div className="lang-row">
+            <div className="set-cell">
+              <SetLabel title={t("Язык речи")} hint={t("Язык, на котором вы диктуете: модель распознаёт речь именно как его. «Авто» определяет язык по самой записи — это чуть медленнее и иногда ошибается на коротких фразах. На язык интерфейса не влияет.")}/>
+              <LanguagePicker language={config?.language} model={selectedModelInfo} models={models} onConfigChanged={onConfigChanged}/>
+            </div>
+            <div className="set-cell">
+              <SetLabel title={t("Язык интерфейса")}/>
+              <UiLanguagePicker value={config?.ui_language} onConfigChanged={onConfigChanged}/>
+            </div>
+          </div>
+        </Card>
+
+        {/* 3. Microphone — own row (long device names) */}
+        <Card pad="rows">
           <div className="set-cell">
-            <SetLabel title={t("Горячая клавиша")} hint={t("Диктовка. Пойдёт ли текст в LLM, решает режим обработки на вкладке «ИИ».")}/>
-            <HotkeyDisplay hotkey={config?.hotkey} fallback={DEFAULT_HOTKEY} onConfigChanged={onConfigChanged}/>
+            <SetLabel title={t("Микрофон")}/>
+            <MicPicker microphone={config?.microphone} microphones={microphones} onConfigChanged={onConfigChanged}/>
           </div>
-          <div className="vrule"/>
-          <div className="set-cell">
-            <SetLabel title={t("Режим записи")} hint={t("Переключение\nНажмите горячую клавишу, чтобы начать запись, и нажмите снова, чтобы закончить. Удобно для длинной диктовки.\n\nУдержание\nГоворите, удерживая горячую клавишу, и отпустите её, чтобы закончить. Удобно для коротких фраз.")}/>
-            <RecordingModeSegmented value={recordingMode} onConfigChanged={onConfigChanged}/>
-          </div>
-        </div>
-      </section>
+        </Card>
 
-      {/* 2. Languages — 2 cols. The names separate the two settings from each
-          other, while the hint on the speech language answers the next
-          question: what happens if you dictate in another one. */}
-      <section className="card" style={{ padding: "12px 16px", marginBottom: 10 }}>
-        <div className="lang-row">
-          <div className="set-cell">
-            <SetLabel title={t("Язык речи")} hint={t("Язык, на котором вы диктуете: модель распознаёт речь именно как его. «Авто» определяет язык по самой записи — это чуть медленнее и иногда ошибается на коротких фразах. На язык интерфейса не влияет.")}/>
-            <LanguagePicker language={config?.language} model={selectedModelInfo} models={models} onConfigChanged={onConfigChanged}/>
-          </div>
-          <div className="set-cell">
-            <SetLabel title={t("Язык интерфейса")}/>
-            <UiLanguagePicker value={config?.ui_language} onConfigChanged={onConfigChanged}/>
-          </div>
-        </div>
-      </section>
-
-      {/* 3. Microphone — own row (long device names) */}
-      <section className="card" style={{ padding: "12px 16px", marginBottom: 10 }}>
-        <div className="set-cell">
-          <SetLabel title={t("Микрофон")}/>
-          <MicPicker microphone={config?.microphone} microphones={microphones} onConfigChanged={onConfigChanged}/>
-        </div>
-      </section>
-
-      {/* 4. Behaviour row: the paste settings as one sequence of checkboxes; a
-          separate switch created a false visual hierarchy. */}
-      <section className="card" style={{ padding: "12px 16px" }}>
-        <div className="behavior-row behavior-row--primary">
-          {/* «Пробел в конце» and «Enter после вставки» moved into
-              «Дополнительно»: both depend on auto-paste, both are set once for
-              a particular scenario — and all three captions together kept the
-              row from fitting on a narrow window. */}
-          <div className="set-cell behavior-row__paste-options">
-            <span className="label-with-hint">
-              <label className="checkbox-row">
-                <input className="checkbox" type="checkbox" checked={autoPaste} onChange={(e) => void onConfigChanged({ auto_paste: e.target.checked })}/>
-                {t("Авто-вставка текста")}
-              </label>
-              <HintIcon text={t("Сразу вставлять распознанный текст в активное поле. Если выключить, текст останется только в буфере обмена.")}/>
-            </span>
-          </div>
-          <div className="vrule"/>
-          <div className="set-cell behavior-row__sound-feedback">
-            <SoundFeedbackControl
-              enabled={config?.sound_feedback ?? true}
-              volume={config?.sound_volume ?? DEFAULT_SOUND_VOLUME}
-              onConfigChanged={onConfigChanged}
-            />
-          </div>
-          <div className="vrule"/>
-          {/* Ducking is not processing of the recording but what the app does
-              to the system while recording; and it is toggled situationally:
-              unnecessary with headphones, necessary with speakers. Hence its
-              place next to pasting rather than inside «Дополнительно». The
-              caption is short: the hint finishes the thought with "while
-              recording", and in the row those three words cost exactly the
-              space that kept it from fitting. */}
-          <div className="set-cell behavior-row__duck">
-            <span className="label-with-hint">
-              <label className="checkbox-row">
-                <input className="checkbox" type="checkbox" checked={duckOutput} onChange={(e) => void onConfigChanged({ duck_output_while_recording: e.target.checked })}/>
-                {t("Приглушать звук")}
-              </label>
-              <HintIcon text={t("На время записи убавить общую громкость и вернуть её после. Нужно, если пишете с колонок: звук из них попадает в микрофон.")}/>
-            </span>
-            {/* The whole test is a single icon button, and the same button
-                shows the result: a tick or a red mark instead of words beside
-                it. That way the row takes the same width in every state —
-                whereas the button appearing, and then the status, used to push
-                the cell onto a second line and change the card's height right
-                under the cursor. The result text has not gone anywhere: it is in
-                the button's hint and in the hidden screen-reader line. */}
-            <button
-              className="btn btn--ghost behavior-row__duck-button"
-              type="button"
-              data-state={duckTest}
-              data-visible={duckOutput ? "true" : "false"}
-              disabled={!duckOutput || duckTest === "running"}
-              tabIndex={duckOutput ? undefined : -1}
-              aria-hidden={duckOutput ? undefined : true}
-              onClick={() => void testOutputDuck()}
-              title={duckTestLabel}
-              aria-label={duckTestLabel}
-            >
-              <Icon name={duckTest === "done" ? "check" : duckTest === "error" ? "x" : "test"} size={12}/>
-            </button>
-            <span className="sr-only" role="status">{duckTest === "idle" ? "" : duckTestLabel}</span>
-          </div>
-        </div>
-      </section>
-
-      {/* 5. Everything that is configured once or never. Collapsed on purpose:
-          at the top level these controls cost a new user more than they saved an
-          experienced one. */}
-      <details className="card advanced" style={{ padding: "12px 16px", marginTop: 10 }}>
-        <summary>
-          <Icon name="chev-down" size={13}/>
-          {t("Дополнительно")}
-        </summary>
-
-        <div className="advanced__main-row">
-          <div className="set-cell">
-            <SetLabel title={t("Устройство обработки")}/>
-            <DevicePicker device={config?.device} cpuOnly={selectedModelInfo?.cpu_only} onConfigChanged={onConfigChanged}/>
-          </div>
-          <div className="vrule"/>
-          <div className="set-cell advanced__history-cell">
-            <SetLabel title={t("Хранить историю")} hint={t("Записи старше указанного срока и всё, что не влезло в лимит, удаляются при открытии страницы истории. 0 — без ограничения.")}/>
-            <HistoryRetentionControl
-              days={config?.history_retention_days ?? DEFAULT_HISTORY_RETENTION_DAYS}
-              maxEntries={config?.history_max_entries ?? DEFAULT_HISTORY_MAX_ENTRIES}
-              onConfigChanged={onConfigChanged}
-            />
-          </div>
-          <div className="vrule"/>
-          <div className="set-cell">
-            <SetLabel title={t("Скорость набора")} hint={t("Скорость ручного набора. В статистике используется формула: символы / скорость набора.")}/>
-            <TypingSpeedControl value={config?.typing_speed_cpm} onConfigChanged={onConfigChanged}/>
-          </div>
-          {/* The row's fourth setting. On a narrow card — with the sidebar open
-              at the minimum window width — it moves to a second row and the
-              separator before it is hidden: that is handled by a container
-              query in styles.css which measures the card, not the window. */}
-          <div className="vrule advanced__unload-rule"/>
-          <div className="set-cell advanced__unload-cell">
-            <SetLabel title={t("Выгружать модель")} hint={t("Через сколько минут без диктовки освобождать оперативную память. Модель вернётся в неё сама — в начале следующей записи, пока вы говорите.")}/>
-            <ModelUnloadControl value={config?.model_unload_after_minutes} onConfigChanged={onConfigChanged}/>
-          </div>
-        </div>
-
-        {/* Clarifications to auto-paste: they work only when it is on, and when
-            disabled they look dimmed — otherwise a checkbox that does nothing
-            reads as broken. */}
-        <div className="advanced__paste-row">
-          <label className="checkbox-row" style={{ color: autoPaste ? "var(--ink-mute)" : "var(--ink-faint)" }}>
-            <input className="checkbox" type="checkbox" disabled={!autoPaste} checked={config?.paste_trailing_space ?? false} onChange={(e) => void onConfigChanged({ paste_trailing_space: e.target.checked })}/>
-            {t("Пробел в конце")}
-          </label>
-          <span className="label-with-hint">
-            <label className="checkbox-row" style={{ color: autoPaste ? "var(--ink-mute)" : "var(--ink-faint)" }}>
-              <input className="checkbox" type="checkbox" disabled={!autoPaste} checked={config?.paste_auto_submit ?? false} onChange={(e) => void onConfigChanged({ paste_auto_submit: e.target.checked })}/>
-              {t("Enter после вставки")}
-            </label>
-            <HintIcon text={t("Нажать Enter сразу после вставки — отправит сообщение в чате или запустит поиск.")}/>
-          </span>
-        </div>
-
-        {/* Autostart is set once per installation — exactly the case this block
-            is collapsed for. Silence trimming is no longer here: vad.rs refuses
-            to trim by itself when no speech is found or the saving is under a
-            second, so there was nothing for the switch to fix. The trim_silence
-            key in config.json is still read — as a debug option.
-            The telemetry consent sits here too: it is the same kind of "set once
-            and forget" switch, and a separate subsection for a single row was
-            heavier than the row itself. */}
-        <div className="advanced__autostart-row">
-          {/* A portable copy does not register autostart: the entry it would
-              write points at a folder that travels on a flash drive, and
-              rewriting it would take the installed copy's autostart away.
-              Hence a disabled checkbox with the reason on it rather than a
-              working-looking one that saves the value and does nothing. */}
-          <span className="label-with-hint">
-            <label className="checkbox-row" style={{ color: portable ? "var(--ink-faint)" : undefined }}>
-              <input className="checkbox" type="checkbox" disabled={portable} checked={autoStart && !portable} onChange={(e) => void onConfigChanged({ auto_start: e.target.checked })}/>
-              {t("Запускать вместе с системой")}
-            </label>
-            <HintIcon text={portable
-              ? t("Недоступно в портативной версии: запись автозапуска указывала бы на папку, которая ездит вместе с приложением, и перебила бы автозапуск установленной копии.")
-              : t("Приложение запускается в фоне при входе в систему, горячая клавиша становится доступна сразу.")}/>
-          </span>
-          <span className="label-with-hint">
-            <label className="checkbox-row">
-              <input
-                className="checkbox"
-                type="checkbox"
-                checked={isTelemetryEnabled(config?.telemetry_enabled)}
-                onChange={(e) => void onConfigChanged({ telemetry_enabled: e.target.checked })}
+        {/* 4. Behaviour row: the paste settings as one sequence of checkboxes; a
+            separate switch created a false visual hierarchy. */}
+        <Card pad="rows">
+          <div className="behavior-row behavior-row--primary">
+            {/* «Пробел в конце» and «Enter после вставки» moved into
+                «Дополнительно»: both depend on auto-paste, both are set once for
+                a particular scenario — and all three captions together kept the
+                row from fitting on a narrow window. */}
+            <div className="set-cell behavior-row__paste-options">
+              <span className="label-with-hint">
+                <label className="checkbox-row">
+                  <input className="checkbox" type="checkbox" checked={autoPaste} onChange={(e) => void onConfigChanged({ auto_paste: e.target.checked })}/>
+                  {t("Авто-вставка текста")}
+                </label>
+                <HintIcon text={t("Сразу вставлять распознанный текст в активное поле. Если выключить, текст останется только в буфере обмена.")}/>
+              </span>
+            </div>
+            <div className="vrule"/>
+            <div className="set-cell behavior-row__sound-feedback">
+              <SoundFeedbackControl
+                enabled={config?.sound_feedback ?? true}
+                volume={config?.sound_volume ?? DEFAULT_SOUND_VOLUME}
+                onConfigChanged={onConfigChanged}
               />
-              {t("Разрешить обезличенную телеметрию")}
+            </div>
+            <div className="vrule"/>
+            {/* Ducking is not processing of the recording but what the app does
+                to the system while recording; and it is toggled situationally:
+                unnecessary with headphones, necessary with speakers. Hence its
+                place next to pasting rather than inside «Дополнительно». The
+                caption is short: the hint finishes the thought with "while
+                recording", and in the row those three words cost exactly the
+                space that kept it from fitting. */}
+            <div className="set-cell behavior-row__duck">
+              <span className="label-with-hint">
+                <label className="checkbox-row">
+                  <input className="checkbox" type="checkbox" checked={duckOutput} onChange={(e) => void onConfigChanged({ duck_output_while_recording: e.target.checked })}/>
+                  {t("Приглушать звук")}
+                </label>
+                <HintIcon text={t("На время записи убавить общую громкость и вернуть её после. Нужно, если пишете с колонок: звук из них попадает в микрофон.")}/>
+              </span>
+              {/* The whole test is a single icon button, and the same button
+                  shows the result: a tick or a red mark instead of words beside
+                  it. That way the row takes the same width in every state —
+                  whereas the button appearing, and then the status, used to push
+                  the cell onto a second line and change the card's height right
+                  under the cursor. The result text has not gone anywhere: it is in
+                  the button's hint and in the hidden screen-reader line. */}
+              <Hint text={duckTestLabel}>
+                <button
+                  className="btn btn--ghost behavior-row__duck-button"
+                  type="button"
+                  data-state={duckTest}
+                  data-visible={duckOutput ? "true" : "false"}
+                  disabled={!duckOutput || duckTest === "running"}
+                  tabIndex={duckOutput ? undefined : -1}
+                  aria-hidden={duckOutput ? undefined : true}
+                  onClick={() => void testOutputDuck()}
+                  aria-label={duckTestLabel}
+                >
+                  <Icon name={duckTest === "done" ? "check" : duckTest === "error" ? "x" : "test"} size={12}/>
+                </button>
+              </Hint>
+              <span className="sr-only" role="status">{duckTest === "idle" ? "" : duckTestLabel}</span>
+            </div>
+          </div>
+        </Card>
+
+        {/* 5. Everything that is configured once or never. Collapsed on purpose:
+            at the top level these controls cost a new user more than they saved an
+            experienced one. */}
+        <details className="card card--rows advanced">
+          <summary>
+            <Icon name="chev-down" size={13}/>
+            {t("Дополнительно")}
+          </summary>
+
+          <div className="advanced__main-row">
+            <div className="set-cell">
+              <SetLabel title={t("Устройство обработки")}/>
+              <DevicePicker device={config?.device} cpuOnly={selectedModelInfo?.cpu_only} onConfigChanged={onConfigChanged}/>
+            </div>
+            <div className="vrule"/>
+            <div className="set-cell advanced__history-cell">
+              <SetLabel title={t("Хранить историю")} hint={t("Записи старше указанного срока и всё, что не влезло в лимит, удаляются при открытии страницы истории. 0 — без ограничения.")}/>
+              <HistoryRetentionControl
+                days={config?.history_retention_days ?? DEFAULT_HISTORY_RETENTION_DAYS}
+                maxEntries={config?.history_max_entries ?? DEFAULT_HISTORY_MAX_ENTRIES}
+                onConfigChanged={onConfigChanged}
+              />
+            </div>
+            <div className="vrule"/>
+            <div className="set-cell">
+              <SetLabel title={t("Скорость набора")} hint={t("Скорость ручного набора. В статистике используется формула: символы / скорость набора.")}/>
+              <TypingSpeedControl value={config?.typing_speed_cpm} onConfigChanged={onConfigChanged}/>
+            </div>
+            {/* The row's fourth setting. On a narrow card — with the sidebar open
+                at the minimum window width — it moves to a second row and the
+                separator before it is hidden: that is handled by a container
+                query in styles.css which measures the card, not the window. */}
+            <div className="vrule advanced__unload-rule"/>
+            <div className="set-cell advanced__unload-cell">
+              <SetLabel title={t("Выгружать модель")} hint={t("Через сколько минут без диктовки освобождать оперативную память. Модель вернётся в неё сама — в начале следующей записи, пока вы говорите.")}/>
+              <ModelUnloadControl value={config?.model_unload_after_minutes} onConfigChanged={onConfigChanged}/>
+            </div>
+          </div>
+
+          {/* Clarifications to auto-paste: they work only when it is on, and when
+              disabled they look dimmed — otherwise a checkbox that does nothing
+              reads as broken. */}
+          <div className="advanced__paste-row">
+            <label className="checkbox-row" style={{ color: autoPaste ? "var(--ink-mute)" : "var(--ink-faint)" }}>
+              <input className="checkbox" type="checkbox" disabled={!autoPaste} checked={config?.paste_trailing_space ?? false} onChange={(e) => void onConfigChanged({ paste_trailing_space: e.target.checked })}/>
+              {t("Пробел в конце")}
             </label>
-            <HintIcon text={t("Собираются обезличенные события использования и технические сведения: режим обработки, длительность аудио и обработки, оценка сэкономленного времени, ОС, версия приложения, архитектура и сведения о сессии.")}/>
-          </span>
-        </div>
-      </details>
+            <span className="label-with-hint">
+              <label className="checkbox-row" style={{ color: autoPaste ? "var(--ink-mute)" : "var(--ink-faint)" }}>
+                <input className="checkbox" type="checkbox" disabled={!autoPaste} checked={config?.paste_auto_submit ?? false} onChange={(e) => void onConfigChanged({ paste_auto_submit: e.target.checked })}/>
+                {t("Enter после вставки")}
+              </label>
+              <HintIcon text={t("Нажать Enter сразу после вставки — отправит сообщение в чате или запустит поиск.")}/>
+            </span>
+          </div>
+
+          {/* Autostart is set once per installation — exactly the case this block
+              is collapsed for. Silence trimming is no longer here: vad.rs refuses
+              to trim by itself when no speech is found or the saving is under a
+              second, so there was nothing for the switch to fix. The trim_silence
+              key in config.json is still read — as a debug option.
+              The telemetry consent sits here too: it is the same kind of "set once
+              and forget" switch, and a separate subsection for a single row was
+              heavier than the row itself. */}
+          <div className="advanced__autostart-row">
+            {/* A portable copy does not register autostart: the entry it would
+                write points at a folder that travels on a flash drive, and
+                rewriting it would take the installed copy's autostart away.
+                Hence a disabled checkbox with the reason on it rather than a
+                working-looking one that saves the value and does nothing. */}
+            <span className="label-with-hint">
+              <label className="checkbox-row" style={{ color: portable ? "var(--ink-faint)" : undefined }}>
+                <input className="checkbox" type="checkbox" disabled={portable} checked={autoStart && !portable} onChange={(e) => void onConfigChanged({ auto_start: e.target.checked })}/>
+                {t("Запускать вместе с системой")}
+              </label>
+              <HintIcon text={portable
+                ? t("Недоступно в портативной версии: запись автозапуска указывала бы на папку, которая ездит вместе с приложением, и перебила бы автозапуск установленной копии.")
+                : t("Приложение запускается в фоне при входе в систему, горячая клавиша становится доступна сразу.")}/>
+            </span>
+            <span className="label-with-hint">
+              <label className="checkbox-row">
+                <input
+                  className="checkbox"
+                  type="checkbox"
+                  checked={isTelemetryEnabled(config?.telemetry_enabled)}
+                  onChange={(e) => void onConfigChanged({ telemetry_enabled: e.target.checked })}
+                />
+                {t("Разрешить обезличенную телеметрию")}
+              </label>
+              <HintIcon text={t("Собираются обезличенные события использования и технические сведения: режим обработки, длительность аудио и обработки, оценка сэкономленного времени, ОС, версия приложения, архитектура и сведения о сессии.")}/>
+            </span>
+          </div>
+        </details>
+      </div>
     </div>
   );
 }

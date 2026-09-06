@@ -1,6 +1,6 @@
 import { createElement } from "react";
 import { Icon } from "../components/Icon";
-import type { ApiKeyStatus, ConfigResult } from "../bridge/types";
+import type { ApiKeyInfo, ApiKeyStatus, ConfigResult } from "../bridge/types";
 import { t } from "../i18n";
 
 export type AiConfig = ConfigResult["ai_processing"];
@@ -73,6 +73,84 @@ export const COMPATIBLE_PRESETS = () => ([
   { id: "ollama", name: t("Ollama (локально)"), baseUrl: "http://localhost:11434/v1", suggestedModel: "llama3.1", signupHint: "ollama.com", logo: "ollama.svg" },
   { id: "vllm", name: t("vLLM (локально)"), baseUrl: "http://localhost:8000/v1", suggestedModel: "your-model", signupHint: "docs.vllm.ai", logo: "vllm.svg" },
 ]);
+
+/**
+ * Which shelf an entry sits on in the wizard's catalogue.
+ *
+ * Deliberately not the split the two lists above make. Under the hood an entry
+ * is either a provider with an adapter of its own (`PROVIDERS`, dispatched by
+ * `build_provider` on the Rust side) or a base URL handed to the shared
+ * OpenAI-compatible client (`COMPATIBLE_PRESETS`) — but that is a fact about
+ * our code, not about the choice being made. The headings used to say «прямой
+ * провайдер» and «OpenAI-compatible пресеты», which put DeepSeek, Mistral,
+ * MiniMax and Moonshot — first-party APIs every one of them, as direct as
+ * OpenAI — into the second group, next to Ollama, which is not a provider at
+ * all. Whether a vendor speaks the OpenAI wire format is our problem to solve,
+ * not a question to ask at the first step.
+ */
+export type CatalogGroup = "vendor" | "aggregator" | "local";
+
+/** Sell access to other people's models rather than serving their own. */
+const AGGREGATOR_IDS = new Set(["opencode-go", "openrouter", "opencode"]);
+/** Run on the user's own machine: no account, no key, no bill. */
+const LOCAL_IDS = new Set(["lmstudio", "ollama", "vllm"]);
+
+/** A new entry is a vendor unless listed above — that is the common case. */
+export function catalogGroup(id: string): CatalogGroup {
+  if (AGGREGATOR_IDS.has(id)) return "aggregator";
+  if (LOCAL_IDS.has(id)) return "local";
+  return "vendor";
+}
+
+export const CATALOG_GROUPS = (): Array<{ id: CatalogGroup; label: string }> => ([
+  { id: "vendor", label: t("Провайдеры") },
+  { id: "aggregator", label: t("Агрегаторы") },
+  { id: "local", label: t("Локально") },
+]);
+
+export type CatalogEntry = {
+  id: string;
+  name: string;
+  group: CatalogGroup;
+  /// The endpoint. Shown only for the local group, where the port is what you
+  /// check against the server you have running; elsewhere the brand is the
+  /// whole answer and the address is confirmed on the last step anyway.
+  meta: string;
+  logo?: string;
+  icon: string;
+  color: string;
+  /// Exactly one of the two is set, and it decides what picking the card does.
+  provider?: ProviderConfig;
+  preset?: CompatiblePreset;
+};
+
+/** Both lists as one catalogue, sorted by name inside a group. */
+export function PROVIDER_CATALOG(): CatalogEntry[] {
+  const providers = PROVIDERS
+    // The blank has its own place in the wizard, above the shelves.
+    .filter((provider) => provider.id !== "compatible")
+    .map<CatalogEntry>((provider) => ({
+      id: provider.id,
+      name: provider.name,
+      group: catalogGroup(provider.id),
+      meta: "",
+      logo: provider.logo,
+      icon: provider.icon,
+      color: provider.dot,
+      provider,
+    }));
+  const presets = COMPATIBLE_PRESETS().map<CatalogEntry>((preset) => ({
+    id: preset.id,
+    name: preset.name,
+    group: catalogGroup(preset.id),
+    meta: preset.baseUrl,
+    logo: preset.logo,
+    icon: "brand-compatible",
+    color: "var(--ink-dim)",
+    preset,
+  }));
+  return [...providers, ...presets].sort((a, b) => a.name.localeCompare(b.name));
+}
 
 // Both presets are one prompt with two differing blocks: whether lists may be
 // emitted and what counts as an acceptable single-line paragraph. They used to
@@ -203,7 +281,10 @@ export function promptIsCustom(profile: Pick<LlmProfile, "system_prompt" | "prom
 export const SYSTEM_PROMPT_PRESETS = () => ([
   {
     id: "plain",
-    label: "Plain",
+    // Not «Plain»: it stood among Russian captions as the one English word on
+    // the page, and named the format in the vocabulary of the prompt rather
+    // than in the one the caption beside it uses.
+    label: t("Абзацы"),
     description: t("Только абзацы. Безопасно для любых текстовых полей."),
     prompt: PLAIN_SYSTEM_PROMPT,
   },
@@ -321,6 +402,41 @@ export function llmRouteBlocker(ai: AiConfig | null, apiKeys: ApiKeyStatus): Llm
   return null;
 }
 
+export const EMPTY_KEY_INFO: ApiKeyInfo = { available: false, label: "", masked: "" };
+
+/** The key slot a profile actually reads. `profileKeyRef` names it, but a
+ *  profile from before the slots existed keeps its key under the bare provider
+ *  id, so the lookup falls back to that. */
+export function profileKeyInfo(
+  profile: Pick<LlmProfile, "id" | "provider" | "api_key_ref">,
+  apiKeys: ApiKeyStatus,
+): ApiKeyInfo {
+  const ref = profileKeyRef(profile);
+  return apiKeys[ref] ?? (profile.id === "default" ? apiKeys[profile.provider] ?? EMPTY_KEY_INFO : EMPTY_KEY_INFO);
+}
+
+/** The question `llmRouteBlocker` asks of the dictation route, asked of one
+ *  saved profile. Manual processing may run on a different profile, and it used
+ *  to answer in its own words («model не задан», «Ключ профиля не задан.») for
+ *  the same two states the route card already had wording for. */
+export function profileGap(
+  profile: Pick<LlmProfile, "id" | "provider" | "model" | "api_key_ref">,
+  apiKeys: ApiKeyStatus,
+): LlmRouteBlocker {
+  if (!profile.provider?.trim()) return "no_provider";
+  if (!profile.model?.trim()) return "no_model";
+  if (!profileKeyInfo(profile, apiKeys).available) return "no_key";
+  return null;
+}
+
+/** What exactly stops the request from reaching the provider. */
+export function gapReason(gap: NonNullable<LlmRouteBlocker>): string {
+  if (gap === "no_provider") return t("Провайдер LLM не выбран. Настройте его в «Интеграциях».");
+  if (gap === "invalid_base_url") return t("Для облачного распознавания укажите Base URL с http:// или https://.");
+  if (gap === "no_model") return t("Модель обработки не выбрана.");
+  return t("Для обработки нет сохранённого API-ключа.");
+}
+
 export function activeConfigFromProfile(ai: AiConfig, profile: LlmProfile, profiles: LlmProfile[]): AiConfig {
   return mergeAi(ai, {
     active_profile_id: profile.id,
@@ -340,10 +456,10 @@ export function activeConfigFromProfile(ai: AiConfig, profile: LlmProfile, profi
   });
 }
 
-export function LogoMark({ logo, fallback, color = "var(--text-2)", size = 16 }: { logo?: string; fallback: string; color?: string; size?: number }) {
+export function LogoMark({ logo, fallback, color = "var(--ink-dim)", size = 16 }: { logo?: string; fallback: string; color?: string; size?: number }) {
   return createElement(
     "span",
-    { style: { width: size + 8, height: size + 8, borderRadius: "var(--r-sm)", display: "grid", placeItems: "center", color, background: logo ? "#fff" : "var(--surface-3)", border: logo ? "1px solid rgba(0,0,0,0.08)" : "1px solid var(--border)", boxShadow: logo ? "0 1px 2px rgba(0,0,0,0.18)" : "none", flex: "0 0 auto" } },
+    { style: { width: size + 8, height: size + 8, borderRadius: "var(--radius-sm)", display: "grid", placeItems: "center", color, background: logo ? "#fff" : "var(--bg-4)", border: logo ? "1px solid rgba(0,0,0,0.08)" : "1px solid var(--line)", boxShadow: logo ? "0 1px 2px rgba(0,0,0,0.18)" : "none", flex: "0 0 auto" } },
     logo
       ? createElement("img", { src: `/logos/${logo}`, alt: "", width: size, height: size, draggable: false, style: { display: "block", objectFit: "contain" } })
       : createElement(Icon, { name: fallback, size }),

@@ -3,7 +3,7 @@ import { emit } from "@tauri-apps/api/event";
 import { invoke, on, onRecordingStateChange, type RecordingState, waitForReady } from "./bridge";
 import { getStats } from "./bridge/stats";
 import type { ApiKeyStatus, AppVersionResult, ConfigResult, MicrophoneResult, ModelInfo, RuntimeStatusResult, StatsResult } from "./bridge/types";
-import { Sidebar, TitleBar, ACCENT_OPTIONS, applyAccent, type TabId, type DownloadProgress, type AccentValue } from "./components/Shell";
+import { Card, Sidebar, TitleBar, ACCENT_OPTIONS, applyAccent, type TabId, type DownloadProgress, type AccentValue } from "./components/Shell";
 import { Icon } from "./components/Icon";
 
 const ACCENT_STORAGE_KEY = "sotto.ui.accent";
@@ -368,7 +368,7 @@ export function MainWindow() {
           <Sidebar tab={tab} onTab={setTab} recordingState={recordingState} pipelineMode={config?.ai_processing?.pipeline_mode} loadedModel={actualModelLabel(runtime, "")} loadsOnDemand={runtime?.model_loads_on_demand} theme={theme} onToggleTheme={() => void toggleTheme()} downloadProgress={downloadProgress} collapsed={collapsed}/>
           <main className="win__main">
             {permissions.length > 0 && permissions.map((p) => (
-              <div key={p.permission} role="alert" style={{ margin: "14px 32px 0", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", padding: "12px 14px", borderRadius: 8, background: "var(--accent-soft)", border: "1px solid var(--accent-line)", color: "var(--accent-text)", font: "500 12.5px/1.4 var(--font-sans)" }}>
+              <div key={p.permission} role="alert" style={{ margin: "14px 32px 0", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", padding: "12px 14px", borderRadius: 8, background: "var(--accent-soft)", border: "1px solid var(--accent-soft-2)", color: "var(--accent-text)", font: "500 12.5px/1.4 var(--font-sans)" }}>
                 <Icon name="info" size={14}/>
                 <span style={{ flex: "1 1 240px", minWidth: 240 }}>
                   <strong>{t("Нужно разрешение macOS —")} {p.hint}.</strong>
@@ -431,10 +431,10 @@ function PageWithMvpGate({ tab, children }: { tab: TabId; children: React.ReactN
               height: 32,
               padding: "0 16px",
               fontSize: 12,
-              background: "var(--surface-3)",
-              color: "var(--text-mute)",
-              borderColor: "var(--border-strong)",
-              boxShadow: "var(--shadow-2)",
+              background: "var(--bg-4)",
+              color: "var(--ink-mute)",
+              borderColor: "var(--line-strong)",
+              boxShadow: "var(--shadow-pop)",
             }}
           >
              {t("В доработке")} </span>
@@ -465,13 +465,13 @@ function DeferredPage({ tab }: { tab: TabId }) {
         </div>
       </header>
       <div className="main-body">
-        <div className="card" style={{ padding: 18, color: "var(--text-2)", font: "500 13px/1.45 var(--font-sans)" }}>
-           {t("Раздел не монтируется в MVP, поэтому связанные команды backend не вызываются.")} </div>
+        <Card style={{ color: "var(--ink-dim)", font: "500 13px/1.45 var(--font-sans)" }}>
+           {t("Раздел не монтируется в MVP, поэтому связанные команды backend не вызываются.")} </Card>
       </div>
     </>
   );
 }
 
 function LoadingState() {
-  return <div className="loading-state"><div style={{ display: "flex", alignItems: "center", gap: 10, font: "500 13px/1 var(--font-sans)" }}><div style={{ width: 16, height: 16, borderRadius: "50%", border: "2px solid var(--surface-3)", borderTopColor: "var(--accent)", animation: "spin .8s linear infinite" }}/>{t("Подключение к backend")}</div></div>;
+  return <div className="loading-state"><div style={{ display: "flex", alignItems: "center", gap: 10, font: "500 13px/1 var(--font-sans)" }}><div style={{ width: 16, height: 16, borderRadius: "50%", border: "2px solid var(--bg-4)", borderTopColor: "var(--accent)", animation: "spin .8s linear infinite" }}/>{t("Подключение к backend")}</div></div>;
 }

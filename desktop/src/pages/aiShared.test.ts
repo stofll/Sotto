@@ -5,6 +5,10 @@
 
 import { describe, it, expect } from "vitest";
 import {
+  COMPATIBLE_PRESETS,
+  PROVIDERS,
+  PROVIDER_CATALOG,
+  catalogGroup,
   DEFAULT_AI,
   profilesForAi,
   activeConfigFromProfile,
@@ -16,6 +20,8 @@ import {
   SYSTEM_PROMPT_PRESETS,
   textProfileFor,
   llmRouteBlocker,
+  profileGap,
+  profileKeyInfo,
   type LlmProfile,
 } from "./aiShared";
 
@@ -215,5 +221,79 @@ describe("llmRouteBlocker", () => {
     expect(llmRouteBlocker({ ...cloud, stt_model: "" }, withKey)).toBe("no_model");
     expect(llmRouteBlocker({ ...cloud, stt_model: undefined }, withKey)).toBeNull();
     expect(llmRouteBlocker({ ...cloud, stt_model: undefined, model: "" }, withKey)).toBe("no_model");
+  });
+});
+
+describe("profileGap", () => {
+  const base = mergeAi(null, {});
+  const saved = (patch: Partial<LlmProfile>) => normalizeProfile(base, { id: "voice", name: "Voice", provider: "openai", model: "gpt-4o-mini", ...patch });
+  const inSlot = { key_voice: { available: true, label: "OpenAI", masked: "sk-…12" } };
+
+  it("passes a profile whose key sits in its own slot", () => {
+    expect(profileGap(saved({}), inSlot)).toBeNull();
+  });
+
+  it("names what is missing", () => {
+    // `normalizeProfile` always supplies a provider, so an empty one can only
+    // arrive from a config written by hand — which is exactly when saying
+    // «провайдер не выбран» instead of silently sending nowhere matters.
+    expect(profileGap({ id: "voice", provider: "", model: "gpt-4o-mini", api_key_ref: "key_voice" }, inSlot)).toBe("no_provider");
+    expect(profileGap(saved({ model: "  " }), inSlot)).toBe("no_model");
+    expect(profileGap(saved({}), {})).toBe("no_key");
+  });
+
+  /** The pill next to the picker and the note under the manual panel read the
+   *  key the same way, or one of them would contradict the other. */
+  it("reads the default profile's key from the bare provider id", () => {
+    const legacy = normalizeProfile(base, { id: "default", provider: "openai", model: "gpt-4o-mini", api_key_ref: "" });
+    const byProvider = { openai: { available: true, label: "OpenAI", masked: "sk-…12" } };
+    expect(profileKeyInfo(legacy, byProvider).available).toBe(true);
+    expect(profileGap(legacy, byProvider)).toBeNull();
+  });
+
+  it("reports no key rather than throwing on an unknown slot", () => {
+    expect(profileKeyInfo(saved({ api_key_ref: "gone" }), inSlot).available).toBe(false);
+    expect(profileGap(saved({ api_key_ref: "gone" }), inSlot)).toBe("no_key");
+  });
+});
+
+describe("PROVIDER_CATALOG", () => {
+  it("puts every entry of both lists on a shelf, except the blank", () => {
+    const catalog = PROVIDER_CATALOG();
+    const expected = PROVIDERS.filter((p) => p.id !== "compatible").length + COMPATIBLE_PRESETS().length;
+
+    expect(catalog).toHaveLength(expected);
+    // `compatible` is the hand-typed profile, and the wizard offers it above
+    // the shelves — in the catalogue it would read as a provider named
+    // «OpenAI-compatible».
+    expect(catalog.some((entry) => entry.id === "compatible")).toBe(false);
+  });
+
+  it("says what to do with a card by exactly one of the two fields", () => {
+    for (const entry of PROVIDER_CATALOG()) {
+      expect(Boolean(entry.provider) !== Boolean(entry.preset)).toBe(true);
+    }
+  });
+
+  // The grouping is the whole point of the catalogue: an adapter of its own is
+  // not what makes an entry a vendor, and the two lists must not show through.
+  it("groups by what the entry is, not by which adapter serves it", () => {
+    const groupOf = (id: string) => PROVIDER_CATALOG().find((entry) => entry.id === id)?.group;
+
+    // Its own adapter, and a preset for the shared one — the same shelf.
+    expect(groupOf("openai")).toBe("vendor");
+    expect(groupOf("deepseek")).toBe("vendor");
+    expect(groupOf("mistral")).toBe("vendor");
+    // Resellers, likewise on both sides of the split.
+    expect(groupOf("opencode-go")).toBe("aggregator");
+    expect(groupOf("openrouter")).toBe("aggregator");
+    // Not providers at all.
+    expect(groupOf("ollama")).toBe("local");
+    expect(groupOf("lmstudio")).toBe("local");
+    expect(groupOf("vllm")).toBe("local");
+  });
+
+  it("calls an unknown id a vendor — the common case for a new entry", () => {
+    expect(catalogGroup("some-new-provider")).toBe("vendor");
   });
 });

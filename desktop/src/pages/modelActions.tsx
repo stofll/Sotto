@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { invoke, on } from "../bridge";
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { Icon } from "../components/Icon";
+import { Hint } from "../components/Hint";
 import type { ConfigResult, ModelInfo } from "../bridge/types";
 import { t } from "../i18n";
 import { loadThenPersistModel } from "./modelSelection";
@@ -309,15 +310,16 @@ export function ModelActionOverlays({ actions }: { actions: ModelActions }) {
               two similar actions in one corner cost more than they saved. The
               close button's label changes along with its action so cancellation
               is never pressed blindly. */}
-          <button
-            className="model-download-toast__close"
-            type="button"
-            onClick={() => { if (status.cancelModel) void cancelDownload(status.cancelModel); else dismissStatus(); }}
-            aria-label={status.cancelModel ? t("Отменить скачивание") : t("Закрыть")}
-            title={status.cancelModel ? t("Отменить скачивание") : t("Закрыть")}
-          >
-            <Icon name="x" size={13}/>
-          </button>
+          <Hint text={status.cancelModel ? t("Отменить скачивание") : t("Закрыть")}>
+            <button
+              className="model-download-toast__close"
+              type="button"
+              onClick={() => { if (status.cancelModel) void cancelDownload(status.cancelModel); else dismissStatus(); }}
+              aria-label={status.cancelModel ? t("Отменить скачивание") : t("Закрыть")}
+            >
+              <Icon name="x" size={13}/>
+            </button>
+          </Hint>
           {status.kind === "loading" && (
             <span className="model-download-toast__track">
               <span

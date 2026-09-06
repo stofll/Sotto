@@ -1,5 +1,7 @@
 # Sotto
 
+English | [Русский](README.ru.md)
+
 Local voice dictation for Windows, with a macOS port. Press a hotkey, speak, and
 the text appears in whatever window you were typing in.
 
@@ -40,12 +42,14 @@ before installation.
 - **Local speech models** — `whisper.cpp` everywhere, plus `sherpa-onnx` bundles
   on Windows and macOS (GigaAM, Parakeet, Canary, Moonshine, SenseVoice, Zipformer). Two of
   them stream text while you are still speaking. See [Models](docs/models.md).
-- **File transcription** — attach a recording in the "Обработать текст" panel and
+- **File transcription** — attach a recording in the "Process the text" panel and
   the text comes back there, without touching the focused window or the history.
 - **Optional LLM cleanup** — punctuation, formatting, and custom prompts through
   OpenAI-compatible providers.
 - **Text rules** — replacements and dictionaries applied before the result lands.
-- **History and statistics**, stored locally in SQLite.
+- **History and statistics**, stored locally in SQLite. A past entry can be re-run
+  through any saved LLM profile; the result is shown first and replaces the stored
+  text only if you accept it.
 
 ## Privacy
 
@@ -59,7 +63,7 @@ is sent; [Privacy](docs/privacy.md) covers the full network picture.
 
 ## Current Status
 
-- Version: `0.0.3`
+- Version: `0.0.4`
 - Desktop shell: **Tauri 2 + Rust** backend, **React 19 / TypeScript / Vite** frontend
 - Speech backend: **`whisper-rs`** (whisper.cpp, GGML models) — fully native, no Python
 - Second speech backend (Windows/macOS): **`sherpa-onnx`**, CPU-only, each bundle pinned
