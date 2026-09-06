@@ -47,7 +47,9 @@ before installation.
 - **Optional LLM cleanup** — punctuation, formatting, and custom prompts through
   OpenAI-compatible providers.
 - **Text rules** — replacements and dictionaries applied before the result lands.
-- **History and statistics**, stored locally in SQLite.
+- **History and statistics**, stored locally in SQLite. A past entry can be re-run
+  through any saved LLM profile; the result is shown first and replaces the stored
+  text only if you accept it.
 
 ## Privacy
 
