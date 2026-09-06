@@ -126,33 +126,19 @@ async fn delete_history_entry(
 }
 
 #[tauri::command]
-async fn update_history_entry_text(
-    state: tauri::State<'_, AppState>,
-    id: u64,
-    text: String,
-) -> Result<history::UpdateTextResult, String> {
-    let db = state.db.clone();
-    run_db_op(db, move |conn| history::update_text_from(conn, id, &text)).await
-}
-
-#[tauri::command]
 async fn clear_history(state: tauri::State<'_, AppState>) -> Result<history::ClearResult, String> {
     let db = state.db.clone();
     run_db_op(db, history::clear_from).await
 }
 
-/// Return shape for `retry_history_ai_processing`.
+/// Return shape for `apply_history_ai_processing`.
 ///
-/// Mirrors the Python legacy `retry_history_ai_processing` shape:
-/// `{ updated: bool, entry?: HistoryEntry, reason?: string }`. The
-/// frontend (`bridge/stats.ts`) pattern-matches on `updated + entry` to
-/// decide whether to merge the updated row into local state, and shows
-/// `reason` when `updated` is false.
-///
-/// `updated` means "the LLM produced new text", NOT "the row exists". It
-/// used to mean the latter, which made every skipped or failed retry look
-/// like a success: the button finished, nothing changed, and no error was
-/// ever shown.
+/// `{ updated: bool, entry?: HistoryEntry, reason?: string }`. The frontend
+/// (`bridge/stats.ts`) pattern-matches on `updated + entry` to decide whether
+/// to merge the updated row into local state, and shows `reason` when
+/// `updated` is false. Whether the LLM produced anything is decided one step
+/// earlier, by `preview_history_ai_processing`: nothing reaches the apply step
+/// unless the user accepted a result.
 #[derive(Debug, Clone, serde::Serialize)]
 struct HistoryRetryAiResult {
     updated: bool,
@@ -176,25 +162,31 @@ fn manual_llm_mode(configured: &str) -> &str {
     }
 }
 
-/// Re-run AI processing on an existing history entry.
+/// Run the LLM over an existing history entry without writing anything.
 ///
-/// Phase 4 / PR-B — fully native Rust: reads the entry from the DB, calls
+/// Phase 4 / PR-B — fully native Rust: reads the entry from the DB and calls
 /// `crate::ai::ai_process_text_with_status` (the same orchestrator the
-/// dispatcher uses for live transcriptions), then writes the resulting
-/// `ai_processing` / `processing_stats` JSON back to the same row. No
-/// Python subprocess involved.
+/// dispatcher uses for live transcriptions). Nothing is persisted here: the
+/// history panel shows the result next to the current text, and only
+/// `apply_history_ai_processing` writes it back.
 ///
 /// `source_text` fallback: if `entry.formatted_text` is empty (migrated
 /// legacy entries may not have a `formatted_text` field), fall back to
 /// `entry.text` so we still have something to send to the LLM.
-#[tauri::command]
-async fn retry_history_ai_processing(
-    state: tauri::State<'_, AppState>,
-    app: AppHandle,
+async fn run_history_entry_ai(
+    state: &tauri::State<'_, AppState>,
+    app: &AppHandle,
     id: u64,
-) -> Result<HistoryRetryAiResult, String> {
-    app.state::<telemetry::Telemetry>()
-        .begin_usage_session(telemetry::SessionTrigger::Llm);
+    profile_id: Option<String>,
+) -> Result<
+    (
+        crate::ai::step::AiConfig,
+        crate::ai::step::CallOutcome,
+        String,
+        String,
+    ),
+    String,
+> {
     // 1. Read the entry from the DB.
     let db = state.db.clone();
     let entry = run_db_op(db, move |conn| read_history_entry(conn, id))
@@ -211,10 +203,12 @@ async fn retry_history_ai_processing(
     // 3. Load ai_processing config from disk. `from_ai_processing` mirrors
     //    the previous field-by-field extraction (no recording context, so
     //    the duration gate is skipped).
-    let config = crate::config::Config::load(&app)?;
-    let mut ai_cfg = crate::ai::step::AiConfig::from_ai_processing(ai_processing_config(&config)?);
+    let config = crate::config::Config::load(app)?;
+    let ai = ai_processing_config(&config)?;
+    let mut ai_cfg = crate::ai::step::AiConfig::from_ai_processing(ai);
     ai_cfg.language = speech_language(Some(&config));
     ai_cfg.pipeline_mode = manual_llm_mode(&ai_cfg.pipeline_mode).to_string();
+    apply_ai_profile(&mut ai_cfg, ai, profile_id.as_deref())?;
 
     // 4. Look up the API key from the secret store.
     let api_key = if ai_cfg.api_key_ref.is_empty() {
@@ -230,31 +224,148 @@ async fn retry_history_ai_processing(
 
     // 6. Build both JSON columns in the shapes the live dispatcher writes
     //    (`ai_processing_json` = serialized AiStatus, `processing_stats_json`
-    //    = timings).
-    let ai_str = ai_processing_json(Some(&outcome.status))
+    //    = timings). They are carried to the apply step as they are rather
+    //    than rebuilt there: rebuilding means asking the model again, and the
+    //    second answer is not the one the user accepted.
+    let ai_json = ai_processing_json(Some(&outcome.status))
         .ok_or_else(|| "serialize ai_processing".to_string())?;
-    let ps_str = stats_with_llm_timing(
+    let stats_json = stats_with_llm_timing(
         entry.processing_stats.as_ref(),
         outcome.status.elapsed_seconds,
     );
+    Ok((ai_cfg, outcome, ai_json, stats_json))
+}
 
-    // 7. Write back to DB. The new text goes in alongside the status —
-    //    without it the row keeps showing the pre-retry text and the
-    //    button looks like it did nothing.
+/// Overlay one saved AI profile onto the flat active `ai_processing` fields.
+///
+/// The flat fields describe the profile used for dictation; the history panel
+/// lets a single entry be re-run through any other saved profile, and without
+/// this the request would still go to the dictation one. `None` keeps the flat
+/// fields and only fills in the profile identity that the entry badge shows —
+/// `from_ai_processing` leaves it empty because the live path sets it itself.
+fn apply_ai_profile(
+    cfg: &mut crate::ai::step::AiConfig,
+    ai: &Value,
+    profile_id: Option<&str>,
+) -> Result<(), String> {
+    let str_field = |value: &Value, key: &str| {
+        value
+            .get(key)
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string()
+    };
+    let Some(profile_id) = profile_id.filter(|id| !id.is_empty()) else {
+        cfg.profile_id = str_field(ai, "profile_id");
+        cfg.profile_name = str_field(ai, "profile_name");
+        return Ok(());
+    };
+    let profile = ai
+        .get("profiles")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .find(|profile| profile.get("id").and_then(Value::as_str) == Some(profile_id))
+        .ok_or_else(|| format!("unknown ai profile: {profile_id}"))?;
+
+    cfg.provider = str_field(profile, "provider");
+    cfg.model = str_field(profile, "model");
+    cfg.api_key_ref = str_field(profile, "api_key_ref");
+    cfg.profile_id = profile_id.to_string();
+    cfg.profile_name = str_field(profile, "name");
+    // Empty means "inherit": a profile that never overrode the prompt or the
+    // base URL must not blank out the ones that are configured.
+    let base_url = str_field(profile, "base_url");
+    if !base_url.is_empty() {
+        cfg.base_url = Some(base_url);
+    }
+    let system_prompt = str_field(profile, "system_prompt");
+    if !system_prompt.is_empty() {
+        cfg.system_prompt = system_prompt;
+    }
+    if let Some(timeout) = profile
+        .get("llm_timeout_seconds")
+        .and_then(Value::as_u64)
+        .filter(|value| *value > 0)
+    {
+        cfg.llm_timeout_seconds = timeout;
+    }
+    Ok(())
+}
+
+/// A dry run of LLM processing over a history entry.
+///
+/// `ai_json` / `stats_json` are the two columns the write would need. They
+/// travel back through `apply_history_ai_processing` unchanged so that what
+/// ends up stored describes the run the user actually saw and accepted.
+#[derive(Debug, Clone, serde::Serialize)]
+struct HistoryAiPreview {
+    ok: bool,
+    text: String,
+    reason: Option<String>,
+    provider: String,
+    model: String,
+    profile_name: String,
+    elapsed_seconds: f64,
+    ai_json: String,
+    stats_json: String,
+}
+
+/// Re-run the LLM over a history entry and return the result without storing
+/// it. `profile_id` picks one of the saved AI profiles; `None` uses the one
+/// configured for dictation.
+#[tauri::command]
+async fn preview_history_ai_processing(
+    state: tauri::State<'_, AppState>,
+    app: AppHandle,
+    id: u64,
+    profile_id: Option<String>,
+) -> Result<HistoryAiPreview, String> {
+    app.state::<telemetry::Telemetry>()
+        .begin_usage_session(telemetry::SessionTrigger::Llm);
+    let (ai_cfg, outcome, ai_json, stats_json) =
+        run_history_entry_ai(&state, &app, id, profile_id).await?;
+    Ok(HistoryAiPreview {
+        ok: outcome.status.used,
+        text: outcome.text,
+        reason: retry_failure_reason(&outcome.status),
+        provider: ai_cfg.provider,
+        model: ai_cfg.model,
+        profile_name: ai_cfg.profile_name,
+        elapsed_seconds: outcome.status.elapsed_seconds,
+        ai_json,
+        stats_json,
+    })
+}
+
+/// Store a previewed LLM result on its history entry.
+///
+/// The text goes in alongside the status of the run that produced it: a row
+/// showing the new text under the old «fallback» badge would describe an
+/// attempt that never happened.
+#[tauri::command]
+async fn apply_history_ai_processing(
+    state: tauri::State<'_, AppState>,
+    id: u64,
+    text: String,
+    ai_json: String,
+    stats_json: String,
+) -> Result<HistoryRetryAiResult, String> {
+    if text.trim().is_empty() {
+        return Err("refusing to store an empty LLM result".to_string());
+    }
     let db = state.db.clone();
-    let new_text = outcome.status.used.then(|| outcome.text.clone());
     run_db_op(db, move |conn| {
-        update_entry_ai(conn, id, new_text.as_deref(), &ai_str, &ps_str)
+        update_entry_ai(conn, id, Some(text.as_str()), &ai_json, &stats_json)
     })
     .await?;
 
-    // 8. Re-read the row so the returned `entry` reflects the update.
     let db = state.db.clone();
     let entry = run_db_op(db, move |conn| read_history_entry(conn, id)).await?;
     Ok(HistoryRetryAiResult {
-        updated: outcome.status.used && entry.is_some(),
+        updated: entry.is_some(),
         entry,
-        reason: retry_failure_reason(&outcome.status),
+        reason: None,
     })
 }
 
@@ -302,8 +413,8 @@ fn retry_failure_reason(status: &crate::ai::step::AiStatus) -> Option<String> {
         .or_else(|| Some("unknown".to_string()))
 }
 
-/// Read a single history row by id (used by `retry_history_ai_processing`
-/// to fetch + re-fetch the row around the Python LLM round-trip).
+/// Read a single history row by id (used by the manual LLM processing path
+/// to fetch the source text and to re-fetch the row after the write).
 fn read_history_entry(
     conn: &Connection,
     id: u64,
@@ -2015,7 +2126,9 @@ fn model_request_key(stored: String, passed: Option<String>) -> String {
     if !stored.trim().is_empty() {
         return stored;
     }
-    passed.map(|value| value.trim().to_string()).unwrap_or_default()
+    passed
+        .map(|value| value.trim().to_string())
+        .unwrap_or_default()
 }
 
 /// Ask a provider which models it currently serves.
@@ -2162,15 +2275,24 @@ mod model_request_key_tests {
     /// is still only in the field.
     #[test]
     fn falls_back_to_the_value_handed_in() {
-        assert_eq!(model_request_key(String::new(), Some("sk-typed".into())), "sk-typed");
-        assert_eq!(model_request_key("   ".into(), Some("sk-typed".into())), "sk-typed");
+        assert_eq!(
+            model_request_key(String::new(), Some("sk-typed".into())),
+            "sk-typed"
+        );
+        assert_eq!(
+            model_request_key("   ".into(), Some("sk-typed".into())),
+            "sk-typed"
+        );
     }
 
     /// An existing profile passes both. The store is what it authenticates
     /// with, so a stale field must not quietly take over.
     #[test]
     fn the_stored_key_wins_when_there_is_one() {
-        assert_eq!(model_request_key("sk-stored".into(), Some("sk-typed".into())), "sk-stored");
+        assert_eq!(
+            model_request_key("sk-stored".into(), Some("sk-typed".into())),
+            "sk-stored"
+        );
     }
 
     /// A local server needs no key at all, and neither side has one.
@@ -3880,11 +4002,11 @@ pub fn run() {
             get_stats,
             list_history,
             delete_history_entry,
-            update_history_entry_text,
             clear_history,
-            // Phase 4 / PR-B: re-run AI processing on an existing history
-            // entry (pure Rust — no Python subprocess).
-            retry_history_ai_processing,
+            // Manual LLM processing of an existing history entry: the run
+            // and the write are separate so the result can be reviewed first.
+            preview_history_ai_processing,
+            apply_history_ai_processing,
             // Phase 4 / PR-B: native Tauri commands (replaced Python sidecar).
             get_config,
             save_config,
@@ -4503,6 +4625,90 @@ mod retry_ai_tests {
             retry_failure_reason(&status(false, "   ")),
             Some("unknown".to_string())
         );
+    }
+
+    /// The config a panel run starts from: flat active fields plus two saved
+    /// profiles, one of which overrides nothing but the model.
+    fn ai_processing_with_profiles() -> Value {
+        serde_json::json!({
+            "provider": "compatible",
+            "model": "qwen3-27b",
+            "api_key_ref": "slot-voice",
+            "base_url": "http://localhost:1234/v1",
+            "system_prompt": "почини пунктуацию",
+            "llm_timeout_seconds": 12,
+            "profile_id": "voice",
+            "profile_name": "Диктовка",
+            "profiles": [
+                {
+                    "id": "voice",
+                    "name": "Диктовка",
+                    "provider": "compatible",
+                    "model": "qwen3-27b",
+                    "api_key_ref": "slot-voice",
+                },
+                {
+                    "id": "precise",
+                    "name": "Точный",
+                    "provider": "anthropic",
+                    "model": "claude-opus-5",
+                    "api_key_ref": "slot-precise",
+                    "system_prompt": "перепиши аккуратно",
+                    "llm_timeout_seconds": 60,
+                },
+            ],
+        })
+    }
+
+    fn ai_config_from(ai: &Value) -> crate::ai::step::AiConfig {
+        crate::ai::step::AiConfig::from_ai_processing(ai)
+    }
+
+    #[test]
+    fn no_profile_keeps_the_dictation_target_and_names_it() {
+        let ai = ai_processing_with_profiles();
+        let mut cfg = ai_config_from(&ai);
+        apply_ai_profile(&mut cfg, &ai, None).unwrap();
+        assert_eq!(cfg.provider, "compatible");
+        assert_eq!(cfg.model, "qwen3-27b");
+        // `from_ai_processing` leaves the identity empty; without this the
+        // entry badge would lose the profile name on every manual run.
+        assert_eq!(cfg.profile_id, "voice");
+        assert_eq!(cfg.profile_name, "Диктовка");
+    }
+
+    #[test]
+    fn a_chosen_profile_redirects_the_request() {
+        let ai = ai_processing_with_profiles();
+        let mut cfg = ai_config_from(&ai);
+        apply_ai_profile(&mut cfg, &ai, Some("precise")).unwrap();
+        assert_eq!(cfg.provider, "anthropic");
+        assert_eq!(cfg.model, "claude-opus-5");
+        assert_eq!(cfg.api_key_ref, "slot-precise");
+        assert_eq!(cfg.profile_name, "Точный");
+        assert_eq!(cfg.system_prompt, "перепиши аккуратно");
+        assert_eq!(cfg.llm_timeout_seconds, 60);
+    }
+
+    /// A profile that never overrode the prompt or the base URL inherits
+    /// them; blanking them out would send a bare request to nowhere.
+    #[test]
+    fn a_profile_without_overrides_inherits_prompt_and_base_url() {
+        let ai = ai_processing_with_profiles();
+        let mut cfg = ai_config_from(&ai);
+        apply_ai_profile(&mut cfg, &ai, Some("voice")).unwrap();
+        assert_eq!(cfg.system_prompt, "почини пунктуацию");
+        assert_eq!(cfg.base_url.as_deref(), Some("http://localhost:1234/v1"));
+        assert_eq!(cfg.llm_timeout_seconds, 12);
+    }
+
+    /// A stale id from a deleted profile must fail loudly rather than
+    /// silently sending the text to the dictation profile.
+    #[test]
+    fn an_unknown_profile_is_an_error() {
+        let ai = ai_processing_with_profiles();
+        let mut cfg = ai_config_from(&ai);
+        assert!(apply_ai_profile(&mut cfg, &ai, Some("deleted")).is_err());
     }
 
     #[test]

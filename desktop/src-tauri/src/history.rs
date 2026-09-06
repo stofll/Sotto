@@ -123,12 +123,6 @@ pub struct DeleteResult {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct UpdateTextResult {
-    pub updated: bool,
-    pub entry: Option<HistoryEntry>,
-}
-
-#[derive(Debug, Clone, Serialize)]
 pub struct ClearResult {
     pub deleted: u64,
 }
@@ -348,63 +342,11 @@ pub fn delete_from(conn: &Connection, id: u64) -> Result<DeleteResult, rusqlite:
     })
 }
 
-pub fn update_text_from(
-    conn: &Connection,
-    id: u64,
-    text: &str,
-) -> Result<UpdateTextResult, rusqlite::Error> {
-    let length = text.chars().count() as i64;
-    let affected = conn.execute(
-        "UPDATE history SET text = ?1, length = ?2 WHERE id = ?3",
-        rusqlite::params![text, length, id as i64],
-    )?;
-    let updated = affected > 0;
-    let entry = if updated {
-        read_entry_inner(conn, id)?
-    } else {
-        None
-    };
-    Ok(UpdateTextResult { updated, entry })
-}
-
 pub fn clear_from(conn: &Connection) -> Result<ClearResult, rusqlite::Error> {
     let affected = conn.execute("DELETE FROM history", [])?;
     Ok(ClearResult {
         deleted: affected as u64,
     })
-}
-
-/// Read a single entry by id. Used by `update_text_from` to return the
-/// updated row (Python legacy returned the full entry alongside `updated`).
-fn read_entry_inner(conn: &Connection, id: u64) -> Result<Option<HistoryEntry>, rusqlite::Error> {
-    let mut stmt = conn.prepare(
-        "SELECT id, timestamp, text, raw_text, formatted_text, language, inference_time_ms, \
-         ai_processing_json, processing_stats_json, system_prompt, transcription_model, length \
-         FROM history WHERE id = ?1",
-    )?;
-    let mut rows = stmt.query([id as i64])?;
-    if let Some(row) = rows.next()? {
-        Ok(Some(HistoryEntry {
-            id: row.get::<_, i64>(0)? as u64,
-            timestamp: row.get(1)?,
-            text: row.get(2)?,
-            raw_text: row.get(3)?,
-            formatted_text: row.get(4)?,
-            language: row.get(5)?,
-            inference_time_ms: row.get::<_, Option<i64>>(6)?.map(|v| v as u64),
-            ai_processing: row
-                .get::<_, Option<String>>(7)?
-                .and_then(|s| serde_json::from_str(&s).ok()),
-            processing_stats: row
-                .get::<_, Option<String>>(8)?
-                .and_then(|s| serde_json::from_str(&s).ok()),
-            system_prompt: row.get(9)?,
-            transcription_model: row.get(10)?,
-            length: row.get::<_, i64>(11)? as u32,
-        }))
-    } else {
-        Ok(None)
-    }
 }
 
 #[cfg(test)]
@@ -629,16 +571,6 @@ mod tests {
     }
 
     #[test]
-    fn update_text_changes_length() {
-        let db = fresh_db();
-        let id = append(&db, "short", Some(1), None, 100, 2.0).unwrap();
-        let _ = update_text_from(&db.lock().unwrap(), id, "much longer text").unwrap();
-        let list = list_history_from(&db.lock().unwrap(), RetentionPolicy::default()).unwrap();
-        assert_eq!(list.entries[0].text, "much longer text");
-        assert_eq!(list.entries[0].length, 16);
-    }
-
-    #[test]
     fn append_collision_in_same_ms_yields_unique_ids() {
         // IMPORTANT-5: two appends in the same millisecond must NOT collide.
         // We force the collision by pre-seeding two rows with the same id
@@ -748,33 +680,5 @@ mod tests {
             2,
             "max_entries = 2 must cap the listing to the two newest"
         );
-    }
-
-    #[test]
-    fn update_text_missing_id_reports_not_updated() {
-        let db = fresh_db();
-        let result = update_text_from(&db.lock().unwrap(), 999_999, "x").unwrap();
-        assert!(
-            !result.updated,
-            "updating a missing id must not claim success"
-        );
-        assert!(
-            result.entry.is_none(),
-            "no entry should be returned for a missing id"
-        );
-    }
-
-    #[test]
-    fn update_text_existing_id_returns_new_text() {
-        let db = fresh_db();
-        let id = append(&db, "old", None, None, 0, 0.0).unwrap();
-        let result = update_text_from(&db.lock().unwrap(), id, "new text").unwrap();
-        assert!(
-            result.updated,
-            "updating an existing id must report success"
-        );
-        let entry = result.entry.expect("the updated entry must be returned");
-        assert_eq!(entry.text, "new text");
-        assert_eq!(entry.length, 8);
     }
 }
