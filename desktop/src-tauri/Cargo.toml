@@ -1,6 +1,6 @@
 [package]
 name = "sotto"
-version = "0.0.3"
+version = "0.0.4"
 description = "Sotto desktop shell"
 authors = ["Stofl <152594969+stofll@users.noreply.github.com>"]
 license = "MIT"
