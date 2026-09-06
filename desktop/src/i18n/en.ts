@@ -356,7 +356,7 @@ export const en: Record<string, string | string[]> = {
   "{p0} мин назад": "{p0} min ago",
   "{p0} ч назад": "{p0} h ago",
   "{p0} д назад": "{p0} d ago",
-  "Выделить видимые (": "Select visible (",
+  "Выделить видимые ({p0})": "Select visible ({p0})",
   "Выбрано:": "Selected:",
   "Выбрать запись от {p0}": "Select the entry from {p0}",
   "Действия с выбранными записями": "Actions on the selected entries",
@@ -523,9 +523,11 @@ export const en: Record<string, string | string[]> = {
   "Профиль переименован.": "Profile renamed.",
   "Профиль удалён.": "Profile deleted.",
   "Провайдер": "Provider",
+  "Слот": "Slot",
+  "Слот ключа": "Key slot",
   "Провайдеры": "Providers",
   "Агрегаторы": "Aggregators",
-  "Вручную": "By hand",
+  "Вручную": "Manual",
   "Своя конфигурация": "Custom setup",
   "Base URL и Model ID заполняются вручную, без пресета": "Base URL and model ID are filled in by hand, with no preset",
   "Поиск: провайдер, пресет, адрес…": "Search: provider, preset, address…",
@@ -664,7 +666,7 @@ export const en: Record<string, string | string[]> = {
   "Используется активным профилем": "Used by the active profile",
   "проф. ссылаются на отсутствующий API-ключ. Добавьте ключ или выберите другой slot.":
     "profiles point at a missing API key. Add a key, or choose another slot.",
-  "Slot не содержит ключ. Сохраните ключ или выберите другой slot.":
+  "Слот не содержит ключ. Сохраните ключ или выберите другой слот.":
     "The slot holds no key. Save one, or pick another slot.",
   "{p0} (общий)": "{p0} (shared)",
   "{p0} · не привязан к профилю": "{p0} · not bound to a profile",

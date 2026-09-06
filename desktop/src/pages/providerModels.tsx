@@ -39,7 +39,10 @@ export interface ProviderModelsState {
     /// collapsing and reopening a profile does not replay a receipt for an
     /// action taken ten minutes ago.
     loadedAt: Record<string, number>;
-    loadingKey: string | null;
+    /// Every request in flight, not just the last one started. Two profiles
+    /// can be expanded at once, and with a single key the first answer to come
+    /// back cleared the second one's spinner and re-enabled its button.
+    loadingKeys: Set<string>;
     errors: Record<string, string>;
     load: (cacheKey: string, query: ProviderModelsQuery) => Promise<void>;
 }
@@ -47,11 +50,11 @@ export interface ProviderModelsState {
 export function useProviderModels(): ProviderModelsState {
     const [models, setModels] = useState<Record<string, string[]>>({});
     const [loadedAt, setLoadedAt] = useState<Record<string, number>>({});
-    const [loadingKey, setLoadingKey] = useState<string | null>(null);
+    const [loadingKeys, setLoadingKeys] = useState<Set<string>>(() => new Set());
     const [errors, setErrors] = useState<Record<string, string>>({});
 
     const load = useCallback(async (cacheKey: string, query: ProviderModelsQuery) => {
-        setLoadingKey(cacheKey);
+        setLoadingKeys((current) => new Set(current).add(cacheKey));
         setErrors((current) => {
             const next = { ...current };
             delete next[cacheKey];
@@ -82,11 +85,16 @@ export function useProviderModels(): ProviderModelsState {
         } catch (e) {
             setErrors((current) => ({ ...current, [cacheKey]: e instanceof Error ? e.message : String(e) }));
         } finally {
-            setLoadingKey((current) => (current === cacheKey ? null : current));
+            setLoadingKeys((current) => {
+                if (!current.has(cacheKey)) return current;
+                const next = new Set(current);
+                next.delete(cacheKey);
+                return next;
+            });
         }
     }, []);
 
-    return { models, loadedAt, loadingKey, errors, load };
+    return { models, loadedAt, loadingKeys, errors, load };
 }
 
 export function ModelField({ cacheKey, value, onChange, onCommit, fallbackSuggestions, query, state, inputStyle, placeholder }: {
@@ -110,7 +118,7 @@ export function ModelField({ cacheKey, value, onChange, onCommit, fallbackSugges
     const [openSignal, setOpenSignal] = useState(0);
     const fetched = state.models[cacheKey];
     const error = state.errors[cacheKey];
-    const loading = state.loadingKey === cacheKey;
+    const loading = state.loadingKeys.has(cacheKey);
 
     // The caption is shown for `COUNT_TTL_MS` from the moment the list arrived.
     // `now` only moves when the timer fires: one re-render, at the moment the

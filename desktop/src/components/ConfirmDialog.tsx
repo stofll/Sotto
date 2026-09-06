@@ -80,11 +80,16 @@ function ConfirmDialog({ message, confirmLabel, confirmIcon, onAnswer }: {
         <div className="modal__body">
           <p style={{ margin: 0, font: "400 13px/1.5 var(--font-sans)", color: "var(--ink-mute)" }}>{message}</p>
         </div>
+        {/* The focus goes on «Отмена», not on the button that destroys
+            something: the dialog opens under a finger that has just clicked,
+            and Enter arriving a moment later must not finish the job. This is
+            what the wizard's own «Закрыть мастер?» does — it focuses
+            «Остаться» — and the two had drifted apart. */}
         <div className="modal__foot">
-          <button className="btn btn--primary" type="button" autoFocus onClick={() => onAnswer(true)}>
+          <button className="btn btn--primary" type="button" onClick={() => onAnswer(true)}>
             <Icon name={confirmIcon} size={12}/>{confirmLabel}
           </button>
-          <button className="btn btn--ghost" type="button" onClick={() => onAnswer(false)}>{t("Отмена")}</button>
+          <button className="btn btn--ghost" type="button" autoFocus onClick={() => onAnswer(false)}>{t("Отмена")}</button>
         </div>
       </div>
     </div>

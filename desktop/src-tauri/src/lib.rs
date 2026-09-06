@@ -471,9 +471,6 @@ fn read_history_entry(
     }
 }
 
-/// Update only the AI-related JSON columns on a history row. Length /
-/// text / raw_text / formatted_text are NOT touched — the LLM step
-/// enriches metadata, not the transcript itself.
 /// Write back the result of re-running the LLM over an existing history row.
 ///
 /// `ai_json` and `ps_json` are always written: they describe the pass that
@@ -483,11 +480,11 @@ fn read_history_entry(
 /// failed retry, since it renders `provider_error` / `skipped_reason`
 /// straight off this column.
 ///
-/// `text` is `Some` only when the pass produced new text
-/// (`AiStatus::used`); a failed pass leaves the last good text in place.
-/// `length` moves with it for the same reason `history::update_text` keeps
-/// them together — the column is what the list shows, and a stale count is
-/// a visible lie.
+/// `text` is `Some` only when there is new text to store — the apply step
+/// passes the result the user accepted, and `None` leaves the transcript
+/// alone while still recording what the run did. `length` moves with the
+/// text: the column is what the list shows, and a stale count is a visible
+/// lie.
 fn update_entry_ai(
     conn: &Connection,
     id: u64,

@@ -79,7 +79,6 @@
      button in the light one, so it is a token rather than a literal. */
   --inset-highlight: rgba(255, 255, 255, 0.04);
 
-  --radius-xs: 4px;
   --radius-sm: 6px;
   --radius: 10px;
   --radius-lg: 14px;

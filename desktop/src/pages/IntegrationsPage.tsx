@@ -11,6 +11,7 @@ import type { ApiKeyStatus, ConfigResult } from "../bridge/types";
 import { t } from "../i18n";
 import {
   activeConfigFromProfile,
+  EMPTY_KEY_INFO,
   mergeAi,
   normalizeProfile,
   OPENCODE_GO_BASE_URL,
@@ -22,7 +23,7 @@ import {
   type AiConfig,
   type LlmProfile,
 } from "./aiShared";
-import { collectSlots, EMPTY_KEY_INFO, withKeySlot, type KeySlotRecord, type Slot } from "./apiKeySlots";
+import { collectSlots, withKeySlot, type KeySlotRecord, type Slot } from "./apiKeySlots";
 import { ModelField, useProviderModels } from "./providerModels";
 
 type Props = {
@@ -160,7 +161,15 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
       model: providerChanged
         ? providerModels[nextProvider] || provider.defaultModel
         : (patch.model ?? profile.model),
-      api_key_ref: providerChanged ? nextProvider : (patch.api_key_ref ?? profile.api_key_ref),
+      // A key for one provider does not authenticate with another, so changing
+      // the provider hands the profile back to its own slot — which is what an
+      // empty ref means to `profileKeyRef`. It used to be handed the bare
+      // provider id instead, and no such slot exists: every ref the app creates
+      // is `key_<id>` (the wizard) or `key_<timestamp>` (the «Добавить ключ»
+      // button), and the bare id is a legacy spelling that only the profile
+      // literally called «default» still answers to. The profile came out
+      // pointing at nothing, and the model list was requested with no key.
+      api_key_ref: providerChanged ? "" : (patch.api_key_ref ?? profile.api_key_ref),
       base_url:
         providerChanged && nextProvider === "opencode-go"
           ? OPENCODE_GO_BASE_URL
@@ -190,12 +199,15 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
     // action rather than background polling, and without it the suggestions
     // would keep somebody else's models.
     if (patch.provider) {
-      const profile = draftProfiles.find((item) => item.id === profileId);
+      const profile = next.find((item) => item.id === profileId);
       const nextBaseUrl = patch.provider === "opencode-go" ? OPENCODE_GO_BASE_URL : profile?.base_url;
       void remoteModels.load(profileId, {
         provider: patch.provider,
         baseUrl: nextBaseUrl || undefined,
-        apiKeyRef: patch.provider,
+        // The ref the patched profile actually reads, not the provider id:
+        // asked for under a name no slot answers to, the list came back empty
+        // even when the profile's own slot held a key.
+        apiKeyRef: profile ? profileKeyRef(profile) : undefined,
       });
     }
   }
@@ -337,7 +349,7 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
     }
     const keyRef = profileKeyRef(profile);
     if (!apiKeys[keyRef]?.available) {
-      setTestResults((prev) => ({ ...prev, [testKey]: { ok: false, text: t("Slot не содержит ключ. Сохраните ключ или выберите другой slot.") } }));
+      setTestResults((prev) => ({ ...prev, [testKey]: { ok: false, text: t("Слот не содержит ключ. Сохраните ключ или выберите другой слот.") } }));
       return;
     }
     await runTest(testKey, {
@@ -621,7 +633,7 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
                 <div className="prov-exp">
                   <div className="prov-exp-grid">
                     <div className="set-cell">
-                      <span className="set-label">Provider</span>
+                      <span className="set-label">{t("Провайдер")}</span>
                       <CustomSelect<string>
                         value={profile.provider}
                         options={PROVIDERS.map<SelectOption<string>>((item) => ({ value: item.id, label: item.name }))}
@@ -629,7 +641,7 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
                       />
                     </div>
                     <div className="set-cell">
-                      <span className="set-label">Model</span>
+                      <span className="set-label">{t("Модель")}</span>
                       {/* The cache key is the profile, not the provider: every
                           profile has its own base_url and key, and therefore
                           its own model list. */}
@@ -648,7 +660,7 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
                       />
                     </div>
                     <div className="set-cell">
-                      <span className="set-label">Key ref</span>
+                      <span className="set-label">{t("Слот ключа")}</span>
                       <CustomSelect<string>
                         value={keyRef}
                         inlineMeta
@@ -673,7 +685,7 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
 
                   {!keyInfo?.available && (
                     <div style={{ padding: "8px 10px", borderRadius: 8, background: "var(--accent-soft)", border: "1px solid var(--accent-soft-2)", color: "var(--ink)", font: "500 11px/1.4 var(--font-sans)", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                      <span>Slot <span className="mono">{keyRef}</span> {t("пуст.")}</span>
+                      <span>{t("Слот")} <span className="mono">{keyRef}</span> {t("пуст.")}</span>
                       <button className="btn btn--ghost" style={{ height: 24 }} onClick={() => focusKeyForProfile(profile)}>
                         <Icon name="key" size={11}/>  {t("Задать ключ")} </button>
                     </div>

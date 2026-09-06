@@ -42,7 +42,7 @@ before installation.
 - **Local speech models** — `whisper.cpp` everywhere, plus `sherpa-onnx` bundles
   on Windows and macOS (GigaAM, Parakeet, Canary, Moonshine, SenseVoice, Zipformer). Two of
   them stream text while you are still speaking. See [Models](docs/models.md).
-- **File transcription** — attach a recording in the "Обработать текст" panel and
+- **File transcription** — attach a recording in the "Process the text" panel and
   the text comes back there, without touching the focused window or the history.
 - **Optional LLM cleanup** — punctuation, formatting, and custom prompts through
   OpenAI-compatible providers.

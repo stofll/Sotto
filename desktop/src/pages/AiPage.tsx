@@ -8,7 +8,6 @@ import {
   activeConfigFromProfile,
   effectiveSystemPrompt,
   gapReason,
-  isLocalEndpoint,
   mergeAi,
   presetPrompt,
   promptIsCustom,
@@ -25,6 +24,7 @@ import {
 } from "./aiShared";
 import { CustomSelect } from "../components/CustomSelect";
 import { confirmAction } from "../components/ConfirmDialog";
+import { isLocalBaseUrl } from "./baseUrlFormat";
 import { NumberField } from "../components/NumberField";
 import type { ApiKeyStatus, ConfigResult } from "../bridge/types";
 import { t } from "../i18n";
@@ -314,7 +314,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
    *  and a modal in front of a free request is friction that teaches people to
    *  dismiss the modal. */
   async function runTestPrompt() {
-    if (!isLocalEndpoint(ai.base_url)) {
+    if (!isLocalBaseUrl(ai.base_url)) {
       const confirmed = await confirmAction(
         t("Отправить пробный запрос в {p0} ({p1})? Запрос уйдёт провайдеру и спишет токены.", { p0: provider.name, p1: ai.model }),
         { label: t("Отправить"), icon: "spark" },
@@ -361,7 +361,12 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
         provider: textProfile.provider,
         model: textProfile.model,
         base_url: textProfile.base_url ?? "",
-        system_prompt: textProfile.system_prompt ?? ai.system_prompt,
+        // Resolved against the preset rather than passed on raw: a profile that
+        // never edited its prompt stores an empty string, and `??` lets an
+        // empty string through — so the panel ran the chosen profile on the
+        // dictation profile's prompt, and a «structured» preset quietly asked
+        // for plain paragraphs.
+        system_prompt: effectiveSystemPrompt(textProfile),
       });
       setManualResult(result);
     } catch (e) {

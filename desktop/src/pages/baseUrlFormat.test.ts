@@ -46,15 +46,40 @@ describe("checkBaseUrl", () => {
 });
 
 describe("isLocalBaseUrl", () => {
-  it("recognises a server running on this machine", () => {
-    expect(isLocalBaseUrl("http://localhost:1234/v1")).toBe(true);
-    expect(isLocalBaseUrl("http://127.0.0.1:11434/v1")).toBe(true);
-    expect(isLocalBaseUrl("http://nas.local:8000/v1")).toBe(true);
+  it.each([
+    "http://localhost:1234/v1",
+    "http://127.0.0.1:11434/v1",
+    "http://0.0.0.0:8000/v1",
+    "http://[::1]:8080/v1",
+    "HTTP://LocalHost:11434",
+  ])("recognises %s as this machine", (url) => {
+    expect(isLocalBaseUrl(url)).toBe(true);
   });
 
-  it("does not take a cloud provider for a local one", () => {
-    expect(isLocalBaseUrl("https://api.openai.com/v1")).toBe(false);
-    expect(isLocalBaseUrl("")).toBe(false);
+  /** The two names a machine on the local network goes by. Each of these used
+   *  to be local to one of the two helpers and remote to the other, so the key
+   *  step and the «this will spend tokens» confirmation disagreed about the
+   *  same address. */
+  it.each([
+    "http://nas.local:8000/v1",
+    "https://ollama.localhost/v1",
+  ])("recognises %s as this network", (url) => {
+    expect(isLocalBaseUrl(url)).toBe(true);
+  });
+
+  /** Anything not provably local is treated as paid and as needing a key:
+   *  both are the cheap mistake. */
+  it.each([
+    "https://api.openai.com/v1",
+    "https://localhost.example.com/v1",
+    "https://notlocalhost/v1",
+    "example.com",
+    "",
+    "   ",
+    undefined,
+    null,
+  ])("treats %s as remote", (url) => {
+    expect(isLocalBaseUrl(url)).toBe(false);
   });
 });
 

@@ -461,12 +461,17 @@ export function HistoryPage() {
     const ids = Array.from(selectedIds);
     if (!ids.length) return;
     if (!await confirmDestructive(t("Удалить выбранные записи ({p0})? Это действие нельзя отменить.", { p0: ids.length }))) return;
-    try {
-      await Promise.all(ids.map((id) => deleteHistoryEntry(id)));
-      setEntries((current) => current.filter((e) => !selectedIds.has(e.id)));
-      clearSelection();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+    // `allSettled`, not `all`: a single rejection used to skip the merge
+    // entirely, leaving every row that *was* deleted on screen until the next
+    // reload — the list then disagreed with the database about what exists.
+    const results = await Promise.allSettled(ids.map((id) => deleteHistoryEntry(id)));
+    const gone = new Set(ids.filter((_, index) => results[index].status === "fulfilled"));
+    setEntries((current) => current.filter((e) => !gone.has(e.id)));
+    setSelectedIds((current) => new Set(Array.from(current).filter((id) => !gone.has(id))));
+    const failed = results.find((result) => result.status === "rejected");
+    if (failed) {
+      const reason = (failed as PromiseRejectedResult).reason;
+      setError(reason instanceof Error ? reason.message : String(reason));
     }
   }
 
@@ -495,6 +500,18 @@ export function HistoryPage() {
 
   function closeReprocess() {
     setReprocessTarget(null);
+  }
+
+  /// Choosing another profile throws the preview away. It describes the run of
+  /// the profile that produced it, and the picker above it would already be
+  /// naming a different one — «Заменить текст» would then store A's answer
+  /// while the panel said B. A run in flight goes with it, for the same reason.
+  function chooseReprocessProfile(id: string) {
+    reprocessRunRef.current += 1;
+    setReprocessProfileId(id);
+    setReprocessPreview(null);
+    setReprocessError(null);
+    setReprocessRunning(false);
   }
 
   /// Opening, closing and switching panels all invalidate whatever is in
@@ -712,7 +729,7 @@ export function HistoryPage() {
                       onOpenReprocess={() => openReprocess(entry)}
                       onCloseReprocess={closeReprocess}
                       reprocessProfileId={reprocessProfileId}
-                      onReprocessProfileId={setReprocessProfileId}
+                      onReprocessProfileId={chooseReprocessProfile}
                       reprocessRunning={reprocessRunning}
                       reprocessApplying={reprocessApplying}
                       reprocessPreview={reprocessPreview}
@@ -823,7 +840,7 @@ function BulkBar({ count, totalVisible, allVisibleSelected, onSelectAllVisible, 
     >
       <span style={{ font: "600 12px/1 var(--font-sans)", color: "var(--ink)" }}>{t("Выбрано:")} {count}</span>
       {!allVisibleSelected && totalVisible > count && (
-        <button className="btn btn--ghost" onClick={onSelectAllVisible}><Icon name="check" size={11}/>{t("Выделить видимые (")}{totalVisible})</button>
+        <button className="btn btn--ghost" onClick={onSelectAllVisible}><Icon name="check" size={11}/>{t("Выделить видимые ({p0})", { p0: totalVisible })}</button>
       )}
       <button className="btn btn--ghost" onClick={onCopy}><Icon name="copy" size={11}/>{t("Скопировать")}</button>
       <button className="btn btn--ghost" onClick={onDelete}><Icon name="trash" size={11}/>{t("Удалить")}</button>
