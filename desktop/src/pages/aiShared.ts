@@ -281,7 +281,10 @@ export function promptIsCustom(profile: Pick<LlmProfile, "system_prompt" | "prom
 export const SYSTEM_PROMPT_PRESETS = () => ([
   {
     id: "plain",
-    label: "Plain",
+    // Not «Plain»: it stood among Russian captions as the one English word on
+    // the page, and named the format in the vocabulary of the prompt rather
+    // than in the one the caption beside it uses.
+    label: t("Абзацы"),
     description: t("Только абзацы. Безопасно для любых текстовых полей."),
     prompt: PLAIN_SYSTEM_PROMPT,
   },

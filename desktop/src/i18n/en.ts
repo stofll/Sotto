@@ -574,7 +574,9 @@ export const en: Record<string, string | string[]> = {
   "Только абзацы. Безопасно для любых текстовых полей.": "Paragraphs only. Safe for any text field.",
   "Абзацы + маркированные/нумерованные списки при явном перечислении.":
     "Paragraphs plus bulleted and numbered lists when the speech clearly enumerates.",
+  "Абзацы": "Paragraphs",
   "Со списками": "With lists",
+  "Пресет": "Preset",
   "Порог LLM": "LLM threshold",
   "Таймаут LLM": "LLM timeout",
   "LLM timeout {p0} с": "LLM timeout {p0} s",

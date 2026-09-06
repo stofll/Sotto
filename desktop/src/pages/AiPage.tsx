@@ -621,14 +621,17 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
             title={t("Системный промпт")}
             hint={t("Инструкции, которые отправляются модели перед каждым запросом. Шаблон поддерживает плейсхолдеры {{language}} и {{transcript}}. Выбери пресет, сохрани и протестируй на длинной записи через «Обработать через LLM» в истории.")}
             actions={
-              <Segmented
-                value={SYSTEM_PROMPT_PRESETS().find((preset) => promptDraft.trim() === preset.prompt.trim())?.id ?? ""}
-                options={SYSTEM_PROMPT_PRESETS().map((preset) => ({ value: preset.id, label: preset.label }))}
-                onChange={(next) => {
-                  const preset = SYSTEM_PROMPT_PRESETS().find((item) => item.id === next);
-                  if (preset) setPromptDraft(preset.prompt);
-                }}
-              />
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span className="picker-label">{t("Пресет")}</span>
+                <Segmented
+                  value={SYSTEM_PROMPT_PRESETS().find((preset) => promptDraft.trim() === preset.prompt.trim())?.id ?? ""}
+                  options={SYSTEM_PROMPT_PRESETS().map((preset) => ({ value: preset.id, label: preset.label }))}
+                  onChange={(next) => {
+                    const preset = SYSTEM_PROMPT_PRESETS().find((item) => item.id === next);
+                    if (preset) setPromptDraft(preset.prompt);
+                  }}
+                />
+              </div>
             }
           />
           <div>
