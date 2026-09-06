@@ -211,12 +211,20 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
 
   /** Commits a text field on blur. A profile without a model is not written:
    *  it would break the pipeline, and the field is left for the user to fill in
-   *  — the editor says so beneath it. */
-  function commitProfile(profileId: string) {
+   *  — the editor says so beneath it.
+   *
+   *  `model` is passed when the value being committed is not yet in the draft:
+   *  picking one from the combobox's list changes and commits in a single
+   *  event, and `draftProfiles` still holds the previous id until React
+   *  re-renders — the write would compare the old value against itself and
+   *  conclude there was nothing to save. */
+  function commitProfile(profileId: string, model?: string) {
     const draft = draftProfiles.find((item) => item.id === profileId);
     const saved = profiles.find((item) => item.id === profileId);
-    if (!draft || !saved || !draft.model.trim()) return;
-    const normalized = { ...draft, model: draft.model.trim(), base_url: draft.base_url?.trim() || "" };
+    if (!draft || !saved) return;
+    const nextModel = (model ?? draft.model).trim();
+    if (!nextModel) return;
+    const normalized = { ...draft, model: nextModel, base_url: draft.base_url?.trim() || "" };
     if (JSON.stringify(normalized) === JSON.stringify(saved)) return;
     void writeProfiles(draftProfiles.map((item) => (item.id === profileId ? normalized : item)), t("Сохранено."));
   }
@@ -629,7 +637,7 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
                         cacheKey={profile.id}
                         value={profile.model}
                         onChange={(next) => updateProfile(profile.id, { model: next })}
-                        onCommit={() => commitProfile(profile.id)}
+                        onCommit={(next) => commitProfile(profile.id, next)}
                         fallbackSuggestions={suggestions}
                         query={{
                           provider: profile.provider,

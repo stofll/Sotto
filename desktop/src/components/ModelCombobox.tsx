@@ -34,7 +34,11 @@ export function ModelCombobox({ value, suggestions, onChange, onCommit, placehol
   value: string;
   suggestions: string[];
   onChange: (next: string) => void;
-  onCommit: () => void;
+  /// The committed value is handed over rather than left to be read back from
+  /// `value`: picking from the list changes and commits in one event, and by
+  /// then the state behind `value` is one render behind — a commit that read it
+  /// would write the id the field held before the click.
+  onCommit: (value: string) => void;
   placeholder?: string;
   /// A counter: every change opens the list. This is how the «request the
   /// models» button shows what it has just fetched — otherwise the field
@@ -53,7 +57,7 @@ export function ModelCombobox({ value, suggestions, onChange, onCommit, placehol
   const rootRef = useRef<HTMLDivElement | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const { menuRef, style: menuStyle, placed } = useAnchoredMenu(open, rootRef, 300);
-  useOutsideClose(open, rootRef, () => { setOpen(false); onCommit(); }, menuRef);
+  useOutsideClose(open, rootRef, () => { setOpen(false); onCommit(value); }, menuRef);
 
   const hasSearch = suggestions.length > SEARCH_FROM;
 
@@ -87,7 +91,7 @@ export function ModelCombobox({ value, suggestions, onChange, onCommit, placehol
     setTyped(false);
     onChange(next);
     setOpen(false);
-    onCommit();
+    onCommit(next);
   }
 
   const menu = (body: ReactNode) => createPortal(
@@ -135,10 +139,10 @@ export function ModelCombobox({ value, suggestions, onChange, onCommit, placehol
           // The field has not been left, the widget is still in use.
           if (menuRef.current?.contains(event.relatedTarget as Node | null)) return;
           setOpen(false);
-          onCommit();
+          onCommit(value);
         }}
         onKeyDown={(e) => {
-          if (e.key === "Enter") { setOpen(false); onCommit(); }
+          if (e.key === "Enter") { setOpen(false); onCommit(value); }
           if (e.key === "Escape") setOpen(false);
         }}
         placeholder={placeholder}

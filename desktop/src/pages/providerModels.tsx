@@ -95,8 +95,9 @@ export function ModelField({ cacheKey, value, onChange, onCommit, fallbackSugges
     onChange: (next: string) => void;
     /// The field is left — the value can be written down. A text input has no
     /// «done» of its own, and saving on every keystroke would mean a config
-    /// write per letter.
-    onCommit?: () => void;
+    /// write per letter. The value comes with it: a pick from the list commits
+    /// in the same event that changed it, before React has re-rendered.
+    onCommit?: (value: string) => void;
     /// The hardcoded list — all there used to be. It stays as a fallback while
     /// there is no live answer: without a key or without a network, suggesting
     /// something still beats an empty list.
@@ -135,7 +136,7 @@ export function ModelField({ cacheKey, value, onChange, onCommit, fallbackSugges
                     value={value}
                     suggestions={suggestions}
                     onChange={onChange}
-                    onCommit={() => onCommit?.()}
+                    onCommit={(next) => onCommit?.(next)}
                     placeholder={placeholder}
                     openSignal={openSignal}
                 />
