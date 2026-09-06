@@ -38,6 +38,7 @@ CARGO_LOCK='desktop/src-tauri/Cargo.lock'
 PACKAGE_JSON='desktop/package.json'
 INFO_PLIST='desktop/src-tauri/Info.plist'
 README='README.md'
+README_RU='README.ru.md'
 
 cargo_version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' "$CARGO_TOML" | head -n 1)
 cargo_lock_version=$(awk '
@@ -62,23 +63,31 @@ plist_version=$(awk '
         }
     }
 ' "$INFO_PLIST")
-readme_version=$(awk '
-    /^## Current Status$/ { in_status = 1; next }
-    in_status && /^## / { in_status = 0 }
-    in_status && /^- Version:[[:space:]]*`[^`]+`/ {
-        line = $0
-        sub(/^[^0-9]*/, "", line)
-        sub(/[^0-9A-Za-z.-].*$/, "", line)
-        print line
-        exit
-    }
-' "$README")
+# Both READMEs keep the version in a "Current Status" bullet and differ only in
+# the heading and the label, so one reader takes those two as arguments.
+read_readme_version() {
+    awk -v heading="$2" -v label="$3" '
+        $0 == heading { in_status = 1; next }
+        in_status && /^## / { in_status = 0 }
+        in_status && index($0, label) == 1 && /`[^`]+`/ {
+            line = $0
+            sub(/^[^0-9]*/, "", line)
+            sub(/[^0-9A-Za-z.-].*$/, "", line)
+            print line
+            exit
+        }
+    ' "$1"
+}
+
+readme_version=$(read_readme_version "$README" '## Current Status' '- Version:')
+readme_ru_version=$(read_readme_version "$README_RU" '## Текущее состояние' '- Версия:')
 
 cargo_version=$(read_version "$CARGO_TOML" 'package version' "$cargo_version")
 cargo_lock_version=$(read_version "$CARGO_LOCK" 'locked package version' "$cargo_lock_version")
 package_version=$(read_version "$PACKAGE_JSON" 'package version' "$package_version")
 plist_version=$(read_version "$INFO_PLIST" 'CFBundleShortVersionString' "$plist_version")
 readme_version=$(read_version "$README" 'Current Status version' "$readme_version")
+readme_ru_version=$(read_version "$README_RU" 'Current Status version' "$readme_ru_version")
 
 is_semver "$cargo_version" || fail "Version '$cargo_version' is not valid SemVer"
 
@@ -86,7 +95,8 @@ for pair in \
     "Cargo.lock:$cargo_lock_version" \
     "package.json:$package_version" \
     "Info.plist:$plist_version" \
-    "README.md:$readme_version"; do
+    "README.md:$readme_version" \
+    "README.ru.md:$readme_ru_version"; do
     name=${pair%%:*}
     value=${pair#*:}
     [ "$value" = "$cargo_version" ] || fail \
@@ -107,7 +117,7 @@ if [ "$#" -eq 1 ]; then
 fi
 
 printf '[PASS] application version: %s\n' "$cargo_version"
-printf '[PASS] Cargo.toml, Cargo.lock, package.json, Info.plist and README.md agree\n'
+printf '[PASS] Cargo.toml, Cargo.lock, package.json, Info.plist, README.md and README.ru.md agree\n'
 if [ "$#" -eq 1 ]; then
     printf '[PASS] release tag: %s\n' "$1"
 fi
