@@ -1,17 +1,27 @@
-# Портативная версия Windows
+# Portable version for Windows
 
-Скачайте `Sotto-<версия>-windows-x64-portable.zip` из релиза, распакуйте в доступную для записи папку и запустите `Sotto.exe`. Установщик не нужен. На компьютере должен быть Microsoft Edge WebView2 Runtime.
+Download `Sotto-<version>-windows-x64-portable.zip` from a release, unpack it
+into a writable folder, and run `Sotto.exe`. No installer is required. The
+machine must have the Microsoft Edge WebView2 Runtime.
 
-Файл `portable.flag` рядом с EXE включает портативный режим. Настройки, размер окна, модели, история и журналы сохраняются в соседней папке `data`. API-ключи остаются в Windows Credential Manager: на другом компьютере их нужно ввести заново. Автозапуск в портативном режиме не регистрируется.
+A `portable.flag` file next to the EXE enables portable mode. Settings, window
+size, models, history, and logs are stored in a sibling `data` folder. API
+keys stay in the Windows Credential Manager: on another machine they must be
+entered again. Autostart is not registered in portable mode.
 
-Для обновления завершите приложение через пункт «Выход» в трее и замените файлы приложения из нового ZIP, сохранив `data` и `portable.flag`. Установщик обновлений в портативном режиме отключён. Установленную и портативную копии нельзя запускать одновременно.
+To update, exit the app via the "Exit" item in the tray and replace the app
+files from the new ZIP, keeping `data` and `portable.flag`. The update
+installer is disabled in portable mode. The installed copy and the portable
+copy must not run at the same time.
 
-## Сборка
+## Building
 
-После Windows release-сборки выполните из корня репозитория:
+After a Windows release build, run from the repository root:
 
 ```powershell
 ./scripts/build-portable.ps1 -BinaryDirectory ./desktop/src-tauri/target/release -OutputPath ./artifacts/Sotto-portable.zip
 ```
 
-Если используется `--target`, добавьте целевой триплет в путь к каталогу сборки. Скрипт упаковывает EXE, DLL и маркер режима; workflow релиза автоматически прикладывает ZIP к черновику релиза.
+If `--target` is used, add the target triplet to the build directory path. The
+script packs the EXE, the DLLs, and the mode marker; the release workflow
+automatically attaches the ZIP to the release draft.

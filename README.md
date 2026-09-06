@@ -1,5 +1,7 @@
 # Sotto
 
+English | [Русский](README.ru.md)
+
 Local voice dictation for Windows, with a macOS port. Press a hotkey, speak, and
 the text appears in whatever window you were typing in.
 
