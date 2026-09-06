@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { emit } from "@tauri-apps/api/event";
-import { invoke, on } from "../bridge";
+import { confirmDestructive, invoke, on } from "../bridge";
 import {
     clearHistory,
     deleteHistoryEntry,
@@ -485,7 +485,7 @@ export function HistoryPage() {
   async function handleBulkDelete() {
     const ids = Array.from(selectedIds);
     if (!ids.length) return;
-    if (!window.confirm(t("Удалить выбранные записи ({p0})? Это действие нельзя отменить.", { p0: ids.length }))) return;
+    if (!await confirmDestructive(t("Удалить выбранные записи ({p0})? Это действие нельзя отменить.", { p0: ids.length }))) return;
     try {
       await Promise.all(ids.map((id) => deleteHistoryEntry(id)));
       setEntries((current) => current.filter((e) => !selectedIds.has(e.id)));
@@ -615,7 +615,7 @@ export function HistoryPage() {
   }
 
   async function handleClearAll() {
-    if (!window.confirm(t("Очистить всю историю? Это действие нельзя отменить."))) return;
+    if (!await confirmDestructive(t("Очистить всю историю? Это действие нельзя отменить."))) return;
     try {
       await clearHistory();
       setEntries([]);
