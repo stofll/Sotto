@@ -59,8 +59,12 @@ tempfile = "3"
 tokio = { version = "1", features = ["test-util", "macros", "rt"] }
 
 [target.'cfg(windows)'.dependencies]
-# Windows uses shared Sherpa libraries packaged by the NSIS hook.
-sherpa-rs = { version = "0.6", default-features = false, features = ["sys", "download-binaries"] }
+# Windows uses shared Sherpa libraries packaged by the NSIS hook. `shared`
+# rather than the crate's default `static`: the prebuilt Windows static archive
+# is built with /MT, while rustc-msvc links the dynamic CRT, and mixing the two
+# is not worth the DLL-free bundle. The build script drops the runtime DLLs
+# beside the Cargo executable, where `prepare-native-libs.ps1` picks them up.
+sherpa-onnx = { version = "=1.13.7", default-features = false, features = ["shared"] }
 windows-sys = { version = "0.52", features = [
     "Win32_UI_WindowsAndMessaging",
     # SetWindowSubclass / DefSubclassProc for the overlay's non-client guard.
@@ -91,9 +95,17 @@ windows = { version = "0.61", features = [
 libc = "0.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-# Embed the checksum-verified universal2 Sherpa/ONNX Runtime archives in the
-# app. No external dylibs or developer-machine search paths are needed.
-sherpa-rs = { version = "0.6", default-features = false, features = ["sys", "download-binaries", "static"] }
+# Embed Sherpa and ONNX Runtime in the app — the crate's default `static`. No
+# external dylibs or developer-machine search paths are needed;
+# `scripts/check-macos-native-libs.sh` fails the build if one appears anyway.
+#
+# This build script downloads its native archive without checking a hash, where
+# `sherpa-rs` carried a SHA-256 table. `scripts/fetch-sherpa-runtime.sh` fetches
+# and verifies it instead, against `scripts/sherpa-runtime.lock`, and hands the
+# result over through SHERPA_ONNX_LIB_DIR; CI runs it before every build. A
+# plain local `cargo build` with that variable unset still lets the crate
+# download for itself.
+sherpa-onnx = { version = "=1.13.7" }
 tempfile = "3"
 objc2 = "0.6"
 
