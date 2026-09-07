@@ -90,13 +90,21 @@ Each sherpa bundle lives in its own subfolder named after the manifest
 
 ## Native Sherpa libraries
 
-The `sherpa-rs` 0.6.8 crate pulls in pinned binary Sherpa-ONNX/ONNX Runtime
-libraries during the Cargo build. The development build and Windows tests use
-them from the Cargo target directory. The Windows Tauri bundle automatically
-stages the five required DLLs, puts them in the installer resources, and after
-install/update copies them next to the executable, where the Windows loader
-finds them. On macOS, Sherpa and ONNX Runtime are statically linked into the
-app from a pinned universal2 archive: no separate `.dylib` files are needed.
+The `sherpa-onnx` 1.13.7 crate — the Rust API maintained in the Sherpa-ONNX
+repository itself — pulls in matching binary Sherpa-ONNX/ONNX Runtime libraries
+during the Cargo build. Its build script downloads the archive for the target
+platform unless `SHERPA_ONNX_LIB_DIR` points at one already on disk, and it does
+not verify what it downloads. CI therefore never lets it: every build is
+preceded by `scripts/fetch-sherpa-runtime.ps1` (or the `.sh` twin on macOS),
+which downloads the archive, checks it against the SHA-256 pinned in
+`scripts/sherpa-runtime.lock`, and exports `SHERPA_ONNX_LIB_DIR`. Run the same
+script locally to build against verified libraries. The
+development build and Windows tests use the libraries from the Cargo target
+directory. The Windows Tauri bundle automatically stages the four required DLLs,
+puts them in the installer resources, and after install/update copies them next
+to the executable, where the Windows loader finds them. On macOS, Sherpa and
+ONNX Runtime are statically linked into the app: no separate `.dylib` files are
+needed.
 All families run on CPU; Metal remains a Whisper accelerator.
 Linux remains Whisper-only for now: the Sherpa dependency does not link there.
 
