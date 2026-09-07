@@ -11,7 +11,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-# sherpa-rs-sys copies its downloaded Windows runtime beside the Cargo
+# sherpa-onnx-sys copies its downloaded Windows runtime beside the Cargo
 # executable. Tauri bundles resources after Cargo has finished, so stage the
 # exact runtime files in a stable, ignored directory for the bundle config.
 $tauriDir = if (Test-Path -LiteralPath 'src-tauri/Cargo.toml') {
@@ -53,8 +53,11 @@ $targetTripleName = if ($TargetTriple) {
 }
 
 $stagingDir = Join-Path $tauriDir '.tauri-native/windows/x64'
+# Exactly what the sherpa-onnx-sys shared archive ships, and nothing else: the
+# source is Cargo's profile directory, which also holds the app's own DLLs and
+# whatever a previous toolchain left behind.  `cargs.dll` was in this list until
+# the move off `sherpa-rs`, whose build script pulled it in for its examples.
 $required = @(
-    'cargs.dll',
     'onnxruntime.dll',
     'onnxruntime_providers_shared.dll',
     'sherpa-onnx-c-api.dll',
@@ -101,3 +104,18 @@ foreach ($name in $required) {
 }
 
 Write-Host "Staged sherpa native runtime ($profileName) from $sourceDir in $stagingDir"
+
+# Test and benchmark executables live in `deps`, and the Windows loader resolves
+# a DLL next to the executable that imports it — not next to the crate root.
+# `sherpa-rs-sys` used to copy the runtime into `deps` as well, so this was
+# invisible; `sherpa-onnx-sys` copies only into the profile directory and its
+# `examples`.  Without this mirror `cargo test` either fails to start or, worse,
+# loads a stale runtime left over from an earlier toolchain and dies inside the
+# first FFI call with an access violation.
+$depsDir = Join-Path $sourceDir 'deps'
+New-Item -ItemType Directory -Path $depsDir -Force | Out-Null
+foreach ($name in $required) {
+    Copy-Item -LiteralPath (Join-Path $sourceDir $name) -Destination (Join-Path $depsDir $name) -Force
+}
+
+Write-Host "Mirrored sherpa native runtime for test executables in $depsDir"
