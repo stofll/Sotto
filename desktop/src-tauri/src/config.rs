@@ -607,7 +607,7 @@ mod tests {
     }
 
     // The only rule `validate` has is about GigaAM, and GigaAM is deliberately
-    // Windows-only (see sherpa-rs in Cargo.toml). Outside Windows "gigaam-v3" is
+    // Windows-only (see sherpa-onnx in Cargo.toml). Outside Windows "gigaam-v3" is
     // an unknown model, `validate_speech_route` bails out at the very first
     // check, and the tests either fail or go green for nothing. Hence the
     // `#[cfg(windows)]` here and on the two tests below.

@@ -1,40 +1,55 @@
 //! The small Sherpa-ONNX bridge used by the closed ONNX registry entries.
 //!
-//! `sherpa-rs` 0.6.8 ships a safe wrapper for transducers but none for the
-//! NeMo CTC family, and that wrapper skips the null checks and the input
-//! validation this crate relies on. So this module owns the handful of C
-//! calls for both families instead: one recognizer type, two constructors.
-//! The recognizer never leaves the engine thread — it holds a raw pointer and
-//! deliberately does not implement `Send`/`Sync`. Callers must validate the
-//! closed-registry SHA-256 manifest before constructing it, because
-//! sherpa-onnx may throw a foreign C++ exception for an incompatible graph.
+//! The heavy lifting is the upstream `sherpa-onnx` crate, which owns the C
+//! handles through RAII types. What stays here is what that crate does not do:
+//! the input validation the rest of this codebase relies on, the `SHERPA_*`
+//! error vocabulary, and the mapping from a registry entry to the one config
+//! field that selects a model family. Callers must validate the closed-registry
+//! SHA-256 manifest before constructing a recognizer, because sherpa-onnx may
+//! throw a foreign C++ exception for an incompatible graph.
+//!
+//! The recognizer never leaves the engine thread. The upstream types are marked
+//! `Send + Sync`, so the wrappers here opt back out with a `PhantomData` — the
+//! single-thread rule is checked by the compiler rather than by convention.
 
 #[cfg(any(windows, target_os = "macos"))]
-use std::ffi::{CStr, CString};
-#[cfg(any(windows, target_os = "macos"))]
-use std::os::raw::c_char;
+use std::marker::PhantomData;
 #[cfg(any(windows, target_os = "macos"))]
 use std::path::Path;
 
 #[cfg(any(windows, target_os = "macos"))]
-const PROVIDER_CPU: &[u8] = b"cpu\0";
+const PROVIDER_CPU: &str = "cpu";
 #[cfg(any(windows, target_os = "macos"))]
-const DECODING_GREEDY: &[u8] = b"greedy_search\0";
+const DECODING_GREEDY: &str = "greedy_search";
 #[cfg(any(windows, target_os = "macos"))]
-const LANG_EN: &[u8] = b"en\0";
+const LANG_EN: &str = "en";
 #[cfg(any(windows, target_os = "macos"))]
-const LANG_AUTO: &[u8] = b"auto\0";
+const LANG_AUTO: &str = "auto";
 
 #[cfg(any(windows, target_os = "macos"))]
-#[derive(Debug)]
 pub struct OfflineRecognizer {
-    recognizer: *const sherpa_rs::sherpa_rs_sys::SherpaOnnxOfflineRecognizer,
+    recognizer: sherpa_onnx::OfflineRecognizer,
+    _not_send: PhantomData<*const ()>,
 }
 
+/// The upstream recognizer has no `Debug`, and the engine's state does.
 #[cfg(any(windows, target_os = "macos"))]
-fn c_path(path: &Path) -> Result<CString, String> {
-    CString::new(path.to_string_lossy().as_bytes())
-        .map_err(|_| "SHERPA_INVALID_PATH: path contains NUL".to_string())
+impl std::fmt::Debug for OfflineRecognizer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("OfflineRecognizer")
+    }
+}
+
+/// Paths reach the C API as NUL-terminated strings, and the upstream wrapper
+/// panics on an interior NUL rather than reporting it. Reject it here, where
+/// there is an error type to report it with.
+#[cfg(any(windows, target_os = "macos"))]
+fn path_string(path: &Path) -> Result<String, String> {
+    let path = path.to_string_lossy().into_owned();
+    if path.contains('\0') {
+        return Err("SHERPA_INVALID_PATH: path contains NUL".to_string());
+    }
+    Ok(path)
 }
 
 #[cfg(any(windows, target_os = "macos"))]
@@ -99,25 +114,17 @@ impl OfflineRecognizer {
         num_threads: i32,
     ) -> Result<Self, String> {
         check_threads(num_threads)?;
-        let encoder = c_path(encoder_path)?;
-        let decoder = c_path(decoder_path)?;
-        let tokens = c_path(tokens_path)?;
-
-        let recognizer = unsafe {
-            use sherpa_rs::sherpa_rs_sys as sys;
-            let model_config = sys::SherpaOnnxOfflineModelConfig {
-                canary: sys::SherpaOnnxOfflineCanaryModelConfig {
-                    encoder: encoder.as_ptr(),
-                    decoder: decoder.as_ptr(),
-                    src_lang: LANG_EN.as_ptr() as *const c_char,
-                    tgt_lang: LANG_EN.as_ptr() as *const c_char,
-                    use_pnc: 1,
-                },
-                ..common_model_config(tokens.as_ptr(), num_threads)
-            };
-            create(model_config, None)
+        let model_config = sherpa_onnx::OfflineModelConfig {
+            canary: sherpa_onnx::OfflineCanaryModelConfig {
+                encoder: Some(path_string(encoder_path)?),
+                decoder: Some(path_string(decoder_path)?),
+                src_lang: Some(LANG_EN.to_string()),
+                tgt_lang: Some(LANG_EN.to_string()),
+                use_pnc: true,
+            },
+            ..common_model_config(path_string(tokens_path)?, num_threads)
         };
-        Self::from_raw(recognizer)
+        Self::create(model_config, None)
     }
 
     /// Moonshine: a preprocessor, an encoder and a decoder in two forms —
@@ -132,26 +139,19 @@ impl OfflineRecognizer {
         num_threads: i32,
     ) -> Result<Self, String> {
         check_threads(num_threads)?;
-        let preprocessor = c_path(preprocessor_path)?;
-        let encoder = c_path(encoder_path)?;
-        let uncached = c_path(uncached_decoder_path)?;
-        let cached = c_path(cached_decoder_path)?;
-        let tokens = c_path(tokens_path)?;
-
-        let recognizer = unsafe {
-            use sherpa_rs::sherpa_rs_sys as sys;
-            let model_config = sys::SherpaOnnxOfflineModelConfig {
-                moonshine: sys::SherpaOnnxOfflineMoonshineModelConfig {
-                    preprocessor: preprocessor.as_ptr(),
-                    encoder: encoder.as_ptr(),
-                    uncached_decoder: uncached.as_ptr(),
-                    cached_decoder: cached.as_ptr(),
-                },
-                ..common_model_config(tokens.as_ptr(), num_threads)
-            };
-            create(model_config, None)
+        let model_config = sherpa_onnx::OfflineModelConfig {
+            moonshine: sherpa_onnx::OfflineMoonshineModelConfig {
+                preprocessor: Some(path_string(preprocessor_path)?),
+                encoder: Some(path_string(encoder_path)?),
+                uncached_decoder: Some(path_string(uncached_decoder_path)?),
+                cached_decoder: Some(path_string(cached_decoder_path)?),
+                // Newer sherpa releases accept a single merged decoder graph
+                // instead. The catalog ships the two-graph export.
+                merged_decoder: None,
+            },
+            ..common_model_config(path_string(tokens_path)?, num_threads)
         };
-        Self::from_raw(recognizer)
+        Self::create(model_config, None)
     }
 
     /// SenseVoice: a single graph and a token table, like NeMo CTC, but with its
@@ -164,22 +164,15 @@ impl OfflineRecognizer {
         num_threads: i32,
     ) -> Result<Self, String> {
         check_threads(num_threads)?;
-        let model = c_path(model_path)?;
-        let tokens = c_path(tokens_path)?;
-
-        let recognizer = unsafe {
-            use sherpa_rs::sherpa_rs_sys as sys;
-            let model_config = sys::SherpaOnnxOfflineModelConfig {
-                sense_voice: sys::SherpaOnnxOfflineSenseVoiceModelConfig {
-                    model: model.as_ptr(),
-                    language: LANG_AUTO.as_ptr() as *const c_char,
-                    use_itn: 1,
-                },
-                ..common_model_config(tokens.as_ptr(), num_threads)
-            };
-            create(model_config, None)
+        let model_config = sherpa_onnx::OfflineModelConfig {
+            sense_voice: sherpa_onnx::OfflineSenseVoiceModelConfig {
+                model: Some(path_string(model_path)?),
+                language: Some(LANG_AUTO.to_string()),
+                use_itn: true,
+            },
+            ..common_model_config(path_string(tokens_path)?, num_threads)
         };
-        Self::from_raw(recognizer)
+        Self::create(model_config, None)
     }
 
     /// NeMo CTC (GigaAM): one graph plus its token table.
@@ -189,29 +182,22 @@ impl OfflineRecognizer {
         num_threads: i32,
     ) -> Result<Self, String> {
         check_threads(num_threads)?;
-        let model = c_path(model_path)?;
-        let tokens = c_path(tokens_path)?;
-
-        let recognizer = unsafe {
-            use sherpa_rs::sherpa_rs_sys as sys;
-            let model_config = sys::SherpaOnnxOfflineModelConfig {
-                nemo_ctc: sys::SherpaOnnxOfflineNemoEncDecCtcModelConfig {
-                    model: model.as_ptr(),
-                },
-                ..common_model_config(tokens.as_ptr(), num_threads)
-            };
-            create(model_config, None)
+        let model_config = sherpa_onnx::OfflineModelConfig {
+            nemo_ctc: sherpa_onnx::OfflineNemoEncDecCtcModelConfig {
+                model: Some(path_string(model_path)?),
+            },
+            ..common_model_config(path_string(tokens_path)?, num_threads)
         };
-        Self::from_raw(recognizer)
+        Self::create(model_config, None)
     }
 
     /// NeMo transducer (Parakeet TDT): three graphs — encoder, decoder and
     /// joiner — over the shared token table.
     ///
-    /// `model_type` stays null on purpose so sherpa-onnx reads the variant
+    /// `model_type` stays unset on purpose so sherpa-onnx reads the variant
     /// out of the encoder's ONNX metadata. Spelling it as `"transducer"`,
-    /// which is what `sherpa-rs`'s own wrapper defaults to, would mis-decode
-    /// a TDT graph: those emit a duration alongside every symbol.
+    /// which is what the wrapper crates default to, would mis-decode a TDT
+    /// graph: those emit a duration alongside every symbol.
     pub fn transducer(
         encoder_path: &Path,
         decoder_path: &Path,
@@ -220,42 +206,46 @@ impl OfflineRecognizer {
         num_threads: i32,
     ) -> Result<Self, String> {
         check_threads(num_threads)?;
-        let encoder = c_path(encoder_path)?;
-        let decoder = c_path(decoder_path)?;
-        let joiner = c_path(joiner_path)?;
-        let tokens = c_path(tokens_path)?;
-
-        let recognizer = unsafe {
-            use sherpa_rs::sherpa_rs_sys as sys;
-            let model_config = sys::SherpaOnnxOfflineModelConfig {
-                transducer: sys::SherpaOnnxOfflineTransducerModelConfig {
-                    encoder: encoder.as_ptr(),
-                    decoder: decoder.as_ptr(),
-                    joiner: joiner.as_ptr(),
-                },
-                ..common_model_config(tokens.as_ptr(), num_threads)
-            };
-            // Unlike the CTC path, the transducer wants its feature
-            // extractor spelled out: 80-dim log-mel at 16 kHz, which is what
-            // every NeMo export expects.
-            create(
-                model_config,
-                Some(sys::SherpaOnnxFeatureConfig {
-                    sample_rate: 16_000,
-                    feature_dim: 80,
-                }),
-            )
+        let model_config = sherpa_onnx::OfflineModelConfig {
+            transducer: sherpa_onnx::OfflineTransducerModelConfig {
+                encoder: Some(path_string(encoder_path)?),
+                decoder: Some(path_string(decoder_path)?),
+                joiner: Some(path_string(joiner_path)?),
+            },
+            ..common_model_config(path_string(tokens_path)?, num_threads)
         };
-        Self::from_raw(recognizer)
+        // Unlike the CTC path, the transducer wants its feature extractor
+        // spelled out: 80-dim log-mel at 16 kHz, which is what every NeMo
+        // export expects.
+        Self::create(model_config, Some((16_000, 80)))
     }
 
-    fn from_raw(
-        recognizer: *const sherpa_rs::sherpa_rs_sys::SherpaOnnxOfflineRecognizer,
+    /// # Panics
+    /// Never: `create` reports a null recognizer as an error.
+    fn create(
+        model_config: sherpa_onnx::OfflineModelConfig,
+        feat_config: Option<(i32, i32)>,
     ) -> Result<Self, String> {
-        if recognizer.is_null() {
-            return Err("SHERPA_CREATE_FAILED: offline recognizer returned null".to_string());
-        }
-        Ok(Self { recognizer })
+        let mut config = sherpa_onnx::OfflineRecognizerConfig {
+            model_config,
+            decoding_method: Some(DECODING_GREEDY.to_string()),
+            ..Default::default()
+        };
+        // `None` means the zeroed feature config every family except the
+        // transducer was created with before this crate owned the C calls —
+        // those models carry their own front end and read this back. The
+        // remaining defaults (`max_active_paths`, `blank_penalty`, the LM) are
+        // inert under greedy decoding with no LM configured.
+        let (sample_rate, feature_dim) = feat_config.unwrap_or((0, 0));
+        config.feat_config.sample_rate = sample_rate;
+        config.feat_config.feature_dim = feature_dim;
+
+        let recognizer = sherpa_onnx::OfflineRecognizer::create(&config)
+            .ok_or_else(|| "SHERPA_CREATE_FAILED: offline recognizer returned null".to_string())?;
+        Ok(Self {
+            recognizer,
+            _not_send: PhantomData,
+        })
     }
 
     pub fn transcribe(&mut self, sample_rate: u32, samples: &[f32]) -> Result<String, String> {
@@ -264,37 +254,62 @@ impl OfflineRecognizer {
             return Ok(String::new());
         }
 
-        unsafe {
-            use sherpa_rs::sherpa_rs_sys as sys;
-            let stream = sys::SherpaOnnxCreateOfflineStream(self.recognizer);
-            if stream.is_null() {
-                return Err("SHERPA_STREAM_FAILED: offline stream returned null".to_string());
-            }
-            sys::SherpaOnnxAcceptWaveformOffline(
-                stream,
-                sample_rate as i32,
-                samples.as_ptr(),
-                samples.len() as i32,
-            );
-            sys::SherpaOnnxDecodeOfflineStream(self.recognizer, stream);
-            let result_ptr = sys::SherpaOnnxGetOfflineStreamResult(stream);
-            if result_ptr.is_null() {
-                sys::SherpaOnnxDestroyOfflineStream(stream);
-                return Err("SHERPA_RESULT_FAILED: offline result returned null".to_string());
-            }
-            let text = if (*result_ptr).text.is_null() {
-                Err("SHERPA_RESULT_FAILED: result text returned null".to_string())
-            } else {
-                Ok(CStr::from_ptr((*result_ptr).text)
-                    .to_string_lossy()
-                    .into_owned())
-            };
-            sys::SherpaOnnxDestroyOfflineRecognizerResult(result_ptr);
-            sys::SherpaOnnxDestroyOfflineStream(stream);
-            text
-        }
+        // A `SHERPA_STREAM_FAILED` used to guard this: the C API can hand back
+        // a null stream, and the old code checked for it. `create_stream` wraps
+        // the pointer without checking and keeps it private, so the check is
+        // gone — not dropped by choice. If the C call ever does return null,
+        // the next line dereferences it inside the DLL instead of reporting it.
+        let stream = self.recognizer.create_stream();
+        stream.accept_waveform(sample_rate as i32, samples);
+        self.recognizer.decode(&stream);
+        stream
+            .get_result()
+            .map(|result| result.text)
+            .ok_or_else(|| "SHERPA_RESULT_FAILED: offline result returned null".to_string())
     }
 }
+
+/// Every field a family does not use must stay unset: sherpa-onnx picks the
+/// implementation by the first non-empty model field.
+#[cfg(any(windows, target_os = "macos"))]
+fn common_model_config(tokens: String, num_threads: i32) -> sherpa_onnx::OfflineModelConfig {
+    sherpa_onnx::OfflineModelConfig {
+        tokens: Some(tokens),
+        num_threads,
+        debug: false,
+        provider: Some(PROVIDER_CPU.to_string()),
+        ..Default::default()
+    }
+}
+
+/// A recognizer holds native state the engine keeps on one thread. The
+/// upstream types are marked `Send + Sync`, so nothing but the `PhantomData` in
+/// these wrappers stops one from being moved across threads — assert at compile
+/// time that it is still doing its job.
+///
+/// Inherent items win over trait items when their bounds hold, so `SEND` reads
+/// `true` only for a type that really is `Send`. The `u32` line is the control:
+/// if the trick ever stopped resolving that way, it would fail first, instead of
+/// quietly passing everything.
+#[cfg(any(windows, target_os = "macos"))]
+const _: () = {
+    struct IsSend<T>(PhantomData<T>);
+
+    trait Fallback {
+        const SEND: bool = false;
+    }
+
+    impl<T> Fallback for IsSend<T> {}
+
+    impl<T: Send> IsSend<T> {
+        const SEND: bool = true;
+    }
+
+    assert!(IsSend::<u32>::SEND);
+    assert!(!IsSend::<OfflineRecognizer>::SEND);
+    assert!(!IsSend::<OnlineRecognizer>::SEND);
+    assert!(!IsSend::<SherpaRecognizer>::SEND);
+};
 
 /// Checks common to both recognizers. sherpa does not check for NaN in the
 /// buffer and answers incompatible input by crashing the process, so the audio
@@ -319,55 +334,6 @@ fn check_threads(num_threads: i32) -> Result<(), String> {
         return Err("SHERPA_INVALID_THREADS: num_threads must be positive".to_string());
     }
     Ok(())
-}
-
-/// Every field a family does not use must stay null/zero: sherpa-onnx picks
-/// the implementation by the first non-empty model field.
-///
-/// # Safety
-/// `tokens` must outlive the returned config.
-#[cfg(any(windows, target_os = "macos"))]
-unsafe fn common_model_config(
-    tokens: *const c_char,
-    num_threads: i32,
-) -> sherpa_rs::sherpa_rs_sys::SherpaOnnxOfflineModelConfig {
-    use sherpa_rs::sherpa_rs_sys as sys;
-    sys::SherpaOnnxOfflineModelConfig {
-        tokens,
-        num_threads,
-        debug: 0,
-        provider: PROVIDER_CPU.as_ptr() as *const c_char,
-        ..std::mem::zeroed()
-    }
-}
-
-/// # Safety
-/// Every path inside `model_config` must outlive this call.
-#[cfg(any(windows, target_os = "macos"))]
-unsafe fn create(
-    model_config: sherpa_rs::sherpa_rs_sys::SherpaOnnxOfflineModelConfig,
-    feat_config: Option<sherpa_rs::sherpa_rs_sys::SherpaOnnxFeatureConfig>,
-) -> *const sherpa_rs::sherpa_rs_sys::SherpaOnnxOfflineRecognizer {
-    use sherpa_rs::sherpa_rs_sys as sys;
-    let config = sys::SherpaOnnxOfflineRecognizerConfig {
-        model_config,
-        decoding_method: DECODING_GREEDY.as_ptr() as *const c_char,
-        feat_config: feat_config.unwrap_or_else(|| std::mem::zeroed()),
-        ..std::mem::zeroed()
-    };
-    sys::SherpaOnnxCreateOfflineRecognizer(&config)
-}
-
-#[cfg(any(windows, target_os = "macos"))]
-impl Drop for OfflineRecognizer {
-    fn drop(&mut self) {
-        if !self.recognizer.is_null() {
-            unsafe {
-                sherpa_rs::sherpa_rs_sys::SherpaOnnxDestroyOfflineRecognizer(self.recognizer);
-            }
-            self.recognizer = std::ptr::null();
-        }
-    }
 }
 
 /// Keep the engine command surface cross-platform while making the
@@ -468,6 +434,17 @@ mod tests {
         assert!(err.contains("SHERPA_INVALID_THREADS"));
     }
 
+    /// The upstream wrapper turns a path into a `CString` with `.unwrap()`, so
+    /// an interior NUL has to be rejected on this side of the boundary.
+    #[cfg(any(windows, target_os = "macos"))]
+    #[test]
+    fn rejects_path_with_interior_nul_before_ffi() {
+        let err =
+            OfflineRecognizer::nemo_ctc(Path::new("mo\0del.onnx"), Path::new("tokens.txt"), 4)
+                .unwrap_err();
+        assert!(err.contains("SHERPA_INVALID_PATH"));
+    }
+
     #[cfg(not(any(windows, target_os = "macos")))]
     #[test]
     fn reports_unsupported_platform_without_ffi() {
@@ -489,10 +466,19 @@ mod tests {
 /// hypothesis. The stream lives between calls, which is why it is a field here
 /// rather than a local variable.
 #[cfg(any(windows, target_os = "macos"))]
-#[derive(Debug)]
 pub struct OnlineRecognizer {
-    recognizer: *const sherpa_rs::sherpa_rs_sys::SherpaOnnxOnlineRecognizer,
-    stream: *const sherpa_rs::sherpa_rs_sys::SherpaOnnxOnlineStream,
+    // Declared before the recognizer so it is dropped first: the stream is
+    // borrowed from the recognizer for the whole of its life.
+    stream: sherpa_onnx::OnlineStream,
+    recognizer: sherpa_onnx::OnlineRecognizer,
+    _not_send: PhantomData<*const ()>,
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+impl std::fmt::Debug for OnlineRecognizer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("OnlineRecognizer")
+    }
 }
 
 #[cfg(any(windows, target_os = "macos"))]
@@ -505,50 +491,37 @@ impl OnlineRecognizer {
         num_threads: i32,
     ) -> Result<Self, String> {
         check_threads(num_threads)?;
-        let encoder = c_path(encoder_path)?;
-        let decoder = c_path(decoder_path)?;
-        let joiner = c_path(joiner_path)?;
-        let tokens = c_path(tokens_path)?;
-
-        let recognizer = unsafe {
-            use sherpa_rs::sherpa_rs_sys as sys;
-            let model_config = sys::SherpaOnnxOnlineModelConfig {
-                transducer: sys::SherpaOnnxOnlineTransducerModelConfig {
-                    encoder: encoder.as_ptr(),
-                    decoder: decoder.as_ptr(),
-                    joiner: joiner.as_ptr(),
+        let config = sherpa_onnx::OnlineRecognizerConfig {
+            // The default feature config is the 16 kHz, 80-dim log-mel front
+            // end every streaming zipformer export expects.
+            model_config: sherpa_onnx::OnlineModelConfig {
+                transducer: sherpa_onnx::OnlineTransducerModelConfig {
+                    encoder: Some(path_string(encoder_path)?),
+                    decoder: Some(path_string(decoder_path)?),
+                    joiner: Some(path_string(joiner_path)?),
                 },
-                tokens: tokens.as_ptr(),
+                tokens: Some(path_string(tokens_path)?),
                 num_threads,
-                debug: 0,
-                provider: PROVIDER_CPU.as_ptr() as *const c_char,
-                ..std::mem::zeroed()
-            };
-            let config = sys::SherpaOnnxOnlineRecognizerConfig {
-                feat_config: sys::SherpaOnnxFeatureConfig {
-                    sample_rate: 16_000,
-                    feature_dim: 80,
-                },
-                model_config,
-                decoding_method: DECODING_GREEDY.as_ptr() as *const c_char,
-                // The bounds of a dictation are set by the hotkey, not by
-                // silence in the microphone: with endpoint detection enabled
-                // the recognizer would cut a pause mid-thought and start the
-                // phrase over.
-                enable_endpoint: 0,
-                ..std::mem::zeroed()
-            };
-            sys::SherpaOnnxCreateOnlineRecognizer(&config)
+                debug: false,
+                provider: Some(PROVIDER_CPU.to_string()),
+                ..Default::default()
+            },
+            decoding_method: Some(DECODING_GREEDY.to_string()),
+            // The bounds of a dictation are set by the hotkey, not by silence
+            // in the microphone: with endpoint detection enabled the recognizer
+            // would cut a pause mid-thought and start the phrase over.
+            enable_endpoint: false,
+            ..Default::default()
         };
-        if recognizer.is_null() {
-            return Err("SHERPA_CREATE_FAILED: online recognizer returned null".to_string());
-        }
-        let stream = unsafe { sherpa_rs::sherpa_rs_sys::SherpaOnnxCreateOnlineStream(recognizer) };
-        if stream.is_null() {
-            unsafe { sherpa_rs::sherpa_rs_sys::SherpaOnnxDestroyOnlineRecognizer(recognizer) };
-            return Err("SHERPA_STREAM_FAILED: online stream returned null".to_string());
-        }
-        Ok(Self { recognizer, stream })
+
+        let recognizer = sherpa_onnx::OnlineRecognizer::create(&config)
+            .ok_or_else(|| "SHERPA_CREATE_FAILED: online recognizer returned null".to_string())?;
+        let stream = recognizer.create_stream();
+        Ok(Self {
+            stream,
+            recognizer,
+            _not_send: PhantomData,
+        })
     }
 
     /// Feed the next chunk of audio and advance decoding as far as the
@@ -558,80 +531,41 @@ impl OnlineRecognizer {
         if samples.is_empty() {
             return Ok(());
         }
-        unsafe {
-            use sherpa_rs::sherpa_rs_sys as sys;
-            sys::SherpaOnnxOnlineStreamAcceptWaveform(
-                self.stream,
-                sample_rate as i32,
-                samples.as_ptr(),
-                samples.len() as i32,
-            );
-            self.decode_ready();
-        }
+        self.stream.accept_waveform(sample_rate as i32, samples);
+        self.decode_ready();
         Ok(())
     }
 
     /// The current hypothesis in full. The text grows and may be corrected
     /// retroactively, so it must never be inserted anywhere — only displayed.
+    ///
+    /// The only accessor upstream offers serialises the result to JSON and
+    /// parses it back, tokens and timestamps included, so the live preview pays
+    /// one parse per chunk over a hypothesis that grows for the whole dictation
+    /// — where the previous binding read a single C string. A failed parse
+    /// arrives here as the same `SHERPA_RESULT_FAILED` as a null result.
     pub fn text(&self) -> Result<String, String> {
-        unsafe {
-            use sherpa_rs::sherpa_rs_sys as sys;
-            let result_ptr = sys::SherpaOnnxGetOnlineStreamResult(self.recognizer, self.stream);
-            if result_ptr.is_null() {
-                return Err("SHERPA_RESULT_FAILED: online result returned null".to_string());
-            }
-            let text = if (*result_ptr).text.is_null() {
-                String::new()
-            } else {
-                CStr::from_ptr((*result_ptr).text)
-                    .to_string_lossy()
-                    .into_owned()
-            };
-            sys::SherpaOnnxDestroyOnlineRecognizerResult(result_ptr);
-            Ok(text)
-        }
+        self.recognizer
+            .get_result(&self.stream)
+            .map(|result| result.text)
+            .ok_or_else(|| "SHERPA_RESULT_FAILED: online result returned null".to_string())
     }
 
     /// Close the phrase: finish the tail and return the final text.
     pub fn finish(&mut self) -> Result<String, String> {
-        unsafe {
-            use sherpa_rs::sherpa_rs_sys as sys;
-            sys::SherpaOnnxOnlineStreamInputFinished(self.stream);
-            self.decode_ready();
-        }
+        self.stream.input_finished();
+        self.decode_ready();
         self.text()
     }
 
     /// Forget what was accumulated and start the next dictation from scratch.
     pub fn reset(&mut self) {
-        unsafe {
-            sherpa_rs::sherpa_rs_sys::SherpaOnnxOnlineStreamReset(self.recognizer, self.stream)
-        };
+        self.recognizer.reset(&self.stream);
     }
 
-    /// # Safety
-    /// The stream and the recognizer must be alive.
-    unsafe fn decode_ready(&self) {
-        use sherpa_rs::sherpa_rs_sys as sys;
-        while sys::SherpaOnnxIsOnlineStreamReady(self.recognizer, self.stream) != 0 {
-            sys::SherpaOnnxDecodeOnlineStream(self.recognizer, self.stream);
-        }
-    }
-}
-
-#[cfg(any(windows, target_os = "macos"))]
-impl Drop for OnlineRecognizer {
-    fn drop(&mut self) {
-        unsafe {
-            use sherpa_rs::sherpa_rs_sys as sys;
-            if !self.stream.is_null() {
-                sys::SherpaOnnxDestroyOnlineStream(self.stream);
-                self.stream = std::ptr::null();
-            }
-            if !self.recognizer.is_null() {
-                sys::SherpaOnnxDestroyOnlineRecognizer(self.recognizer);
-                self.recognizer = std::ptr::null();
-            }
+    fn decode_ready(&self) {
+        while self.recognizer.is_ready(&self.stream) {
+            self.recognizer.decode(&self.stream);
         }
     }
 }
