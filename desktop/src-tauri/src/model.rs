@@ -36,6 +36,20 @@ const WHISPER_LANGUAGES: &[&str] = &[
 ///
 /// Available on Windows/macOS, like the whole sherpa bundle catalog: on other
 /// platforms it is not built and the constant would be dead.
+/// The languages Nemotron 3.5 transcribes out of the box: its own
+/// "transcription-ready" and "broad-coverage" tiers, folded from locales to
+/// languages (the model separates `en-US` from `en-GB`, the catalog does not).
+///
+/// The third tier, "adaptation-ready" (el, lt, lv, mt, sl, he, th, nn), is
+/// deliberately absent: those are in the token table but the model card says
+/// they need fine-tuning before they transcribe, and a language that decodes
+/// into nonsense is exactly what this list exists to keep out.
+#[cfg(any(windows, target_os = "macos"))]
+const NEMOTRON_LANGUAGES: &[&str] = &[
+    "ar", "bg", "cs", "da", "de", "en", "es", "et", "fi", "fr", "hi", "hr", "hu", "it", "ja", "ko",
+    "nl", "no", "pl", "pt", "ro", "ru", "sk", "sv", "tr", "uk", "vi", "zh",
+];
+
 #[cfg(any(windows, target_os = "macos"))]
 const PARAKEET_V3_LANGUAGES: &[&str] = &[
     "bg", "hr", "cs", "da", "nl", "en", "et", "fi", "fr", "de", "el", "hu", "it", "lv", "lt", "mt",
@@ -111,21 +125,100 @@ pub struct BundleModelManifestEntry {
     pub recommended: bool,
 }
 
+/// The punctuating export of GigaAM v3, not the bare one: upstream publishes
+/// the same graph twice, and the difference is the token table — 256 tokens
+/// with `.`, `,`, `!`, `?` and capital letters instead of 61 lowercase ones.
+/// For dictation that is the whole point, and the plain export has nothing to
+/// offer over it, so only this one is in the catalog.
 #[cfg(any(windows, target_os = "macos"))]
 const GIGAAM_V3_ARTIFACTS: &[BundleArtifactManifestEntry] = &[
     BundleArtifactManifestEntry {
         role: ArtifactRole::Model,
         file_name: "model.int8.onnx",
-        download_url: "https://huggingface.co/csukuangfj/sherpa-onnx-nemo-ctc-giga-am-v3-russian-2025-12-16/resolve/f376a99ee8be93b61f9e969d2ac827c4d228dac3/model.int8.onnx",
-        expected_bytes: 224_721_476,
-        sha256: "f86ebfa0429ced91be6054fc344827e9c6c2572f3c318416cd974b06f66437ec",
+        download_url: "https://huggingface.co/csukuangfj/sherpa-onnx-nemo-ctc-punct-giga-am-v3-russian-2025-12-16/resolve/4fb5407ff028a69fec516cdf4c10fac9ddea7c16/model.int8.onnx",
+        expected_bytes: 224_893_661,
+        sha256: "d5fea8df94263c285e54b21e5774b707c707192d3bdbeffd7b1eb07fb6743b35",
     },
     BundleArtifactManifestEntry {
         role: ArtifactRole::Tokens,
         file_name: "tokens.txt",
-        download_url: "https://huggingface.co/csukuangfj/sherpa-onnx-nemo-ctc-giga-am-v3-russian-2025-12-16/resolve/f376a99ee8be93b61f9e969d2ac827c4d228dac3/tokens.txt",
-        expected_bytes: 196,
-        sha256: "17cc514451bcceac9c280068c71502f8448f99e9fb1456b8d0761651fd0392f2",
+        download_url: "https://huggingface.co/csukuangfj/sherpa-onnx-nemo-ctc-punct-giga-am-v3-russian-2025-12-16/resolve/4fb5407ff028a69fec516cdf4c10fac9ddea7c16/tokens.txt",
+        expected_bytes: 2_007,
+        sha256: "142de7570b3de5b3035ce111a89c228e80e6085273731d944093ddf24fa539cd",
+    },
+];
+
+/// Omnilingual ASR (Meta), the 300M CTC export: one graph plus its token
+/// table, like GigaAM, but with its own config field in sherpa-onnx.
+#[cfg(any(windows, target_os = "macos"))]
+const OMNILINGUAL_300M_ARTIFACTS: &[BundleArtifactManifestEntry] = &[
+    BundleArtifactManifestEntry {
+        role: ArtifactRole::Model,
+        file_name: "model.int8.onnx",
+        download_url: concat!(
+            "https://huggingface.co/csukuangfj/sherpa-onnx-omnilingual-asr-1600-languages-300M-ctc-int8-2025-11-12/resolve/6abf1ece20cd2308bdb7d13cd78ec1c44fa4c094",
+            "/model.int8.onnx"
+        ),
+        expected_bytes: 365_352_120,
+        sha256: "e7c4e54ee4c4c47829cc6667d5d00ed8ea7bef1dcfeef0fce766f77752a2726c",
+    },
+    BundleArtifactManifestEntry {
+        role: ArtifactRole::Tokens,
+        file_name: "tokens.txt",
+        download_url: concat!(
+            "https://huggingface.co/csukuangfj/sherpa-onnx-omnilingual-asr-1600-languages-300M-ctc-int8-2025-11-12/resolve/6abf1ece20cd2308bdb7d13cd78ec1c44fa4c094",
+            "/tokens.txt"
+        ),
+        expected_bytes: 86_423,
+        sha256: "a7a044c52cb29cbe8b0dc1953e92cefd4ca16b0ed968177b6beab21f9a7d0b31",
+    },
+];
+
+/// Nemotron 3.5 ASR (NVIDIA), the multilingual streaming transducer.
+///
+/// Upstream exports the same model at five chunk sizes; 560 ms is taken for
+/// the same reason as with Parakeet — see the entry in the manifest.
+#[cfg(any(windows, target_os = "macos"))]
+const NEMOTRON_STREAMING_ARTIFACTS: &[BundleArtifactManifestEntry] = &[
+    BundleArtifactManifestEntry {
+        role: ArtifactRole::Encoder,
+        file_name: "encoder.int8.onnx",
+        download_url: concat!(
+            "https://huggingface.co/csukuangfj2/sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-560ms-int8-2026-06-11/resolve/ab43d895f5985b1bbab8b6eac8607fcdc05343f3",
+            "/encoder.int8.onnx"
+        ),
+        expected_bytes: 657_601_403,
+        sha256: "012e9321373af99021415e0b0eb3ec827b4be3153be6f30d9b448fe65e896e68",
+    },
+    BundleArtifactManifestEntry {
+        role: ArtifactRole::Decoder,
+        file_name: "decoder.int8.onnx",
+        download_url: concat!(
+            "https://huggingface.co/csukuangfj2/sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-560ms-int8-2026-06-11/resolve/ab43d895f5985b1bbab8b6eac8607fcdc05343f3",
+            "/decoder.int8.onnx"
+        ),
+        expected_bytes: 14_978_075,
+        sha256: "19f9c98fc6d0a2c33a65a43b36fdb2e914c26c0aa9764be3aebc502a1e982fb0",
+    },
+    BundleArtifactManifestEntry {
+        role: ArtifactRole::Joiner,
+        file_name: "joiner.int8.onnx",
+        download_url: concat!(
+            "https://huggingface.co/csukuangfj2/sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-560ms-int8-2026-06-11/resolve/ab43d895f5985b1bbab8b6eac8607fcdc05343f3",
+            "/joiner.int8.onnx"
+        ),
+        expected_bytes: 9_504_438,
+        sha256: "4101c7c679a0bc30483794b27a059e34e79232aa2068d78d51231a22c8b0d7ce",
+    },
+    BundleArtifactManifestEntry {
+        role: ArtifactRole::Tokens,
+        file_name: "tokens.txt",
+        download_url: concat!(
+            "https://huggingface.co/csukuangfj2/sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-560ms-int8-2026-06-11/resolve/ab43d895f5985b1bbab8b6eac8607fcdc05343f3",
+            "/tokens.txt"
+        ),
+        expected_bytes: 131_440,
+        sha256: "729cc103155bafa785f9cd45746cd41cabe97eab7182fc04d594129587958f8a",
     },
 ];
 
@@ -407,6 +500,36 @@ pub const BUNDLE_MODEL_MANIFEST: &[BundleModelManifestEntry] = &[
         label: "GigaAM v3",
         size: "214 MB",
         ram: "~0.5 GB",
+        recommended: false,
+    },
+    BundleModelManifestEntry {
+        public_id: "omnilingual-300m",
+        directory_name: "omnilingual-300m",
+        artifacts: OMNILINGUAL_300M_ARTIFACTS,
+        engine: ModelEngine::SherpaOmnilingualCtc,
+        family: "Omnilingual",
+        // 1600+ languages, and no closed list worth writing down: what the
+        // catalog would gain from enumerating them the picker could not show.
+        languages: None,
+        label: "Omnilingual 300M",
+        size: "348 MB",
+        ram: "~0.9 GB",
+        recommended: false,
+    },
+    BundleModelManifestEntry {
+        public_id: "nemotron-streaming",
+        directory_name: "nemotron-streaming",
+        artifacts: NEMOTRON_STREAMING_ARTIFACTS,
+        engine: ModelEngine::SherpaStreamingTransducer,
+        family: "Nemotron",
+        languages: Some(NEMOTRON_LANGUAGES),
+        // Upstream publishes five look-aheads: 80, 160, 320, 560 and 1120 ms.
+        // The 560 ms one is taken for the same reason as with Parakeet — the
+        // shorter ones show text sooner but rewrite it retroactively more
+        // often, and it is the rewriting that grates in a live preview.
+        label: "Nemotron 3.5",
+        size: "651 MB",
+        ram: "~1.4 GB",
         recommended: false,
     },
     BundleModelManifestEntry {
@@ -807,6 +930,7 @@ pub enum ModelEngine {
     SherpaCanary,
     SherpaMoonshine,
     SherpaSenseVoice,
+    SherpaOmnilingualCtc,
     /// A streaming transducer: the only family that can return text as speech
     /// goes rather than after the recording stops.
     SherpaStreamingTransducer,
@@ -838,7 +962,7 @@ impl ModelEngine {
     pub const fn required_roles(self) -> &'static [ArtifactRole] {
         match self {
             Self::Whisper => &[],
-            Self::SherpaNemoCtc | Self::SherpaSenseVoice => {
+            Self::SherpaNemoCtc | Self::SherpaSenseVoice | Self::SherpaOmnilingualCtc => {
                 &[ArtifactRole::Model, ArtifactRole::Tokens]
             }
             Self::SherpaTransducer => &[
@@ -1479,7 +1603,13 @@ pub fn list_models(selected: &str, loaded_model_id: Option<&str>) -> Vec<ModelIn
 /// through `model_path`, so nothing outside the models directory is
 /// reachable from here.
 pub fn delete_cached_model(model_id: &str) -> Result<bool, String> {
-    if model_engine(model_id)? == ModelEngine::SherpaNemoCtc {
+    // Every sherpa family lives in a bundle directory, not in a `.bin` file.
+    // Asking the engine rather than naming one family keeps a model added to
+    // the catalog from being undeletable: the id of a bundle also passes
+    // `local_model_stem`, so the file branch below would look for
+    // `parakeet-tdt-v3.bin`, not find it, and report "nothing to delete"
+    // while the bundle stayed on disk.
+    if model_engine(model_id)?.is_sherpa() {
         let entry = bundle_manifest_entry(model_id)?;
         let path = models_dir()?.join(entry.directory_name);
         return remove_bundle_path(&path);
@@ -1881,21 +2011,28 @@ mod tests {
         assert_eq!(entry.artifacts[0].file_name, "model.int8.onnx");
         assert!(entry.artifacts[0]
             .download_url
-            .contains("f376a99ee8be93b61f9e969d2ac827c4d228dac3"));
-        assert_eq!(entry.artifacts[0].expected_bytes, 224_721_476);
+            .contains("4fb5407ff028a69fec516cdf4c10fac9ddea7c16"));
+        assert_eq!(entry.artifacts[0].expected_bytes, 224_893_661);
         assert_eq!(
             entry.artifacts[0].sha256,
-            "f86ebfa0429ced91be6054fc344827e9c6c2572f3c318416cd974b06f66437ec"
+            "d5fea8df94263c285e54b21e5774b707c707192d3bdbeffd7b1eb07fb6743b35"
         );
         assert_eq!(entry.artifacts[1].file_name, "tokens.txt");
         assert!(entry.artifacts[1]
             .download_url
-            .contains("f376a99ee8be93b61f9e969d2ac827c4d228dac3"));
-        assert_eq!(entry.artifacts[1].expected_bytes, 196);
+            .contains("4fb5407ff028a69fec516cdf4c10fac9ddea7c16"));
+        assert_eq!(entry.artifacts[1].expected_bytes, 2_007);
         assert_eq!(
             entry.artifacts[1].sha256,
-            "17cc514451bcceac9c280068c71502f8448f99e9fb1456b8d0761651fd0392f2"
+            "142de7570b3de5b3035ce111a89c228e80e6085273731d944093ddf24fa539cd"
         );
+        // The punctuating export, not the bare one: they differ only in the
+        // token table, and picking the wrong URL would be invisible until
+        // someone noticed the dictation had lost its commas.
+        assert!(entry
+            .artifacts
+            .iter()
+            .all(|artifact| artifact.download_url.contains("nemo-ctc-punct-giga-am-v3")));
         assert!(entry
             .artifacts
             .iter()
@@ -1906,6 +2043,51 @@ mod tests {
         assert_eq!(gigaam.engine, "sherpa-onnx");
         assert_eq!(gigaam.compute_backend, "CPU");
         assert_eq!(gigaam.family.as_deref(), Some("GigaAM"));
+    }
+
+    /// The two families added on top of the sherpa move. Both are pinned the
+    /// same way as GigaAM: the commit in the URL is what makes a re-download
+    /// give the same bytes as the hash beside it.
+    #[cfg(any(windows, target_os = "macos"))]
+    #[test]
+    fn the_new_sherpa_families_are_pinned_and_correctly_shaped() {
+        let omnilingual = bundle_manifest_entry("omnilingual-300m").unwrap();
+        assert_eq!(omnilingual.engine, ModelEngine::SherpaOmnilingualCtc);
+        assert!(!omnilingual.engine.is_streaming());
+        // No language list: the model knows more languages than the picker
+        // could ever show, and a closed list would only lock it down.
+        assert!(omnilingual.languages.is_none());
+        assert_eq!(omnilingual.artifacts[0].expected_bytes, 365_352_120);
+        assert_eq!(
+            omnilingual.artifacts[0].sha256,
+            "e7c4e54ee4c4c47829cc6667d5d00ed8ea7bef1dcfeef0fce766f77752a2726c"
+        );
+
+        let nemotron = bundle_manifest_entry("nemotron-streaming").unwrap();
+        assert_eq!(nemotron.engine, ModelEngine::SherpaStreamingTransducer);
+        assert!(nemotron.engine.is_streaming());
+        // The look-ahead is part of the pin, not a detail of the URL: the
+        // other four exports carry the same file names and the same shape.
+        assert!(nemotron
+            .artifacts
+            .iter()
+            .all(|artifact| artifact.download_url.contains("-560ms-int8-")));
+        let languages = nemotron.languages.unwrap();
+        assert!(languages.contains(&"ru") && languages.contains(&"en"));
+        // Its "adaptation-ready" tier is in the token table but does not
+        // transcribe without fine-tuning, so it must not be offered.
+        assert!(!languages.contains(&"th"), "adaptation-ready tier offered");
+
+        for entry in [omnilingual, nemotron] {
+            for artifact in entry.artifacts {
+                assert_eq!(artifact.sha256.len(), 64, "{}", entry.public_id);
+                assert!(
+                    artifact.download_url.starts_with("https://huggingface.co/"),
+                    "{}",
+                    entry.public_id
+                );
+            }
+        }
     }
 
     // ------------------------------------------------------------------
@@ -2156,8 +2338,14 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let bundle = dir.path().join("gigaam-v3");
         std::fs::create_dir_all(&bundle).unwrap();
+        // Sizes come from the manifest rather than being spelled out again:
+        // what this test is about is the readiness rule, and the pinned values
+        // are the business of `gigaam_is_a_closed_cpu_only_bundle`.
+        let entry = bundle_manifest_entry("gigaam-v3").unwrap();
+        let model_bytes = entry.artifacts[0].expected_bytes;
+        let tokens_bytes = usize::try_from(entry.artifacts[1].expected_bytes).unwrap();
         // tokens.txt at the right size, model missing → not ready.
-        std::fs::write(bundle.join("tokens.txt"), vec![0u8; 196]).unwrap();
+        std::fs::write(bundle.join("tokens.txt"), vec![0u8; tokens_bytes]).unwrap();
         assert!(!bundle_is_ready_at("gigaam-v3", dir.path()));
 
         // Model present but the wrong size → not ready (catches `&&` → `||`).
@@ -2170,7 +2358,7 @@ mod tests {
         // Model at exactly the manifest size → ready (catches `==` → `!=`).
         std::fs::File::create(bundle.join("model.int8.onnx"))
             .unwrap()
-            .set_len(224_721_476)
+            .set_len(model_bytes)
             .unwrap();
         assert!(bundle_is_ready_at("gigaam-v3", dir.path()));
     }
@@ -2256,6 +2444,26 @@ mod tests {
             .unwrap();
         assert!(delete_cached_model("tiny").unwrap());
         assert!(!dir.path().join("ggml-tiny.bin").exists());
+    }
+
+    /// Deletion used to name one family — NeMo CTC — and every other bundle
+    /// fell through to the `.bin` branch, where the id of a directory is also
+    /// a valid file stem: the lookup missed, deletion reported "nothing to
+    /// remove", and the gigabyte stayed on disk.
+    #[cfg(any(windows, target_os = "macos"))]
+    #[test]
+    fn delete_cached_model_removes_a_bundle_of_any_family() {
+        let dir = tempfile::tempdir().unwrap();
+        let _g = EnvGuard::set(MODELS_DIR_ENV, dir.path());
+        for id in ["gigaam-v3", "omnilingual-300m", "nemotron-streaming"] {
+            let entry = bundle_manifest_entry(id).unwrap();
+            let bundle = dir.path().join(entry.directory_name);
+            std::fs::create_dir_all(&bundle).unwrap();
+            std::fs::write(bundle.join("tokens.txt"), b"stub").unwrap();
+
+            assert!(delete_cached_model(id).unwrap(), "{id} reported nothing");
+            assert!(!bundle.exists(), "{id} left its directory behind");
+        }
     }
 
     /// A user's own file is unknown to the catalog, and deletion used to refuse

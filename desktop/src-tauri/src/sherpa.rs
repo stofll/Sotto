@@ -94,6 +94,9 @@ impl OfflineRecognizer {
             ModelEngine::SherpaSenseVoice => {
                 Self::sense_voice(files.path(R::Model)?, files.path(R::Tokens)?, num_threads)
             }
+            ModelEngine::SherpaOmnilingualCtc => {
+                Self::omnilingual(files.path(R::Model)?, files.path(R::Tokens)?, num_threads)
+            }
             ModelEngine::SherpaStreamingTransducer => {
                 Err("SHERPA_WRONG_ENGINE: streaming models need the online recognizer".to_string())
             }
@@ -169,6 +172,25 @@ impl OfflineRecognizer {
                 model: Some(path_string(model_path)?),
                 language: Some(LANG_AUTO.to_string()),
                 use_itn: true,
+            },
+            ..common_model_config(path_string(tokens_path)?, num_threads)
+        };
+        Self::create(model_config, None)
+    }
+
+    /// Omnilingual ASR: one CTC graph plus its token table, shaped exactly
+    /// like NeMo CTC but selected by its own config field. It has no language
+    /// setting at all — the token table spans every language it knows, and
+    /// which one was spoken is decided by the decoding itself.
+    pub fn omnilingual(
+        model_path: &Path,
+        tokens_path: &Path,
+        num_threads: i32,
+    ) -> Result<Self, String> {
+        check_threads(num_threads)?;
+        let model_config = sherpa_onnx::OfflineModelConfig {
+            omnilingual: sherpa_onnx::OfflineOmnilingualAsrCtcModelConfig {
+                model: Some(path_string(model_path)?),
             },
             ..common_model_config(path_string(tokens_path)?, num_threads)
         };
@@ -386,6 +408,14 @@ impl OfflineRecognizer {
     }
 
     pub fn sense_voice(
+        _model_path: &std::path::Path,
+        _tokens_path: &std::path::Path,
+        _num_threads: i32,
+    ) -> Result<Self, String> {
+        Err(UNSUPPORTED.to_string())
+    }
+
+    pub fn omnilingual(
         _model_path: &std::path::Path,
         _tokens_path: &std::path::Path,
         _num_threads: i32,

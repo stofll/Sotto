@@ -44,8 +44,8 @@
 
 - **Диктант по горячей клавише** в активное окно, с оверлеем состояния.
 - **Локальные модели речи** — `whisper.cpp` везде, плюс бандлы `sherpa-onnx`
-  на Windows и macOS (GigaAM, Parakeet, Canary, Moonshine, SenseVoice,
-  Zipformer). Две из них отдают текст, пока вы ещё говорите.
+  на Windows и macOS (GigaAM, Parakeet, Nemotron, Omnilingual, Canary, Moonshine,
+  SenseVoice, Zipformer). Три из них отдают текст, пока вы ещё говорите.
   См. [Models](docs/models.md).
 - **Расшифровка файлов** — приложите запись в панели «Обработать текст»,
   и текст вернётся туда же, не трогая активное окно и историю.

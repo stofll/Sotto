@@ -24,6 +24,8 @@ knowledge to check manifest completeness.
 | Family | Model | Engine | Languages | Size |
 |---|---|---|---|---|
 | GigaAM | GigaAM v3 | NeMo CTC | ru | 214 MB |
+| Omnilingual | Omnilingual 300M | Omnilingual CTC | multilingual, 1600+ | 348 MB |
+| Nemotron | Nemotron 3.5 | streaming transducer | multilingual list | 651 MB |
 | Canary | Canary 180M Flash | Canary | en | 198 MB |
 | Moonshine | Moonshine base | Moonshine | en | 274 MB |
 | SenseVoice | SenseVoice small | SenseVoice | zh, en, ja, ko, yue | 229 MB |
@@ -63,6 +65,24 @@ of quiet between the last word and the hotkey. It is fed at the rate the
 phrase itself came at — handing sherpa a second sample rate aborts the process
 rather than returning an error.
 
+Nemotron 3.5 is the only streaming model in the catalog that knows both Russian
+and English, and it detects the language itself: sherpa-onnx does not expose
+the `prompt_index` input that would pin one. Its model card says the detected
+locale is emitted into the transcript as a `<ru-RU>`-shaped tag; through
+sherpa it is not — checked on Ukrainian, German, Japanese and Spanish samples,
+none of which produced one.
+
+Its language list holds only what the model card calls transcription-ready and
+broad-coverage. The eight "adaptation-ready" locales are in its token table but
+need fine-tuning before they transcribe, so the catalog does not offer them.
+
+### Punctuation
+
+GigaAM v3 comes from the punctuating export upstream publishes alongside the
+plain one: the same graph, a token table with punctuation marks and capital
+letters instead of bare lowercase. Nemotron 3.5 punctuates and capitalises
+natively as well. For the rest, punctuation is the LLM cleanup step's job.
+
 ### Artifact verification
 
 Before calling sherpa, every file of a bundle is checked against a closed
@@ -94,7 +114,10 @@ confirmation warns about the difference: a catalog model can be downloaded
 again, while a foreign file cannot be recovered from anywhere.
 
 Each sherpa bundle lives in its own subfolder named after the manifest
-(`gigaam-v3/`, `parakeet-tdt-v3/`, `zipformer-ru-streaming/`, and so on).
+(`gigaam-v3/`, `parakeet-tdt-v3/`, `nemotron-streaming/`, and so on). When a
+catalog entry is re-pinned to different artifacts, the installed folder stops
+matching the manifest, the model shows as not downloaded, and the next download
+replaces it — nothing has to be deleted by hand.
 
 ## Native Sherpa libraries
 

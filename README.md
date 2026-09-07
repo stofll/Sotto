@@ -40,8 +40,9 @@ before installation.
 
 - **Dictation by hotkey** into the focused window, with an overlay showing state.
 - **Local speech models** — `whisper.cpp` everywhere, plus `sherpa-onnx` bundles
-  on Windows and macOS (GigaAM, Parakeet, Canary, Moonshine, SenseVoice, Zipformer). Two of
-  them stream text while you are still speaking. See [Models](docs/models.md).
+  on Windows and macOS (GigaAM, Parakeet, Nemotron, Omnilingual, Canary, Moonshine,
+  SenseVoice, Zipformer). Three of them stream text while you are still speaking.
+  See [Models](docs/models.md).
 - **File transcription** — attach a recording in the "Process the text" panel and
   the text comes back there, without touching the focused window or the history.
 - **Optional LLM cleanup** — punctuation, formatting, and custom prompts through
