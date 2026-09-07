@@ -4722,7 +4722,7 @@ dependencies = [
 
 [[package]]
 name = "sotto"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "cpal",
  "criterion",
