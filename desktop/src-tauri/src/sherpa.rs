@@ -471,6 +471,11 @@ pub struct OnlineRecognizer {
     // borrowed from the recognizer for the whole of its life.
     stream: sherpa_onnx::OnlineStream,
     recognizer: sherpa_onnx::OnlineRecognizer,
+    /// The rate the phrase is being fed at, remembered from the first chunk.
+    /// sherpa aborts the process — not returns an error — when a stream is
+    /// handed a second sample rate, so the tail padding below must use the
+    /// rate the stream already has rather than the model's own.
+    input_rate: Option<u32>,
     _not_send: PhantomData<*const ()>,
 }
 
@@ -520,6 +525,7 @@ impl OnlineRecognizer {
         Ok(Self {
             stream,
             recognizer,
+            input_rate: None,
             _not_send: PhantomData,
         })
     }
@@ -531,6 +537,7 @@ impl OnlineRecognizer {
         if samples.is_empty() {
             return Ok(());
         }
+        self.input_rate.get_or_insert(sample_rate);
         self.stream.accept_waveform(sample_rate as i32, samples);
         self.decode_ready();
         Ok(())
@@ -552,7 +559,20 @@ impl OnlineRecognizer {
     }
 
     /// Close the phrase: finish the tail and return the final text.
+    ///
+    /// The last words are padded with silence first. A cache-aware model
+    /// decodes a chunk only once the look-ahead behind it has arrived, so
+    /// closing the stream on the final syllable leaves that chunk undecoded
+    /// and the phrase ends mid-word — «для своєї краї» instead of «країни».
+    /// The padding is what the audio would have contained had the person
+    /// stopped talking a moment before releasing the hotkey.
     pub fn finish(&mut self) -> Result<String, String> {
+        if let Some(rate) = self.input_rate {
+            // Longer than the widest look-ahead among the streaming models in
+            // the catalog (560 ms), so a chunk is never left waiting.
+            let samples = vec![0.0_f32; (rate as usize) * 3 / 5];
+            self.stream.accept_waveform(rate as i32, &samples);
+        }
         self.stream.input_finished();
         self.decode_ready();
         self.text()
@@ -561,6 +581,10 @@ impl OnlineRecognizer {
     /// Forget what was accumulated and start the next dictation from scratch.
     pub fn reset(&mut self) {
         self.recognizer.reset(&self.stream);
+        // The next phrase may arrive at another rate — from a file rather than
+        // from the microphone — and the padding must follow it, not the last
+        // one.
+        self.input_rate = None;
     }
 
     fn decode_ready(&self) {

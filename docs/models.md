@@ -55,6 +55,14 @@ stay silent until the recording ends. The live preview in the overlay picks
 a model by exactly this property. "Streaming" is a property of the model on
 its catalog card, not part of its name.
 
+Closing a phrase pads it with 0.6 s of silence before the stream is finished.
+A cache-aware model decodes a chunk only once the look-ahead behind it has
+arrived, so a recording that ends on the final syllable loses its last word:
+«у лукоморье туб» instead of «туб зелёный». The padding stands for the moment
+of quiet between the last word and the hotkey. It is fed at the rate the
+phrase itself came at — handing sherpa a second sample rate aborts the process
+rather than returning an error.
+
 ### Artifact verification
 
 Before calling sherpa, every file of a bundle is checked against a closed
