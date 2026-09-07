@@ -230,6 +230,18 @@ jobs:
         working-directory: desktop
         run: pnpm build
 
+      # `sherpa-onnx-sys` качает нативный архив сам и хеш не проверяет.
+      # Скачиваем и сверяем его здесь, а сборочному скрипту отдаём готовый
+      # каталог через SHERPA_ONNX_LIB_DIR — тогда он в сеть не ходит.
+      - name: Скачать и проверить нативный рантайм sherpa (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/fetch-sherpa-runtime.ps1 -Target win-x64-shared
+
+      - name: Скачать и проверить нативный рантайм sherpa (macOS)
+        if: runner.os == 'macOS'
+        run: sh scripts/fetch-sherpa-runtime.sh osx-arm64-static
+
       # `tauri.windows.conf.json` объявляет ресурсом
       # `.tauri-native/windows/x64/*.dll`, и build script падает, если glob
       # ничего не нашёл. Раскладывает эти DLL `prepare-native-libs.ps1`, но
@@ -238,7 +250,7 @@ jobs:
       # разработчика он остаётся от прошлой сборки, на чистой — нет.
       #
       # Скрипт берёт DLL из `target/[<triple>/]<profile>`, куда их кладёт
-      # сборочный скрипт `sherpa-rs-sys`, поэтому сначала собираем именно её.
+      # сборочный скрипт `sherpa-onnx-sys`, поэтому сначала собираем именно её.
       # Отдельно, а не весь граф: полный `cargo build` — это как раз тот
       # шаг, который без разложенных DLL и падает.
       - name: Разложить нативный рантайм sherpa (Windows)
@@ -248,7 +260,7 @@ jobs:
           # Профиль для скрипта: обе следующие команды идут в debug.
           TAURI_ENV_DEBUG: "true"
         run: |
-          cargo build --locked -p sherpa-rs-sys
+          cargo build --locked -p sherpa-onnx-sys
           # На прогоне с тёплым кэшем этого мало. rust-cache перед сохранением
           # подчищает корень `target/<profile>` от всего, что не является
           # артефактом зависимости, и разложенные скриптом DLL туда попадают, а
@@ -257,9 +269,9 @@ jobs:
           # с точки зрения cargo, нечего. Сбросить нужно именно этот пакет:
           # тогда build script отрабатывает заново, и это около десяти секунд,
           # потому что скачивать ему уже нечего.
-          if (-not (Test-Path 'target/debug/cargs.dll')) {
-            cargo clean -p sherpa-rs-sys
-            cargo build --locked -p sherpa-rs-sys
+          if (-not (Test-Path 'target/debug/sherpa-onnx-c-api.dll')) {
+            cargo clean -p sherpa-onnx-sys
+            cargo build --locked -p sherpa-onnx-sys
           }
           powershell -NoProfile -ExecutionPolicy Bypass -File prepare-native-libs.ps1
 
