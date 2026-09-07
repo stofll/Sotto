@@ -97,8 +97,23 @@ platform unless `SHERPA_ONNX_LIB_DIR` points at one already on disk, and it does
 not verify what it downloads. CI therefore never lets it: every build is
 preceded by `scripts/fetch-sherpa-runtime.ps1` (or the `.sh` twin on macOS),
 which downloads the archive, checks it against the SHA-256 pinned in
-`scripts/sherpa-runtime.lock`, and exports `SHERPA_ONNX_LIB_DIR`. Run the same
-script locally to build against verified libraries. The
+`scripts/sherpa-runtime.lock`, and exports `SHERPA_ONNX_LIB_DIR`.
+
+To build locally against verified libraries, set that variable from the same
+script — it writes the path to standard output, and everything else to standard
+error:
+
+```powershell
+$env:SHERPA_ONNX_LIB_DIR = ./scripts/fetch-sherpa-runtime.ps1
+```
+
+```sh
+export SHERPA_ONNX_LIB_DIR=$(sh scripts/fetch-sherpa-runtime.sh)
+```
+
+Running the script without capturing its output verifies the archive but leaves
+the variable unset in the calling shell, and the next build downloads its own
+copy unchecked. The
 development build and Windows tests use the libraries from the Cargo target
 directory. The Windows Tauri bundle automatically stages the four required DLLs,
 puts them in the installer resources, and after install/update copies them next

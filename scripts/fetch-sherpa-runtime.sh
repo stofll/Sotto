@@ -30,7 +30,7 @@ lib_dir="$cache_dir/${archive%.tar.bz2}/lib"
 
 if [ ! -f "$archive_path" ]; then
   url="https://github.com/k2-fsa/sherpa-onnx/releases/download/v$version/$archive"
-  echo "Downloading $url"
+  echo "Downloading $url" >&2
   # Into a temporary name first: an interrupted download must not be mistaken
   # for a cached archive on the next run.
   curl -fsSL --retry 3 -o "$archive_path.partial" "$url"
@@ -45,14 +45,37 @@ if [ "$actual" != "$expected" ]; then
   echo "Checksum mismatch for $archive: expected $expected, got $actual" >&2
   exit 1
 fi
-echo "Verified $archive ($expected)"
+echo "Verified $archive ($expected)" >&2
 
-if [ ! -d "$lib_dir" ]; then
-  tar -xjf "$archive_path" -C "$cache_dir"
+# A directory that exists is not a directory that is complete: an extraction
+# killed halfway leaves one behind, and accepting it hands Cargo a runtime with
+# libraries missing. Require actual files.
+lib_dir_is_populated() {
+  [ -d "$1" ] && [ -n "$(ls -A "$1" 2>/dev/null)" ]
+}
+
+if ! lib_dir_is_populated "$lib_dir"; then
+  # Extract into a staging directory and move it into place only once it looks
+  # complete, so an interrupted run leaves no half-tree to be cached.
+  staging="$cache_dir/.extract-$$"
+  rm -rf "$staging"
+  mkdir -p "$staging"
+  trap 'rm -rf "$staging"' EXIT INT TERM
+  tar -xjf "$archive_path" -C "$staging"
+  lib_dir_is_populated "$staging/${archive%.tar.bz2}/lib" ||
+    { echo "No lib directory with files in $archive" >&2; exit 1; }
+  rm -rf "$cache_dir/${archive%.tar.bz2}"
+  mv "$staging/${archive%.tar.bz2}" "$cache_dir/"
+  rm -rf "$staging"
+  trap - EXIT INT TERM
 fi
-[ -d "$lib_dir" ] || { echo "No lib directory in $archive" >&2; exit 1; }
+lib_dir_is_populated "$lib_dir" ||
+  { echo "No lib directory with files in $archive" >&2; exit 1; }
 
-echo "SHERPA_ONNX_LIB_DIR=$lib_dir"
+echo "Native runtime ready in $lib_dir" >&2
 if [ -n "${GITHUB_ENV:-}" ]; then
   echo "SHERPA_ONNX_LIB_DIR=$lib_dir" >> "$GITHUB_ENV"
 fi
+# Progress goes to stderr, the path to stdout, so a caller can capture it:
+#   export SHERPA_ONNX_LIB_DIR=$(sh scripts/fetch-sherpa-runtime.sh)
+echo "$lib_dir"

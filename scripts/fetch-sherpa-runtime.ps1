@@ -63,22 +63,57 @@ if ($actual -ne $expected) {
 }
 Write-Host "Verified $archive ($expected)"
 
-if (-not (Test-Path -LiteralPath $libDir)) {
-    # Extract from inside the cache directory with a relative name. `tar` here
-    # may be either bsdtar from System32 or GNU tar from Git for Windows, and
-    # GNU tar reads an absolute Windows path as a remote host spec: the drive
-    # letter's colon makes `D:\...` look like `host:path`.
-    Push-Location -LiteralPath $CacheDirectory
+# A directory that exists is not a directory that is complete: an extraction
+# killed halfway leaves one behind, and accepting it hands Cargo a runtime with
+# libraries missing. Require actual files.
+function Test-LibDirectory([string] $dir) {
+    if (-not (Test-Path -LiteralPath $dir -PathType Container)) { return $false }
+    return (Get-ChildItem -LiteralPath $dir -File | Measure-Object).Count -gt 0
+}
+
+if (-not (Test-LibDirectory $libDir)) {
+    # Extract into a staging directory and move it into place only once it
+    # looks complete, so an interrupted run leaves no half-tree to be cached.
+    $staging = Join-Path $CacheDirectory (".extract-" + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $staging | Out-Null
     try {
-        tar -xjf $archive
-        if ($LASTEXITCODE -ne 0) { throw "Failed to extract $archive" }
+        # Extract from inside the staging directory with a relative name.
+        # `tar` here may be either bsdtar from System32 or GNU tar from Git for
+        # Windows, and GNU tar reads an absolute Windows path as a remote host
+        # spec: the drive letter's colon makes `D:\...` look like `host:path`.
+        Push-Location -LiteralPath $staging
+        try {
+            tar -xjf "../$archive"
+            if ($LASTEXITCODE -ne 0) { throw "Failed to extract $archive" }
+        } finally {
+            Pop-Location
+        }
+
+        $stagedRoot = Join-Path $staging $extractedName
+        if (-not (Test-LibDirectory (Join-Path $stagedRoot 'lib'))) {
+            throw "No lib directory with files in $archive"
+        }
+
+        $destination = Join-Path $CacheDirectory $extractedName
+        if (Test-Path -LiteralPath $destination) {
+            Remove-Item -LiteralPath $destination -Recurse -Force
+        }
+        Move-Item -LiteralPath $stagedRoot -Destination $destination
     } finally {
-        Pop-Location
+        if (Test-Path -LiteralPath $staging) {
+            Remove-Item -LiteralPath $staging -Recurse -Force
+        }
     }
 }
-if (-not (Test-Path -LiteralPath $libDir)) { throw "No lib directory in $archive" }
+if (-not (Test-LibDirectory $libDir)) { throw "No lib directory with files in $archive" }
 
-Write-Host "SHERPA_ONNX_LIB_DIR=$libDir"
+Write-Host "Native runtime ready in $libDir"
+# Set it for this process — which is what a dot-sourced run needs — and write
+# the path to stdout so a caller can capture it:
+#   $env:SHERPA_ONNX_LIB_DIR = ./scripts/fetch-sherpa-runtime.ps1
+# `Write-Host` above deliberately bypasses the pipeline so it does not.
+$env:SHERPA_ONNX_LIB_DIR = $libDir
 if ($env:GITHUB_ENV) {
     "SHERPA_ONNX_LIB_DIR=$libDir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 }
+Write-Output $libDir
