@@ -31,15 +31,18 @@ Var OldInstallDir
 ; That is exactly how the migration above went missing — it never reached the
 ; built installer even though it was spelled out in the base config.
 
-; sherpa-rs-sys picks the native ONNX runtime up from the directory next to the
-; executable, while Tauri lays its resources out in a subdirectory. Copy the
-; verified DLLs next to the exe after an install and after an update.
+; The sherpa native runtime is loaded from the directory next to the executable,
+; while Tauri lays its resources out in a subdirectory. Copy the verified DLLs
+; next to the exe after an install and after an update.
 !macro NSIS_HOOK_POSTINSTALL
   SetOutPath "$INSTDIR"
   CopyFiles /SILENT "$INSTDIR\sherpa-native\*.dll" "$INSTDIR"
 !macroend
 
 !macro NSIS_HOOK_POSTUNINSTALL
+  ; Builds up to 0.0.4 shipped cargs.dll, a `sherpa-rs` dependency the current
+  ; runtime does not have. Keep the line: without it the file is stranded in
+  ; $INSTDIR forever for anyone who installed one of those versions.
   Delete "$INSTDIR\cargs.dll"
   Delete "$INSTDIR\onnxruntime.dll"
   Delete "$INSTDIR\onnxruntime_providers_shared.dll"

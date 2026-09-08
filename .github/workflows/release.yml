@@ -132,6 +132,19 @@ jobs:
         working-directory: desktop
         run: pnpm install --frozen-lockfile
 
+      # `sherpa-onnx-sys` качает нативный архив сам и хеш не проверяет.
+      # Скачиваем и сверяем его здесь, а сборочному скрипту отдаём готовый
+      # каталог через SHERPA_ONNX_LIB_DIR — тогда он в сеть не ходит и в
+      # релизный бинарь не попадает непроверенный код.
+      - name: Скачать и проверить нативный рантайм sherpa (Windows)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: ./scripts/fetch-sherpa-runtime.ps1 -Target win-x64-shared
+
+      - name: Скачать и проверить нативный рантайм sherpa (macOS)
+        if: runner.os == 'macOS'
+        run: sh scripts/fetch-sherpa-runtime.sh osx-arm64-static
+
       # `tauri.windows.conf.json` объявляет ресурсом
       # `.tauri-native/windows/x64/*.dll`, и build script падает, если glob
       # ничего не нашёл:
@@ -149,17 +162,17 @@ jobs:
         working-directory: desktop/src-tauri
         shell: pwsh
         run: |
-          cargo build --release --locked -p sherpa-rs-sys
+          cargo build --release --locked -p sherpa-onnx-sys
           # На прогоне с тёплым кэшем этого мало: rust-cache перед сохранением
           # подчищает `target/<triple>/<profile>` от всего, что не является
           # артефактом зависимости, и разложенные DLL туда попадают, а
           # `.fingerprint` пакета остаётся. Cargo видит build script
           # отработавшим и не запускает его снова. Сбросить нужно именно этот
           # пакет — скачивать ему уже нечего, так что это секунды.
-          $dll = Join-Path $env:CARGO_TARGET_DIR (Join-Path $env:CARGO_BUILD_TARGET 'release/cargs.dll')
+          $dll = Join-Path $env:CARGO_TARGET_DIR (Join-Path $env:CARGO_BUILD_TARGET 'release/sherpa-onnx-c-api.dll')
           if (-not (Test-Path -LiteralPath $dll)) {
-            cargo clean -p sherpa-rs-sys
-            cargo build --release --locked -p sherpa-rs-sys
+            cargo clean -p sherpa-onnx-sys
+            cargo build --release --locked -p sherpa-onnx-sys
           }
           powershell -NoProfile -ExecutionPolicy Bypass -File prepare-native-libs.ps1
 

@@ -6,7 +6,8 @@ $ErrorActionPreference = 'Stop'
 $binaryRoot = (Resolve-Path -LiteralPath $BinaryDirectory).Path
 $executable = Join-Path $binaryRoot 'Sotto.exe'
 if (-not (Test-Path -LiteralPath $executable)) { throw "Sotto.exe not found in $binaryRoot" }
-foreach ($name in @('cargs.dll', 'onnxruntime.dll', 'onnxruntime_providers_shared.dll', 'sherpa-onnx-c-api.dll', 'sherpa-onnx-cxx-api.dll')) {
+# Keep in step with `$required` in desktop/src-tauri/prepare-native-libs.ps1.
+foreach ($name in @('onnxruntime.dll', 'onnxruntime_providers_shared.dll', 'sherpa-onnx-c-api.dll', 'sherpa-onnx-cxx-api.dll')) {
     if (-not (Test-Path -LiteralPath (Join-Path $binaryRoot $name))) { throw "Missing runtime: $name" }
 }
 $staging = Join-Path ([IO.Path]::GetTempPath()) ('sotto-portable-' + [guid]::NewGuid().ToString('N'))

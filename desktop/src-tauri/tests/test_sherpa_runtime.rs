@@ -56,6 +56,56 @@ async fn sherpa_download_load_infer_and_reload() {
             assert_eq!(preview.is_some(), id == "zipformer-ru-streaming");
             recognizer.transcribe(16_000, &silence).unwrap();
         }
+        if id == "zipformer-ru-streaming" {
+            let mut recognizer = SherpaRecognizer::open(engine, &files, 2).unwrap();
+            let speech = pushkin_sample(&client).await;
+            let text = recognizer.transcribe(16_000, &speech).unwrap();
+            // The last word is the whole point: a cache-aware model decodes a
+            // chunk only once the look-ahead behind it arrives, so without the
+            // silence `finish` pads the phrase with, the recording ends on
+            // «у лукоморье туб» and the final word never appears.
+            assert!(
+                text.contains("зелёный"),
+                "streaming transcript lost its tail: {text}"
+            );
+        }
     }
     std::env::remove_var("SPEECH_TO_TEXT_MODELS_DIR");
+}
+
+/// Eleven seconds of Russian speech from the GigaAM bundle's own samples,
+/// 16 kHz mono PCM. Fetched rather than vendored: the repository keeps no
+/// speech fixtures, and this test already needs the network.
+async fn pushkin_sample(client: &reqwest::Client) -> Vec<f32> {
+    const URL: &str = concat!(
+        "https://huggingface.co/csukuangfj/sherpa-onnx-nemo-ctc-punct-giga-am-v3-russian-2025-12-16",
+        "/resolve/4fb5407ff028a69fec516cdf4c10fac9ddea7c16/test_wavs/example.wav"
+    );
+    let bytes = client
+        .get(URL)
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .bytes()
+        .await
+        .unwrap();
+    assert_eq!(
+        u32::from_le_bytes(bytes[24..28].try_into().unwrap()),
+        16_000,
+        "the sample is expected to be 16 kHz"
+    );
+    let mut at = 12;
+    loop {
+        let chunk_id = &bytes[at..at + 4];
+        let size = u32::from_le_bytes(bytes[at + 4..at + 8].try_into().unwrap()) as usize;
+        if chunk_id == b"data" {
+            return bytes[at + 8..at + 8 + size]
+                .chunks_exact(2)
+                .map(|pair| f32::from(i16::from_le_bytes([pair[0], pair[1]])) / 32768.0)
+                .collect();
+        }
+        at += 8 + size + (size & 1);
+    }
 }

@@ -1,51 +1,37 @@
 ---
 name: Release Checklist
-about: Track the steps required for a Sotto release.
+about: Verify, publish, and follow up on a Sotto release.
 title: 'Release vX.Y.Z checklist'
 labels: release
 assignees: ''
-
 ---
 
-## Pre-release
+<!-- Record actual results and blockers. Follow the release runbook; do not treat successful compilation as proof of native behavior. -->
 
-- [ ] `sh scripts/check-version.sh vX.Y.Z` — every version source agrees with the tag
-- [ ] `cargo outdated --exit-code 1` — no outdated deps
-- [ ] `cargo audit` — no advisories
-- [ ] `cargo fmt --all -- --check` — clean
-- [ ] `cargo clippy --all-targets -- -D warnings` — clean
-- [ ] `cargo test --all-targets` — green
-- [ ] `pnpm exec tsc --noEmit` — clean
-- [ ] `pnpm test` — green
-- [ ] `pnpm build` — clean
-- [ ] `pnpm bundle:check` — every window within budget
-- [ ] `pnpm i18n:check` — no untranslated keys, no Cyrillic outside `t()`
-- [ ] `pnpm tauri build` — smoke test passes
-- [ ] `sh scripts/release.sh` — dry run passes on `main`
+## Prepare
 
-## Tag & Build
+- [ ] Version matches the intended tag: `sh scripts/check-version.sh vX.Y.Z`.
+- [ ] Dependency review and required checks completed: [release preparation](https://github.com/stofll/Sotto/blob/main/docs/RELEASE.md#pre-release) and [testing](https://github.com/stofll/Sotto/blob/main/docs/testing.md).
+- [ ] Release dry run passes on clean `main`: `sh scripts/release.sh`.
 
-- [ ] `git tag -a -m 'release X.Y.Z' vX.Y.Z` on `main`
-- [ ] `git push origin vX.Y.Z`
-- [ ] Both matrix targets in `.github/workflows/release.yml` succeed
-- [ ] "Проверить, что в бинаре нет путей сборочной машины" is green — a red one
-      is a reason not to publish the draft
-- [ ] `SHA256SUMS.txt` attached by the `checksums` job
-- [ ] SBOM and license report attached by the `sbom` job
+## Build and verify
+
+- [ ] Release tag pushed; Windows and macOS release jobs and the artifact path checks pass.
+- [ ] Draft contains all [required assets](https://github.com/stofll/Sotto/blob/main/docs/RELEASE.md#draft-contents), including update signatures, checksums, the portable ZIP, and dependency/license reports.
+- [ ] Windows and macOS installers tested with isolated data; model loading, recording, stop/cancel, and paste/copy checked. Record OS versions, models, and results below.
+- [ ] Windows portable ZIP tested, including manual update while preserving its data folder.
 
 ## Publish
 
-- [ ] Draft installed and smoke-tested on each target before publishing
-- [ ] Release body written for users — the updater shows it as "what's new"
-- [ ] Draft published (this is what makes the update visible to existing installs)
-- [ ] Update from the previous version actually offered and applied
+- [ ] Release description follows the [release notes template](https://github.com/stofll/Sotto/blob/main/docs/RELEASE.md#whats-new-template); placeholders and empty sections removed, changelog link checked.
+- [ ] Required user actions and known limitations documented; release blockers resolved.
+- [ ] Draft published after verification. This makes the update available to existing installations.
 
-## Post-release
+## Follow up
 
-- [ ] New issues and release health monitored after publication
-- [ ] Monitoring for new issues (first 24 h)
-- [ ] Rollback lever known: un-latest the release, see `docs/RELEASE.md`
+- [ ] Update from the previous version offered and applied successfully.
+- [ ] Release health and new issues reviewed during the first 24 hours; use the [rollback procedure](https://github.com/stofll/Sotto/blob/main/docs/RELEASE.md#rollback-procedure) if needed.
 
-## Notes
+## Results and blockers
 
-<!-- Add any release-specific notes, blockers, or caveats here -->
+<!-- Add verification results, CI links, and any remaining limitations. Keep signing keys, credentials, recordings, and personal data out of this issue. -->

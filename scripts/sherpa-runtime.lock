@@ -1,0 +1,17 @@
+# Prebuilt sherpa-onnx native archives, pinned by content.
+#
+# `sherpa-onnx-sys` downloads these from GitHub Releases during the build and
+# does not verify them. `fetch-sherpa-runtime.ps1` / `.sh` fetch them instead,
+# check them against this file, and hand the result to the build through
+# SHERPA_ONNX_LIB_DIR, which turns the crate's own download off.
+#
+# The version must match the `sherpa-onnx` dependency in
+# desktop/src-tauri/Cargo.toml. To re-pin: download the archive, verify it
+# against the checksums the release publishes, and record it here.
+#
+# Format: <target key> <archive file name> <sha256>
+
+version 1.13.7
+
+win-x64-shared sherpa-onnx-v1.13.7-win-x64-shared-MT-Release-lib.tar.bz2 7a362a9f339a2937e7f8806e904f3e8a031a7774982eea08bca8336b2c257529
+osx-arm64-static sherpa-onnx-v1.13.7-osx-arm64-static-lib.tar.bz2 126daa2e8c09a4c5d54dc985722c43bd22f598adc56445905b377454b1b27e38
