@@ -902,7 +902,7 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
   .win__layout, .titlebar, .win.collapsed .titlebar { grid-template-columns: 72px 1fr; }
   .nav__group, .nav__item span:nth-child(2), .nav__count, .sidebar-footer, .theme-toggle__text, .theme-toggle__value, .sidebar-brand__name { display: none; }
   .sidebar-brand { justify-content: center; gap: 0; padding: 0; }
-  .sidebar-brand__toggle { margin-left: 0; }
+  .sidebar-brand > .hint-anchor { margin-left: 0; }
   .nav__group-items, .nav__group-items[data-collapsed="true"] { grid-template-rows: 1fr; opacity: 1; }
   .nav__item { justify-content: center; gap: 0; padding: 0; }
   .sidebar-actions { padding: 0 12px 12px; }
@@ -1115,8 +1115,6 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 .sidebar-brand__toggle {
   appearance: none;
   position: relative;
-  margin-left: auto;
-  flex: 0 0 auto;
   width: 26px; height: 26px;
   padding: 0;
   border: 1px solid transparent; border-radius: var(--radius-sm);
@@ -1128,6 +1126,9 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 }
 .sidebar-brand__toggle:hover:not(:disabled) { background: var(--bg-3); border-color: var(--line-strong); color: var(--ink); }
 .sidebar-brand__toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* The button is wrapped in a Hint, so the flex item of the row is the hint's
+   anchor, not the button: the push to the right edge belongs on the anchor. */
+.sidebar-brand > .hint-anchor { margin-left: auto; flex: 0 0 auto; }
 
 /* JS-driven sidebar collapse (mirrors the 820px media-query rules
    but triggered by the React state so the manual handle works too). */
