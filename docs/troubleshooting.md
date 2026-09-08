@@ -2,46 +2,34 @@
 
 ## Windows or macOS refuses to open the download
 
-Expected: the builds carry no publisher certificate, so SmartScreen and
-Gatekeeper cannot say who made them. [Verifying a download](verifying-downloads.md)
-has the click-through for both systems, plus the checksum and update-signature
-checks worth doing first.
+Expected: the builds carry no publisher certificate, so SmartScreen and Gatekeeper cannot say who made them. [Verifying a download](verifying-downloads.md) has the click-through for both systems, plus the checksum and update-signature checks worth doing first.
 
 ## The application does not build
 
-Confirm that Rust stable, Node.js LTS, pnpm, CMake, LLVM/libclang, and the
-platform-specific native toolchain are installed. Run the frontend and Rust
-checks separately from their documented working directories in
-[Development](development.md), which also lists the Windows-specific MSVC,
-NSIS, WebView2, and `LIBCLANG_PATH` requirements.
+Confirm that Rust stable, Node.js LTS, pnpm, CMake, LLVM/libclang, and the platform-specific native toolchain are installed.
+
+Run the frontend and Rust checks separately from their documented working directories in [Development](development.md), which also lists the Windows-specific MSVC, NSIS, WebView2, and `LIBCLANG_PATH` requirements.
 
 ## A model is missing or fails to load
 
-Check the model family, platform, cache directory, and available disk space in
-[Models](models.md). GigaAM v3 is available on Windows and macOS. A custom Whisper file must be a
-compatible `.bin` model; do not rename an unrelated model to make it appear in
-the catalog.
+Check the model family, platform, cache directory, and available disk space in [Models](models.md). GigaAM v3 is available on Windows and macOS.
+
+A custom Whisper file must be a compatible `.bin` model; do not rename an unrelated model to make it appear in the catalog.
 
 ## The first dictation after a pause is slower
 
-The model is unloaded from memory after a period without dictation — five
-minutes by default — and is loaded again at the start of the next recording.
-The load runs while you speak, so it is usually invisible; a large model on a
-slow disk can still delay the transcription that follows. Change the interval,
-or switch the behaviour off entirely, under Settings → Advanced → "Unload the
-model". While the model is out of memory the sidebar says so and states that it
-comes back on its own; "No model loaded" means something else — nothing is
-selected or downloaded.
+The model is unloaded from memory after a period without dictation — five minutes by default — and is loaded again at the start of the next recording. The load runs while you speak, so it is usually invisible; a large model on a slow disk can still delay the transcription that follows.
+
+Change the interval, or switch the behaviour off entirely, under Settings → Advanced → "Unload the model".
+
+While the model is out of memory the sidebar says so and states that it comes back on its own; "No model loaded" means something else — nothing is selected or downloaded.
 
 ## The hotkey, microphone, or paste action does not work
 
-Check the operating-system permissions and verify that another application has
-not claimed the shortcut. Include the OS, architecture, app version, selected
-model, and whether the failure affects microphone or file transcription when
-opening an issue. Never include API keys, raw transcripts, or recordings.
+Check the operating-system permissions and verify that another application has not claimed the shortcut.
+
+Include the OS, architecture, app version, selected model, and whether the failure affects microphone or file transcription when opening an issue. Never include API keys, raw transcripts, or recordings.
 
 ## Cloud processing behaves unexpectedly
 
-Cloud STT and LLM formatting are opt-in. Verify the selected provider, endpoint,
-model, and key in the Integrations settings, then retry with local processing to
-separate provider failures from the local pipeline.
+Cloud STT and LLM formatting are opt-in. Verify the selected provider, endpoint, model, and key in the Integrations settings, then retry with local processing to separate provider failures from the local pipeline.

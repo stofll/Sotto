@@ -1,11 +1,11 @@
 ## Summary
 
-<!-- Describe the user-visible change and why it is needed. -->
+<!-- Explain the problem and resulting behavior in a short paragraph. Add a before/after example when useful and link the related issue if there is one. -->
 
 ## Verification
 
-- [ ] Frontend: `pnpm exec tsc --noEmit`, `pnpm test`, `pnpm build`, `pnpm bundle:check` (from `desktop`)
-- [ ] Rust: `cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` (from `desktop/src-tauri`)
-- [ ] Affected platform tested, or the limitation stated alongside these checks
+<!-- Follow https://github.com/stofll/Sotto/blob/main/docs/testing.md. List checks actually run and their results; state anything unverified and why. For native changes, name the tested OS, relevant model/provider, and behavior checked. -->
 
-<!-- Full list and rationale: docs/testing.md -->
+## Screenshots / video
+
+<!-- Include before/after images for visual changes or a short video for interactions. Remove this section when not applicable. Redact personal data from attachments. -->

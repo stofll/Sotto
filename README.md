@@ -1,114 +1,104 @@
+<div align="center">
+
+<img src="desktop/src-tauri/icons/128x128@2x.png" width="88" alt="Sotto" />
+
 # Sotto
 
-English | [Русский](README.ru.md)
+**Write with your voice.**
 
-Local voice dictation for Windows, with a macOS port. Press a hotkey, speak, and
-the text appears in whatever window you were typing in.
+Sotto turns speech into text and inserts it into your active app. Dictate messages, notes, and prompts with local speech recognition — no account or subscription required.
 
-```text
-hotkey -> record voice -> local transcription -> optional LLM formatting -> paste/copy result
-```
+[![Release](https://img.shields.io/github/v/release/stofll/Sotto?style=flat-square&label=release&color=0b7285)](https://github.com/stofll/Sotto/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/stofll/Sotto/total?style=flat-square&label=downloads&color=0b7285)](https://github.com/stofll/Sotto/releases)
+[![Windows](https://img.shields.io/badge/Windows-x64-0b7285?style=flat-square)](docs/platforms.md)
+[![macOS](https://img.shields.io/badge/macOS-Apple%20Silicon-0b7285?style=flat-square)](docs/platforms.md)
+[![License](https://img.shields.io/github/license/stofll/Sotto?style=flat-square&color=0b7285)](LICENSE)
 
-Transcription runs fully on-device by default. Cloud speech-to-text and LLM text
-formatting exist, but they are opt-in: nothing leaves the machine until you
-configure a provider yourself. See [Privacy](docs/privacy.md).
+**[Download Sotto](https://github.com/stofll/Sotto/releases/latest)** · [Features](#features) · [Get started](#get-started) · [Documentation](docs/README.md)
 
-## Install
+English · [Русский](README.ru.md)
 
-Download the latest build from [Releases](../../releases/latest).
+</div>
 
-**Windows** — run the `Sotto_<version>_x64-setup.exe` installer. Windows 11 ships
-the WebView2 runtime the app needs; on Windows 10 the installer will prompt for
-it. SmartScreen warns about an unknown publisher: **More info** → **Run anyway**.
+## Features
 
-**macOS** — open the DMG and drag Sotto to Applications. Gatekeeper blocks the
-first launch; allow it in **System Settings** → **Privacy & Security** →
-**Open Anyway**. The port is functional but less exercised than Windows — see
-[Platform support](docs/platforms.md) for what is verified on each target.
+### Dictate where you work
 
-Both warnings are honest: the builds are not signed with a publisher
-certificate (no Authenticode, no Apple Developer ID), so neither system can
-tell who produced them. What you can check yourself is that the file is the one
-the release workflow produced — every release ships `SHA256SUMS.txt`, and
-update artifacts are signed with a minisign key. See
-[Verifying a download](docs/verifying-downloads.md).
+Start and stop recording with a hotkey, or hold it for push-to-talk. Send the result straight to the active text field or copy it to the clipboard. Use voice for a quick reply, a longer note, or a detailed prompt.
 
-The app updates itself: releases are signed with that minisign key and verified
-before installation.
+### Transcribe offline
 
-## What it does
+Download a model once and recognize speech on your computer, even without an internet connection. Choose from Whisper, GigaAM, Parakeet, and other models to suit your language and hardware. Local dictation is free, with no per-minute limits.
 
-- **Dictation by hotkey** into the focused window, with an overlay showing state.
-- **Local speech models** — `whisper.cpp` everywhere, plus `sherpa-onnx` bundles
-  on Windows and macOS (GigaAM, Parakeet, Nemotron, Omnilingual, Canary, Moonshine,
-  SenseVoice, Zipformer). Three of them stream text while you are still speaking.
-  See [Models](docs/models.md).
-- **File transcription** — attach a recording in the "Process the text" panel and
-  the text comes back there, without touching the focused window or the history.
-- **Optional LLM cleanup** — punctuation, formatting, and custom prompts through
-  OpenAI-compatible providers.
-- **Text rules** — replacements and dictionaries applied before the result lands.
-- **History and statistics**, stored locally in SQLite. A past entry can be re-run
-  through any saved LLM profile; the result is shown first and replaces the stored
-  text only if you accept it.
+See the [model guide](docs/models.md) for languages and download sizes.
+
+### See words as you speak
+
+Streaming models show live transcription in a compact overlay. Follow the text without opening the main window; the overlay also shows the recording and processing state.
+
+### Make the text your own
+
+Add replacements for names, terminology, and recurring recognition mistakes.
+
+For punctuation and formatting, connect an optional LLM and save your own instructions as reusable profiles. Use OpenAI, Anthropic, Gemini, or an OpenAI-compatible service, including local tools such as Ollama and LM Studio.
+
+Cloud speech recognition is also available when configured. External providers may charge for usage.
+
+### Transcribe recordings
+
+Attach an audio file in the **Process the text** panel and get its transcript there. File transcription stays in that panel, separate from dictation history and automatic pasting.
+
+### Revisit what you said
+
+Your dictation history is stored on your computer. Reprocess an entry with a saved LLM profile and review the changes before accepting them. Statistics estimate how much typing time you have saved.
+
+Sound cues, optional audio ducking during recording, and automatic model unloading while idle help dictation fit into your day.
+
+## Get started
+
+### 1. Download and install
+
+Get the latest version from [Releases](https://github.com/stofll/Sotto/releases/latest).
+
+| Platform | Installation |
+| --- | --- |
+| **Windows x64** | Run the `.exe` installer, or unpack the [portable ZIP](docs/portable.md) and launch `Sotto.exe`. |
+| **macOS · Apple Silicon** | Open the `.dmg` and drag Sotto into Applications. Grant microphone and Accessibility permissions when prompted. |
+
+Windows and macOS are supported platforms. Linux is an experimental build target; full functionality is not guaranteed. See [platform support](docs/platforms.md) for architecture details and limitations.
+
+Builds currently lack a publisher certificate, so Windows or macOS may warn on first launch.
+
+See [verifying a download](docs/verifying-downloads.md) for file checks and first-launch instructions, or [troubleshooting](docs/troubleshooting.md) if installation fails.
+
+Installed builds support automatic updates with signature verification; portable copies are updated manually.
+
+### 2. Choose a model
+
+Open **Models**, download a model for your language, and select it for dictation. The catalog shows each model's languages and size. For example, GigaAM v3 recognizes Russian, while Whisper and Parakeet TDT v3 offer multilingual options.
+
+### 3. Dictate your first phrase
+
+Place the cursor in a text field and use your configured hotkey:
+
+- **Toggle mode:** press to start, speak, then press again to finish.
+- **Push-to-talk:** hold while speaking and release to finish.
 
 ## Privacy
 
-Speech is transcribed on your machine. Recordings are not uploaded anywhere
-unless you explicitly enable a cloud provider.
+Local recognition is the default. Audio is sent to a cloud speech provider only when you configure and use one; cloud LLM processing sends text to your chosen provider.
 
-De-identified product telemetry is on by default and can be turned off in
-Settings → Advanced. It carries no audio, no transcripts, and no text you
-dictate. [Telemetry](docs/telemetry.md) documents every event and property that
-is sent; [Privacy](docs/privacy.md) covers the full network picture.
+Product telemetry is enabled by default and can be disabled in **Settings → Advanced**. It contains no audio, transcripts, or dictated text. See [Privacy](docs/privacy.md) and [Telemetry](docs/telemetry.md) for details.
 
-## Current Status
+## Documentation and contributing
 
-- Version: `0.0.5`
-- Desktop shell: **Tauri 2 + Rust** backend, **React 19 / TypeScript / Vite** frontend
-- Speech backend: **`whisper-rs`** (whisper.cpp, GGML models) — fully native, no Python
-- Second speech backend (Windows/macOS): **`sherpa-onnx`**, CPU-only, each bundle pinned
-  to an exact artifact manifest and to its own list of languages
-- Data: SQLite (`rusqlite`, bundled) for history and statistics
-- Sections: Settings, Models, Text, LLM processing, Integrations, History, Statistics
-
-## Documentation
-
-Start at the [documentation index](docs/README.md).
-
-- [Platform support](docs/platforms.md) — what is verified where
-- [Models](docs/models.md) — model families, storage, platform limits
-- [Troubleshooting](docs/troubleshooting.md) — installation and runtime issues
-- [Privacy](docs/privacy.md) and [Telemetry](docs/telemetry.md)
-
-## Building from source
-
-Prerequisites, the development loop, and the repository layout are in
-[Development](docs/development.md). The checks expected before a pull request are
-in [Testing](docs/testing.md).
-
-```bash
-cd desktop
-pnpm install --frozen-lockfile
-pnpm tauri dev
-```
-
-## Contributing
-
-Read [CONTRIBUTING.md](CONTRIBUTING.md) first. Security reports go through
-[SECURITY.md](SECURITY.md) rather than a public issue. For questions, see
-[SUPPORT.md](SUPPORT.md).
+- [Documentation](docs/README.md) — models, platforms, privacy, and troubleshooting.
+- [Development](docs/development.md) — prerequisites and building from source.
+- [Contributing](CONTRIBUTING.md) and [Testing](docs/testing.md) — contributing changes and required checks.
+- [Support](SUPPORT.md) — questions and bug reports; [Security](SECURITY.md) — private vulnerability reporting.
 
 ## License
 
-[MIT](LICENSE).
+Sotto is free and open source under the [MIT License](LICENSE).
 
-The license covers this repository's own source. Bundled and downloaded
-components — speech models, native runtimes, provider logos — carry their own
-terms. A per-release inventory of dependencies and their licenses is generated
-by the SBOM workflow and attached to each release as `sbom-rust.cdx.json`,
-`sbom-npm.cdx.json` and `licenses-npm-*.json`.
-
-Provider names and logos shown in the interface are trademarks of their
-respective owners and identify optional integrations only; no affiliation,
-sponsorship or endorsement is implied.
+Third-party components and speech models have their own license terms; dependency and license inventories are attached to releases. Provider names and logos belong to their respective owners and do not imply affiliation or endorsement.
