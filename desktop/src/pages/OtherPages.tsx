@@ -8,6 +8,8 @@ import { confirmDestructive } from "../components/ConfirmDialog";
 import { CustomSelect, type SelectOption } from "../components/CustomSelect";
 import { DiffBlock } from "../components/DiffBlock";
 import { localeTag, t, tPlural } from "../i18n";
+import { textPreview, replacementExamples } from "./textExamples";
+import { DictionaryLibrary } from "./DictionaryLibrary";
 import { DEFAULT_HOTKEY } from "../hotkey";
 
 type StatsRange = "week" | "month" | "year" | "all";
@@ -532,12 +534,10 @@ function Foldable({ open, title, summary, aside, onToggle, children }: { open: b
  * `preview_format` already applied the replacements — that is, the preview on
  * «Форматирование» showed a result its own switches did not explain. Here there
  * is one pass and one preview. */
-export function TextPage({ config, onConfigChanged }: { config: ConfigResult | null; onConfigChanged: (partial: Partial<ConfigResult>) => Promise<ConfigResult | null> }) {
+export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraftChange }: { config: ConfigResult | null; onConfigChanged: (partial: Partial<ConfigResult>) => Promise<ConfigResult | null>; previewDraft: string | null; onPreviewDraftChange: (text: string) => void }) {
   // ── Cleanup and dictionaries: saved immediately, no draft ──────────────
   const formatting = normalizeTextFormatting(config);
   const [customWordsText, setCustomWordsText] = useState(formatting.custom_parasite_words.join("\n"));
-  const [dictionaryText, setDictionaryText] = useState(formatting.custom_words.join("\n"));
-  const [presets, setPresets] = useState<[string, string[]][]>([]);
 
   // ── Replacements: a draft until the «Сохранить» button ─────────────────
   const configRules = replacementRulesFromConfig(config);
@@ -551,8 +551,7 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
   const findRef = useRef<HTMLInputElement>(null);
 
   // ── A shared preview of the whole local pass ───────────────────────────
-  // i18n-ignore: a Russian dictation sample showing cleanup and replacements
-  const [previewText, setPreviewText] = useState("эээ ну в общем, я я хочу сказать что тайпскрипт мы обсудим в понед и я потом отправлю мой мейл");
+  const previewText = textPreview(previewDraft);
   const [previewResult, setPreviewResult] = useState("");
   const [previewMatches, setPreviewMatches] = useState<PreviewReplacementsResult["matched_rules"]>([]);
   const [previewError, setPreviewError] = useState<string | null>(null);
@@ -579,16 +578,6 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
   useEffect(() => {
     setCustomWordsText(formatting.custom_parasite_words.join("\n"));
   }, [formatting.custom_parasite_words.join("\n")]);
-
-  useEffect(() => {
-    setDictionaryText(formatting.custom_words.join("\n"));
-  }, [formatting.custom_words.join("\n")]);
-
-  useEffect(() => {
-    void invoke<[string, string[]][]>("dictionary_presets")
-      .then(setPresets)
-      .catch(() => setPresets([]));
-  }, []);
 
   useEffect(() => {
     setRules(configRules);
@@ -635,19 +624,6 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
 
   function saveCustomWords() {
     void saveFormatting({ custom_parasite_words: parseCustomWords(customWordsText) });
-  }
-
-  function saveDictionary() {
-    void saveFormatting({ custom_words: parseCustomWords(dictionaryText) });
-  }
-
-  // A set is stored as an identifier rather than a copy of the words: turning it
-  // off is instant and lossless, and it does not touch the field with your own
-  // words at all.
-  function togglePreset(id: string) {
-    const on = formatting.enabled_presets ?? [];
-    const next = on.includes(id) ? on.filter((x) => x !== id) : [...on, id];
-    void saveFormatting({ enabled_presets: next });
   }
 
   function updateRule(id: string, patch: Partial<ReplacementRule>) {
@@ -741,7 +717,6 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
   const activeCount = rules.filter((rule) => rule.enabled).length;
   const cleanRules = CLEAN_RULES();
   const activeCleanCount = cleanRules.filter((rule) => Boolean(formatting[rule.key])).length;
-  const dictionarySize = formatting.custom_parasite_words.length + formatting.custom_words.length;
   const masterRule = MASTER_RULE();
   // The backend does not apply paused replacements in the full pass, while the
   // preview of that single stage always applies them — otherwise it would be
@@ -787,6 +762,18 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
                   </div>
                 );
               })}
+            </div>
+            <div className="dictionary-library">
+              <div>
+                <div className="flex-row" style={{ justifyContent: "space-between", marginBottom: 8 }}>
+                  <div>
+                    <div style={{ font: "600 13px/1.2 var(--font-sans)", color: "var(--ink)" }}>{t("Свои слова-паразиты")}</div>
+                    <div style={{ font: "400 11.5px/1.4 var(--font-sans)", color: "var(--ink-mute)", marginTop: 2 }}>{t("По одному слову или фразе в строке. Также можно разделять запятыми.")}</div>
+                  </div>
+                  <button className="btn btn--ghost" onClick={saveCustomWords}><Icon name="check" size={12}/>{t("Сохранить")}</button>
+                </div>
+                <textarea className="field mono" value={customWordsText} onChange={(e) => setCustomWordsText(e.target.value)} onBlur={saveCustomWords} placeholder={t("например: собственно\nскажем так")} style={{ width: "100%", minHeight: 96, padding: 12, resize: "vertical", lineHeight: 1.45 }}/>
+              </div>
             </div>
           </Foldable>
 
@@ -834,44 +821,8 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
             open={Boolean(folds.dict)}
             onToggle={() => toggleFold("dict")}
             title={t("Словари")}
-            summary={<span className="head-count">{dictionarySize} {tPlural(dictionarySize, ["слово", "слова", "слов"])}</span>}
           >
-            <div style={{ padding: 14, display: "grid", gap: 14 }}>
-              <div>
-                <div className="flex-row" style={{ justifyContent: "space-between", marginBottom: 8 }}>
-                  <div>
-                    <div style={{ font: "600 13px/1.2 var(--font-sans)", color: "var(--ink)" }}>{t("Свои слова-паразиты")}</div>
-                    <div style={{ font: "400 11.5px/1.4 var(--font-sans)", color: "var(--ink-mute)", marginTop: 2 }}>{t("По одному слову или фразе в строке. Также можно разделять запятыми.")}</div>
-                  </div>
-                  <button className="btn btn--ghost" onClick={saveCustomWords}><Icon name="check" size={12}/>{t("Сохранить")}</button>
-                </div>
-                <textarea className="field mono" value={customWordsText} onChange={(e) => setCustomWordsText(e.target.value)} onBlur={saveCustomWords} placeholder={t("например: собственно\nскажем так")} style={{ width: "100%", minHeight: 96, padding: 12, resize: "vertical", lineHeight: 1.45 }}/>
-              </div>
-              <div>
-                <div className="flex-row" style={{ justifyContent: "space-between", marginBottom: 8 }}>
-                  <div>
-                    <div style={{ font: "600 13px/1.2 var(--font-sans)", color: "var(--ink)" }}>{t("Свой словарь")}</div>
-                    <div style={{ font: "400 11.5px/1.4 var(--font-sans)", color: "var(--ink-mute)", marginTop: 2 }}>{t("Имена, бренды, термины и жаргон, которых движок знать не может. По одному в строке или через запятую.")}</div>
-                  </div>
-                  <button className="btn btn--ghost" onClick={saveDictionary}><Icon name="check" size={12}/>{t("Сохранить")}</button>
-                </div>
-                <textarea className="field mono" value={dictionaryText} onChange={(e) => setDictionaryText(e.target.value)} onBlur={saveDictionary} placeholder={t("например: Tauri\nClaude Code")} style={{ width: "100%", minHeight: 96, padding: 12, resize: "vertical", lineHeight: 1.45 }}/>
-                {presets.length > 0 && (
-                  <div className="flex-row" style={{ gap: 6, marginTop: 10, flexWrap: "wrap", alignItems: "center" }}>
-                    <span style={{ font: "400 11px/1.5 var(--font-sans)", color: "var(--ink-mute)" }}>{t("Готовые наборы:")}</span>
-                    {presets.map(([id, words]) => {
-                      const on = (formatting.enabled_presets ?? []).includes(id);
-                      return (
-                        <Hint key={id} text={`${words.length} ${tPlural(words.length, ["термин", "термина", "терминов"])}`}><button className={on ? "btn btn--primary" : "btn btn--ghost"} type="button" style={{ height: 24, padding: "0 8px", font: "500 11px/1 var(--font-sans)" }} onClick={() => togglePreset(id)}>
-                          <Icon name={on ? "check" : "plus"} size={11}/> {PRESET_LABELS()[id] ?? id}
-                        </button>
-                        </Hint>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            </div>
+            <DictionaryLibrary formatting={formatting} onSave={async (patch) => Boolean(await onConfigChanged({ text_formatting: patch as TextFormattingConfig }))}/>
           </Foldable>
         </div>
 
@@ -890,7 +841,7 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
               </h2>
               <span className="preview-card__step">{t("До")}</span>
             </div>
-            <textarea className="field mono" value={previewText} onChange={(e) => setPreviewText(e.target.value)} placeholder={t("Введите текст для проверки обработки")} style={{ width: "100%", minHeight: 145, padding: 12, resize: "vertical", lineHeight: 1.55 }}/>
+            <textarea className="field mono" value={previewText} onChange={(e) => onPreviewDraftChange(e.target.value)} placeholder={t("Введите текст для проверки обработки")} style={{ width: "100%", minHeight: 145, padding: 12, resize: "vertical", lineHeight: 1.55 }}/>
           </Card>
           <div className="preview-pair__arrow preview-pair__arrow--down" aria-hidden="true"><Icon name="arrow-right" size={14}/></div>
           <Card>
@@ -913,11 +864,7 @@ export function TextPage({ config, onConfigChanged }: { config: ConfigResult | n
               {t("Добавить правило-пример")}
               <Hint text={t("Нажмите, чтобы создать правило — оно сразу попадёт в список слева и в предпросмотр.")}/>
             </div>
-            <div className="flex-row" style={{ flexWrap: "wrap", gap: 6 }}>{/* The ready-made rules are Russian words Whisper mishears. They do
-                not go through t(): substituting an English word would create a
-                rule that never fires. */}
-              {/* i18n-ignore */}
-              {[["щас", "сейчас"], ["тайпскрипт", "TypeScript"], ["мой мейл", "name@example.com"], ["смайл", ":)"]].map(([find, replace]) => <button key={find} className="btn btn--ghost" onClick={() => addRule(find, replace)} style={{ height: 26 }}><span className="mono">{find}</span><Icon name="arrow-right" size={11}/><span className="mono">{replace}</span></button>)}</div>
+            <div className="flex-row" style={{ flexWrap: "wrap", gap: 6 }}>{replacementExamples().map(([find, replace]) => <button key={find} className="btn btn--ghost" onClick={() => addRule(find, replace)} style={{ height: 26 }}><span className="mono">{find}</span><Icon name="arrow-right" size={11}/><span className="mono">{replace}</span></button>)}</div>
           </Card>
         </div>
       </div>
@@ -1064,12 +1011,6 @@ function UpdatesCard({ version }: { version?: string | null }) {
     </HelpCard>
   );
 }
-
-// A set's name lives here rather than in Rust: the word list is the same for
-// every language, while the button's caption is translated.
-const PRESET_LABELS = (): Record<string, string> => ({
-  development: t("Разработка"),
-});
 
 const LOG_LEVELS = ["error", "warn", "info", "debug", "trace"] as const;
 

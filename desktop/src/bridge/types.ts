@@ -19,7 +19,23 @@ export interface UpdateDownloadProgress {
   total?: number | null;
 }
 
+export interface DictionarySet {
+  id: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+  words: string[];
+}
+
+export interface DictionaryAnalysis {
+  effective_count: number;
+  conflicts: { key: string; variants: string[]; selected: string | null }[];
+  unsupported_words: string[];
+}
+
 export interface TextFormattingConfig {
+  dictionary_sets?: DictionarySet[];
+  dictionary_spellings?: string[];
   enabled: boolean;
   remove_hallucinations: boolean;
   remove_fillers: boolean;

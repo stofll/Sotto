@@ -14,18 +14,6 @@ import path from "node:path";
 const CYR = /[А-Яа-яЁё]/;
 const root = "src";
 
-// Keys that deliberately stay Russian: samples of Russian dictation, filler
-// words and regex demonstrations. They have no English counterpart.
-// Captions under the formatter rules: the example *is* the Russian filler the
-// rule cleans out. The list has no English counterpart, and an invented English
-// example would be worse than an honest Russian one.
-const INTENTIONALLY_RUSSIAN = new Set([
-  "ну, типа, как бы, в общем и свои слова ниже",
-  "например: собственно\nскажем так",
-  "я думаю что. я думаю что. я думаю что. -> я думаю что.",
-  "я я хочу -> я хочу",
-]);
-
 // Files whose Cyrillic belongs entirely to the language of speech, not the UI.
 const SPEECH_DOMAIN_FILES = new Set(["pages/aiShared.ts"]);
 
@@ -85,7 +73,7 @@ for (const file of walkFiles(root)) {
         ts.isCallExpression(node.parent.parent) &&
         node.parent.parent.expression.getText(src) === "tPlural";
       const line = src.getLineAndCharacterOfPosition(node.getStart(src)).line + 1;
-      if (!inT && !inTPluralArray && !speechDomain && !ignored(line) && !INTENTIONALLY_RUSSIAN.has(node.text)) {
+      if (!inT && !inTPluralArray && !speechDomain && !ignored(line)) {
         bare.push({ file: rel, line, text: node.text.slice(0, 55) });
       }
     }
@@ -111,8 +99,8 @@ for (const m of enSource.matchAll(/^\s{2}"((?:[^"\\]|\\.)*)":/gm)) {
   translated.add(JSON.parse(`"${m[1]}"`));
 }
 
-const missing = [...used].filter((k) => !translated.has(k) && !INTENTIONALLY_RUSSIAN.has(k)).sort((a, b) => a.localeCompare(b, "ru"));
-const stale = [...translated].filter((k) => !used.has(k) && !INTENTIONALLY_RUSSIAN.has(k)).sort((a, b) => a.localeCompare(b, "ru"));
+const missing = [...used].filter((k) => !translated.has(k)).sort((a, b) => a.localeCompare(b, "ru"));
+const stale = [...translated].filter((k) => !used.has(k)).sort((a, b) => a.localeCompare(b, "ru"));
 
 console.log(`ключей в коде: ${used.size}`);
 console.log(`переведено:    ${translated.size}`);

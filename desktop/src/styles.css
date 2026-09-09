@@ -1592,6 +1592,31 @@ button.card { appearance: none; font: inherit; color: inherit; }
   border: 1px solid var(--line);
 }
 
+.dictionary-library { padding: var(--pad-4); display: grid; gap: var(--pad-3); }
+.dictionary-toolbar, .dictionary-row, .dictionary-check { display: flex; align-items: center; gap: var(--pad-3); }
+.dictionary-toolbar { justify-content: space-between; flex-wrap: wrap; }
+.dictionary-row { padding: var(--pad-3) 0; border-bottom: 1px solid var(--line-soft); }
+.dictionary-row:last-child { border-bottom: 0; }
+.dictionary-open { display: grid; gap: var(--pad-2); flex: 1; min-width: 0; text-align: left; background: transparent; border: 0; color: var(--ink); cursor: pointer; padding: var(--pad-2); border-radius: var(--radius-sm); }
+.dictionary-open:hover { background: var(--bg-4); }
+.dictionary-open:focus-visible { outline: none; box-shadow: var(--ring); }
+.dictionary-name { font: 600 13px/1.4 var(--font-sans); overflow-wrap: anywhere; }
+.dictionary-note { margin: 0; color: var(--ink-mute); font: 400 12px/1.5 var(--font-sans); overflow-wrap: anywhere; }
+.dictionary-fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
+.dictionary-fieldset:disabled { opacity: 0.65; }
+.dictionary-body { display: grid; gap: var(--pad-4); }
+.dictionary-modal { width: min(620px, calc(100vw - 2 * var(--pad-4))); max-height: calc(100vh - 2 * var(--pad-4)); }
+.dictionary-modal .modal__head h2 { overflow-wrap: anywhere; min-width: 0; }
+.dictionary-modal .modal__body { overflow-y: auto; min-height: 0; }
+.dictionary-label { display: grid; gap: var(--pad-2); font: 500 12px/1.5 var(--font-sans); }
+.dictionary-label .field { width: 100%; }
+.dictionary-words { min-height: 180px; padding: var(--pad-3); resize: vertical; line-height: 1.5; }
+.dictionary-check { font: 400 12px/1.5 var(--font-sans); }
+.dictionary-term-list { list-style: none; margin: 0; padding: 0; max-height: 280px; overflow-y: auto; font: 400 12px/1.6 var(--font-mono); }
+.dictionary-term-list li { padding: var(--pad-2) 0; overflow-wrap: anywhere; }
+.dictionary-error { color: var(--err); font: 400 12px/1.5 var(--font-sans); }
+.dictionary-actions { flex-wrap: wrap; }
+
 .preset-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));

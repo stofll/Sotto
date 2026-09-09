@@ -42,6 +42,8 @@ function openPrivacyPane(permission: string) {
 function pageFor(tab: TabId, data: {
   config: ConfigResult | null;
   version: string | null;
+  textPreviewDraft: string | null;
+  onTextPreviewDraftChange: (text: string) => void;
   stats: StatsResult | null;
   microphones: MicrophoneResult[];
   models: ModelInfo[];
@@ -56,7 +58,7 @@ function pageFor(tab: TabId, data: {
   switch (tab) {
     case "settings": return <SettingsPage config={data.config} microphones={data.microphones} models={data.models} portable={data.runtime?.portable} onConfigChanged={data.onConfigChanged}/>;
     case "models": return <ModelsPage models={data.models} config={data.config} onConfigChanged={data.onConfigChanged} onModelsChanged={data.onModelsChanged}/>;
-    case "text": return <TextPage config={data.config} onConfigChanged={data.onConfigChanged}/>;
+    case "text": return <TextPage config={data.config} onConfigChanged={data.onConfigChanged} previewDraft={data.textPreviewDraft} onPreviewDraftChange={data.onTextPreviewDraftChange}/>;
     case "ai": return <AiPage config={data.config?.ai_processing ?? null} apiKeys={data.apiKeys} onConfigChanged={data.onConfigChanged} onNavigate={(t) => data.onNavigate(t)}/>;
     case "integrations": return <IntegrationsPage config={data.config?.ai_processing ?? null} apiKeys={data.apiKeys} onConfigChanged={data.onConfigChanged} onApiKeysChanged={data.onApiKeysChanged}/>;
     case "history": return <HistoryPage/>;
@@ -69,6 +71,7 @@ export function MainWindow() {
   // One language subscription at the root: t() reads module state, so
   // re-rendering the root is enough for the whole tree.
   useLocale();
+  const [textPreviewDraft, setTextPreviewDraft] = useState<string | null>(null);
   const [tab, setTab] = useState<TabId>("settings");
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [version, setVersion] = useState<string | null>(null);
@@ -394,7 +397,7 @@ export function MainWindow() {
             {loading ? <LoadingState/> : (
               <PageWithMvpGate tab={tab}>
                 {isMvpTab(tab)
-                  ? pageFor(tab, { config, version, stats, microphones, models, runtime, apiKeys, onConfigChanged, onNavigate: setTab, onApiKeysChanged: setApiKeys, onModelsChanged: setModels, onStatsRefresh: refreshStats })
+                  ? pageFor(tab, { config, version, stats, microphones, models, runtime, apiKeys, onConfigChanged, textPreviewDraft, onTextPreviewDraftChange: setTextPreviewDraft, onNavigate: setTab, onApiKeysChanged: setApiKeys, onModelsChanged: setModels, onStatsRefresh: refreshStats })
                   : <DeferredPage tab={tab}/>}
               </PageWithMvpGate>
             )}
