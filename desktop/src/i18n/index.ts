@@ -11,9 +11,9 @@
 //! That is caught by `check-i18n.mjs`, which reconciles the keys in the code
 //! with the keys in the dictionary.
 //!
-//! What does NOT belong here: LLM system prompts, the dictation samples in the
-//! formatting preview, and the filler-word dictionary. Those belong to the
-//! language of speech, not of the interface, and must not switch along with it.
+//! LLM prompts and saved user content belong to the language of speech and
+//! must not switch with the UI. Untouched preview samples and rule suggestions
+//! are localized teaching examples; saved rules and edited drafts stay verbatim.
 
 import { useSyncExternalStore } from "react";
 

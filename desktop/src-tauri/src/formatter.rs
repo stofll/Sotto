@@ -857,6 +857,90 @@ pub struct DictionaryPreset {
     pub words: &'static [&'static str],
 }
 
+#[cfg(test)]
+mod localized_preview_tests {
+    use super::*;
+
+    #[test]
+    fn ui_samples_demonstrate_real_cleanup_and_every_suggested_rule() {
+        let fixtures: Value =
+            serde_json::from_str(include_str!("../../src/pages/textExamples.fixture.json"))
+                .unwrap();
+        for fixture in fixtures.as_array().unwrap() {
+            let sample = fixture["sample"].as_str().unwrap();
+            assert_eq!(
+                preview_format(sample, &serde_json::json!({}))
+                    .unwrap()
+                    .formatted,
+                fixture["clean"].as_str().unwrap(),
+                "{} cleanup",
+                fixture["locale"]
+            );
+            let rules: Vec<Value> = fixture["rules"].as_array().unwrap().iter().enumerate().map(|(index, pair)| serde_json::json!({
+                "id": index.to_string(), "find": pair[0], "replace": pair[1], "match": "word", "enabled": true, "preserve_case": false, "case_sensitive": false
+            })).collect();
+            let config = serde_json::json!({"replacement_rules": rules});
+            assert_eq!(
+                preview_format(sample, &config).unwrap().formatted,
+                fixture["formatted"].as_str().unwrap(),
+                "{} replacements",
+                fixture["locale"]
+            );
+            let matched = preview_replacements(sample, &config).unwrap();
+            assert_eq!(
+                matched.matched_rules.len(),
+                rules.len(),
+                "every suggestion must match the sample"
+            );
+        }
+    }
+
+    #[test]
+    fn english_custom_filler_placeholder_is_supported() {
+        let result = preview_format(
+            "basically we can so to speak begin",
+            &serde_json::json!({
+                "text_formatting": {"custom_parasite_words": ["basically", "so to speak"]}
+            }),
+        )
+        .unwrap();
+        assert_eq!(result.formatted, "We can begin.");
+    }
+
+    #[test]
+    fn capitalization_preserves_addresses_and_still_starts_sentences() {
+        let capitalizer = Capitalizer::new(true);
+        assert_eq!(
+            capitalizer.apply("first.last@example.com is my email. next sentence! done"),
+            "first.last@example.com is my email. Next sentence! Done"
+        );
+        assert_eq!(
+            capitalizer.apply("пишите на first.last@example.com. потом обсудим"),
+            "Пишите на first.last@example.com. Потом обсудим"
+        );
+        assert_eq!(
+            capitalizer.apply("hello.world?yes!fine"),
+            "Hello.World?Yes!Fine"
+        );
+        for (input, expected) in [
+            ("контакт:name@example.com", "Контакт:name@example.com"),
+            ("hello!name@example.com", "Hello!name@example.com"),
+            (
+                "(first.Last+tag@example.com).next",
+                "(first.Last+tag@example.com).Next",
+            ),
+            ("name@example.com!next", "name@example.com!Next"),
+            (
+                "name@example.com,other@example.org?yes",
+                "name@example.com,other@example.org?Yes",
+            ),
+            ("hello@!next", "Hello@!Next"),
+        ] {
+            assert_eq!(capitalizer.apply(input), expected, "{input}");
+        }
+    }
+}
+
 /// Development: what people say out loud every day and what the engine writes
 /// in Cyrillic.
 ///
@@ -1175,6 +1259,16 @@ pub struct CustomWordsCorrector {
     enabled: bool,
     /// (dictionary form, folded joined key)
     terms: Vec<(String, String)>,
+}
+
+pub(crate) fn custom_word_supported(word: &str) -> bool {
+    word.split_whitespace()
+        .map(fold_for_match)
+        .collect::<String>()
+        .chars()
+        .filter(|c| c.is_alphanumeric())
+        .count()
+        >= CUSTOM_WORD_MIN_CHARS
 }
 
 impl CustomWordsCorrector {
@@ -1890,6 +1984,12 @@ impl FormatStep for ContextReplacements {
     }
 }
 
+// Protect ordinary email addresses, excluding surrounding prose punctuation.
+static EMAIL_ADDRESS: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"[\p{L}\p{N}_%+\-]+(?:\.[\p{L}\p{N}_%+\-]+)*@[\p{L}\p{N}](?:[\p{L}\p{N}\-]*[\p{L}\p{N}])?(?:\.[\p{L}\p{N}](?:[\p{L}\p{N}\-]*[\p{L}\p{N}])?)*")
+        .expect("valid email pattern")
+});
+
 pub struct Capitalizer {
     enabled: bool,
 }
@@ -1913,16 +2013,29 @@ impl FormatStep for Capitalizer {
         }
         let mut out = String::with_capacity(text.len());
         let mut capitalize_next = true;
-        for ch in text.chars() {
-            if capitalize_next && ch.is_alphabetic() {
-                out.extend(ch.to_uppercase());
+        let mut cursor = 0;
+        for (start, end) in EMAIL_ADDRESS
+            .find_iter(text)
+            .map(|address| (address.start(), address.end()))
+            .chain(std::iter::once((text.len(), text.len())))
+        {
+            for ch in text[cursor..start].chars() {
+                if capitalize_next && ch.is_alphabetic() {
+                    out.extend(ch.to_uppercase());
+                    capitalize_next = false;
+                } else {
+                    out.push(ch);
+                }
+                if matches!(ch, '.' | '!' | '?') {
+                    capitalize_next = true;
+                }
+            }
+            if end > start {
+                // Address case and internal dots are data, not sentence boundaries.
+                out.push_str(&text[start..end]);
                 capitalize_next = false;
-            } else {
-                out.push(ch);
             }
-            if matches!(ch, '.' | '!' | '?') {
-                capitalize_next = true;
-            }
+            cursor = end;
         }
         out
     }
@@ -1988,6 +2101,10 @@ impl FormatStep for PunctuationFinalizer {
 /// the settings UI each believe is on.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TextFormattingConfig {
+    #[serde(default)]
+    pub dictionary_sets: Vec<crate::dictionaries::DictionarySet>,
+    #[serde(default)]
+    pub dictionary_spellings: Vec<String>,
     #[serde(default = "default_true")]
     pub enabled: bool,
     #[serde(default = "default_true")]
@@ -2036,35 +2153,7 @@ impl TextFormattingConfig {
     /// and `cargo` from the user's list would become two different terms and
     /// both would fight over the same window of text.
     pub fn effective_custom_words(&self) -> Vec<String> {
-        let mut out: Vec<String> = Vec::new();
-        let mut seen: Vec<String> = Vec::new();
-        let push = |word: &str, out: &mut Vec<String>, seen: &mut Vec<String>| {
-            let trimmed = word.trim();
-            if trimmed.is_empty() {
-                return;
-            }
-            let key = trimmed.to_lowercase();
-            if seen.contains(&key) {
-                return;
-            }
-            seen.push(key);
-            out.push(trimmed.to_string());
-        };
-        for word in &self.custom_words {
-            push(word, &mut out, &mut seen);
-        }
-        for id in &self.enabled_presets {
-            let Some(set) = DICTIONARY_PRESETS.iter().find(|set| set.id == id) else {
-                // A set from the config that no longer exists in the build: we
-                // skip it silently. Rolling the app back to a version without
-                // that set must not break formatting.
-                continue;
-            };
-            for word in set.words {
-                push(word, &mut out, &mut seen);
-            }
-        }
-        out
+        crate::dictionaries::effective_words(self)
     }
 }
 
@@ -2088,6 +2177,8 @@ impl Default for TextFormattingConfig {
             custom_parasite_words: Vec::new(),
             custom_words: Vec::new(),
             enabled_presets: Vec::new(),
+            dictionary_sets: Vec::new(),
+            dictionary_spellings: Vec::new(),
         }
     }
 }
@@ -2309,6 +2400,8 @@ mod tests {
                 custom_parasite_words: Vec::new(),
                 custom_words: Vec::new(),
                 enabled_presets: Vec::new(),
+                dictionary_sets: Vec::new(),
+                dictionary_spellings: Vec::new(),
             },
             replacement_rules: Vec::new(),
             replacements_paused: false,

@@ -1,0 +1,50 @@
+[
+  {
+    "locale": "ru",
+    "sample": "эээ ну я я щас обсуждаю тайпскрипт, смайл, потом отправлю мой мейл",
+    "clean": "Я щас обсуждаю тайпскрипт, смайл, потом отправлю мой мейл.",
+    "formatted": "Я сейчас обсуждаю TypeScript, :), потом отправлю name@example.com.",
+    "rules": [
+      [
+        "щас",
+        "сейчас"
+      ],
+      [
+        "тайпскрипт",
+        "TypeScript"
+      ],
+      [
+        "мой мейл",
+        "name@example.com"
+      ],
+      [
+        "смайл",
+        ":)"
+      ]
+    ]
+  },
+  {
+    "locale": "en",
+    "sample": "i i am gonna discuss type script, smiley, then send my email",
+    "clean": "I am gonna discuss type script, smiley, then send my email.",
+    "formatted": "I am going to discuss TypeScript, :), then send name@example.com.",
+    "rules": [
+      [
+        "gonna",
+        "going to"
+      ],
+      [
+        "type script",
+        "TypeScript"
+      ],
+      [
+        "my email",
+        "name@example.com"
+      ],
+      [
+        "smiley",
+        ":)"
+      ]
+    ]
+  }
+]

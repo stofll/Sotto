@@ -12,6 +12,7 @@ pub mod config;
 mod db;
 mod debug;
 mod dictation;
+mod dictionaries;
 mod format_commands;
 pub mod formatter;
 mod history;
@@ -3844,6 +3845,7 @@ pub fn run() {
             logs_size,
             clear_logs,
             dictionary_presets,
+            dictionaries::analyze_dictionary,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

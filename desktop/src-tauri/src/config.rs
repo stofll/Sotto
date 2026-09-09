@@ -91,8 +91,9 @@ impl Config {
             });
         }
         let raw = fs::read_to_string(path).map_err(|e| format!("read config.json: {e}"))?;
-        let data: Value =
+        let mut data: Value =
             serde_json::from_str(&raw).map_err(|e| format!("parse config.json: {e}"))?;
+        crate::dictionaries::migrate(&mut data);
         Ok(Self { data })
     }
 
@@ -288,7 +289,8 @@ fn migrate_legacy_device_at(path: &Path) -> Result<bool, String> {
 /// writes through it to *repair* an old config, and a repair must not be
 /// blocked by the very invariant it may be fixing.
 pub fn validate(candidate: &Value) -> Result<(), String> {
-    validate_speech_route(candidate)
+    validate_speech_route(candidate)?;
+    crate::dictionaries::validate(candidate)
 }
 
 /// GigaAM v3 only knows Russian. Pairing it with another language does not
@@ -515,6 +517,89 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let cfg = Config::load_at(&dir.path().join("nope.json")).unwrap();
         assert!(cfg.as_value().as_object().unwrap().is_empty());
+    }
+
+    #[test]
+    fn dictionary_migration_is_read_only_until_a_successful_save() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        let original = json!({"text_formatting": {"custom_words": ["Tauri"], "enabled_presets": ["development"]}}).to_string();
+        fs::write(&path, &original).unwrap();
+        let loaded = Config::load_at(&path).unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), original);
+        assert_eq!(
+            crate::custom_words_prompt(&loaded)
+                .unwrap()
+                .split(", ")
+                .next(),
+            Some("Tauri")
+        );
+        let saved = save_with_merge_patch_at(&path, json!({"theme": "light"})).unwrap();
+        assert_eq!(
+            saved["text_formatting"]["dictionary_sets"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(Config::load_at(&path).unwrap().as_value(), &saved);
+        assert_eq!(saved["text_formatting"]["custom_words"], json!([]));
+        assert_eq!(
+            saved["text_formatting"]["enabled_presets"],
+            json!(["development"])
+        );
+    }
+
+    #[test]
+    fn invalid_dictionary_save_leaves_disk_unchanged() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        let original = json!({"text_formatting": {"custom_words": ["Tauri"]}}).to_string();
+        fs::write(&path, &original).unwrap();
+        let result = save_with_merge_patch_at(
+            &path,
+            json!({"text_formatting": {"dictionary_sets": [
+                {"id": "a", "name": "A", "enabled": true, "words": ["Rust", "rust"]}
+            ]}}),
+        );
+        assert!(result.is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), original);
+    }
+
+    #[test]
+    fn failed_dictionary_write_can_be_retried_without_losing_original_words() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        let original = json!({"text_formatting": {"custom_words": ["Tauri"]}}).to_string();
+        fs::write(&path, &original).unwrap();
+        let patch = json!({"text_formatting": {"dictionary_sets": [
+            {"id": "a", "name": "Work", "enabled": true, "words": ["Tauri", "Claude Code"]}
+        ]}});
+        let blocked_tmp = path.with_extension("json.tmp");
+        fs::create_dir(&blocked_tmp).unwrap();
+        assert!(save_with_merge_patch_at(&path, patch.clone()).is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), original);
+        fs::remove_dir(&blocked_tmp).unwrap();
+        let saved = save_with_merge_patch_at(&path, patch).unwrap();
+        assert_eq!(
+            saved["text_formatting"]["dictionary_sets"][0]["words"],
+            json!(["Tauri", "Claude Code"])
+        );
+        assert_eq!(Config::load_at(&path).unwrap().as_value(), &saved);
+    }
+
+    #[test]
+    fn disabled_dictionary_sets_do_not_reach_whisper_prompt() {
+        let cfg = Config {
+            data: json!({"text_formatting": {"enabled": false, "dictionary_sets": [
+                {"id": "a", "name": "A", "enabled": false, "words": ["Hidden"]},
+                {"id": "b", "name": "B", "enabled": true, "words": ["Claude Code", "Tauri"]}
+            ]}}),
+        };
+        assert_eq!(
+            crate::custom_words_prompt(&cfg).as_deref(),
+            Some("Claude Code, Tauri")
+        );
     }
 
     #[test]

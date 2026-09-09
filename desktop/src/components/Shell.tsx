@@ -360,8 +360,8 @@ export function SettingRow({ title, hint, stack, children }: { title: string; hi
   );
 }
 
-export function Switch({ on, onChange }: { on: boolean; onChange?: (value: boolean) => void }) {
-  return <button className="switch" data-on={on ? "true" : "false"} onClick={() => onChange?.(!on)} aria-pressed={on} aria-label={on ? t("Включено") : t("Выключено")}/>;
+export function Switch({ on, onChange, label }: { on: boolean; onChange?: (value: boolean) => void; label?: string }) {
+  return <button type="button" className="switch" data-on={on ? "true" : "false"} onClick={() => onChange?.(!on)} aria-pressed={on} aria-label={label ?? (on ? t("Включено") : t("Выключено"))}/>;
 }
 
 /**
