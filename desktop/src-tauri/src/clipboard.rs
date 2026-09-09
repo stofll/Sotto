@@ -15,18 +15,35 @@
 //! that function's doc comment has the full story.
 //!
 //! The paste pipeline is cross-platform with a Windows-only 3-strategy
-//! fallback that mitigates UIPI blocks. macOS uses Strategy 1 alone.
-//! All paste operations must run on the main/UI thread (see
-//! `sidecar::reader_loop`); enigo and the clipboard plugin are sensitive
-//! to thread context.
+//! fallback that mitigates UIPI blocks. macOS falls back to AppleScript.
+//! All paste operations run on the main/UI thread; enigo and the clipboard
+//! plugin are sensitive to thread context.
 
-#[cfg(not(windows))]
+#[cfg(any(not(windows), test))]
 use enigo::{
     Direction::{Press, Release},
-    Enigo, Key, Keyboard, Settings,
+    Key, Keyboard,
 };
+#[cfg(not(windows))]
+use enigo::{Enigo, Settings};
+
 use tauri::{AppHandle, Runtime};
 use tauri_plugin_clipboard_manager::ClipboardExt;
+
+#[cfg(any(target_os = "macos", test))]
+const MAC_V_KEYCODE: u16 = 0x09;
+
+pub fn clear_target() {
+    #[cfg(windows)]
+    crate::windows_util::clear_captured_hwnd();
+}
+
+pub fn capture_target() {
+    #[cfg(windows)]
+    {
+        let _ = crate::windows_util::capture_target_hwnd();
+    }
+}
 
 /// What happens to the final text once the pipeline has produced it.
 ///
@@ -148,16 +165,10 @@ pub fn copy_to_clipboard<R: Runtime>(app: &AppHandle<R>, text: &str) -> Result<(
 /// through the active keyboard layout and misfires under a non-Latin one.
 ///
 /// On macOS the modifier is `Key::Meta` (Cmd); elsewhere it is `Key::Control`.
-/// `enigo::Key::Unicode('v')` is used for the V key — enigo handles the
-/// physical-key mapping for the current keyboard layout under the hood.
+/// macOS uses physical keycode 9 so the shortcut also works in Cyrillic layouts.
 ///
 /// Always runs on the main/UI thread (the caller schedules it via
 /// `app.run_on_main_thread`).
-///
-/// `text` is ignored by the function body — by the time this is called,
-/// `paste_text` has already written it to the clipboard. We keep the
-/// parameter so the public signature matches the strategy-2/3 callers
-/// uniformly and a future "type-then-Enter" variant is easy to add.
 ///
 /// Success/failure is decided by the paste TRIGGER — the modifier+V
 /// key-DOWN. Once those land, the target application has received the
@@ -170,15 +181,39 @@ pub fn copy_to_clipboard<R: Runtime>(app: &AppHandle<R>, text: &str) -> Result<(
 /// best-effort, and `release_stuck_modifiers()` in the caller cleans up
 /// any key left down.
 #[cfg(not(windows))]
-pub fn paste_strategy_1_enigo(text: &str) -> Result<(), String> {
-    let mut enigo =
-        Enigo::new(&Settings::default()).map_err(|e| format!("enigo init failed: {e}"))?;
+pub fn paste_strategy_1_enigo() -> Result<(), String> {
+    let settings = Settings {
+        independent_of_keyboard_state: true,
+        ..Settings::default()
+    };
+    let mut enigo = Enigo::new(&settings).map_err(|e| format!("enigo init failed: {e}"))?;
 
     // Platform-specific modifier: Ctrl on Windows/Linux, Meta (Cmd) on macOS.
     #[cfg(target_os = "macos")]
     let modifier = Key::Meta;
     #[cfg(not(target_os = "macos"))]
     let modifier = Key::Control;
+
+    #[cfg(target_os = "macos")]
+    let physical_v = Some(MAC_V_KEYCODE);
+    #[cfg(not(target_os = "macos"))]
+    let physical_v = None;
+    send_paste_shortcut(&mut enigo, modifier, physical_v)
+}
+
+/// enigo 0.3 resolves Unicode through the current macOS layout and returns
+/// keycode 0 (A) when it cannot find Latin 'v'. That reports success for Cmd+A,
+/// preventing fallback. A shortcut uses the physical V key instead.
+#[cfg(any(not(windows), test))]
+fn send_paste_shortcut(
+    enigo: &mut impl Keyboard,
+    modifier: Key,
+    physical_v: Option<u16>,
+) -> Result<(), String> {
+    let v = |keyboard: &mut _, direction| match physical_v {
+        Some(code) => Keyboard::raw(keyboard, code, direction),
+        None => Keyboard::key(keyboard, Key::Unicode('v'), direction),
+    };
 
     // Key-DOWN is the paste trigger. If either of these fails, the paste
     // did NOT happen — return Err so the caller escalates (no duplicate
@@ -188,24 +223,23 @@ pub fn paste_strategy_1_enigo(text: &str) -> Result<(), String> {
         let _ = enigo.key(modifier, Release);
         format!("enigo modifier press: {e}")
     })?;
-    if let Err(e) = enigo.key(Key::Unicode('v'), Press) {
-        let _ = enigo.key(Key::Unicode('v'), Release);
+    if let Err(e) = v(enigo, Press) {
+        let _ = v(enigo, Release);
         let _ = enigo.key(modifier, Release);
         return Err(format!("enigo v press: {e}"));
     }
 
     // Paste has been delivered. Attempt the key-UPs best-effort; a failure
     // here must NOT propagate, or the caller would paste a second time.
-    let _ = enigo.key(Key::Unicode('v'), Release);
+    let _ = v(enigo, Release);
     let _ = enigo.key(modifier, Release);
-    let _ = text; // text already in clipboard via the caller
     Ok(())
 }
 
 /// Paste Strategy 2 — macOS-only osascript (Cmd+V via AppleScript).
 ///
 /// Falls back to this when enigo fails. `osascript` uses the system
-/// Accessibility API through AppleScript's `keystroke` command, which
+/// Accessibility API through AppleScript's `key code` command, which
 /// can work even when direct CGEvent posting is blocked.
 #[cfg(target_os = "macos")]
 pub fn paste_strategy_2_osascript() -> Result<(), String> {
@@ -213,7 +247,7 @@ pub fn paste_strategy_2_osascript() -> Result<(), String> {
     let output = Command::new("osascript")
         .args([
             "-e",
-            r#"tell application "System Events" to keystroke "v" using command down"#,
+            r#"tell application "System Events" to key code 9 using command down"#,
         ])
         .output()
         .map_err(|e| format!("osascript failed: {e}"))?;
@@ -311,15 +345,17 @@ pub fn paste_text(app: AppHandle, text: String) -> Result<(), String> {
     #[cfg(not(windows))]
     {
         // Strategy 1: enigo SendInput (cross-platform).
-        if let Ok(()) = paste_strategy_1_enigo(&text) {
-            return Ok(());
+        match paste_strategy_1_enigo() {
+            Ok(()) => return Ok(()),
+            Err(error) => log::warn!("paste strategy 1 (enigo) failed: {error}"),
         }
 
-        // Strategy 2: macOS osascript fallback (more reliable on macOS 26+).
+        // Strategy 2: macOS osascript fallback.
         #[cfg(target_os = "macos")]
         {
-            if let Ok(()) = paste_strategy_2_osascript() {
-                return Ok(());
+            match paste_strategy_2_osascript() {
+                Ok(()) => return Ok(()),
+                Err(error) => log::warn!("paste strategy 2 (osascript) failed: {error}"),
             }
         }
 
@@ -418,5 +454,69 @@ mod delivery_tests {
             apply_delivery_text("привет", DeliveryOptions::default()),
             "привет"
         );
+    }
+    #[derive(Default)]
+    struct TestKeyboard {
+        command: bool,
+        pasted: usize,
+        fail_press: bool,
+        fail_release: bool,
+    }
+    impl Keyboard for TestKeyboard {
+        fn fast_text(&mut self, _: &str) -> enigo::InputResult<Option<()>> {
+            panic!("paste must use a shortcut");
+        }
+        fn key(&mut self, key: Key, direction: enigo::Direction) -> enigo::InputResult<()> {
+            assert_eq!(
+                key,
+                Key::Meta,
+                "Latin key lookup is invalid in a Cyrillic layout"
+            );
+            self.command = direction == Press;
+            Ok(())
+        }
+        fn raw(&mut self, code: u16, direction: enigo::Direction) -> enigo::InputResult<()> {
+            assert_eq!(code, MAC_V_KEYCODE);
+            if direction == Press {
+                if self.fail_press {
+                    return Err(enigo::InputError::Simulate("press failed"));
+                }
+                assert!(self.command);
+                self.pasted += 1;
+            } else if self.fail_release {
+                return Err(enigo::InputError::Simulate("release failed"));
+            }
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn mac_paste_uses_one_physical_shortcut_and_releases_command() {
+        let mut keyboard = TestKeyboard::default();
+        send_paste_shortcut(&mut keyboard, Key::Meta, Some(MAC_V_KEYCODE)).unwrap();
+        assert_eq!(keyboard.pasted, 1);
+        assert!(!keyboard.command);
+    }
+
+    #[test]
+    fn failed_key_release_after_paste_must_not_trigger_a_second_paste() {
+        let mut keyboard = TestKeyboard {
+            fail_release: true,
+            ..Default::default()
+        };
+        assert!(send_paste_shortcut(&mut keyboard, Key::Meta, Some(MAC_V_KEYCODE)).is_ok());
+        assert_eq!(keyboard.pasted, 1);
+        assert!(!keyboard.command);
+    }
+
+    #[test]
+    fn failed_paste_press_releases_command_and_allows_fallback() {
+        let mut keyboard = TestKeyboard {
+            fail_press: true,
+            ..Default::default()
+        };
+        assert!(send_paste_shortcut(&mut keyboard, Key::Meta, Some(MAC_V_KEYCODE)).is_err());
+        assert_eq!(keyboard.pasted, 0);
+        assert!(!keyboard.command);
     }
 }

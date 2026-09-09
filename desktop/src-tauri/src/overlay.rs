@@ -719,7 +719,7 @@ pub fn subscribe_engine_events(app: &AppHandle) {
     // every launch is just noise (same reasoning as whisper-load-failed).
     app.listen("whisper-loading", move |_event| {
         match current_state().as_deref() {
-            Some("recording") | Some("processing") => {
+            Some("processing") => {
                 post(OverlayOp::Show("loading".to_string()));
             }
             _ => eprintln!("[overlay] whisper-loading ignored: no session in flight"),
@@ -727,26 +727,20 @@ pub fn subscribe_engine_events(app: &AppHandle) {
     });
 
     // whisper-ready: dispatcher fires this when the engine finishes
-    // loading a model successfully (auto-load or user-requested). Hide
-    // the overlay since the model is loaded and there's nothing for the
-    // user to look at yet. Without this listener, the overlay stays in
-    // "loading" state after auto-load completes.
+    // loading a model successfully. The dictation still awaits inference;
+    // model readiness is not a terminal result for the recording.
     app.listen("whisper-ready", move |_event| {
         if current_state().as_deref() == Some("loading") {
-            post(OverlayOp::Hide);
+            post(OverlayOp::Show("processing".to_string()));
         }
     });
 
     // whisper-load-failed: dispatcher fires this when SetModel fails.
-    // Only surface the error if the overlay is already showing a
-    // relevant state — background model loads (no recording in flight)
-    // should not pop the overlay up.
+    // A queued inference emits its own scoped terminal failure. Preserve
+    // capture and cancellation until that result arrives.
     app.listen("whisper-load-failed", move |_event| {
-        match current_state().as_deref() {
-            Some("recording") | Some("processing") | Some("loading") => {
-                post(OverlayOp::Show("error".to_string()));
-            }
-            _ => {}
+        if current_state().as_deref() == Some("loading") {
+            post(OverlayOp::Show("processing".to_string()));
         }
     });
 }

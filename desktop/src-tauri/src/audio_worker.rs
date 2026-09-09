@@ -80,11 +80,10 @@ impl AudioWorker {
     ///
     /// For callers that must not block under any circumstances — above all
     /// the hotkey handler, which Windows runs on the main thread.
-    pub fn submit(&self, job: impl FnOnce() + Send + 'static) {
+    pub fn submit(&self, job: impl FnOnce() + Send + 'static) -> Result<(), String> {
         let tx = crate::mutex_recover::lock(&self.tx);
-        if tx.send(Box::new(job)).is_err() {
-            log::error!("audio worker is gone, dropping job");
-        }
+        tx.send(Box::new(job))
+            .map_err(|_| "audio worker is gone".to_string())
     }
 
     /// Queue a job and await its result.
@@ -101,7 +100,7 @@ impl AudioWorker {
             // Receiver dropped means the caller's future was cancelled —
             // the work still ran, which is what we want for stop/teardown.
             let _ = tx.send(f());
-        });
+        })?;
         rx.await
             .map_err(|_| "audio worker dropped the job".to_string())
     }
@@ -110,5 +109,22 @@ impl AudioWorker {
 impl std::fmt::Debug for AudioWorker {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("AudioWorker")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn a_panicking_native_job_does_not_disable_subsequent_jobs() {
+        let worker = AudioWorker::spawn();
+        let result = worker.call(|| panic!("simulated device failure")).await;
+        assert!(result.is_err());
+        let thread = worker
+            .call(|| std::thread::current().name().map(str::to_owned))
+            .await
+            .unwrap();
+        assert_eq!(thread.as_deref(), Some("audio-worker"));
     }
 }

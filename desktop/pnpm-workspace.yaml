@@ -9,12 +9,10 @@
 #      pnpm v9+ reports "packages field missing or empty" when
 #      invoked with --frozen-lockfile.
 #
-# `desktop/` is the workspace root; the only member today is
-# `e2e/` (WebDriverIO spec). Add further members here as they
-# appear.
+# `desktop/` is the workspace root and today its only member.
+# Add further members here as they appear.
 packages:
   - "."
-  - "e2e"
 
 allowBuilds:
   esbuild: true

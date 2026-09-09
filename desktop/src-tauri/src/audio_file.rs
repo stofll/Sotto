@@ -1,12 +1,8 @@
 //! Decoding an audio file on disk into the one buffer shape the engine
 //! accepts: 16 kHz, mono, `f32`.
 //!
-//! The microphone path never needed this — cpal hands us raw PCM at a rate
-//! we chose, and `audio.rs` decimates it with fixed integer ratios. A file
-//! arrives in whatever container, codec, channel count and sample rate the
-//! person who recorded it happened to use, so this module owns the three
-//! steps that path never had: demux + decode (symphonia), downmix to mono,
-//! and arbitrary-ratio resampling (rubato).
+//! Files need container decoding and channel mixdown before the stateful
+//! resampler shared with microphone capture normalizes their sample rate.
 //!
 //! Everything here is synchronous and CPU-bound. Callers run it on
 //! `spawn_blocking` — decoding an hour of MP3 on the async runtime's
@@ -14,8 +10,6 @@
 
 use std::path::Path;
 
-use rubato::audioadapter_buffers::direct::InterleavedSlice;
-use rubato::{Async, FixedAsync, Indexing, Resampler, SincInterpolationParameters};
 use symphonia::core::audio::GenericAudioBufferRef;
 use symphonia::core::codecs::audio::AudioDecoderOptions;
 use symphonia::core::errors::Error as SymphoniaError;
@@ -225,88 +219,14 @@ fn append_downmixed(
 /// cutoff by the ratio automatically when the ratio is below 1, so the
 /// filter is correct for the direction we always go.
 fn resample_to_target(samples: &[f32], source_rate: u32) -> Result<Vec<f32>, String> {
-    let ratio = f64::from(TARGET_RATE) / f64::from(source_rate);
-    let params = SincInterpolationParameters::default();
-    let mut resampler = Async::<f32>::new_sinc(
-        ratio,
-        // The ratio is fixed for the whole file; no headroom needed.
-        1.0,
-        &params,
-        RESAMPLE_CHUNK,
-        1,
-        FixedAsync::Input,
-    )
-    .map_err(|e| {
-        log::error!("audio_file: resampler construction failed: {e}");
-        crate::ui_text::t("Не удалось преобразовать частоту дискретизации файла.")
-    })?;
-
-    // The exact length the whole conversion should produce. Used to trim
-    // the tail below: the flush pushes out more frames than the signal
-    // actually contains, and a few hundred samples of filter ring at the
-    // end is not audio.
-    let expected_len = (samples.len() as f64 * ratio).round() as usize;
-    // The filter's group delay shows up as leading samples that belong
-    // before the start of the signal. Dropping them keeps the output
-    // aligned with the input, which is what makes `audio_seconds` and any
-    // future timestamps mean the same thing as in the source file.
-    let delay = resampler.output_delay();
-
-    let mut out = Vec::<f32>::with_capacity(expected_len + resampler.output_frames_max());
-    let mut out_chunk = vec![0.0f32; resampler.output_frames_max()];
-    let mut in_chunk = vec![0.0f32; resampler.input_frames_next()];
-    let mut pos = 0usize;
-
-    // One pass over the input, then feed silence until the delayed tail has
-    // been pushed out. `expected_len + delay` is the point past which every
-    // remaining output frame is filter ring.
-    while out.len() < expected_len + delay {
-        let needed = resampler.input_frames_next();
-        if in_chunk.len() < needed {
-            in_chunk.resize(needed, 0.0);
-        }
-        let available = samples.len().saturating_sub(pos);
-        let mut indexing = Indexing::new();
-
-        if available >= needed {
-            in_chunk[..needed].copy_from_slice(&samples[pos..pos + needed]);
-            pos += needed;
-        } else {
-            // Final partial chunk, or a pure-silence flush chunk once the
-            // input is exhausted. Either way the buffer must still be
-            // `needed` frames long; `partial_len` tells the resampler how
-            // much of it is real.
-            in_chunk[..available].copy_from_slice(&samples[pos..]);
-            in_chunk[available..needed].fill(0.0);
-            pos = samples.len();
-            indexing.partial_len = Some(available);
-        }
-
-        let input = InterleavedSlice::new(&in_chunk[..needed], 1, needed)
-            .map_err(|e| format!("resample input buffer: {e}"))?;
-        let mut output =
-            InterleavedSlice::new_mut(&mut out_chunk, 1, resampler.output_frames_max())
-                .map_err(|e| format!("resample output buffer: {e}"))?;
-
-        let (_read, written) = resampler
-            .process_into_buffer(&input, &mut output, Some(&indexing))
-            .map_err(|e| {
-                log::error!("audio_file: resample failed: {e}");
-                crate::ui_text::t("Не удалось преобразовать частоту дискретизации файла.")
-            })?;
-
-        if written == 0 {
-            // Defensive: a resampler that stops producing would otherwise
-            // spin here forever on the silence flush.
-            break;
-        }
-        out.extend_from_slice(&out_chunk[..written]);
+    let mut filter = crate::audio_resampler::AudioResampler::new(source_rate, TARGET_RATE)?;
+    let mut out = Vec::with_capacity(
+        (samples.len() as f64 * f64::from(TARGET_RATE) / f64::from(source_rate)).round() as usize,
+    );
+    for chunk in samples.chunks(RESAMPLE_CHUNK) {
+        out.extend_from_slice(filter.push(chunk)?);
     }
-
-    // Drop the leading group delay, then cut to the true length.
-    let start = delay.min(out.len());
-    out.drain(..start);
-    out.truncate(expected_len);
+    out.extend_from_slice(filter.finish()?);
     Ok(out)
 }
 

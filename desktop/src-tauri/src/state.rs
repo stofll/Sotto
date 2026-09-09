@@ -65,6 +65,10 @@ pub struct AppState {
     pub engine_fsm: Arc<Mutex<EngineFsm>>,
     pub engine_cmd_tx: tokio::sync::mpsc::Sender<crate::whisper::EngineCommand>,
     pub current_session_id: Arc<AtomicU64>,
+    session_counter: Arc<AtomicU64>,
+    dictation_session_id: Arc<AtomicU64>,
+    pub(crate) capture_commands: Arc<Mutex<()>>,
+    cancel_notify: Arc<tokio::sync::Notify>,
     /// Dictation/file sessions that have started and have not reached their
     /// terminal delivery path yet.  `current_session_id` alone is not enough:
     /// `stop_recording` clears it before the audio worker finishes, which used
@@ -95,15 +99,10 @@ pub struct AppState {
     /// before the command is queued makes the dispatcher drop *both* of the
     /// session's events on the floor; the command reads its result from the
     /// `oneshot` reply instead.
-    ///
-    /// Why both events and not just the completion: `InferenceStarted`
-    /// raises the overlay (`overlay.rs`), and nothing else lowers it — the
-    /// event that would (`InferenceCompleted`) is exactly the one being
-    /// skipped. So the started-branch checks with `contains` and the
-    /// completed-branch removes; a `remove` in the started-branch would let
-    /// the completion through and paste the file into a foreign window.
+    /// The dispatcher also checks dictation ownership so a file guard can
+    /// retire its marker before a queued engine event is consumed.
     pub dispatch_skipped: Arc<Mutex<HashSet<u64>>>,
-    /// True while a non-dictation job owns the engine (file transcription).
+    /// True while file transcription or a dictation through delivery owns the engine.
     ///
     /// Separate from `AppFsm` on purpose: the FSM describes a dictation's
     /// lifecycle and is returned to `Idle` by the dispatcher, which a file
@@ -190,9 +189,13 @@ impl AppState {
             app_fsm: Arc::new(Mutex::new(AppFsm::Idle)),
             engine_fsm: Arc::new(Mutex::new(EngineFsm::Unloaded)),
             engine_cmd_tx: cmd_tx,
-            // JoinHandle stored for graceful shutdown (Task 10).
+            // JoinHandle stored for graceful shutdown.
             engine_thread: Arc::new(Mutex::new(Some(engine_thread_handle))),
             current_session_id: Arc::new(AtomicU64::new(0)),
+            session_counter: Arc::new(AtomicU64::new(0)),
+            dictation_session_id: Arc::new(AtomicU64::new(0)),
+            capture_commands: Arc::new(Mutex::new(())),
+            cancel_notify: Arc::new(tokio::sync::Notify::new()),
             active_sessions: Arc::new(Mutex::new(HashSet::new())),
             committing_sessions: Arc::new(Mutex::new(HashSet::new())),
             cancelled_sessions: Arc::new(Mutex::new(HashSet::new())),
@@ -273,14 +276,8 @@ impl AppState {
         crate::mutex_recover::lock(&self.dispatch_skipped).insert(session_id);
     }
 
-    /// Undo `skip_dispatch` when the command fails before the engine ever
-    /// runs (send error, dropped reply, early return).
-    ///
-    /// Not housekeeping — a leak here is a silent data-loss bug. Session
-    /// ids restart from zero after every dictation (`stop_recording` swaps
-    /// `current_session_id` back to 0), so a stale id WILL be handed out
-    /// again, and the dictation that gets it is dropped by the dispatcher
-    /// with no paste, no history entry, and no error anywhere.
+    /// Retire a file dispatch marker on early exit or after its reply.
+    /// The dispatcher also checks dictation ownership if completion arrives later.
     pub fn unskip_dispatch(&self, session_id: u64) {
         crate::mutex_recover::lock(&self.dispatch_skipped).remove(&session_id);
     }
@@ -317,7 +314,28 @@ impl AppState {
     }
 
     pub fn next_session_id(&self) -> u64 {
-        self.current_session_id.fetch_add(1, Ordering::SeqCst) + 1
+        self.session_counter.fetch_add(1, Ordering::Relaxed) + 1
+    }
+
+    /// Reserve capture and delivery together, before queueing any native work.
+    /// File jobs use the same flag, so neither entry point can overtake the other.
+    pub fn try_begin_dictation(&self) -> Option<u64> {
+        self.engine_busy
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .ok()?;
+        let id = self.next_session_id();
+        self.begin_session(id);
+        self.dictation_session_id.store(id, Ordering::Release);
+        self.current_session_id.store(id, Ordering::Release);
+        Some(id)
+    }
+
+    pub fn owns_dictation(&self, session_id: u64) -> bool {
+        session_id != 0 && self.dictation_session_id.load(Ordering::Acquire) == session_id
+    }
+
+    pub fn dictation_id(&self) -> u64 {
+        self.dictation_session_id.load(Ordering::Acquire)
     }
 
     /// Take the live-recording slot for `session_id`, returning whether this
@@ -330,15 +348,13 @@ impl AppState {
     /// swapping it later is not the same thing: the read can go stale across
     /// an `.await`, and then both paths believe they own the session.
     ///
-    /// A value that is neither ours nor 0 belongs to a `start_recording` that
-    /// published its id while we were here; it is put straight back so the
-    /// new session is not orphaned.
+    /// Compare-and-exchange leaves a newer session's slot untouched.
     pub fn claim_live_session(&self, session_id: u64) -> bool {
-        let prev = self.current_session_id.swap(0, Ordering::AcqRel);
-        if prev != session_id && prev != 0 {
-            self.current_session_id.store(prev, Ordering::Release);
-        }
-        prev == session_id
+        session_id != 0
+            && self
+                .current_session_id
+                .compare_exchange(session_id, 0, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
     }
 
     /// Mark a newly allocated session as live before any async capture/queue
@@ -377,10 +393,20 @@ impl AppState {
     /// separate from `drop_cancellation`: the dispatcher must keep the cancel
     /// marker alive while formatting/LLM work is in flight.
     pub fn finish_session(&self, session_id: u64) {
-        crate::mutex_recover::lock(&self.active_sessions).remove(&session_id);
+        let mut active = crate::mutex_recover::lock(&self.active_sessions);
+        active.remove(&session_id);
         crate::mutex_recover::lock(&self.committing_sessions).remove(&session_id);
         self.drop_cancellation(session_id);
         self.clear_cancel_flag(session_id);
+        if self.owns_dictation(session_id) {
+            self.claim_live_session(session_id);
+            self.toggle_armed.store(false, Ordering::Release);
+            set_app_fsm(&self.app_fsm, AppFsm::Idle);
+            self.dictation_session_id.store(0, Ordering::Release);
+            // Publish availability last: an old completion must never reset a
+            // newer recording's state or release a file job's engine claim.
+            self.engine_busy.store(false, Ordering::Release);
+        }
     }
 
     /// Request cancellation for a live session before stopping/finalizing it.
@@ -401,7 +427,20 @@ impl AppState {
         drop(committing);
         drop(active);
         self.flip_cancel_flag(session_id);
+        self.cancel_notify.notify_waiters();
         true
+    }
+
+    pub async fn wait_cancelled(&self, session_id: u64) {
+        loop {
+            let notified = self.cancel_notify.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            if self.is_cancelled(session_id) {
+                return;
+            }
+            notified.await;
+        }
     }
 
     pub fn cancel_session(&self, session_id: u64) {
@@ -453,7 +492,8 @@ impl AppState {
     }
 
     pub fn register_cancel_flag(&self, session_id: u64, flag: Arc<AtomicBool>) {
-        if self.is_cancelled(session_id) {
+        let cancelled = crate::mutex_recover::lock(&self.cancelled_sessions);
+        if cancelled.contains(&session_id) {
             flag.store(true, Ordering::Release);
         }
         crate::mutex_recover::lock(&self.cancel_flags).insert(session_id, flag);
@@ -810,67 +850,87 @@ mod tests {
     }
 
     #[test]
-    fn cancel_recording_swap_and_restore_preserves_concurrent_session() {
-        // WS 4a2b Task 5: cancel_recording does a swap-and-restore dance
-        // on current_session_id to avoid a TOCTOU race with a concurrent
-        // start_recording that bumps the counter between our read and our
-        // write. This test simulates that race:
-        //
-        //   1. session A (42) is in flight
-        //   2. concurrently, a new session B (43) starts (counter bumped)
-        //   3. cancel_recording(42) runs, swap(0) returns 43 (not 42)
-        //   4. we restore 43 so B is not orphaned
-        let (cmd_tx, _cmd_rx) = tokio::sync::mpsc::channel::<crate::whisper::EngineCommand>(1);
-        let handle = std::thread::spawn(|| {});
-        let state = AppState::new(
-            cmd_tx,
-            handle,
-            test_recorder(),
-            test_db(),
-            test_microphone_test(),
-            Arc::new(Mutex::new(None)),
-        );
+    fn a_stale_cancel_never_takes_the_current_capture_slot() {
+        let state = test_state();
+        let old = state.next_session_id();
+        let current = state.next_session_id();
+        state.current_session_id.store(current, Ordering::Release);
+        assert!(!state.claim_live_session(old));
+        assert_eq!(state.current_session_id.load(Ordering::Acquire), current);
+        assert!(state.claim_live_session(current));
+        assert!(!state.claim_live_session(current));
+        assert!(!state.claim_live_session(0));
+    }
 
-        // Step 1: session A allocated.
-        let id_a = state.next_session_id();
-        assert_eq!(id_a, 1);
-        state.current_session_id.store(id_a, Ordering::Release);
-        // Step 2: race — concurrent start_recording bumps the counter to 2
-        // and overwrites current_session_id with the new id.
-        let id_b = state.next_session_id();
-        assert_eq!(id_b, 2);
-        state.current_session_id.store(id_b, Ordering::Release);
+    #[test]
+    fn capture_stop_does_not_release_delivery_or_reuse_ids() {
+        let state = test_state();
+        let first = state.try_begin_dictation().unwrap();
+        assert!(state.claim_live_session(first));
+        assert!(state.try_begin_dictation().is_none());
+        assert!(state.claim_engine().is_none());
+        assert!(state.begin_commit(first));
+        assert!(!state.request_cancel(first));
+        state.finish_session(first);
+        let second = state.try_begin_dictation().unwrap();
+        assert!(second > first);
+        state.finish_session(first);
+        assert!(state.is_session_active(second));
+        assert!(state.is_engine_busy());
+        assert!(!state.request_cancel(first));
+        assert!(!state.claim_live_session(first));
+        state.finish_session(second);
+        assert!(state.claim_engine().is_some());
+    }
 
-        // Step 3: cancel_recording(id_a) does swap(0) — returns the
-        // LATEST value (id_b), not id_a.
-        let prev = state.current_session_id.swap(0, Ordering::AcqRel);
-        assert_eq!(
-            prev, id_b,
-            "swap returns the latest written value, not id_a"
-        );
-        // Step 4: cancel_recording detects the mismatch and restores id_b
-        // so the next stop_recording / hotkey release can pair with it.
-        if prev != id_a && prev != 0 {
-            state.current_session_id.store(prev, Ordering::Release);
+    #[test]
+    fn a_file_and_a_capture_cannot_claim_the_engine_together() {
+        let state = test_state();
+        let file = state.claim_engine().unwrap();
+        assert!(state.try_begin_dictation().is_none());
+        drop(file);
+        let capture = state.try_begin_dictation().unwrap();
+        assert!(state.claim_engine().is_none());
+        state.finish_session(capture);
+    }
+
+    #[test]
+    fn simultaneous_starts_accept_exactly_one_session() {
+        let state = test_state();
+        let barrier = Arc::new(std::sync::Barrier::new(3));
+        let mut threads = Vec::new();
+        for _ in 0..2 {
+            let state = state.clone();
+            let barrier = barrier.clone();
+            threads.push(std::thread::spawn(move || {
+                barrier.wait();
+                state.try_begin_dictation()
+            }));
         }
-        assert_eq!(
-            state.current_session_id.load(Ordering::Acquire),
-            id_b,
-            "concurrent session id_b must be restored, not orphaned"
-        );
+        barrier.wait();
+        let ids: Vec<_> = threads
+            .into_iter()
+            .filter_map(|t| t.join().unwrap())
+            .collect();
+        assert_eq!(ids.len(), 1);
+        state.finish_session(ids[0]);
+        assert!(state.try_begin_dictation().is_some());
+    }
 
-        // Sanity: a clean cancel-recording for the current session does
-        // NOT restore (prev == session_id, so the restore branch is skipped).
-        let prev = state.current_session_id.swap(0, Ordering::AcqRel);
-        assert_eq!(prev, id_b);
-        if prev != id_b && prev != 0 {
-            state.current_session_id.store(prev, Ordering::Release);
+    #[tokio::test]
+    async fn cancellation_wakes_post_processing_and_prevents_commit() {
+        let state = test_state();
+        let id = state.try_begin_dictation().unwrap();
+        assert!(state.claim_live_session(id));
+        let cancel = state.wait_cancelled(id);
+        assert!(state.request_cancel(id));
+        tokio::select! {
+            _ = cancel => {},
+            _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => panic!("missed cancellation"),
         }
-        assert_eq!(
-            state.current_session_id.load(Ordering::Acquire),
-            0,
-            "matching cancel leaves counter at 0"
-        );
+        assert!(!state.begin_commit(id));
+        state.finish_session(id);
+        assert!(state.try_begin_dictation().is_some());
     }
 
     fn test_state() -> AppState {
@@ -958,17 +1018,13 @@ mod tests {
         );
         assert!(
             !crate::mutex_recover::lock(&state.dispatch_skipped).remove(&7),
-            "and must not find it a second time: session ids are reused, so a \
-             leftover entry silently swallows a later dictation"
+            "completion consumes the marker exactly once"
         );
     }
 
     #[test]
     fn unskip_dispatch_releases_an_id_the_engine_never_got() {
-        // The failure this guards: the command inserts the id, the send to
-        // the engine fails, the entry stays. `stop_recording` resets the id
-        // counter to 0, so that id is handed out again — to a dictation the
-        // dispatcher then drops with no paste and no error.
+        // Failed queue submission must not leak a dispatch marker.
         let state = test_state();
         state.skip_dispatch(1);
         state.unskip_dispatch(1);

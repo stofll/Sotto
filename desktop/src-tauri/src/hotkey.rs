@@ -3,8 +3,8 @@
 //! The parser takes strings like `"ctrl+shift+a"` and produces a `HotkeySpec`
 //! that downstream code can hand to `tauri-plugin-global-shortcut`.
 
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, OnceLock};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::OnceLock;
 use std::time::Instant;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -80,7 +80,6 @@ pub fn parse(hotkey: &str) -> Result<HotkeySpec, String> {
 
 use tauri::AppHandle;
 use tauri::Emitter;
-use tauri::Manager;
 use tauri_plugin_global_shortcut::Modifiers as PluginMods;
 use tauri_plugin_global_shortcut::{
     Code, GlobalShortcutExt, Shortcut, ShortcutEvent, ShortcutState,
@@ -219,18 +218,14 @@ fn to_shortcut(spec: &HotkeySpec) -> Result<Shortcut, String> {
 /// Install a global shortcut and route Pressed/Released events to the
 /// whisper engine via the shared `AppState`.
 ///
-/// **WS 4a1 Task 13b**: the closure captures `state.clone()` (cheap —
-/// every field is `Arc`-backed) instead of a `SidecarHandle`. The hotkey
-/// press now sends an `EngineCommand::Transcribe` straight into the
-/// engine thread, bypassing the Python sidecar's `start_recording` RPC.
+/// The closure captures `state.clone()` (cheap — every field is
+/// `Arc`-backed), so a press reaches the engine thread directly.
 pub fn register(app: &AppHandle, state: &AppState, hotkey: &str) -> Result<(), String> {
     let spec = parse(hotkey)?;
     let shortcut = to_shortcut(&spec)?;
     let state_for_handler = state.clone();
-    // WS 4a2b Task 7: capture the AppHandle so the handler can emit
-    // recording-started/stopped + hotkey-error events directly. Prior to
-    // this the handler had no way to talk to the frontend (the previous
-    // code shipped with _app: AppHandle discarded).
+    // The handler needs its own AppHandle to emit recording-started/stopped
+    // and hotkey-error events; the plugin's `_app` argument is not one.
     let app_for_handler = app.clone();
     app.global_shortcut()
         .on_shortcut(shortcut, move |_app, _sc, event| {
@@ -286,11 +281,6 @@ pub fn re_register(app: &AppHandle, state: &AppState, old: &str, new: &str) -> R
 /// app would silently run push-to-talk while the UI claimed toggle (a single
 /// tap then captured only a few ms of audio → empty transcription).
 ///
-/// **WS 4a2 (Task 9)** introduced the push-to-talk toggle with cpal audio
-/// capture; **WS 4a2b (Task 7)** wires that pipeline through
-/// `state.recorder.start()`/`stop()` and emits frontend events from the
-/// AppHandle so the React TrayApp sees the same `recording-started` /
-/// `recording-stopped` / `hotkey-error` events as the Tauri command path.
 /// Debounce window for OS key auto-repeat. A second `Pressed` that lands
 /// within this window of the previous one (while the key is still believed
 /// held) is treated as auto-repeat and ignored. The time bound is also what
@@ -376,206 +366,20 @@ fn handle_shortcut_event(app: AppHandle, state: AppState, event: ShortcutEvent) 
     }
 }
 
-/// Start recording: arm the cpal stream, allocate a session_id, store it
-/// in the shared AtomicU64, and emit `recording-started`.
-///
-/// # Threading
-///
-/// This runs on the **main thread**: `global-hotkey` dispatches `Pressed`
-/// inline from the WndProc of a message window it created during setup
-/// (`global-hotkey-0.8.0/src/platform_impl/windows/mod.rs:146`). Opening a
-/// WASAPI device here blocked the UI thread for as long as the audio stack
-/// took to answer — sometimes forever. Everything past the foreground-HWND
-/// snapshot therefore runs on the audio worker, fire-and-forget.
+/// Submit through the same lifecycle as IPC, without waiting on the UI thread.
 fn hotkey_do_start(app: &AppHandle, state: &AppState) {
-    // The engine runs one job at a time, and a dictation with no
-    // transcription route would end in an error nobody asked for after an
-    // overlay that promised dictation. Both refusals — and their telemetry —
-    // are shared with the `start_recording` command.
-    //
-    // Clearing `toggle_armed` matters because the toggle branch sets it
-    // before calling us: leaving it armed would make the next press try to
-    // stop a recording that never began.
-    if let Some(refusal) = crate::refuse_dictation_start(app, state) {
-        state.toggle_armed.store(false, Ordering::Release);
-        log::info!("hotkey: start refused — {}", refusal.message);
-        // `no_transcription_route_message` emits `hotkey-error` as it builds
-        // the text; the busy refusal does not, and the hotkey has no other
-        // way to reach the user.
-        if matches!(refusal.reason, crate::telemetry::FailureReason::EngineBusy) {
-            let _ = app.emit("hotkey-error", &refusal.message);
+    if let Err(message) = crate::dictation::start(app, state, true) {
+        if !state.recorder.is_recording() {
+            state.toggle_armed.store(false, Ordering::Release);
         }
-        return;
+        let _ = app.emit("hotkey-error", message);
     }
-    // On Windows, snapshot the foreground HWND at the moment of press so
-    // the paste pipeline can restore focus after the recording session
-    // ends. Must stay on this thread: it reads the foreground window as it
-    // is *now*, before anything else can steal focus. macOS does not need
-    // this.
-    #[cfg(windows)]
-    {
-        let _ = crate::windows_util::capture_target_hwnd();
-    }
-    // Allocate and publish the session id *synchronously*, before the
-    // worker has opened the device. A push-to-talk tap shorter than the
-    // device-open latency releases the key while the start job is still
-    // queued; if the id were only published by that job, the release would
-    // find `current_session_id == 0`, bail out, and leave the recorder
-    // running with no way to stop it.
-    let session_id = state.next_session_id();
-    state.begin_session(session_id);
-    state
-        .current_session_id
-        .store(session_id, Ordering::Release);
-    let app = app.clone();
-    let recorder = Arc::clone(&state.recorder);
-    state.audio.submit(move || {
-        // Re-acquired here rather than captured: `AppState` lives in
-        // Tauri's managed state, which hands out borrows, not owned
-        // handles.
-        let state = app.state::<AppState>();
-        let selected = crate::config::microphone_selection(
-            crate::config::Config::load(&app)
-                .ok()
-                .and_then(|c| c.get("microphone")),
-        );
-        if let Err(e) = recorder.start_selected(selected.as_deref()) {
-            log::error!("hotkey: recorder.start failed: {e}");
-            // Retract the id, but only if it is still ours — a newer press
-            // may already have published its own.
-            let _ = state.current_session_id.compare_exchange(
-                session_id,
-                0,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            );
-            state.finish_session(session_id);
-            let _ = app.emit("hotkey-error", &format!("start: {e}"));
-            crate::record_recorder_start_failure(&app);
-            return;
-        }
-        // Drive the overlay waveform: emit `audio-level` ~30 Hz until the
-        // recorder stops. Same path the UI `start_recording` command uses.
-        crate::spawn_level_emitter(&app, Arc::clone(&recorder));
-        *crate::mutex_recover::lock(&state.app_fsm) = crate::state::AppFsm::Recording;
-        crate::on_recording_started(&app);
-        app.state::<crate::telemetry::Telemetry>()
-            .begin_usage_session(crate::telemetry::SessionTrigger::Microphone);
-        let _ = app.emit("recording-started", session_id);
-    });
 }
 
-/// Stop recording: swap(0) the stored session_id, drop the cpal stream,
-/// forward the captured audio as `EngineCommand::Transcribe`, and emit
-/// `recording-stopped`.
-///
-/// # Threading
-///
-/// Reached from two threads: the poller `global-hotkey` spawns per press
-/// (push-to-talk release) and the **main thread** (toggle mode's second
-/// press is another `Pressed`). Dropping the cpal stream `join()`s its
-/// audio thread, so that part goes to the audio worker. The session
-/// bookkeeping above it stays inline — those are plain atomics, and
-/// keeping them synchronous preserves the ordering the toggle handler
-/// relies on.
 fn hotkey_do_stop(app: &AppHandle, state: &AppState) {
-    // Defensively reset the toggle arm in case this stop path was
-    // reached outside the toggle handler (push-to-talk release, or
-    // any future caller). The toggle handler already clears it before
-    // calling hotkey_do_stop, so this is a harmless no-op there.
-    state.toggle_armed.store(false, Ordering::Release);
-
-    let session_id = state.current_session_id.swap(0, Ordering::AcqRel);
-    if session_id == 0 {
-        log::warn!("hotkey stop without active session_id");
-        return;
+    if let Err(message) = crate::dictation::stop(app, state) {
+        let _ = app.emit("hotkey-error", message);
     }
-    let app = app.clone();
-    let recorder = Arc::clone(&state.recorder);
-    state.audio.submit(move || {
-        let state = app.state::<AppState>();
-        let config = crate::config::Config::load(&app).ok();
-        let audio = match recorder.stop() {
-            Ok(Some(a)) if !a.is_empty() => a,
-            // `abandon_dictation` also returns the FSM to Idle: nothing
-            // downstream would, because the engine is never handed a command
-            // and the dispatcher never runs for this session.
-            Ok(_) => {
-                log::info!("hotkey: empty audio, skip transcription");
-                if state.is_cancelled(session_id) {
-                    state.finish_session(session_id);
-                    let _ = app.emit("whisper-cancelled", session_id);
-                    return;
-                }
-                let _ = app.emit("hotkey-error", "no audio captured");
-                crate::abandon_dictation(
-                    &app,
-                    &state,
-                    session_id,
-                    crate::telemetry::FailureReason::NoAudio,
-                );
-                state.finish_session(session_id);
-                return;
-            }
-            Err(e) => {
-                log::error!("hotkey: recorder.stop failed: {e}");
-                if state.is_cancelled(session_id) {
-                    state.finish_session(session_id);
-                    let _ = app.emit("whisper-cancelled", session_id);
-                    return;
-                }
-                let _ = app.emit("hotkey-error", &format!("stop: {e}"));
-                crate::abandon_dictation(
-                    &app,
-                    &state,
-                    session_id,
-                    crate::telemetry::FailureReason::RecorderStop,
-                );
-                state.finish_session(session_id);
-                return;
-            }
-        };
-        // The overlay can cancel while the audio worker is stopping.  Keep
-        // that marker authoritative before any stop hook, debug dump, or
-        // engine command is constructed.
-        if state.is_cancelled(session_id) {
-            state.finish_session(session_id);
-            let _ = app.emit("whisper-cancelled", session_id);
-            return;
-        }
-        crate::on_recording_stopped(&app, session_id, Some(&audio));
-        let cancel_flag = Arc::new(AtomicBool::new(false));
-        state.register_cancel_flag(session_id, cancel_flag.clone());
-        let (reply_tx, _reply_rx) = tokio::sync::oneshot::channel();
-        let cmd = match crate::build_dictation_command(
-            &app,
-            config.as_ref(),
-            session_id,
-            audio,
-            cancel_flag,
-            reply_tx,
-        ) {
-            Ok(cmd) => cmd,
-            Err(error) => {
-                state.finish_session(session_id);
-                let _ = app.emit("hotkey-error", &error);
-                return;
-            }
-        };
-        // `try_send`, so a full engine queue cannot park the audio worker.
-        if let Err(e) = state.engine_cmd_tx.try_send(cmd) {
-            log::warn!(
-                "hotkey stop: engine channel closed or full ({e}); \
-                 session {session_id} dropped"
-            );
-            let _ = app.emit("hotkey-error", &format!("engine: {e}"));
-            crate::record_engine_queue_failure(&app, config.as_ref());
-            state.finish_session(session_id);
-            return;
-        }
-        *crate::mutex_recover::lock(&state.app_fsm) = crate::state::AppFsm::Processing;
-        let _ = app.emit("recording-stopped", session_id);
-    });
 }
 
 // `_ordering` is read by the dead-store lint to silence the unused import

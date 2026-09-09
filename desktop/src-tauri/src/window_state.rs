@@ -137,7 +137,7 @@ pub fn handle(window: &tauri::Window, event: &WindowEvent) {
         if let Some(state) = window.try_state::<crate::state::AppState>() {
             let test = state.microphone_test.clone();
             let app = window.app_handle().clone();
-            state.audio.submit(move || {
+            let _ = state.audio.submit(move || {
                 let _ = test.stop(&app);
             });
         }
