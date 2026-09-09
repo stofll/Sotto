@@ -20,6 +20,13 @@ English · [Русский](README.ru.md)
 
 </div>
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/settings-en-dark.png" />
+  <img src="docs/images/settings-en-light.png" width="1200" alt="Sotto settings: dictation shortcut, recording mode, language, microphone, and automatic pasting" />
+</picture>
+
+*Interface previews use demonstration data.*
+
 ## Features
 
 ### Dictate where you work
@@ -31,6 +38,11 @@ Start and stop recording with a hotkey, or hold it for push-to-talk. Send the re
 Download a model once and recognize speech on your computer, even without an internet connection. Choose from Whisper, GigaAM, Parakeet, and other models to suit your language and hardware. Local dictation is free, with no per-minute limits.
 
 See the [model guide](docs/models.md) for languages and download sizes.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/models-en-dark.png" />
+  <img src="docs/images/models-en-light.png" width="1200" alt="Sotto model catalog: GigaAM, active Nemotron, and Parakeet models with download buttons; more model families are collapsed" />
+</picture>
 
 ### See words as you speak
 
@@ -51,6 +63,11 @@ Attach an audio file in the **Process the text** panel and get its transcript th
 ### Revisit what you said
 
 Your dictation history is stored on your computer. Reprocess an entry with a saved LLM profile and review the changes before accepting them. Statistics estimate how much typing time you have saved.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/history-en-dark.png" />
+  <img src="docs/images/history-en-light.png" width="1200" alt="Sotto dictation history with example notes, search, filters, and actions for copying and LLM processing" />
+</picture>
 
 Sound cues, optional audio ducking during recording, and automatic model unloading while idle help dictation fit into your day.
 
