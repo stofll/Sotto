@@ -28,8 +28,16 @@ While the model is out of memory the sidebar says so and states that it comes ba
 
 Check the operating-system permissions and verify that another application has not claimed the shortcut.
 
+If macOS dictation reaches the clipboard and manual Cmd+V works, capture and transcription completed; investigate automatic paste separately. Test in a native text editor and a browser field, record whether recording started through the hotkey or tray, and include the active keyboard layout. Sotto sends the physical V key for Cmd+V so Cyrillic layouts do not require switching to English.
+
+Automatic key dispatch cannot confirm that every target application accepted the text. If insertion fails, the clipboard remains available for manual Cmd+V. Report whether the failure affects all applications or only a particular field; repeated permission changes alone do not diagnose a layout or focus problem.
+
+Sotto normalizes any microphone rate to the 16 kHz the speech models expect, so a 44.1 kHz device no longer produces distorted or wrongly timed audio. A device whose sample format the application cannot read is refused with an error at the start of the recording instead of capturing silence.
+
 Include the OS, architecture, app version, selected model, and whether the failure affects microphone or file transcription when opening an issue. Never include API keys, raw transcripts, or recordings.
 
 ## Cloud processing behaves unexpectedly
 
 Cloud STT and LLM formatting are opt-in. Verify the selected provider, endpoint, model, and key in the Integrations settings, then retry with local processing to separate provider failures from the local pipeline.
+
+The LLM timeout in the Integrations settings is the whole budget for one dictation, including retries and the pause between them, not the limit for a single attempt. When it runs out, the transcription is delivered without cloud formatting rather than held back.

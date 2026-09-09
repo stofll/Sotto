@@ -1,22 +1,9 @@
-//! Integration smoke tests for the whisper engine module.
-//!
-//! Most assertions here are *compile-time* checks of the public API surface
-//! (`EngineCommand`, `EngineEvent`, `InferenceResult`). The full
-//! `engine_thread_main` + real-model path requires:
-//!
-//! 1. `tauri::test::mock_app()` which needs the `test` feature on `tauri`.
-//! 2. A real GGML model file on disk, path supplied by whoever runs it.
-//!
-//! The actual end-to-end test is gated behind `#[ignore]` and documented
-//! in `engine_full_transcribe_real_model_ignored`. To run:
-//!
-//! ```bash
-//! cd desktop/src-tauri
-//! cargo test --test test_whisper_engine -- --ignored
-//! ```
-//!
-//! (Requires model file + `tauri/test` feature enabled in dev.)
+//! Public engine contracts and opt-in real Whisper CPU inference smoke test.
+//! Run the asset-backed test locally and in CI with:
+//! `cargo test --locked --test test_whisper_engine -- --ignored --nocapture`.
+//! This exercises model download/load/inference, not native UI or clipboard.
 
+mod common;
 use sotto_lib::model::ModelLoadSpec;
 use sotto_lib::whisper::{
     resolve_model_path, EngineCommand, EngineEvent, InferenceResult, ModelLoadReason,
@@ -150,14 +137,64 @@ fn channels_accept_all_engine_event_variants() {
         .is_ok());
 }
 
-/// Real-model end-to-end: requires a local GGML model file and the
-/// `tauri/test` cargo feature. Marked `#[ignore]` so CI (without model
-/// and without Tauri test feature) doesn't fail.
-#[test]
-#[ignore = "requires a local GGML model file AND tauri/test feature"]
-fn engine_full_transcribe_real_model_ignored() {
-    // Body intentionally empty — see module docs for the exact recipe to
-    // flesh this out in WS 4a2 (when real cpal audio + clipboard
-    // plumbing are also in place). Until then, the smoke tests above
-    // cover everything that's testable without external assets.
+#[tokio::test]
+#[ignore = "downloads approximately 75 MB of verified Whisper weights and a speech fixture"]
+async fn whisper_download_load_and_recognize_speech() {
+    use sotto_lib::model_download::{download_spec_to_dir, DownloadSpec};
+    use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
+
+    let models = tempfile::tempdir().unwrap();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(180))
+        .build()
+        .unwrap();
+    let spec = DownloadSpec::from_manifest("tiny").unwrap();
+    download_spec_to_dir(
+        &client,
+        &spec,
+        models.path(),
+        &Arc::new(AtomicBool::new(false)),
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    let speech = common::speech_sample(&client,
+        "https://raw.githubusercontent.com/ggml-org/whisper.cpp/a8d002cfd879315632a579e73f0148d06959de36/samples/jfk.wav",
+        "59dfb9a4acb36fe2a2affc14bacbee2920ff435cb13cc314a08c13f66ba7860e").await;
+    let path = models.path().join(&spec.file_name);
+    let context = WhisperContext::new_with_params(
+        path.to_str().unwrap(),
+        WhisperContextParameters {
+            use_gpu: false,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let mut state = context.create_state().unwrap();
+    // Reusing a state must not leak the previous recognition into the next one.
+    for _ in 0..2 {
+        let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+        params.set_language(Some("en"));
+        params.set_n_threads(4);
+        params.set_print_progress(false);
+        params.set_print_realtime(false);
+        params.set_print_timestamps(false);
+        state.full(params, &speech).unwrap();
+        let mut text = String::new();
+        for segment in 0..state.full_n_segments().unwrap() {
+            text.push_str(&state.full_get_segment_text(segment).unwrap());
+        }
+        let normalized: String = text
+            .to_lowercase()
+            .chars()
+            .map(|c| if c.is_ascii_alphabetic() { c } else { ' ' })
+            .collect();
+        let words = normalized.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(
+            words.contains("ask not what your country can do for you")
+                && words.contains("what you can do for your country"),
+            "unexpected fixture transcript: {text}"
+        );
+    }
 }

@@ -287,8 +287,12 @@ jobs:
         if: runner.os == 'macOS'
         run: sh scripts/check-macos-native-libs.sh desktop/src-tauri/target/debug/Sotto
 
-      - name: Sherpa download and inference smoke test (macOS)
-        if: runner.os == 'macOS'
+      - name: Whisper download and speech inference smoke test
+        working-directory: desktop/src-tauri
+        run: cargo test --locked --test test_whisper_engine -- --ignored --nocapture
+
+      - name: Sherpa download and inference smoke test
+        if: runner.os == 'macOS' || runner.os == 'Windows'
         working-directory: desktop/src-tauri
         run: cargo test --locked --test test_sherpa_runtime -- --ignored --nocapture
 
@@ -324,6 +328,10 @@ jobs:
       - name: Typecheck
         working-directory: desktop
         run: npx tsc --noEmit
+
+      - name: Translation coverage
+        working-directory: desktop
+        run: pnpm i18n:check
 
       - name: Unit tests (Vitest)
         working-directory: desktop

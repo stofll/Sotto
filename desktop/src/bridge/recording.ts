@@ -55,7 +55,7 @@ function ensureSubscribed() {
   const isRustActive = () => _state === "recording" || _state === "processing";
 
   const flatEvents: Record<string, RecordingState> = {
-    // Rust events (recording-flow, WS 4a2b).
+    // Rust recording-flow events.
     "recording-started": "recording",
     "recording-stopped": "processing",
     "whisper-started": "processing",
@@ -73,7 +73,7 @@ function ensureSubscribed() {
     "whisper-cancelled": "idle",
     "whisper-failed": "error",
     "paste-failed": "error",
-    // Python events (model-loading, until WS 4c) — gated by isRustActive().
+    // Model lifecycle must not interrupt an active dictation.
     "whisper-loading": "loading",
     "whisper-load-failed": "error",
   };
@@ -107,6 +107,8 @@ function ensureSubscribed() {
   for (const [ev, next] of Object.entries(flatEvents)) {
     on<unknown>(ev, (payload) => {
       const sid = sessionIdOf(payload);
+      if ((ev === "whisper-loading" || ev === "whisper-load-failed") && isRustActive()) return;
+      if (sessionEvents.has(ev) && sid === null && isRustActive()) return;
       if (ev === "recording-started" && sid !== null) _currentSessionId = sid;
       // Drop only genuinely stale events: a scoped event for a session other
       // than the one being tracked. With no tracked session there is nothing
@@ -119,7 +121,11 @@ function ensureSubscribed() {
     }).then((fn) => _unlisteners.push(fn));
   }
 
-  // Conditional handlers (Python model-loaded/unloaded with precedence guard).
+  on<unknown>("whisper-ready", () => {
+    if (_state === "loading") setState("idle");
+  }).then((fn) => _unlisteners.push(fn));
+
+  // Legacy model events remain compatible with existing callers.
   on<unknown>("model-ready", () => {
     if (_state === "loading" && !isRustActive()) setState("idle");
   }).then((fn) => _unlisteners.push(fn));

@@ -2,6 +2,7 @@ mod accessibility;
 pub mod ai;
 mod audio;
 mod audio_file;
+mod audio_resampler;
 mod audio_worker;
 #[cfg(any(target_os = "macos", test))]
 mod autostart;
@@ -10,6 +11,7 @@ pub mod cloud_stt;
 pub mod config;
 mod db;
 mod debug;
+mod dictation;
 mod format_commands;
 pub mod formatter;
 mod history;
@@ -2180,15 +2182,6 @@ async fn fetch_provider_models(
     crate::ai::models::fetch_models(&provider, base_url.as_deref(), &api_key).await
 }
 
-/// Start a recording session.
-///
-/// **WS 4a2 (Task 9)**: arms the cpal stream via `AudioRecorder::start()`
-/// and emits a `recording-started` event carrying the new `session_id`
-/// so the frontend can route a future `cancel_recording(session_id)` call
-/// to the same session. Audio capture happens asynchronously on cpal's
-/// real-time thread; the engine command is NOT sent here — it's sent in
-/// `stop_recording` once the user releases the hotkey.
-///
 /// Emit `audio-level` events (~30 Hz) while a recording session is live so
 /// the overlay waveform reacts to the user's voice. Reads the shared
 /// recorder's EMA level and exits automatically when the recorder stops. A
@@ -2204,8 +2197,15 @@ pub(crate) fn spawn_level_emitter(app: &AppHandle, recorder: Arc<crate::audio::A
     let app = app.clone();
     std::thread::spawn(move || {
         let mut tick: u32 = 0;
+        let mut logged_first_frame = false;
         loop {
             while recorder.is_recording() {
+                if !logged_first_frame {
+                    if let Some(first_frame_ms) = recorder.first_frame_ms() {
+                        log::info!("capture timing: first_callback_ms={first_frame_ms}");
+                        logged_first_frame = true;
+                    }
+                }
                 let raw = recorder.level();
                 let level = crate::audio::display_level(raw);
                 let _ = app.emit("audio-level", serde_json::json!({ "level": level }));
@@ -2216,6 +2216,10 @@ pub(crate) fn spawn_level_emitter(app: &AppHandle, recorder: Arc<crate::audio::A
                 }
                 tick = tick.wrapping_add(1);
                 std::thread::sleep(std::time::Duration::from_millis(33));
+            }
+            if recorder.has_capture_error() {
+                let state = app.state::<AppState>();
+                let _ = dictation::stop(&app, &state);
             }
             // Recording stopped — release ownership.
             EMITTING.store(false, Ordering::Release);
@@ -2233,19 +2237,9 @@ pub(crate) fn spawn_level_emitter(app: &AppHandle, recorder: Arc<crate::audio::A
     });
 }
 
-/// The refusal shown when a recording is attempted while a file
-/// transcription owns the engine.
-///
-/// Emits `whisper-failed` as well as returning the text: the hotkey is the
-/// path people actually use, and it has no return value the user ever sees
-/// — the overlay is the only surface that reaches them.
-pub(crate) fn engine_busy_message(app: &AppHandle) -> String {
-    let message = crate::ui_text::t("Идёт транскрипция файла — дождитесь её окончания.");
-    let _ = app.emit(
-        "whisper-failed",
-        serde_json::json!({ "message": message.clone() }),
-    );
-    message
+/// Refuse a second owner without emitting a terminal event for the active job.
+pub(crate) fn engine_busy_message() -> String {
+    crate::ui_text::t("Завершите текущую запись.")
 }
 
 /// Whether anything could transcribe a recording started right now.
@@ -2375,16 +2369,19 @@ mod transcription_route_tests {
 
 /// Message for a start refused by [`transcription_route_available`].
 ///
-/// Deliberately does not emit `whisper-failed`: that drives the overlay, and
+/// A pure builder: it emits nothing. Both entry points already report the
+/// refusal themselves - `hotkey_do_start` emits `hotkey-error` and
+/// `start_recording` returns the text to its caller - so emitting here too
+/// delivered the same failure twice for every hotkey press.
+///
+/// Deliberately not `whisper-failed` either: that drives the overlay, and
 /// the whole point of the refusal is that no overlay appears for a recording
 /// that never began. The main window carries a standing banner for this
 /// state, derived from the same three inputs.
-pub(crate) fn no_transcription_route_message(app: &AppHandle) -> String {
-    let message = crate::ui_text::t(
+pub(crate) fn no_transcription_route_message() -> String {
+    crate::ui_text::t(
         "Модель распознавания не скачана — записывать нечем. Скачайте модель в настройках или включите облачную обработку.",
-    );
-    let _ = app.emit("hotkey-error", &message);
-    message
+    )
 }
 
 /// Why a dictation was refused before it began, and what to tell the user.
@@ -2407,12 +2404,12 @@ pub(crate) fn refuse_dictation_start(
     let refusal = if state.is_engine_busy() {
         DictationRefusal {
             reason: telemetry::FailureReason::EngineBusy,
-            message: engine_busy_message(app),
+            message: engine_busy_message(),
         }
     } else if !transcription_route_available(app, state) {
         DictationRefusal {
             reason: telemetry::FailureReason::NoTranscriptionRoute,
-            message: no_transcription_route_message(app),
+            message: no_transcription_route_message(),
         }
     } else {
         return None;
@@ -2543,7 +2540,7 @@ pub(crate) fn on_recording_started(app: &AppHandle) {
     }
     let state = app.state::<AppState>();
     let model = restore_unloaded_model(app, &state);
-    let session_id = state.current_session_id.load(Ordering::Acquire);
+    let session_id = state.dictation_id();
     let armed = start_live_preview(&state, session_id, model.as_deref());
     // The overlay sized for live text looks different, and it must know that
     // from the start of the recording rather than from the first recognised
@@ -2602,49 +2599,9 @@ pub(crate) fn on_recording_stopped(app: &AppHandle, session_id: u64, audio: Opti
 /// (it reads session_id from the `recording-started` event payload).
 #[tauri::command]
 async fn start_recording(app: AppHandle, state: tauri::State<'_, AppState>) -> Result<u64, String> {
-    let telemetry = app.state::<telemetry::Telemetry>().clone();
-    if let Some(refusal) = refuse_dictation_start(&app, &state) {
-        return Err(refusal.message);
-    }
-    // Arm the cpal stream on the audio worker. Errors here surface
-    // permission denials / missing-device conditions loudly to the UI.
-    let recorder = Arc::clone(&state.recorder);
-    let selected =
-        crate::config::microphone_selection(crate::config::Config::load(&app)?.get("microphone"));
-    let started = match state
-        .audio
-        .call(move || recorder.start_selected(selected.as_deref()))
+    dictation::start(&app, &state, false)?
         .await
-    {
-        Ok(inner) => inner,
-        Err(error) => Err(error),
-    };
-    if let Err(error) = started {
-        record_recorder_start_failure(&app);
-        return Err(error);
-    }
-    spawn_level_emitter(&app, Arc::clone(&state.recorder));
-    let session_id = state.next_session_id();
-    state.begin_session(session_id);
-    telemetry.begin_usage_session(telemetry::SessionTrigger::Microphone);
-    // WS 4a2b Task 3: store the freshly-allocated session_id in the
-    // shared AtomicU64 so the matching `stop_recording` (Tauri command OR
-    // hotkey Released branch) can swap(0) and pair them correctly. Without
-    // this, stop_recording allocates a NEW id and the dispatcher can't
-    // correlate the cancelled-check / dispatch.
-    state
-        .current_session_id
-        .store(session_id, Ordering::Release);
-    crate::state::set_app_fsm(&state.app_fsm, AppFsm::Recording);
-    // After `recorder.start` succeeded, so the cue means "the microphone is
-    // live" and not merely "the hotkey registered".
-    on_recording_started(&app);
-    // Emit session_id in event payload so the frontend can use it for
-    // cancel_recording later. This is a payload-shape change from WS 4a1
-    // (was `()`); existing TS frontend discards the payload so it's
-    // runtime-compatible.
-    let _ = app.emit("recording-started", session_id);
-    Ok(session_id)
+        .map_err(|_| "audio worker dropped start".to_string())?
 }
 
 /// Tap audio into the loaded or queued model if it supports live text.
@@ -2722,129 +2679,12 @@ fn start_live_preview(state: &AppState, session_id: u64, model: Option<&str>) ->
 /// Stop the active recording session and send the captured audio to the
 /// whisper engine.
 ///
-/// **WS 4a2 (Task 9)**: drops the cpal stream (canonical drop-and-drain),
-/// pulls the captured buffer, wraps it in an `Arc`, and forwards it as
-/// `EngineCommand::Transcribe` to the engine thread via
-/// `state.engine_cmd_tx`. Returns the new `session_id` so the frontend
-/// can track / cancel the in-flight transcription (idempotent if no
-/// recording was active — returns 0).
+/// Returns the stopped `session_id`, or 0 when no recording was active.
 #[tauri::command]
 async fn stop_recording(app: AppHandle, state: tauri::State<'_, AppState>) -> Result<u64, String> {
-    let telemetry = app.state::<telemetry::Telemetry>().clone();
-    // WS 4a2b Task 4: reuse the session_id stored by start_recording
-    // (or hotkey Pressed in Task 7) via swap(0). If the swap returns 0
-    // there is no active session — idempotent return 0 to the UI.
-    let session_id = state.current_session_id.swap(0, Ordering::AcqRel);
-    // Reset toggle arm if this was a toggle-mode session. Must happen
-    // after the swap but BEFORE any early return so the flag is always
-    // cleared when recording stops, regardless of the path.
-    state.toggle_armed.store(false, Ordering::Release);
-    if session_id == 0 {
-        return Ok(0);
-    }
-    // Dropping the cpal stream joins its audio thread; that has to happen
-    // on the audio worker, never on a thread anyone else is waiting for.
-    let recorder = Arc::clone(&state.recorder);
-    let stopped = match state.audio.call(move || recorder.stop()).await {
-        Ok(value) => value,
-        Err(error) => {
-            if state.is_cancelled(session_id) {
-                state.finish_session(session_id);
-                let _ = app.emit("whisper-cancelled", session_id);
-                return Ok(session_id);
-            }
-            state.finish_session(session_id);
-            return Err(error);
-        }
-    };
-    let audio = match stopped {
-        Ok(Some(a)) if !a.is_empty() => a,
-        Ok(_) => {
-            // Recorder returned None (empty buffer) or an empty Vec —
-            // skip transcription, return to Idle so the UI doesn't stay
-            // stuck in Processing.
-            log::info!("session {session_id}: empty audio, skip transcription");
-            if state.is_cancelled(session_id) {
-                state.finish_session(session_id);
-                let _ = app.emit("whisper-cancelled", session_id);
-                return Ok(session_id);
-            }
-            abandon_dictation(&app, &state, session_id, telemetry::FailureReason::NoAudio);
-            state.finish_session(session_id);
-            return Ok(session_id);
-        }
-        Err(e) => {
-            log::error!("session {session_id}: recorder.stop failed: {e}");
-            if state.is_cancelled(session_id) {
-                state.finish_session(session_id);
-                let _ = app.emit("whisper-cancelled", session_id);
-                // Cancellation won the race with recorder finalization; this
-                // is a successful terminal cancel, not a stop error for the
-                // tray/overlay caller to surface.
-                return Ok(session_id);
-            }
-            abandon_dictation(
-                &app,
-                &state,
-                session_id,
-                telemetry::FailureReason::RecorderStop,
-            );
-            state.finish_session(session_id);
-            return Err(e);
-        }
-    };
-    // Cancellation is set synchronously by the overlay command. Check it
-    // before stop hooks/debug persistence and before constructing any engine
-    // command; a click racing this worker must never become transcription.
-    if state.is_cancelled(session_id) {
-        state.finish_session(session_id);
-        let _ = app.emit("whisper-cancelled", session_id);
-        return Ok(session_id);
-    }
-    on_recording_stopped(&app, session_id, Some(&audio));
-    let cancel_flag = Arc::new(AtomicBool::new(false));
-    // Phase 4 / Batch 6 / P0: register the cancel flag so
-    // `cancel_recording(session_id)` can flip it from outside the
-    // engine thread. The engine checks the flag before
-    // `state.full(...)` and short-circuits a cancel that lands
-    // during the (otherwise uninterruptible) `.full()` C call.
-    state.register_cancel_flag(session_id, cancel_flag.clone());
-    let (reply_tx, _reply_rx) = tokio::sync::oneshot::channel();
-
-    let loaded_config = crate::config::Config::load(&app).ok();
-    let pipeline_mode = telemetry_pipeline_mode(loaded_config.as_ref());
-    let command = match build_dictation_command(
-        &app,
-        loaded_config.as_ref(),
-        session_id,
-        audio,
-        cancel_flag,
-        reply_tx,
-    ) {
-        Ok(command) => command,
-        Err(error) => {
-            state.finish_session(session_id);
-            crate::state::set_app_fsm(&state.app_fsm, AppFsm::Idle);
-            return Err(error);
-        }
-    };
-    let send_result = state.engine_cmd_tx.try_send(command);
-
-    if let Err(e) = send_result {
-        log::error!("session {session_id}: engine channel full/closed: {e}");
-        crate::state::set_app_fsm(&state.app_fsm, AppFsm::Idle);
-        state.finish_session(session_id);
-        telemetry.record_failed(
-            crate::telemetry::Source::Microphone,
-            &pipeline_mode,
-            telemetry::FailureStage::Queue,
-            telemetry::FailureReason::EngineQueue,
-        );
-        return Err(format!("engine: {e}"));
-    }
-    crate::state::set_app_fsm(&state.app_fsm, AppFsm::Processing);
-    let _ = app.emit("recording-stopped", session_id);
-    Ok(session_id)
+    dictation::stop(&app, &state)?
+        .await
+        .map_err(|_| "audio worker dropped stop".to_string())?
 }
 
 /// Cancel an in-flight recording / transcription session.
@@ -2854,73 +2694,16 @@ async fn stop_recording(app: AppHandle, state: tauri::State<'_, AppState>) -> Re
 /// still active (user pressed hotkey then cancelled before releasing),
 /// the cpal stream is dropped so the audio buffer is discarded.
 ///
-/// **WS 4a2 (Task 9)**: the frontend MUST capture the session_id from
-/// `recording-started` and pass it here. If it loses the id (refresh,
-/// etc.), passing a wrong id is a no-op (session_id not in the cancelled
-/// set — no harm).
+/// The frontend must capture the session_id from `recording-started` and
+/// pass it here. If it loses the id (refresh, etc.), passing a wrong id is
+/// a no-op: the session is not cancellable, and the call returns `false`.
 #[tauri::command]
 async fn cancel_recording(
     app: AppHandle,
     state: tauri::State<'_, AppState>,
     session_id: u64,
 ) -> Result<bool, String> {
-    let telemetry = app.state::<telemetry::Telemetry>().clone();
-    // Set the cancellation marker BEFORE touching the recorder.  The stop
-    // command may already be waiting on the audio worker; setting it only
-    // after that await lets its stale completion queue Whisper anyway.
-    let cancellation_requested = state.request_cancel(session_id);
-    if !cancellation_requested {
-        log::info!("cancel_recording: session {session_id} is no longer cancellable");
-        return Ok(false);
-    }
-    // Claim the live session with the SAME atomic swap both stop paths use,
-    // and do it before any await. `stop_recording` and `hotkey_do_stop` swap
-    // this slot to 0 synchronously before they touch the recorder, so
-    // whoever the swap hands `session_id` to is the one path that will run
-    // this session's terminal cleanup: the loser sees 0 and bails out.
-    // Loading the id instead — and re-using that answer after the await —
-    // let both paths believe they owned the session. The cancel then wiped
-    // the cancellation marker while the stop worker was still queued, and
-    // the stop worker read a stopped recorder as "no audio captured": an
-    // error cue and a false Capture/NoAudio failure after a clean cancel.
-    let owns_live_recorder = state.claim_live_session(session_id);
-    if owns_live_recorder && state.recorder.is_recording() {
-        state.recorder.detach_live_tap();
-        // Drop the live stream; discard the audio buffer. Errors here
-        // are not fatal — the cancellation already took effect on the
-        // dispatcher side. Goes through the audio worker: this is the
-        // exact call whose `join()` used to wedge whatever thread ran it.
-        let recorder = Arc::clone(&state.recorder);
-        let _ = state.audio.call(move || recorder.stop()).await;
-        // Cancel is a third way out of Recording, so it needs the volume
-        // put back too. No cue: the user cancelled, they know.
-        crate::output_volume::restore();
-    }
-    if owns_live_recorder {
-        // No engine completion will arrive for a recording cancelled before
-        // stop, so this command owns the terminal cleanup in that case.
-        state.finish_session(session_id);
-    }
-    crate::state::set_app_fsm(&state.app_fsm, AppFsm::Idle);
-    // Reset toggle_armed if this was a toggle-mode session so the
-    // next hotkey press doesn't try to stop a non-existent recording.
-    state.toggle_armed.store(false, Ordering::Release);
-    if owns_live_recorder {
-        // Nothing was ever queued, so the dispatcher will not emit
-        // `whisper-cancelled` for this session — and that event is what the
-        // UI uses to leave the "recording" state
-        // (`desktop/src/bridge/recording.ts:67`). Without this, cancelling
-        // mid-recording left the tray and the shell reading "Идёт запись"
-        // forever.
-        let _ = app.emit("whisper-cancelled", session_id);
-        if session_id != 0 {
-            telemetry.record_cancelled(
-                crate::telemetry::Source::Microphone,
-                &telemetry_pipeline_mode_of(&app),
-            );
-        }
-    }
-    Ok(true)
+    dictation::cancel(&app, &state, session_id).await
 }
 
 /// Start a microphone self-test session.
@@ -3046,7 +2829,17 @@ async fn test_paste(app: AppHandle) -> Result<String, String> {
             .map(|d| d.as_millis().to_string())
             .unwrap_or_default();
 
-    match crate::clipboard::paste_text(app, test_text.clone()) {
+    let (reply, result) = tokio::sync::oneshot::channel();
+    let paste_app = app.clone();
+    let paste_text = test_text.clone();
+    app.run_on_main_thread(move || {
+        let _ = reply.send(crate::clipboard::paste_text(paste_app, paste_text));
+    })
+    .map_err(|error| error.to_string())?;
+    match result
+        .await
+        .map_err(|_| "paste test worker dropped reply".to_string())?
+    {
         Ok(()) => Ok(format!("Paste OK. Text на буфере: {test_text}")),
         Err(e) => Err(format!("Paste FAILED: {e}")),
     }
@@ -3367,18 +3160,12 @@ pub fn run() {
             // Capture the cancellable-sessions handle before moving
             // engine_state into Tauri's managed state. The dispatcher task
             // is `'static` (lives forever) so it needs an owned clone.
-            // WS 4a2b Task 6: also capture app_fsm so the dispatcher can
-            // reset FSM → Idle after every InferenceCompleted arm without
-            // taking a tauri::State borrow (the task is owned by the
-            // tokio runtime, not the Tauri command context).
-            //
-            // WS 4b Task 8: also capture `db` so the dispatcher can spawn
-            // a blocking write of stats+history on every successful
-            // transcription. The clone is `Arc<Mutex<Connection>>` —
-            // `Arc::clone` is cheap and the `Mutex` serializes with the
-            // Tauri commands that also use `state.db`.
+            // `db` comes along so the dispatcher can spawn a blocking write
+            // of stats+history on every successful transcription. The clone
+            // is `Arc<Mutex<Connection>>` — `Arc::clone` is cheap and the
+            // `Mutex` serializes with the Tauri commands that also use
+            // `state.db`.
             let dispatch_skipped = engine_state.dispatch_skipped_arc();
-            let dispatch_app_fsm = engine_state.app_fsm.clone();
             let dispatch_db = engine_state.db.clone();
             let dispatch_state = engine_state.clone();
             let dispatch_telemetry = app.state::<crate::telemetry::Telemetry>().inner().clone();
@@ -3523,13 +3310,9 @@ pub fn run() {
                             );
                         }
                         EngineEvent::InferenceStarted { session_id } => {
-                            // `contains`, not `remove`: the entry has to
-                            // survive until `InferenceCompleted`, which is
-                            // the event that would otherwise paste a file
-                            // transcription into the focused window. Emitting
-                            // `whisper-started` here would raise the overlay
-                            // (overlay.rs) with nothing left to lower it.
-                            if crate::mutex_recover::lock(&dispatch_skipped).contains(&session_id) {
+                            // File jobs and retired sessions must not raise the
+                            // dictation overlay, even if their events arrive late.
+                            if !dispatch_state.owns_dictation(session_id) {
                                 continue;
                             }
                             let _ = app_for_dispatch.emit("whisper-started", session_id);
@@ -3541,39 +3324,39 @@ pub fn run() {
                             // below applies to it: no paste, no history, no
                             // stats, no FSM transition. Removed here — one
                             // completion per session, so the entry is gone
-                            // for good and cannot swallow a later dictation
-                            // that reuses the id.
+                            // for good. Session IDs are never reused.
                             if crate::mutex_recover::lock(&dispatch_skipped).remove(&session_id) {
                                 log::info!("session {session_id} dispatch skipped (file job)");
                                 continue;
                             }
-                            // The cancelled entry is REMOVED here, in the same
-                            // critical section that reads it, so the same
-                            // session_id can never trip the check twice. Which
-                            // branch this becomes is decided by
-                            // `classify_completion` — see its doc comment for
-                            // why that decision does not live inline.
-                            // Keep a cancellation marker alive until the
-                            // entire post-processing/delivery pipeline has
-                            // settled. Removing it here made a click during
-                            // the LLM await look like a fresh success.
+                            // A file reply can retire its guard before this dispatcher
+                            // consumes completion. Ownership, not that guard's lifetime,
+                            // decides whether this result may touch dictation UI.
+                            if !dispatch_state.owns_dictation(session_id) {
+                                continue;
+                            }
+                            // Every branch that ends a dictation as cancelled
+                            // does so in this order: tell the UI, release the
+                            // session, then record it.
+                            let report_cancelled = || {
+                                let _ = app_for_dispatch.emit("whisper-cancelled", session_id);
+                                dictation::finish(&dispatch_state, session_id);
+                                dispatch_telemetry.record_cancelled(
+                                    crate::telemetry::Source::Microphone,
+                                    &telemetry_pipeline_mode_of(&app_for_dispatch),
+                                );
+                            };
                             let cancelled = dispatch_state.is_cancelled(session_id);
                             match classify_completion(cancelled, result) {
                                 Completion::Cancelled => {
                                     log::info!("session {session_id} cancelled, skipping paste");
-                                    dispatch_state.finish_session(session_id);
-                                    crate::state::set_app_fsm(&dispatch_app_fsm, AppFsm::Idle);
-                                    let _ = app_for_dispatch.emit("whisper-cancelled", session_id);
-                                    dispatch_telemetry.record_cancelled(
-                                        crate::telemetry::Source::Microphone,
-                                        &telemetry_pipeline_mode_of(&app_for_dispatch),
-                                    );
+                                    report_cancelled();
                                 }
                                 Completion::Empty => {
                                     log::info!("session {session_id} empty transcription");
-                                    dispatch_state.finish_session(session_id);
                                     let _ = app_for_dispatch.emit("whisper-empty", session_id);
-                                    crate::state::set_app_fsm(&dispatch_app_fsm, AppFsm::Idle);
+                                    dictation::finish(&dispatch_state, session_id);
+
                                     crate::sounds::play(
                                         &app_for_dispatch,
                                         crate::sounds::Cue::Error,
@@ -3586,8 +3369,6 @@ pub fn run() {
                                     );
                                 }
                                 Completion::Failed(message) => {
-                                    dispatch_state.finish_session(session_id);
-                                    crate::state::set_app_fsm(&dispatch_app_fsm, AppFsm::Idle);
                                     crate::sounds::play(
                                         &app_for_dispatch,
                                         crate::sounds::Cue::Error,
@@ -3605,6 +3386,7 @@ pub fn run() {
                                             "message": message,
                                         }),
                                     );
+                                    dictation::finish(&dispatch_state, session_id);
                                     dispatch_telemetry.record_failed(
                                         crate::telemetry::Source::Microphone,
                                         &telemetry_pipeline_mode_of(&app_for_dispatch),
@@ -3618,14 +3400,7 @@ pub fn run() {
                                     // not even enter formatting/LLM when the
                                     // cancel won the race.
                                     if dispatch_state.is_cancelled(session_id) {
-                                        dispatch_state.finish_session(session_id);
-                                        crate::state::set_app_fsm(&dispatch_app_fsm, AppFsm::Idle);
-                                        let _ =
-                                            app_for_dispatch.emit("whisper-cancelled", session_id);
-                                        dispatch_telemetry.record_cancelled(
-                                            crate::telemetry::Source::Microphone,
-                                            &telemetry_pipeline_mode_of(&app_for_dispatch),
-                                        );
+                                        report_cancelled();
                                         continue;
                                     }
                                     let _ = app_for_dispatch.emit("whisper-done", &inference);
@@ -3637,22 +3412,21 @@ pub fn run() {
                                     // Awaited inline (the dispatcher is async);
                                     // in hybrid mode the paste is intentionally
                                     // delayed by the LLM round-trip.
-                                    let processed =
-                                        post_process_transcription(&app_for_dispatch, &inference)
-                                            .await;
+                                    let processed = tokio::select! {
+                                        biased;
+                                        _ = dispatch_state.wait_cancelled(session_id) => None,
+                                        result = post_process_transcription(&app_for_dispatch, &inference) => Some(result),
+                                    };
                                     if dispatch_state.is_cancelled(session_id) {
-                                        dispatch_state.finish_session(session_id);
-                                        crate::state::set_app_fsm(&dispatch_app_fsm, AppFsm::Idle);
-                                        let _ =
-                                            app_for_dispatch.emit("whisper-cancelled", session_id);
-                                        dispatch_telemetry.record_cancelled(
-                                            crate::telemetry::Source::Microphone,
-                                            &telemetry_pipeline_mode_of(&app_for_dispatch),
-                                        );
+                                        report_cancelled();
                                         continue;
                                     }
 
-                                    // WS 4b Task 8: stats + history write via
+                                    let Some(processed) = processed else {
+                                        continue;
+                                    };
+
+                                    // Stats + history write via
                                     // `spawn_blocking`. The Connection is
                                     // `!Send` so we can't hold the lock across
                                     // `.await` from the async dispatcher
@@ -3703,8 +3477,8 @@ pub fn run() {
                                              skipping paste"
                                         );
                                         let _ = app_for_dispatch.emit("whisper-empty", session_id);
-                                        dispatch_state.finish_session(session_id);
-                                        crate::state::set_app_fsm(&dispatch_app_fsm, AppFsm::Idle);
+                                        dictation::finish(&dispatch_state, session_id);
+
                                         crate::sounds::play(
                                             &app_for_dispatch,
                                             crate::sounds::Cue::Error,
@@ -3726,8 +3500,7 @@ pub fn run() {
                                     // committed session into a false success.
                                     if !dispatch_state.begin_commit(session_id) {
                                         let was_cancelled = dispatch_state.is_cancelled(session_id);
-                                        dispatch_state.finish_session(session_id);
-                                        crate::state::set_app_fsm(&dispatch_app_fsm, AppFsm::Idle);
+
                                         if was_cancelled {
                                             let _ = app_for_dispatch
                                                 .emit("whisper-cancelled", session_id);
@@ -3736,9 +3509,11 @@ pub fn run() {
                                                 &telemetry_pipeline_mode_of(&app_for_dispatch),
                                             );
                                         }
+                                        dictation::finish(&dispatch_state, session_id);
                                         continue;
                                     }
 
+                                    let database_started = std::time::Instant::now();
                                     let paste_text = final_text.clone();
                                     // Measured on the text that is actually
                                     // going in. `whisper-done` fires before the
@@ -3820,6 +3595,8 @@ pub fn run() {
                                         ),
                                     }
 
+                                    log::info!("delivery timing: session={session_id} database_ms={}", database_started.elapsed().as_millis());
+
                                     // Tell the frontend a history entry
                                     // was just appended so HistoryPage can
                                     // re-fetch. Payload is the session_id
@@ -3830,7 +3607,6 @@ pub fn run() {
                                         serde_json::json!({ "session_id": session_id }),
                                     );
 
-                                    crate::state::set_app_fsm(&dispatch_app_fsm, AppFsm::Idle);
                                     // Move only AppHandle clones into the
                                     // main-thread closure; `app2` would be
                                     // moved twice otherwise. Paste the FINAL
@@ -3854,11 +3630,14 @@ pub fn run() {
                                         telemetry::PasteResult::ClipboardOnly
                                     };
                                     let dispatch_state_for_paste = dispatch_state.clone();
+                                    let paste_queued = std::time::Instant::now();
                                     let paste_result = app2.run_on_main_thread(move || {
+                                        let paste_started = std::time::Instant::now();
+                                        let queue_ms = paste_queued.elapsed().as_millis();
                                         // Cue and `paste-done` after the paste
-                                        // result is known — "done" has to mean
-                                        // the text actually went in, not that we
-                                        // tried. The overlay waits for this
+                                        // result is known. Successful key dispatch
+                                        // cannot confirm target acceptance, but
+                                        // observable delivery errors must fail. The overlay waits for this
                                         // event before claiming anything was
                                         // inserted, which is what keeps it quiet
                                         // while a slow LLM is still working.
@@ -3925,13 +3704,15 @@ pub fn run() {
                                                 );
                                             }
                                         }
-                                        dispatch_state_for_paste.finish_session(session_id);
+                                        log::info!("delivery timing: session={session_id} main_queue_ms={queue_ms} paste_ms={}", paste_started.elapsed().as_millis());
+                                        dictation::finish(&dispatch_state_for_paste, session_id);
                                     });
                                     if paste_result.is_err() {
-                                        // If the main-thread handoff itself
-                                        // failed, no completion will arrive to
-                                        // clean the session registration.
-                                        dispatch_state.finish_session(session_id);
+                                        let _ = app_for_dispatch.emit("paste-failed", serde_json::json!({
+                                            "session_id": session_id,
+                                            "message": crate::ui_text::t("Не удалось вставить текст в активное окно."),
+                                        }));
+                                        dictation::finish(&dispatch_state, session_id);
                                     }
                                 }
                             }

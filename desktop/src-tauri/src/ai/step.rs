@@ -1,4 +1,4 @@
-//! AI processing orchestrator (Phase 4 / Batch 3 / PR 3.2).
+//! AI processing orchestrator.
 //!
 //! Mirrors `ai_processor/_step.py::ai_process_text_with_status`.
 //! The dispatch flow is:
@@ -16,7 +16,7 @@
 //! because the only legitimate caller is the dispatcher / Tauri
 //! command layer; tests call it directly.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use serde::Serialize;
 
@@ -266,6 +266,7 @@ pub async fn ai_process_text_with_status(
         &rendered_system,
         &user_message,
         attempt_timeout,
+        Duration::from_secs(config.llm_timeout_seconds.clamp(1, 300)),
         &mut status,
     )
     .await;
@@ -480,39 +481,39 @@ fn build_provider(config: &AiConfig, api_key: &str) -> Box<dyn Provider> {
             api_key.to_string(),
             config.model.clone(),
             base_url.map(str::to_string),
-            Some(Duration::from_secs(config.llm_timeout_seconds)),
+            Some(attempt_timeout(config.llm_timeout_seconds)),
             None,
         )),
         "openai" => Box::new(OpenAIProvider::new(
             api_key.to_string(),
             config.model.clone(),
             base_url.map(str::to_string),
-            Some(Duration::from_secs(config.llm_timeout_seconds)),
+            Some(attempt_timeout(config.llm_timeout_seconds)),
             None,
         )),
         "compatible" => Box::new(OpenAIProvider::new(
             api_key.to_string(),
             config.model.clone(),
             base_url.map(str::to_string),
-            Some(Duration::from_secs(config.llm_timeout_seconds)),
+            Some(attempt_timeout(config.llm_timeout_seconds)),
             None,
         )),
         "opencode-go" => Box::new(OpenCodeGoProvider::new(
             api_key.to_string(),
             config.model.clone(),
             base_url.map(str::to_string),
-            Some(Duration::from_secs(config.llm_timeout_seconds)),
+            Some(attempt_timeout(config.llm_timeout_seconds)),
         )),
         "gemini" => Box::new(GeminiProvider::new(
             api_key.to_string(),
             config.model.clone(),
-            Some(Duration::from_secs(config.llm_timeout_seconds)),
+            Some(attempt_timeout(config.llm_timeout_seconds)),
         )),
         _ => Box::new(AnthropicProvider::new(
             api_key.to_string(),
             config.model.clone(),
             base_url.map(str::to_string),
-            Some(Duration::from_secs(config.llm_timeout_seconds)),
+            Some(attempt_timeout(config.llm_timeout_seconds)),
             None,
         )),
     }
@@ -534,79 +535,84 @@ async fn call_provider_with_retry(
     system_prompt: &str,
     text: &str,
     attempt_timeout: Duration,
+    total_timeout: Duration,
     status: &mut AiStatus,
 ) -> (Option<String>, CallOutcomeInfo) {
-    let started = Instant::now();
-    let mut last_error: Option<ProviderError> = None;
+    let started = tokio::time::Instant::now();
+    let deadline = started + total_timeout;
+    let mut last_error =
+        ProviderError::new(ProviderErrorType::Timeout, "LLM time budget exhausted");
     for attempt in 1..=MAX_PROVIDER_ATTEMPTS {
-        match provider.complete(system_prompt, text).await {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+        let attempt_started = tokio::time::Instant::now();
+        let result = tokio::time::timeout(
+            remaining.min(attempt_timeout),
+            provider.complete(system_prompt, text),
+        )
+        .await
+        .unwrap_or_else(|_| {
+            Err(ProviderError::new(
+                ProviderErrorType::Timeout,
+                "LLM attempt timed out",
+            ))
+        });
+        let elapsed = attempt_started.elapsed().as_secs_f64();
+        let error = result.as_ref().err();
+        status.provider_attempts.push(ProviderAttemptInfo {
+            attempt,
+            elapsed_seconds: elapsed,
+            error_type: error.map_or_else(String::new, |e| e.kind.as_str().to_string()),
+            provider_error: error.map_or_else(String::new, |e| e.message.clone()),
+            http_status: match &result {
+                Ok((_, info)) => info.http_status,
+                Err(e) => e.http_status,
+            },
+        });
+        match result {
             Ok((text, info)) => {
-                let mut provider_attempts = std::mem::take(&mut status.provider_attempts);
-                provider_attempts.push(ProviderAttemptInfo {
-                    attempt,
-                    elapsed_seconds: info.elapsed_seconds,
-                    error_type: String::new(),
-                    provider_error: String::new(),
-                    http_status: info.http_status,
-                });
-                status.provider_attempts = provider_attempts;
-                let mut out = CallOutcomeInfo {
-                    attempts: attempt,
-                    attempt_timeout_seconds: attempt_timeout.as_secs(),
-                    elapsed_seconds: started.elapsed().as_secs_f64(),
-                    usage: info.usage,
-                    message: String::new(),
-                    error_type: None,
-                    http_status: info.http_status,
-                    response_snippet: None,
-                };
-                // We can't reuse `text` (info.message holds the
-                // answer); build a fresh outcome with the actual
-                // text from the provider return.
-                let _ = info; // info is consumed below via the result
-                out.message = String::new();
-                return (Some(text), out);
+                return (
+                    Some(text),
+                    CallOutcomeInfo {
+                        attempts: attempt,
+                        attempt_timeout_seconds: attempt_timeout.as_secs(),
+                        elapsed_seconds: started.elapsed().as_secs_f64(),
+                        usage: info.usage,
+                        message: String::new(),
+                        error_type: None,
+                        http_status: info.http_status,
+                        response_snippet: None,
+                    },
+                )
             }
             Err(error) => {
-                let mut provider_attempts = std::mem::take(&mut status.provider_attempts);
-                let mut attempt_info = ProviderAttemptInfo {
-                    attempt,
-                    elapsed_seconds: 0.0,
-                    error_type: error.kind.as_str().to_string(),
-                    provider_error: error.message.clone(),
-                    http_status: error.http_status,
-                };
-                provider_attempts.push(attempt_info);
-                attempt_info = ProviderAttemptInfo {
-                    attempt,
-                    elapsed_seconds: 0.0,
-                    error_type: String::new(),
-                    provider_error: String::new(),
-                    http_status: None,
-                };
-                let _ = attempt_info;
-                status.provider_attempts = provider_attempts;
-                if !should_retry(&error, attempt) {
-                    last_error = Some(error);
+                let retry = should_retry(&error, attempt);
+                last_error = error;
+                if !retry
+                    || deadline.saturating_duration_since(tokio::time::Instant::now())
+                        <= RETRY_BACKOFF
+                {
                     break;
                 }
-                last_error = Some(error);
                 tokio::time::sleep(RETRY_BACKOFF).await;
             }
         }
     }
-    let error = last_error.expect("at least one attempt");
-    let out = CallOutcomeInfo {
-        attempts: status.provider_attempts.len() as u32,
-        attempt_timeout_seconds: attempt_timeout.as_secs(),
-        elapsed_seconds: started.elapsed().as_secs_f64(),
-        usage: None,
-        message: error.message.clone(),
-        error_type: Some(error.kind),
-        http_status: error.http_status,
-        response_snippet: error.response_snippet.clone(),
-    };
-    (None, out)
+    (
+        None,
+        CallOutcomeInfo {
+            attempts: status.provider_attempts.len() as u32,
+            attempt_timeout_seconds: attempt_timeout.as_secs(),
+            elapsed_seconds: started.elapsed().as_secs_f64(),
+            usage: None,
+            message: last_error.message,
+            error_type: Some(last_error.kind),
+            http_status: last_error.http_status,
+            response_snippet: last_error.response_snippet,
+        },
+    )
 }
 
 fn should_retry(error: &ProviderError, attempt: u32) -> bool {
@@ -647,6 +653,39 @@ mod tests {
             llm_min_duration_seconds: 30.0,
             llm_timeout_seconds: 12,
         }
+    }
+
+    #[tokio::test]
+    async fn delayed_http_falls_back_within_the_configured_total_budget() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let mut config = base_config();
+        config.provider = "compatible".into();
+        config.base_url = Some(format!("http://{}/v1", listener.local_addr().unwrap()));
+        config.llm_timeout_seconds = 1;
+        let (accepted, received) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = [0; 4096];
+            assert!(socket.read(&mut request).await.unwrap() > 0);
+            let _ = accepted.send(());
+            tokio::time::sleep(Duration::from_secs(5)).await;
+            let _ = socket
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}")
+                .await;
+        });
+        let outcome = tokio::time::timeout(
+            Duration::from_secs(2),
+            ai_process_text_with_status("original dictation", &config, Some("test-key")),
+        )
+        .await;
+        server.abort();
+        received.await.unwrap();
+        let outcome = outcome.expect("total budget must include retries and backoff");
+        assert_eq!(outcome.text, "original dictation");
+        assert!(outcome.status.fallback);
+        assert_eq!(outcome.status.attempts, 1);
+        assert_eq!(outcome.status.error_type.as_deref(), Some("timeout"));
     }
 
     #[test]
@@ -954,6 +993,7 @@ mod tests {
             "system",
             "text",
             Duration::from_secs(4),
+            Duration::from_secs(12),
             &mut status,
         )
         .await;
@@ -965,5 +1005,54 @@ mod tests {
             2,
             "the provider must have been called twice"
         );
+    }
+    struct SlowProvider;
+    impl Provider for SlowProvider {
+        fn name(&self) -> &'static str {
+            "slow"
+        }
+        fn complete<'a>(&'a self, _: &'a str, _: &'a str) -> CompletionFuture<'a> {
+            Box::pin(async {
+                tokio::time::sleep(Duration::from_secs(50)).await;
+                Ok(("late".into(), ProviderInfo::default()))
+            })
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn actual_attempts_and_backoff_respect_the_overall_deadline() {
+        let mut status = AiStatus::default();
+        let (text, info) = call_provider_with_retry(
+            &SlowProvider,
+            "system",
+            "text",
+            Duration::from_secs(4),
+            Duration::from_secs(5),
+            &mut status,
+        )
+        .await;
+        assert!(text.is_none());
+        assert_eq!(info.attempts, 2);
+        assert_eq!(info.error_type, Some(ProviderErrorType::Timeout));
+        assert!((info.elapsed_seconds - 5.0).abs() < 0.01);
+        assert!((status.provider_attempts[0].elapsed_seconds - 4.0).abs() < 0.01);
+        assert!((status.provider_attempts[1].elapsed_seconds - 0.7).abs() < 0.01);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn an_attempt_timeout_does_not_wait_for_a_late_success() {
+        let mut status = AiStatus::default();
+        let (text, info) = call_provider_with_retry(
+            &SlowProvider,
+            "system",
+            "text",
+            Duration::from_secs(4),
+            Duration::from_secs(12),
+            &mut status,
+        )
+        .await;
+        assert!(text.is_none());
+        assert!((info.elapsed_seconds - 8.3).abs() < 0.01);
+        assert_eq!(info.attempts, 2);
     }
 }

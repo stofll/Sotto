@@ -1,30 +1,11 @@
-//! WS 4a2 — cpal audio capture. Replaces `audio/recorder.py`.
-//!
-//! Architecture: a single `AudioRecorder` lives in `AppState` (symmetric
-//! to the whisper engine). The cpal stream callback runs on a cpal-managed
-//! real-time thread and does ONLY:
-//!
-//!   1. Convert samples to f32 (if not f32 already — see conversion
-//!      helpers `i16_to_f32`/`u8_to_f32` and the inline
-//!      I32/F64 branches in `AudioRecorder::start`)
-//!   2. Mono mixdown if multi-channel
-//!   3. Update the RMS level (atomic bit-cast f32 — EMA-smoothed)
-//!   4. Resample 48 kHz → 16 kHz with a 3-tap moving-average pre-filter
-//!      (anti-aliasing) + 3:1 decimation
-//!   5. Append samples to `Arc<Mutex<Vec<f32>>>`
-//!
-//! No allocations in the F32 hot path; non-F32 paths allocate a `Vec<f32>`
-//! per callback for the converted samples (callback frequency is ~10ms
-//! so this is bounded pressure). No `app.emit`, no `println!` in the
-//! callback. See `process_samples` for the contract.
-//!
-//! `stop()` follows the canonical drop-and-drain: take the `Stream` out
-//! of the `Mutex<Option<Stream>>` and `drop` it (cpal joins the callback
-//! thread synchronously). After that it is safe to lock the buffer and
-//! take ownership of the recorded samples.
+//! Microphone capture, mono conversion and streaming resampling to 16 kHz.
+//! Device calls are serialized by AudioWorker. Stop joins the native stream
+//! before flushing the resampler and handing off the complete audio buffer.
 
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use crate::audio_resampler::AudioResampler;
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{SampleFormat, Stream, StreamConfig};
@@ -159,88 +140,14 @@ impl Drop for SendStream {
     }
 }
 
-// ============================================================================
-// Resampler — 3-tap moving-average pre-filter + 3:1 decimation.
-// ============================================================================
-//
-// Used to downsample 48 kHz (a common device rate) to 16 kHz (whisper
-// target). The 3-tap moving-average is a minimal anti-aliasing low-pass:
-// its stopband rolls off by ~10·log(9) ≈ -9.5 dB at Nyquist/3, which is
-// enough for speech ASR (no useful content above 4 kHz; whisper operates
-// at 8 kHz Nyquist).
-pub fn resample_3_to_1(input: &[f32]) -> Vec<f32> {
-    if input.len() < 3 {
-        return Vec::new();
-    }
-    let n = input.len() / 3;
-    let mut out = Vec::with_capacity(n);
-    for i in 0..n {
-        let idx = i * 3;
-        let avg = (input[idx] + input[idx + 1] + input[idx + 2]) / 3.0;
-        out.push(avg);
-    }
-    out
-}
-
-/// Block-of-2 averaging resampler. Used for 32 kHz → 16 kHz downsample
-/// when the device's native rate is 32 kHz (rare on macOS, possible on
-/// some Linux ALSA devices or 2× oversampled USB mics).
-///
-/// Pattern mirrors `resample_3_to_1`: `n = input.len() / 2`, then
-/// `output[i] = (input[2i] + input[2i+1]) / 2.0`. Returns `Vec::new()`
-/// for `len() < 2` (matches the existing "len < R → empty" convention).
-pub fn resample_2_to_1(input: &[f32]) -> Vec<f32> {
-    if input.len() < 2 {
-        return Vec::new();
-    }
-    let n = input.len() / 2;
-    let mut out = Vec::with_capacity(n);
-    for i in 0..n {
-        let idx = i * 2;
-        out.push((input[idx] + input[idx + 1]) / 2.0);
-    }
-    out
-}
-
-/// Block-of-6 averaging resampler. Used for 96 kHz → 16 kHz downsample
-/// (high-end USB mics, Focusrite-style interfaces on macOS at 96 kHz).
-///
-/// Pattern mirrors `resample_3_to_1`: `n = input.len() / 6`, then
-/// `output[i] = sum(input[6i..6i+6]) / 6.0`. Returns `Vec::new()` for
-/// `len() < 6`.
-pub fn resample_6_to_1(input: &[f32]) -> Vec<f32> {
-    if input.len() < 6 {
-        return Vec::new();
-    }
-    let n = input.len() / 6;
-    let mut out = Vec::with_capacity(n);
-    for i in 0..n {
-        let idx = i * 6;
-        let sum: f32 = input[idx..idx + 6].iter().sum();
-        out.push(sum / 6.0);
-    }
-    out
-}
-
-// ============================================================================
-// AudioRecorder
-// ============================================================================
-//
-// Public API used by the Tauri command layer (`start_recording`,
-// `stop_recording`, `get_audio_level`, `list_audio_devices`).
-//
-// Concurrency: every field behind a Mutex/Atomic; `audio_buffer` is wrapped
-// in `Arc` so the cpal callback (which needs `'static + Send`) can hold a
-// reference without keeping the AudioRecorder pinned in its borrow
-// checker. `is_recording` is an AtomicBool with acquire/release ordering so
-// the callback can early-exit promptly when `stop()` flips it.
 pub struct AudioRecorder {
     state: Mutex<RecorderState>,
-    /// Public-ish "do we currently have a live recording" flag. The cpal
-    /// callback uses ITS OWN Arc<AtomicBool> (cb_is_recording) so it can
-    /// early-exit without taking a Mutex; we mirror to this on start/stop
-    /// so external callers (Tauri commands) can poll cheaply.
-    is_recording: AtomicBool,
+    /// Shared by capture, stream-error callbacks and stop, so teardown makes
+    /// subsequent callbacks stop writing without taking a mutex.
+    is_recording: Arc<AtomicBool>,
+    resampler: Arc<Mutex<Option<AudioResampler>>>,
+    capture_error: Arc<Mutex<Option<String>>>,
+    first_frame_ms: Arc<AtomicU64>,
     audio_buffer: Arc<Mutex<Vec<f32>>>, // Arc — callback needs 'static + Send
     /// An audio tap for the live preview. The full recording accumulates in
     /// `audio_buffer` as before — this queue merely duplicates chunks along the
@@ -250,13 +157,8 @@ pub struct AudioRecorder {
     /// RMS level EMA, atomic bit-cast f32. Wrapped in Arc so the callback
     /// can update the SAME bit-cast the public `level()` reads.
     level_ema_bits: Arc<AtomicU32>,
-    /// Rate of the samples the callback actually produces — the target rate
-    /// when the device rate is an integer multiple of it, the device rate
-    /// otherwise (see [`resample_ratio`]). `0` until the first `start`.
-    ///
-    /// Anyone playing the tap back has to know it: assuming the target rate is
-    /// right for every device except the ones the resampler cannot handle, and
-    /// those are exactly the ones where being wrong is audible.
+    /// Rate after resampling, shared by captured PCM and the live tap.
+    /// `0` until the first `start`.
     tap_sample_rate: AtomicU32,
     stream: Mutex<Option<SendStream>>,
     config: AudioConfig,
@@ -288,7 +190,10 @@ impl AudioRecorder {
     pub fn new(config: AudioConfig) -> Result<Self, String> {
         Ok(Self {
             state: Mutex::new(RecorderState::Idle),
-            is_recording: AtomicBool::new(false),
+            is_recording: Arc::new(AtomicBool::new(false)),
+            resampler: Arc::new(Mutex::new(None)),
+            capture_error: Arc::new(Mutex::new(None)),
+            first_frame_ms: Arc::new(AtomicU64::new(u64::MAX)),
             audio_buffer: Arc::new(Mutex::new(Vec::with_capacity(Self::APPROX_CAPACITY))),
             level_ema_bits: Arc::new(AtomicU32::new(0.0_f32.to_bits())),
             live_tap: Arc::new(Mutex::new(None)),
@@ -367,46 +272,25 @@ impl AudioRecorder {
         let target_rate = self.config.sample_rate_target;
         let channels_for_cb = channels;
         let sample_rate_for_cb = sample_rate_u32;
-        self.tap_sample_rate.store(
-            match resample_ratio(sample_rate_u32, target_rate) {
-                Some(_) => target_rate,
-                None => sample_rate_u32,
-            },
-            Ordering::Release,
-        );
-
-        // Error callback takes StreamError by value in cpal 0.15.
-        let err_cb = |err: cpal::StreamError| {
-            log::error!("cpal stream error: {err}");
+        *crate::mutex_recover::lock(&self.resampler) =
+            Some(AudioResampler::new(sample_rate_u32, target_rate)?);
+        *crate::mutex_recover::lock(&self.capture_error) = None;
+        self.first_frame_ms.store(u64::MAX, Ordering::Relaxed);
+        self.tap_sample_rate.store(target_rate, Ordering::Release);
+        let capture_error = Arc::clone(&self.capture_error);
+        let recording = Arc::clone(&self.is_recording);
+        let err_cb = move |err: cpal::StreamError| {
+            *crate::mutex_recover::lock(&capture_error) = Some(format!("microphone stream: {err}"));
+            recording.store(false, Ordering::Release);
         };
 
-        // CALLBACK CLOSURE DESIGN (per glm-5.2 review):
-        // `cpal::build_input_stream<T>` is generic over T — the runtime
-        // SampleFormat is encoded in the `T` type parameter at compile
-        // time. We dispatch by building a different closure for each
-        // common sample format. The cpal stream is single-consumer per
-        // branch (one callback instance per stream), so we do NOT need a
-        // Mutex around the data callback. Each closure captures Arc-clones
-        // of the shared state by `move`.
-        //
-        // For non-F32 sample types, the callback allocates a `Vec<f32>` to
-        // hold the per-callback converted samples — this is a one-shot
-        // allocation per ~10ms callback window and is GC-style pressure
-        // that the audio thread can absorb. The F32 path is allocation-
-        // free (move semantics on &[f32]).
-        // We select ONE of the closures based on sample_format at start
-        // time. The selected closure gets an Arc-clone of the live
-        // `is_recording` and `level_ema_bits` flags. After `stream.play()`
-        // we flip the shared `is_recording_cb` once, and the closure
-        // observes the new value on its next invocation.
-        //
-        // cpal 0.15's `build_input_stream<T>` requires the sample
-        // type `T` at compile time but selects the runtime sample
-        // format from `T::FORMAT` — so each match arm uses a fresh
-        // closure of type `FnMut(&[T], &InputCallbackInfo)` for that T.
-        // Branches are mutually exclusive (only one is built), so each
-        // arm is free to move its own clone of the Arcs.
-        let is_recording_cb: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+        // `cpal::build_input_stream<T>` encodes the runtime sample format in
+        // its `T` type parameter, so the match below builds one closure per
+        // format. Exactly one arm runs, and each may move its own Arc clones.
+        // Non-F32 arms allocate one `Vec<f32>` per callback for the converted
+        // samples; F32 skips that step, and every format shares the mixdown,
+        // resampling and buffering downstream.
+        let is_recording_cb = Arc::clone(&self.is_recording);
 
         // Each non-F32 arm below differs only in the sample type `T` and the
         // per-sample `T -> f32` conversion. This macro keeps those two knobs
@@ -429,7 +313,7 @@ impl AudioRecorder {
                         &cb_sinks,
                     );
                 };
-                device.build_input_stream::<$sample, _, _>(&stream_config, cb, err_cb, None)
+                device.build_input_stream::<$sample, _, _>(&stream_config, cb, err_cb.clone(), None)
             }};
         }
 
@@ -447,39 +331,37 @@ impl AudioRecorder {
                         &cb_sinks,
                     );
                 };
-                device.build_input_stream::<f32, _, _>(&stream_config, cb, err_cb, None)
+                device.build_input_stream::<f32, _, _>(&stream_config, cb, err_cb.clone(), None)
             }
             SampleFormat::I16 => build_converting_stream!(i16, |&s| i16_to_f32(s)),
             SampleFormat::I32 => build_converting_stream!(i32, |&s| s as f32 / 2147483648.0),
             SampleFormat::U8 => build_converting_stream!(u8, |&s| u8_to_f32(s)),
             SampleFormat::F64 => build_converting_stream!(f64, |&s| s as f32),
-            // Other SampleFormat variants (I8, I64, U16, U32, U64) are
-            // exotic — record no audio but build a stream so the device
-            // doesn't enter an error state. The fallback attempts F32;
-            // mismatched-format streams on cpal typically fail to build
-            // (we surface that error) or record garbage (logged).
             _ => {
-                log::error!(
-                    "unsupported sample format: {sample_format:?}; attempting F32 fallback"
-                );
-                let cb = move |_data: &[f32], _: &cpal::InputCallbackInfo| {};
-                device.build_input_stream::<f32, _, _>(&stream_config, cb, err_cb, None)
+                return Err(format!(
+                    "unsupported microphone sample format: {sample_format:?}"
+                ))
             }
         };
 
         let stream = build_result.map_err(|e| format!("build_input_stream: {e}"))?;
-        stream.play().map_err(|e| format!("stream.play: {e}"))?;
+        {
+            let error = crate::mutex_recover::lock(&self.capture_error);
+            if let Some(error) = error.as_ref() {
+                return Err(error.clone());
+            }
+            // Arm before play so early samples are retained. Never overwrite
+            // a stream-error callback's false flag after play returns.
+            self.is_recording.store(true, Ordering::Release);
+        }
+        if let Err(error) = stream.play() {
+            self.is_recording.store(false, Ordering::Release);
+            return Err(format!("stream.play: {error}"));
+        }
 
         // Wrap in SendStream so the Mutex<Option<SendStream>> can be held
         // in AppState (which requires Send + Sync). See SendStream doc.
         let send_stream = SendStream(stream);
-
-        // Flip the local "is_recording" now that the stream is live so
-        // the callback (which captured its own copy via Arc) starts
-        // gating and writing audio. Using Release ordering pairs with
-        // Acquire on the callback side.
-        is_recording_cb.store(true, Ordering::Release);
-        self.is_recording.store(true, Ordering::Release);
 
         *self.stream.lock().expect("stream lock in start()") = Some(send_stream);
         *self.state.lock().expect("state lock in start()") = RecorderState::Recording;
@@ -502,6 +384,13 @@ impl AudioRecorder {
         if let Some(stream) = stream_opt {
             drop(stream);
         }
+        let sinks = self.capture_sinks();
+        flush_samples(&sinks)?;
+        if let Some(error) = crate::mutex_recover::lock(&self.capture_error).take() {
+            crate::mutex_recover::lock(&self.audio_buffer).clear();
+            *crate::mutex_recover::lock(&self.state) = RecorderState::Error;
+            return Err(error);
+        }
         // 3. Lock the buffer (safe now — no callback is running) and
         //    take the samples.
         let buf_arc = Arc::clone(&self.audio_buffer);
@@ -522,6 +411,10 @@ impl AudioRecorder {
             buffer: Arc::clone(&self.audio_buffer),
             level_bits: Arc::clone(&self.level_ema_bits),
             live_tap: Arc::clone(&self.live_tap),
+            resampler: Arc::clone(&self.resampler),
+            capture_error: Arc::clone(&self.capture_error),
+            first_frame_ms: Arc::clone(&self.first_frame_ms),
+            started_at: Instant::now(),
         }
     }
 
@@ -559,6 +452,15 @@ impl AudioRecorder {
     /// Self-tests stream audio without retaining an ever-growing recording.
     pub fn discard_buffer(&self) {
         crate::mutex_recover::lock(&self.audio_buffer).clear();
+    }
+
+    pub fn has_capture_error(&self) -> bool {
+        crate::mutex_recover::lock(&self.capture_error).is_some()
+    }
+
+    pub fn first_frame_ms(&self) -> Option<u64> {
+        let value = self.first_frame_ms.load(Ordering::Relaxed);
+        (value != u64::MAX).then_some(value)
     }
 
     pub fn is_recording(&self) -> bool {
@@ -619,32 +521,49 @@ pub fn display_level(raw_rms: f32) -> f32 {
 /// Where the recording callback puts its output: the full recording, the level
 /// meter, and an optional tap for the live preview. One struct rather than three
 /// arguments — the callback holds them together for its entire lifetime.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 struct CaptureSinks {
     buffer: Arc<Mutex<Vec<f32>>>,
     level_bits: Arc<AtomicU32>,
     live_tap: Arc<Mutex<Option<std::sync::mpsc::SyncSender<Vec<f32>>>>>,
+    resampler: Arc<Mutex<Option<AudioResampler>>>,
+    capture_error: Arc<Mutex<Option<String>>>,
+    first_frame_ms: Arc<AtomicU64>,
+    started_at: Instant,
 }
 
-/// Which block-averaging ratio the callback will apply, or `None` when the
-/// device rate is not an integer multiple of the target and the audio goes
-/// through untouched.
-///
-/// One function rather than a condition repeated in two places: the callback
-/// picks the resampler by it, and [`AudioRecorder::tap_sample_rate`] answers by
-/// it what rate the produced samples actually carry. Written twice, the two
-/// would drift, and the second one lying is worse than not existing — the echo
-/// monitor plays what it is told the rate is.
-fn resample_ratio(device_rate: u32, target_rate: u32) -> Option<usize> {
-    let ratio = device_rate as f32 / target_rate as f32;
-    [1usize, 2, 3, 6]
-        .into_iter()
-        .find(|&candidate| (ratio - candidate as f32).abs() < 0.01)
+#[cfg(test)]
+impl Default for CaptureSinks {
+    fn default() -> Self {
+        Self {
+            buffer: Default::default(),
+            level_bits: Default::default(),
+            live_tap: Default::default(),
+            resampler: Default::default(),
+            capture_error: Default::default(),
+            first_frame_ms: Arc::new(AtomicU64::new(u64::MAX)),
+            started_at: Instant::now(),
+        }
+    }
 }
 
-/// resample, append to buffer. Called from cpal callback (real-time
-/// thread). MUST keep it brief — no allocation beyond what cpal already
-/// pre-allocated via `Vec<f32>` for non-F32 sample types.
+fn append_samples(sinks: &CaptureSinks, samples: &[f32]) {
+    if samples.is_empty() {
+        return;
+    }
+    if let Some(tx) = crate::mutex_recover::lock(&sinks.live_tap).as_ref() {
+        let _ = tx.try_send(samples.to_vec());
+    }
+    crate::mutex_recover::lock(&sinks.buffer).extend_from_slice(samples);
+}
+
+fn flush_samples(sinks: &CaptureSinks) -> Result<(), String> {
+    if let Some(mut filter) = crate::mutex_recover::lock(&sinks.resampler).take() {
+        append_samples(sinks, filter.finish()?);
+    }
+    Ok(())
+}
+
 fn process_samples(
     data: &[f32],
     channels: u16,
@@ -653,82 +572,41 @@ fn process_samples(
     is_recording: &Arc<AtomicBool>,
     sinks: &CaptureSinks,
 ) {
-    let CaptureSinks {
-        buffer,
-        level_bits,
-        live_tap,
-    } = sinks;
-    if !is_recording.load(Ordering::Acquire) {
+    if !is_recording.load(Ordering::Acquire) || data.is_empty() {
         return;
     }
-    // RMS update — EMA-smoothed for stable VU meter feel.
-    let rms = if data.is_empty() {
-        0.0
-    } else {
-        let sum_sq: f32 = data.iter().map(|&s| s * s).sum();
-        (sum_sq / data.len() as f32).sqrt()
-    };
-    let prev = f32::from_bits(sinks.level_bits.load(Ordering::Acquire));
-    let new_level = prev * 0.7 + rms * 0.3;
-    level_bits.store(new_level.to_bits(), Ordering::Release);
-
-    // Mono mixdown if stereo (or multi-channel). For stereo this is the
-    // classic (L+R)/2 average. We always average; never take just one
-    // channel — that would clip or bias.
-    //
-    // Uses `chunks_exact` to avoid silently mixing a partial trailing
-    // frame (fewer than `channels` samples) into an incorrect mono sample.
-    // A misaligned cpal driver will trigger a log::warn! below.
-    let mono: Vec<f32> = if channels > 1 {
-        if !data.len().is_multiple_of(channels as usize) {
-            log::warn!(
-                "process_samples: data length {} not divisible by {} channels; dropping {} trailing samples",
-                data.len(),
-                channels,
-                data.len() % channels as usize
-            );
-        }
-        data.chunks_exact(channels as usize)
-            .map(|frame| frame.iter().sum::<f32>() / channels as f32)
-            .collect()
-    } else {
-        data.to_vec()
-    };
-
-    // Resample if device rate != target. Block-of-R averaging where R is
-    // the integer ratio (1, 2, 3, or 6). Anything else (e.g. 44.1 kHz
-    // devices where ratio ≈ 2.76) falls through with `mono` and a
-    // log::error — async polyphase resampling is out of scope for WS 4a2b.
-    let final_audio: Vec<f32> = match resample_ratio(sample_rate, target_rate) {
-        Some(1) => mono,
-        Some(2) => resample_2_to_1(&mono),
-        Some(3) => resample_3_to_1(&mono),
-        Some(6) => resample_6_to_1(&mono),
-        _ => {
-            log::error!(
-                "unsupported sample rate ratio {:.2} ({} -> {}); using raw audio, ASR will degrade",
-                sample_rate as f32 / target_rate as f32,
-                sample_rate,
-                target_rate
-            );
-            mono
-        }
-    };
-
-    // The preview tap comes before writing to the buffer and only via a
-    // non-blocking send: a full queue means the preview is not keeping up, and
-    // it is the preview that should be dropped, not the dictation. The clone
-    // happens only when a tap is attached.
-    if let Ok(guard) = live_tap.lock() {
-        if let Some(tx) = guard.as_ref() {
-            let _ = tx.try_send(final_audio.clone());
-        }
+    if sinks.first_frame_ms.load(Ordering::Relaxed) == u64::MAX {
+        sinks.first_frame_ms.store(
+            sinks.started_at.elapsed().as_millis() as u64,
+            Ordering::Relaxed,
+        );
     }
-
-    // Append to buffer. The lock is held only for the duration of the
-    // extend — never across `.await` or any other blocking call.
-    if let Ok(mut buf) = buffer.lock() {
-        buf.extend_from_slice(&final_audio);
+    let rms = (data.iter().map(|s| s * s).sum::<f32>() / data.len() as f32).sqrt();
+    let prev = f32::from_bits(sinks.level_bits.load(Ordering::Relaxed));
+    sinks
+        .level_bits
+        .store((prev * 0.7 + rms * 0.3).to_bits(), Ordering::Release);
+    let mono;
+    let samples = if channels > 1 {
+        mono = data
+            .chunks_exact(channels as usize)
+            .map(|frame| frame.iter().sum::<f32>() / channels as f32)
+            .collect::<Vec<_>>();
+        mono.as_slice()
+    } else {
+        data
+    };
+    let result = (|| {
+        let mut guard = crate::mutex_recover::lock(&sinks.resampler);
+        if guard.is_none() {
+            *guard = Some(AudioResampler::new(sample_rate, target_rate)?);
+        }
+        append_samples(sinks, guard.as_mut().unwrap().push(samples)?);
+        Ok::<_, String>(())
+    })();
+    if let Err(error) = result {
+        *crate::mutex_recover::lock(&sinks.capture_error) = Some(error);
+        is_recording.store(false, Ordering::Release);
     }
 }
 
@@ -769,74 +647,6 @@ mod tests {
             let actual = u8_to_f32(input);
             assert!((actual - expected).abs() < 0.01);
         }
-    }
-
-    #[test]
-    fn resample_3_to_1_decimates_correctly() {
-        let input: Vec<f32> = (0..30).map(|i| i as f32).collect();
-        let output = resample_3_to_1(&input);
-        assert_eq!(output.len(), 10);
-        // First 3-sample average = (0+1+2)/3 = 1.0
-        assert!((output[0] - 1.0).abs() < 0.001);
-        // Second = (3+4+5)/3 = 4.0
-        assert!((output[1] - 4.0).abs() < 0.001);
-    }
-
-    #[test]
-    fn resample_short_input_returns_empty() {
-        assert_eq!(resample_3_to_1(&[]).len(), 0);
-        assert_eq!(resample_3_to_1(&[1.0, 2.0]).len(), 0);
-    }
-
-    #[test]
-    fn resample_2_to_1_deterministic() {
-        // 6 samples → 3 samples (block-of-2 averaging).
-        let input: Vec<f32> = vec![0.0, 1.0, 0.0, 1.0, 0.0, 1.0];
-        let output = resample_2_to_1(&input);
-        assert_eq!(output.len(), 3);
-        // block[0] = (0+1)/2 = 0.5
-        assert!((output[0] - 0.5).abs() < 1e-5);
-        // block[1] = (0+1)/2 = 0.5
-        assert!((output[1] - 0.5).abs() < 1e-5);
-        // block[2] = (0+1)/2 = 0.5
-        assert!((output[2] - 0.5).abs() < 1e-5);
-    }
-
-    #[test]
-    fn resample_2_to_1_short_input() {
-        // len=1 < 2 → empty (matches resample_3_to_1's "len < R → empty" pattern).
-        let output = resample_2_to_1(&[1.0]);
-        assert_eq!(output.len(), 0);
-    }
-
-    #[test]
-    fn resample_2_to_1_empty() {
-        let output = resample_2_to_1(&[]);
-        assert_eq!(output.len(), 0);
-    }
-
-    #[test]
-    fn resample_6_to_1_deterministic() {
-        let input: Vec<f32> = (0..12).map(|i| i as f32).collect();
-        let output = resample_6_to_1(&input);
-        assert_eq!(output.len(), 2);
-        // block[0] = (0+1+2+3+4+5)/6 = 2.5
-        assert!((output[0] - 2.5).abs() < 1e-5);
-        // block[1] = (6+7+8+9+10+11)/6 = 8.5
-        assert!((output[1] - 8.5).abs() < 1e-5);
-    }
-
-    #[test]
-    fn resample_6_to_1_short_input() {
-        // len=5 < 6 → empty.
-        let output = resample_6_to_1(&[1.0, 2.0, 3.0, 4.0, 5.0]);
-        assert_eq!(output.len(), 0);
-    }
-
-    #[test]
-    fn resample_6_to_1_empty() {
-        let output = resample_6_to_1(&[]);
-        assert_eq!(output.len(), 0);
     }
 
     #[test]
@@ -967,22 +777,6 @@ mod tests {
         );
     }
 
-    /// Exactly R samples is one block, not "too short". Catches swapping
-    /// `len < R` for `==`/`<=` in all three resamplers.
-    #[test]
-    fn resample_helpers_respect_the_ratio_boundary() {
-        assert_eq!(resample_3_to_1(&[1.0, 2.0, 3.0]), vec![2.0]);
-        assert_eq!(resample_2_to_1(&[1.0, 2.0]), vec![1.5]);
-        assert_eq!(resample_6_to_1(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]), vec![3.5]);
-    }
-
-    /// Non-periodic input: the block index must advance (`i * 2`), otherwise all
-    /// blocks collapse into the first one.
-    #[test]
-    fn resample_2_to_1_uses_distinct_blocks() {
-        assert_eq!(resample_2_to_1(&[0.0, 1.0, 2.0, 3.0]), vec![0.5, 2.5]);
-    }
-
     #[test]
     fn display_level_nan_is_silence() {
         assert_eq!(display_level(f32::NAN), 0.0);
@@ -1034,37 +828,19 @@ mod tests {
         assert_eq!(ids, ["name:USB Mic", "index:1"]);
     }
 
-    /// The rate reported to the echo monitor must be the rate of the samples it
-    /// receives — the target one only while the resampler can reach it.
     #[test]
-    fn the_reported_tap_rate_follows_the_resampler() {
-        for device_rate in [16_000, 32_000, 48_000, 96_000] {
-            assert!(
-                resample_ratio(device_rate, 16_000).is_some(),
-                "{device_rate}"
-            );
-        }
-        // 44.1 kHz: ratio ≈ 2.76, no integer block size — the callback passes
-        // the device's own audio through, and that is what plays back.
-        assert_eq!(resample_ratio(44_100, 16_000), None);
-    }
-
-    /// The tap receives exactly what the recording does: already downmixed to
-    /// mono and resampled to the target rate.
-    #[test]
-    fn the_live_tap_gets_the_same_audio_as_the_recording() {
-        let is_recording = Arc::new(AtomicBool::new(true));
-        let sinks = test_sinks(0.0);
-        let (tx, rx) = std::sync::mpsc::sync_channel(4);
+    fn the_live_tap_and_recording_get_16k_audio_from_44100_stereo() {
+        let (live, sinks) = recording_sink(0.0);
+        let (tx, rx) = std::sync::mpsc::sync_channel(100);
         *sinks.live_tap.lock().unwrap() = Some(tx);
-
-        // Stereo at 32 kHz: the callback must downmix to mono and halve the rate.
-        let data = vec![1.0_f32, 1.0, 0.5, 0.5, 0.25, 0.25, 0.75, 0.75];
-        process_samples(&data, 2, 32_000, 16_000, &is_recording, &sinks);
-
-        let chunk = rx.try_recv().expect("ответвление не получило звук");
-        assert_eq!(chunk, *sinks.buffer.lock().unwrap());
-        assert_eq!(chunk.len(), 2);
+        for chunk in vec![0.5; 88_200].chunks(882) {
+            process_samples(chunk, 2, 44_100, 16_000, &live, &sinks);
+        }
+        flush_samples(&sinks).unwrap();
+        let captured = sinks.buffer.lock().unwrap().clone();
+        let preview: Vec<f32> = rx.try_iter().flatten().collect();
+        assert_eq!(captured.len(), 16_000);
+        assert_eq!(captured, preview);
     }
 
     /// The core invariant: the preview may fall behind, the dictation may not.
@@ -1117,41 +893,5 @@ mod tests {
         let level = f32::from_bits(sinks.level_bits.load(Ordering::Acquire));
         assert!((level - 0.85).abs() < 1e-6, "level {level}");
         assert_eq!(&*sinks.buffer.lock().unwrap(), &[0.5, 0.5, 0.5, 0.5]);
-    }
-
-    #[test]
-    fn process_samples_resamples_32k_to_16k() {
-        let (is_recording, sinks) = recording_sink(0.0);
-        let data = vec![0.0_f32, 1.0, 0.0, 1.0, 0.0, 1.0];
-        process_samples(&data, 1, 32_000, 16_000, &is_recording, &sinks);
-        assert_eq!(
-            sinks.buffer.lock().unwrap().len(),
-            3,
-            "32 kHz → 16 kHz halves the sample count"
-        );
-    }
-
-    #[test]
-    fn process_samples_resamples_48k_to_16k() {
-        let (is_recording, sinks) = recording_sink(0.0);
-        let data: Vec<f32> = (0..9).map(|i| i as f32).collect();
-        process_samples(&data, 1, 48_000, 16_000, &is_recording, &sinks);
-        assert_eq!(
-            sinks.buffer.lock().unwrap().len(),
-            3,
-            "48 kHz → 16 kHz divides the sample count by 3"
-        );
-    }
-
-    #[test]
-    fn process_samples_resamples_96k_to_16k() {
-        let (is_recording, sinks) = recording_sink(0.0);
-        let data: Vec<f32> = (0..12).map(|i| i as f32).collect();
-        process_samples(&data, 1, 96_000, 16_000, &is_recording, &sinks);
-        assert_eq!(
-            sinks.buffer.lock().unwrap().len(),
-            2,
-            "96 kHz → 16 kHz divides the sample count by 6"
-        );
     }
 }

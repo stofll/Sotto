@@ -96,16 +96,37 @@ describe("recording bridge session routing", () => {
     expect(mod.getCurrentSessionId()).toBeNull();
   });
 
-  it("lets an unscoped refusal through without dropping the tracked session", async () => {
-    // `engine_busy_message` emits `whisper-failed` with no session id: it
-    // refuses a recording that never started, so it must reach the UI and
-    // must not retire the dictation already in flight.
+  it("preserves the active cycle when another start is refused", async () => {
     const mod = await subscribe();
 
     emit("recording-started", 8);
     emit("whisper-failed", { message: "Идёт транскрипция файла" });
 
-    expect(mod.getRecordingState()).toBe("error");
+    expect(mod.getRecordingState()).toBe("recording");
     expect(mod.getCurrentSessionId()).toBe(8);
+  });
+
+  it("keeps recording through model events and finishes after a scoped error", async () => {
+    const mod = await subscribe();
+    emit("recording-started", 8);
+    emit("whisper-loading", "tiny");
+    emit("whisper-ready", "tiny");
+    expect(mod.getRecordingState()).toBe("recording");
+    emit("whisper-failed", { session_id: 8, message: "capture failed" });
+    expect(mod.getRecordingState()).toBe("error");
+    expect(mod.getCurrentSessionId()).toBeNull();
+    emit("recording-started", 9);
+    emit("whisper-cancelled", 8);
+    emit("recording-stopped", 9);
+    emit("paste-done", { session_id: 9 });
+    expect(mod.getRecordingState()).toBe("done");
+  });
+
+  it("leaves model loading when the Rust model becomes ready", async () => {
+    const mod = await subscribe();
+    emit("whisper-loading", "tiny");
+    expect(mod.getRecordingState()).toBe("loading");
+    emit("whisper-ready", "tiny");
+    expect(mod.getRecordingState()).toBe("idle");
   });
 });
