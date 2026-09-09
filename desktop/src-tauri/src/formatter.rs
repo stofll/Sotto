@@ -922,6 +922,22 @@ mod localized_preview_tests {
             capitalizer.apply("hello.world?yes!fine"),
             "Hello.World?Yes!Fine"
         );
+        for (input, expected) in [
+            ("контакт:name@example.com", "Контакт:name@example.com"),
+            ("hello!name@example.com", "Hello!name@example.com"),
+            (
+                "(first.Last+tag@example.com).next",
+                "(first.Last+tag@example.com).Next",
+            ),
+            ("name@example.com!next", "name@example.com!Next"),
+            (
+                "name@example.com,other@example.org?yes",
+                "name@example.com,other@example.org?Yes",
+            ),
+            ("hello@!next", "Hello@!Next"),
+        ] {
+            assert_eq!(capitalizer.apply(input), expected, "{input}");
+        }
     }
 }
 
@@ -1968,6 +1984,12 @@ impl FormatStep for ContextReplacements {
     }
 }
 
+// Protect ordinary email addresses, excluding surrounding prose punctuation.
+static EMAIL_ADDRESS: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"[\p{L}\p{N}_%+\-]+(?:\.[\p{L}\p{N}_%+\-]+)*@[\p{L}\p{N}](?:[\p{L}\p{N}\-]*[\p{L}\p{N}])?(?:\.[\p{L}\p{N}](?:[\p{L}\p{N}\-]*[\p{L}\p{N}])?)*")
+        .expect("valid email pattern")
+});
+
 pub struct Capitalizer {
     enabled: bool,
 }
@@ -1991,21 +2013,13 @@ impl FormatStep for Capitalizer {
         }
         let mut out = String::with_capacity(text.len());
         let mut capitalize_next = true;
-        for token in text.split_inclusive(char::is_whitespace) {
-            // Replacement rules can insert email addresses. Their dots and
-            // local-part case are data, not sentence boundaries.
-            if token.split_once('@').is_some_and(|(local, domain)| {
-                local.chars().any(char::is_alphanumeric)
-                    && domain.chars().any(char::is_alphanumeric)
-            }) {
-                out.push_str(token);
-                capitalize_next = token
-                    .trim_end()
-                    .trim_end_matches(['"', '\'', '»', '”', ')', ']', '}'])
-                    .ends_with(['.', '!', '?']);
-                continue;
-            }
-            for ch in token.chars() {
+        let mut cursor = 0;
+        for (start, end) in EMAIL_ADDRESS
+            .find_iter(text)
+            .map(|address| (address.start(), address.end()))
+            .chain(std::iter::once((text.len(), text.len())))
+        {
+            for ch in text[cursor..start].chars() {
                 if capitalize_next && ch.is_alphabetic() {
                     out.extend(ch.to_uppercase());
                     capitalize_next = false;
@@ -2016,6 +2030,12 @@ impl FormatStep for Capitalizer {
                     capitalize_next = true;
                 }
             }
+            if end > start {
+                // Address case and internal dots are data, not sentence boundaries.
+                out.push_str(&text[start..end]);
+                capitalize_next = false;
+            }
+            cursor = end;
         }
         out
     }
