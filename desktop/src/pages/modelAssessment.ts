@@ -20,6 +20,7 @@ export function assessmentText(value?: ModelAssessment): { speed: string; memory
     if (speed.unstable) result.speed += ` ${t("Скорость нестабильна; для шкалы пока недостаточно согласованных замеров.")}`;
   } else if (speed.source === "reference") {
     result.speed = t("Сравнительная скорость по эталонным тестам: {p0}. Скорость на вашем компьютере может отличаться.", { p0: speed.reference ?? "CPU" });
+    if (speed.unstable) result.speed += ` ${t("Личные замеры нестабильны; шкала показывает эталонную скорость.")}`;
   }
   if (speed.samples > 0 && speed.samples < 5) {
     result.speed += ` ${t("Уточняем скорость: {p0} из 5 сопоставимых записей.", { p0: speed.samples })}`;

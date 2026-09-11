@@ -91,6 +91,10 @@ if (process.argv.includes("--keys")) {
   console.log(`keys.json переписан: ${sorted.length}`);
 }
 
+const indexed = JSON.parse(fs.readFileSync("src/i18n/keys.json", "utf8"));
+const staleIndex = indexed.length !== used.size || new Set(indexed).size !== used.size || indexed.some((key) => !used.has(key));
+if (staleIndex) console.error("keys.json устарел; выполните pnpm i18n:keys");
+
 // The dictionary is read as text: a .ts file cannot be imported from node
 // without a build, and all we need are the top-level keys.
 const enSource = fs.readFileSync("src/i18n/en.ts", "utf8");
@@ -121,4 +125,4 @@ if (bare.length) {
   for (const b of bare) console.log(`  ${b.file}:${b.line} ${JSON.stringify(b.text)}`);
 }
 
-process.exit(missing.length || stale.length || bare.length ? 1 : 0);
+process.exit(missing.length || stale.length || bare.length || staleIndex ? 1 : 0);

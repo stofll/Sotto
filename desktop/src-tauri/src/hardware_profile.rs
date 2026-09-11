@@ -25,6 +25,8 @@ pub fn snapshot() -> HardwareSnapshot {
     system.refresh_memory();
     HardwareSnapshot {
         total_bytes: (system.total_memory() > 0).then_some(system.total_memory()),
+        // Zero available RAM is valid. A fresh failed Windows snapshot has
+        // zero total RAM as well, since both values come from one OS call.
         available_bytes: (system.total_memory() > 0).then_some(system.available_memory()),
         gpu_backend: gpu_backend(),
     }

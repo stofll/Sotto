@@ -186,27 +186,11 @@ impl Recorder {
             );
             while let Ok(first) = rx.recv() {
                 // A short transaction per bounded batch; no busy polling.
-                let batch = std::iter::once(first).chain(rx.try_iter().take(31));
-                for message in batch {
-                    match message {
-                        Message::Observe(value) => {
-                            if let Ok(transaction) = db.transaction() {
-                                if insert(&transaction, &value).is_ok()
-                                    && transaction.commit().is_ok()
-                                {
-                                    let _ = app.emit("model-performance-changed", ());
-                                }
-                            }
-                        }
-                        Message::Reset(id, reply) => {
-                            let result =
-                                clear(&db, &id).map_err(|_| "PERFORMANCE_RESET_FAILED".to_owned());
-                            if result.is_ok() {
-                                let _ = app.emit("model-performance-changed", ());
-                            }
-                            let _ = reply.send(result);
-                        }
-                    }
+                let batch = std::iter::once(first)
+                    .chain(rx.try_iter().take(31))
+                    .collect();
+                if apply_batch(&mut db, batch) {
+                    let _ = app.emit("model-performance-changed", ());
                 }
             }
         });
@@ -224,6 +208,31 @@ impl Recorder {
             .map_err(|_| "PERFORMANCE_BUSY")?;
         rx.await.map_err(|_| "PERFORMANCE_UNAVAILABLE")?
     }
+}
+
+fn apply_batch(db: &mut Connection, batch: Vec<Message>) -> bool {
+    let result: rusqlite::Result<()> = (|| {
+        let transaction = db.transaction()?;
+        for message in &batch {
+            match message {
+                Message::Observe(value) => insert(&transaction, value)?,
+                Message::Reset(id, _) => clear(&transaction, id)?,
+            }
+        }
+        transaction.commit()
+    })();
+    let committed = result.is_ok();
+    // A reset is acknowledged only after the entire ordered batch commits.
+    for message in batch {
+        if let Message::Reset(_, reply) = message {
+            let _ = reply.send(if committed {
+                Ok(())
+            } else {
+                Err("PERFORMANCE_RESET_FAILED".into())
+            });
+        }
+    }
+    committed
 }
 
 pub fn record(app: &tauri::AppHandle, observation: Observation) {
@@ -246,17 +255,26 @@ fn insert(db: &Connection, value: &Observation) -> rusqlite::Result<()> {
     Ok(())
 }
 
-fn read(db: &Connection) -> rusqlite::Result<Vec<Observation>> {
+fn read_payloads(db: &Connection) -> rusqlite::Result<Vec<String>> {
     let mut query = db.prepare(
         "SELECT payload FROM model_performance WHERE created >= ?1 ORDER BY id DESC LIMIT 2000",
     )?;
     let rows = query.query_map([now().saturating_sub(RETENTION)], |row| {
         row.get::<_, String>(0)
     })?;
-    Ok(rows
-        .filter_map(Result::ok)
+    rows.collect()
+}
+
+fn decode_observations(payloads: Vec<String>) -> Vec<Observation> {
+    payloads
+        .into_iter()
         .filter_map(|json| serde_json::from_str(&json).ok())
-        .collect())
+        .collect()
+}
+
+#[cfg(test)]
+fn read(db: &Connection) -> rusqlite::Result<Vec<Observation>> {
+    read_payloads(db).map(decode_observations)
 }
 
 fn clear(db: &Connection, id: &str) -> rusqlite::Result<()> {
@@ -428,6 +446,9 @@ fn speed(
     times.sort_by(f64::total_cmp);
     let median = |values: &[f64]| (values[(values.len() - 1) / 2] + values[values.len() / 2]) / 2.0;
     result.unstable = ratios[(ratios.len() - 1) * 3 / 4] > ratios[(ratios.len() - 1) / 4] * 3.0;
+    if result.unstable && result.source == "reference" {
+        return result;
+    }
     result.score = (!result.unstable).then(|| speed_score(median(&ratios)));
     result.source = "personal";
     result.median_ms = Some(median(&times));
@@ -494,8 +515,9 @@ pub async fn model_assessments(
         let gpu = crate::config::resolve_device(config.as_value()) != "cpu";
         let prompt = prompt_fingerprint(crate::custom_words_prompt(&config).as_deref());
         let models = model::list_models(&selected, current.as_deref());
-        let observations = read(&crate::mutex_recover::lock(&db))
+        let payloads = read_payloads(&crate::mutex_recover::lock(&db))
             .map_err(|_| "PERFORMANCE_UNAVAILABLE".to_owned())?;
+        let observations = decode_observations(payloads);
         Ok(assess(&observations, &models, gpu, &language, &prompt))
     })
     .await
@@ -604,6 +626,62 @@ mod tests {
         let result = speed(&profile(), &values, "en", "");
         assert!(result.unstable);
         assert_eq!(result.score, None);
+    }
+
+    #[test]
+    fn unstable_personal_runs_keep_an_available_reference() {
+        let mut context = profile();
+        context.revision = revision("tiny");
+        let expected = speed(&context, &[], "ru", "");
+        assert_eq!(expected.source, "reference");
+        let mut values = vec![sample(); 8];
+        for (index, value) in values.iter_mut().enumerate() {
+            value.profile = context.clone();
+            value.language = "ru".into();
+            if index >= 4 {
+                value.inference_ms *= 10.0;
+            }
+        }
+        let result = speed(&context, &values, "ru", "");
+        assert!(result.unstable);
+        assert_eq!(result.samples, 8);
+        assert_eq!(result.source, "reference");
+        assert_eq!(result.score, expected.score);
+        assert_eq!(result.median_ms, None);
+    }
+
+    #[test]
+    fn batches_preserve_reset_order_and_report_rollbacks() {
+        let mut db = database();
+        let (reply, mut response) = tokio::sync::oneshot::channel();
+        let mut last = sample();
+        last.inference_ms = 1234.0;
+        assert!(apply_batch(
+            &mut db,
+            vec![
+                Message::Observe(sample()),
+                Message::Reset("tiny".into(), reply),
+                Message::Observe(last)
+            ]
+        ));
+        assert_eq!(response.try_recv().unwrap(), Ok(()));
+        let values = read(&db).unwrap();
+        assert_eq!(values.len(), 1);
+        assert_eq!(values[0].inference_ms, 1234.0);
+        db.execute_batch("CREATE TRIGGER reject_measurement BEFORE INSERT ON model_performance BEGIN SELECT RAISE(ABORT, 'synthetic failure'); END;").unwrap();
+        let (reply, mut response) = tokio::sync::oneshot::channel();
+        assert!(!apply_batch(
+            &mut db,
+            vec![
+                Message::Reset("tiny".into(), reply),
+                Message::Observe(sample())
+            ]
+        ));
+        assert_eq!(
+            response.try_recv().unwrap(),
+            Err("PERFORMANCE_RESET_FAILED".into())
+        );
+        assert_eq!(read(&db).unwrap()[0].inference_ms, 1234.0);
     }
     #[test]
     fn persistence_is_bounded_and_old_corrupt_samples_are_ignored() {

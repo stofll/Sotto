@@ -38,4 +38,11 @@ describe("model meter presentation", () => {
     expect(assessmentText(value).compute).toContain("не подтверждено");
     expect(assessmentText(value).memory).toContain("не запрещает");
   });
+  it("explains why unstable personal runs fall back to a reference", () => {
+    const value = structuredClone(assessment);
+    value.speed = { ...value.speed, source: "reference", reference: "Test CPU", score: 0.5, unstable: true, samples: 8 };
+    expect(assessmentText(value).speed).toContain("Test CPU");
+    expect(assessmentText(value).speed).toContain("Личные замеры нестабильны");
+    expect(assessmentText(value).speed).not.toContain("На вашем компьютере:");
+  });
 });

@@ -311,6 +311,7 @@ pub fn engine_thread_main(
                         Some([single]) => Some((*single).to_string()),
                         _ => requested.map(str::to_string),
                     };
+                    let cold = std::mem::replace(&mut first_inference, false);
                     let panic_result =
                         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                             recognizer.transcribe(16_000, &audio)
@@ -340,13 +341,12 @@ pub fn engine_thread_main(
                                     &crate::model_performance::prompt_fingerprint(
                                         initial_prompt.as_deref(),
                                     ),
-                                    first_inference,
+                                    cold,
                                     inference,
                                 )
                             {
                                 crate::model_performance::record(&app_handle, observation);
                             }
-                            first_inference = false;
                         }
                     }
                     let _ = event_tx.blocking_send(EngineEvent::InferenceCompleted {
@@ -461,6 +461,7 @@ pub fn engine_thread_main(
                     "session {session_id}: calling whisper .full() on {} threads",
                     n_threads
                 );
+                let cold = std::mem::replace(&mut first_inference, false);
                 let panic_result = std::panic::catch_unwind(AssertUnwindSafe(|| {
                     // Re-borrow inside the closure so the borrow is released
                     // before we touch `current_state` directly below.
@@ -541,12 +542,11 @@ pub fn engine_thread_main(
                             &crate::model_performance::prompt_fingerprint(
                                 initial_prompt.as_deref(),
                             ),
-                            first_inference,
+                            cold,
                             inference,
                         ) {
                             crate::model_performance::record(&app_handle, observation);
                         }
-                        first_inference = false;
                     }
                 }
                 let completed_event = EngineEvent::InferenceCompleted {

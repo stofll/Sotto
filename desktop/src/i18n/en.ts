@@ -14,6 +14,7 @@
 // tPlural picks the right one by the array's length.
 
 export const en: Record<string, string | string[]> = {
+  "Личные замеры нестабильны; шкала показывает эталонную скорость.": "Personal measurements are unstable; the bar shows the reference speed.",
   "Запас памяти": "Memory headroom",
   "Нет оценки": "Not measured",
   "{p0} из 100": "{p0} out of 100",
