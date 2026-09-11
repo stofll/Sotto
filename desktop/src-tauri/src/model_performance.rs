@@ -757,17 +757,49 @@ mod tests {
     }
 
     #[test]
-    fn reference_catalog_has_valid_exact_artifacts_and_unique_contexts() {
+    fn reference_catalog_has_valid_metrics_and_unique_contexts() {
         let values: Vec<Reference> =
             serde_json::from_str(include_str!("model_reference.json")).unwrap();
         let mut seen = std::collections::HashSet::new();
         for value in values {
-            assert!(model::catalog_model(&value.model_id).is_some());
-            assert_eq!(value.revision, revision(&value.model_id));
+            assert_eq!(value.revision.len(), 64);
+            assert!(value.revision.bytes().all(|byte| byte.is_ascii_hexdigit()));
             assert_eq!(value.method, METHOD);
             assert!(value.rtf.is_finite() && value.rtf > 0.0);
             assert!(!value.machine.is_empty());
             assert!(seen.insert((value.model_id, value.compute, value.language)));
         }
+    }
+
+    #[test]
+    fn reference_artifacts_match_the_platform_catalog() {
+        let values: Vec<Reference> =
+            serde_json::from_str(include_str!("model_reference.json")).unwrap();
+        let mut checked = 0;
+        for value in values {
+            // References are shared across targets, but Linux deliberately
+            // omits the Sherpa registry. Windows/macOS validate every entry.
+            if !cfg!(any(windows, target_os = "macos"))
+                && model::catalog_model(&value.model_id).is_none()
+            {
+                continue;
+            }
+            assert!(
+                model::catalog_model(&value.model_id).is_some(),
+                "{}",
+                value.model_id
+            );
+            assert_eq!(
+                value.revision,
+                revision(&value.model_id),
+                "{}",
+                value.model_id
+            );
+            checked += 1;
+        }
+        assert!(
+            checked > 0,
+            "no reference artifacts checked for this target"
+        );
     }
 }
