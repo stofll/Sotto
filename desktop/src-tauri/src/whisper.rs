@@ -27,6 +27,7 @@ pub enum ModelLoadReason {
 #[derive(Debug)]
 pub enum EngineCommand {
     Transcribe {
+        source: crate::model_performance::RunSource,
         session_id: u64,
         audio: Arc<Vec<f32>>,
         cancel_flag: Arc<AtomicBool>,
@@ -210,6 +211,8 @@ pub fn engine_thread_main(
     engine_current_model: std::sync::Arc<std::sync::Mutex<Option<String>>>,
 ) {
     let mut current_ctx: Option<whisper_rs::WhisperContext> = None;
+    let mut performance_profile: Option<crate::model_performance::Profile> = None;
+    let mut first_inference = true;
     let mut current_state: Option<whisper_rs::WhisperState> = None;
     // Sherpa's C recognizer is !Send/!Sync and stays on this engine thread.
     let mut current_sherpa: Option<crate::sherpa::SherpaRecognizer> = None;
@@ -236,6 +239,7 @@ pub fn engine_thread_main(
         }
         match cmd {
             EngineCommand::Transcribe {
+                source,
                 session_id,
                 audio,
                 cancel_flag,
@@ -326,6 +330,25 @@ pub fn engine_thread_main(
                         Ok(Err(error)) => Err(error),
                         Err(_) => Err("sherpa panicked".to_string()),
                     };
+                    if !cancel_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                        if let (Some(profile), Ok(inference)) = (&performance_profile, &result) {
+                            if let Some(observation) =
+                                crate::model_performance::Observation::inference(
+                                    profile.clone(),
+                                    source,
+                                    language.as_deref().unwrap_or("auto"),
+                                    &crate::model_performance::prompt_fingerprint(
+                                        initial_prompt.as_deref(),
+                                    ),
+                                    first_inference,
+                                    inference,
+                                )
+                            {
+                                crate::model_performance::record(&app_handle, observation);
+                            }
+                            first_inference = false;
+                        }
+                    }
                     let _ = event_tx.blocking_send(EngineEvent::InferenceCompleted {
                         session_id,
                         result: result.clone(),
@@ -509,6 +532,23 @@ pub fn engine_thread_main(
                 // dispatcher / UI can react. Always reply on the oneshot
                 // (even on error with empty payload) so the Tauri command
                 // never blocks forever.
+                if !cancel_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                    if let (Some(profile), Ok(inference)) = (&performance_profile, &result) {
+                        if let Some(observation) = crate::model_performance::Observation::inference(
+                            profile.clone(),
+                            source,
+                            language.as_deref().unwrap_or("auto"),
+                            &crate::model_performance::prompt_fingerprint(
+                                initial_prompt.as_deref(),
+                            ),
+                            first_inference,
+                            inference,
+                        ) {
+                            crate::model_performance::record(&app_handle, observation);
+                        }
+                        first_inference = false;
+                    }
+                }
                 let completed_event = EngineEvent::InferenceCompleted {
                     session_id,
                     result: result.clone().map_err(|e| e.clone()),
@@ -558,6 +598,14 @@ pub fn engine_thread_main(
                         event_tx.blocking_send(EngineEvent::ModelLoading { name: name.clone() });
                 }
                 log::info!("loading model {name} ({spec:?}, {reason:?})");
+                let compute = match &spec {
+                    crate::model::ModelLoadSpec::Whisper { use_gpu, .. } => {
+                        crate::hardware_profile::compute(false, *use_gpu)
+                    }
+                    crate::model::ModelLoadSpec::Sherpa { .. } => "cpu",
+                };
+                let next_profile = crate::model_performance::Profile::new(&name, compute);
+                let load_started = std::time::Instant::now();
                 let result: Result<(), String> = (|| {
                     // CRITICAL drop order: state FIRST (state holds raw
                     // pointers into ctx internals; dropping ctx first
@@ -602,6 +650,16 @@ pub fn engine_thread_main(
                     }
                     Ok(())
                 })();
+                crate::model_performance::record(
+                    &app_handle,
+                    crate::model_performance::Observation::load(
+                        next_profile.clone(),
+                        load_started.elapsed().as_secs_f64() * 1000.0,
+                        result.is_ok(),
+                    ),
+                );
+                performance_profile = result.as_ref().ok().map(|_| next_profile);
+                first_inference = true;
                 match &result {
                     Ok(()) => {
                         *crate::mutex_recover::lock(&engine_current_model) = Some(name.clone());

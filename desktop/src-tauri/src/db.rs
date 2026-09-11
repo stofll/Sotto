@@ -57,6 +57,7 @@ pub fn open() -> Result<Mutex<Connection>, rusqlite::Error> {
 /// v3: exact primary transcription model on each history row.
 /// v4: repair history rows whose two JSON columns the old retry path swapped.
 /// v5: telemetry installation metadata and durable event outbox.
+/// v6: bounded local model performance observations.
 pub fn run_migrations(conn: &Connection) -> Result<(), rusqlite::Error> {
     let current: i32 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
     if current >= SCHEMA_VERSION {
@@ -87,6 +88,10 @@ pub fn run_migrations(conn: &Connection) -> Result<(), rusqlite::Error> {
         conn.execute("PRAGMA user_version = 5", [])?;
         log::info!("db: migration v5 applied (telemetry metadata + outbox)");
     }
+    if current < 6 {
+        conn.execute_batch(include_str!("migrations/v6.sql"))?;
+        conn.execute("PRAGMA user_version = 6", [])?;
+    }
     Ok(())
 }
 
@@ -94,7 +99,7 @@ pub fn run_migrations(conn: &Connection) -> Result<(), rusqlite::Error> {
 ///
 /// Tests assert against this rather than a literal, so adding a migration
 /// does not break every test that only cares about "ended up current".
-pub const SCHEMA_VERSION: i32 = 5;
+pub const SCHEMA_VERSION: i32 = 6;
 
 const SCHEMA_V1: &str = include_str!("migrations/v1.sql");
 const SCHEMA_V2: &str = include_str!("migrations/v2.sql");

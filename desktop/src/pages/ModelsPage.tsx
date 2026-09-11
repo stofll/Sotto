@@ -9,6 +9,9 @@ import { useAnchoredMenu } from "../components/anchoredMenu";
 import type { ConfigResult, ModelInfo } from "../bridge/types";
 import { t } from "../i18n";
 import { ModelActionOverlays, useModelActions } from "./modelActions";
+import { ModelMeters } from "./ModelMeters";
+import { useModelAssessments } from "./useModelAssessments";
+import type { ModelAssessment } from "../bridge/modelAssessments";
 import {
   catalogLanguages,
   EMPTY_FILTERS,
@@ -29,6 +32,8 @@ type Props = {
 };
 
 export function ModelsPage({ models, config, onConfigChanged, onModelsChanged }: Props) {
+  const assessmentContext = useMemo(() => ({ models, config }), [models, config]);
+  const assessments = useModelAssessments(assessmentContext);
   const [filters, setFilters] = useState<CatalogFilters>(EMPTY_FILTERS);
   // Collapsed families. What is stored is the collapsed ones, not the expanded
   // ones: the catalog opens fully, and a newly appearing family must not hide
@@ -135,6 +140,8 @@ export function ModelsPage({ models, config, onConfigChanged, onModelsChanged }:
                   <ModelCard
                     key={model.id}
                     model={model}
+                    assessment={assessments.values[model.id]}
+                    onAssessmentRefresh={assessments.refresh}
                     active={model.id === selectedId}
                     busy={actions.isBusy(model.id)}
                     onSelect={() => actions.requestSelect(model)}
@@ -198,8 +205,10 @@ function CardMenu({ busy, onDelete }: { busy: boolean; onDelete: () => void }) {
   );
 }
 
-function ModelCard({ model, active, busy, onSelect, onDownload, onDelete }: {
+function ModelCard({ model, assessment, onAssessmentRefresh, active, busy, onSelect, onDownload, onDelete }: {
   model: ModelInfo;
+  assessment?: ModelAssessment;
+  onAssessmentRefresh: () => void;
   active: boolean;
   busy: boolean;
   onSelect: () => void;
@@ -235,7 +244,7 @@ function ModelCard({ model, active, busy, onSelect, onDownload, onDelete }: {
       aria-pressed={active}
       onClick={onSelect}
       onKeyDown={(event) => {
-        if (event.key !== "Enter" && event.key !== " ") return;
+        if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
         event.preventDefault();
         onSelect();
       }}
@@ -262,6 +271,7 @@ function ModelCard({ model, active, busy, onSelect, onDownload, onDelete }: {
           model says nothing about it: "no" here is the absence of a line, not a
           line with the word "no". */}
       <div className="model-card2__params">
+        <div className="model-card2__capabilities">
         <span className="model-card2__param model-card2__param--wide" title={languages || undefined}>
           <Icon name="globe" size={11}/>
           {languageSummary(model)}
@@ -272,6 +282,8 @@ function ModelCard({ model, active, busy, onSelect, onDownload, onDelete }: {
             {t("Потоковая")}
           </span>
         )}
+        </div>
+        <ModelMeters id={model.id} value={assessment} onRefresh={onAssessmentRefresh}/>
       </div>
 
       <div className="model-card2__foot">

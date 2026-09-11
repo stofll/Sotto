@@ -63,6 +63,18 @@ Before calling sherpa, every file of a bundle is checked against a closed SHA-25
 
 The loader assembles a bundle in a staging directory and only then atomically publishes the subfolder — an interrupted download leaves no half-installed model, and the download resumes where it stopped.
 
+## Speed and memory hints
+
+Model cards have two continuous bars: **Speed** and **Memory headroom**. More fill means faster processing or more available memory headroom. Click either label or bar to see the evidence, refresh the snapshot or reset that model's local measurements. Unknown values show a dash; warnings never prevent selecting or downloading a model.
+
+Speed initially uses measured CPU reference results for the exact model revision and language setting where available. This compares models on the reference machine; it is not a predicted time on your computer or an accuracy rating. After five comparable successful local dictations, the bar uses their median processing-to-audio ratio. The details show actual audio durations and median processing time. Cold runs and duration bands are kept separate, and inconsistent samples do not produce a confident score. File transcription measurements do not influence the dictation bar. Streaming models are assessed by their final full-audio transcription pass; this does not measure live-preview latency.
+
+Memory headroom uses the catalog's approximate RAM requirement and currently available system memory, reserving 20% for other work. Requirements are estimates, so a full bar is not a guarantee against allocation failure. Already loaded models show that state in the details instead of subtracting their RAM requirement a second time. GPU builds distinguish a CPU request from an unverified GPU request: the current engine API cannot confirm the actual GPU or available VRAM. Such values stay unknown instead of borrowing system RAM as VRAM. A recent load failure is reported separately without guessing that it was caused by memory.
+
+The catalog refreshes on opening, relevant model/configuration changes, completed measurements, and window focus. It does not continuously poll hardware. Measurements stay local and can be reset without deleting models or dictation history; see [Privacy](privacy.md). Reference coverage and reproduction instructions are in [Benchmarks](benchmarks.md).
+
+CPU observations survive restarts while the matching profile remains valid. Observations for an unverified GPU request apply only within the current application session, because an adapter or driver change cannot currently be identified reliably.
+
 ## Models directory
 
 The default location is `%LOCALAPPDATA%/sotto/models` (Linux/macOS use the system cache directory). The path can be overridden with the `SPEECH_TO_TEXT_MODELS_DIR` environment variable.

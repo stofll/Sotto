@@ -15,11 +15,13 @@ mod dictation;
 mod dictionaries;
 mod format_commands;
 pub mod formatter;
+mod hardware_profile;
 mod history;
 mod hotkey;
 pub mod mic_test;
 pub mod model;
 pub mod model_download;
+pub mod model_performance;
 pub mod mutex_recover;
 mod output_volume;
 mod overlay;
@@ -1269,6 +1271,7 @@ mod model_restore_tests {
         .unwrap();
         let (reply, _reply_rx) = tokio::sync::oneshot::channel();
         tx.try_send(EngineCommand::Transcribe {
+            source: crate::model_performance::RunSource::Dictation,
             session_id: 1,
             audio: std::sync::Arc::new(vec![0.0; 160]),
             cancel_flag: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -1965,6 +1968,7 @@ async fn transcribe_file_inner(
         }
     } else {
         crate::whisper::EngineCommand::Transcribe {
+            source: crate::model_performance::RunSource::File,
             session_id,
             audio,
             cancel_flag,
@@ -2493,6 +2497,7 @@ pub(crate) fn build_dictation_command(
     let pipeline_mode = telemetry_pipeline_mode(config);
     if pipeline_mode != "cloud" {
         return Ok(crate::whisper::EngineCommand::Transcribe {
+            source: crate::model_performance::RunSource::Dictation,
             session_id,
             audio,
             cancel_flag,
@@ -3118,6 +3123,10 @@ pub fn run() {
             // itself IS fatal (we can't run without it).
             let db = crate::db::open().map_err(|e| format!("db open: {e}"))?;
             let db_arc = std::sync::Arc::new(db);
+            app.manage(crate::model_performance::Recorder::start(
+                crate::db::db_path().join("sotto.db"),
+                app.handle().clone(),
+            ));
             {
                 let conn = crate::mutex_recover::lock(&db_arc);
                 let config_dir = crate::db::db_path();
@@ -3817,6 +3826,8 @@ pub fn run() {
             install_update,
             list_microphones,
             list_models,
+            model_performance::model_assessments,
+            model_performance::reset_model_assessment,
             get_runtime_status,
             // PR-B0: model lifecycle commands.
             download_model,
