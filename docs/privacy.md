@@ -30,4 +30,8 @@ Review provider settings before enabling a cloud workflow. Do not put secrets, t
 
 History, settings, telemetry outbox data, and optional diagnostic recordings are stored locally by the application. Diagnostic recording is a separate opt-in setting. To request help, share only the minimum redacted logs needed to reproduce a problem.
 
+Model speed hints keep a separate bounded table in the local database: model revision, language setting, processing duration, audio duration, cold/warm state, dictation/file source and generic load success/failure. A local hash of CPU/OS/memory/backend characteristics separates hardware profiles; a hash of the custom vocabulary separates changed recognition settings. These hashes, timings and memory snapshots are never added to telemetry or sent over the network. No audio, transcript, vocabulary text or raw error is stored in this table.
+
+Only the last 30 observations per comparable group are retained, with at most 2,000 observations overall. Observations older than 30 days are excluded from assessments and removed when the measurement store starts or next records a result. Click a model's speed or memory bar and choose **Reset measurements** to erase its observations. This works independently of network telemetry and does not delete dictation history or models.
+
 For a security vulnerability, use the repository's private vulnerability reporting flow described in [SECURITY.md](../SECURITY.md), not a public issue.
