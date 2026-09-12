@@ -12,7 +12,7 @@ assignees: ''
 
 - [ ] Prepare Release run started on `main` with the intended bump or exact stable version.
 - [ ] Dependency review and required checks completed: [release preparation](https://github.com/stofll/Sotto/blob/main/docs/RELEASE.md#pre-release) and [testing](https://github.com/stofll/Sotto/blob/main/docs/testing.md).
-- [ ] Automated version PR passed Rust CI and merged; the intended tag points to the checked release tree.
+- [ ] Source tree passed Rust CI and UI tests; the bot committed only version changes and pushed the intended tag.
 
 ## Build and verify
 

@@ -364,7 +364,7 @@ jobs:
           node-version-file: .node-version
 
       - name: Release version regression tests
-        run: node --test scripts/release-version.test.mjs
+        run: node --test scripts/release-version.test.mjs scripts/check-release-source.test.mjs
 
       - name: Application version consistency
         run: sh scripts/check-version.sh
