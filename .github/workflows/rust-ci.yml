@@ -402,11 +402,11 @@ jobs:
           # `find -path` syntax for excluding dirs is brittle across
           # GNU find versions. We only flag Python files that the
           # repo ACTUALLY tracks within three path segments (`a/b/c.py`).
-          # `scripts/` is the sole exception: release helpers there are
-          # legitimately Python.
+          # Allow Python helpers in `scripts/` and browser tests in
+          # `tests/ui/`; neither is part of the application runtime.
           leaked=$(git ls-files -z -- '*.py' \
               | tr '\0' '\n' \
-              | awk -F/ 'NF<=3 && $1!="scripts"' )
+              | awk -F/ 'NF<=3 && $1!="scripts" && !($1=="tests" && $2=="ui")' )
           if [ -n "$leaked" ]; then
             echo "::error::Python runtime files leaked into the repo root:"
             echo "$leaked"
