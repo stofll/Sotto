@@ -407,7 +407,7 @@ export function OverlayApp() {
   } as const;
 
   return (
-    <div className="app-frame" style={{ position: "fixed", inset: 0, padding: 0, background: "transparent", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", fontFamily: "var(--font-sans)", color: "var(--ink)", letterSpacing: 0 }}>
+    <div data-testid="overlay" data-state={state} className="app-frame" style={{ position: "fixed", inset: 0, padding: 0, background: "transparent", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", fontFamily: "var(--font-sans)", color: "var(--ink)", letterSpacing: 0 }}>
       <div style={shell}>
         {streaming ? (
           // The text takes the full width and lives below the top row: on a

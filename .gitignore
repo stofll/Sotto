@@ -90,3 +90,6 @@ mutants.out.old/
 
 # A side effect of `cargo test --lib`: a test opens sqlite in the crate root.
 desktop/src-tauri/sotto.db
+
+# Browser UI test artifacts (traces, screenshots and reports).
+test-results/

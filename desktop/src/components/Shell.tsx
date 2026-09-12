@@ -243,7 +243,7 @@ export function Sidebar({ tab, onTab, recordingState, pipelineMode, loadedModel,
           const isCollapsed = collapsed[group.id] && !active;
           return (
             <div key={group.id} className="nav__group-wrap">
-              <button className="nav__group" type="button" aria-expanded={!isCollapsed} onClick={() => toggleGroup(group.id)}>
+              <button data-testid={`nav-group-${group.id}`} className="nav__group" type="button" aria-expanded={!isCollapsed} onClick={() => toggleGroup(group.id)}>
                 <span>{group.label}</span>
                 <Icon name="chev-down" size={12} style={{ transform: isCollapsed ? "rotate(-90deg)" : "none", transition: "transform 160ms ease" }}/>
               </button>
@@ -251,7 +251,7 @@ export function Sidebar({ tab, onTab, recordingState, pipelineMode, loadedModel,
                 <div>
                   {group.items.map((item) => {
                     const button = (
-                      <button key={item.id} className="nav__item" aria-selected={tab === item.id} onClick={() => onTab(item.id)}>
+                      <button key={item.id} data-testid={`nav-${item.id}`} className="nav__item" aria-selected={tab === item.id} onClick={() => onTab(item.id)}>
                         <span style={{ color: tab === item.id ? "var(--accent)" : "var(--ink-mute)", display: "flex" }}><Icon name={item.icon} size={15}/></span>
                         <span>{item.label}</span>
                         {item.count != null && <span className="nav__count">{item.count}</span>}
@@ -420,6 +420,7 @@ export function Segmented({ value, options, onChange, disabled = false }: { valu
           type="button"
           className="segmented__option"
           data-selected={item.value === value ? "true" : "false"}
+          aria-pressed={item.value === value}
           disabled={disabled}
           onClick={() => onChange?.(item.value)}
         >

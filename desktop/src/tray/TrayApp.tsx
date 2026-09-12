@@ -201,14 +201,14 @@ export function TrayApp() {
           </div>
         </div>
         <div style={{ padding: "14px 14px 8px" }}>
-          <button onClick={toggleRecording} style={{ width: "100%", appearance: "none", cursor: "pointer", padding: "12px 14px", borderRadius: 10, background: "var(--bg-2)", border: "1px solid var(--line-strong)", display: "flex", alignItems: "center", gap: 12, color: "var(--ink)", textAlign: "left" }}>
+          <button data-testid="tray-record" onClick={toggleRecording} style={{ width: "100%", appearance: "none", cursor: "pointer", padding: "12px 14px", borderRadius: 10, background: "var(--bg-2)", border: "1px solid var(--line-strong)", display: "flex", alignItems: "center", gap: 12, color: "var(--ink)", textAlign: "left" }}>
             <div style={{ width: 32, height: 32, borderRadius: "50%", background: isRecording ? "var(--accent)" : "var(--rec)", display: "grid", placeItems: "center", color: "white", flex: "0 0 auto" }}><Icon name={isRecording ? "pause" : "mic"} size={15}/></div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ font: "500 13px/1.1 var(--font-sans)" }}>{isRecording ? t("Остановить запись") : t("Начать запись")}</div>
               <div style={{ display: "flex", gap: 4, marginTop: 4, alignItems: "center", flexWrap: "wrap" }}>{parts.map((part, index) => <span key={`${part}-${index}`} style={{ display: "inline-flex", gap: 4, alignItems: "center" }}>{index > 0 && <span style={{ color: "var(--ink-mute)", fontSize: 10 }}>+</span>}<span className="kbd" style={{ height: 18, fontSize: 10 }}>{part}</span></span>)}</div>
             </div>
           </button>
-          {error && <div style={{ marginTop: 8, color: "var(--err)", font: "500 11px/1.35 var(--font-sans)" }}>{error}</div>}
+          {error && <div role="alert" style={{ marginTop: 8, color: "var(--err)", font: "500 11px/1.35 var(--font-sans)" }}>{error}</div>}
         </div>
         <div style={{ padding: "0 14px 8px", display: "flex", flexDirection: "column", gap: 2 }}>
           {[

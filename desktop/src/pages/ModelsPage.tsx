@@ -229,6 +229,7 @@ function ModelCard({ model, active, busy, onSelect, onDownload, onDelete }: {
     // The whole card is the selection button: a separate «Выбрать» repeated
     // what the user was already aiming at with the mouse and cost a row.
     <article
+      data-testid={`model-${model.id}`}
       className={state}
       role="button"
       tabIndex={0}

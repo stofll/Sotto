@@ -664,8 +664,10 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
     setSavingRules(true);
     try {
       const result = await onConfigChanged({ replacement_rules: nextRules, replacements: replacementRulesToLegacyRecord(nextRules) });
-      if (result) setRules(replacementRulesFromConfig(result));
-      setSaved(true);
+      if (result) {
+        setRules(replacementRulesFromConfig(result));
+        setSaved(true);
+      }
     } catch {
       setFormError(t("Не удалось сохранить правила замен."));
     } finally {

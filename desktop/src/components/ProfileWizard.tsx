@@ -276,7 +276,7 @@ export function ProfileWizard({ apiKeys, existingProfiles, seed, onClose, onCrea
 
   return (
     <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) requestClose(); }}>
-      <div className="modal modal--wide" role="dialog" aria-modal="true">
+      <div className="modal modal--wide" role="dialog" aria-modal="true" aria-label={t("Новый профиль LLM")}>
         {/* The counter goes beside the title, and the segments below take over
             the head's divider instead of lying on top of it: the window is 710px
             tall at its smallest, and two of those rows were spent on saying
@@ -329,7 +329,7 @@ export function ProfileWizard({ apiKeys, existingProfiles, seed, onClose, onCrea
                 {isCustom && (
                   <label style={{ display: "grid", gap: 6, marginTop: 4 }}>
                     <span className="wizard-label">Base URL</span>
-                    <input className="field mono wizard-url-field" value={state.baseUrl} onChange={(e) => update({ baseUrl: e.target.value })}
+                    <input className="field mono wizard-url-field" aria-label="Base URL" value={state.baseUrl} onChange={(e) => update({ baseUrl: e.target.value })}
                       placeholder="https://api.example.com/v1" autoFocus
                       aria-invalid={urlBlocks} aria-describedby={urlNote ? "wizard-url-check" : undefined}/>
                     {urlNote && (
@@ -451,7 +451,7 @@ export function ProfileWizard({ apiKeys, existingProfiles, seed, onClose, onCrea
               {state.provider === "compatible" && (
                 <label style={{ display: "grid", gap: 6 }}>
                   <span className="wizard-label">Base URL</span>
-                  <input className="field mono wizard-url-field" value={state.baseUrl} onChange={(e) => update({ baseUrl: e.target.value })} placeholder="https://api.example.com/v1"
+                  <input className="field mono wizard-url-field" aria-label="Base URL" value={state.baseUrl} onChange={(e) => update({ baseUrl: e.target.value })} placeholder="https://api.example.com/v1"
                     aria-invalid={urlBlocks} aria-describedby={urlNote ? "wizard-url-review" : undefined}/>
                   {urlNote && (
                     <div id="wizard-url-review" role={urlNote.level === "error" ? "alert" : "status"}

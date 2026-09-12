@@ -79,6 +79,7 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
   const [newProvider, setNewProvider] = useState<string>(PROVIDERS[0].id);
   const [newLabel, setNewLabel] = useState("");
   const [newKey, setNewKey] = useState("");
+  const [newKeyError, setNewKeyError] = useState<string | null>(null);
   const [newRevealed, setNewRevealed] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [replaceLabel, setReplaceLabel] = useState("");
@@ -442,6 +443,7 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
   }
 
   async function addCustomKey() {
+    setNewKeyError(null);
     const trimmed = newKey.trim();
     if (!trimmed) {
       showMessage(t("Введите значение ключа."));
@@ -455,7 +457,7 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
       label,
     });
     if (!result.saved) {
-      showMessage(t("Не удалось сохранить ключ."));
+      setNewKeyError(t("Не удалось сохранить ключ."));
       return;
     }
     onApiKeysChanged({ ...apiKeys, [ref]: { available: true, label: result.label, masked: result.masked } });
@@ -574,7 +576,7 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
           const testRunning = testingKey === testKey;
 
           return (
-            <div key={profile.id} style={{ borderTop: i === 0 ? "none" : "1px solid var(--line-soft)" }}>
+            <div key={profile.id} data-testid={`profile-${profile.id}`} style={{ borderTop: i === 0 ? "none" : "1px solid var(--line-soft)" }}>
               {/* The row is not one big button: a pencil and a rename field go
                   inside it, and a button inside a button is invalid. */}
               <div className="prov-row prov-row--split">
@@ -756,7 +758,7 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
           <span className="section-head__count">
             {query ? `${filteredSlots.length} / ${slots.length}` : slots.length}
           </span>
-          <button className="btn btn--primary" onClick={() => setAdding(true)}>
+          <button className="btn btn--primary" onClick={() => { setNewKeyError(null); setAdding(true); }}>
             <Icon name="plus" size={12}/>  {t("Добавить ключ")} </button>
         </div>
 
@@ -764,7 +766,7 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
           {slots.length === 0 && (
             <div className="list-empty">
               <span>{t("Сохранённых ключей нет. Добавьте первый ключ — он появится в этом списке и сможет быть привязан к любому профилю.")}</span>
-              <button className="btn btn--ghost" onClick={() => setAdding(true)}>
+              <button className="btn btn--ghost" onClick={() => { setNewKeyError(null); setAdding(true); }}>
                 <Icon name="plus" size={12}/>  {t("Добавить первый ключ")} </button>
             </div>
           )}
@@ -775,7 +777,7 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
             const provider = PROVIDERS.find((p) => p.id === slot.provider) ?? PROVIDERS[0];
             const isEditing = editing === slot.ref;
             return (
-              <div key={slot.ref} className="keys-row" title={`slot: ${slot.ref}`}>
+              <div key={slot.ref} data-testid={`key-${slot.ref}`} className="keys-row" title={`slot: ${slot.ref}`}>
                 <span className="row-dot" data-active={slot.isActive ? "true" : "false"} title={slot.isActive ? t("Используется активным профилем") : undefined}/>
                 <ProviderMark provider={provider} size={16}/>
                 <div className="keys-row__id">
@@ -798,7 +800,7 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
                         ? { id: "edit", label: t("Заменить ключ"), icon: "pencil", onSelect: () => startEdit(slot) }
                         : { id: "edit", label: t("Задать ключ"), icon: "key", onSelect: () => startEdit(slot) },
                       ...(slot.info.available
-                        ? [{ id: "delete", label: t("Удалить"), icon: "trash", danger: true, onSelect: () => void deleteSlot(slot) }]
+                        ? [{ id: "delete", label: t("Удалить"), icon: "trash", danger: true, onSelect: () => void deleteSlot(slot).catch((error) => showMessage(error instanceof Error ? error.message : String(error))) }]
                         : []),
                     ]}
                   />
@@ -833,7 +835,7 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
                           <Icon name={replaceRevealed ? "eye-off" : "eye"} size={13}/>
                         </button>
                       </Hint>
-                      <button className="btn btn--primary" onClick={() => void saveSlot(slot, replaceLabel, replaceKey)} disabled={!replaceKey.trim()} style={{ height: 30 }}>
+                      <button className="btn btn--primary" onClick={() => void saveSlot(slot, replaceLabel, replaceKey).catch((error) => showMessage(error instanceof Error ? error.message : String(error)))} disabled={!replaceKey.trim()} style={{ height: 30 }}>
                         <Icon name="check" size={12}/>  {t("Сохранить")} </button>
                       <button className="btn btn--ghost" onClick={cancelEdit} style={{ height: 30 }}>{t("Отмена")}</button>
                     </div>
@@ -857,7 +859,7 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
 
       {adding && (
         <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) { setAdding(false); setNewRevealed(false); } }}>
-          <div className="modal" role="dialog" aria-modal="true">
+          <div className="modal" role="dialog" aria-modal="true" aria-label={t("Новый API-ключ")}>
             <div className="modal__head">
               <div>
                 <h2>{t("Новый API-ключ")}</h2>
@@ -901,9 +903,10 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
                   </Hint>
                 </div>
               </label>
+              {newKeyError && <div role="alert" className="set-warn">{newKeyError}</div>}
             </div>
             <div className="modal__foot">
-              <button className="btn btn--primary" onClick={() => void addCustomKey()} disabled={!newKey.trim()}>
+              <button className="btn btn--primary" onClick={() => void addCustomKey().catch((error) => setNewKeyError(error instanceof Error ? error.message : String(error)))} disabled={!newKey.trim()}>
                 <Icon name="check" size={12}/>  {t("Сохранить ключ")} </button>
               <button className="btn btn--ghost" onClick={() => { setAdding(false); setNewRevealed(false); }}>{t("Отмена")}</button>
             </div>

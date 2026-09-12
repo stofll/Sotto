@@ -369,7 +369,7 @@ export function MainWindow() {
         <TitleBar collapsed={collapsed} onToggleCollapse={toggleSidebarCollapse}/>
         <div className={`win__layout${collapsed ? " collapsed" : ""}`}>
           <Sidebar tab={tab} onTab={setTab} recordingState={recordingState} pipelineMode={config?.ai_processing?.pipeline_mode} loadedModel={actualModelLabel(runtime, "")} loadsOnDemand={runtime?.model_loads_on_demand} theme={theme} onToggleTheme={() => void toggleTheme()} downloadProgress={downloadProgress} collapsed={collapsed}/>
-          <main className="win__main">
+          <main className="win__main" data-testid="main-content">
             {permissions.length > 0 && permissions.map((p) => (
               <div key={p.permission} role="alert" style={{ margin: "14px 32px 0", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", padding: "12px 14px", borderRadius: 8, background: "var(--accent-soft)", border: "1px solid var(--accent-soft-2)", color: "var(--accent-text)", font: "500 12.5px/1.4 var(--font-sans)" }}>
                 <Icon name="info" size={14}/>
@@ -411,7 +411,7 @@ export function MainWindow() {
 function PageWithMvpGate({ tab, children }: { tab: TabId; children: React.ReactNode }) {
   const isMvpReady = isMvpTab(tab);
   return (
-    <div style={{ position: "relative", flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
+    <div data-testid={`page-${tab}`} style={{ position: "relative", flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
       {children}
       {!isMvpReady && (
         <div
@@ -476,5 +476,5 @@ function DeferredPage({ tab }: { tab: TabId }) {
 }
 
 function LoadingState() {
-  return <div className="loading-state"><div style={{ display: "flex", alignItems: "center", gap: 10, font: "500 13px/1 var(--font-sans)" }}><div style={{ width: 16, height: 16, borderRadius: "50%", border: "2px solid var(--bg-4)", borderTopColor: "var(--accent)", animation: "spin .8s linear infinite" }}/>{t("Подключение к backend")}</div></div>;
+  return <div className="loading-state" data-testid="startup-loading"><div style={{ display: "flex", alignItems: "center", gap: 10, font: "500 13px/1 var(--font-sans)" }}><div style={{ width: 16, height: 16, borderRadius: "50%", border: "2px solid var(--bg-4)", borderTopColor: "var(--accent)", animation: "spin .8s linear infinite" }}/>{t("Подключение к backend")}</div></div>;
 }

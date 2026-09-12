@@ -6,24 +6,48 @@
 
 ## Pre-release
 
-### 1. Version Bump
+### 1. Prepare the version in GitHub Actions
 
-Four files carry the version, and `scripts/check-version.sh` fails the release build if any of them disagrees:
+Keep the application version unchanged during normal development. Once the intended changes are merged, open **Actions → Prepare Release → Run workflow**, leave the branch set to `main`, and select `patch`, `minor`, or `major`. An optional exact stable version such as `0.1.0` overrides that selection; enter it without a `v` prefix.
+
+| Selection | From `0.0.5` |
+|---|---|
+| `patch` | `0.0.6` |
+| `minor` | `0.1.0` |
+| `major` | `1.0.0` |
+| Exact version `0.2.0` | `0.2.0` |
+
+The automatic bump starts from the greatest of the checked-in version and existing stable `vX.Y.Z` tags. Tags for unfinished drafts reserve their numbers too. An exact version must be greater than that baseline; this workflow accepts stable versions only.
+
+Prepare Release creates a version-only PR, dispatches Rust CI on its head commit, waits for success, and merges it using the normal branch protections. It then tags the merged commit and calls the release build, which creates a draft. The version is fixed before compilation; publishing the draft does not change it.
+
+The workflow updates these four sources together without updating dependencies:
 
 | File | Field |
 |---|---|
-| `desktop/src-tauri/Cargo.toml` | `version` |
-| `desktop/src-tauri/Cargo.lock` | the `sotto` package entry — `cargo update -p sotto` |
+| `desktop/src-tauri/Cargo.toml` | package `version` |
+| `desktop/src-tauri/Cargo.lock` | version of the `sotto` package |
 | `desktop/package.json` | `version` |
 | `desktop/src-tauri/Info.plist` | `CFBundleShortVersionString` |
 
-`tauri.conf.json` is not in the list: it has no `version` key, so Tauri reads the one from `Cargo.toml`.
+`tauri.conf.json` has no version override, so Tauri uses `Cargo.toml`. `scripts/check-version.sh` verifies agreement in PR CI and before release builds. There is no need to edit these files or create the tag manually for the normal release path.
 
-```bash
-sh scripts/check-version.sh vX.Y.Z
-```
+#### Repository permissions
 
-Commit: `chore(release): bump version to X.Y.Z`.
+Enable **Settings → Actions → General → Workflow permissions → Allow GitHub Actions to create and approve pull requests**. The workflows request their own scoped `contents`, `pull-requests`, and `actions` permissions and use `GITHUB_TOKEN`; no personal access token is required. The workflow creates a PR but never approves one or bypasses branch protection.
+
+The current `main` rules require a PR, an up-to-date branch, and the Rust CI checks, with no required approvals. If approvals are introduced later, they must be provided before the merge job can succeed. A workflow started from a branch other than `main`, or in a fork, skips preparation.
+
+Bot-created PRs and tag pushes do not automatically trigger other workflows. Prepare Release explicitly dispatches Rust CI on the release branch so required checks attach to the PR head, then explicitly calls Release after tagging. Keep those explicit invocations if changing the workflow structure.
+
+#### Failures and retries
+
+- For a transient CI or merge error, use **Re-run failed jobs** in the original Prepare Release run. It reuses that run's version and PR. A retry accepts an existing tag only if it points to the same release commit.
+- If `main` changes during preparation, or the code needs fixing, close the unmerged release PR, merge the fixes into `main`, and start Prepare Release again. Preparation refuses to create another PR while a `release/` PR is open. Do not manually edit the release PR: the workflow checks and tags the captured commit only.
+- If preparation failed before creating a PR, fix the reported permissions or input problem and start a new run. An unused `release/` branch can be deleted after confirming that no run is using it.
+- If the release build fails after tagging, rerun its failed jobs or run **Release** manually with the existing tag. The build and SBOM resolve that tag rather than the selected UI branch. Published releases cannot be rebuilt; issue a new version instead.
+
+For local inspection, `sh scripts/check-version.sh [vX.Y.Z]` checks metadata without modifying it. `sh scripts/release.sh` remains an optional dry run for the manual tagging path; it is not a step in automated preparation.
 
 ### 2. Dependency Audit
 
@@ -167,7 +191,7 @@ Losing the private key means shipped installations can no longer be updated: the
 
 ## Tag & Build
 
-Tagging is enough — `.github/workflows/release.yml` builds Windows and macOS arm64, signs the artifacts, generates `latest.json` and attaches everything to a **draft** release.
+Prepare Release creates the tag and calls `.github/workflows/release.yml` automatically. A manually pushed tag also starts that build. It builds Windows and macOS arm64, signs the artifacts, generates `latest.json` and attaches everything to a **draft** release.
 
 Publishing that draft is what makes the update visible to users, so check the build before you press it.
 
@@ -175,7 +199,7 @@ The release body is what the app shows as "what's new", so write it for users ra
 
 ### Tag Format
 
-Tags follow `vX.Y.Z` (e.g., `v0.2.0`). Pre-release tags use `vX.Y.Z-rc.N` (e.g., `v0.2.0-rc.1`).
+Automated stable releases use `vX.Y.Z` (e.g., `v0.2.0`). The version checker also accepts pre-release tags such as `v0.2.0-rc.1`, but Prepare Release does not manage a pre-release channel. The manual stable tagging fallback requires synchronized versions already committed to `main`:
 
 ```bash
 # After version bump commit is on main
