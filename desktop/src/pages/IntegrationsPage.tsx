@@ -446,7 +446,8 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
     setNewKeyError(null);
     const trimmed = newKey.trim();
     if (!trimmed) {
-      showMessage(t("Введите значение ключа."));
+      // Inside the dialog, not in the page-level toast the overlay covers.
+      setNewKeyError(t("Введите значение ключа."));
       return;
     }
     const ref = `key_${Date.now().toString(36)}`;

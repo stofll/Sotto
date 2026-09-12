@@ -663,13 +663,15 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
     setFormError(null);
     setSavingRules(true);
     try {
+      // A rejected save never lands here: onConfigChanged reports backend
+      // failures in the window-wide banner and answers null. So only a config
+      // that actually came back may mark the rules saved — the page keeps the
+      // unsaved state and an enabled button for a retry.
       const result = await onConfigChanged({ replacement_rules: nextRules, replacements: replacementRulesToLegacyRecord(nextRules) });
       if (result) {
         setRules(replacementRulesFromConfig(result));
         setSaved(true);
       }
-    } catch {
-      setFormError(t("Не удалось сохранить правила замен."));
     } finally {
       setSavingRules(false);
     }
@@ -805,7 +807,7 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
                   <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 24px minmax(0, 1fr)", gap: 8, alignItems: "center" }}><input ref={index === 0 ? findRef : undefined} className="field mono" value={rule.find} onChange={(e) => updateRule(rule.id, { find: e.target.value })} placeholder={t("что искать")} style={{ height: 30 }}/><Icon name="arrow-right" size={13} style={{ color: "var(--ink-mute)" }}/><input className="field mono" value={rule.replace} onChange={(e) => updateRule(rule.id, { replace: e.target.value })} placeholder={t("на что заменить")} style={{ height: 30 }}/></div>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 8 }}><CustomSelect<string> value={rule.match} options={Object.entries(MATCH_LABELS()).map<SelectOption<string>>(([value, label]) => ({ value, label }))} onChange={(next) => updateRule(rule.id, { match: next as ReplacementMatchMode })}/><label className="pill" style={{ justifyContent: "center", cursor: "pointer" }}><input className="checkbox" type="checkbox" checked={rule.case_sensitive} onChange={(e) => updateRule(rule.id, { case_sensitive: e.target.checked })}/> Aa</label><label className="pill" style={{ justifyContent: "center", cursor: "pointer" }}><input className="checkbox" type="checkbox" checked={rule.preserve_case} onChange={(e) => updateRule(rule.id, { preserve_case: e.target.checked })}/>  {t("Регистр")}</label></div>
                 </div>)}</div>}
-                {formError && <div style={{ padding: "10px 12px", color: "var(--err)", font: "500 12px/1.4 var(--font-sans)", borderTop: "1px solid var(--line)" }}>{formError}</div>}
+                {formError && <div role="alert" style={{ padding: "10px 12px", color: "var(--err)", font: "500 12px/1.4 var(--font-sans)", borderTop: "1px solid var(--line)" }}>{formError}</div>}
               </div>
 
               {/* Export and import are one-off operations, and on one line with
