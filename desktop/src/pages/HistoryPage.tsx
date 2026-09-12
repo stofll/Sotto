@@ -910,6 +910,7 @@ function EntryCard(props: {
 
   return (
     <article
+      data-testid={`history-entry-${entry.id}`}
       style={{
         display: "grid",
         gridTemplateColumns: "auto 1fr auto",

@@ -14,6 +14,7 @@ This is the public documentation index for Sotto. Start with the guides below; d
 ## Contributing
 
 - [Development](development.md) — prerequisites and a local development loop.
+- [Browser UI testing](ui-testing.md) — Python/Playwright setup, isolation, coverage boundaries, and artifacts.
 - [Testing](testing.md) — checks expected before opening a pull request.
 - [Releasing](releasing.md) — contributor-facing release overview.
 - [Release process](RELEASE.md) — the maintainer's step-by-step runbook: signing, updater keys, asset order, rollback.

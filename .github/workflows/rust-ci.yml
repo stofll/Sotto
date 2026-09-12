@@ -358,6 +358,17 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
 
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        with:
+          node-version-file: .node-version
+
+      - name: Release version regression tests
+        run: node --test scripts/release-version.test.mjs
+
+      - name: Application version consistency
+        run: sh scripts/check-version.sh
+
       # Закрепление Actions по SHA имеет смысл, только если его нельзя
       # незаметно отменить. Тег вроде `v4` — это ссылка, которую владелец
       # репозитория может перевести на другой коммит; SHA — нет.
@@ -391,11 +402,11 @@ jobs:
           # `find -path` syntax for excluding dirs is brittle across
           # GNU find versions. We only flag Python files that the
           # repo ACTUALLY tracks within three path segments (`a/b/c.py`).
-          # `scripts/` is the sole exception: release helpers there are
-          # legitimately Python.
+          # Allow Python helpers in `scripts/` and browser tests in
+          # `tests/ui/`; neither is part of the application runtime.
           leaked=$(git ls-files -z -- '*.py' \
               | tr '\0' '\n' \
-              | awk -F/ 'NF<=3 && $1!="scripts"' )
+              | awk -F/ 'NF<=3 && $1!="scripts" && !($1=="tests" && $2=="ui")' )
           if [ -n "$leaked" ]; then
             echo "::error::Python runtime files leaked into the repo root:"
             echo "$leaked"

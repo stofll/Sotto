@@ -10,13 +10,13 @@ assignees: ''
 
 ## Prepare
 
-- [ ] Version matches the intended tag: `sh scripts/check-version.sh vX.Y.Z`.
+- [ ] Prepare Release run started on `main` with the intended bump or exact stable version.
 - [ ] Dependency review and required checks completed: [release preparation](https://github.com/stofll/Sotto/blob/main/docs/RELEASE.md#pre-release) and [testing](https://github.com/stofll/Sotto/blob/main/docs/testing.md).
-- [ ] Release dry run passes on clean `main`: `sh scripts/release.sh`.
+- [ ] Automated version PR passed Rust CI and merged; the intended tag points to the checked release tree.
 
 ## Build and verify
 
-- [ ] Release tag pushed; Windows and macOS release jobs and the artifact path checks pass.
+- [ ] Windows and macOS draft release jobs and the artifact path checks pass.
 - [ ] Draft contains all [required assets](https://github.com/stofll/Sotto/blob/main/docs/RELEASE.md#draft-contents), including update signatures, checksums, the portable ZIP, and dependency/license reports.
 - [ ] Windows and macOS installers tested with isolated data; model loading, recording, stop/cancel, and paste/copy checked. Record OS versions, models, and results below.
 - [ ] Windows portable ZIP tested, including manual update while preserving its data folder.

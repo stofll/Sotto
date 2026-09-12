@@ -189,6 +189,8 @@ function HotkeyDisplay({ hotkey, fallback, onConfigChanged }: {
         <div className="hotkey-edit" style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <input
             className="field mono"
+            data-testid="hotkey-input"
+            aria-label={t("Горячая клавиша")}
             value={value}
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={(e) => {

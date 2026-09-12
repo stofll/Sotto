@@ -321,7 +321,7 @@ export function ModelActionOverlays({ actions }: { actions: ModelActions }) {
             </button>
           </Hint>
           {status.kind === "loading" && (
-            <span className="model-download-toast__track">
+            <span className="model-download-toast__track" role="progressbar" aria-label={status.text} aria-valuemin={0} aria-valuemax={100} aria-valuenow={status.progress ?? undefined}>
               <span
                 className={status.progress == null ? "model-download-toast__bar model-download-toast__bar--indeterminate" : "model-download-toast__bar"}
                 style={status.progress == null ? undefined : { width: `${status.progress}%` }}

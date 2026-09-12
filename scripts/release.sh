@@ -54,7 +54,7 @@ echo ""
 # ---------------------------------------------------------------------------
 info "Checking version consistency..."
 sh scripts/check-version.sh
-ok "Cargo.toml, Cargo.lock, package.json, Info.plist and README.md agree."
+ok "Cargo.toml, Cargo.lock, package.json and Info.plist agree."
 
 # ---------------------------------------------------------------------------
 # 1. Clean working tree

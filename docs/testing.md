@@ -29,6 +29,16 @@ Build the frontend before Cargo checks: Tauri reads `desktop/dist`. On Windows, 
 
 The CI workflow is authoritative for the operating-system matrix. Run relevant checks locally before a pull request; CI repeats them on clean runners. Local success does not replace CI, and CI does not replace native verification.
 
+## Browser UI tests
+
+Run the Python/Playwright suite for UI changes. [Browser UI testing](ui-testing.md) documents setup, focused commands, test boundaries and failure artifacts; `.github/workflows/ui-tests.yml` runs Chromium and WebKit on pull requests. Keep the existing frontend checks above: browser tests complement their logic, IPC-contract, i18n and bundle checks.
+
+## Release automation
+
+Run `node --test scripts/release-version.test.mjs` from the repository root when changing version preparation. These tests use temporary Git repositories and metadata copies; they do not bump the working copy, push tags, or launch the application. PR CI also runs them and checks version consistency with `sh scripts/check-version.sh`.
+
+Validate workflow edits with `actionlint`. A local pass cannot verify GitHub repository permissions, protected-branch merging, or signed artifact publication; those require a real Prepare Release run after the workflow is merged.
+
 ## Prepared speech and real models
 
 Every PR runs deterministic tests without speech downloads, plus an explicitly selected real Whisper CPU smoke test on Windows, macOS and Linux. Windows and macOS also run the Sherpa smoke test. The ignored marker keeps network/model downloads out of an ordinary local `cargo test`; the CI commands explicitly include those tests.

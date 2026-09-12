@@ -1,0 +1,196 @@
+name: Prepare Release
+run-name: Prepare release (${{ inputs.version || inputs.kind }})
+
+on:
+  workflow_dispatch:
+    inputs:
+      kind:
+        description: Version bump (ignored when an exact version is supplied)
+        type: choice
+        default: patch
+        options: [patch, minor, major]
+      version:
+        description: Optional exact stable version, e.g. 0.1.0 (without v)
+        type: string
+        required: false
+
+concurrency:
+  group: prepare-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    name: Prepare version PR
+    if: github.repository == 'stofll/Sotto' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      branch: ${{ steps.pr.outputs.branch }}
+      sha: ${{ steps.pr.outputs.sha }}
+      pr: ${{ steps.pr.outputs.pr }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        with:
+          node-version-file: .node-version
+
+      - name: Refuse overlapping release PRs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          open=$(gh pr list --base main --state open --limit 1000 --json headRefName,url --jq '.[] | select(.headRefName | startswith("release/")) | .url')
+          if [ -n "$open" ]; then
+            echo "::error::Finish or close the existing release PR before preparing another: $open"
+            exit 1
+          fi
+
+      - name: Calculate and synchronize version
+        id: version
+        env:
+          RELEASE_KIND: ${{ inputs.kind }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: node scripts/release-version.mjs
+
+      - name: Create release PR
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          branch="release/$RELEASE_TAG-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          git switch -c "$branch"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add desktop/src-tauri/Cargo.toml desktop/src-tauri/Cargo.lock desktop/package.json desktop/src-tauri/Info.plist
+          git commit -m "chore(release): prepare $RELEASE_TAG"
+          git push origin "HEAD:refs/heads/$branch"
+          cat > "$RUNNER_TEMP/release-body.md" <<'BODY'
+          Synchronize the application version for the next stable release. Dependency versions are unchanged.
+
+          Prepare Release runs Rust CI and the UI tests on this commit, merges this PR after the required checks pass, and builds a draft release. Publication remains manual.
+          BODY
+          pr=$(gh pr create --base main --head "$branch" --title "chore(release): prepare $RELEASE_TAG" --body-file "$RUNNER_TEMP/release-body.md")
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "pr=$pr" >> "$GITHUB_OUTPUT"
+          printf 'Version: **%s**\n\nRelease PR: %s\n' "$RELEASE_TAG" "$pr" >> "$GITHUB_STEP_SUMMARY"
+
+  checks:
+    name: Check release commit
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      # Bot-created PRs do not trigger pull_request workflows. Dispatch each
+      # gating workflow on the branch so required check runs belong to the
+      # actual PR head SHA. Every workflow that gates `main` from a
+      # `pull_request` trigger must be listed here: an unlisted required check
+      # would never report and the merge job below would wait forever.
+      - name: Dispatch and wait for required checks
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_BRANCH: ${{ needs.prepare.outputs.branch }}
+          RELEASE_SHA: ${{ needs.prepare.outputs.sha }}
+          CHECK_WORKFLOWS: rust-ci.yml ui-tests.yml
+        run: |
+          set -euo pipefail
+          watch=''
+          for workflow in $CHECK_WORKFLOWS; do
+            previous=$(gh run list --workflow "$workflow" --branch "$RELEASE_BRANCH" --event workflow_dispatch --limit 1 --json databaseId --jq '.[0].databaseId // 0')
+            gh workflow run "$workflow" --ref "$RELEASE_BRANCH"
+            run_id=''
+            for attempt in $(seq 1 60); do
+              run_id=$(gh run list --workflow "$workflow" --branch "$RELEASE_BRANCH" --event workflow_dispatch --commit "$RELEASE_SHA" --limit 20 --json databaseId --jq ".[] | select(.databaseId > $previous) | .databaseId" | head -n 1)
+              [ -z "$run_id" ] || break
+              sleep 5
+            done
+            if [ -z "$run_id" ]; then
+              echo "::error::Could not find the dispatched $workflow run. Inspect that workflow before retrying this job."
+              exit 1
+            fi
+            echo "$workflow: https://github.com/$GH_REPO/actions/runs/$run_id" >> "$GITHUB_STEP_SUMMARY"
+            watch="$watch $run_id"
+          done
+          # Dispatch everything before waiting: watching in sequence would add
+          # the shorter workflow's runtime to the longer one's for no benefit.
+          for run_id in $watch; do
+            gh run watch "$run_id" --exit-status --interval 30
+          done
+
+  tag:
+    name: Merge release PR and tag
+    needs: [prepare, checks]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          fetch-depth: 0
+
+      - name: Merge checked PR and create immutable tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_PR: ${{ needs.prepare.outputs.pr }}
+          RELEASE_SHA: ${{ needs.prepare.outputs.sha }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          set -euo pipefail
+          state=$(gh pr view "$RELEASE_PR" --json state --jq .state)
+          if [ "$state" != MERGED ]; then
+            git fetch origin main
+            if [ "$(git rev-parse "$RELEASE_SHA^")" != "$(git rev-parse origin/main)" ]; then
+              echo '::error::main changed during preparation. Close this PR and start Prepare Release again.'
+              exit 1
+            fi
+            # No admin bypass: main's required checks and up-to-date rule apply.
+            gh pr merge "$RELEASE_PR" --merge --match-head-commit "$RELEASE_SHA"
+          fi
+          merge_sha=$(gh pr view "$RELEASE_PR" --json mergeCommit --jq .mergeCommit.oid)
+          test -n "$merge_sha" && test "$merge_sha" != null
+          git fetch origin main --tags
+          git merge-base --is-ancestor "$merge_sha" origin/main
+          # Never tag an untested tree if main moved or somebody edited the PR.
+          git diff --exit-code "$RELEASE_SHA" "$merge_sha"
+          git checkout --detach "$merge_sha"
+          sh scripts/check-version.sh "$RELEASE_TAG"
+          if git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"; then
+            test "$(git rev-parse "$RELEASE_TAG^{commit}")" = "$merge_sha"
+          else
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git tag -a "$RELEASE_TAG" -m "Release $RELEASE_TAG" "$merge_sha"
+            git push origin "refs/tags/$RELEASE_TAG"
+          fi
+          printf 'Tag: **%s**\n\nCommit: `%s`\n' "$RELEASE_TAG" "$merge_sha" >> "$GITHUB_STEP_SUMMARY"
+
+  release:
+    name: Build draft release
+    needs: [prepare, tag]
+    permissions:
+      contents: write
+    # A GITHUB_TOKEN tag push does not trigger release.yml; call it explicitly.
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.prepare.outputs.tag }}
+    secrets: inherit

@@ -38,7 +38,18 @@ CARGO_LOCK='desktop/src-tauri/Cargo.lock'
 PACKAGE_JSON='desktop/package.json'
 INFO_PLIST='desktop/src-tauri/Info.plist'
 
-cargo_version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' "$CARGO_TOML" | head -n 1)
+# Bound to [package]: any other section with a `version` key must not win,
+# and scripts/release-version.mjs scopes its edit the same way.
+cargo_version=$(awk '
+    /^\[/ { in_package = ($0 == "[package]"); next }
+    in_package && /^version = "/ {
+        line = $0
+        sub(/^version = "/, "", line)
+        sub(/".*$/, "", line)
+        print line
+        exit
+    }
+' "$CARGO_TOML")
 cargo_lock_version=$(awk '
     /^\[\[package\]\]$/ { in_package = 1; is_app = 0; next }
     in_package && /^name = "sotto"$/ { is_app = 1; next }

@@ -137,7 +137,6 @@ export const en: Record<string, string | string[]> = {
   "Не удалось скопировать. Скопируйте текст вручную.": "Could not copy. Please copy the text manually.",
   "Не загрузилось при старте — {p0}": "Failed to load at startup — {p0}",
   "Не удалось сохранить ключ.": "Could not save the key.",
-  "Не удалось сохранить правила замен.": "Could not save the replacement rules.",
   "Не удалось импортировать JSON.": "Could not import the JSON.",
   "Недоступно в портативной версии: запись автозапуска указывала бы на папку, которая ездит вместе с приложением, и перебила бы автозапуск установленной копии.":
     "Not available in the portable version: the autostart entry would point at a folder that travels with the app, and it would override the installed copy's autostart.",

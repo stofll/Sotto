@@ -1,8 +1,6 @@
 name: Release
 
-# Запускается тегом вида v0.2.0 либо руками. На push в ветки не висит:
-# полная сборка Tauri дорогая по runner-минутам. Дешёвая проверка (fmt,
-# clippy, build, test на трёх ОС) висит на PR — см. rust-ci.yml.
+# Called by Prepare Release, by a tag push, or manually to retry a draft build.
 on:
   push:
     tags: ["v*"]
@@ -12,12 +10,49 @@ on:
         description: "Тег релиза, например v0.2.0"
         required: true
 
+  workflow_call:
+    inputs:
+      tag:
+        description: Existing release tag to build
+        required: true
+        type: string
+
+concurrency:
+  group: release-build-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
 jobs:
+  resolve:
+    name: Resolve release tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.ref.outputs.sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+        with:
+          ref: refs/tags/${{ inputs.tag || github.ref_name }}
+      - name: Verify tag and refuse published releases
+        id: ref
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          sh scripts/check-version.sh "$RELEASE_TAG"
+          published=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases" --jq '.[] | select(.draft == false) | .tag_name')
+          if printf '%s\n' "$published" | grep -Fxq "$RELEASE_TAG"; then
+            echo '::error::Published releases cannot be rebuilt. Prepare a new version.'
+            exit 1
+          fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
   release:
     name: Собрать и подписать
+    needs: resolve
     permissions:
       # tauri-action создаёт черновик релиза и заливает в него артефакты.
       contents: write
@@ -47,6 +82,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1  # v4.3.0
@@ -70,7 +107,7 @@ jobs:
       - name: Проверить согласованность версии релиза
         shell: bash
         env:
-          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: sh scripts/check-version.sh "$RELEASE_TAG"
 
       # rustc вшивает file!() каждой зависимости в сообщения паники, а это
@@ -202,8 +239,8 @@ jobs:
           SOTTO_POSTHOG_API_KEY: ${{ secrets.SOTTO_POSTHOG_API_KEY }}
         with:
           projectPath: desktop
-          tagName: ${{ github.event.inputs.tag || github.ref_name }}
-          releaseName: "Sotto ${{ github.event.inputs.tag || github.ref_name }}"
+          tagName: ${{ inputs.tag || github.ref_name }}
+          releaseName: "Sotto ${{ inputs.tag || github.ref_name }}"
           # Ключа releaseBody здесь намеренно нет: апдейтер показывает тело
           # релиза как «что нового», поэтому заметки пишутся руками в самом
           # релизе на GitHub. См. docs/RELEASE.md → Publish.
@@ -221,7 +258,7 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           $binaryDirectory = Join-Path $env:CARGO_TARGET_DIR "$env:CARGO_BUILD_TARGET/release"
           $archive = Join-Path $env:RUNNER_TEMP "Sotto-$env:RELEASE_TAG-windows-x64-portable.zip"
@@ -260,7 +297,7 @@ jobs:
       contents: write
     uses: ./.github/workflows/sbom.yml
     with:
-      release_tag: ${{ github.event.inputs.tag || github.ref_name }}
+      release_tag: ${{ inputs.tag || github.ref_name }}
 
   # Контрольные суммы — то немногое, что пользователь может проверить сам,
   # пока сборки не подписаны сертификатом издателя. Отдельной задачей после
@@ -279,7 +316,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
           mkdir -p assets && cd assets

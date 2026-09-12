@@ -61,9 +61,10 @@ desktop/
   src-tauri/      Rust backend (Tauri commands, whisper engine, audio, DB, AI)
 docs/             public user, contributor, privacy, and release docs
 scripts/          build + release helpers
+tests/ui/         browser UI tests against the Vite entry points
 ```
 
-[Architecture](architecture.md) describes the boundaries these directories implement.
+[Architecture](architecture.md) describes the boundaries these directories implement, and [Browser UI testing](ui-testing.md) covers the `tests/ui/` suite.
 
 ## Pinned GitHub Actions
 

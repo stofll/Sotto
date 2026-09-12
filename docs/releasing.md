@@ -4,10 +4,10 @@ This is the contributor-facing release outline. The CI workflow and the maintain
 
 Before proposing a release:
 
-1. Agree on the release version, update the package metadata, and prepare user-facing release notes using the [release notes template](RELEASE.md#whats-new-template).
+1. Agree on the release scope and prepare user-facing release notes using the [release notes template](RELEASE.md#whats-new-template).
 2. Run the checks in [Testing](testing.md) and verify the affected platforms.
 3. Review model/runtime assets, privacy behavior, installer output, and release notes for the actual target matrix.
-4. Create the release tag only after the version consistency check and CI pass.
+4. Run **Actions → Prepare Release** on `main`, selecting a version bump or an exact stable version. It updates metadata in a PR, runs the required checks, merges the PR, tags the checked tree, and builds a draft. See [preparation and repository permissions](RELEASE.md#1-prepare-the-version-in-github-actions).
 
 The release draft receives a CycloneDX SBOM and a license report alongside the installers; see [Development](development.md) for how they are produced. Check that they are present before publishing the draft.
 
