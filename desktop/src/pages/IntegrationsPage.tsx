@@ -567,8 +567,6 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
         {draftProfiles.length === 0 && (
           <div className="list-empty">
             <span>{t("Профилей ещё нет. Профиль — это связка «провайдер + ключ + модель»; из него LLM-обработка берёт всё, что ей нужно.")}</span>
-            <button className="btn btn--ghost" onClick={() => setWizardSeed({})}>
-              <Icon name="plus" size={12}/>  {t("Создать профиль")} </button>
           </div>
         )}
         {draftProfiles.length > 0 && visibleProfiles.length === 0 && (
@@ -778,8 +776,6 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
           {slots.length === 0 && (
             <div className="list-empty">
               <span>{t("Сохранённых ключей нет. Добавьте первый ключ — он появится в этом списке и сможет быть привязан к любому профилю.")}</span>
-              <button className="btn btn--ghost" onClick={startAdding}>
-                <Icon name="plus" size={12}/>  {t("Добавить первый ключ")} </button>
             </div>
           )}
           {slots.length > 0 && filteredSlots.length === 0 && (

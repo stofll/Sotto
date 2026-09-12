@@ -1045,6 +1045,7 @@ fn usage_payload(session: &UsageAccumulator, timeout_minutes: u64) -> UsageFinis
         .mode_counts
         .iter()
         .enumerate()
+        .filter(|(_, count)| **count > 0)
         .max_by_key(|(_, count)| *count)
         .and_then(|(index, _)| MODES.get(index).copied())
         .unwrap_or("other");
@@ -1659,6 +1660,34 @@ mod tests {
         assert_eq!(payload.audio_seconds, 10);
         assert_eq!(payload.dominant_pipeline_mode, "local");
         assert_eq!(payload.timeout_minutes, 30);
+    }
+
+    #[test]
+    fn sessions_without_a_known_transcription_mode_do_not_claim_cloud_usage() {
+        // LLM utility actions open sessions without incrementing mode counts.
+        for transcription_count in [0, 1] {
+            let session = UsageAccumulator {
+                transcription_count,
+                ..UsageAccumulator::started(Instant::now())
+            };
+            assert_eq!(usage_payload(&session, 30).dominant_pipeline_mode, "other");
+        }
+    }
+
+    #[test]
+    fn session_dominant_mode_requires_observed_usage() {
+        for (mode_counts, expected) in [
+            ([2, 1, 0], "local"),
+            ([0, 2, 1], "hybrid"),
+            ([0, 0, 1], "cloud"),
+        ] {
+            let session = UsageAccumulator {
+                mode_counts,
+                transcription_count: mode_counts.iter().sum(),
+                ..UsageAccumulator::started(Instant::now())
+            };
+            assert_eq!(usage_payload(&session, 30).dominant_pipeline_mode, expected);
+        }
     }
 
     /// A file job can legitimately run longer than the whole inactivity

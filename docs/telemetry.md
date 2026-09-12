@@ -99,7 +99,7 @@ A usage session begins with a real microphone/file attempt or an explicit LLM ut
 
 A watcher checks inactivity every 15 seconds.
 
-The event contains active duration through the last action—not the idle timeout—plus transcription, success, failure and cancellation counts, rounded audio/time-saved totals, dominant pipeline mode, and the effective timeout.
+The event contains active duration through the last action—not the idle timeout—plus transcription, success, failure and cancellation counts, rounded audio/time-saved totals, dominant pipeline mode, and the effective timeout. `dominant_pipeline_mode` is `other` when the session has no observed local, hybrid or cloud transcription, including sessions containing only LLM utility actions.
 
 An in-flight long transcription prevents the idle watcher from splitting that single operation into two sessions.
 
@@ -138,3 +138,22 @@ Use a separate PostHog project for development/staging payload inspection and pr
 Group model usage by `stt_model` for stable counts across display-name changes. For readable chart labels, use `stt_model_name` with `stt_model` as the fallback for older events, cloud models, and custom models. The display-name field is an optional addition to schema version 1.
 
 Older `custom_local` events cannot be recovered: their original model IDs were discarded before delivery. Compare versions using `app_version` when assessing adoption after this change.
+
+### Missing breakdown values (`None`)
+
+The producer omits unavailable optional properties; it does not send a literal `None` provider or mode. Investigate an empty breakdown by checking the event type, the property's scope and `app_version` before treating it as lost telemetry. All Sotto dimensions below are **event properties**, not person properties; person profiles are disabled. PostHog documents these distinct [breakdown scopes](https://posthog.com/docs/product-analytics/trends/breakdowns).
+
+| Question | Event and breakdown | Filter or interpretation |
+| --- | --- | --- |
+| Which transcription routes are used? | `transcription.completed` → `pipeline_mode` | Always populated in the current producer: `local`, `hybrid`, `cloud`, or `other`. |
+| Which route dominates a usage session? | `usage_session.finished` → `dominant_pipeline_mode` | This event has no `pipeline_mode`; `app.started` has neither field. |
+| Which STT adapters complete work? | `transcription.completed` → `stt_provider` | `local` or `compatible`; cloud failures and cancellations can omit the provider. |
+| Which LLM providers are used successfully? | `transcription.completed` → `llm_provider` | Filter `llm_used = true` and provider is set. |
+| Which LLM providers fall back? | `transcription.completed` → `llm_provider` | Filter `llm_fallback = true`; inspect missing providers separately. For a fallback rate, divide by relevant LLM operations, not all transcriptions. |
+| Which validated LLM models are used? | `transcription.completed` → `llm_model` | Filter model is set; rejected or skipped requests intentionally omit it. |
+
+Provider analytics describe operations, not saved settings. Local dictation without LLM processing has no `llm_provider` or `llm_model`, and an unrecognized provider is omitted by the allowlist. Cloud STT reports the fixed `compatible` adapter, not the service hostname or a custom profile name. Do not fill missing providers with the currently selected setting: that would report unused configurations as actual usage.
+
+Keep the unfiltered completed-transcription series as the denominator for LLM adoption. Filtering all series to provider is set would silently remove non-LLM dictations and inflate adoption. For an overview that retains every completed transcription, a [SQL breakdown](https://posthog.com/docs/sql/expressions) can use `coalesce(properties.llm_provider, 'not_reported')`; label this as not reported, since absence alone does not prove that LLM processing was disabled. Check `llm_attempted`, `llm_used` and `llm_fallback` to distinguish outcomes.
+
+If `pipeline_mode` or `stt_provider` is missing on current `transcription.completed` events, the normal producer contract does not explain it. Inspect those events and the chart's event/person property selection, filters and version range. Correcting a chart can reinterpret historical missing fields, but a new application build cannot recover values that were never sent.

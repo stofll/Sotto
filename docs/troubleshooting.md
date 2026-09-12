@@ -24,6 +24,14 @@ Change the interval, or switch the behaviour off entirely, under Settings → Ad
 
 While the model is out of memory the sidebar says so and states that it comes back on its own; "No model loaded" means something else — nothing is selected or downloaded.
 
+## Recording seems to start late
+
+There is no intentional countdown before capture. The hotkey's 500 ms auto-repeat guard ignores repeated key-down events while the key is held; it does not postpone the first press. Hotkey and tray starts use the same capture lifecycle.
+
+Each recording opens the selected microphone again. Configuration and route checks, the audio worker queue, device setup and the first audio callback all precede captured speech; their duration depends on the device and system. The recording overlay is notified after the stream starts and the start hooks run, so its appearance is not an exact timestamp for the first captured sample. Model restoration is queued after the stream starts and does not wait for inference readiness before capturing audio.
+
+For measurements, use the local `capture timing` log entries described in [Testing](testing.md). `queue_ms` includes start checks before the audio worker runs, and `stream_ready_ms` is measured from the same start request. `first_callback_ms` starts later, just before stream construction: it excludes device selection and configuration, and must not be treated as the full hotkey-to-audio delay or added to `stream_ready_ms`. Compare cold and repeated starts with the same microphone, OS and build; file transcription does not exercise microphone startup.
+
 ## The hotkey, microphone, or paste action does not work
 
 Check the operating-system permissions and verify that another application has not claimed the shortcut.
