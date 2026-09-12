@@ -39,6 +39,12 @@ const stats: StatsResult = {
 
 // Only the test runner injects this bundle; application entry points never import it.
 export function install(seed: any = {}) {
+  // Playwright accumulates init scripts, so a test that opens a second window
+  // runs both of them in the new document. A second pass would re-wrap invoke
+  // and double every subscription count, and its seed would lose to the first
+  // one anyway, so the first harness keeps the page. conftest refuses the
+  // second open_app outright; this is the guard behind that contract.
+  if ((window as any).__sottoTest) return;
   const saved = sessionStorage.getItem('sotto-test-state');
   const state = saved ? JSON.parse(saved) : {
     config: { ...config, ...seed.config, text_formatting: { ...config.text_formatting, ...seed.config?.text_formatting }, ai_processing: { ...config.ai_processing, ...seed.config?.ai_processing } },
@@ -119,7 +125,9 @@ export function install(seed: any = {}) {
   internals.invoke = async (command: string, args: any) => {
     const result = await invoke(command, args);
     if (command === 'plugin:event|listen') subscriptions[args.event] = (subscriptions[args.event] ?? 0) + 1;
-    if (command === 'plugin:event|unlisten') subscriptions[args.event]--;
+    // An unlisten for an event that was never counted must not poison the
+    // counter with NaN: emit() waits on `> 0` and would then never proceed.
+    if (command === 'plugin:event|unlisten') subscriptions[args.event] = (subscriptions[args.event] ?? 0) - 1;
     return result;
   };
   (window as any).__sottoTest = {

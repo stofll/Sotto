@@ -36,7 +36,7 @@ Each test receives a fresh browser context. Synthetic configuration, model metad
 
 Unknown IPC commands, uncaught page errors and external HTTP requests fail the test. An expected backend failure must be explicitly queued in the test and handled by the actual UI. Processing outputs are supplied fixtures: the harness does not reproduce Rust transcription, formatting or provider algorithms. A UI assertion about a mocked result proves how the frontend presents that result, not whether Rust can produce it.
 
-`app()` opens settings by default; `app("overlay")` and `app("tray")` open the other entry points. Initial state can be supplied through `config`, `models`, `history`, `keys`, `runtime` and `stats`. `queue` supplies one-shot command results, errors or held promises; `settle` completes a held command. `emit` waits for a live subscription before delivering an event, avoiding arbitrary UI sleeps.
+`app()` opens settings by default; `app("overlay")` and `app("tray")` open the other entry points. Open one window per test — the fixture refuses a second call, because Playwright accumulates init scripts and the second harness would lose its seed to the first. Initial state can be supplied through `config`, `models`, `history`, `keys`, `runtime` and `stats`. `queue` supplies one-shot command results, errors or held promises; `settle` completes a held command. `emit` waits for a live subscription before delivering an event, avoiding arbitrary UI sleeps.
 
 ## Coverage map
 
@@ -54,6 +54,8 @@ The executable test modules are the detailed scenario inventory. Extend the rele
 | Help and statistics | `test_info_stats.py` | Update checks/retry/install failure, log cleanup confirmation, statistics periods and refreshed totals |
 | Lightweight windows | `test_windows.py` | Tray recording/navigation/settings events, overlay lifecycle, stale events, cancellation/silence/error recovery, streaming, initial-state handshake |
 | Layout | `test_layout.py` | Minimum settings-window size, themes/locales, horizontal overflow, reviewable page and overlay screenshots |
+
+The layout overflow check depends on font metrics, which differ between a developer machine and the CI image. A failure names the page, locale, theme and overflow in pixels: treat it as a layout to widen on the reported page, and reproduce it against the CI browsers rather than only locally.
 
 ## Results and visual review
 

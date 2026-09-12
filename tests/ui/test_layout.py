@@ -15,10 +15,14 @@ def test_minimum_window_layout(app, page, locale, theme, output_path):
     for tab in TABS:
         region = ui.nav(tab)
         expect(region.get_by_role("heading", level=1)).to_be_visible()
-        page.evaluate("document.fonts.ready")
-        assert page.get_by_test_id("main-content").evaluate(
-            "e => e.scrollWidth <= e.clientWidth + 1"
-        ), tab
+        page.evaluate("() => document.fonts.ready.then(() => true)")
+        # Font metrics differ between a developer machine and the CI image, so
+        # report the page and the overflow: a bare boolean makes a CI-only
+        # failure look like a mystery instead of a layout to widen.
+        overflow = page.get_by_test_id("main-content").evaluate(
+            "e => e.scrollWidth - e.clientWidth"
+        )
+        assert overflow <= 1, f"{tab} overflows by {overflow}px ({locale}, {theme})"
         destination = Path(output_path) / f"{tab}.png"
         destination.parent.mkdir(parents=True, exist_ok=True)
         page.screenshot(path=str(destination), animations="disabled")

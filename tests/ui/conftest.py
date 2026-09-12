@@ -13,6 +13,35 @@ from playwright.sync_api import Page, expect
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def _free_port():
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+def _serving(process, url, timeout=30):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            return False
+        try:
+            with urlopen(url, timeout=1) as response:
+                if response.status == 200:
+                    return True
+        except OSError:
+            time.sleep(0.1)
+    return False
+
+
+def _stop(process):
+    process.terminate()
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=5)
+
+
 @pytest.fixture(scope="session")
 def ui_server(tmp_path_factory):
     work = tmp_path_factory.mktemp("sotto-ui")
@@ -20,46 +49,37 @@ def ui_server(tmp_path_factory):
     subprocess.run(
         ["node", str(ROOT / "tests/ui/harness/build.mjs"), str(harness)], check=True
     )
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        port = sock.getsockname()[1]
-    url = f"http://127.0.0.1:{port}"
-    with (work / "vite.log").open("w+") as log:
-        process = subprocess.Popen(
-            [
-                "node",
-                "node_modules/vite/bin/vite.js",
-                "--host",
-                "127.0.0.1",
-                "--port",
-                str(port),
-                "--strictPort",
-            ],
-            cwd=ROOT / "desktop",
-            stdout=log,
-            stderr=subprocess.STDOUT,
-        )
-        try:
-            deadline = time.monotonic() + 30
-            while time.monotonic() < deadline:
-                if process.poll() is not None:
-                    break
-                try:
-                    with urlopen(url, timeout=1) as response:
-                        if response.status == 200:
-                            yield url, harness.read_text()
-                            return
-                except OSError:
-                    time.sleep(0.1)
-            log.seek(0)
-            pytest.fail(f"Vite failed to start:\n{log.read()}")
-        finally:
-            process.terminate()
+    # Something else can take the probed port before Vite binds it, and
+    # --strictPort turns that race into an immediate exit. Retry on a fresh
+    # port rather than failing the whole session on a lost race.
+    failures = []
+    for _ in range(3):
+        port = _free_port()
+        url = f"http://127.0.0.1:{port}"
+        with (work / f"vite-{port}.log").open("w+") as log:
+            process = subprocess.Popen(
+                [
+                    "node",
+                    "node_modules/vite/bin/vite.js",
+                    "--host",
+                    "127.0.0.1",
+                    "--port",
+                    str(port),
+                    "--strictPort",
+                ],
+                cwd=ROOT / "desktop",
+                stdout=log,
+                stderr=subprocess.STDOUT,
+            )
             try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=5)
+                if _serving(process, url):
+                    yield url, harness.read_text()
+                    return
+                log.seek(0)
+                failures.append(f"port {port}:\n{log.read()}")
+            finally:
+                _stop(process)
+    pytest.fail("Vite failed to start:\n" + "\n".join(failures))
 
 
 @pytest.fixture(scope="session")
@@ -142,7 +162,14 @@ def app(page, ui_server):
 
     page.route("**/*", route)
 
+    opened = []
+
     def open_app(window="main", **seed):
+        # One harness per test. Init scripts accumulate across navigations, so a
+        # second call would install the harness twice in the new document and
+        # silently keep the first seed. Exercise another window in its own test.
+        assert not opened, f"already opened the {opened[0]} window in this test"
+        opened.append(window)
         page.add_init_script(
             harness + "\nSottoHarness.install(" + json.dumps(seed) + ");"
         )
