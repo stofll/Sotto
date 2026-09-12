@@ -518,7 +518,6 @@ export const en: Record<string, string | string[]> = {
   "Действия с ключом": "Key actions",
   "Переименовать": "Rename",
   "Дублировать": "Duplicate",
-  "Добавить первый ключ": "Add the first key",
   "Поиск по профилям и ключам: имя, провайдер, модель, slot…": "Search profiles and keys: name, provider, model, slot…",
   "Под запрос ничего не подошло.": "Nothing matched the query.",
   "Сохранено.": "Saved.",
