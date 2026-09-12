@@ -19,7 +19,7 @@ Keep the application version unchanged during normal development. Once the inten
 
 The automatic bump starts from the greatest of the checked-in version and existing stable `vX.Y.Z` tags. Tags for unfinished drafts reserve their numbers too. An exact version must be greater than that baseline; this workflow accepts stable versions only.
 
-Prepare Release creates a version-only PR, dispatches Rust CI on its head commit, waits for success, and merges it using the normal branch protections. It then tags the merged commit and calls the release build, which creates a draft. The version is fixed before compilation; publishing the draft does not change it.
+Prepare Release creates a version-only PR, dispatches Rust CI and the UI tests on its head commit, waits for both, and merges it using the normal branch protections. It then tags the merged commit and calls the release build, which creates a draft. The version is fixed before compilation; publishing the draft does not change it.
 
 The workflow updates these four sources together without updating dependencies:
 
@@ -38,7 +38,7 @@ Enable **Settings → Actions → General → Workflow permissions → Allow Git
 
 The current `main` rules require a PR, an up-to-date branch, and the Rust CI checks, with no required approvals. If approvals are introduced later, they must be provided before the merge job can succeed. A workflow started from a branch other than `main`, or in a fork, skips preparation.
 
-Bot-created PRs and tag pushes do not automatically trigger other workflows. Prepare Release explicitly dispatches Rust CI on the release branch so required checks attach to the PR head, then explicitly calls Release after tagging. Keep those explicit invocations if changing the workflow structure.
+Bot-created PRs and tag pushes do not automatically trigger other workflows. Prepare Release explicitly dispatches the workflows listed in its `CHECK_WORKFLOWS` variable on the release branch so required checks attach to the PR head, then explicitly calls Release after tagging. Keep those explicit invocations if changing the workflow structure, and add every new `pull_request` workflow that gates `main` to `CHECK_WORKFLOWS`: a required check that nothing dispatches never reports, and the merge job waits for it until the job times out.
 
 #### Failures and retries
 

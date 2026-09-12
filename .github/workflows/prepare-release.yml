@@ -80,7 +80,7 @@ jobs:
           cat > "$RUNNER_TEMP/release-body.md" <<'BODY'
           Synchronize the application version for the next stable release. Dependency versions are unchanged.
 
-          Prepare Release runs Rust CI on this commit, merges this PR after the required checks pass, and builds a draft release. Publication remains manual.
+          Prepare Release runs Rust CI and the UI tests on this commit, merges this PR after the required checks pass, and builds a draft release. Publication remains manual.
           BODY
           pr=$(gh pr create --base main --head "$branch" --title "chore(release): prepare $RELEASE_TAG" --body-file "$RUNNER_TEMP/release-body.md")
           echo "branch=$branch" >> "$GITHUB_OUTPUT"
@@ -97,30 +97,42 @@ jobs:
       actions: write
       contents: read
     steps:
-      # Bot-created PRs do not trigger pull_request workflows. Dispatch CI on
-      # the branch so required check runs belong to the actual PR head SHA.
-      - name: Dispatch and wait for Rust CI
+      # Bot-created PRs do not trigger pull_request workflows. Dispatch each
+      # gating workflow on the branch so required check runs belong to the
+      # actual PR head SHA. Every workflow that gates `main` from a
+      # `pull_request` trigger must be listed here: an unlisted required check
+      # would never report and the merge job below would wait forever.
+      - name: Dispatch and wait for required checks
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_BRANCH: ${{ needs.prepare.outputs.branch }}
           RELEASE_SHA: ${{ needs.prepare.outputs.sha }}
+          CHECK_WORKFLOWS: rust-ci.yml ui-tests.yml
         run: |
           set -euo pipefail
-          previous=$(gh run list --workflow rust-ci.yml --branch "$RELEASE_BRANCH" --event workflow_dispatch --limit 1 --json databaseId --jq '.[0].databaseId // 0')
-          gh workflow run rust-ci.yml --ref "$RELEASE_BRANCH"
-          run_id=''
-          for attempt in $(seq 1 60); do
-            run_id=$(gh run list --workflow rust-ci.yml --branch "$RELEASE_BRANCH" --event workflow_dispatch --commit "$RELEASE_SHA" --limit 20 --json databaseId --jq ".[] | select(.databaseId > $previous) | .databaseId" | head -n 1)
-            [ -z "$run_id" ] || break
-            sleep 5
+          watch=''
+          for workflow in $CHECK_WORKFLOWS; do
+            previous=$(gh run list --workflow "$workflow" --branch "$RELEASE_BRANCH" --event workflow_dispatch --limit 1 --json databaseId --jq '.[0].databaseId // 0')
+            gh workflow run "$workflow" --ref "$RELEASE_BRANCH"
+            run_id=''
+            for attempt in $(seq 1 60); do
+              run_id=$(gh run list --workflow "$workflow" --branch "$RELEASE_BRANCH" --event workflow_dispatch --commit "$RELEASE_SHA" --limit 20 --json databaseId --jq ".[] | select(.databaseId > $previous) | .databaseId" | head -n 1)
+              [ -z "$run_id" ] || break
+              sleep 5
+            done
+            if [ -z "$run_id" ]; then
+              echo "::error::Could not find the dispatched $workflow run. Inspect that workflow before retrying this job."
+              exit 1
+            fi
+            echo "$workflow: https://github.com/$GH_REPO/actions/runs/$run_id" >> "$GITHUB_STEP_SUMMARY"
+            watch="$watch $run_id"
           done
-          if [ -z "$run_id" ]; then
-            echo '::error::Could not find the dispatched CI run. Inspect Rust CI before retrying this job.'
-            exit 1
-          fi
-          echo "CI: https://github.com/$GH_REPO/actions/runs/$run_id" >> "$GITHUB_STEP_SUMMARY"
-          gh run watch "$run_id" --exit-status --interval 30
+          # Dispatch everything before waiting: watching in sequence would add
+          # the shorter workflow's runtime to the longer one's for no benefit.
+          for run_id in $watch; do
+            gh run watch "$run_id" --exit-status --interval 30
+          done
 
   tag:
     name: Merge release PR and tag

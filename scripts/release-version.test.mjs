@@ -87,6 +87,22 @@ test('mismatched or missing source fields fail before writing any file', (t) => 
   }
 });
 
+test('a section before [package] cannot supply the application version', (t) => {
+  const root = fixture(t);
+  const manifest = join(root, versionFiles[0]);
+  // A workspace or profile table ahead of [package] must not be mistaken for
+  // the application version by either the updater or the checker.
+  writeFileSync(
+    manifest,
+    `[profile.release]\nversion = "9.9.9"\n\n${readFileSync(manifest, 'utf8')}`,
+  );
+  updateVersions(root, '0.1.0');
+  const updated = readFileSync(manifest, 'utf8');
+  assert.match(updated, /^\[package\]\r?\nname = "sotto"\r?\nversion = "0\.1\.0"/m);
+  assert.match(updated, /^version = "9\.9\.9"$/m);
+  execFileSync('sh', ['scripts/check-version.sh', 'v0.1.0'], { cwd: root });
+});
+
 test('repeated synchronization is idempotent', (t) => {
   const root = fixture(t);
   updateVersions(root, '0.1.0');
