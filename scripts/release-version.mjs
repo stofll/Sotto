@@ -67,9 +67,9 @@ function replaceVersion(text, pattern, current, next, label) {
   }, label);
 }
 
-export function updateVersions(root, next) {
+function versionChanges(texts, next) {
   parts(next);
-  const files = versionFiles.map((path) => ({ path, text: readFileSync(resolve(root, path), 'utf8') }));
+  const files = versionFiles.map((path, index) => ({ path, text: texts[index] }));
   const current = JSON.parse(files[2].text).version;
   parts(current);
 
@@ -94,9 +94,27 @@ export function updateVersions(root, next) {
     current, next, 'Info.plist version',
   );
 
-  // Writing only after every replacement above succeeded: a version that
-  // disagrees with package.json must leave all four files untouched.
+  return files;
+}
+
+export function updateVersions(root, next) {
+  const files = versionChanges(versionFiles.map((path) => readFileSync(resolve(root, path), 'utf8')), next);
+  // Validate all replacements before writing any file.
   for (const file of files) writeFileSync(resolve(root, file.path), file.updated);
+}
+
+export function verifyReleaseCommit(root, base, next) {
+  const git = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8' });
+  if (git('rev-parse', 'HEAD^').trim() !== base) throw new Error('Release commit must directly follow the checked source');
+  const changed = git('diff', '--name-only', '-z', base, 'HEAD').split('\0').filter(Boolean);
+  if (changed.length !== versionFiles.length || changed.some((path) => !versionFiles.includes(path))) {
+    throw new Error('Release commit must change exactly the four version files');
+  }
+  const expected = versionChanges(versionFiles.map((path) => git('show', `${base}:${path}`)), next);
+  for (const file of expected) {
+    if (git('show', `HEAD:${file.path}`) !== file.updated) throw new Error(`Unexpected non-version change in ${file.path}`);
+  }
+  if (git('diff', '--summary', base, 'HEAD').trim()) throw new Error('Release commit must preserve file modes');
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

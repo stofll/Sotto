@@ -19,7 +19,9 @@ Keep the application version unchanged during normal development. Once the inten
 
 The automatic bump starts from the greatest of the checked-in version and existing stable `vX.Y.Z` tags. Tags for unfinished drafts reserve their numbers too. An exact version must be greater than that baseline; this workflow accepts stable versions only.
 
-Prepare Release creates a version-only PR, dispatches Rust CI and the UI tests on its head commit, waits for both, and merges it using the normal branch protections. It then tags the merged commit and calls the release build, which creates a draft. The version is fixed before compilation; publishing the draft does not change it.
+Prepare Release reuses successful Rust CI and UI tests for the selected source tree. It accepts checks on the source commit itself or on the head of its merged PR when the resulting trees are identical. It does not create a version PR or repeat full application CI.
+
+The workflow runs the release-script tests, updates the version, and verifies the committed diff contains only the expected version replacements, with dependencies and file modes unchanged. The release bot pushes the new `main` commit and its tag atomically. The tag starts the release build, which creates a draft; publishing does not change the version.
 
 The workflow updates these four sources together without updating dependencies:
 
@@ -34,17 +36,19 @@ The workflow updates these four sources together without updating dependencies:
 
 #### Repository permissions
 
-Enable **Settings → Actions → General → Workflow permissions → Allow GitHub Actions to create and approve pull requests**. The workflows request their own scoped `contents`, `pull-requests`, and `actions` permissions and use `GITHUB_TOKEN`; no personal access token is required. The workflow creates a PR but never approves one or bypasses branch protection.
+Create a private GitHub App, install it only on Sotto, and grant it **Contents: Read and write**. Store its App ID in the Actions variable `RELEASE_APP_ID` and its PEM private key in the Actions secret `RELEASE_APP_PRIVATE_KEY`. The pinned `actions/create-github-app-token` action creates a short-lived token scoped to this repository for the push; source CI is read with the regular `GITHUB_TOKEN`.
 
-The current `main` rules require a PR, an up-to-date branch, and the Rust CI checks, with no required approvals. If approvals are introduced later, they must be provided before the merge job can succeed. A workflow started from a branch other than `main`, or in a fork, skips preparation.
+In **Settings → Rules → Rulesets**, add the App to the PR/required-check ruleset's bypass list with **Always allow**. Keep the deletion and force-push prohibitions in a separate active ruleset with no bypass actors. Bypass permissions apply to an entire ruleset, not to individual rules or version fields; the workflow's diff check enforces the version-only restriction. No permission to create or approve PRs is needed.
 
-Bot-created PRs and tag pushes do not automatically trigger other workflows. Prepare Release explicitly dispatches the workflows listed in its `CHECK_WORKFLOWS` variable on the release branch so required checks attach to the PR head, then explicitly calls Release after tagging. Keep those explicit invocations if changing the workflow structure, and add every new `pull_request` workflow that gates `main` to `CHECK_WORKFLOWS`: a required check that nothing dispatches never reports, and the merge job waits for it until the job times out.
+The source workflows are listed in `scripts/check-release-source.mjs`. Add new release-gating workflows there when needed. Missing, pending, failed, or cancelled CI prevents the release; an API error also stops preparation. A workflow started outside `main`, or in a fork, skips preparation.
+
+An App token's tag push triggers Release automatically. Do not also call Release from Prepare Release, as that would build the same version twice. The release build uses its regular `GITHUB_TOKEN`, without the App's bypass permission.
 
 #### Failures and retries
 
-- For a transient CI or merge error, use **Re-run failed jobs** in the original Prepare Release run. It reuses that run's version and PR. A retry accepts an existing tag only if it points to the same release commit.
-- If `main` changes during preparation, or the code needs fixing, close the unmerged release PR, merge the fixes into `main`, and start Prepare Release again. Preparation refuses to create another PR while a `release/` PR is open. Do not manually edit the release PR: the workflow checks and tags the captured commit only.
-- If preparation failed before creating a PR, fix the reported permissions or input problem and start a new run. An unused `release/` branch can be deleted after confirming that no run is using it.
+- If CI is incomplete, finish it before preparing the release. If the source cannot reuse a merged PR's identical checked tree (for example, after a direct commit), run **Rust CI** and **UI tests** manually on `main` first. Preparation does not start those jobs automatically.
+- If `main` changes during preparation, start a new Prepare Release run. The push never force-updates refs: the release commit and tag are either both accepted or both rejected.
+- For an invalid version or missing App configuration, fix the reported problem and start again. If the push result was uncertain, inspect `main` and the tag before retrying; an already pushed tag reserves that version.
 - If the release build fails after tagging, rerun its failed jobs or run **Release** manually with the existing tag. The build and SBOM resolve that tag rather than the selected UI branch. Published releases cannot be rebuilt; issue a new version instead.
 
 For local inspection, `sh scripts/check-version.sh [vX.Y.Z]` checks metadata without modifying it. `sh scripts/release.sh` remains an optional dry run for the manual tagging path; it is not a step in automated preparation.
@@ -191,7 +195,7 @@ Losing the private key means shipped installations can no longer be updated: the
 
 ## Tag & Build
 
-Prepare Release creates the tag and calls `.github/workflows/release.yml` automatically. A manually pushed tag also starts that build. It builds Windows and macOS arm64, signs the artifacts, generates `latest.json` and attaches everything to a **draft** release.
+Prepare Release pushes its tag with the App token, automatically triggering `.github/workflows/release.yml`. A manually pushed tag also starts that build. It builds Windows and macOS arm64, signs the artifacts, generates `latest.json` and attaches everything to a **draft** release.
 
 Publishing that draft is what makes the update visible to users, so check the build before you press it.
 

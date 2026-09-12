@@ -35,9 +35,9 @@ Run the Python/Playwright suite for UI changes. [Browser UI testing](ui-testing.
 
 ## Release automation
 
-Run `node --test scripts/release-version.test.mjs` from the repository root when changing version preparation. These tests use temporary Git repositories and metadata copies; they do not bump the working copy, push tags, or launch the application. PR CI also runs them and checks version consistency with `sh scripts/check-version.sh`.
+Run `node --test scripts/release-version.test.mjs scripts/check-release-source.test.mjs` from the repository root when changing version preparation. These tests use temporary Git repositories and metadata copies; they do not bump the working copy, push tags, or launch the application. PR CI also runs them and checks version consistency with `sh scripts/check-version.sh`.
 
-Validate workflow edits with `actionlint`. A local pass cannot verify GitHub repository permissions, protected-branch merging, or signed artifact publication; those require a real Prepare Release run after the workflow is merged.
+Validate workflow edits with `actionlint`. A local pass cannot verify GitHub repository permissions, the release App’s bypass permission, or signed artifact publication; those require a real Prepare Release run after the workflow is merged.
 
 ## Prepared speech and real models
 
