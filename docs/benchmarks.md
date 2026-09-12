@@ -1,8 +1,26 @@
 # Engine Benchmarks
 
-Performance baseline for the Rust speech-to-text engine. These benchmarks measure throughput and overhead of core data-path operations that _don't_ require a GPU, model files, or external services.
+The Criterion suites measure throughput and overhead of core data-path operations without a GPU, model files or external services. A separate explicit speech benchmark supplies the model catalog's comparative speed references.
 
-## How to run
+## Model reference measurements
+
+The model catalog's speed hints use a separate explicit speech benchmark, not Criterion throughput. Prepare the frontend and verified native libraries as described in [Testing](testing.md), then run from `desktop/src-tauri`:
+
+```bash
+cargo run --release --locked --example model_benchmark -- tiny base small gigaam-v3 zipformer-ru-streaming
+```
+
+Pass model IDs explicitly: this downloads the selected verified weights into `desktop/src-tauri/target/model-benchmark/models` and writes results to `target/model-benchmark/references.json`. It does not open the application or use live settings, models, recordings or history. Run on an otherwise idle machine; retain reviewed results in `src/model_reference.json` with their exact artifact revisions and method version. CPU and GPU results must not be silently treated as equivalent.
+
+The initial method uses pinned, SHA-256-verified public Russian speech from GigaAM's example and English JFK speech from whisper.cpp. Sources and revisions are in [model_benchmark.rs](../desktop/src-tauri/examples/model_benchmark.rs). A model is tested on Russian when supported, otherwise English, with explicit language and automatic language detection as separate cases. Each case has one warm-up and five timed runs. The output preserves median/min/max processing time, audio duration, load time, thread count, reference CPU/OS and exact model revision. Whisper uses greedy decoding with one candidate; both engines use at most eight CPU threads, matching the application. The streaming case measures the complete final pass, not live-preview latency.
+
+RTF is processing seconds divided by audio seconds. The continuous display scale is `1 / (1 + RTF)`: real-time processing fills half the bar and processing four times faster than speech fills 80%. Higher means faster, without claiming an accuracy percentage or a percentile across computers. Personal observations use the same scale after five matching runs. Shorter than three seconds, empty output, failed or cancelled inference do not contribute. Personal groups distinguish 3–10 seconds, 10–30 seconds and longer audio, cold/warm state, language, custom-vocabulary fingerprint, model revision, hardware profile, method and requested compute context. A greater than threefold interquartile RTF spread falls back to an available reference, with an explicit explanation; without a reference the scale stays unknown.
+
+This is an initial relative baseline using one speech clip per language, not broad accuracy, peak-memory or latency calibration. Unmeasured model/language/backend combinations remain unknown. The included references do not establish GPU or macOS performance; RAM requirements remain catalog estimates. Updating the engine, sampling parameters or corpus requires reviewing the method version and regenerating comparable references.
+
+The initial checked-in set was measured on Windows with an AMD Ryzen 7 5800X and eight CPU threads: Whisper tiny/base/small, GigaAM v3 and streaming Zipformer small, using Russian speech with explicit Russian and automatic language settings. Turbo and the remaining catalog entries have no reference in this set; they can still acquire personal measurements through normal use. Large Whisper CPU reference runs can take substantially longer than the audio, including the repeated warm-up and timed runs.
+
+## How to run Criterion
 
 Run these commands from `desktop/src-tauri`:
 

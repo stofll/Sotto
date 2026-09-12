@@ -307,6 +307,19 @@ button, input, textarea, select { font: inherit; }
 .model-card2__head { display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; min-width: 0; min-height: 26px; }
 .model-card2__name { font: 600 14.5px/1.25 var(--font-sans); color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .model-card2__params { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.model-card2__capabilities { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+.model-meters { margin-left: auto; flex: 0 0 auto; display: flex; flex-direction: column; gap: 2px; }
+.model-meter { display: flex; align-items: center; justify-content: space-between; gap: 7px; padding: 0; border: 0; background: transparent; color: var(--ink-dim); font: 500 11px/1.35 var(--font-sans); cursor: pointer; white-space: nowrap; }
+.model-meter:hover { color: var(--ink); }
+.model-meter:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.model-meter[data-warning] { color: var(--warn); }
+.model-meter__track { display: inline-flex; align-items: center; width: 48px; height: 5px; border-radius: var(--radius-sm); background: var(--bg-4); }
+.model-meter__fill { height: 100%; border-radius: inherit; background: var(--ink-mute); }
+.model-meter[data-warning] .model-meter__fill { background: var(--warn); }
+.model-meter__unknown { width: 100%; text-align: center; font: 500 11px/1 var(--font-sans); color: var(--ink-mute); }
+.custom-select__menu.model-meter-detail { width: 320px; padding: 12px; max-width: calc(100vw - 24px); white-space: normal; }
+.model-meter-detail p { margin: 0 0 10px; font: 400 12px/1.5 var(--font-sans); }
+.model-meter-detail__actions { display: flex; flex-wrap: wrap; gap: 7px; }
 .model-card2__param { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; font: 500 12px/1.35 var(--font-sans); color: var(--ink-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* What shrinks is the list of languages — it is the long one; the short
    properties beside it must not be the first to disappear. */

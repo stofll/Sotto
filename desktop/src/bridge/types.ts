@@ -269,6 +269,8 @@ export interface ModelInfo {
   label: string;
   size: string;
   ram: string;
+  /** Approximate working RAM in bytes; unknown for user-supplied files. */
+  ram_bytes?: number | null;
   recommended?: boolean;
   downloaded: boolean;
   selected: boolean;
