@@ -94,7 +94,8 @@ export function updateVersions(root, next) {
     current, next, 'Info.plist version',
   );
 
-  // Validate every source before writing; a mismatch must leave all files untouched.
+  // Writing only after every replacement above succeeded: a version that
+  // disagrees with package.json must leave all four files untouched.
   for (const file of files) writeFileSync(resolve(root, file.path), file.updated);
 }
 

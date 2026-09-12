@@ -12,6 +12,18 @@ from playwright.sync_api import Page, expect
 
 ROOT = Path(__file__).resolve().parents[2]
 
+# The sidebar group each tab lives in; a collapsed group hides its tabs.
+NAV_GROUPS = {
+    "settings": "core",
+    "models": "core",
+    "text": "processing",
+    "ai": "processing",
+    "integrations": "integrations",
+    "history": "data",
+    "stats": "data",
+    "info": "help",
+}
+
 
 def _free_port():
     with socket.socket() as sock:
@@ -96,17 +108,7 @@ class App:
         self.page = page
 
     def nav(self, tab):
-        groups = {
-            "settings": "core",
-            "models": "core",
-            "text": "processing",
-            "ai": "processing",
-            "integrations": "integrations",
-            "history": "data",
-            "stats": "data",
-            "info": "help",
-        }
-        group = self.page.get_by_test_id(f"nav-group-{groups[tab]}")
+        group = self.page.get_by_test_id(f"nav-group-{NAV_GROUPS[tab]}")
         if group.is_visible() and group.get_attribute("aria-expanded") == "false":
             group.click()
         self.page.get_by_test_id(f"nav-{tab}").click()

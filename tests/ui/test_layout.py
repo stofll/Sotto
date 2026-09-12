@@ -12,6 +12,8 @@ from test_navigation import TABS
 def test_minimum_window_layout(app, page, locale, theme, output_path):
     page.set_viewport_size({"width": 1000, "height": 710})
     ui = app(config={"ui_language": locale, "theme": theme})
+    shots = Path(output_path)
+    shots.mkdir(parents=True, exist_ok=True)
     for tab in TABS:
         region = ui.nav(tab)
         expect(region.get_by_role("heading", level=1)).to_be_visible()
@@ -23,9 +25,7 @@ def test_minimum_window_layout(app, page, locale, theme, output_path):
             "e => e.scrollWidth - e.clientWidth"
         )
         assert overflow <= 1, f"{tab} overflows by {overflow}px ({locale}, {theme})"
-        destination = Path(output_path) / f"{tab}.png"
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        page.screenshot(path=str(destination), animations="disabled")
+        page.screenshot(path=str(shots / f"{tab}.png"), animations="disabled")
 
 
 @pytest.mark.parametrize("locale", ["ru", "en"])

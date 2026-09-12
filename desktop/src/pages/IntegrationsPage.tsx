@@ -42,6 +42,12 @@ function testKeyFor(profileId: string): string {
   return `profile:${profileId}`;
 }
 
+/** A key action runs from JSX, where a rejected promise would otherwise become
+ *  an unhandled rejection instead of a message the user can read. */
+function failureText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 /** «Интеграции»: provider profiles on top, key slots below.
  *
  * These used to be two pages. The catalog of 15 providers and the grid of
@@ -470,6 +476,11 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
     showMessage(t("Ключ сохранён. Привяжите его к профилю в поле «Key ref»."));
   }
 
+  function startAdding() {
+    setNewKeyError(null);
+    setAdding(true);
+  }
+
   function startEdit(slot: Slot) {
     setEditing(slot.ref);
     setReplaceLabel(slot.info.label);
@@ -497,7 +508,7 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
       return;
     }
     setNewProvider(profile.provider);
-    setAdding(true);
+    startAdding();
   }
 
   const activeProfileId = ai?.active_profile_id || ai?.profile_id || null;
@@ -759,7 +770,7 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
           <span className="section-head__count">
             {query ? `${filteredSlots.length} / ${slots.length}` : slots.length}
           </span>
-          <button className="btn btn--primary" onClick={() => { setNewKeyError(null); setAdding(true); }}>
+          <button className="btn btn--primary" onClick={startAdding}>
             <Icon name="plus" size={12}/>  {t("Добавить ключ")} </button>
         </div>
 
@@ -767,7 +778,7 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
           {slots.length === 0 && (
             <div className="list-empty">
               <span>{t("Сохранённых ключей нет. Добавьте первый ключ — он появится в этом списке и сможет быть привязан к любому профилю.")}</span>
-              <button className="btn btn--ghost" onClick={() => { setNewKeyError(null); setAdding(true); }}>
+              <button className="btn btn--ghost" onClick={startAdding}>
                 <Icon name="plus" size={12}/>  {t("Добавить первый ключ")} </button>
             </div>
           )}
@@ -801,7 +812,7 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
                         ? { id: "edit", label: t("Заменить ключ"), icon: "pencil", onSelect: () => startEdit(slot) }
                         : { id: "edit", label: t("Задать ключ"), icon: "key", onSelect: () => startEdit(slot) },
                       ...(slot.info.available
-                        ? [{ id: "delete", label: t("Удалить"), icon: "trash", danger: true, onSelect: () => void deleteSlot(slot).catch((error) => showMessage(error instanceof Error ? error.message : String(error))) }]
+                        ? [{ id: "delete", label: t("Удалить"), icon: "trash", danger: true, onSelect: () => void deleteSlot(slot).catch((error) => showMessage(failureText(error))) }]
                         : []),
                     ]}
                   />
@@ -836,7 +847,7 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
                           <Icon name={replaceRevealed ? "eye-off" : "eye"} size={13}/>
                         </button>
                       </Hint>
-                      <button className="btn btn--primary" onClick={() => void saveSlot(slot, replaceLabel, replaceKey).catch((error) => showMessage(error instanceof Error ? error.message : String(error)))} disabled={!replaceKey.trim()} style={{ height: 30 }}>
+                      <button className="btn btn--primary" onClick={() => void saveSlot(slot, replaceLabel, replaceKey).catch((error) => showMessage(failureText(error)))} disabled={!replaceKey.trim()} style={{ height: 30 }}>
                         <Icon name="check" size={12}/>  {t("Сохранить")} </button>
                       <button className="btn btn--ghost" onClick={cancelEdit} style={{ height: 30 }}>{t("Отмена")}</button>
                     </div>
@@ -907,7 +918,7 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
               {newKeyError && <div role="alert" className="set-warn">{newKeyError}</div>}
             </div>
             <div className="modal__foot">
-              <button className="btn btn--primary" onClick={() => void addCustomKey().catch((error) => setNewKeyError(error instanceof Error ? error.message : String(error)))} disabled={!newKey.trim()}>
+              <button className="btn btn--primary" onClick={() => void addCustomKey().catch((error) => setNewKeyError(failureText(error)))} disabled={!newKey.trim()}>
                 <Icon name="check" size={12}/>  {t("Сохранить ключ")} </button>
               <button className="btn btn--ghost" onClick={() => { setAdding(false); setNewRevealed(false); }}>{t("Отмена")}</button>
             </div>
