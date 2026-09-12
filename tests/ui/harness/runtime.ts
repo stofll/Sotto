@@ -49,7 +49,7 @@ export function install(seed: any = {}) {
   const state = saved ? JSON.parse(saved) : {
     config: { ...config, ...seed.config, text_formatting: { ...config.text_formatting, ...seed.config?.text_formatting }, ai_processing: { ...config.ai_processing, ...seed.config?.ai_processing } },
     models: seed.models ?? models, stats: { ...stats, ...seed.stats }, history: seed.history ?? [],
-    keys: seed.keys ?? {}, runtime: { model_loaded: true, loaded_model: 'tiny', model: 'tiny', device: 'cpu', engine: 'whisper.cpp', recording: false, state: 'idle', last_error: null, ...seed.runtime },
+    keys: seed.keys ?? {}, assessments: seed.assessments ?? [], runtime: { model_loaded: true, loaded_model: 'tiny', model: 'tiny', device: 'cpu', engine: 'whisper.cpp', recording: false, state: 'idle', last_error: null, ...seed.runtime },
   };
   const calls: Array<{ command: string; args: any }> = [];
   const unknown: string[] = JSON.parse(sessionStorage.getItem('sotto-test-unknown') ?? '[]');
@@ -88,6 +88,12 @@ export function install(seed: any = {}) {
       case 'has_api_key': return state.keys[args.key_id] ?? { available: false, label: '', masked: '' };
       case 'save_api_key': state.keys[args.key_id] = { available: true, label: args.label, masked: 'test-***' }; persist(); return { saved: true, ...state.keys[args.key_id] };
       case 'delete_api_key': delete state.keys[args.key_id]; persist(); return { deleted: true };
+      // Scores come from the seed: the harness does not reproduce the Rust
+      // scoring, and a reset drops the model's row back to «no assessment».
+      case 'model_assessments': return structuredClone(state.assessments);
+      case 'reset_model_assessment':
+        state.assessments = state.assessments.filter((a: { id: string }) => a.id !== args.id);
+        persist(); return null;
       case 'dictionary_presets': return [['Test terms', ['Sotto', 'Playwright']]];
       case 'analyze_dictionary': return { effective_count: 0, conflicts: [], unsupported_words: [] };
       // Processing outputs are fixtures, not a second implementation of the Rust engines.
