@@ -979,7 +979,8 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 .combobox > .field { padding-right: 32px; }
 
 /* Modal / wizard */
-.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.55); backdrop-filter: blur(2px); display: grid; place-items: center; z-index: 1000; padding: 20px; font-family: var(--font-sans); color: var(--ink); box-sizing: border-box; }
+.modal-overlay, .feedback-dialog::backdrop { background: rgba(0,0,0,0.55); backdrop-filter: blur(2px); }
+.modal-overlay { position: fixed; inset: 0; display: grid; place-items: center; z-index: 1000; padding: 20px; font-family: var(--font-sans); color: var(--ink); box-sizing: border-box; }
 .modal-overlay * { box-sizing: border-box; }
 .modal { width: min(560px, 100%); max-height: calc(100vh - 40px); display: flex; flex-direction: column; background: var(--bg-3); border: 1px solid var(--line-strong); border-radius: var(--radius-lg); box-shadow: var(--shadow-modal); overflow: hidden; }
 /* The wizard shows a catalog, not a form: at 560px the cards were narrow
@@ -2036,3 +2037,13 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .model-field > .combobox { flex: 1 1 auto; min-width: 0; }
 .model-field > .hint-anchor { flex: 0 0 auto; }
 .model-field__reload { flex: 0 0 auto; padding: 0 9px; }
+
+.feedback-actions { flex-wrap: wrap; }
+.feedback-dialog { color: var(--ink); margin: auto; padding: 0; font-family: var(--font-sans); }
+.feedback-dialog:not([open]) { display: none; }
+.feedback-preview { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 220px; overflow: auto; color: var(--ink-mute); font-family: var(--font-mono); }
+
+.feedback-card { margin-top: 14px; }
+.feedback-card p, .feedback-dialog { font: 400 13px/1.5 var(--font-sans); }
+.feedback-dialog p, .feedback-preview { margin: 0; }
+.feedback-dialog .modal__head, .feedback-dialog .modal__foot { flex-shrink: 0; }

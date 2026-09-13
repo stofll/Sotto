@@ -13,6 +13,7 @@ mod db;
 mod debug;
 mod dictation;
 mod dictionaries;
+mod feedback;
 mod format_commands;
 pub mod formatter;
 mod hardware_profile;
@@ -2075,7 +2076,7 @@ fn focus_main_window(app: AppHandle, tab: String) -> Result<(), String> {
 /// Open an arbitrary URL/scheme in the system handler. Used by the
 /// permission banners to deep-link into macOS Privacy & Security panes
 /// (e.g. `x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone`).
-/// On Windows/Linux we fall back to `start`/`xdg-open`.
+/// Windows uses ShellExecuteW; Linux uses `xdg-open`.
 #[tauri::command]
 fn open_url(url: String) -> Result<(), String> {
     #[cfg(target_os = "macos")]
@@ -2094,10 +2095,25 @@ fn open_url(url: String) -> Result<(), String> {
     }
     #[cfg(windows)]
     {
-        std::process::Command::new("cmd")
-            .args(["/C", "start", "", &url])
-            .spawn()
-            .map_err(|e| format!("start failed: {e}"))?;
+        use windows_sys::Win32::UI::{Shell::ShellExecuteW, WindowsAndMessaging::SW_SHOWNORMAL};
+        if url.contains('\0') {
+            return Err("Invalid URL".into());
+        }
+        let url: Vec<u16> = url.encode_utf16().chain(Some(0)).collect();
+        // Launch directly: cmd.exe interprets query-string ampersands as commands.
+        let result = unsafe {
+            ShellExecuteW(
+                0,
+                std::ptr::null(),
+                url.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                SW_SHOWNORMAL,
+            )
+        };
+        if result as isize <= 32 {
+            return Err("Could not open URL".into());
+        }
     }
     Ok(())
 }
@@ -3852,6 +3868,9 @@ pub fn run() {
             preview_output_duck,
             get_output_contract,
             get_diagnostics,
+            feedback::get_public_diagnostics,
+            feedback::get_public_logs,
+            feedback::save_public_logs,
             open_diagnostics_folder,
             logs_size,
             clear_logs,
