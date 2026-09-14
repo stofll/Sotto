@@ -2853,7 +2853,10 @@ mod tests {
             formatter.process("er we could ahh try the other one"),
             "We could try the other one."
         );
-        assert_eq!(formatter.process("hmm let me check that"), "Let me check that.");
+        assert_eq!(
+            formatter.process("hmm let me check that"),
+            "Let me check that."
+        );
     }
 
     /// The engine capitalises the first word of a sentence, and a filler is
@@ -2881,7 +2884,10 @@ mod tests {
 
         config.language = Some("nl".to_string());
         let formatter = Formatter::from_config(&config);
-        assert_eq!(formatter.process("Er is niets om te zien"), "Er is niets om te zien.");
+        assert_eq!(
+            formatter.process("Er is niets om te zien"),
+            "Er is niets om te zien."
+        );
     }
 
     /// «auto» and a config too old to carry the setting are «not told», which
@@ -2927,8 +2933,14 @@ mod tests {
         // "err" is a verb, "mm" is millimetres, and "oh" carries the line it
         // opens — none of them are on the list.
         assert_eq!(formatter.process("to err is human"), "To err is human.");
-        assert_eq!(formatter.process("cut it to 5 mm exactly"), "Cut it to 5 mm exactly.");
-        assert_eq!(formatter.process("oh that explains it"), "Oh that explains it.");
+        assert_eq!(
+            formatter.process("cut it to 5 mm exactly"),
+            "Cut it to 5 mm exactly."
+        );
+        assert_eq!(
+            formatter.process("oh that explains it"),
+            "Oh that explains it."
+        );
         // Ordinary words that merely start with the same letters.
         assert_eq!(
             formatter.process("uhuru ahead of umbrella hmx"),
@@ -2967,7 +2979,10 @@ mod tests {
         let mut config = default_fmt();
         config.text_formatting.disabled_parasite_words = vec!["  Короче  ".to_string()];
         let formatter = Formatter::from_config(&config);
-        assert_eq!(formatter.process("короче надо решать"), "Короче надо решать.");
+        assert_eq!(
+            formatter.process("короче надо решать"),
+            "Короче надо решать."
+        );
     }
 
     /// Switching a built-in word off must not disarm the user's own additions.
@@ -3038,7 +3053,10 @@ mod tests {
         let mut config = default_fmt();
         config.text_formatting.parasite_sets = Some(Vec::new());
         let formatter = Formatter::from_config(&config);
-        assert_eq!(formatter.process("ну короче надо решать"), "Ну короче надо решать.");
+        assert_eq!(
+            formatter.process("ну короче надо решать"),
+            "Ну короче надо решать."
+        );
         assert!(config.text_formatting.active_parasite_words().is_empty());
     }
 
@@ -3083,7 +3101,10 @@ mod tests {
         let formatter = Formatter::from_config(&config);
         let text = words.join(" ");
         assert_eq!(
-            formatter.process(&text).to_lowercase().trim_end_matches('.'),
+            formatter
+                .process(&text)
+                .to_lowercase()
+                .trim_end_matches('.'),
             text
         );
     }
@@ -3109,8 +3130,14 @@ mod tests {
     #[test]
     fn a_held_vowel_is_still_removed() {
         let formatter = Formatter::from_config(&default_fmt());
-        assert_eq!(formatter.process("а-а-а я забыл про встречу"), "Я забыл про встречу.");
-        assert_eq!(formatter.process("ааа это была моя ошибка"), "Это была моя ошибка.");
+        assert_eq!(
+            formatter.process("а-а-а я забыл про встречу"),
+            "Я забыл про встречу."
+        );
+        assert_eq!(
+            formatter.process("ааа это была моя ошибка"),
+            "Это была моя ошибка."
+        );
         assert_eq!(formatter.process("о-о теперь понятно"), "Теперь понятно.");
     }
 

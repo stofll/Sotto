@@ -500,9 +500,9 @@ function normalizeTextFormatting(config: ConfigResult | null): TextFormattingCon
 
 /** The name of a built-in set: its language, or the bare code for a language
  * nobody has written a caption for yet. */
-function parasiteSetLabel(set: { id: string; language: string }): string {
+function parasiteSetLabel(language: string): string {
   const names: Record<string, string> = { ru: t("Русские"), en: t("Английские") };
-  return names[set.language] ?? set.language.toUpperCase();
+  return names[language] ?? language.toUpperCase();
 }
 
 function parseCustomWords(value: string): string[] {
@@ -679,12 +679,14 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
   /// retry from.
   async function addCustomParasites() {
     const known = new Set(customParasites.map((word) => word.toLowerCase()));
-    const added = parseCustomWords(newParasite).filter((word) => {
+    const added: string[] = [];
+    for (const word of parseCustomWords(newParasite)) {
+      // `known` grows as we go, so «вроде, вроде» adds one word, not two.
       const key = word.toLowerCase();
-      if (known.has(key)) return false;
+      if (known.has(key)) continue;
       known.add(key);
-      return true;
-    });
+      added.push(word);
+    }
     // Nothing new to write — a blank field, or a word already on the list. The
     // input has served its purpose either way.
     if (added.length === 0) { setNewParasite(""); return; }
@@ -893,8 +895,8 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
                 return (
                   <section key={set.id}>
                     <div className="parasite-set__head">
-                      <h3 className="parasite-heading">{parasiteSetLabel(set)}</h3>
-                      <Switch on={on} label={parasiteSetLabel(set)} onChange={() => toggleParasiteSet(set)}/>
+                      <h3 className="parasite-heading">{parasiteSetLabel(set.language)}</h3>
+                      <Switch on={on} label={parasiteSetLabel(set.language)} onChange={() => toggleParasiteSet(set)}/>
                     </div>
                     {/* An off set shows its switch and the reason, and nothing
                         else. Its words cannot be removed from anything, and a
