@@ -16,6 +16,7 @@ const config: ConfigResult = {
     remove_parasites: true, remove_duplicates: true, collapse_phrase_loops: true,
     clean_commas: true, normalize_spaces: true, split_sentences: true,
     capitalize_sentences: true, final_punctuation: true, custom_parasite_words: [],
+    disabled_parasite_words: [],
     custom_words: [], enabled_presets: [], dictionary_sets: [], dictionary_spellings: [],
   },
   ai_processing: {
