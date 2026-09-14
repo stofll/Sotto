@@ -41,8 +41,19 @@ use serde_json::Value;
 // Defaults
 // ---------------------------------------------------------------------------
 
-/// Default Russian parasite / filler words. Mirrors Python's
-/// `DEFAULT_PARASITE_WORDS` exactly — the parity tests rely on this.
+/// Default Russian parasite words.
+///
+/// Ported from Python's `DEFAULT_PARASITE_WORDS`, minus «да», «нет» and «вот».
+/// Those three were in the original list and they do not belong in it: the step
+/// deletes them unconditionally, by word boundary, everywhere in the text. «Да»
+/// and «нет» are the answer itself, not padding around it — «он спросил
+/// приедешь ли я сказал нет» came out as «…я сказал», and «нет не надо это
+/// мержить» came out as the instruction to merge. «Вот» is a demonstrative
+/// particle that carries the emphasis of the sentence it opens.
+///
+/// The rule this list must satisfy: a word belongs here only when deleting it
+/// cannot change what the sentence asserts. What is left can be dropped without
+/// the author losing an answer they gave.
 const DEFAULT_PARASITE_WORDS: &[&str] = &[
     "ну",
     "типа",
@@ -59,21 +70,26 @@ const DEFAULT_PARASITE_WORDS: &[&str] = &[
     "чё",
     "че",
     "короч",
-    "вот",
-    "да",
-    "нет",
 ];
 
 /// Default filler-sound regex patterns (э-э, ммм, а-а, …). Each is
 /// compiled lazily by `default_filler_patterns()` to keep the module
 /// loading order side-effect-free (Rust forbids `Lazy<Regex>` with a
 /// non-const initialiser at the top level).
+///
+/// «А» and «о» are drawn out into a filler («а-а-а», «о-о»), but on their own
+/// they are ordinary words: the conjunction «а» and the preposition «о». The
+/// patterns for those two therefore require the sound to be held — two or more
+/// vowels, run together or split by a hyphen or a space. Written as a single
+/// letter it is left alone, so «речь о том, а потом мы всё переделали» keeps its
+/// preposition and its conjunction instead of collapsing into «речь том что
+/// потом». «Э» and «м» need no such guard: neither is a Russian word.
 fn default_filler_patterns() -> Vec<Regex> {
     [
         r"\b(э+[-\s]*)+\b",
         r"\b(м+[-\s]*)+\b",
-        r"\b(а+[-\s]*)+\b",
-        r"\b(о+[-\s]*)+\b",
+        r"\bа+(?:[-\s]*а+)+\b",
+        r"\bо+(?:[-\s]*о+)+\b",
         r"\bну-+у*\b",
         r"\bмм-+\b",
     ]
@@ -2542,6 +2558,65 @@ mod tests {
         let formatter = Formatter::from_config(&default_fmt());
         let out = formatter.process("эээ ну я я хочу проверить текст");
         assert_eq!(out, "Я хочу проверить текст.");
+    }
+
+    // ----- Words the cleanup must never take away -----
+
+    /// «Да» and «нет» are the answer, not padding around it. Deleting them
+    /// does not tidy the sentence up, it reverses or empties it — and the
+    /// author has no way to see that a word was taken.
+    #[test]
+    fn an_answer_of_yes_or_no_survives_the_cleanup() {
+        let formatter = Formatter::from_config(&default_fmt());
+        assert_eq!(
+            formatter.process("он спросил приедешь ли я сказал нет"),
+            "Он спросил приедешь ли я сказал нет."
+        );
+        assert_eq!(
+            formatter.process("нет не надо это мержить"),
+            "Нет не надо это мержить."
+        );
+        assert_eq!(
+            formatter.process("да я согласен давай так и сделаем"),
+            "Да я согласен давай так и сделаем."
+        );
+    }
+
+    /// «Вот» opens the sentence it emphasises; removing it changes what is
+    /// being pointed at.
+    #[test]
+    fn a_demonstrative_particle_survives_the_cleanup() {
+        let formatter = Formatter::from_config(&default_fmt());
+        assert_eq!(
+            formatter.process("вот это и есть главная проблема"),
+            "Вот это и есть главная проблема."
+        );
+    }
+
+    /// The conjunction «а» and the preposition «о» are single letters, and the
+    /// filler patterns used to swallow both. Losing them does not remove a
+    /// sound, it breaks the grammar of the phrase around it.
+    #[test]
+    fn single_letter_conjunction_and_preposition_survive() {
+        let formatter = Formatter::from_config(&default_fmt());
+        assert_eq!(
+            formatter.process("речь о том что а потом мы всё переделали"),
+            "Речь о том что а потом мы всё переделали."
+        );
+        assert_eq!(
+            formatter.process("поговорим о проекте"),
+            "Поговорим о проекте."
+        );
+    }
+
+    /// The held-out sound is still a filler and must still go: the fix narrows
+    /// the patterns, it does not switch them off.
+    #[test]
+    fn a_held_vowel_is_still_removed() {
+        let formatter = Formatter::from_config(&default_fmt());
+        assert_eq!(formatter.process("а-а-а я забыл про встречу"), "Я забыл про встречу.");
+        assert_eq!(formatter.process("ааа это была моя ошибка"), "Это была моя ошибка.");
+        assert_eq!(formatter.process("о-о теперь понятно"), "Теперь понятно.");
     }
 
     #[test]
