@@ -477,6 +477,9 @@ export const en: Record<string, string | string[]> = {
   "встроенный список только русский; свои слова работают на любом языке": "the built-in list is Russian only; your own words work in any language",
   "По одному слову или фразе в строке. Также можно разделять запятыми.":
     "One word or phrase per line. Commas work too.",
+  "Введите слово или фразу и нажмите Enter. Несколько сразу можно разделить запятыми.":
+    "Type a word or phrase and press Enter. Separate several with commas.",
+  "Своё слово-паразит": "Your own verbal tic",
   "Добавьте слово или фразу, которые нужно автоматически исправлять после распознавания.":
     "Add a word or phrase to correct automatically after transcription.",
   "Живой предпросмотр": "Live preview",
@@ -876,7 +879,7 @@ export const en: Record<string, string | string[]> = {
   "тайпскрипт": "type script",
   "мой мейл": "my email",
   "смайл": "smiley",
-  "например: собственно\nскажем так": "for example: basically\nso to speak",
+  "например: собственно": "for example: basically",
   "я я хочу -> я хочу": "I I want -> I want",
   "я думаю что. я думаю что. я думаю что. -> я думаю что.": "I think so. I think so. I think so. -> I think so.",
 };

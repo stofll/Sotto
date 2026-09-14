@@ -47,7 +47,7 @@ def test_dictionary_create_read_search_delete(app, page):
     dialog = page.get_by_role("dialog", name="Редактор набора")
     dialog.get_by_label("Название набора", exact=True).fill("Synthetic vocabulary")
     dialog.get_by_label("Термины", exact=True).fill("Playwright\nSotto")
-    dialog.get_by_role("button", name="Сохранить", exact=True).click()
+    dialog.get_by_role("button", name="Закрыть", exact=True).click()
     expect(dialog).not_to_be_visible()
     page.get_by_role(
         "button", name=re.compile(r"^Synthetic vocabulary Пользовательский")
@@ -175,7 +175,7 @@ def test_builtin_parasite_words_are_shown_and_can_be_switched_off(app, page):
 
     # The summary on the row is the only trace of the list once the dialog is
     # closed, so it has to report the change.
-    dialog.get_by_role("button", name="Сохранить", exact=True).click()
+    dialog.get_by_role("button", name="Закрыть", exact=True).click()
     expect(dialog).not_to_be_visible()
     expect(page.get_by_role("button", name="Список: 3 слова · 1 выключено", exact=True)).to_be_visible()
 
@@ -199,7 +199,7 @@ def test_english_set_is_off_until_switched_on(app, page):
     expect(dialog.get_by_role("button", name="basically", exact=True)).to_be_visible()
 
     # Both sets now count towards the summary on the row.
-    dialog.get_by_role("button", name="Сохранить", exact=True).click()
+    dialog.get_by_role("button", name="Закрыть", exact=True).click()
     expect(page.get_by_role("button", name="Список: 5 слов", exact=True)).to_be_visible()
 
 
@@ -230,3 +230,38 @@ def test_switching_the_last_set_off_stays_off(app, page):
     )
     expect(dialog.get_by_role("button", name="короче", exact=True)).not_to_be_visible()
     expect(page.get_by_role("button", name="Список: 0 слов", exact=True)).to_be_visible()
+
+
+def test_own_parasite_word_is_added_as_a_chip_and_can_be_removed(app, page):
+    """Typing a word used to leave it inside a textarea that was parsed on save:
+    nothing appeared, and there was nothing to take back out."""
+    ui = app()
+    ui.nav("text")
+    page.get_by_role("button", name=re.compile(r"^Очистка")).click()
+    page.get_by_role("button", name="Список: 3 слова", exact=True).click()
+    dialog = page.get_by_role("dialog", name="Слова-паразиты")
+
+    field = dialog.get_by_label("Своё слово-паразит", exact=True)
+    field.fill("скажем так")
+    field.press("Enter")
+    page.wait_for_function(
+        "JSON.stringify(window.__sottoTest.state.config.text_formatting"
+        ".custom_parasite_words) === '[\"скажем так\"]'"
+    )
+    expect(dialog.get_by_text("скажем так", exact=True)).to_be_visible()
+    expect(field).to_have_value("")
+
+    # Several at once, and a repeat that must not become a second chip.
+    field.fill("вроде, скажем так, как-то")
+    field.press("Enter")
+    page.wait_for_function(
+        "JSON.stringify(window.__sottoTest.state.config.text_formatting"
+        ".custom_parasite_words) === '[\"скажем так\",\"вроде\",\"как-то\"]'"
+    )
+
+    dialog.get_by_role("button", name="Удалить: вроде", exact=True).click()
+    page.wait_for_function(
+        "JSON.stringify(window.__sottoTest.state.config.text_formatting"
+        ".custom_parasite_words) === '[\"скажем так\",\"как-то\"]'"
+    )
+    expect(dialog.get_by_text("вроде", exact=True)).not_to_be_visible()

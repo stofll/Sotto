@@ -1623,6 +1623,11 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .parasite-chip { cursor: pointer; font-size: 12px; transition: opacity .12s ease, border-color .12s ease; }
 .parasite-chip:hover { border-color: var(--line-strong); }
 .parasite-chip[data-off="true"] { text-decoration: line-through; opacity: .5; background: transparent; }
+/* Your own word is a chip you delete, not one you switch off, so it carries an
+   explicit × instead of taking the click on the whole body. */
+.parasite-chip--own { cursor: default; padding-right: 4px; }
+.parasite-chip__remove { appearance: none; border: 0; background: transparent; color: var(--ink-mute); cursor: pointer; display: grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; padding: 0; }
+.parasite-chip__remove:hover { background: var(--bg-2); color: var(--err); }
 .dictionary-toolbar, .dictionary-row, .dictionary-check { display: flex; align-items: center; gap: var(--pad-3); }
 .dictionary-toolbar { justify-content: space-between; flex-wrap: wrap; }
 .dictionary-row { padding: var(--pad-3) 0; border-bottom: 1px solid var(--line-soft); }

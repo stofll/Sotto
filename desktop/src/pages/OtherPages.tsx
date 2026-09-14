@@ -547,7 +547,7 @@ function Foldable({ open, title, summary, aside, onToggle, children }: { open: b
 export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraftChange }: { config: ConfigResult | null; onConfigChanged: (partial: Partial<ConfigResult>) => Promise<ConfigResult | null>; previewDraft: string | null; onPreviewDraftChange: (text: string) => void }) {
   // ── Cleanup and dictionaries: saved immediately, no draft ──────────────
   const formatting = normalizeTextFormatting(config);
-  const [customWordsText, setCustomWordsText] = useState(formatting.custom_parasite_words.join("\n"));
+  const [newParasite, setNewParasite] = useState("");
   // The sets come from the backend rather than being copied into the frontend:
   // a word added there must appear here without a second edit, and a list that
   // silently disagrees with the step is exactly the failure this section exists
@@ -599,10 +599,6 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
   }
 
   useEffect(() => {
-    setCustomWordsText(formatting.custom_parasite_words.join("\n"));
-  }, [formatting.custom_parasite_words.join("\n")]);
-
-  useEffect(() => {
     setRules(configRules);
     setSaved(true);
   }, [JSON.stringify(config?.replacement_rules ?? []), JSON.stringify(config?.replacements ?? {})]);
@@ -645,8 +641,25 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
     await onConfigChanged({ text_formatting: patch as TextFormattingConfig });
   }
 
-  function saveCustomWords() {
-    void saveFormatting({ custom_parasite_words: parseCustomWords(customWordsText) });
+  const customParasites = formatting.custom_parasite_words ?? [];
+
+  /// Commit whatever is in the input. A word is added on Enter and on blur, so
+  /// a word typed and then clicked away from is not silently thrown out — that
+  /// is what a textarea saved on blur used to promise and a list has to keep.
+  function addCustomParasites() {
+    const known = new Set(customParasites.map((word) => word.toLowerCase()));
+    const added = parseCustomWords(newParasite).filter((word) => {
+      const key = word.toLowerCase();
+      if (known.has(key)) return false;
+      known.add(key);
+      return true;
+    });
+    setNewParasite("");
+    if (added.length > 0) void saveFormatting({ custom_parasite_words: [...customParasites, ...added] });
+  }
+
+  function removeCustomParasite(word: string) {
+    void saveFormatting({ custom_parasite_words: customParasites.filter((item) => item !== word) });
   }
 
   const disabledParasites = formatting.disabled_parasite_words ?? [];
@@ -875,15 +888,39 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
               })}
               <section>
                 <h3 className="parasite-heading">{t("Свои слова-паразиты")}</h3>
-                <p className="parasite-note">{t("По одному слову или фразе в строке. Также можно разделять запятыми.")}</p>
-                <textarea className="field mono" value={customWordsText} onChange={(e) => setCustomWordsText(e.target.value)} onBlur={saveCustomWords} placeholder={t("например: собственно\nскажем так")} style={{ width: "100%", minHeight: 96, padding: 12, resize: "vertical", lineHeight: 1.45 }}/>
+                <p className="parasite-note">{t("Введите слово или фразу и нажмите Enter. Несколько сразу можно разделить запятыми.")}</p>
+                {/* A list, not a text field. The field was a textarea whose
+                    contents were parsed on save: a word typed into it never
+                    became anything you could see or take back out, while the
+                    built-in words right above it were chips all along. */}
+                <div className="flex-row" style={{ gap: 8 }}>
+                  <input
+                    className="field flex-grow"
+                    value={newParasite}
+                    onChange={(e) => setNewParasite(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCustomParasites(); } }}
+                    onBlur={addCustomParasites}
+                    placeholder={t("например: собственно")}
+                    aria-label={t("Своё слово-паразит")}
+                    style={{ height: 30 }}
+                  />
+                  <button type="button" className="btn btn--ghost" style={{ height: 30 }} disabled={!newParasite.trim()} onClick={addCustomParasites}><Icon name="plus" size={12}/>{t("Добавить")}</button>
+                </div>
+                {customParasites.length > 0 && <div className="parasite-chips" style={{ marginTop: 8 }}>
+                  {customParasites.map((word) => (
+                    <span key={word} className="pill parasite-chip parasite-chip--own">
+                      {word}
+                      <button type="button" className="parasite-chip__remove" aria-label={`${t("Удалить")}: ${word}`} onClick={() => removeCustomParasite(word)}><Icon name="x" size={10}/></button>
+                    </span>
+                  ))}
+                </div>}
               </section>
             </div>
-            {/* Chips save on click; the textarea saves on blur, which the button
-                also triggers. It is here because a field that only saves when
-                you click away gives no confirmation that you are done. */}
+            {/* Everything in here saves as it is changed — a chip on click, a
+                word on Enter or on blur. Nothing is pending, so the footer
+                closes rather than promising a save that already happened. */}
             <div className="modal__foot">
-              <button type="button" className="btn btn--primary" onClick={() => { saveCustomWords(); setParasitesOpen(false); }}><Icon name="check" size={12}/>{t("Сохранить")}</button>
+              <button type="button" className="btn btn--primary" onClick={() => setParasitesOpen(false)}>{t("Закрыть")}</button>
             </div>
           </Modal>}
 
