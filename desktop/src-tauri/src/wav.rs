@@ -1,10 +1,6 @@
 //! Minimal RIFF/WAVE encoder.
 //!
-//! Two callers with nothing else in common: the audio cues in
-//! [`crate::sounds`], which synthesise tones to hand to `PlaySoundW`, and the
-//! debug recording dump in [`crate::debug`], which writes captured microphone
-//! audio to disk. Both need 16-bit mono PCM wrapped in a 44-byte header, and
-//! neither justifies a dependency.
+//! Shared PCM packaging for audio cues, debug recordings and cloud requests.
 
 /// Wrap 16-bit mono PCM in a complete RIFF/WAVE image.
 pub fn encode_pcm16_mono(samples: &[i16], sample_rate: u32) -> Vec<u8> {
