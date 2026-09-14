@@ -178,7 +178,9 @@ def test_builtin_parasite_words_are_shown_and_can_be_switched_off(app, page):
     # saves as it goes — so Escape is a complete way to leave it.
     page.keyboard.press("Escape")
     expect(dialog).not_to_be_visible()
-    expect(page.get_by_role("button", name="Список: 3 слова · 1 выключено", exact=True)).to_be_visible()
+    expect(
+        page.get_by_role("button", name="Список: 3 слова · 1 выключено", exact=True)
+    ).to_be_visible()
 
 
 def test_english_set_is_off_until_switched_on(app, page):
@@ -190,19 +192,23 @@ def test_english_set_is_off_until_switched_on(app, page):
     page.get_by_role("button", name=re.compile(r"^Очистка")).click()
     page.get_by_role("button", name="Список: 3 слова", exact=True).click()
     dialog = page.get_by_role("dialog", name="Слова-паразиты")
-    expect(dialog.get_by_role("button", name="basically", exact=True)).not_to_be_visible()
+    expect(
+        dialog.get_by_role("button", name="basically", exact=True)
+    ).not_to_be_visible()
 
     dialog.get_by_label("Английские", exact=True).click()
     page.wait_for_function(
         "JSON.stringify(window.__sottoTest.state.config.text_formatting"
-        ".parasite_sets) === '[\"ru\",\"en\"]'"
+        '.parasite_sets) === \'["ru","en"]\''
     )
     expect(dialog.get_by_role("button", name="basically", exact=True)).to_be_visible()
 
     # Both sets now count towards the summary on the row.
     page.keyboard.press("Escape")
     expect(dialog).not_to_be_visible()
-    expect(page.get_by_role("button", name="Список: 5 слов", exact=True)).to_be_visible()
+    expect(
+        page.get_by_role("button", name="Список: 5 слов", exact=True)
+    ).to_be_visible()
 
 
 def test_set_for_the_dictation_language_comes_first(app, page):
@@ -231,7 +237,9 @@ def test_switching_the_last_set_off_stays_off(app, page):
         ".parasite_sets) === '[]'"
     )
     expect(dialog.get_by_role("button", name="короче", exact=True)).not_to_be_visible()
-    expect(page.get_by_role("button", name="Список: 0 слов", exact=True)).to_be_visible()
+    expect(
+        page.get_by_role("button", name="Список: 0 слов", exact=True)
+    ).to_be_visible()
 
 
 def test_own_parasite_word_is_added_as_a_chip_and_can_be_removed(app, page):
@@ -258,13 +266,13 @@ def test_own_parasite_word_is_added_as_a_chip_and_can_be_removed(app, page):
     field.press("Enter")
     page.wait_for_function(
         "JSON.stringify(window.__sottoTest.state.config.text_formatting"
-        ".custom_parasite_words) === '[\"скажем так\",\"вроде\",\"как-то\"]'"
+        '.custom_parasite_words) === \'["скажем так","вроде","как-то"]\''
     )
 
     dialog.get_by_role("button", name="Удалить: вроде", exact=True).click()
     page.wait_for_function(
         "JSON.stringify(window.__sottoTest.state.config.text_formatting"
-        ".custom_parasite_words) === '[\"скажем так\",\"как-то\"]'"
+        '.custom_parasite_words) === \'["скажем так","как-то"]\''
     )
     expect(dialog.get_by_text("вроде", exact=True)).not_to_be_visible()
 
@@ -289,7 +297,7 @@ def test_two_quick_switches_do_not_overwrite_each_other(app, page):
     dialog.get_by_role("button", name="типа", exact=True).click()
     page.wait_for_function(
         "JSON.stringify(window.__sottoTest.state.config.text_formatting"
-        ".disabled_parasite_words) === '[\"короче\",\"типа\"]'"
+        '.disabled_parasite_words) === \'["короче","типа"]\''
     )
     # Let the held write finish, with what the backend now actually holds. Both
     # words must still read as off once the draft is gone.
