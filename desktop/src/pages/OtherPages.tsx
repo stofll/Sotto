@@ -10,6 +10,8 @@ import { DiffBlock } from "../components/DiffBlock";
 import { localeTag, t, tPlural } from "../i18n";
 import { textPreview, replacementExamples } from "./textExamples";
 import { DictionaryLibrary } from "./DictionaryLibrary";
+import { Modal } from "../components/Modal";
+import { getParasiteSets, type ParasiteSet } from "../bridge/dictionaries";
 import { FeedbackCard } from "./FeedbackCard";
 import { DEFAULT_HOTKEY } from "../hotkey";
 
@@ -467,6 +469,7 @@ const FORMAT_DEFAULTS: TextFormattingConfig = {
   capitalize_sentences: true,
   final_punctuation: true,
   custom_parasite_words: [],
+  disabled_parasite_words: [],
   custom_words: [],
   enabled_presets: [],
 };
@@ -481,8 +484,8 @@ const MASTER_RULE = (): FormatRule => (
 
 const CLEAN_RULES = (): FormatRule[] => ([
   { key: "remove_hallucinations", title: t("Убирать артефакты распознавания"), sub: t("«субтитры сделал…», «спасибо за просмотр», [Music]; если кроме них ничего нет — вставка отменяется") },
-  { key: "remove_fillers", title: t("Удалять заполнители"), sub: t("э-э, ммм, а-а и похожие звуки") },
-  { key: "remove_parasites", title: t("Удалять слова-паразиты"), sub: t("ну, типа, как бы, в общем и свои слова ниже") },
+  { key: "remove_fillers", title: t("Удалять заполнители"), sub: t("э-э, ммм, а-а и похожие звуки; английские uh, umm, hmm — при английской диктовке") },
+  { key: "remove_parasites", title: t("Удалять слова-паразиты"), sub: t("встроенный список только русский; свои слова работают на любом языке") },
   { key: "remove_duplicates", title: t("Удалять повторы"), sub: t("я я хочу -> я хочу") },
   { key: "collapse_phrase_loops", title: t("Схлопывать зациклившиеся фразы"), sub: t("я думаю что. я думаю что. я думаю что. -> я думаю что.") },
   { key: "clean_commas", title: t("Чистить запятые"), sub: t("лишние запятые перед и/а/но, двойные запятые") },
@@ -494,6 +497,13 @@ const CLEAN_RULES = (): FormatRule[] => ([
 
 function normalizeTextFormatting(config: ConfigResult | null): TextFormattingConfig {
   return { ...FORMAT_DEFAULTS, ...(config?.text_formatting ?? {}) };
+}
+
+/** The name of a built-in set: its language, or the bare code for a language
+ * nobody has written a caption for yet. */
+function parasiteSetLabel(language: string): string {
+  const names: Record<string, string> = { ru: t("Русские"), en: t("Английские") };
+  return names[language] ?? language.toUpperCase();
 }
 
 function parseCustomWords(value: string): string[] {
@@ -538,7 +548,23 @@ function Foldable({ open, title, summary, aside, onToggle, children }: { open: b
 export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraftChange }: { config: ConfigResult | null; onConfigChanged: (partial: Partial<ConfigResult>) => Promise<ConfigResult | null>; previewDraft: string | null; onPreviewDraftChange: (text: string) => void }) {
   // ── Cleanup and dictionaries: saved immediately, no draft ──────────────
   const formatting = normalizeTextFormatting(config);
-  const [customWordsText, setCustomWordsText] = useState(formatting.custom_parasite_words.join("\n"));
+  const [newParasite, setNewParasite] = useState("");
+  // What has been asked for but not yet confirmed — see `saveParasites`.
+  const [parasiteDraft, setParasiteDraft] = useState<Partial<TextFormattingConfig>>({});
+  const parasiteWrites = useRef(0);
+  // The sets come from the backend rather than being copied into the frontend:
+  // a word added there must appear here without a second edit, and a list that
+  // silently disagrees with the step is exactly the failure this section exists
+  // to fix.
+  const [parasiteSets, setParasiteSets] = useState<ParasiteSet[]>([]);
+  const [parasitesOpen, setParasitesOpen] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    // A failure leaves the section empty rather than showing a wrong list: the
+    // switch above still works, and the words are not misreported.
+    void getParasiteSets().then((sets) => { if (alive) setParasiteSets(sets); }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
 
   // ── Replacements: a draft until the «Сохранить» button ─────────────────
   const configRules = replacementRulesFromConfig(config);
@@ -575,10 +601,6 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
       return next;
     });
   }
-
-  useEffect(() => {
-    setCustomWordsText(formatting.custom_parasite_words.join("\n"));
-  }, [formatting.custom_parasite_words.join("\n")]);
 
   useEffect(() => {
     setRules(configRules);
@@ -619,12 +641,95 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
   // checkbox is the confirmation — it stays in its new position once the config
   // comes back. A separate "saving" pill used to live in the page header and
   // flashed at every sneeze.
-  async function saveFormatting(patch: Partial<TextFormattingConfig>) {
-    await onConfigChanged({ text_formatting: patch as TextFormattingConfig });
+  async function saveFormatting(patch: Partial<TextFormattingConfig>): Promise<boolean> {
+    return Boolean(await onConfigChanged({ text_formatting: patch as TextFormattingConfig }));
   }
 
-  function saveCustomWords() {
-    void saveFormatting({ custom_parasite_words: parseCustomWords(customWordsText) });
+  /// Save one parasite-list change, and show it before the backend confirms it.
+  ///
+  /// `config` only moves when a write comes back, so two clicks in a row both
+  /// read the same stale value: switching «короче» off and then «типа» sent a
+  /// patch built from a list that still had neither, and the second write
+  /// dropped the first. The draft holds what we have already asked for and is
+  /// what every next change is computed from.
+  ///
+  /// It is cleared only when no write is still in flight — clearing it per
+  /// answer would briefly show the first result while the second was still on
+  /// its way. A failed write clears with the rest, so the list falls back to
+  /// what the backend actually holds rather than to a change that never landed.
+  async function saveParasites(patch: Partial<TextFormattingConfig>): Promise<boolean> {
+    setParasiteDraft((current) => ({ ...current, ...patch }));
+    parasiteWrites.current += 1;
+    try {
+      return await saveFormatting(patch);
+    } finally {
+      parasiteWrites.current -= 1;
+      if (parasiteWrites.current === 0) setParasiteDraft({});
+    }
+  }
+
+  const customParasites = parasiteDraft.custom_parasite_words ?? formatting.custom_parasite_words ?? [];
+
+  /// Commit whatever is in the input. A word is added on Enter and on blur, so
+  /// a word typed and then clicked away from is not silently thrown out — that
+  /// is what a textarea saved on blur used to promise and a list has to keep.
+  ///
+  /// The field is cleared only once the write has come back. Clearing it first
+  /// meant a failed save took the phrase with it: gone from the list it never
+  /// reached and gone from the field it was typed into, with nothing left to
+  /// retry from.
+  async function addCustomParasites() {
+    const known = new Set(customParasites.map((word) => word.toLowerCase()));
+    const added: string[] = [];
+    for (const word of parseCustomWords(newParasite)) {
+      // `known` grows as we go, so «вроде, вроде» adds one word, not two.
+      const key = word.toLowerCase();
+      if (known.has(key)) continue;
+      known.add(key);
+      added.push(word);
+    }
+    // Nothing new to write — a blank field, or a word already on the list. The
+    // input has served its purpose either way.
+    if (added.length === 0) { setNewParasite(""); return; }
+    if (await saveParasites({ custom_parasite_words: [...customParasites, ...added] })) setNewParasite("");
+  }
+
+  function removeCustomParasite(word: string) {
+    void saveParasites({ custom_parasite_words: customParasites.filter((item) => item !== word) });
+  }
+
+  const disabledParasites = parasiteDraft.disabled_parasite_words ?? formatting.disabled_parasite_words ?? [];
+  const parasiteIsOff = (word: string) => disabledParasites.some((off) => off.trim().toLowerCase() === word.toLowerCase());
+  // Absent means nobody has chosen and each set applies by its own default; an
+  // empty array is a choice — no built-in set at all. The two must not be
+  // conflated, or switching the last set off would silently turn it back on.
+  const chosenSets = "parasite_sets" in parasiteDraft ? parasiteDraft.parasite_sets : formatting.parasite_sets;
+  const setIsOn = (set: ParasiteSet) => chosenSets ? chosenSets.includes(set.id) : set.default_on;
+  // The set for the language being dictated goes first; «auto» keeps the
+  // backend's own order, because there is nothing to sort by yet.
+  const dictationLanguage = config?.language ?? "ru";
+  const orderedSets = [...parasiteSets].sort((a, b) =>
+    Number(b.language === dictationLanguage) - Number(a.language === dictationLanguage));
+  const activeWords = orderedSets.filter(setIsOn).flatMap((set) => set.words);
+  const offCount = activeWords.filter(parasiteIsOff).length;
+  const parasiteSummary = [
+    `${activeWords.length} ${tPlural(activeWords.length, ["слово", "слова", "слов"])}`,
+    ...(offCount > 0 ? [t("{count} выключено", { count: offCount })] : []),
+  ].join(" · ");
+
+  function toggleParasite(word: string) {
+    const next = parasiteIsOff(word)
+      ? disabledParasites.filter((off) => off.trim().toLowerCase() !== word.toLowerCase())
+      : [...disabledParasites, word];
+    void saveParasites({ disabled_parasite_words: next });
+  }
+
+  function toggleParasiteSet(set: ParasiteSet) {
+    // The first change writes out the full resolved selection rather than a
+    // one-element list, so the sets left alone keep whatever they resolved to.
+    const current = parasiteSets.filter(setIsOn).map((item) => item.id);
+    const next = setIsOn(set) ? current.filter((id) => id !== set.id) : [...current, set.id];
+    void saveParasites({ parasite_sets: next });
   }
 
   function updateRule(id: string, patch: Partial<ReplacementRule>) {
@@ -762,25 +867,97 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
                     <div className="flex-grow" style={{ minWidth: 0 }}>
                       <div style={{ font: "500 13px/1.2 var(--font-sans)", color: "var(--ink)" }}>{opt.title}</div>
                       <div style={{ font: "400 11.5px/1.4 var(--font-sans)", color: "var(--ink-mute)", marginTop: 2 }}>{opt.sub}</div>
+                      {/* The word list opens from the row it belongs to. It
+                          used to sit at the bottom of the card, ten rows away
+                          from its own switch, where it read as loose clutter.
+                          The summary keeps the point of showing it at all: how
+                          many words the step removes, and how many you stopped. */}
+                      {opt.key === "remove_parasites" && parasiteSets.length > 0 &&
+                        <button type="button" className="btn btn--ghost" style={{ marginTop: 6, height: 26 }} onClick={() => setParasitesOpen(true)}>
+                          <Icon name="sliders" size={12}/>{t("Список")}: {parasiteSummary}
+                        </button>}
                     </div>
                     <Switch on={value} onChange={(next) => void saveFormatting({ [opt.key]: next })}/>
                   </div>
                 );
               })}
             </div>
-            <div className="dictionary-library">
-              <div>
-                <div className="flex-row" style={{ justifyContent: "space-between", marginBottom: 8 }}>
-                  <div>
-                    <div style={{ font: "600 13px/1.2 var(--font-sans)", color: "var(--ink)" }}>{t("Свои слова-паразиты")}</div>
-                    <div style={{ font: "400 11.5px/1.4 var(--font-sans)", color: "var(--ink-mute)", marginTop: 2 }}>{t("По одному слову или фразе в строке. Также можно разделять запятыми.")}</div>
-                  </div>
-                  <button className="btn btn--ghost" onClick={saveCustomWords}><Icon name="check" size={12}/>{t("Сохранить")}</button>
-                </div>
-                <textarea className="field mono" value={customWordsText} onChange={(e) => setCustomWordsText(e.target.value)} onBlur={saveCustomWords} placeholder={t("например: собственно\nскажем так")} style={{ width: "100%", minHeight: 96, padding: 12, resize: "vertical", lineHeight: 1.45 }}/>
-              </div>
-            </div>
           </Foldable>
+
+          {parasitesOpen && <Modal title={t("Слова-паразиты")} className="parasite-modal" onClose={() => setParasitesOpen(false)}>
+            <div className="modal__body parasite-body">
+              {/* How a chip works is the same in every set, so it is said once,
+                  under the title. Repeated per section it was the same sentence
+                  twice on one screen, and it grew with every language added. */}
+              {orderedSets.some(setIsOn) &&
+                <p className="parasite-note parasite-intro">{t("Нажмите на слово, чтобы перестать его удалять. Зачёркнутые остаются в тексте.")}</p>}
+              {orderedSets.map((set) => {
+                const on = setIsOn(set);
+                return (
+                  <section key={set.id}>
+                    <div className="parasite-set__head">
+                      <h3 className="parasite-heading">{parasiteSetLabel(set.language)}</h3>
+                      <Switch on={on} label={parasiteSetLabel(set.language)} onChange={() => toggleParasiteSet(set)}/>
+                    </div>
+                    {/* An off set shows its switch and the reason, and nothing
+                        else. Its words cannot be removed from anything, and a
+                        list of them is the clutter that made an English reader
+                        stare at thirteen Cyrillic chips. */}
+                    {!on && <p className="parasite-note">{t("Набор выключен: эти слова из текста не удаляются.")}</p>}
+                    {on && <div className="parasite-chips">
+                      {set.words.map((word) => {
+                        const off = parasiteIsOff(word);
+                        return (
+                          <button
+                            key={word}
+                            type="button"
+                            className="pill parasite-chip"
+                            data-off={off ? "true" : "false"}
+                            aria-pressed={!off}
+                            onClick={() => toggleParasite(word)}
+                          >{word}</button>
+                        );
+                      })}
+                    </div>}
+                  </section>
+                );
+              })}
+              <section>
+                <h3 className="parasite-heading">{t("Свои слова-паразиты")}</h3>
+                <p className="parasite-note">{t("Введите слово или фразу и нажмите Enter. Несколько сразу можно разделить запятыми.")}</p>
+                {/* A list, not a text field. The field was a textarea whose
+                    contents were parsed on save: a word typed into it never
+                    became anything you could see or take back out, while the
+                    built-in words right above it were chips all along. */}
+                <div className="flex-row" style={{ gap: 8 }}>
+                  <input
+                    className="field flex-grow"
+                    value={newParasite}
+                    onChange={(e) => setNewParasite(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void addCustomParasites(); } }}
+                    onBlur={() => void addCustomParasites()}
+                    placeholder={t("например: собственно")}
+                    aria-label={t("Своё слово-паразит")}
+                    style={{ height: 30 }}
+                  />
+                  <button type="button" className="btn btn--ghost" style={{ height: 30 }} disabled={!newParasite.trim()} onClick={() => void addCustomParasites()}><Icon name="plus" size={12}/>{t("Добавить")}</button>
+                </div>
+                {customParasites.length > 0 && <div className="parasite-chips" style={{ marginTop: 8 }}>
+                  {customParasites.map((word) => (
+                    <span key={word} className="pill parasite-chip parasite-chip--own">
+                      {word}
+                      <button type="button" className="parasite-chip__remove" aria-label={`${t("Удалить")}: ${word}`} onClick={() => removeCustomParasite(word)}><Icon name="x" size={10}/></button>
+                    </span>
+                  ))}
+                </div>}
+              </section>
+            </div>
+            {/* No footer. Everything in here saves as it is changed — a chip on
+                click, a word on Enter or on blur — so a «Сохранить» would
+                promise something that already happened, and a second «Закрыть»
+                beside the × in the header is one control saying what the other
+                one says. */}
+          </Modal>}
 
           <Foldable
             open={Boolean(folds.repl)}

@@ -1,9 +1,9 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { DictionaryAnalysis, DictionarySet, TextFormattingConfig } from "../bridge/types";
 import { analyzeDictionary, getDictionaryPresets } from "../bridge/dictionaries";
 import { Card, Switch } from "../components/Shell";
 import { Icon } from "../components/Icon";
+import { Modal } from "../components/Modal";
 import { t, tPlural } from "../i18n";
 import { dictionaryName, dictionaryPatch, parseDictionaryWords, replaceDictionarySet } from "./dictionarySets";
 
@@ -87,38 +87,6 @@ export function DictionaryLibrary({ formatting, onSave }: { formatting: TextForm
   </div>;
 }
 
-function DictionaryModal({ title, children, onClose, busy }: { title: string; children: ReactNode; onClose: () => void; busy: boolean }) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const previous = document.activeElement as HTMLElement | null;
-    (ref.current?.querySelector<HTMLElement>("input") ?? ref.current)?.focus();
-    return () => { previous?.focus(); };
-  }, []);
-  useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape" && !busy) { event.preventDefault(); event.stopPropagation(); onClose(); }
-      if (event.key !== "Tab") return;
-      const dialog = ref.current;
-      if (!dialog) return;
-      const items = Array.from(dialog.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [tabindex="0"]')).filter((element) => !element.closest('fieldset:disabled'));
-      const first = items[0]; const last = items[items.length - 1];
-      if (!first) { event.preventDefault(); dialog.focus(); return; }
-      if (!dialog.contains(document.activeElement) || document.activeElement === dialog) {
-        event.preventDefault(); (event.shiftKey ? last : first).focus();
-      } else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
-    }
-    document.addEventListener("keydown", onKeyDown, true);
-    return () => document.removeEventListener("keydown", onKeyDown, true);
-  }, [busy, onClose]);
-  return createPortal(<div className="modal-overlay" onMouseDown={(event) => { if (!busy && event.target === event.currentTarget) onClose(); }}>
-    <div className="modal dictionary-modal" ref={ref} tabIndex={-1} role="dialog" aria-modal="true" aria-label={title}>
-      <div className="modal__head"><h2>{title}</h2><button type="button" className="modal__close" disabled={busy} onClick={onClose} aria-label={t("Закрыть")}><Icon name="x" size={14}/></button></div>
-      {children}
-    </div>
-  </div>, document.body);
-}
-
 function DictionaryDialog({ session, formatting, onSave, onClose }: { session: Session; formatting: TextFormattingConfig; onSave: (next: TextFormattingConfig) => Promise<boolean>; onClose: () => void }) {
   const [entry, setEntry] = useState<Entry>(() => session.entry ?? { id: crypto.randomUUID(), name: "", description: "", words: [], enabled: false });
   const [editing, setEditing] = useState(Boolean(session.create));
@@ -182,7 +150,7 @@ function DictionaryDialog({ session, formatting, onSave, onClose }: { session: S
   const unsupported = analysis?.unsupported_words.filter((word) => (editing ? parseDictionaryWords(words) : entry.words).includes(word)) ?? [];
   const title = session.draft ? t("Выберите написание") : editing ? t("Редактор набора") : dictionaryName(entry);
 
-  return <DictionaryModal title={title} busy={busy} onClose={close}>
+  return <Modal title={title} busy={busy} onClose={close} className="dictionary-modal">
     <div className="modal__body dictionary-body">
       {discarding ? <><p>{t("Закрыть без сохранения изменений?")}</p><div className="dictionary-toolbar"><button ref={confirmationRef} type="button" className="btn btn--ghost" onClick={() => setDiscarding(false)}>{t("Продолжить редактирование")}</button><button type="button" className="btn btn--primary" onClick={onClose}>{t("Не сохранять")}</button></div></> : <>
         {stale && <p className="dictionary-error" role="alert">{t("Словари изменились в другом окне. Скопируйте несохранённый текст и откройте набор заново.")}</p>}
@@ -222,5 +190,5 @@ function DictionaryDialog({ session, formatting, onSave, onClose }: { session: S
         <button type="button" className="btn btn--ghost" disabled={busy} onClick={close}>{t("Закрыть")}</button>
       </>}
     </div>}
-  </DictionaryModal>;
+  </Modal>;
 }

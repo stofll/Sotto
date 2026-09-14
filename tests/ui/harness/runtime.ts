@@ -16,6 +16,7 @@ const config: ConfigResult = {
     remove_parasites: true, remove_duplicates: true, collapse_phrase_loops: true,
     clean_commas: true, normalize_spaces: true, split_sentences: true,
     capitalize_sentences: true, final_punctuation: true, custom_parasite_words: [],
+    disabled_parasite_words: [],
     custom_words: [], enabled_presets: [], dictionary_sets: [], dictionary_spellings: [],
   },
   ai_processing: {
@@ -95,6 +96,13 @@ export function install(seed: any = {}) {
         state.assessments = state.assessments.filter((a: { id: string }) => a.id !== args.id);
         persist(); return null;
       case 'dictionary_presets': return [['Test terms', ['Sotto', 'Playwright']]];
+      // Synthetic sets, not a copy of the Rust constants: what the interface
+      // must get right is showing whatever the backend sends, switching a set
+      // on and an entry off. A second copy of the real lists would only drift.
+      case 'parasite_sets': return [
+        { id: 'ru', language: 'ru', words: ['ну', 'типа', 'короче'], default_on: true },
+        { id: 'en', language: 'en', words: ['basically', 'like'], default_on: false },
+      ];
       case 'analyze_dictionary': return { effective_count: 0, conflicts: [], unsupported_words: [] };
       // Processing outputs are fixtures, not a second implementation of the Rust engines.
       case 'preview_format': return { original: args.text, formatted: args.text };

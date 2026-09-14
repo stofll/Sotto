@@ -15,7 +15,17 @@ import { fileURLToPath } from "node:url";
 // The kilobytes here are decimal — the way Vite prints them itself, so that the
 // number from the build log and the number from here can be compared by eye.
 const BUDGETS_KB = {
-  "index.html": 560,
+  // 560 → 570. What grew: the settings window took the GitHub feedback card and
+  // then the verbal-tic dialog, about 4 kB each, and the second one landed with
+  // 3.8 kB of headroom left. Neither is a heavy dependency — it is the screen
+  // accumulating features, which is what this window is for.
+  //
+  // Raised rather than split because the settings window is the one the user
+  // opens deliberately and waits for, unlike the overlay and the tray, whose
+  // budgets are untouched and have room. Code-splitting the dialog would buy
+  // back the 4 kB; that is worth doing when the screen next needs room, not to
+  // recover 400 bytes.
+  "index.html": 570,
   "overlay.html": 330,
   "tray.html": 330,
 };

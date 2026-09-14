@@ -41,17 +41,34 @@ use serde_json::Value;
 // Defaults
 // ---------------------------------------------------------------------------
 
-/// Default Russian parasite / filler words. Mirrors Python's
-/// `DEFAULT_PARASITE_WORDS` exactly — the parity tests rely on this.
-const DEFAULT_PARASITE_WORDS: &[&str] = &[
+/// Default Russian parasite words.
+///
+/// The rule this list must satisfy: a word belongs here only when deleting it
+/// cannot change what the sentence asserts. The step deletes every entry
+/// unconditionally, by word boundary, everywhere in the text, and the user is
+/// never shown which words those are — so a word that is padding in one
+/// position and load-bearing in another does not belong here at all.
+///
+/// Five entries were dropped from the Python original for failing that rule:
+///
+/// * «да», «нет» — the answer itself, not padding around it. «Он спросил
+///   приедешь ли я сказал нет» came out as «…я сказал», and «нет не надо это
+///   мержить» came out as the instruction to merge.
+/// * «вот» — a demonstrative particle carrying the emphasis of the sentence it
+///   opens.
+/// * «значит», «собственно» — parasites only as interjections. As ordinary
+///   words they are the predicate and the qualifier: «это значит, что мы
+///   опоздали» collapsed into «это, что мы опоздали», and «собственно код» lost
+///   the word that said which code was meant.
+///
+/// What is left is padding in every position it can occupy.
+pub const RU_PARASITE_WORDS: &[&str] = &[
     "ну",
     "типа",
     "как бы",
     "в общем",
     "короче",
     "это самое",
-    "значит",
-    "собственно",
     "так сказать",
     "понимаешь",
     "понимаете",
@@ -59,27 +76,149 @@ const DEFAULT_PARASITE_WORDS: &[&str] = &[
     "чё",
     "че",
     "короч",
-    "вот",
-    "да",
-    "нет",
 ];
 
-/// Default filler-sound regex patterns (э-э, ммм, а-а, …). Each is
-/// compiled lazily by `default_filler_patterns()` to keep the module
-/// loading order side-effect-free (Rust forbids `Lazy<Regex>` with a
-/// non-const initialiser at the top level).
-fn default_filler_patterns() -> Vec<Regex> {
-    [
-        r"\b(э+[-\s]*)+\b",
-        r"\b(м+[-\s]*)+\b",
-        r"\b(а+[-\s]*)+\b",
-        r"\b(о+[-\s]*)+\b",
-        r"\bну-+у*\b",
-        r"\bмм-+\b",
-    ]
-    .iter()
-    .map(|pattern| Regex::new(pattern).expect("valid filler pattern"))
-    .collect()
+/// English parasite words. Shipped switched OFF — see [`PARASITE_PRESETS`].
+///
+/// English fails the admission rule the Russian list is held to, and not at the
+/// edges: its commonest fillers are ordinary vocabulary. «I like it» and «looks
+/// like this», «well done» and «the well», «turn right» and «that's right» —
+/// a word-boundary regex sees no difference, exactly as it saw none between the
+/// answer «нет» and padding.
+///
+/// So the set exists but nobody gets it by default: switching it on is a
+/// deliberate act, and every word in it is a chip that can be switched off on
+/// its own. The order below runs from safe to dangerous, because that is the
+/// order a person should read them in:
+///
+/// * `basically` … `apparently` — adverbial hedges. They colour a sentence
+///   without carrying its claim, so dropping them is the closest English has to
+///   the Russian «короче».
+/// * `you know` … `kind of` — phrasal padding. Riskier: «you know the answer»
+///   and «a kind of bird» are ordinary sentences.
+/// * `like`, `well`, `right` — the ones people actually over-use, and the ones
+///   that break real sentences. Present because leaving them out makes the set
+///   pointless, last because they are why it is opt-in.
+///
+/// Deliberately absent: `just`, `so`, `then`, `now`. They are filler as often
+/// as the three above and destroy more when wrong — `just one`, `so we ship`.
+pub const EN_PARASITE_WORDS: &[&str] = &[
+    "basically",
+    "literally",
+    "essentially",
+    "honestly",
+    "obviously",
+    "actually",
+    "apparently",
+    "you know",
+    "i mean",
+    "sort of",
+    "kind of",
+    "like",
+    "well",
+    "right",
+];
+
+/// A built-in parasite word list for one language.
+pub struct ParasitePreset {
+    /// Stable id, stored in the config when the user changes the selection.
+    pub id: &'static str,
+    /// The dictation language the set is written for. The interface shows the
+    /// matching set first; nothing in the pipeline reads it, because the words
+    /// of one language cannot match the text of another anyway.
+    pub language: &'static str,
+    pub words: &'static [&'static str],
+    /// Whether the set applies to someone who has never opened these settings.
+    pub default_on: bool,
+}
+
+/// Every built-in set, in the order the interface lists them.
+pub const PARASITE_PRESETS: &[ParasitePreset] = &[
+    ParasitePreset {
+        id: "ru",
+        language: "ru",
+        words: RU_PARASITE_WORDS,
+        default_on: true,
+    },
+    ParasitePreset {
+        id: "en",
+        language: "en",
+        words: EN_PARASITE_WORDS,
+        default_on: false,
+    },
+];
+
+/// Filler sounds for a dictation in Russian.
+///
+/// «А» and «о» are drawn out into a filler («а-а-а», «о-о»), but on their own
+/// they are ordinary words: the conjunction «а» and the preposition «о». The
+/// patterns for those two therefore require the sound to be held — two or more
+/// vowels, run together or split by a hyphen or a space. Written as a single
+/// letter it is left alone, so «речь о том, а потом мы всё переделали» keeps its
+/// preposition and its conjunction instead of collapsing into «речь том что
+/// потом». «Э» and «м» need no such guard: neither is a Russian word.
+///
+/// These are applied to every dictation, whatever the language: Cyrillic cannot
+/// match a text written in any other alphabet, so there is nothing to gate.
+const RUSSIAN_FILLER_PATTERNS: &[&str] = &[
+    r"\b(э+[-\s]*)+\b",
+    r"\b(м+[-\s]*)+\b",
+    r"\bа+(?:[-\s]*а+)+\b",
+    r"\bо+(?:[-\s]*о+)+\b",
+    r"\bну-+у*\b",
+    r"\bмм-+\b",
+];
+
+/// Filler sounds for a dictation in English. Each is a sound that is not an
+/// English word:
+///
+/// * `uh+m*` — uh, uhh, uhm, uhmm.
+/// * `um+` — um, umm.
+/// * `erm*` — er, erm, ermm. Deliberately NOT `err`, which is a verb.
+/// * `hm+` — hm, hmm, hmmm.
+/// * `mmm+` — three or more, because «mm» is millimetres.
+/// * `ah+` — ah, ahh.
+///
+/// «Oh» is left out for the reason «о» is: it carries the emotion of the line
+/// it opens rather than padding it.
+///
+/// UNLIKE the Cyrillic set, these run ONLY when the dictation language is
+/// English — and that gate is a correction, not caution. They were ungated at
+/// first, on the reasoning that a Latin pattern cannot match Russian. True, and
+/// beside the point: most of the languages Sotto transcribes are written in the
+/// same alphabet as English. «Er kommt um acht» came out as «Kommt acht» —
+/// `er` is a German pronoun and `um` a German preposition — and Dutch «er» and
+/// French «ah» go the same way. An unknown language («auto», or a config older
+/// than the setting) counts as not-English: failing to strip a filler costs a
+/// word of noise, stripping a pronoun costs the sentence.
+///
+/// `(?i)` is here because an engine capitalises the first word of a sentence
+/// and a filler is very often that word. The Cyrillic patterns have never had
+/// it and still miss a capitalised «Ну» — a separate gap, not one this list
+/// should fix quietly.
+const ENGLISH_FILLER_PATTERNS: &[&str] = &[
+    r"(?i)\buh+m*\b",
+    r"(?i)\bum+\b",
+    r"(?i)\berm*\b",
+    r"(?i)\bhm+\b",
+    r"(?i)\bmmm+\b",
+    r"(?i)\bah+\b",
+];
+
+/// The filler patterns in force for a dictation in `language`.
+///
+/// Compiled here rather than in a `Lazy` to keep the module's loading order
+/// side-effect-free (Rust forbids `Lazy<Regex>` with a non-const initialiser at
+/// the top level).
+fn default_filler_patterns(language: Option<&str>) -> Vec<Regex> {
+    let mut patterns: Vec<&str> = RUSSIAN_FILLER_PATTERNS.to_vec();
+    if language == Some("en") {
+        patterns.extend_from_slice(ENGLISH_FILLER_PATTERNS);
+    }
+    patterns
+        .iter()
+        .map(|pattern| Regex::new(pattern).expect("valid filler pattern"))
+        .collect()
 }
 
 /// Tier 1 — strong hallucination signatures. Drop a segment that merely
@@ -804,10 +943,12 @@ pub struct FillerWordsRemover {
 }
 
 impl FillerWordsRemover {
-    pub fn new(enabled: bool) -> Self {
+    /// `language` is the dictation language, and decides whether the English
+    /// sounds are in force — see [`ENGLISH_FILLER_PATTERNS`].
+    pub fn new(enabled: bool, language: Option<&str>) -> Self {
         Self {
             enabled,
-            patterns: default_filler_patterns(),
+            patterns: default_filler_patterns(language),
         }
     }
 }
@@ -817,7 +958,7 @@ impl FormatStep for FillerWordsRemover {
         "Remove fillers"
     }
     fn description(&self) -> &str {
-        "э-э, ммм, а-а и подобные"
+        "э-э, ммм, а-а, uh, umm, hmm и подобные"
     }
     fn apply(&self, text: &str) -> String {
         if !self.enabled {
@@ -1495,14 +1636,41 @@ impl FormatStep for CustomWordsCorrector {
 pub struct ParasiteWordsRemover {
     enabled: bool,
     custom_words: Vec<String>,
+    /// Built-in words the user switched off in settings.
+    ///
+    /// Only the words of the active sets are filtered through this: a word the
+    /// user typed in themselves is switched off by deleting it.
+    disabled_words: Vec<String>,
+    /// The words of the sets that are switched on, already resolved.
+    builtin_words: Vec<&'static str>,
 }
 
 impl ParasiteWordsRemover {
-    pub fn new(enabled: bool, custom_words: Vec<String>) -> Self {
+    pub fn new(
+        enabled: bool,
+        custom_words: Vec<String>,
+        disabled_words: Vec<String>,
+        builtin_words: Vec<&'static str>,
+    ) -> Self {
         Self {
             enabled,
             custom_words,
+            disabled_words,
+            builtin_words,
         }
+    }
+
+    /// Whether a built-in word is still in force.
+    ///
+    /// Trimmed and lowercased on both sides rather than compared byte for byte:
+    /// the list travels through the config as plain strings, and the constant
+    /// is Cyrillic, where `eq_ignore_ascii_case` would not fold a single letter.
+    fn is_on(&self, word: &str) -> bool {
+        let word = word.to_lowercase();
+        !self
+            .disabled_words
+            .iter()
+            .any(|off| off.trim().to_lowercase() == word)
     }
 }
 
@@ -1517,7 +1685,12 @@ impl FormatStep for ParasiteWordsRemover {
         if !self.enabled {
             return text.to_string();
         }
-        let mut all: Vec<&str> = DEFAULT_PARASITE_WORDS.to_vec();
+        let mut all: Vec<&str> = self
+            .builtin_words
+            .iter()
+            .copied()
+            .filter(|word| self.is_on(word))
+            .collect();
         let custom: Vec<&str> = self.custom_words.iter().map(String::as_str).collect();
         all.extend(custom);
 
@@ -1532,7 +1705,12 @@ impl FormatStep for ParasiteWordsRemover {
             // (`(?<!\w)`), so we use `\b` word boundaries instead.
             // The `\b` form is unicode-aware and works for Cyrillic
             // words, which is what the parasite list contains.
-            let pattern = format!(r"\b{}\b", regex::escape(word));
+            // `(?i)`: an engine capitalises the first word of a sentence and a
+            // parasite is very often that word, while «i mean» is never
+            // dictated in lower case at all. Without it the English set would
+            // miss most of its own matches, and the Russian one still missed a
+            // sentence-leading «Ну».
+            let pattern = format!(r"(?i)\b{}\b", regex::escape(word));
             if let Ok(re) = Regex::new(&pattern) {
                 out = re.replace_all(&out, "").into_owned();
             }
@@ -2137,6 +2315,26 @@ pub struct TextFormattingConfig {
     pub final_punctuation: bool,
     #[serde(default)]
     pub custom_parasite_words: Vec<String>,
+    /// Built-in parasite words the user switched off, stored as the words
+    /// themselves.
+    ///
+    /// The list holds what is OFF rather than what is on, so that the default
+    /// stays live: a word added to the constant later starts working for
+    /// everyone, and a word removed from it simply stops being offered. Storing
+    /// the enabled set instead would freeze each config at the day it was first
+    /// opened — the same trap `effectiveSystemPrompt` documents for prompts.
+    #[serde(default)]
+    pub disabled_parasite_words: Vec<String>,
+    /// Ids of the built-in sets ([`PARASITE_PRESETS`]) that are switched on.
+    ///
+    /// `None` means the user has never touched the selection, and each set then
+    /// applies according to its own `default_on` — that is what keeps the
+    /// Russian set working for everybody and the English one off until someone
+    /// asks for it. `Some` is an explicit choice and is obeyed as written,
+    /// including `Some([])`, which an enabled-set list alone could not tell
+    /// apart from «never configured».
+    #[serde(default)]
+    pub parasite_sets: Option<Vec<String>>,
     /// Names, brands, terms and jargon the engine cannot know. An empty list
     /// means the step does not run at all.
     #[serde(default)]
@@ -2154,6 +2352,25 @@ impl TextFormattingConfig {
     /// both would fight over the same window of text.
     pub fn effective_custom_words(&self) -> Vec<String> {
         crate::dictionaries::effective_words(self)
+    }
+
+    /// The built-in sets that are switched on.
+    pub fn active_parasite_sets(&self) -> Vec<&'static ParasitePreset> {
+        PARASITE_PRESETS
+            .iter()
+            .filter(|preset| match &self.parasite_sets {
+                Some(chosen) => chosen.iter().any(|id| id == preset.id),
+                None => preset.default_on,
+            })
+            .collect()
+    }
+
+    /// Every built-in word in force, before the per-word switches are applied.
+    pub fn active_parasite_words(&self) -> Vec<&'static str> {
+        self.active_parasite_sets()
+            .into_iter()
+            .flat_map(|preset| preset.words.iter().copied())
+            .collect()
     }
 }
 
@@ -2175,6 +2392,8 @@ impl Default for TextFormattingConfig {
             capitalize_sentences: true,
             final_punctuation: true,
             custom_parasite_words: Vec::new(),
+            disabled_parasite_words: Vec::new(),
+            parasite_sets: None,
             custom_words: Vec::new(),
             enabled_presets: Vec::new(),
             dictionary_sets: Vec::new(),
@@ -2185,6 +2404,16 @@ impl Default for TextFormattingConfig {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct FormatterConfig {
+    /// The dictation language, read from the ROOT of the config rather than
+    /// from `text_formatting` — that is where the setting lives, and both the
+    /// live path and `preview_format` hand the whole config value over, so the
+    /// field arrives on its own.
+    ///
+    /// `None` is «not told»: an old config, or a preview built from a fragment.
+    /// Steps that could damage a language they were not written for treat it as
+    /// a foreign language rather than as a permission.
+    #[serde(default)]
+    pub language: Option<String>,
     #[serde(default)]
     pub text_formatting: TextFormattingConfig,
     #[serde(default)]
@@ -2219,10 +2448,15 @@ impl Formatter {
 
         let steps: Vec<Box<dyn FormatStep>> = vec![
             Box::new(HallucinationCleaner::new(fmt.remove_hallucinations)),
-            Box::new(FillerWordsRemover::new(fmt.remove_fillers)),
+            Box::new(FillerWordsRemover::new(
+                fmt.remove_fillers,
+                config.language.as_deref(),
+            )),
             Box::new(ParasiteWordsRemover::new(
                 fmt.remove_parasites,
                 fmt.custom_parasite_words.clone(),
+                fmt.disabled_parasite_words.clone(),
+                fmt.active_parasite_words(),
             )),
             Box::new(DuplicateWordsRemover::new(fmt.remove_duplicates)),
             // After the single-word dedupe: with "да да да да" already
@@ -2385,6 +2619,8 @@ mod tests {
 
     fn default_fmt() -> FormatterConfig {
         FormatterConfig {
+            // The tests that exercise the English sounds set this themselves.
+            language: Some("ru".to_string()),
             text_formatting: TextFormattingConfig {
                 enabled: true,
                 remove_hallucinations: true,
@@ -2398,6 +2634,8 @@ mod tests {
                 capitalize_sentences: true,
                 final_punctuation: true,
                 custom_parasite_words: Vec::new(),
+                disabled_parasite_words: Vec::new(),
+                parasite_sets: None,
                 custom_words: Vec::new(),
                 enabled_presets: Vec::new(),
                 dictionary_sets: Vec::new(),
@@ -2542,6 +2780,365 @@ mod tests {
         let formatter = Formatter::from_config(&default_fmt());
         let out = formatter.process("эээ ну я я хочу проверить текст");
         assert_eq!(out, "Я хочу проверить текст.");
+    }
+
+    // ----- Words the cleanup must never take away -----
+
+    /// «Да» and «нет» are the answer, not padding around it. Deleting them
+    /// does not tidy the sentence up, it reverses or empties it — and the
+    /// author has no way to see that a word was taken.
+    #[test]
+    fn an_answer_of_yes_or_no_survives_the_cleanup() {
+        let formatter = Formatter::from_config(&default_fmt());
+        assert_eq!(
+            formatter.process("он спросил приедешь ли я сказал нет"),
+            "Он спросил приедешь ли я сказал нет."
+        );
+        assert_eq!(
+            formatter.process("нет не надо это мержить"),
+            "Нет не надо это мержить."
+        );
+        assert_eq!(
+            formatter.process("да я согласен давай так и сделаем"),
+            "Да я согласен давай так и сделаем."
+        );
+    }
+
+    /// «Вот» opens the sentence it emphasises; removing it changes what is
+    /// being pointed at.
+    #[test]
+    fn a_demonstrative_particle_survives_the_cleanup() {
+        let formatter = Formatter::from_config(&default_fmt());
+        assert_eq!(
+            formatter.process("вот это и есть главная проблема"),
+            "Вот это и есть главная проблема."
+        );
+    }
+
+    /// «Значит» and «собственно» are parasites only as interjections. Deleting
+    /// them everywhere takes out a predicate and a qualifier.
+    #[test]
+    fn znachit_and_sobstvenno_survive_as_ordinary_words() {
+        let formatter = Formatter::from_config(&default_fmt());
+        assert_eq!(
+            formatter.process("это значит что мы опоздали"),
+            "Это значит что мы опоздали."
+        );
+        assert_eq!(
+            formatter.process("посмотри на собственно код а не на тесты"),
+            "Посмотри на собственно код а не на тесты."
+        );
+    }
+
+    // ----- English filler sounds -----
+
+    /// A dictation declared as English.
+    fn english_fmt() -> FormatterConfig {
+        let mut config = default_fmt();
+        config.language = Some("en".to_string());
+        config
+    }
+
+    /// Before these patterns existed the whole cleanup was a no-op on English
+    /// dictation: every built-in word and every filler pattern was Cyrillic, so
+    /// both switches did nothing while the settings said otherwise.
+    #[test]
+    fn english_filler_sounds_are_removed() {
+        let formatter = Formatter::from_config(&english_fmt());
+        assert_eq!(
+            formatter.process("uh i think umm we should ship it"),
+            "I think we should ship it."
+        );
+        assert_eq!(
+            formatter.process("er we could ahh try the other one"),
+            "We could try the other one."
+        );
+        assert_eq!(
+            formatter.process("hmm let me check that"),
+            "Let me check that."
+        );
+    }
+
+    /// The engine capitalises the first word of a sentence, and a filler is
+    /// very often that word.
+    #[test]
+    fn a_capitalised_filler_is_removed_too() {
+        let formatter = Formatter::from_config(&english_fmt());
+        assert_eq!(formatter.process("Um, I think so"), "I think so.");
+    }
+
+    /// The English sounds are ordinary words in the other languages written in
+    /// the same alphabet, so they must not run on a dictation that is not
+    /// English. «Er» is a German pronoun and «um» a German preposition: ungated,
+    /// the patterns turned «Er kommt um acht» into «Kommt acht».
+    #[test]
+    fn english_sounds_do_not_touch_another_latin_language() {
+        let mut config = default_fmt();
+        config.language = Some("de".to_string());
+        let formatter = Formatter::from_config(&config);
+        assert_eq!(formatter.process("Er kommt um acht"), "Er kommt um acht.");
+        assert_eq!(
+            formatter.process("Ich gehe um sieben, er auch"),
+            "Ich gehe um sieben, er auch."
+        );
+
+        config.language = Some("nl".to_string());
+        let formatter = Formatter::from_config(&config);
+        assert_eq!(
+            formatter.process("Er is niets om te zien"),
+            "Er is niets om te zien."
+        );
+    }
+
+    /// «auto» and a config too old to carry the setting are «not told», which
+    /// is not permission: a missed filler costs a word of noise, a swallowed
+    /// pronoun costs the sentence.
+    #[test]
+    fn an_unknown_language_does_not_get_the_english_sounds() {
+        let mut config = default_fmt();
+        config.language = Some("auto".to_string());
+        let formatter = Formatter::from_config(&config);
+        assert_eq!(formatter.process("Er kommt um acht"), "Er kommt um acht.");
+
+        config.language = None;
+        let formatter = Formatter::from_config(&config);
+        assert_eq!(formatter.process("Er kommt um acht"), "Er kommt um acht.");
+    }
+
+    /// The Russian sounds are not gated, and need not be: Cyrillic cannot match
+    /// a text written in another alphabet.
+    #[test]
+    fn russian_sounds_run_whatever_the_language_says() {
+        let mut config = default_fmt();
+        config.language = Some("en".to_string());
+        let formatter = Formatter::from_config(&config);
+        assert_eq!(formatter.process("э-э я забыл"), "Я забыл.");
+    }
+
+    /// The gate lives on the dictation language, not on the word sets: a filler
+    /// sound is a separate step, and switching the English word set on must not
+    /// be what turns the sounds on (nor off).
+    #[test]
+    fn the_sound_gate_is_the_language_not_the_word_set() {
+        let mut config = english_fmt();
+        config.text_formatting.parasite_sets = Some(Vec::new());
+        let formatter = Formatter::from_config(&config);
+        assert_eq!(formatter.process("um i think so"), "I think so.");
+    }
+
+    /// The point of the whole exercise: a sound may go, a word may not.
+    #[test]
+    fn english_words_that_look_like_fillers_survive() {
+        let formatter = Formatter::from_config(&default_fmt());
+        // "err" is a verb, "mm" is millimetres, and "oh" carries the line it
+        // opens — none of them are on the list.
+        assert_eq!(formatter.process("to err is human"), "To err is human.");
+        assert_eq!(
+            formatter.process("cut it to 5 mm exactly"),
+            "Cut it to 5 mm exactly."
+        );
+        assert_eq!(
+            formatter.process("oh that explains it"),
+            "Oh that explains it."
+        );
+        // Ordinary words that merely start with the same letters.
+        assert_eq!(
+            formatter.process("uhuru ahead of umbrella hmx"),
+            "Uhuru ahead of umbrella hmx."
+        );
+    }
+
+    /// The Latin patterns run on every dictation and must be inert on Russian,
+    /// exactly as the Cyrillic ones are inert on English.
+    #[test]
+    fn latin_patterns_do_not_touch_russian() {
+        let formatter = Formatter::from_config(&default_fmt());
+        assert_eq!(
+            formatter.process("речь о том что а потом мы всё переделали"),
+            "Речь о том что а потом мы всё переделали."
+        );
+    }
+
+    /// A built-in word the user switched off must stop being removed, while the
+    /// rest of the list keeps working.
+    #[test]
+    fn a_switched_off_builtin_word_is_kept() {
+        let mut config = default_fmt();
+        config.text_formatting.disabled_parasite_words = vec!["короче".to_string()];
+        let formatter = Formatter::from_config(&config);
+        assert_eq!(
+            formatter.process("короче ну надо решать"),
+            "Короче надо решать."
+        );
+    }
+
+    /// The stored word comes back from a text field, so it arrives with
+    /// whatever spacing and case the person typed.
+    #[test]
+    fn switching_off_ignores_case_and_padding() {
+        let mut config = default_fmt();
+        config.text_formatting.disabled_parasite_words = vec!["  Короче  ".to_string()];
+        let formatter = Formatter::from_config(&config);
+        assert_eq!(
+            formatter.process("короче надо решать"),
+            "Короче надо решать."
+        );
+    }
+
+    /// Switching a built-in word off must not disarm the user's own additions.
+    #[test]
+    fn switching_off_a_builtin_leaves_custom_words_working() {
+        let mut config = default_fmt();
+        config.text_formatting.disabled_parasite_words = vec!["короче".to_string()];
+        config.text_formatting.custom_parasite_words = vec!["скажем так".to_string()];
+        let formatter = Formatter::from_config(&config);
+        assert_eq!(
+            formatter.process("короче скажем так надо решать"),
+            "Короче надо решать."
+        );
+    }
+
+    // ----- Built-in sets -----
+
+    /// English words are shipped but not applied: the set is opt-in because
+    /// «like», «well» and «right» are ordinary vocabulary.
+    #[test]
+    fn the_english_set_is_off_until_it_is_asked_for() {
+        let formatter = Formatter::from_config(&default_fmt());
+        assert_eq!(
+            formatter.process("basically i mean we could just like ship it right"),
+            "Basically i mean we could just like ship it right."
+        );
+    }
+
+    #[test]
+    fn switching_the_english_set_on_applies_it() {
+        let mut config = english_fmt();
+        config.text_formatting.parasite_sets = Some(vec!["ru".to_string(), "en".to_string()]);
+        let formatter = Formatter::from_config(&config);
+        assert_eq!(
+            formatter.process("basically we could ship it"),
+            "We could ship it."
+        );
+    }
+
+    /// The reason the matching had to stop being case-sensitive: an engine
+    /// capitalises the first word of a sentence, and «I» is never dictated
+    /// lower case at all, so the whole English set would have missed itself.
+    #[test]
+    fn the_english_set_matches_the_case_an_engine_actually_writes() {
+        let mut config = english_fmt();
+        config.text_formatting.parasite_sets = Some(vec!["en".to_string()]);
+        let formatter = Formatter::from_config(&config);
+        assert_eq!(formatter.process("Basically we can begin"), "We can begin.");
+        assert_eq!(
+            formatter.process("it is, I mean, the same thing"),
+            "It is, the same thing."
+        );
+    }
+
+    /// Case folding reaches the Russian set too, which had quietly been missing
+    /// a sentence-leading «Ну» all along.
+    #[test]
+    fn a_capitalised_russian_parasite_is_removed() {
+        let formatter = Formatter::from_config(&default_fmt());
+        assert_eq!(formatter.process("Ну, поехали"), "Поехали.");
+    }
+
+    /// Choosing the sets is an explicit act, and choosing none of them is a
+    /// choice too — it must not read as «never configured» and fall back to the
+    /// defaults.
+    #[test]
+    fn an_empty_selection_is_a_choice_not_a_default() {
+        let mut config = default_fmt();
+        config.text_formatting.parasite_sets = Some(Vec::new());
+        let formatter = Formatter::from_config(&config);
+        assert_eq!(
+            formatter.process("ну короче надо решать"),
+            "Ну короче надо решать."
+        );
+        assert!(config.text_formatting.active_parasite_words().is_empty());
+    }
+
+    /// An untouched config resolves to each set's own default.
+    #[test]
+    fn an_untouched_config_takes_the_defaults() {
+        let config = default_fmt();
+        let ids: Vec<&str> = config
+            .text_formatting
+            .active_parasite_sets()
+            .iter()
+            .map(|preset| preset.id)
+            .collect();
+        assert_eq!(ids, vec!["ru"]);
+    }
+
+    /// Switching the Russian set off leaves the user's own words working: the
+    /// two live in different fields for exactly this reason.
+    #[test]
+    fn switching_a_set_off_leaves_custom_words_working() {
+        let mut config = default_fmt();
+        config.text_formatting.parasite_sets = Some(Vec::new());
+        config.text_formatting.custom_parasite_words = vec!["скажем так".to_string()];
+        let formatter = Formatter::from_config(&config);
+        assert_eq!(
+            formatter.process("ну скажем так надо решать"),
+            "Ну надо решать."
+        );
+    }
+
+    /// The interface offers a chip for every word of every active set, so every
+    /// one of them has to be switchable — otherwise settings show a switch that
+    /// does nothing.
+    #[test]
+    fn every_builtin_word_can_be_switched_off() {
+        let mut config = default_fmt();
+        // Both sets on, so the check covers the English words too.
+        config.text_formatting.parasite_sets = Some(vec!["ru".to_string(), "en".to_string()]);
+        let words = config.text_formatting.active_parasite_words();
+        config.text_formatting.disabled_parasite_words =
+            words.iter().map(|word| word.to_string()).collect();
+        let formatter = Formatter::from_config(&config);
+        let text = words.join(" ");
+        assert_eq!(
+            formatter
+                .process(&text)
+                .to_lowercase()
+                .trim_end_matches('.'),
+            text
+        );
+    }
+
+    /// The conjunction «а» and the preposition «о» are single letters, and the
+    /// filler patterns used to swallow both. Losing them does not remove a
+    /// sound, it breaks the grammar of the phrase around it.
+    #[test]
+    fn single_letter_conjunction_and_preposition_survive() {
+        let formatter = Formatter::from_config(&default_fmt());
+        assert_eq!(
+            formatter.process("речь о том что а потом мы всё переделали"),
+            "Речь о том что а потом мы всё переделали."
+        );
+        assert_eq!(
+            formatter.process("поговорим о проекте"),
+            "Поговорим о проекте."
+        );
+    }
+
+    /// The held-out sound is still a filler and must still go: the fix narrows
+    /// the patterns, it does not switch them off.
+    #[test]
+    fn a_held_vowel_is_still_removed() {
+        let formatter = Formatter::from_config(&default_fmt());
+        assert_eq!(
+            formatter.process("а-а-а я забыл про встречу"),
+            "Я забыл про встречу."
+        );
+        assert_eq!(
+            formatter.process("ааа это была моя ошибка"),
+            "Это была моя ошибка."
+        );
+        assert_eq!(formatter.process("о-о теперь понятно"), "Теперь понятно.");
     }
 
     #[test]

@@ -469,7 +469,8 @@ export const en: Record<string, string | string[]> = {
   "«субтитры сделал…», «спасибо за просмотр», [Music]; если кроме них ничего нет — вставка отменяется":
     "“subtitles by…”, “thanks for watching”, [Music]; if nothing else is left, the paste is cancelled",
   "Удалять заполнители": "Remove fillers",
-  "э-э, ммм, а-а и похожие звуки": "uh, umm, ah and similar sounds",
+  "э-э, ммм, а-а и похожие звуки; английские uh, umm, hmm — при английской диктовке":
+    "э-э, ммм, а-а and similar sounds; the English uh, umm, hmm when you dictate in English",
   "Удалять слова-паразиты": "Remove verbal tics",
   "Удалять повторы": "Remove repetitions",
   "Схлопывать зациклившиеся фразы": "Collapse looping phrases",
@@ -486,8 +487,18 @@ export const en: Record<string, string | string[]> = {
   "Разработка": "Development",
   "например: Tauri\nClaude Code": "for example: Tauri\nClaude Code",
   "Свои слова-паразиты": "Your own verbal tics",
+  "Слова-паразиты": "Verbal tics",
+  "Русские": "Russian",
+  "Английские": "English",
+  "Набор выключен: эти слова из текста не удаляются.": "The set is off: these words are not removed from your text.",
+  "{count} выключено": "{count} switched off",
+  "Нажмите на слово, чтобы перестать его удалять. Зачёркнутые остаются в тексте.": "Click a word to stop removing it. Struck-through words stay in your text.",
+  "встроенный список только русский; свои слова работают на любом языке": "the built-in list is Russian only; your own words work in any language",
   "По одному слову или фразе в строке. Также можно разделять запятыми.":
     "One word or phrase per line. Commas work too.",
+  "Введите слово или фразу и нажмите Enter. Несколько сразу можно разделить запятыми.":
+    "Type a word or phrase and press Enter. Separate several with commas.",
+  "Своё слово-паразит": "Your own verbal tic",
   "Добавьте слово или фразу, которые нужно автоматически исправлять после распознавания.":
     "Add a word or phrase to correct automatically after transcription.",
   "Живой предпросмотр": "Live preview",
@@ -802,6 +813,7 @@ export const en: Record<string, string | string[]> = {
   "Ошибка LLM, вставлен локальный текст": "LLM error; local text was pasted",
   "день|дня|дней": ["day", "days"],
   "термин|термина|терминов": ["term", "terms"],
+  "слово|слова|слов": ["word", "words"],
   "например \"Личный Cerebras\"": "e.g. \"My Cerebras\"",
   "Например: Cerebras gpt-oss": "For example: Cerebras gpt-oss",
   "Например: Cerebras gpt-oss-120b": "For example: Cerebras gpt-oss-120b",
@@ -886,8 +898,7 @@ export const en: Record<string, string | string[]> = {
   "тайпскрипт": "type script",
   "мой мейл": "my email",
   "смайл": "smiley",
-  "например: собственно\nскажем так": "for example: basically\nso to speak",
-  "ну, типа, как бы, в общем и свои слова ниже": "Built-in Russian phrases: «ну», «типа», «как бы», «в общем»; plus your phrases below",
+  "например: собственно": "for example: basically",
   "я я хочу -> я хочу": "I I want -> I want",
   "я думаю что. я думаю что. я думаю что. -> я думаю что.": "I think so. I think so. I think so. -> I think so.",
 };

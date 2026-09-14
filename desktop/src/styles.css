@@ -1607,6 +1607,28 @@ button.card { appearance: none; font: inherit; color: inherit; }
 }
 
 .dictionary-library { padding: var(--pad-4); display: grid; gap: var(--pad-3); }
+.parasite-modal { width: min(520px, calc(100vw - 2 * var(--pad-4))); }
+.parasite-body { padding: var(--pad-4); display: grid; gap: var(--pad-4); overflow-y: auto; min-height: 0; }
+.parasite-heading { margin: 0; font: 600 13px/1.2 var(--font-sans); color: var(--ink); }
+.parasite-set__head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.parasite-note { margin: 2px 0 8px; font: 400 11.5px/1.4 var(--font-sans); color: var(--ink-mute); }
+/* Standing on its own between grid rows, the note carries no margin of its own. */
+.parasite-intro { margin: 0; }
+.parasite-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+/* One button in the footer: the shared rule spreads its children apart, which
+   would park a lone «Готово» on the left. */
+.parasite-modal .modal__foot { justify-content: flex-end; }
+/* A chip is a switch, not a label: it carries the pill's shape but has to look
+   pressable, and an "off" word has to read as off at a glance rather than by
+   comparing it with its neighbours. */
+.parasite-chip { cursor: pointer; font-size: 12px; transition: opacity .12s ease, border-color .12s ease; }
+.parasite-chip:hover { border-color: var(--line-strong); }
+.parasite-chip[data-off="true"] { text-decoration: line-through; opacity: .5; background: transparent; }
+/* Your own word is a chip you delete, not one you switch off, so it carries an
+   explicit × instead of taking the click on the whole body. */
+.parasite-chip--own { cursor: default; padding-right: 4px; }
+.parasite-chip__remove { appearance: none; border: 0; background: transparent; color: var(--ink-mute); cursor: pointer; display: grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; padding: 0; }
+.parasite-chip__remove:hover { background: var(--bg-2); color: var(--err); }
 .dictionary-toolbar, .dictionary-row, .dictionary-check { display: flex; align-items: center; gap: var(--pad-3); }
 .dictionary-toolbar { justify-content: space-between; flex-wrap: wrap; }
 .dictionary-row { padding: var(--pad-3) 0; border-bottom: 1px solid var(--line-soft); }
