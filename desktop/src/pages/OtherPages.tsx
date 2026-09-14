@@ -12,6 +12,7 @@ import { textPreview, replacementExamples } from "./textExamples";
 import { DictionaryLibrary } from "./DictionaryLibrary";
 import { Modal } from "../components/Modal";
 import { getParasiteSets, type ParasiteSet } from "../bridge/dictionaries";
+import { FeedbackCard } from "./FeedbackCard";
 import { DEFAULT_HOTKEY } from "../hotkey";
 
 type StatsRange = "week" | "month" | "year" | "all";
@@ -1359,6 +1360,8 @@ export function InfoPage({ version, config, onConfigChanged }: { version?: strin
           {pipelineSteps.map((step, i) => <PipelineStep key={step.title} index={i + 1} title={step.title} detail={step.detail} icon={step.icon}/>) }
         </div>
       </HelpCard>
+
+      <FeedbackCard/>
 
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(280px, .85fr)", gap: 14, marginTop: 14 }} className="help-top">
         <DiagnosticsCard config={config} onConfigChanged={onConfigChanged}/>

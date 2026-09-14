@@ -33,4 +33,4 @@ assignees: ""
 
 ## Logs or screenshots
 
-<!-- Redact API keys, personal data, transcripts, file paths, and recordings before attaching. -->
+<!-- Prefer Help → Report a problem → Save sanitized logs in Sotto. Review the file before attaching: this issue and attachments are public. Never attach the entire diagnostics folder, recordings or raw logs. GitHub uploads files as soon as you select them. -->

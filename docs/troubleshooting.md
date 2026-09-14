@@ -49,3 +49,11 @@ Include the OS, architecture, app version, selected model, and whether the failu
 Cloud STT and LLM formatting are opt-in. Verify the selected provider, endpoint, model, and key in the Integrations settings, then retry with local processing to separate provider failures from the local pipeline.
 
 The LLM timeout in the Integrations settings is the whole budget for one dictation, including retries and the pause between them, not the limit for a single attempt. When it runs out, the transcription is delivered without cloud formatting rather than held back.
+
+## Report a problem or suggest an improvement
+
+Open **Help → Report a problem** to preview a public technical summary and optionally prepare sanitized logs. Continue on GitHub opens a bug-report draft in your browser; a GitHub account is required, and you must submit the issue there. You can exclude the summary or copy it manually. Add your OS version, reproduction steps, expected result and actual result on GitHub.
+
+The sanitized export includes event timestamps, levels, known modules and selected numeric latency measurements from at most the last 256 KiB of the active log. Free-form messages, source locations, paths, recordings and rotated archives are excluded. This conservative export can omit details needed to diagnose an error. Review and save the preview, then attach that file manually on GitHub. GitHub uploads an attachment immediately when selected, before issue submission; reports and attachments are public. Never attach the entire diagnostics folder.
+
+**Suggest an improvement** opens the feature template without diagnostics. **View known issues** opens the tracker so you can check for existing reports. Opening GitHub does not confirm issue publication. No feedback server, Telegram integration or GitHub credentials in Sotto are involved. Report security vulnerabilities through the private flow in [SECURITY.md](../SECURITY.md).
