@@ -43,17 +43,25 @@ use serde_json::Value;
 
 /// Default Russian parasite words.
 ///
-/// Ported from Python's `DEFAULT_PARASITE_WORDS`, minus «да», «нет» and «вот».
-/// Those three were in the original list and they do not belong in it: the step
-/// deletes them unconditionally, by word boundary, everywhere in the text. «Да»
-/// and «нет» are the answer itself, not padding around it — «он спросил
-/// приедешь ли я сказал нет» came out as «…я сказал», and «нет не надо это
-/// мержить» came out as the instruction to merge. «Вот» is a demonstrative
-/// particle that carries the emphasis of the sentence it opens.
-///
 /// The rule this list must satisfy: a word belongs here only when deleting it
-/// cannot change what the sentence asserts. What is left can be dropped without
-/// the author losing an answer they gave.
+/// cannot change what the sentence asserts. The step deletes every entry
+/// unconditionally, by word boundary, everywhere in the text, and the user is
+/// never shown which words those are — so a word that is padding in one
+/// position and load-bearing in another does not belong here at all.
+///
+/// Five entries were dropped from the Python original for failing that rule:
+///
+/// * «да», «нет» — the answer itself, not padding around it. «Он спросил
+///   приедешь ли я сказал нет» came out as «…я сказал», and «нет не надо это
+///   мержить» came out as the instruction to merge.
+/// * «вот» — a demonstrative particle carrying the emphasis of the sentence it
+///   opens.
+/// * «значит», «собственно» — parasites only as interjections. As ordinary
+///   words they are the predicate and the qualifier: «это значит, что мы
+///   опоздали» collapsed into «это, что мы опоздали», and «собственно код» lost
+///   the word that said which code was meant.
+///
+/// What is left is padding in every position it can occupy.
 const DEFAULT_PARASITE_WORDS: &[&str] = &[
     "ну",
     "типа",
@@ -61,8 +69,6 @@ const DEFAULT_PARASITE_WORDS: &[&str] = &[
     "в общем",
     "короче",
     "это самое",
-    "значит",
-    "собственно",
     "так сказать",
     "понимаешь",
     "понимаете",
@@ -2590,6 +2596,21 @@ mod tests {
         assert_eq!(
             formatter.process("вот это и есть главная проблема"),
             "Вот это и есть главная проблема."
+        );
+    }
+
+    /// «Значит» and «собственно» are parasites only as interjections. Deleting
+    /// them everywhere takes out a predicate and a qualifier.
+    #[test]
+    fn znachit_and_sobstvenno_survive_as_ordinary_words() {
+        let formatter = Formatter::from_config(&default_fmt());
+        assert_eq!(
+            formatter.process("это значит что мы опоздали"),
+            "Это значит что мы опоздали."
+        );
+        assert_eq!(
+            formatter.process("посмотри на собственно код а не на тесты"),
+            "Посмотри на собственно код а не на тесты."
         );
     }
 
