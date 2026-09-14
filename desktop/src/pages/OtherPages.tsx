@@ -837,6 +837,11 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
 
           {parasitesOpen && <Modal title={t("Слова-паразиты")} className="parasite-modal" onClose={() => setParasitesOpen(false)}>
             <div className="modal__body parasite-body">
+              {/* How a chip works is the same in every set, so it is said once,
+                  under the title. Repeated per section it was the same sentence
+                  twice on one screen, and it grew with every language added. */}
+              {orderedSets.some(setIsOn) &&
+                <p className="parasite-note parasite-intro">{t("Нажмите на слово, чтобы перестать его удалять. Зачёркнутые остаются в тексте.")}</p>}
               {orderedSets.map((set) => {
                 const on = setIsOn(set);
                 return (
@@ -845,13 +850,11 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
                       <h3 className="parasite-heading">{parasiteSetLabel(set)}</h3>
                       <Switch on={on} label={parasiteSetLabel(set)} onChange={() => toggleParasiteSet(set)}/>
                     </div>
-                    <p className="parasite-note">{on
-                      ? t("Нажмите на слово, чтобы перестать его удалять. Зачёркнутые остаются в тексте.")
-                      : t("Набор выключен: эти слова из текста не удаляются.")}</p>
-                    {/* An off set shows its switch and nothing else. Its words
-                        cannot be removed from anything, and a list of them is
-                        the clutter that made an English reader stare at
-                        thirteen Cyrillic chips. */}
+                    {/* An off set shows its switch and the reason, and nothing
+                        else. Its words cannot be removed from anything, and a
+                        list of them is the clutter that made an English reader
+                        stare at thirteen Cyrillic chips. */}
+                    {!on && <p className="parasite-note">{t("Набор выключен: эти слова из текста не удаляются.")}</p>}
                     {on && <div className="parasite-chips">
                       {set.words.map((word) => {
                         const off = parasiteIsOff(word);

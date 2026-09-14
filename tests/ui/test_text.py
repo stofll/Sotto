@@ -155,6 +155,8 @@ def test_builtin_parasite_words_are_shown_and_can_be_switched_off(app, page):
     page.get_by_role("button", name=re.compile(r"^Очистка")).click()
     page.get_by_role("button", name="Список: 3 слова", exact=True).click()
     dialog = page.get_by_role("dialog", name="Слова-паразиты")
+    # How a chip works is said once, under the title — not per set.
+    expect(dialog.get_by_text("Нажмите на слово")).to_have_count(1)
     korotche = dialog.get_by_role("button", name="короче", exact=True)
     expect(korotche).to_be_visible()
     expect(korotche).to_have_attribute("aria-pressed", "true")
