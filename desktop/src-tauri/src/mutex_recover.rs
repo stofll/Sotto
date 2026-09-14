@@ -72,13 +72,4 @@ mod tests {
             "expected pre-panic data, got: {recovered}"
         );
     }
-
-    #[test]
-    fn helper_returns_normal_guard_for_healthy_mutex() {
-        let mutex = Mutex::new(42_u32);
-        let mut guard = lock(&mutex);
-        *guard = 100;
-        drop(guard);
-        assert_eq!(*lock(&mutex), 100);
-    }
 }

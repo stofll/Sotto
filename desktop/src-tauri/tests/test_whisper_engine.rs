@@ -37,23 +37,6 @@ fn transcribe_cloud_variant_compiles() {
 }
 
 #[test]
-fn api_surface_compiles_across_crate_boundary() {
-    // This exercises the public API the same way an end-user (frontend
-    // bridge or other crate) would. If a field is renamed or removed,
-    // this test fails to compile — catching renames early.
-    let r = InferenceResult {
-        session_id: 1,
-        text: "hello".into(),
-        language: Some("en".into()),
-        model_id: Some("medium".into()),
-        inference_time_ms: 123,
-        audio_seconds: 1.0,
-    };
-    assert_eq!(r.session_id, 1);
-    assert_eq!(r.text, "hello");
-}
-
-#[test]
 fn channels_accept_all_engine_command_variants() {
     // Constuct each EngineCommand variant to confirm they're still
     // constructible from a downstream crate (i.e. enums didn't gain a

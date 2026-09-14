@@ -192,10 +192,6 @@ impl MicrophoneTest {
         })
     }
 
-    pub fn is_active(&self) -> bool {
-        crate::mutex_recover::lock(&self.inner).recorder.is_some()
-    }
-
     fn emit_error(app: &AppHandle, error: &str) -> String {
         let _ = app.emit(
             "app-error",

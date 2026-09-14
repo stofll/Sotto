@@ -139,18 +139,6 @@ impl DownloadOutcome {
     pub fn bytes(&self) -> u64 {
         self.bytes
     }
-
-    /// Serialize the outcome for the Tauri IPC boundary. The Rust
-    /// worker thread returns this to the command layer in PR 1.2
-    /// so the frontend can show "downloaded 1.6 GB → /path/to/..."
-    /// and trigger a Settings refresh.
-    pub fn to_info(&self) -> DownloadOutcomeInfo {
-        DownloadOutcomeInfo {
-            model_id: String::new(),
-            path: self.path.to_string_lossy().into_owned(),
-            bytes: self.bytes,
-        }
-    }
 }
 
 /// Tauri-friendly snapshot of a `DownloadOutcome`. Lives separately

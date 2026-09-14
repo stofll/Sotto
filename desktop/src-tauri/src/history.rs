@@ -154,7 +154,7 @@ pub struct NewEntry<'a> {
 /// transcript text + timing (e.g. tests, and any path with no formatting/LLM
 /// context). Builds the `processing_stats` JSON with audio + whisper timing
 /// and leaves raw/formatted/ai fields empty.
-#[allow(dead_code)] // convenience wrapper; exercised by tests, live path uses append_entry
+#[cfg(test)]
 pub fn append(
     db: &Mutex<Connection>,
     text: &str,

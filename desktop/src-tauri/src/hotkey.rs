@@ -21,13 +21,6 @@ pub struct HotkeySpec {
     pub key: String,
 }
 
-impl HotkeySpec {
-    #[allow(dead_code)] // only consumed by tests (key_name is not called from non-test code)
-    pub fn key_name(&self) -> &str {
-        &self.key
-    }
-}
-
 /// Parse a hotkey string like `"ctrl+shift+a"` into a [`HotkeySpec`].
 ///
 /// Tokens are split on `+`. The last token is the key (preserved as-typed
@@ -382,13 +375,6 @@ fn hotkey_do_stop(app: &AppHandle, state: &AppState) {
     }
 }
 
-// `_ordering` is read by the dead-store lint to silence the unused import
-// warning when neither side of the cfg uses `Ordering`. Safe to keep.
-#[allow(dead_code)]
-fn _ordering_silencer() -> Ordering {
-    Ordering::SeqCst
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -413,7 +399,7 @@ mod tests {
         assert!(s.mods.shift);
         assert!(!s.mods.alt);
         assert!(!s.mods.meta);
-        assert_eq!(s.key_name(), "a");
+        assert_eq!(s.key, "a");
     }
 
     #[test]
@@ -436,7 +422,7 @@ mod tests {
         // for being non-Latin. The downstream plugin handles physical-key mapping.
         let s = parse("ctrl+я").unwrap();
         assert!(s.mods.ctrl);
-        assert_eq!(s.key_name(), "я");
+        assert_eq!(s.key, "я");
     }
 
     #[test]
@@ -455,7 +441,7 @@ mod tests {
         let b = parse("shift+ctrl+a").unwrap();
         assert_eq!(a.mods.ctrl, b.mods.ctrl);
         assert_eq!(a.mods.shift, b.mods.shift);
-        assert_eq!(a.key_name(), b.key_name());
+        assert_eq!(a.key, b.key);
     }
 
     #[test]

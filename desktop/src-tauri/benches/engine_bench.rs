@@ -11,11 +11,12 @@
 //! Quick compile check (CI):
 //!   cargo bench --no-run --package sotto
 
-use std::sync::{Mutex, MutexGuard};
+use std::sync::Mutex;
 use std::time::Duration;
 
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 use sotto_lib::cloud_stt::{audio_to_wav_bytes, build_multipart_body};
+use sotto_lib::mutex_recover::lock;
 use sotto_lib::whisper::InferenceResult;
 
 // ---------------------------------------------------------------------------
@@ -119,17 +120,6 @@ fn inference_result_clone(c: &mut Criterion) {
 // Benchmark 4 – Mutex recovery lock overhead on a healthy mutex
 // ---------------------------------------------------------------------------
 
-/// Inline equivalent of `mutex_recover::lock()` — recovers from a poisoned
-/// mutex instead of panicking. We replicate the logic here (rather than
-/// calling the private `sotto_lib::mutex_recover::lock`) so the
-/// benchmark can compare overhead without modifying production visibility.
-fn recover_lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    match mutex.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    }
-}
-
 fn mutex_recover_lock_overhead(c: &mut Criterion) {
     let mutex: Mutex<u64> = Mutex::new(0u64);
 
@@ -144,7 +134,7 @@ fn mutex_recover_lock_overhead(c: &mut Criterion) {
 
     group.bench_function("mutex_recover_lock", |b| {
         b.iter(|| {
-            let guard = recover_lock(&mutex);
+            let guard = lock(&mutex);
             criterion::black_box(*guard);
         });
     });
