@@ -525,24 +525,12 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 .main-header { flex: 0 0 auto; padding: 22px 32px 16px; border-bottom: 1px solid var(--line); display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; }
 .main-header h1 { margin: 0; font: 600 22px/1.1 var(--font-sans); letter-spacing: -0.02em; }
 .main-header p { margin: 4px 0 0; font: 400 13px/1.4 var(--font-sans); color: var(--ink-dim); }
-.main-header--compact { padding: 12px 24px 10px; align-items: center; }
-.main-header--compact h1 { font: 600 15px/1.15 var(--font-sans); display: inline-flex; align-items: center; gap: 6px; }
-.main-header--compact p { display: none; }
-.main-header--compact > div:first-child { display: flex; align-items: center; gap: 14px; min-width: 0; }
-.main-header--compact .tag { height: 20px; font-size: 10px; padding: 0 7px; }
 .main-body { padding: 24px 32px 28px; overflow: auto; display: flex; flex-direction: column; gap: 24px; min-height: 0; }
 .loading-state { flex: 1; min-height: 0; display: grid; place-items: center; color: var(--ink-mute); }
 .settings-body { gap: 22px; }
 .settings-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; padding: 0 0 18px; border-bottom: 1px solid var(--line); }
 .settings-header h1 { margin: 0; font: 600 22px/1.1 var(--font-sans); letter-spacing: -0.02em; }
 .settings-header p { margin: 4px 0 0; font: 400 13px/1.4 var(--font-sans); color: var(--ink-dim); }
-.setting { display: grid; grid-template-columns: minmax(96px, 130px) minmax(0, 1fr); gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--line); }
-.setting:last-child { border-bottom: 0; }
-.setting--stack { grid-template-columns: minmax(0, 1fr); gap: 10px; }
-.setting--stack .setting__label h3 { font-size: 13.5px; color: var(--ink); }
-.setting__label h3 { margin: 0; font: 500 14px/1.2 var(--font-sans); letter-spacing: -0.01em; display: inline-flex; align-items: center; gap: 5px; }
-.setting__label p { margin: 0; font: 400 12px/1.45 var(--font-sans); color: var(--ink-dim); max-width: 180px; }
-.setting__control { min-width: 0; }
 /* One geometry for the hint icon. The reference is the «Горячая клавиша» row
    in settings: a 14 px icon, 5 px to the caption. The distance is set by the
    row's gap, so every container with a hint keeps the same value. */
@@ -1108,7 +1096,6 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 .api-key-row .masked { font: 500 11px/1 var(--font-mono); color: var(--ink-dim); }
 .api-key-row .usage { font: 500 10px/1.2 var(--font-mono); color: var(--ink-mute); }
 
-@keyframes wave-pulse { 0%, 100% { transform: scaleY(0.30); } 50% { transform: scaleY(1); } }
 @keyframes rec-halo { 0% { box-shadow: 0 0 0 0 rgba(239,111,71,0.45); } 100% { box-shadow: 0 0 0 14px rgba(239,111,71,0); } }
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }

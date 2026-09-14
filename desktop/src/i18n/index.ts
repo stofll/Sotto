@@ -133,11 +133,6 @@ export function tPlural(count: number, forms: [string, string, string], params?:
   return interpolate(localized[index] ?? localized[localized.length - 1], { count, ...params });
 }
 
-/** The key under which `tPlural` looks up forms. Needed by the check script. */
-export function pluralKey(forms: [string, string, string]): string {
-  return forms.join("|");
-}
-
 function pluralIndex(count: number, locale: Locale, formCount: number): number {
   if (locale === "ru" || formCount === 3) {
     const mod10 = count % 10;

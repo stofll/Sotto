@@ -139,3 +139,42 @@ def test_tray_updates_locale_from_settings_event(app, page):
 def test_overlay_late_mount_reads_current_state(app, page):
     app("overlay", overlay_state="processing")
     expect(page.get_by_test_id("overlay")).to_have_attribute("data-state", "processing")
+
+
+def test_overlay_audio_lifetime_and_reduced_motion(app, page):
+    page.emulate_media(reduced_motion="reduce")
+    ui = app("overlay")
+    ui.emit("recording-started", 1)
+    ui.emit("audio-level", {"level": 1})
+    bars = page.locator(".overlay-waveform > span")
+    expect(bars).to_have_count(24)
+    expect(bars.last).to_have_css("height", "26px")
+    expect(bars.last).to_have_css("transition-duration", "0s")
+    ui.emit("audio-level", {"level": -1})
+    expect(bars.last).to_have_css("height", "5px")
+    ui.emit("recording-stopped", 1)
+    page.wait_for_function("window.__sottoTest.subscriptions['audio-level'] === 0")
+    expect(page.locator(".overlay-progress-track > div")).to_have_css(
+        "animation-name", "none"
+    )
+    ui.emit("overlay-reset")
+    ui.emit("recording-started", 2)
+    expect(bars).to_have_count(24)
+    ui.emit("audio-level", {"level": 0.25})
+    expect(bars.last).to_have_css("height", "16px")
+
+
+def test_overlay_timer_stops_after_recording_and_reset(app, page):
+    page.clock.install()
+    ui = app("overlay")
+    ui.emit("recording-started", 1)
+    page.clock.run_for(2000)
+    expect(page.locator(".overlay-timer")).to_have_text("00:02")
+    ui.emit("recording-stopped", 1)
+    page.clock.run_for(5000)
+    expect(page.locator(".overlay-timer")).to_have_text("00:02")
+    ui.emit("overlay-reset")
+    expect(page.get_by_test_id("overlay")).not_to_be_visible()
+    page.clock.run_for(5000)
+    ui.emit("recording-started", 2)
+    expect(page.locator(".overlay-timer")).to_have_text("00:00")
