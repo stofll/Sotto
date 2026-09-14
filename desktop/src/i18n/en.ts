@@ -470,6 +470,8 @@ export const en: Record<string, string | string[]> = {
   "Свои слова-паразиты": "Your own verbal tics",
   "Слова-паразиты": "Verbal tics",
   "Встроенные (русские)": "Built-in (Russian)",
+  "Язык диктовки не русский — эти слова из вашего текста не удаляются. Добавьте свои ниже.": "Your dictation language is not Russian, so these words are not removed from your text. Add your own below.",
+  "Показать список": "Show the list",
   "{count} выключено": "{count} switched off",
   "Нажмите на слово, чтобы перестать его удалять. Зачёркнутые остаются в тексте.": "Click a word to stop removing it. Struck-through words stay in your text.",
   "встроенный список только русский; свои слова работают на любом языке": "the built-in list is Russian only; your own words work in any language",

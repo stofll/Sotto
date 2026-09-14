@@ -176,3 +176,19 @@ def test_builtin_parasite_words_are_shown_and_can_be_switched_off(app, page):
     dialog.get_by_role("button", name="Сохранить", exact=True).click()
     expect(dialog).not_to_be_visible()
     expect(page.get_by_role("button", name="Список: 3 слова · 1 выключено", exact=True)).to_be_visible()
+
+
+def test_russian_builtin_list_is_folded_away_on_a_foreign_dictation_language(app, page):
+    """Dictating in another language the built-in list is inert, so it starts
+    folded behind the line that says why rather than filling the dialog with
+    Cyrillic the reader may not be able to read."""
+    ui = app(config={"language": "en"})
+    ui.nav("text")
+    page.get_by_role("button", name=re.compile(r"^Очистка")).click()
+    page.get_by_role("button", name=re.compile(r"^Список: 3")).click()
+    dialog = page.get_by_role("dialog", name="Слова-паразиты")
+    expect(dialog).to_contain_text("Язык диктовки не русский")
+    expect(dialog.get_by_role("button", name="короче", exact=True)).not_to_be_visible()
+
+    dialog.get_by_role("button", name="Показать список", exact=True).click()
+    expect(dialog.get_by_role("button", name="короче", exact=True)).to_be_visible()

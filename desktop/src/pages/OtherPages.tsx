@@ -547,6 +547,14 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
   // section exists to fix.
   const [builtinParasites, setBuiltinParasites] = useState<string[]>([]);
   const [parasitesOpen, setParasitesOpen] = useState(false);
+  // The built-in list is Russian, and it fires on Russian text only. Dictating
+  // in another language it is thirteen inert Cyrillic chips in a settings panel
+  // the reader may not even be able to read, so it starts folded away behind
+  // the line that explains why. «auto» is not a foreign language — we simply do
+  // not know yet — so the list stays open there.
+  const dictationLanguage = config?.language ?? "ru";
+  const builtinApplies = dictationLanguage === "ru" || dictationLanguage === "auto";
+  const [builtinRevealed, setBuiltinRevealed] = useState(false);
   useEffect(() => {
     let alive = true;
     // A failure leaves the section empty rather than showing a wrong list: the
@@ -813,22 +821,28 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
             <div className="modal__body parasite-body">
               <section>
                 <h3 className="parasite-heading">{t("Встроенные (русские)")}</h3>
-                <p className="parasite-note">{t("Нажмите на слово, чтобы перестать его удалять. Зачёркнутые остаются в тексте.")}</p>
-                <div className="parasite-chips">
-                  {builtinParasites.map((word) => {
-                    const off = parasiteIsOff(word);
-                    return (
-                      <button
-                        key={word}
-                        type="button"
-                        className="pill parasite-chip"
-                        data-off={off ? "true" : "false"}
-                        aria-pressed={!off}
-                        onClick={() => toggleParasite(word)}
-                      >{word}</button>
-                    );
-                  })}
-                </div>
+                <p className="parasite-note">{builtinApplies
+                  ? t("Нажмите на слово, чтобы перестать его удалять. Зачёркнутые остаются в тексте.")
+                  : t("Язык диктовки не русский — эти слова из вашего текста не удаляются. Добавьте свои ниже.")}</p>
+                {!builtinApplies && !builtinRevealed
+                  ? <button type="button" className="btn btn--ghost" style={{ height: 26 }} onClick={() => setBuiltinRevealed(true)}>
+                      <Icon name="eye" size={12}/>{t("Показать список")}
+                    </button>
+                  : <div className="parasite-chips">
+                      {builtinParasites.map((word) => {
+                        const off = parasiteIsOff(word);
+                        return (
+                          <button
+                            key={word}
+                            type="button"
+                            className="pill parasite-chip"
+                            data-off={off ? "true" : "false"}
+                            aria-pressed={!off}
+                            onClick={() => toggleParasite(word)}
+                          >{word}</button>
+                        );
+                      })}
+                    </div>}
               </section>
               <section>
                 <h3 className="parasite-heading">{t("Свои слова-паразиты")}</h3>
