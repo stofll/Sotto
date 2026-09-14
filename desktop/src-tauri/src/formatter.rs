@@ -62,7 +62,7 @@ use serde_json::Value;
 ///   the word that said which code was meant.
 ///
 /// What is left is padding in every position it can occupy.
-pub const DEFAULT_PARASITE_WORDS: &[&str] = &[
+pub const RU_PARASITE_WORDS: &[&str] = &[
     "ну",
     "типа",
     "как бы",
@@ -76,6 +76,76 @@ pub const DEFAULT_PARASITE_WORDS: &[&str] = &[
     "чё",
     "че",
     "короч",
+];
+
+/// English parasite words. Shipped switched OFF — see [`PARASITE_PRESETS`].
+///
+/// English fails the admission rule the Russian list is held to, and not at the
+/// edges: its commonest fillers are ordinary vocabulary. «I like it» and «looks
+/// like this», «well done» and «the well», «turn right» and «that's right» —
+/// a word-boundary regex sees no difference, exactly as it saw none between the
+/// answer «нет» and padding.
+///
+/// So the set exists but nobody gets it by default: switching it on is a
+/// deliberate act, and every word in it is a chip that can be switched off on
+/// its own. The order below runs from safe to dangerous, because that is the
+/// order a person should read them in:
+///
+/// * `basically` … `apparently` — adverbial hedges. They colour a sentence
+///   without carrying its claim, so dropping them is the closest English has to
+///   the Russian «короче».
+/// * `you know` … `kind of` — phrasal padding. Riskier: «you know the answer»
+///   and «a kind of bird» are ordinary sentences.
+/// * `like`, `well`, `right` — the ones people actually over-use, and the ones
+///   that break real sentences. Present because leaving them out makes the set
+///   pointless, last because they are why it is opt-in.
+///
+/// Deliberately absent: `just`, `so`, `then`, `now`. They are filler as often
+/// as the three above and destroy more when wrong — `just one`, `so we ship`.
+pub const EN_PARASITE_WORDS: &[&str] = &[
+    "basically",
+    "literally",
+    "essentially",
+    "honestly",
+    "obviously",
+    "actually",
+    "apparently",
+    "you know",
+    "i mean",
+    "sort of",
+    "kind of",
+    "like",
+    "well",
+    "right",
+];
+
+/// A built-in parasite word list for one language.
+pub struct ParasitePreset {
+    /// Stable id, stored in the config when the user changes the selection.
+    pub id: &'static str,
+    /// The dictation language the set is written for. The interface shows the
+    /// matching set first; nothing in the pipeline reads it, because the words
+    /// of one language cannot match the text of another anyway.
+    pub language: &'static str,
+    pub words: &'static [&'static str],
+    /// Whether the set applies to someone who has never opened these settings.
+    pub default_on: bool,
+}
+
+/// Every built-in set, in the order the interface lists them.
+pub const PARASITE_PRESETS: &[ParasitePreset] = &[
+    ParasitePreset {
+        id: "ru",
+        language: "ru",
+        words: RU_PARASITE_WORDS,
+        default_on: true,
+    },
+    ParasitePreset {
+        id: "en",
+        language: "en",
+        words: EN_PARASITE_WORDS,
+        default_on: false,
+    },
 ];
 
 /// Default filler-sound regex patterns (э-э, ммм, а-а, …). Each is
@@ -1549,17 +1619,25 @@ pub struct ParasiteWordsRemover {
     custom_words: Vec<String>,
     /// Built-in words the user switched off in settings.
     ///
-    /// Only [`DEFAULT_PARASITE_WORDS`] are filtered through this: a word the
+    /// Only the words of the active sets are filtered through this: a word the
     /// user typed in themselves is switched off by deleting it.
     disabled_words: Vec<String>,
+    /// The words of the sets that are switched on, already resolved.
+    builtin_words: Vec<&'static str>,
 }
 
 impl ParasiteWordsRemover {
-    pub fn new(enabled: bool, custom_words: Vec<String>, disabled_words: Vec<String>) -> Self {
+    pub fn new(
+        enabled: bool,
+        custom_words: Vec<String>,
+        disabled_words: Vec<String>,
+        builtin_words: Vec<&'static str>,
+    ) -> Self {
         Self {
             enabled,
             custom_words,
             disabled_words,
+            builtin_words,
         }
     }
 
@@ -1588,7 +1666,8 @@ impl FormatStep for ParasiteWordsRemover {
         if !self.enabled {
             return text.to_string();
         }
-        let mut all: Vec<&str> = DEFAULT_PARASITE_WORDS
+        let mut all: Vec<&str> = self
+            .builtin_words
             .iter()
             .copied()
             .filter(|word| self.is_on(word))
@@ -1607,7 +1686,12 @@ impl FormatStep for ParasiteWordsRemover {
             // (`(?<!\w)`), so we use `\b` word boundaries instead.
             // The `\b` form is unicode-aware and works for Cyrillic
             // words, which is what the parasite list contains.
-            let pattern = format!(r"\b{}\b", regex::escape(word));
+            // `(?i)`: an engine capitalises the first word of a sentence and a
+            // parasite is very often that word, while «i mean» is never
+            // dictated in lower case at all. Without it the English set would
+            // miss most of its own matches, and the Russian one still missed a
+            // sentence-leading «Ну».
+            let pattern = format!(r"(?i)\b{}\b", regex::escape(word));
             if let Ok(re) = Regex::new(&pattern) {
                 out = re.replace_all(&out, "").into_owned();
             }
@@ -2212,8 +2296,8 @@ pub struct TextFormattingConfig {
     pub final_punctuation: bool,
     #[serde(default)]
     pub custom_parasite_words: Vec<String>,
-    /// Built-in parasite words ([`DEFAULT_PARASITE_WORDS`]) the user switched
-    /// off, stored as the words themselves.
+    /// Built-in parasite words the user switched off, stored as the words
+    /// themselves.
     ///
     /// The list holds what is OFF rather than what is on, so that the default
     /// stays live: a word added to the constant later starts working for
@@ -2222,6 +2306,16 @@ pub struct TextFormattingConfig {
     /// opened — the same trap `effectiveSystemPrompt` documents for prompts.
     #[serde(default)]
     pub disabled_parasite_words: Vec<String>,
+    /// Ids of the built-in sets ([`PARASITE_PRESETS`]) that are switched on.
+    ///
+    /// `None` means the user has never touched the selection, and each set then
+    /// applies according to its own `default_on` — that is what keeps the
+    /// Russian set working for everybody and the English one off until someone
+    /// asks for it. `Some` is an explicit choice and is obeyed as written,
+    /// including `Some([])`, which an enabled-set list alone could not tell
+    /// apart from «never configured».
+    #[serde(default)]
+    pub parasite_sets: Option<Vec<String>>,
     /// Names, brands, terms and jargon the engine cannot know. An empty list
     /// means the step does not run at all.
     #[serde(default)]
@@ -2239,6 +2333,25 @@ impl TextFormattingConfig {
     /// both would fight over the same window of text.
     pub fn effective_custom_words(&self) -> Vec<String> {
         crate::dictionaries::effective_words(self)
+    }
+
+    /// The built-in sets that are switched on.
+    pub fn active_parasite_sets(&self) -> Vec<&'static ParasitePreset> {
+        PARASITE_PRESETS
+            .iter()
+            .filter(|preset| match &self.parasite_sets {
+                Some(chosen) => chosen.iter().any(|id| id == preset.id),
+                None => preset.default_on,
+            })
+            .collect()
+    }
+
+    /// Every built-in word in force, before the per-word switches are applied.
+    pub fn active_parasite_words(&self) -> Vec<&'static str> {
+        self.active_parasite_sets()
+            .into_iter()
+            .flat_map(|preset| preset.words.iter().copied())
+            .collect()
     }
 }
 
@@ -2261,6 +2374,7 @@ impl Default for TextFormattingConfig {
             final_punctuation: true,
             custom_parasite_words: Vec::new(),
             disabled_parasite_words: Vec::new(),
+            parasite_sets: None,
             custom_words: Vec::new(),
             enabled_presets: Vec::new(),
             dictionary_sets: Vec::new(),
@@ -2310,6 +2424,7 @@ impl Formatter {
                 fmt.remove_parasites,
                 fmt.custom_parasite_words.clone(),
                 fmt.disabled_parasite_words.clone(),
+                fmt.active_parasite_words(),
             )),
             Box::new(DuplicateWordsRemover::new(fmt.remove_duplicates)),
             // After the single-word dedupe: with "да да да да" already
@@ -2486,6 +2601,7 @@ mod tests {
                 final_punctuation: true,
                 custom_parasite_words: Vec::new(),
                 disabled_parasite_words: Vec::new(),
+                parasite_sets: None,
                 custom_words: Vec::new(),
                 enabled_presets: Vec::new(),
                 dictionary_sets: Vec::new(),
@@ -2770,20 +2886,109 @@ mod tests {
         );
     }
 
-    /// The command that feeds the interface must hand over the same list the
-    /// step applies — otherwise settings offer a word that does nothing, or
-    /// hide one that is being removed.
+    // ----- Built-in sets -----
+
+    /// English words are shipped but not applied: the set is opt-in because
+    /// «like», «well» and «right» are ordinary vocabulary.
+    #[test]
+    fn the_english_set_is_off_until_it_is_asked_for() {
+        let formatter = Formatter::from_config(&default_fmt());
+        assert_eq!(
+            formatter.process("basically i mean we could just like ship it right"),
+            "Basically i mean we could just like ship it right."
+        );
+    }
+
+    #[test]
+    fn switching_the_english_set_on_applies_it() {
+        let mut config = default_fmt();
+        config.text_formatting.parasite_sets = Some(vec!["ru".to_string(), "en".to_string()]);
+        let formatter = Formatter::from_config(&config);
+        assert_eq!(
+            formatter.process("basically we could ship it"),
+            "We could ship it."
+        );
+    }
+
+    /// The reason the matching had to stop being case-sensitive: an engine
+    /// capitalises the first word of a sentence, and «I» is never dictated
+    /// lower case at all, so the whole English set would have missed itself.
+    #[test]
+    fn the_english_set_matches_the_case_an_engine_actually_writes() {
+        let mut config = default_fmt();
+        config.text_formatting.parasite_sets = Some(vec!["en".to_string()]);
+        let formatter = Formatter::from_config(&config);
+        assert_eq!(formatter.process("Basically we can begin"), "We can begin.");
+        assert_eq!(
+            formatter.process("it is, I mean, the same thing"),
+            "It is, the same thing."
+        );
+    }
+
+    /// Case folding reaches the Russian set too, which had quietly been missing
+    /// a sentence-leading «Ну» all along.
+    #[test]
+    fn a_capitalised_russian_parasite_is_removed() {
+        let formatter = Formatter::from_config(&default_fmt());
+        assert_eq!(formatter.process("Ну, поехали"), "Поехали.");
+    }
+
+    /// Choosing the sets is an explicit act, and choosing none of them is a
+    /// choice too — it must not read as «never configured» and fall back to the
+    /// defaults.
+    #[test]
+    fn an_empty_selection_is_a_choice_not_a_default() {
+        let mut config = default_fmt();
+        config.text_formatting.parasite_sets = Some(Vec::new());
+        let formatter = Formatter::from_config(&config);
+        assert_eq!(formatter.process("ну короче надо решать"), "Ну короче надо решать.");
+        assert!(config.text_formatting.active_parasite_words().is_empty());
+    }
+
+    /// An untouched config resolves to each set's own default.
+    #[test]
+    fn an_untouched_config_takes_the_defaults() {
+        let config = default_fmt();
+        let ids: Vec<&str> = config
+            .text_formatting
+            .active_parasite_sets()
+            .iter()
+            .map(|preset| preset.id)
+            .collect();
+        assert_eq!(ids, vec!["ru"]);
+    }
+
+    /// Switching the Russian set off leaves the user's own words working: the
+    /// two live in different fields for exactly this reason.
+    #[test]
+    fn switching_a_set_off_leaves_custom_words_working() {
+        let mut config = default_fmt();
+        config.text_formatting.parasite_sets = Some(Vec::new());
+        config.text_formatting.custom_parasite_words = vec!["скажем так".to_string()];
+        let formatter = Formatter::from_config(&config);
+        assert_eq!(
+            formatter.process("ну скажем так надо решать"),
+            "Ну надо решать."
+        );
+    }
+
+    /// The interface offers a chip for every word of every active set, so every
+    /// one of them has to be switchable — otherwise settings show a switch that
+    /// does nothing.
     #[test]
     fn every_builtin_word_can_be_switched_off() {
-        let all: Vec<String> = DEFAULT_PARASITE_WORDS
-            .iter()
-            .map(|word| word.to_string())
-            .collect();
         let mut config = default_fmt();
-        config.text_formatting.disabled_parasite_words = all;
+        // Both sets on, so the check covers the English words too.
+        config.text_formatting.parasite_sets = Some(vec!["ru".to_string(), "en".to_string()]);
+        let words = config.text_formatting.active_parasite_words();
+        config.text_formatting.disabled_parasite_words =
+            words.iter().map(|word| word.to_string()).collect();
         let formatter = Formatter::from_config(&config);
-        let text = DEFAULT_PARASITE_WORDS.join(" ");
-        assert_eq!(formatter.process(&text).to_lowercase().trim_end_matches('.'), text);
+        let text = words.join(" ");
+        assert_eq!(
+            formatter.process(&text).to_lowercase().trim_end_matches('.'),
+            text
+        );
     }
 
     /// The conjunction «а» and the preposition «о» are single letters, and the

@@ -11,7 +11,7 @@ import { localeTag, t, tPlural } from "../i18n";
 import { textPreview, replacementExamples } from "./textExamples";
 import { DictionaryLibrary } from "./DictionaryLibrary";
 import { Modal } from "../components/Modal";
-import { getParasiteWords } from "../bridge/dictionaries";
+import { getParasiteSets, type ParasiteSet } from "../bridge/dictionaries";
 import { DEFAULT_HOTKEY } from "../hotkey";
 
 type StatsRange = "week" | "month" | "year" | "all";
@@ -498,6 +498,13 @@ function normalizeTextFormatting(config: ConfigResult | null): TextFormattingCon
   return { ...FORMAT_DEFAULTS, ...(config?.text_formatting ?? {}) };
 }
 
+/** The name of a built-in set: its language, or the bare code for a language
+ * nobody has written a caption for yet. */
+function parasiteSetLabel(set: { id: string; language: string }): string {
+  const names: Record<string, string> = { ru: t("Русские"), en: t("Английские") };
+  return names[set.language] ?? set.language.toUpperCase();
+}
+
 function parseCustomWords(value: string): string[] {
   return value.split(/[\n,]/).map((item) => item.trim()).filter(Boolean);
 }
@@ -541,25 +548,17 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
   // ── Cleanup and dictionaries: saved immediately, no draft ──────────────
   const formatting = normalizeTextFormatting(config);
   const [customWordsText, setCustomWordsText] = useState(formatting.custom_parasite_words.join("\n"));
-  // The built-in list comes from the backend rather than being copied into the
-  // frontend: a word added there must appear here without a second edit, and a
-  // list that silently disagrees with the step is exactly the failure this
-  // section exists to fix.
-  const [builtinParasites, setBuiltinParasites] = useState<string[]>([]);
+  // The sets come from the backend rather than being copied into the frontend:
+  // a word added there must appear here without a second edit, and a list that
+  // silently disagrees with the step is exactly the failure this section exists
+  // to fix.
+  const [parasiteSets, setParasiteSets] = useState<ParasiteSet[]>([]);
   const [parasitesOpen, setParasitesOpen] = useState(false);
-  // The built-in list is Russian, and it fires on Russian text only. Dictating
-  // in another language it is thirteen inert Cyrillic chips in a settings panel
-  // the reader may not even be able to read, so it starts folded away behind
-  // the line that explains why. «auto» is not a foreign language — we simply do
-  // not know yet — so the list stays open there.
-  const dictationLanguage = config?.language ?? "ru";
-  const builtinApplies = dictationLanguage === "ru" || dictationLanguage === "auto";
-  const [builtinRevealed, setBuiltinRevealed] = useState(false);
   useEffect(() => {
     let alive = true;
     // A failure leaves the section empty rather than showing a wrong list: the
-    // toggle above still works, and the words are not misreported.
-    void getParasiteWords().then((words) => { if (alive) setBuiltinParasites(words); }).catch(() => {});
+    // switch above still works, and the words are not misreported.
+    void getParasiteSets().then((sets) => { if (alive) setParasiteSets(sets); }).catch(() => {});
     return () => { alive = false; };
   }, []);
 
@@ -652,9 +651,20 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
 
   const disabledParasites = formatting.disabled_parasite_words ?? [];
   const parasiteIsOff = (word: string) => disabledParasites.some((off) => off.trim().toLowerCase() === word.toLowerCase());
-  const offCount = builtinParasites.filter(parasiteIsOff).length;
+  // Absent means nobody has chosen and each set applies by its own default; an
+  // empty array is a choice — no built-in set at all. The two must not be
+  // conflated, or switching the last set off would silently turn it back on.
+  const chosenSets = formatting.parasite_sets;
+  const setIsOn = (set: ParasiteSet) => chosenSets ? chosenSets.includes(set.id) : set.default_on;
+  // The set for the language being dictated goes first; «auto» keeps the
+  // backend's own order, because there is nothing to sort by yet.
+  const dictationLanguage = config?.language ?? "ru";
+  const orderedSets = [...parasiteSets].sort((a, b) =>
+    Number(b.language === dictationLanguage) - Number(a.language === dictationLanguage));
+  const activeWords = orderedSets.filter(setIsOn).flatMap((set) => set.words);
+  const offCount = activeWords.filter(parasiteIsOff).length;
   const parasiteSummary = [
-    `${builtinParasites.length} ${tPlural(builtinParasites.length, ["слово", "слова", "слов"])}`,
+    `${activeWords.length} ${tPlural(activeWords.length, ["слово", "слова", "слов"])}`,
     ...(offCount > 0 ? [t("{count} выключено", { count: offCount })] : []),
   ].join(" · ");
 
@@ -663,6 +673,14 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
       ? disabledParasites.filter((off) => off.trim().toLowerCase() !== word.toLowerCase())
       : [...disabledParasites, word];
     void saveFormatting({ disabled_parasite_words: next });
+  }
+
+  function toggleParasiteSet(set: ParasiteSet) {
+    // The first change writes out the full resolved selection rather than a
+    // one-element list, so the sets left alone keep whatever they resolved to.
+    const current = parasiteSets.filter(setIsOn).map((item) => item.id);
+    const next = setIsOn(set) ? current.filter((id) => id !== set.id) : [...current, set.id];
+    void saveFormatting({ parasite_sets: next });
   }
 
   function updateRule(id: string, patch: Partial<ReplacementRule>) {
@@ -805,7 +823,7 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
                           from its own switch, where it read as loose clutter.
                           The summary keeps the point of showing it at all: how
                           many words the step removes, and how many you stopped. */}
-                      {opt.key === "remove_parasites" && builtinParasites.length > 0 &&
+                      {opt.key === "remove_parasites" && parasiteSets.length > 0 &&
                         <button type="button" className="btn btn--ghost" style={{ marginTop: 6, height: 26 }} onClick={() => setParasitesOpen(true)}>
                           <Icon name="sliders" size={12}/>{t("Список")}: {parasiteSummary}
                         </button>}
@@ -819,17 +837,23 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
 
           {parasitesOpen && <Modal title={t("Слова-паразиты")} className="parasite-modal" onClose={() => setParasitesOpen(false)}>
             <div className="modal__body parasite-body">
-              <section>
-                <h3 className="parasite-heading">{t("Встроенные (русские)")}</h3>
-                <p className="parasite-note">{builtinApplies
-                  ? t("Нажмите на слово, чтобы перестать его удалять. Зачёркнутые остаются в тексте.")
-                  : t("Язык диктовки не русский — эти слова из вашего текста не удаляются. Добавьте свои ниже.")}</p>
-                {!builtinApplies && !builtinRevealed
-                  ? <button type="button" className="btn btn--ghost" style={{ height: 26 }} onClick={() => setBuiltinRevealed(true)}>
-                      <Icon name="eye" size={12}/>{t("Показать список")}
-                    </button>
-                  : <div className="parasite-chips">
-                      {builtinParasites.map((word) => {
+              {orderedSets.map((set) => {
+                const on = setIsOn(set);
+                return (
+                  <section key={set.id}>
+                    <div className="parasite-set__head">
+                      <h3 className="parasite-heading">{parasiteSetLabel(set)}</h3>
+                      <Switch on={on} label={parasiteSetLabel(set)} onChange={() => toggleParasiteSet(set)}/>
+                    </div>
+                    <p className="parasite-note">{on
+                      ? t("Нажмите на слово, чтобы перестать его удалять. Зачёркнутые остаются в тексте.")
+                      : t("Набор выключен: эти слова из текста не удаляются.")}</p>
+                    {/* An off set shows its switch and nothing else. Its words
+                        cannot be removed from anything, and a list of them is
+                        the clutter that made an English reader stare at
+                        thirteen Cyrillic chips. */}
+                    {on && <div className="parasite-chips">
+                      {set.words.map((word) => {
                         const off = parasiteIsOff(word);
                         return (
                           <button
@@ -843,7 +867,9 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
                         );
                       })}
                     </div>}
-              </section>
+                  </section>
+                );
+              })}
               <section>
                 <h3 className="parasite-heading">{t("Свои слова-паразиты")}</h3>
                 <p className="parasite-note">{t("По одному слову или фразе в строке. Также можно разделять запятыми.")}</p>

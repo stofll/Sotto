@@ -178,17 +178,53 @@ def test_builtin_parasite_words_are_shown_and_can_be_switched_off(app, page):
     expect(page.get_by_role("button", name="Список: 3 слова · 1 выключено", exact=True)).to_be_visible()
 
 
-def test_russian_builtin_list_is_folded_away_on_a_foreign_dictation_language(app, page):
-    """Dictating in another language the built-in list is inert, so it starts
-    folded behind the line that says why rather than filling the dialog with
-    Cyrillic the reader may not be able to read."""
+def test_english_set_is_off_until_switched_on(app, page):
+    """The English set ships switched off because «like» and «well» are ordinary
+    vocabulary. Off, it shows its switch and nothing else — a list of words that
+    cannot be removed from anything is the clutter this replaced."""
+    ui = app()
+    ui.nav("text")
+    page.get_by_role("button", name=re.compile(r"^Очистка")).click()
+    page.get_by_role("button", name="Список: 3 слова", exact=True).click()
+    dialog = page.get_by_role("dialog", name="Слова-паразиты")
+    expect(dialog.get_by_role("button", name="basically", exact=True)).not_to_be_visible()
+
+    dialog.get_by_label("Английские", exact=True).click()
+    page.wait_for_function(
+        "JSON.stringify(window.__sottoTest.state.config.text_formatting"
+        ".parasite_sets) === '[\"ru\",\"en\"]'"
+    )
+    expect(dialog.get_by_role("button", name="basically", exact=True)).to_be_visible()
+
+    # Both sets now count towards the summary on the row.
+    dialog.get_by_role("button", name="Сохранить", exact=True).click()
+    expect(page.get_by_role("button", name="Список: 5 слов", exact=True)).to_be_visible()
+
+
+def test_set_for_the_dictation_language_comes_first(app, page):
+    """Dictating in English, the English set is the one worth reading, so it is
+    the one at the top."""
     ui = app(config={"language": "en"})
     ui.nav("text")
     page.get_by_role("button", name=re.compile(r"^Очистка")).click()
     page.get_by_role("button", name=re.compile(r"^Список: 3")).click()
     dialog = page.get_by_role("dialog", name="Слова-паразиты")
-    expect(dialog).to_contain_text("Язык диктовки не русский")
-    expect(dialog.get_by_role("button", name="короче", exact=True)).not_to_be_visible()
+    headings = dialog.get_by_role("heading")
+    expect(headings.first).to_have_text("Английские")
 
-    dialog.get_by_role("button", name="Показать список", exact=True).click()
-    expect(dialog.get_by_role("button", name="короче", exact=True)).to_be_visible()
+
+def test_switching_the_last_set_off_stays_off(app, page):
+    """An empty selection is a choice, not «never configured» — it must not
+    resolve back to the defaults on the next render."""
+    ui = app()
+    ui.nav("text")
+    page.get_by_role("button", name=re.compile(r"^Очистка")).click()
+    page.get_by_role("button", name="Список: 3 слова", exact=True).click()
+    dialog = page.get_by_role("dialog", name="Слова-паразиты")
+    dialog.get_by_label("Русские", exact=True).click()
+    page.wait_for_function(
+        "JSON.stringify(window.__sottoTest.state.config.text_formatting"
+        ".parasite_sets) === '[]'"
+    )
+    expect(dialog.get_by_role("button", name="короче", exact=True)).not_to_be_visible()
+    expect(page.get_by_role("button", name="Список: 0 слов", exact=True)).to_be_visible()

@@ -5,9 +5,19 @@ export function getDictionaryPresets(): Promise<[string, string[]][]> {
   return invoke("dictionary_presets");
 }
 
-/** The built-in parasite words the cleanup removes, in the order the step applies them. */
-export function getParasiteWords(): Promise<string[]> {
-  return invoke("parasite_words");
+/** A built-in parasite word set: one language's list, as the backend ships it. */
+export type ParasiteSet = {
+  id: string;
+  /** The dictation language the set is written for. */
+  language: string;
+  words: string[];
+  /** Whether the set applies to a config nobody has configured. */
+  default_on: boolean;
+};
+
+/** The built-in parasite word sets, in the order settings should list them. */
+export function getParasiteSets(): Promise<ParasiteSet[]> {
+  return invoke("parasite_sets");
 }
 
 export function analyzeDictionary(formatting: TextFormattingConfig): Promise<DictionaryAnalysis> {

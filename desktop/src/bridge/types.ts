@@ -52,6 +52,10 @@ export interface TextFormattingConfig {
   /// themselves. Holds what is OFF, not what is on, so a word added to the
   /// built-in list later starts working instead of being frozen out.
   disabled_parasite_words: string[];
+  /// Ids of the built-in sets that are switched on. Absent means nobody has
+  /// chosen, and each set then applies by its own default; an empty array is a
+  /// choice — no built-in set at all.
+  parasite_sets?: string[] | null;
   /// Names, brands and terms the engine cannot know. On Whisper it goes into
   /// initial_prompt; on any engine it corrects the result.
   custom_words: string[];

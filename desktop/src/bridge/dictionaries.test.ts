@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { analyzeDictionary, getDictionaryPresets, getParasiteWords } from "./dictionaries";
+import { analyzeDictionary, getDictionaryPresets, getParasiteSets } from "./dictionaries";
 import type { TextFormattingConfig } from "./types";
 
 const invoke = vi.hoisted(() => vi.fn());
@@ -12,10 +12,11 @@ describe("dictionary bridge", () => {
     expect(await getDictionaryPresets()).toEqual([["development", ["Rust", "Claude Code"]]]);
     expect(invoke).toHaveBeenCalledExactlyOnceWith("dictionary_presets");
   });
-  it("hands over the built-in parasite words so settings can show them", async () => {
-    invoke.mockResolvedValue(["ну", "типа"]);
-    expect(await getParasiteWords()).toEqual(["ну", "типа"]);
-    expect(invoke).toHaveBeenCalledExactlyOnceWith("parasite_words");
+  it("hands over the built-in parasite sets so settings can show them", async () => {
+    const sets = [{ id: "ru", language: "ru", words: ["ну", "типа"], default_on: true }];
+    invoke.mockResolvedValue(sets);
+    expect(await getParasiteSets()).toEqual(sets);
+    expect(invoke).toHaveBeenCalledExactlyOnceWith("parasite_sets");
   });
   it("checks the unsaved candidate and preserves conflict and support metadata", async () => {
     const formatting = { dictionary_sets: [{ id: "a", name: "Work", description: "", enabled: true, words: ["Node", "Rust", "rust"] }], dictionary_spellings: [] } as unknown as TextFormattingConfig;
