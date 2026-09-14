@@ -451,7 +451,7 @@ export const en: Record<string, string | string[]> = {
   "«субтитры сделал…», «спасибо за просмотр», [Music]; если кроме них ничего нет — вставка отменяется":
     "“subtitles by…”, “thanks for watching”, [Music]; if nothing else is left, the paste is cancelled",
   "Удалять заполнители": "Remove fillers",
-  "э-э, ммм, а-а и похожие звуки": "uh, umm, ah and similar sounds",
+  "э-э, ммм, а-а, uh, umm, hmm — звуки на русском и английском": "uh, umm, hmm, э-э, ммм, а-а — Russian and English sounds",
   "Удалять слова-паразиты": "Remove verbal tics",
   "Удалять повторы": "Remove repetitions",
   "Схлопывать зациклившиеся фразы": "Collapse looping phrases",
@@ -469,10 +469,10 @@ export const en: Record<string, string | string[]> = {
   "например: Tauri\nClaude Code": "for example: Tauri\nClaude Code",
   "Свои слова-паразиты": "Your own verbal tics",
   "Слова-паразиты": "Verbal tics",
-  "Встроенные": "Built-in",
+  "Встроенные (русские)": "Built-in (Russian)",
   "{count} выключено": "{count} switched off",
   "Нажмите на слово, чтобы перестать его удалять. Зачёркнутые остаются в тексте.": "Click a word to stop removing it. Struck-through words stay in your text.",
-  "ну, типа, как бы и другие — весь список можно настроить": "well, like, sort of and others — the whole list can be configured",
+  "встроенный список только русский; свои слова работают на любом языке": "the built-in list is Russian only; your own words work in any language",
   "По одному слову или фразе в строке. Также можно разделять запятыми.":
     "One word or phrase per line. Commas work too.",
   "Добавьте слово или фразу, которые нужно автоматически исправлять после распознавания.":

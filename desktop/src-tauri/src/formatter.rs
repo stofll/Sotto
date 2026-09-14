@@ -90,6 +90,30 @@ pub const DEFAULT_PARASITE_WORDS: &[&str] = &[
 /// letter it is left alone, so «речь о том, а потом мы всё переделали» keeps its
 /// preposition and its conjunction instead of collapsing into «речь том что
 /// потом». «Э» and «м» need no such guard: neither is a Russian word.
+///
+/// The Latin patterns are not gated on the dictation language and do not need
+/// to be: a Cyrillic pattern cannot match English and a Latin one cannot match
+/// Russian, so the two sets simply sit side by side. That is what makes sounds
+/// different from the word list — «uh» and «um» are not words in any language
+/// here, whereas an English list of filler WORDS («like», «well», «right»)
+/// would be real vocabulary and would need the language before it could run.
+///
+/// Every Latin pattern is a sound that is not an English word:
+///
+/// * `uh+m*` — uh, uhh, uhm, uhmm.
+/// * `um+` — um, umm.
+/// * `erm*` — er, erm, ermm. Deliberately NOT `err`, which is a verb.
+/// * `hm+` — hm, hmm, hmmm.
+/// * `mmm+` — three or more, because «mm» is millimetres.
+/// * `ah+` — ah, ahh.
+///
+/// «Oh» is left out for the reason «о» is: it carries the emotion of the line
+/// it opens rather than padding it.
+///
+/// `(?i)` is on the Latin patterns because an engine capitalises the first word
+/// of a sentence, and a filler is very often that word. The Cyrillic patterns
+/// above have never had it and so still miss a capitalised «Ну» — a separate
+/// gap, not one this list should fix quietly.
 fn default_filler_patterns() -> Vec<Regex> {
     [
         r"\b(э+[-\s]*)+\b",
@@ -98,6 +122,12 @@ fn default_filler_patterns() -> Vec<Regex> {
         r"\bо+(?:[-\s]*о+)+\b",
         r"\bну-+у*\b",
         r"\bмм-+\b",
+        r"(?i)\buh+m*\b",
+        r"(?i)\bum+\b",
+        r"(?i)\berm*\b",
+        r"(?i)\bhm+\b",
+        r"(?i)\bmmm+\b",
+        r"(?i)\bah+\b",
     ]
     .iter()
     .map(|pattern| Regex::new(pattern).expect("valid filler pattern"))
@@ -839,7 +869,7 @@ impl FormatStep for FillerWordsRemover {
         "Remove fillers"
     }
     fn description(&self) -> &str {
-        "э-э, ммм, а-а и подобные"
+        "э-э, ммм, а-а, uh, umm, hmm и подобные"
     }
     fn apply(&self, text: &str) -> String {
         if !self.enabled {
@@ -2647,6 +2677,60 @@ mod tests {
         assert_eq!(
             formatter.process("посмотри на собственно код а не на тесты"),
             "Посмотри на собственно код а не на тесты."
+        );
+    }
+
+    // ----- English filler sounds -----
+
+    /// Before these patterns existed the whole cleanup was a no-op on English
+    /// dictation: every built-in word and every filler pattern was Cyrillic, so
+    /// both switches did nothing while the settings said otherwise.
+    #[test]
+    fn english_filler_sounds_are_removed() {
+        let formatter = Formatter::from_config(&default_fmt());
+        assert_eq!(
+            formatter.process("uh i think umm we should ship it"),
+            "I think we should ship it."
+        );
+        assert_eq!(
+            formatter.process("er we could ahh try the other one"),
+            "We could try the other one."
+        );
+        assert_eq!(formatter.process("hmm let me check that"), "Let me check that.");
+    }
+
+    /// The engine capitalises the first word of a sentence, and a filler is
+    /// very often that word.
+    #[test]
+    fn a_capitalised_filler_is_removed_too() {
+        let formatter = Formatter::from_config(&default_fmt());
+        assert_eq!(formatter.process("Um, I think so"), "I think so.");
+    }
+
+    /// The point of the whole exercise: a sound may go, a word may not.
+    #[test]
+    fn english_words_that_look_like_fillers_survive() {
+        let formatter = Formatter::from_config(&default_fmt());
+        // "err" is a verb, "mm" is millimetres, and "oh" carries the line it
+        // opens — none of them are on the list.
+        assert_eq!(formatter.process("to err is human"), "To err is human.");
+        assert_eq!(formatter.process("cut it to 5 mm exactly"), "Cut it to 5 mm exactly.");
+        assert_eq!(formatter.process("oh that explains it"), "Oh that explains it.");
+        // Ordinary words that merely start with the same letters.
+        assert_eq!(
+            formatter.process("uhuru ahead of umbrella hmx"),
+            "Uhuru ahead of umbrella hmx."
+        );
+    }
+
+    /// The Latin patterns run on every dictation and must be inert on Russian,
+    /// exactly as the Cyrillic ones are inert on English.
+    #[test]
+    fn latin_patterns_do_not_touch_russian() {
+        let formatter = Formatter::from_config(&default_fmt());
+        assert_eq!(
+            formatter.process("речь о том что а потом мы всё переделали"),
+            "Речь о том что а потом мы всё переделали."
         );
     }
 

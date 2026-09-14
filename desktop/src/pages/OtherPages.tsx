@@ -483,8 +483,8 @@ const MASTER_RULE = (): FormatRule => (
 
 const CLEAN_RULES = (): FormatRule[] => ([
   { key: "remove_hallucinations", title: t("Убирать артефакты распознавания"), sub: t("«субтитры сделал…», «спасибо за просмотр», [Music]; если кроме них ничего нет — вставка отменяется") },
-  { key: "remove_fillers", title: t("Удалять заполнители"), sub: t("э-э, ммм, а-а и похожие звуки") },
-  { key: "remove_parasites", title: t("Удалять слова-паразиты"), sub: t("ну, типа, как бы и другие — весь список можно настроить") },
+  { key: "remove_fillers", title: t("Удалять заполнители"), sub: t("э-э, ммм, а-а, uh, umm, hmm — звуки на русском и английском") },
+  { key: "remove_parasites", title: t("Удалять слова-паразиты"), sub: t("встроенный список только русский; свои слова работают на любом языке") },
   { key: "remove_duplicates", title: t("Удалять повторы"), sub: t("я я хочу -> я хочу") },
   { key: "collapse_phrase_loops", title: t("Схлопывать зациклившиеся фразы"), sub: t("я думаю что. я думаю что. я думаю что. -> я думаю что.") },
   { key: "clean_commas", title: t("Чистить запятые"), sub: t("лишние запятые перед и/а/но, двойные запятые") },
@@ -812,7 +812,7 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
           {parasitesOpen && <Modal title={t("Слова-паразиты")} className="parasite-modal" onClose={() => setParasitesOpen(false)}>
             <div className="modal__body parasite-body">
               <section>
-                <h3 className="parasite-heading">{t("Встроенные")}</h3>
+                <h3 className="parasite-heading">{t("Встроенные (русские)")}</h3>
                 <p className="parasite-note">{t("Нажмите на слово, чтобы перестать его удалять. Зачёркнутые остаются в тексте.")}</p>
                 <div className="parasite-chips">
                   {builtinParasites.map((word) => {
