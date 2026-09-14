@@ -10,6 +10,7 @@ import { DiffBlock } from "../components/DiffBlock";
 import { localeTag, t, tPlural } from "../i18n";
 import { textPreview, replacementExamples } from "./textExamples";
 import { DictionaryLibrary } from "./DictionaryLibrary";
+import { getParasiteWords } from "../bridge/dictionaries";
 import { DEFAULT_HOTKEY } from "../hotkey";
 
 type StatsRange = "week" | "month" | "year" | "all";
@@ -466,6 +467,7 @@ const FORMAT_DEFAULTS: TextFormattingConfig = {
   capitalize_sentences: true,
   final_punctuation: true,
   custom_parasite_words: [],
+  disabled_parasite_words: [],
   custom_words: [],
   enabled_presets: [],
 };
@@ -481,7 +483,7 @@ const MASTER_RULE = (): FormatRule => (
 const CLEAN_RULES = (): FormatRule[] => ([
   { key: "remove_hallucinations", title: t("Убирать артефакты распознавания"), sub: t("«субтитры сделал…», «спасибо за просмотр», [Music]; если кроме них ничего нет — вставка отменяется") },
   { key: "remove_fillers", title: t("Удалять заполнители"), sub: t("э-э, ммм, а-а и похожие звуки") },
-  { key: "remove_parasites", title: t("Удалять слова-паразиты"), sub: t("ну, типа, как бы, в общем и свои слова ниже") },
+  { key: "remove_parasites", title: t("Удалять слова-паразиты"), sub: t("полный список ниже — любое слово можно выключить") },
   { key: "remove_duplicates", title: t("Удалять повторы"), sub: t("я я хочу -> я хочу") },
   { key: "collapse_phrase_loops", title: t("Схлопывать зациклившиеся фразы"), sub: t("я думаю что. я думаю что. я думаю что. -> я думаю что.") },
   { key: "clean_commas", title: t("Чистить запятые"), sub: t("лишние запятые перед и/а/но, двойные запятые") },
@@ -538,6 +540,18 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
   // ── Cleanup and dictionaries: saved immediately, no draft ──────────────
   const formatting = normalizeTextFormatting(config);
   const [customWordsText, setCustomWordsText] = useState(formatting.custom_parasite_words.join("\n"));
+  // The built-in list comes from the backend rather than being copied into the
+  // frontend: a word added there must appear here without a second edit, and a
+  // list that silently disagrees with the step is exactly the failure this
+  // section exists to fix.
+  const [builtinParasites, setBuiltinParasites] = useState<string[]>([]);
+  useEffect(() => {
+    let alive = true;
+    // A failure leaves the section empty rather than showing a wrong list: the
+    // toggle above still works, and the words are not misreported.
+    void getParasiteWords().then((words) => { if (alive) setBuiltinParasites(words); }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
 
   // ── Replacements: a draft until the «Сохранить» button ─────────────────
   const configRules = replacementRulesFromConfig(config);
@@ -624,6 +638,16 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
 
   function saveCustomWords() {
     void saveFormatting({ custom_parasite_words: parseCustomWords(customWordsText) });
+  }
+
+  const disabledParasites = formatting.disabled_parasite_words ?? [];
+  const parasiteIsOff = (word: string) => disabledParasites.some((off) => off.trim().toLowerCase() === word.toLowerCase());
+
+  function toggleParasite(word: string) {
+    const next = parasiteIsOff(word)
+      ? disabledParasites.filter((off) => off.trim().toLowerCase() !== word.toLowerCase())
+      : [...disabledParasites, word];
+    void saveFormatting({ disabled_parasite_words: next });
   }
 
   function updateRule(id: string, patch: Partial<ReplacementRule>) {
@@ -768,6 +792,29 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
               })}
             </div>
             <div className="dictionary-library">
+              {/* The built-in list used to exist only in the Rust source. A
+                  person could see that a word had gone from their dictation and
+                  had no way to find out which rule took it, let alone stop it —
+                  the subtitle above named four words out of thirteen. */}
+              {builtinParasites.length > 0 && <div>
+                <div style={{ font: "600 13px/1.2 var(--font-sans)", color: "var(--ink)" }}>{t("Встроенные слова-паразиты")}</div>
+                <div style={{ font: "400 11.5px/1.4 var(--font-sans)", color: "var(--ink-mute)", marginTop: 2 }}>{t("Нажмите на слово, чтобы перестать его удалять. Зачёркнутые остаются в тексте.")}</div>
+                <div className="parasite-chips" style={{ marginTop: 8 }}>
+                  {builtinParasites.map((word) => {
+                    const off = parasiteIsOff(word);
+                    return (
+                      <button
+                        key={word}
+                        type="button"
+                        className="pill parasite-chip"
+                        data-off={off ? "true" : "false"}
+                        aria-pressed={!off}
+                        onClick={() => toggleParasite(word)}
+                      >{word}</button>
+                    );
+                  })}
+                </div>
+              </div>}
               <div>
                 <div className="flex-row" style={{ justifyContent: "space-between", marginBottom: 8 }}>
                   <div>

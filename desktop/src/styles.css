@@ -1606,6 +1606,13 @@ button.card { appearance: none; font: inherit; color: inherit; }
 }
 
 .dictionary-library { padding: var(--pad-4); display: grid; gap: var(--pad-3); }
+.parasite-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+/* A chip is a switch, not a label: it carries the pill's shape but has to look
+   pressable, and an "off" word has to read as off at a glance rather than by
+   comparing it with its neighbours. */
+.parasite-chip { cursor: pointer; font-size: 12px; transition: opacity .12s ease, border-color .12s ease; }
+.parasite-chip:hover { border-color: var(--line-strong); }
+.parasite-chip[data-off="true"] { text-decoration: line-through; opacity: .5; background: transparent; }
 .dictionary-toolbar, .dictionary-row, .dictionary-check { display: flex; align-items: center; gap: var(--pad-3); }
 .dictionary-toolbar { justify-content: space-between; flex-wrap: wrap; }
 .dictionary-row { padding: var(--pad-3) 0; border-bottom: 1px solid var(--line-soft); }

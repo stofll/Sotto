@@ -48,6 +48,10 @@ export interface TextFormattingConfig {
   capitalize_sentences: boolean;
   final_punctuation: boolean;
   custom_parasite_words: string[];
+  /// Built-in parasite words the user switched off, stored as the words
+  /// themselves. Holds what is OFF, not what is on, so a word added to the
+  /// built-in list later starts working instead of being frozen out.
+  disabled_parasite_words: string[];
   /// Names, brands and terms the engine cannot know. On Whisper it goes into
   /// initial_prompt; on any engine it corrects the result.
   custom_words: string[];

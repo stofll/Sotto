@@ -468,6 +468,9 @@ export const en: Record<string, string | string[]> = {
   "Разработка": "Development",
   "например: Tauri\nClaude Code": "for example: Tauri\nClaude Code",
   "Свои слова-паразиты": "Your own verbal tics",
+  "Встроенные слова-паразиты": "Built-in verbal tics",
+  "Нажмите на слово, чтобы перестать его удалять. Зачёркнутые остаются в тексте.": "Click a word to stop removing it. Struck-through words stay in your text.",
+  "полный список ниже — любое слово можно выключить": "the full list is below — any word can be switched off",
   "По одному слову или фразе в строке. Также можно разделять запятыми.":
     "One word or phrase per line. Commas work too.",
   "Добавьте слово или фразу, которые нужно автоматически исправлять после распознавания.":
@@ -869,7 +872,6 @@ export const en: Record<string, string | string[]> = {
   "мой мейл": "my email",
   "смайл": "smiley",
   "например: собственно\nскажем так": "for example: basically\nso to speak",
-  "ну, типа, как бы, в общем и свои слова ниже": "Built-in Russian phrases: «ну», «типа», «как бы», «в общем»; plus your phrases below",
   "я я хочу -> я хочу": "I I want -> I want",
   "я думаю что. я думаю что. я думаю что. -> я думаю что.": "I think so. I think so. I think so. -> I think so.",
 };

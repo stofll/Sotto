@@ -2869,6 +2869,20 @@ fn dictionary_presets() -> Vec<(String, Vec<String>)> {
         .collect()
 }
 
+/// The built-in parasite words the cleanup step removes.
+///
+/// Handed to the frontend so that settings can show the list and let the user
+/// switch entries off. Before this existed the words were invisible: a person
+/// could see that something had been taken out of their dictation but had no
+/// way to find out what, or to stop it.
+#[tauri::command]
+fn parasite_words() -> Vec<String> {
+    crate::formatter::DEFAULT_PARASITE_WORDS
+        .iter()
+        .map(|word| word.to_string())
+        .collect()
+}
+
 #[tauri::command]
 fn get_diagnostics(app: AppHandle) -> Result<String, String> {
     let config = crate::config::Config::load(&app)?;
@@ -3856,6 +3870,7 @@ pub fn run() {
             logs_size,
             clear_logs,
             dictionary_presets,
+            parasite_words,
             dictionaries::analyze_dictionary,
         ])
         .build(tauri::generate_context!())

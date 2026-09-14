@@ -145,3 +145,29 @@ def test_invalid_replacement_import_preserves_rules(app, page):
     expect(page.get_by_test_id("page-text")).to_contain_text("JSON")
     expect(page.get_by_text("Нет правил замены", exact=True)).to_be_visible()
     assert ui.state()["config"]["replacement_rules"] == []
+
+
+def test_builtin_parasite_words_are_shown_and_can_be_switched_off(app, page):
+    """The built-in list used to live only in the Rust source: a word vanished
+    from the dictation and there was no way to see which one, or to stop it."""
+    ui = app()
+    ui.nav("text")
+    page.get_by_role("button", name=re.compile(r"^Очистка")).click()
+    korotche = page.get_by_role("button", name="короче", exact=True)
+    expect(korotche).to_be_visible()
+    expect(korotche).to_have_attribute("aria-pressed", "true")
+
+    korotche.click()
+    page.wait_for_function(
+        "JSON.stringify(window.__sottoTest.state.config.text_formatting"
+        ".disabled_parasite_words) === '[\"короче\"]'"
+    )
+    expect(korotche).to_have_attribute("aria-pressed", "false")
+    # The rest of the list keeps working — switching one word off is not a
+    # master switch.
+    expect(page.get_by_role("button", name="типа", exact=True)).to_have_attribute(
+        "aria-pressed", "true"
+    )
+
+    korotche.click()
+    expect(korotche).to_have_attribute("aria-pressed", "true")

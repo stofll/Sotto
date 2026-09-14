@@ -62,7 +62,7 @@ use serde_json::Value;
 ///   the word that said which code was meant.
 ///
 /// What is left is padding in every position it can occupy.
-const DEFAULT_PARASITE_WORDS: &[&str] = &[
+pub const DEFAULT_PARASITE_WORDS: &[&str] = &[
     "ну",
     "типа",
     "как бы",
@@ -1517,14 +1517,33 @@ impl FormatStep for CustomWordsCorrector {
 pub struct ParasiteWordsRemover {
     enabled: bool,
     custom_words: Vec<String>,
+    /// Built-in words the user switched off in settings.
+    ///
+    /// Only [`DEFAULT_PARASITE_WORDS`] are filtered through this: a word the
+    /// user typed in themselves is switched off by deleting it.
+    disabled_words: Vec<String>,
 }
 
 impl ParasiteWordsRemover {
-    pub fn new(enabled: bool, custom_words: Vec<String>) -> Self {
+    pub fn new(enabled: bool, custom_words: Vec<String>, disabled_words: Vec<String>) -> Self {
         Self {
             enabled,
             custom_words,
+            disabled_words,
         }
+    }
+
+    /// Whether a built-in word is still in force.
+    ///
+    /// Trimmed and lowercased on both sides rather than compared byte for byte:
+    /// the list travels through the config as plain strings, and the constant
+    /// is Cyrillic, where `eq_ignore_ascii_case` would not fold a single letter.
+    fn is_on(&self, word: &str) -> bool {
+        let word = word.to_lowercase();
+        !self
+            .disabled_words
+            .iter()
+            .any(|off| off.trim().to_lowercase() == word)
     }
 }
 
@@ -1539,7 +1558,11 @@ impl FormatStep for ParasiteWordsRemover {
         if !self.enabled {
             return text.to_string();
         }
-        let mut all: Vec<&str> = DEFAULT_PARASITE_WORDS.to_vec();
+        let mut all: Vec<&str> = DEFAULT_PARASITE_WORDS
+            .iter()
+            .copied()
+            .filter(|word| self.is_on(word))
+            .collect();
         let custom: Vec<&str> = self.custom_words.iter().map(String::as_str).collect();
         all.extend(custom);
 
@@ -2159,6 +2182,16 @@ pub struct TextFormattingConfig {
     pub final_punctuation: bool,
     #[serde(default)]
     pub custom_parasite_words: Vec<String>,
+    /// Built-in parasite words ([`DEFAULT_PARASITE_WORDS`]) the user switched
+    /// off, stored as the words themselves.
+    ///
+    /// The list holds what is OFF rather than what is on, so that the default
+    /// stays live: a word added to the constant later starts working for
+    /// everyone, and a word removed from it simply stops being offered. Storing
+    /// the enabled set instead would freeze each config at the day it was first
+    /// opened — the same trap `effectiveSystemPrompt` documents for prompts.
+    #[serde(default)]
+    pub disabled_parasite_words: Vec<String>,
     /// Names, brands, terms and jargon the engine cannot know. An empty list
     /// means the step does not run at all.
     #[serde(default)]
@@ -2197,6 +2230,7 @@ impl Default for TextFormattingConfig {
             capitalize_sentences: true,
             final_punctuation: true,
             custom_parasite_words: Vec::new(),
+            disabled_parasite_words: Vec::new(),
             custom_words: Vec::new(),
             enabled_presets: Vec::new(),
             dictionary_sets: Vec::new(),
@@ -2245,6 +2279,7 @@ impl Formatter {
             Box::new(ParasiteWordsRemover::new(
                 fmt.remove_parasites,
                 fmt.custom_parasite_words.clone(),
+                fmt.disabled_parasite_words.clone(),
             )),
             Box::new(DuplicateWordsRemover::new(fmt.remove_duplicates)),
             // After the single-word dedupe: with "да да да да" already
@@ -2420,6 +2455,7 @@ mod tests {
                 capitalize_sentences: true,
                 final_punctuation: true,
                 custom_parasite_words: Vec::new(),
+                disabled_parasite_words: Vec::new(),
                 custom_words: Vec::new(),
                 enabled_presets: Vec::new(),
                 dictionary_sets: Vec::new(),
@@ -2612,6 +2648,58 @@ mod tests {
             formatter.process("посмотри на собственно код а не на тесты"),
             "Посмотри на собственно код а не на тесты."
         );
+    }
+
+    /// A built-in word the user switched off must stop being removed, while the
+    /// rest of the list keeps working.
+    #[test]
+    fn a_switched_off_builtin_word_is_kept() {
+        let mut config = default_fmt();
+        config.text_formatting.disabled_parasite_words = vec!["короче".to_string()];
+        let formatter = Formatter::from_config(&config);
+        assert_eq!(
+            formatter.process("короче ну надо решать"),
+            "Короче надо решать."
+        );
+    }
+
+    /// The stored word comes back from a text field, so it arrives with
+    /// whatever spacing and case the person typed.
+    #[test]
+    fn switching_off_ignores_case_and_padding() {
+        let mut config = default_fmt();
+        config.text_formatting.disabled_parasite_words = vec!["  Короче  ".to_string()];
+        let formatter = Formatter::from_config(&config);
+        assert_eq!(formatter.process("короче надо решать"), "Короче надо решать.");
+    }
+
+    /// Switching a built-in word off must not disarm the user's own additions.
+    #[test]
+    fn switching_off_a_builtin_leaves_custom_words_working() {
+        let mut config = default_fmt();
+        config.text_formatting.disabled_parasite_words = vec!["короче".to_string()];
+        config.text_formatting.custom_parasite_words = vec!["скажем так".to_string()];
+        let formatter = Formatter::from_config(&config);
+        assert_eq!(
+            formatter.process("короче скажем так надо решать"),
+            "Короче надо решать."
+        );
+    }
+
+    /// The command that feeds the interface must hand over the same list the
+    /// step applies — otherwise settings offer a word that does nothing, or
+    /// hide one that is being removed.
+    #[test]
+    fn every_builtin_word_can_be_switched_off() {
+        let all: Vec<String> = DEFAULT_PARASITE_WORDS
+            .iter()
+            .map(|word| word.to_string())
+            .collect();
+        let mut config = default_fmt();
+        config.text_formatting.disabled_parasite_words = all;
+        let formatter = Formatter::from_config(&config);
+        let text = DEFAULT_PARASITE_WORDS.join(" ");
+        assert_eq!(formatter.process(&text).to_lowercase().trim_end_matches('.'), text);
     }
 
     /// The conjunction «а» and the preposition «о» are single letters, and the

@@ -95,6 +95,10 @@ export function install(seed: any = {}) {
         state.assessments = state.assessments.filter((a: { id: string }) => a.id !== args.id);
         persist(); return null;
       case 'dictionary_presets': return [['Test terms', ['Sotto', 'Playwright']]];
+      // A synthetic list, not a copy of the Rust constant: what the interface
+      // must get right is showing whatever the backend sends and switching an
+      // entry off, and a second copy of the real list would only drift.
+      case 'parasite_words': return ['ну', 'типа', 'короче'];
       case 'analyze_dictionary': return { effective_count: 0, conflicts: [], unsupported_words: [] };
       // Processing outputs are fixtures, not a second implementation of the Rust engines.
       case 'preview_format': return { original: args.text, formatted: args.text };
