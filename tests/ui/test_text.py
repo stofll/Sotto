@@ -153,7 +153,9 @@ def test_builtin_parasite_words_are_shown_and_can_be_switched_off(app, page):
     ui = app()
     ui.nav("text")
     page.get_by_role("button", name=re.compile(r"^Очистка")).click()
-    korotche = page.get_by_role("button", name="короче", exact=True)
+    page.get_by_role("button", name="Список: 3 слова", exact=True).click()
+    dialog = page.get_by_role("dialog", name="Слова-паразиты")
+    korotche = dialog.get_by_role("button", name="короче", exact=True)
     expect(korotche).to_be_visible()
     expect(korotche).to_have_attribute("aria-pressed", "true")
 
@@ -165,9 +167,12 @@ def test_builtin_parasite_words_are_shown_and_can_be_switched_off(app, page):
     expect(korotche).to_have_attribute("aria-pressed", "false")
     # The rest of the list keeps working — switching one word off is not a
     # master switch.
-    expect(page.get_by_role("button", name="типа", exact=True)).to_have_attribute(
+    expect(dialog.get_by_role("button", name="типа", exact=True)).to_have_attribute(
         "aria-pressed", "true"
     )
 
-    korotche.click()
-    expect(korotche).to_have_attribute("aria-pressed", "true")
+    # The summary on the row is the only trace of the list once the dialog is
+    # closed, so it has to report the change.
+    dialog.get_by_role("button", name="Сохранить", exact=True).click()
+    expect(dialog).not_to_be_visible()
+    expect(page.get_by_role("button", name="Список: 3 слова · 1 выключено", exact=True)).to_be_visible()

@@ -10,6 +10,7 @@ import { DiffBlock } from "../components/DiffBlock";
 import { localeTag, t, tPlural } from "../i18n";
 import { textPreview, replacementExamples } from "./textExamples";
 import { DictionaryLibrary } from "./DictionaryLibrary";
+import { Modal } from "../components/Modal";
 import { getParasiteWords } from "../bridge/dictionaries";
 import { DEFAULT_HOTKEY } from "../hotkey";
 
@@ -483,7 +484,7 @@ const MASTER_RULE = (): FormatRule => (
 const CLEAN_RULES = (): FormatRule[] => ([
   { key: "remove_hallucinations", title: t("Убирать артефакты распознавания"), sub: t("«субтитры сделал…», «спасибо за просмотр», [Music]; если кроме них ничего нет — вставка отменяется") },
   { key: "remove_fillers", title: t("Удалять заполнители"), sub: t("э-э, ммм, а-а и похожие звуки") },
-  { key: "remove_parasites", title: t("Удалять слова-паразиты"), sub: t("полный список ниже — любое слово можно выключить") },
+  { key: "remove_parasites", title: t("Удалять слова-паразиты"), sub: t("ну, типа, как бы и другие — весь список можно настроить") },
   { key: "remove_duplicates", title: t("Удалять повторы"), sub: t("я я хочу -> я хочу") },
   { key: "collapse_phrase_loops", title: t("Схлопывать зациклившиеся фразы"), sub: t("я думаю что. я думаю что. я думаю что. -> я думаю что.") },
   { key: "clean_commas", title: t("Чистить запятые"), sub: t("лишние запятые перед и/а/но, двойные запятые") },
@@ -545,6 +546,7 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
   // list that silently disagrees with the step is exactly the failure this
   // section exists to fix.
   const [builtinParasites, setBuiltinParasites] = useState<string[]>([]);
+  const [parasitesOpen, setParasitesOpen] = useState(false);
   useEffect(() => {
     let alive = true;
     // A failure leaves the section empty rather than showing a wrong list: the
@@ -642,6 +644,11 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
 
   const disabledParasites = formatting.disabled_parasite_words ?? [];
   const parasiteIsOff = (word: string) => disabledParasites.some((off) => off.trim().toLowerCase() === word.toLowerCase());
+  const offCount = builtinParasites.filter(parasiteIsOff).length;
+  const parasiteSummary = [
+    `${builtinParasites.length} ${tPlural(builtinParasites.length, ["слово", "слова", "слов"])}`,
+    ...(offCount > 0 ? [t("{count} выключено", { count: offCount })] : []),
+  ].join(" · ");
 
   function toggleParasite(word: string) {
     const next = parasiteIsOff(word)
@@ -785,21 +792,29 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
                     <div className="flex-grow" style={{ minWidth: 0 }}>
                       <div style={{ font: "500 13px/1.2 var(--font-sans)", color: "var(--ink)" }}>{opt.title}</div>
                       <div style={{ font: "400 11.5px/1.4 var(--font-sans)", color: "var(--ink-mute)", marginTop: 2 }}>{opt.sub}</div>
+                      {/* The word list opens from the row it belongs to. It
+                          used to sit at the bottom of the card, ten rows away
+                          from its own switch, where it read as loose clutter.
+                          The summary keeps the point of showing it at all: how
+                          many words the step removes, and how many you stopped. */}
+                      {opt.key === "remove_parasites" && builtinParasites.length > 0 &&
+                        <button type="button" className="btn btn--ghost" style={{ marginTop: 6, height: 26 }} onClick={() => setParasitesOpen(true)}>
+                          <Icon name="sliders" size={12}/>{t("Список")}: {parasiteSummary}
+                        </button>}
                     </div>
                     <Switch on={value} onChange={(next) => void saveFormatting({ [opt.key]: next })}/>
                   </div>
                 );
               })}
             </div>
-            <div className="dictionary-library">
-              {/* The built-in list used to exist only in the Rust source. A
-                  person could see that a word had gone from their dictation and
-                  had no way to find out which rule took it, let alone stop it —
-                  the subtitle above named four words out of thirteen. */}
-              {builtinParasites.length > 0 && <div>
-                <div style={{ font: "600 13px/1.2 var(--font-sans)", color: "var(--ink)" }}>{t("Встроенные слова-паразиты")}</div>
-                <div style={{ font: "400 11.5px/1.4 var(--font-sans)", color: "var(--ink-mute)", marginTop: 2 }}>{t("Нажмите на слово, чтобы перестать его удалять. Зачёркнутые остаются в тексте.")}</div>
-                <div className="parasite-chips" style={{ marginTop: 8 }}>
+          </Foldable>
+
+          {parasitesOpen && <Modal title={t("Слова-паразиты")} className="parasite-modal" onClose={() => setParasitesOpen(false)}>
+            <div className="modal__body parasite-body">
+              <section>
+                <h3 className="parasite-heading">{t("Встроенные")}</h3>
+                <p className="parasite-note">{t("Нажмите на слово, чтобы перестать его удалять. Зачёркнутые остаются в тексте.")}</p>
+                <div className="parasite-chips">
                   {builtinParasites.map((word) => {
                     const off = parasiteIsOff(word);
                     return (
@@ -814,19 +829,20 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
                     );
                   })}
                 </div>
-              </div>}
-              <div>
-                <div className="flex-row" style={{ justifyContent: "space-between", marginBottom: 8 }}>
-                  <div>
-                    <div style={{ font: "600 13px/1.2 var(--font-sans)", color: "var(--ink)" }}>{t("Свои слова-паразиты")}</div>
-                    <div style={{ font: "400 11.5px/1.4 var(--font-sans)", color: "var(--ink-mute)", marginTop: 2 }}>{t("По одному слову или фразе в строке. Также можно разделять запятыми.")}</div>
-                  </div>
-                  <button className="btn btn--ghost" onClick={saveCustomWords}><Icon name="check" size={12}/>{t("Сохранить")}</button>
-                </div>
+              </section>
+              <section>
+                <h3 className="parasite-heading">{t("Свои слова-паразиты")}</h3>
+                <p className="parasite-note">{t("По одному слову или фразе в строке. Также можно разделять запятыми.")}</p>
                 <textarea className="field mono" value={customWordsText} onChange={(e) => setCustomWordsText(e.target.value)} onBlur={saveCustomWords} placeholder={t("например: собственно\nскажем так")} style={{ width: "100%", minHeight: 96, padding: 12, resize: "vertical", lineHeight: 1.45 }}/>
-              </div>
+              </section>
             </div>
-          </Foldable>
+            {/* Chips save on click; the textarea saves on blur, which the button
+                also triggers. It is here because a field that only saves when
+                you click away gives no confirmation that you are done. */}
+            <div className="modal__foot">
+              <button type="button" className="btn btn--primary" onClick={() => { saveCustomWords(); setParasitesOpen(false); }}><Icon name="check" size={12}/>{t("Сохранить")}</button>
+            </div>
+          </Modal>}
 
           <Foldable
             open={Boolean(folds.repl)}

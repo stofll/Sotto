@@ -468,9 +468,11 @@ export const en: Record<string, string | string[]> = {
   "Разработка": "Development",
   "например: Tauri\nClaude Code": "for example: Tauri\nClaude Code",
   "Свои слова-паразиты": "Your own verbal tics",
-  "Встроенные слова-паразиты": "Built-in verbal tics",
+  "Слова-паразиты": "Verbal tics",
+  "Встроенные": "Built-in",
+  "{count} выключено": "{count} switched off",
   "Нажмите на слово, чтобы перестать его удалять. Зачёркнутые остаются в тексте.": "Click a word to stop removing it. Struck-through words stay in your text.",
-  "полный список ниже — любое слово можно выключить": "the full list is below — any word can be switched off",
+  "ну, типа, как бы и другие — весь список можно настроить": "well, like, sort of and others — the whole list can be configured",
   "По одному слову или фразе в строке. Также можно разделять запятыми.":
     "One word or phrase per line. Commas work too.",
   "Добавьте слово или фразу, которые нужно автоматически исправлять после распознавания.":
@@ -787,6 +789,7 @@ export const en: Record<string, string | string[]> = {
   "Ошибка LLM, вставлен локальный текст": "LLM error; local text was pasted",
   "день|дня|дней": ["day", "days"],
   "термин|термина|терминов": ["term", "terms"],
+  "слово|слова|слов": ["word", "words"],
   "например \"Личный Cerebras\"": "e.g. \"My Cerebras\"",
   "Например: Cerebras gpt-oss": "For example: Cerebras gpt-oss",
   "Например: Cerebras gpt-oss-120b": "For example: Cerebras gpt-oss-120b",

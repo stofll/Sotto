@@ -1606,7 +1606,14 @@ button.card { appearance: none; font: inherit; color: inherit; }
 }
 
 .dictionary-library { padding: var(--pad-4); display: grid; gap: var(--pad-3); }
+.parasite-modal { width: min(520px, calc(100vw - 2 * var(--pad-4))); }
+.parasite-body { padding: var(--pad-4); display: grid; gap: var(--pad-4); overflow-y: auto; min-height: 0; }
+.parasite-heading { margin: 0; font: 600 13px/1.2 var(--font-sans); color: var(--ink); }
+.parasite-note { margin: 2px 0 8px; font: 400 11.5px/1.4 var(--font-sans); color: var(--ink-mute); }
 .parasite-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+/* One button in the footer: the shared rule spreads its children apart, which
+   would park a lone «Готово» on the left. */
+.parasite-modal .modal__foot { justify-content: flex-end; }
 /* A chip is a switch, not a label: it carries the pill's shape but has to look
    pressable, and an "off" word has to read as off at a glance rather than by
    comparing it with its neighbours. */
