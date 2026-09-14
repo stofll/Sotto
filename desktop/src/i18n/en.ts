@@ -451,7 +451,8 @@ export const en: Record<string, string | string[]> = {
   "«субтитры сделал…», «спасибо за просмотр», [Music]; если кроме них ничего нет — вставка отменяется":
     "“subtitles by…”, “thanks for watching”, [Music]; if nothing else is left, the paste is cancelled",
   "Удалять заполнители": "Remove fillers",
-  "э-э, ммм, а-а, uh, umm, hmm — звуки на русском и английском": "uh, umm, hmm, э-э, ммм, а-а — Russian and English sounds",
+  "э-э, ммм, а-а и похожие звуки; английские uh, umm, hmm — при английской диктовке":
+    "э-э, ммм, а-а and similar sounds; the English uh, umm, hmm when you dictate in English",
   "Удалять слова-паразиты": "Remove verbal tics",
   "Удалять повторы": "Remove repetitions",
   "Схлопывать зациклившиеся фразы": "Collapse looping phrases",

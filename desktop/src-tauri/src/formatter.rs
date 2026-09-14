@@ -148,10 +148,7 @@ pub const PARASITE_PRESETS: &[ParasitePreset] = &[
     },
 ];
 
-/// Default filler-sound regex patterns (э-э, ммм, а-а, …). Each is
-/// compiled lazily by `default_filler_patterns()` to keep the module
-/// loading order side-effect-free (Rust forbids `Lazy<Regex>` with a
-/// non-const initialiser at the top level).
+/// Filler sounds for a dictation in Russian.
 ///
 /// «А» and «о» are drawn out into a filler («а-а-а», «о-о»), but on their own
 /// they are ordinary words: the conjunction «а» and the preposition «о». The
@@ -161,14 +158,19 @@ pub const PARASITE_PRESETS: &[ParasitePreset] = &[
 /// preposition and its conjunction instead of collapsing into «речь том что
 /// потом». «Э» and «м» need no such guard: neither is a Russian word.
 ///
-/// The Latin patterns are not gated on the dictation language and do not need
-/// to be: a Cyrillic pattern cannot match English and a Latin one cannot match
-/// Russian, so the two sets simply sit side by side. That is what makes sounds
-/// different from the word list — «uh» and «um» are not words in any language
-/// here, whereas an English list of filler WORDS («like», «well», «right»)
-/// would be real vocabulary and would need the language before it could run.
-///
-/// Every Latin pattern is a sound that is not an English word:
+/// These are applied to every dictation, whatever the language: Cyrillic cannot
+/// match a text written in any other alphabet, so there is nothing to gate.
+const RUSSIAN_FILLER_PATTERNS: &[&str] = &[
+    r"\b(э+[-\s]*)+\b",
+    r"\b(м+[-\s]*)+\b",
+    r"\bа+(?:[-\s]*а+)+\b",
+    r"\bо+(?:[-\s]*о+)+\b",
+    r"\bну-+у*\b",
+    r"\bмм-+\b",
+];
+
+/// Filler sounds for a dictation in English. Each is a sound that is not an
+/// English word:
 ///
 /// * `uh+m*` — uh, uhh, uhm, uhmm.
 /// * `um+` — um, umm.
@@ -180,28 +182,43 @@ pub const PARASITE_PRESETS: &[ParasitePreset] = &[
 /// «Oh» is left out for the reason «о» is: it carries the emotion of the line
 /// it opens rather than padding it.
 ///
-/// `(?i)` is on the Latin patterns because an engine capitalises the first word
-/// of a sentence, and a filler is very often that word. The Cyrillic patterns
-/// above have never had it and so still miss a capitalised «Ну» — a separate
-/// gap, not one this list should fix quietly.
-fn default_filler_patterns() -> Vec<Regex> {
-    [
-        r"\b(э+[-\s]*)+\b",
-        r"\b(м+[-\s]*)+\b",
-        r"\bа+(?:[-\s]*а+)+\b",
-        r"\bо+(?:[-\s]*о+)+\b",
-        r"\bну-+у*\b",
-        r"\bмм-+\b",
-        r"(?i)\buh+m*\b",
-        r"(?i)\bum+\b",
-        r"(?i)\berm*\b",
-        r"(?i)\bhm+\b",
-        r"(?i)\bmmm+\b",
-        r"(?i)\bah+\b",
-    ]
-    .iter()
-    .map(|pattern| Regex::new(pattern).expect("valid filler pattern"))
-    .collect()
+/// UNLIKE the Cyrillic set, these run ONLY when the dictation language is
+/// English — and that gate is a correction, not caution. They were ungated at
+/// first, on the reasoning that a Latin pattern cannot match Russian. True, and
+/// beside the point: most of the languages Sotto transcribes are written in the
+/// same alphabet as English. «Er kommt um acht» came out as «Kommt acht» —
+/// `er` is a German pronoun and `um` a German preposition — and Dutch «er» and
+/// French «ah» go the same way. An unknown language («auto», or a config older
+/// than the setting) counts as not-English: failing to strip a filler costs a
+/// word of noise, stripping a pronoun costs the sentence.
+///
+/// `(?i)` is here because an engine capitalises the first word of a sentence
+/// and a filler is very often that word. The Cyrillic patterns have never had
+/// it and still miss a capitalised «Ну» — a separate gap, not one this list
+/// should fix quietly.
+const ENGLISH_FILLER_PATTERNS: &[&str] = &[
+    r"(?i)\buh+m*\b",
+    r"(?i)\bum+\b",
+    r"(?i)\berm*\b",
+    r"(?i)\bhm+\b",
+    r"(?i)\bmmm+\b",
+    r"(?i)\bah+\b",
+];
+
+/// The filler patterns in force for a dictation in `language`.
+///
+/// Compiled here rather than in a `Lazy` to keep the module's loading order
+/// side-effect-free (Rust forbids `Lazy<Regex>` with a non-const initialiser at
+/// the top level).
+fn default_filler_patterns(language: Option<&str>) -> Vec<Regex> {
+    let mut patterns: Vec<&str> = RUSSIAN_FILLER_PATTERNS.to_vec();
+    if language == Some("en") {
+        patterns.extend_from_slice(ENGLISH_FILLER_PATTERNS);
+    }
+    patterns
+        .iter()
+        .map(|pattern| Regex::new(pattern).expect("valid filler pattern"))
+        .collect()
 }
 
 /// Tier 1 — strong hallucination signatures. Drop a segment that merely
@@ -926,10 +943,12 @@ pub struct FillerWordsRemover {
 }
 
 impl FillerWordsRemover {
-    pub fn new(enabled: bool) -> Self {
+    /// `language` is the dictation language, and decides whether the English
+    /// sounds are in force — see [`ENGLISH_FILLER_PATTERNS`].
+    pub fn new(enabled: bool, language: Option<&str>) -> Self {
         Self {
             enabled,
-            patterns: default_filler_patterns(),
+            patterns: default_filler_patterns(language),
         }
     }
 }
@@ -2385,6 +2404,16 @@ impl Default for TextFormattingConfig {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct FormatterConfig {
+    /// The dictation language, read from the ROOT of the config rather than
+    /// from `text_formatting` — that is where the setting lives, and both the
+    /// live path and `preview_format` hand the whole config value over, so the
+    /// field arrives on its own.
+    ///
+    /// `None` is «not told»: an old config, or a preview built from a fragment.
+    /// Steps that could damage a language they were not written for treat it as
+    /// a foreign language rather than as a permission.
+    #[serde(default)]
+    pub language: Option<String>,
     #[serde(default)]
     pub text_formatting: TextFormattingConfig,
     #[serde(default)]
@@ -2419,7 +2448,10 @@ impl Formatter {
 
         let steps: Vec<Box<dyn FormatStep>> = vec![
             Box::new(HallucinationCleaner::new(fmt.remove_hallucinations)),
-            Box::new(FillerWordsRemover::new(fmt.remove_fillers)),
+            Box::new(FillerWordsRemover::new(
+                fmt.remove_fillers,
+                config.language.as_deref(),
+            )),
             Box::new(ParasiteWordsRemover::new(
                 fmt.remove_parasites,
                 fmt.custom_parasite_words.clone(),
@@ -2587,6 +2619,8 @@ mod tests {
 
     fn default_fmt() -> FormatterConfig {
         FormatterConfig {
+            // The tests that exercise the English sounds set this themselves.
+            language: Some("ru".to_string()),
             text_formatting: TextFormattingConfig {
                 enabled: true,
                 remove_hallucinations: true,
@@ -2798,12 +2832,19 @@ mod tests {
 
     // ----- English filler sounds -----
 
+    /// A dictation declared as English.
+    fn english_fmt() -> FormatterConfig {
+        let mut config = default_fmt();
+        config.language = Some("en".to_string());
+        config
+    }
+
     /// Before these patterns existed the whole cleanup was a no-op on English
     /// dictation: every built-in word and every filler pattern was Cyrillic, so
     /// both switches did nothing while the settings said otherwise.
     #[test]
     fn english_filler_sounds_are_removed() {
-        let formatter = Formatter::from_config(&default_fmt());
+        let formatter = Formatter::from_config(&english_fmt());
         assert_eq!(
             formatter.process("uh i think umm we should ship it"),
             "I think we should ship it."
@@ -2819,8 +2860,64 @@ mod tests {
     /// very often that word.
     #[test]
     fn a_capitalised_filler_is_removed_too() {
-        let formatter = Formatter::from_config(&default_fmt());
+        let formatter = Formatter::from_config(&english_fmt());
         assert_eq!(formatter.process("Um, I think so"), "I think so.");
+    }
+
+    /// The English sounds are ordinary words in the other languages written in
+    /// the same alphabet, so they must not run on a dictation that is not
+    /// English. «Er» is a German pronoun and «um» a German preposition: ungated,
+    /// the patterns turned «Er kommt um acht» into «Kommt acht».
+    #[test]
+    fn english_sounds_do_not_touch_another_latin_language() {
+        let mut config = default_fmt();
+        config.language = Some("de".to_string());
+        let formatter = Formatter::from_config(&config);
+        assert_eq!(formatter.process("Er kommt um acht"), "Er kommt um acht.");
+        assert_eq!(
+            formatter.process("Ich gehe um sieben, er auch"),
+            "Ich gehe um sieben, er auch."
+        );
+
+        config.language = Some("nl".to_string());
+        let formatter = Formatter::from_config(&config);
+        assert_eq!(formatter.process("Er is niets om te zien"), "Er is niets om te zien.");
+    }
+
+    /// «auto» and a config too old to carry the setting are «not told», which
+    /// is not permission: a missed filler costs a word of noise, a swallowed
+    /// pronoun costs the sentence.
+    #[test]
+    fn an_unknown_language_does_not_get_the_english_sounds() {
+        let mut config = default_fmt();
+        config.language = Some("auto".to_string());
+        let formatter = Formatter::from_config(&config);
+        assert_eq!(formatter.process("Er kommt um acht"), "Er kommt um acht.");
+
+        config.language = None;
+        let formatter = Formatter::from_config(&config);
+        assert_eq!(formatter.process("Er kommt um acht"), "Er kommt um acht.");
+    }
+
+    /// The Russian sounds are not gated, and need not be: Cyrillic cannot match
+    /// a text written in another alphabet.
+    #[test]
+    fn russian_sounds_run_whatever_the_language_says() {
+        let mut config = default_fmt();
+        config.language = Some("en".to_string());
+        let formatter = Formatter::from_config(&config);
+        assert_eq!(formatter.process("э-э я забыл"), "Я забыл.");
+    }
+
+    /// The gate lives on the dictation language, not on the word sets: a filler
+    /// sound is a separate step, and switching the English word set on must not
+    /// be what turns the sounds on (nor off).
+    #[test]
+    fn the_sound_gate_is_the_language_not_the_word_set() {
+        let mut config = english_fmt();
+        config.text_formatting.parasite_sets = Some(Vec::new());
+        let formatter = Formatter::from_config(&config);
+        assert_eq!(formatter.process("um i think so"), "I think so.");
     }
 
     /// The point of the whole exercise: a sound may go, a word may not.
@@ -2901,7 +2998,7 @@ mod tests {
 
     #[test]
     fn switching_the_english_set_on_applies_it() {
-        let mut config = default_fmt();
+        let mut config = english_fmt();
         config.text_formatting.parasite_sets = Some(vec!["ru".to_string(), "en".to_string()]);
         let formatter = Formatter::from_config(&config);
         assert_eq!(
@@ -2915,7 +3012,7 @@ mod tests {
     /// lower case at all, so the whole English set would have missed itself.
     #[test]
     fn the_english_set_matches_the_case_an_engine_actually_writes() {
-        let mut config = default_fmt();
+        let mut config = english_fmt();
         config.text_formatting.parasite_sets = Some(vec!["en".to_string()]);
         let formatter = Formatter::from_config(&config);
         assert_eq!(formatter.process("Basically we can begin"), "We can begin.");

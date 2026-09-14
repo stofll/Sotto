@@ -213,8 +213,8 @@ def test_set_for_the_dictation_language_comes_first(app, page):
     page.get_by_role("button", name=re.compile(r"^Очистка")).click()
     page.get_by_role("button", name=re.compile(r"^Список: 3")).click()
     dialog = page.get_by_role("dialog", name="Слова-паразиты")
-    headings = dialog.get_by_role("heading")
-    expect(headings.first).to_have_text("Английские")
+    # Level 3 only: the dialog's own title is an h2 and would always be first.
+    expect(dialog.get_by_role("heading", level=3).first).to_have_text("Английские")
 
 
 def test_switching_the_last_set_off_stays_off(app, page):
@@ -267,3 +267,53 @@ def test_own_parasite_word_is_added_as_a_chip_and_can_be_removed(app, page):
         ".custom_parasite_words) === '[\"скажем так\",\"как-то\"]'"
     )
     expect(dialog.get_by_text("вроде", exact=True)).not_to_be_visible()
+
+
+def test_two_quick_switches_do_not_overwrite_each_other(app, page):
+    """`config` only moves when a write comes back, so two clicks in a row used
+    to read the same stale list and the second dropped the first."""
+    ui = app()
+    ui.nav("text")
+    page.get_by_role("button", name=re.compile(r"^Очистка")).click()
+    page.get_by_role("button", name="Список: 3 слова", exact=True).click()
+    dialog = page.get_by_role("dialog", name="Слова-паразиты")
+
+    # The first write hangs, so the second one is composed while it is in flight.
+    ui.queue("save_config", {"hold": True})
+    korotche = dialog.get_by_role("button", name="короче", exact=True)
+    korotche.click()
+    # Shown as off before the backend confirms it, or the second click would
+    # have nothing to build on.
+    expect(korotche).to_have_attribute("aria-pressed", "false")
+
+    dialog.get_by_role("button", name="типа", exact=True).click()
+    page.wait_for_function(
+        "JSON.stringify(window.__sottoTest.state.config.text_formatting"
+        ".disabled_parasite_words) === '[\"короче\",\"типа\"]'"
+    )
+    ui.settle("save_config", {})
+
+
+def test_a_failed_save_keeps_the_typed_word(app, page):
+    """The field used to be cleared before the write was confirmed: a failed
+    save took the phrase with it, leaving nothing to retry from."""
+    ui = app()
+    ui.nav("text")
+    page.get_by_role("button", name=re.compile(r"^Очистка")).click()
+    page.get_by_role("button", name="Список: 3 слова", exact=True).click()
+    dialog = page.get_by_role("dialog", name="Слова-паразиты")
+
+    ui.queue("save_config", {"error": "Synthetic save failure"})
+    field = dialog.get_by_label("Своё слово-паразит", exact=True)
+    field.fill("скажем так")
+    field.press("Enter")
+    expect(field).to_have_value("скажем так")
+    expect(dialog.get_by_text("скажем так", exact=True)).not_to_be_visible()
+
+    # The retry needs nothing retyped.
+    field.press("Enter")
+    page.wait_for_function(
+        "JSON.stringify(window.__sottoTest.state.config.text_formatting"
+        ".custom_parasite_words) === '[\"скажем так\"]'"
+    )
+    expect(field).to_have_value("")

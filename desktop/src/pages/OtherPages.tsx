@@ -483,7 +483,7 @@ const MASTER_RULE = (): FormatRule => (
 
 const CLEAN_RULES = (): FormatRule[] => ([
   { key: "remove_hallucinations", title: t("Убирать артефакты распознавания"), sub: t("«субтитры сделал…», «спасибо за просмотр», [Music]; если кроме них ничего нет — вставка отменяется") },
-  { key: "remove_fillers", title: t("Удалять заполнители"), sub: t("э-э, ммм, а-а, uh, umm, hmm — звуки на русском и английском") },
+  { key: "remove_fillers", title: t("Удалять заполнители"), sub: t("э-э, ммм, а-а и похожие звуки; английские uh, umm, hmm — при английской диктовке") },
   { key: "remove_parasites", title: t("Удалять слова-паразиты"), sub: t("встроенный список только русский; свои слова работают на любом языке") },
   { key: "remove_duplicates", title: t("Удалять повторы"), sub: t("я я хочу -> я хочу") },
   { key: "collapse_phrase_loops", title: t("Схлопывать зациклившиеся фразы"), sub: t("я думаю что. я думаю что. я думаю что. -> я думаю что.") },
@@ -548,6 +548,9 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
   // ── Cleanup and dictionaries: saved immediately, no draft ──────────────
   const formatting = normalizeTextFormatting(config);
   const [newParasite, setNewParasite] = useState("");
+  // What has been asked for but not yet confirmed — see `saveParasites`.
+  const [parasiteDraft, setParasiteDraft] = useState<Partial<TextFormattingConfig>>({});
+  const parasiteWrites = useRef(0);
   // The sets come from the backend rather than being copied into the frontend:
   // a word added there must appear here without a second edit, and a list that
   // silently disagrees with the step is exactly the failure this section exists
@@ -637,16 +640,44 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
   // checkbox is the confirmation — it stays in its new position once the config
   // comes back. A separate "saving" pill used to live in the page header and
   // flashed at every sneeze.
-  async function saveFormatting(patch: Partial<TextFormattingConfig>) {
-    await onConfigChanged({ text_formatting: patch as TextFormattingConfig });
+  async function saveFormatting(patch: Partial<TextFormattingConfig>): Promise<boolean> {
+    return Boolean(await onConfigChanged({ text_formatting: patch as TextFormattingConfig }));
   }
 
-  const customParasites = formatting.custom_parasite_words ?? [];
+  /// Save one parasite-list change, and show it before the backend confirms it.
+  ///
+  /// `config` only moves when a write comes back, so two clicks in a row both
+  /// read the same stale value: switching «короче» off and then «типа» sent a
+  /// patch built from a list that still had neither, and the second write
+  /// dropped the first. The draft holds what we have already asked for and is
+  /// what every next change is computed from.
+  ///
+  /// It is cleared only when no write is still in flight — clearing it per
+  /// answer would briefly show the first result while the second was still on
+  /// its way. A failed write clears with the rest, so the list falls back to
+  /// what the backend actually holds rather than to a change that never landed.
+  async function saveParasites(patch: Partial<TextFormattingConfig>): Promise<boolean> {
+    setParasiteDraft((current) => ({ ...current, ...patch }));
+    parasiteWrites.current += 1;
+    try {
+      return await saveFormatting(patch);
+    } finally {
+      parasiteWrites.current -= 1;
+      if (parasiteWrites.current === 0) setParasiteDraft({});
+    }
+  }
+
+  const customParasites = parasiteDraft.custom_parasite_words ?? formatting.custom_parasite_words ?? [];
 
   /// Commit whatever is in the input. A word is added on Enter and on blur, so
   /// a word typed and then clicked away from is not silently thrown out — that
   /// is what a textarea saved on blur used to promise and a list has to keep.
-  function addCustomParasites() {
+  ///
+  /// The field is cleared only once the write has come back. Clearing it first
+  /// meant a failed save took the phrase with it: gone from the list it never
+  /// reached and gone from the field it was typed into, with nothing left to
+  /// retry from.
+  async function addCustomParasites() {
     const known = new Set(customParasites.map((word) => word.toLowerCase()));
     const added = parseCustomWords(newParasite).filter((word) => {
       const key = word.toLowerCase();
@@ -654,20 +685,22 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
       known.add(key);
       return true;
     });
-    setNewParasite("");
-    if (added.length > 0) void saveFormatting({ custom_parasite_words: [...customParasites, ...added] });
+    // Nothing new to write — a blank field, or a word already on the list. The
+    // input has served its purpose either way.
+    if (added.length === 0) { setNewParasite(""); return; }
+    if (await saveParasites({ custom_parasite_words: [...customParasites, ...added] })) setNewParasite("");
   }
 
   function removeCustomParasite(word: string) {
-    void saveFormatting({ custom_parasite_words: customParasites.filter((item) => item !== word) });
+    void saveParasites({ custom_parasite_words: customParasites.filter((item) => item !== word) });
   }
 
-  const disabledParasites = formatting.disabled_parasite_words ?? [];
+  const disabledParasites = parasiteDraft.disabled_parasite_words ?? formatting.disabled_parasite_words ?? [];
   const parasiteIsOff = (word: string) => disabledParasites.some((off) => off.trim().toLowerCase() === word.toLowerCase());
   // Absent means nobody has chosen and each set applies by its own default; an
   // empty array is a choice — no built-in set at all. The two must not be
   // conflated, or switching the last set off would silently turn it back on.
-  const chosenSets = formatting.parasite_sets;
+  const chosenSets = "parasite_sets" in parasiteDraft ? parasiteDraft.parasite_sets : formatting.parasite_sets;
   const setIsOn = (set: ParasiteSet) => chosenSets ? chosenSets.includes(set.id) : set.default_on;
   // The set for the language being dictated goes first; «auto» keeps the
   // backend's own order, because there is nothing to sort by yet.
@@ -685,7 +718,7 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
     const next = parasiteIsOff(word)
       ? disabledParasites.filter((off) => off.trim().toLowerCase() !== word.toLowerCase())
       : [...disabledParasites, word];
-    void saveFormatting({ disabled_parasite_words: next });
+    void saveParasites({ disabled_parasite_words: next });
   }
 
   function toggleParasiteSet(set: ParasiteSet) {
@@ -693,7 +726,7 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
     // one-element list, so the sets left alone keep whatever they resolved to.
     const current = parasiteSets.filter(setIsOn).map((item) => item.id);
     const next = setIsOn(set) ? current.filter((id) => id !== set.id) : [...current, set.id];
-    void saveFormatting({ parasite_sets: next });
+    void saveParasites({ parasite_sets: next });
   }
 
   function updateRule(id: string, patch: Partial<ReplacementRule>) {
@@ -898,13 +931,13 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
                     className="field flex-grow"
                     value={newParasite}
                     onChange={(e) => setNewParasite(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCustomParasites(); } }}
-                    onBlur={addCustomParasites}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void addCustomParasites(); } }}
+                    onBlur={() => void addCustomParasites()}
                     placeholder={t("например: собственно")}
                     aria-label={t("Своё слово-паразит")}
                     style={{ height: 30 }}
                   />
-                  <button type="button" className="btn btn--ghost" style={{ height: 30 }} disabled={!newParasite.trim()} onClick={addCustomParasites}><Icon name="plus" size={12}/>{t("Добавить")}</button>
+                  <button type="button" className="btn btn--ghost" style={{ height: 30 }} disabled={!newParasite.trim()} onClick={() => void addCustomParasites()}><Icon name="plus" size={12}/>{t("Добавить")}</button>
                 </div>
                 {customParasites.length > 0 && <div className="parasite-chips" style={{ marginTop: 8 }}>
                   {customParasites.map((word) => (
