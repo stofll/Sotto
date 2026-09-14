@@ -14,6 +14,24 @@
 // tPlural picks the right one by the array's length.
 
 export const en: Record<string, string | string[]> = {
+  "Обратная связь": "Feedback",
+  "Сообщайте о проблемах и предлагайте улучшения через GitHub. Нужен аккаунт GitHub.": "Report problems and suggest improvements on GitHub. A GitHub account is required.",
+  "Сообщить о проблеме": "Report a problem",
+  "Предложить улучшение": "Suggest an improvement",
+  "Посмотреть известные проблемы": "View known issues",
+  "Не удалось открыть браузер. Попробуйте ещё раз.": "Could not open the browser. Please try again.",
+  "Не удалось собрать сводку. Можно продолжить без неё.": "Could not prepare the summary. You can continue without it.",
+  "Не удалось выполнить действие. Попробуйте ещё раз.": "Could not complete the action. Please try again.",
+  "Обращение и вложения будут публичными. GitHub загружает файл сразу после его выбора, до публикации обращения.": "The issue and attachments will be public. GitHub uploads files as soon as you select them, before you submit the issue.",
+  "Добавить техническую информацию": "Include technical information",
+  "Техническая информация недоступна": "Technical information is unavailable",
+  "Экспорт содержит время, уровень, модуль событий и известные замеры задержек из последних 256 КБ текущего лога. Тексты сообщений, пути и записи голоса исключены.": "The export contains event times, levels, modules and known latency measurements from the last 256 KiB of the current log. Message text, paths and voice recordings are excluded.",
+  "Подготовить очищенные логи": "Prepare sanitized logs",
+  "Файл сохранён. Прикрепите его вручную к обращению на GitHub.": "File saved. Attach it manually to your GitHub issue.",
+  "Сохранить очищенные логи": "Save sanitized logs",
+  "Продолжить на GitHub": "Continue on GitHub",
+  "Подготовка…": "Preparing\u2026",
+
   "Личные замеры нестабильны; шкала показывает эталонную скорость.": "Personal measurements are unstable; the bar shows the reference speed.",
   "Запас памяти": "Memory headroom",
   "Нет оценки": "Not measured",

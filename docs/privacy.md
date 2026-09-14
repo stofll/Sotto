@@ -35,3 +35,9 @@ Model speed hints keep a separate bounded table in the local database: model rev
 Only the last 30 observations per comparable group are retained, with at most 2,000 observations overall. Observations older than 30 days are excluded from assessments and removed when the measurement store starts or next records a result. Click a model's speed or memory bar and choose **Reset measurements** to erase its observations. This works independently of network telemetry and does not delete dictation history or models.
 
 For a security vulnerability, use the repository's private vulnerability reporting flow described in [SECURITY.md](../SECURITY.md), not a public issue.
+
+## User-initiated GitHub reports
+
+The Help page can open GitHub issue templates in your browser. A reviewed, optional technical summary is passed in the bug-report URL and can therefore appear in browser history. GitHub receives it when that page opens; publication requires a separate action on GitHub. Suggestions open without diagnostics. This flow works independently of the telemetry switch.
+
+Sanitized logs are prepared locally and saved only to a location you choose. Sotto does not upload them: you attach the reviewed file on GitHub yourself. GitHub uploads selected attachments before issue submission. Public reports must not contain secrets or personal data; see [Troubleshooting](troubleshooting.md#report-a-problem-or-suggest-an-improvement) for the export's contents and limitations.

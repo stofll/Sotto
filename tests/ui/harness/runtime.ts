@@ -105,6 +105,9 @@ export function install(seed: any = {}) {
       case 'logs_size': return 1024;
       case 'clear_logs': return 0;
       case 'get_diagnostics': return 'Synthetic diagnostics';
+      case 'get_public_diagnostics': return 'Sotto: 0.0.5-test\nOS: synthetic\nModel: tiny';
+      case 'get_public_logs': return 'Public diagnostic log\n2026-09-14T12:00:00Z INFO app: [message omitted]';
+      case 'save_public_logs': return true;
       case 'current_state': return seed.overlay_state ?? null;
       case 'start_recording': await emit('recording-started', ++session); return session;
       case 'stop_recording': await emit('recording-stopped', session); return session;
