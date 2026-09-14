@@ -291,7 +291,13 @@ def test_two_quick_switches_do_not_overwrite_each_other(app, page):
         "JSON.stringify(window.__sottoTest.state.config.text_formatting"
         ".disabled_parasite_words) === '[\"короче\",\"типа\"]'"
     )
-    ui.settle("save_config", {})
+    # Let the held write finish, with what the backend now actually holds. Both
+    # words must still read as off once the draft is gone.
+    ui.settle("save_config", result=ui.state()["config"])
+    expect(korotche).to_have_attribute("aria-pressed", "false")
+    expect(dialog.get_by_role("button", name="типа", exact=True)).to_have_attribute(
+        "aria-pressed", "false"
+    )
 
 
 def test_a_failed_save_keeps_the_typed_word(app, page):
