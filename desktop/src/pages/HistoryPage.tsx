@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { invoke, on } from "../bridge";
+import { invoke, subscribe } from "../bridge";
 import {
     applyHistoryAiProcessing,
     clearHistory,
@@ -337,11 +337,10 @@ export function HistoryPage() {
 
   useEffect(() => {
     void refresh();
-    let unlisten: (() => void) | null = null;
-    on<unknown>("history-updated", () => { void refresh(); }).then((fn) => { unlisten = fn; });
+    const unlisten = subscribe<unknown>("history-updated", () => { void refresh(); });
     const tick = window.setInterval(() => { void refresh(); }, 30_000);
     return () => {
-      unlisten?.();
+      unlisten();
       window.clearInterval(tick);
     };
   }, [refresh]);

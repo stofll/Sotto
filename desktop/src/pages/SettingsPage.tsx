@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { invoke, on } from "../bridge";
+import { invoke, subscribe as subscribeEvent } from "../bridge";
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { Card, PageHeader, Segmented } from "../components/Shell";
 import { Icon } from "../components/Icon";
@@ -48,9 +48,8 @@ function HotkeyDisplay({ hotkey, fallback, onConfigChanged }: {
     if (!recording) setValue(hotkey || fallback);
   }, [hotkey, fallback, recording]);
 
-  // macOS-reserved combos we refuse to bind locally. The sidecar `parse_hotkey`
-  // would still accept these technically, but binding them bricks the user out of
-  // the app. Anything else is delegated to the sidecar validator.
+  // Reject macOS shortcuts needed to leave or hide the app before calling
+  // the native `validate_hotkey` command.
   const RESERVED = new Set([
     "cmd+q",
     "cmd+w",
@@ -635,12 +634,8 @@ function MicPicker({ microphone, microphones, onConfigChanged }: { microphone?: 
 
   useEffect(() => {
     const unlisteners: Array<() => void> = [];
-    let cancelled = false;
     const subscribe = <T,>(event: string, handler: (payload: T) => void) => {
-      on<T>(event, handler).then((fn) => {
-        if (cancelled) fn();
-        else unlisteners.push(fn);
-      });
+      unlisteners.push(subscribeEvent(event, handler));
     };
     // The rate comes with the samples rather than being assumed: capture
     // resamples to 16 kHz only when the device rate divides into it, and on a
@@ -704,7 +699,6 @@ function MicPicker({ microphone, microphones, onConfigChanged }: { microphone?: 
       setStoppedStatus(t("Ошибка теста микрофона"));
     });
     return () => {
-      cancelled = true;
       closePlayback();
       void invoke("stop_microphone_test").catch(() => {});
       for (const fn of unlisteners) fn();

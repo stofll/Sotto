@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getModelAssessments, type ModelAssessment } from "../bridge/modelAssessments";
-import { on } from "../bridge/events";
+import { subscribe } from "../bridge/events";
 
 export function useModelAssessments(context: unknown) {
   const [values, setValues] = useState<Record<string, ModelAssessment>>({});
@@ -17,13 +17,9 @@ export function useModelAssessments(context: unknown) {
     return () => { generation.current++; };
   }, [context, refresh]);
   useEffect(() => {
-    let cancelled = false;
-    let unlisten: (() => void) | undefined;
-    on("model-performance-changed", refresh).then((stop) => {
-      if (cancelled) stop(); else unlisten = stop;
-    }).catch(() => {});
+    const unlisten = subscribe("model-performance-changed", refresh);
     window.addEventListener("focus", refresh);
-    return () => { cancelled = true; unlisten?.(); window.removeEventListener("focus", refresh); generation.current++; };
+    return () => { unlisten(); window.removeEventListener("focus", refresh); generation.current++; };
   }, [refresh]);
   return { values, refresh };
 }

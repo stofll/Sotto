@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { invoke, on } from "../bridge";
+import { invoke, subscribe } from "../bridge";
 import type { ConfigResult, PreviewFormatResult, PreviewReplacementsResult, ReplacementMatchMode, ReplacementRule, StatsResult, TextFormattingConfig, UpdateDownloadProgress, UpdateInfo } from "../bridge/types";
 import { Card, CardHead, PageHeader, SectionLabel, Segmented, Switch } from "../components/Shell";
 import { Icon } from "../components/Icon";
@@ -1123,11 +1123,10 @@ function UpdatesCard({ version }: { version?: string | null }) {
   useEffect(() => { void check(false); }, []);
 
   useEffect(() => {
-    let unlisten: (() => void) | undefined;
-    void on<UpdateDownloadProgress>("update-download-progress", (progress) => {
+    const unlisten = subscribe<UpdateDownloadProgress>("update-download-progress", (progress) => {
       setState((current) => current.kind === "downloading" ? { ...current, progress } : current);
-    }).then((fn) => { unlisten = fn; });
-    return () => unlisten?.();
+    });
+    return () => unlisten();
   }, []);
 
   async function install(info: UpdateInfo) {

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { emit } from "@tauri-apps/api/event";
-import { invoke, on, onRecordingStateChange, type RecordingState, waitForReady } from "./bridge";
+import { invoke, subscribe, onRecordingStateChange, type RecordingState } from "./bridge";
 import { getStats } from "./bridge/stats";
 import type { ApiKeyStatus, AppVersionResult, ConfigResult, MicrophoneResult, ModelInfo, RuntimeStatusResult, StatsResult } from "./bridge/types";
 import { Card, Sidebar, TitleBar, ACCENT_OPTIONS, applyAccent, type TabId, type DownloadProgress, type AccentValue } from "./components/Shell";
@@ -25,9 +25,8 @@ function isMvpTab(tab: TabId) {
 }
 
 // macOS URL schemes that deep-link into Privacy & Security panes. Opening one
-// via System Settings' `x-apple.systempreferences:` handler lands the user on
-// the exact section where they can grant Microphone / Accessibility to the
-// process running the sidecar (Python.app in dev, the app bundle in prod).
+// via System Settings' `x-apple.systempreferences:` handler opens the section
+// where they can grant Microphone / Accessibility to Sotto.
 const PRIVACY_URLS: Record<string, string> = {
   microphone: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
   accessibility: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
@@ -170,31 +169,21 @@ export function MainWindow() {
 
   useEffect(() => {
     let mounted = true;
-    let unlistenCrash: (() => void) | null = null;
-    let unlistenModelLoaded: (() => void) | null = null;
-    let unlistenWhisperReady: (() => void) | null = null;
-    let unlistenModelUnloaded: (() => void) | null = null;
-    let unlistenModelRestored: (() => void) | null = null;
-    let unlistenModelLoading: (() => void) | null = null;
-    let unlistenModelFailed: (() => void) | null = null;
-    let unlistenNavigate: (() => void) | null = null;
-    let unlistenConfigUpdated: (() => void) | null = null;
-    let unlistenTranscriptionDone: (() => void) | null = null;
-    on<string>("app-crash", (msg) => { if (mounted) setError(msg); }).then((fn) => { unlistenCrash = fn; });
-    let unlistenPermission: (() => void) | null = null;
-    // Structured sidecar ``error`` events with ``kind === "permission"`` carry
+    const unlisteners: Array<() => void> = [];
+    unlisteners.push(subscribe<string>("app-crash", (msg) => { if (mounted) setError(msg); }));
+    // Native `app-error` events with `kind === "permission"` carry
     // a TCC-denial hint (macOS Privacy panes). We surface them as a dedicated
     // dismissable banner with a deep-link into System Settings, instead of
     // letting them get lost in the generic error line.
-    on<{ kind?: string; permission?: string; hint?: string; message?: string }>("app-error", (payload) => {
+    unlisteners.push(subscribe<{ kind?: string; permission?: string; hint?: string; message?: string }>("app-error", (payload) => {
       if (!mounted || !payload) return;
       if (payload.kind !== "permission" || !payload.permission) return;
       setPermissions((current) => {
         if (current.some((p) => p.permission === payload.permission)) return current;
         return [...current, { permission: payload.permission!, hint: payload.hint ?? payload.permission!, message: payload.message }];
       });
-    }).then((fn) => { unlistenPermission = fn; });
-    on<string>("navigate-tab", (next) => {
+    }));
+    unlisteners.push(subscribe<string>("navigate-tab", (next) => {
       // «Форматирование» + «Замены» merged into «Текст», «Провайдеры» +
       // «API-ключи» into «Интеграции», and «Обзор» was removed entirely. The
       // aliases stay because the event is sent by the tray: a separate window
@@ -202,31 +191,30 @@ export function MainWindow() {
       const legacy: Record<string, TabId> = { formatting: "text", replacements: "text", providers: "integrations", "api-keys": "integrations", overview: "settings" };
       const resolved = (legacy[next] ?? next) as TabId;
       if (mounted && MVP_TABS.includes(resolved)) setTab(resolved);
-    }).then((fn) => { unlistenNavigate = fn; });
-    on<ConfigResult>("config-updated", (next) => {
+    }));
+    unlisteners.push(subscribe<ConfigResult>("config-updated", (next) => {
       if (!mounted) return;
       setConfig(next);
       setTheme(next.theme ?? "dark");
       applyLocaleFromConfig(next.ui_language);
-    }).then((fn) => { unlistenConfigUpdated = fn; });
+    }));
     // `paste-done`, not `whisper-done`: stats and the history row are
     // written after the LLM pass, so refreshing on decode read the numbers
     // from before this transcription was recorded.
-    on<unknown>("paste-done", () => {
+    unlisteners.push(subscribe<unknown>("paste-done", () => {
       if (mounted) void refreshStats().catch(() => {});
-    }).then((fn) => { unlistenTranscriptionDone = fn; });
+    }));
     const refreshModels = () => {
       invoke<ModelInfo[]>("list_models").then((next) => { if (mounted) setModels(next); }).catch(() => {});
     };
     const refreshRuntime = () => {
       invoke<RuntimeStatusResult>("get_runtime_status").then((next) => { if (mounted) setRuntime(next); }).catch(() => {});
     };
-    let unlistenDownloadProgress: (() => void) | null = null;
-    on<unknown>("model-ready", () => {
+    unlisteners.push(subscribe<unknown>("model-ready", () => {
       if (mounted) setDownloadProgress(null);
       refreshModels();
-    }).then((fn) => { unlistenModelLoaded = fn; });
-    on<string>("whisper-loading", (name) => {
+    }));
+    unlisteners.push(subscribe<string>("whisper-loading", (name) => {
       if (!mounted) return;
       setRecordingState("loading");
       setRuntime((current) => ({
@@ -240,37 +228,37 @@ export function MainWindow() {
         state: "loading",
         last_error: null,
       }));
-    }).then((fn) => { unlistenModelLoading = fn; });
-    on<string>("whisper-ready", () => {
+    }));
+    unlisteners.push(subscribe<string>("whisper-ready", () => {
       if (!mounted) return;
       setDownloadProgress(null);
       refreshModels();
       refreshRuntime();
       setRecordingState((current) => current === "loading" ? "idle" : current);
-    }).then((fn) => { unlistenWhisperReady = fn; });
-    on<{ name?: string; message?: string }>("whisper-load-failed", (payload) => {
+    }));
+    unlisteners.push(subscribe<{ name?: string; message?: string }>("whisper-load-failed", (payload) => {
       if (!mounted) return;
       setDownloadProgress(null);
       refreshRuntime();
       setRecordingState("error");
       if (payload?.message) setError(payload.message);
-    }).then((fn) => { unlistenModelFailed = fn; });
+    }));
     // Unloading clears both the loaded model and its flag in the list — we
     // refresh both slices, otherwise the sidebar status stays on a deleted one.
-    on<unknown>("model-unloaded", () => { refreshModels(); refreshRuntime(); }).then((fn) => { unlistenModelUnloaded = fn; });
+    unlisteners.push(subscribe<unknown>("model-unloaded", () => { refreshModels(); refreshRuntime(); }));
     // The model returning after an idle unload. Deliberately separate from
     // `whisper-ready`: that one drives the dictation state, while this arrives
     // in the middle of somebody else's recording and has no business touching
     // that state — only the lists.
-    on<unknown>("model-restored", () => { refreshModels(); refreshRuntime(); }).then((fn) => { unlistenModelRestored = fn; });
-    on<DownloadProgress>("model-download-progress", (payload) => {
+    unlisteners.push(subscribe<unknown>("model-restored", () => { refreshModels(); refreshRuntime(); }));
+    unlisteners.push(subscribe<DownloadProgress>("model-download-progress", (payload) => {
       if (!mounted || !payload) return;
       setDownloadProgress({
         model: payload.model,
         downloaded: Number(payload.downloaded) || 0,
         total: typeof payload.total === "number" ? payload.total : null,
       });
-    }).then((fn) => { unlistenDownloadProgress = fn; });
+    }));
 
     async function loadApiKeys(cfg: ConfigResult | null): Promise<ApiKeyStatus> {
       const defaults = ["anthropic", "openai", "gemini", "opencode-go", "compatible"];
@@ -295,7 +283,6 @@ export function MainWindow() {
 
     async function load() {
       try {
-        await waitForReady();
         const setters: Array<{ p: Promise<unknown>; set: (v: unknown) => void; name: string }> = [
           { p: invoke<AppVersionResult>("app_version"), set: (v) => { if (mounted) setVersion((v as AppVersionResult).version); }, name: "app_version" },
           { p: invoke<ConfigResult>("get_config"), set: (v) => { if (mounted) { const cfg = v as ConfigResult; setConfig(cfg); setTheme(cfg.theme ?? "dark"); applyLocaleFromConfig(cfg.ui_language); } }, name: "get_config" },
@@ -337,18 +324,7 @@ export function MainWindow() {
     load();
     return () => {
       mounted = false;
-      unlistenCrash?.();
-      unlistenPermission?.();
-      unlistenModelLoaded?.();
-      unlistenWhisperReady?.();
-      unlistenModelLoading?.();
-      unlistenModelFailed?.();
-      unlistenModelUnloaded?.();
-      unlistenModelRestored?.();
-      unlistenDownloadProgress?.();
-      unlistenNavigate?.();
-      unlistenConfigUpdated?.();
-      unlistenTranscriptionDone?.();
+      unlisteners.forEach((stop) => stop());
     };
   }, []);
 
