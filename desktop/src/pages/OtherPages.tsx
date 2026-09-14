@@ -916,12 +916,11 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
                 </div>}
               </section>
             </div>
-            {/* Everything in here saves as it is changed — a chip on click, a
-                word on Enter or on blur. Nothing is pending, so the footer
-                closes rather than promising a save that already happened. */}
-            <div className="modal__foot">
-              <button type="button" className="btn btn--primary" onClick={() => setParasitesOpen(false)}>{t("Закрыть")}</button>
-            </div>
+            {/* No footer. Everything in here saves as it is changed — a chip on
+                click, a word on Enter or on blur — so a «Сохранить» would
+                promise something that already happened, and a second «Закрыть»
+                beside the × in the header is one control saying what the other
+                one says. */}
           </Modal>}
 
           <Foldable

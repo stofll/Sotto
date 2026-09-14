@@ -47,7 +47,7 @@ def test_dictionary_create_read_search_delete(app, page):
     dialog = page.get_by_role("dialog", name="Редактор набора")
     dialog.get_by_label("Название набора", exact=True).fill("Synthetic vocabulary")
     dialog.get_by_label("Термины", exact=True).fill("Playwright\nSotto")
-    dialog.get_by_role("button", name="Закрыть", exact=True).click()
+    dialog.get_by_role("button", name="Сохранить", exact=True).click()
     expect(dialog).not_to_be_visible()
     page.get_by_role(
         "button", name=re.compile(r"^Synthetic vocabulary Пользовательский")
@@ -174,8 +174,9 @@ def test_builtin_parasite_words_are_shown_and_can_be_switched_off(app, page):
     )
 
     # The summary on the row is the only trace of the list once the dialog is
-    # closed, so it has to report the change.
-    dialog.get_by_role("button", name="Закрыть", exact=True).click()
+    # closed, so it has to report the change. Nothing is pending — the dialog
+    # saves as it goes — so Escape is a complete way to leave it.
+    page.keyboard.press("Escape")
     expect(dialog).not_to_be_visible()
     expect(page.get_by_role("button", name="Список: 3 слова · 1 выключено", exact=True)).to_be_visible()
 
@@ -199,7 +200,8 @@ def test_english_set_is_off_until_switched_on(app, page):
     expect(dialog.get_by_role("button", name="basically", exact=True)).to_be_visible()
 
     # Both sets now count towards the summary on the row.
-    dialog.get_by_role("button", name="Закрыть", exact=True).click()
+    page.keyboard.press("Escape")
+    expect(dialog).not_to_be_visible()
     expect(page.get_by_role("button", name="Список: 5 слов", exact=True)).to_be_visible()
 
 
