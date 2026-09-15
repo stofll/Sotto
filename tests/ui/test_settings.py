@@ -100,7 +100,7 @@ def test_hotkey_validation(app, page, failure):
 
 
 def test_hotkey_escape_leaves_config_unchanged(app, page):
-    ui = app()
+    ui = app(config={"ui_accent": "#e68a3d"})
     page.get_by_role("button", name="Изменить", exact=True).click()
     field = page.get_by_test_id("hotkey-input")
     expect(field).to_be_focused()
@@ -166,3 +166,84 @@ def test_microphone_meter_responds_to_events(app, page):
     expect(page.get_by_role("meter")).not_to_have_attribute("aria-valuenow", "0")
     page.get_by_role("button", name="Проверка микрофона", exact=True).click()
     expect(page.get_by_role("meter")).to_have_attribute("aria-valuenow", "0")
+
+
+def test_overlay_preferences_persist_and_center_keeps_offset(app, page):
+    ui = app(config={"ui_accent": "#e68a3d"})
+    settings = page.get_by_test_id("overlay-settings")
+    settings.get_by_role("button", name="Бусина", exact=True).click()
+    expect(settings.get_by_test_id("bead-hint")).to_contain_text(
+        "потоковый текст не отображается"
+    )
+    settings.get_by_role("button", name="L", exact=True).click()
+    offset = settings.get_by_label("Отступ от края", exact=True)
+    offset.fill("128")
+    offset.press("Tab")
+    settings.get_by_role("button", name="По центру", exact=True).click()
+    expect(offset).to_be_disabled()
+    assert ui.state()["config"]["overlay"] == {
+        "form": "bead",
+        "size": "l",
+        "edge_offset": 128,
+        "anchor": "center",
+    }
+    page.reload()
+    settings.get_by_role("button", name="Сверху слева", exact=True).click()
+    expect(offset).to_be_enabled()
+    expect(offset).to_have_value("128")
+    expect(settings.get_by_role("button", name="Бусина", exact=True)).to_have_attribute(
+        "aria-pressed", "true"
+    )
+
+
+def test_overlay_save_failure_rolls_back_and_retries(app, page):
+    ui = app(config={"ui_accent": "#e68a3d"})
+    settings = page.get_by_test_id("overlay-settings")
+    ui.queue("save_config", {"error": "Synthetic disk full"})
+    bead = settings.get_by_role("button", name="Бусина", exact=True)
+    bead.click()
+    expect(settings.get_by_role("alert")).to_contain_text("Не удалось сохранить")
+    expect(settings.get_by_role("button", name="Пилюля", exact=True)).to_have_attribute(
+        "aria-pressed", "true"
+    )
+    bead.click()
+    expect(bead).to_have_attribute("aria-pressed", "true")
+    expect(settings.get_by_role("alert")).to_have_count(0)
+
+
+@pytest.mark.parametrize("configured", [None, "#5b8def"])
+def test_accent_migration_respects_existing_config(app, page, configured):
+    page.add_init_script("localStorage.setItem('sotto.ui.accent', '#9b75ef')")
+    ui = app(config={"ui_accent": configured} if configured else {})
+    ui.saved("ui_accent", configured or "#9b75ef")
+    assert page.evaluate(
+        "getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()"
+    ) == (configured or "#9b75ef")
+
+
+def test_custom_palette_saves_on_release_and_retains_other_fields(app, page):
+    ui = app(
+        config={
+            "ui_accent": "#e68a3d",
+            "overlay": {"palette": "custom", "form": "bead", "size": "l"},
+        }
+    )
+    settings = page.get_by_test_id("overlay-settings")
+    hue = settings.get_by_role("slider", name="Тон", exact=True)
+    hue.focus()
+    hue.press("ArrowRight")
+    page.wait_for_function(
+        "window.__sottoTest.state.config.overlay.palette_hue === 269"
+    )
+    assert ui.state()["config"]["overlay"]["form"] == "bead"
+    assert ui.state()["config"]["overlay"]["size"] == "l"
+    page.reload()
+    expect(hue).to_have_value("269")
+
+
+def test_failed_accent_migration_retains_legacy_value_for_restart(app, page):
+    page.add_init_script("localStorage.setItem('sotto.ui.accent', '#9b75ef')")
+    ui = app(responses={"save_config": [{"error": "Synthetic migration failure"}]})
+    expect(page.get_by_role("alert")).to_contain_text("Synthetic migration failure")
+    assert page.evaluate("localStorage.getItem('sotto.ui.accent')") == "#9b75ef"
+    assert "ui_accent" not in ui.state()["config"]

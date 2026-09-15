@@ -78,7 +78,9 @@ def test_paste_test_waits_before_pasting_and_reports_success(app, page):
     # itself would deliver the text into this settings window.
     ui = app()
     ui.nav("info")
-    ui.queue("test_paste", {"result": "Paste OK. Text на буфере: Тест вставки Sotto — 1"})
+    ui.queue(
+        "test_paste", {"result": "Paste OK. Text на буфере: Тест вставки Sotto — 1"}
+    )
     button = page.get_by_test_id("paste-test")
     button.click()
     expect(button).to_be_disabled()

@@ -154,8 +154,11 @@ def test_overlay_audio_lifetime_and_reduced_motion(app, page):
     expect(bars.last).to_have_css("height", "5px")
     ui.emit("recording-stopped", 1)
     page.wait_for_function("window.__sottoTest.subscriptions['audio-level'] === 0")
-    expect(page.locator(".overlay-progress-track > div")).to_have_css(
-        "animation-name", "none"
+    assert (
+        page.locator(".overlay-shell").evaluate(
+            "e => getComputedStyle(e, '::before').animationName"
+        )
+        == "none"
     )
     ui.emit("overlay-reset")
     ui.emit("recording-started", 2)
@@ -172,9 +175,99 @@ def test_overlay_timer_stops_after_recording_and_reset(app, page):
     expect(page.locator(".overlay-timer")).to_have_text("00:02")
     ui.emit("recording-stopped", 1)
     page.clock.run_for(5000)
-    expect(page.locator(".overlay-timer")).to_have_text("00:02")
+    expect(page.locator(".overlay-timer")).to_have_count(0)
     ui.emit("overlay-reset")
     expect(page.get_by_test_id("overlay")).not_to_be_visible()
     page.clock.run_for(5000)
     ui.emit("recording-started", 2)
     expect(page.locator(".overlay-timer")).to_have_text("00:00")
+
+
+def test_bead_suppresses_live_text_and_recovers_after_warning(app, page):
+    ui = app("overlay", config={"overlay": {"form": "bead"}})
+    overlay = page.get_by_test_id("overlay")
+    ui.emit("recording-started", 1)
+    ui.emit("live-preview-armed", {"session_id": 1, "armed": True})
+    ui.emit("transcription-delta", {"session_id": 1, "text": "Hidden live draft"})
+    expect(overlay).to_have_attribute("data-layout", "bead")
+    expect(page.locator(".overlay-preview")).to_have_count(0)
+    expect(page.locator(".overlay-timer")).to_have_count(0)
+    ui.emit("recording-stopped", 1)
+    expect(overlay).to_have_attribute("data-layout", "bead")
+    ui.emit(
+        "paste-done",
+        {"session_id": 1, "length": 12, "ai_processing": {"fallback": True}},
+    )
+    expect(overlay).to_have_attribute("data-layout", "compact")
+    expect(overlay).to_contain_text("Ошибка LLM")
+    ui.emit("overlay-reset")
+    ui.emit("recording-started", 2)
+    expect(overlay).to_have_attribute("data-layout", "bead")
+    expect(overlay).not_to_contain_text("Ошибка LLM")
+
+
+@pytest.mark.parametrize("state", ["recording", "loading", "processing", "done"])
+def test_bead_hover_cancels_active_session(app, page, state):
+    page.set_viewport_size({"width": 72, "height": 72})
+    ui = app("overlay", config={"overlay": {"form": "bead"}})
+    ui.emit("recording-started", 21)
+    ui.emit("overlay-state", state)
+    button = page.get_by_role("button", name="Отменить запись", exact=True)
+    page.get_by_test_id("overlay").hover()
+    expect(button).to_have_css("opacity", "1")
+    button.click()
+    expect(page.get_by_test_id("overlay")).not_to_be_visible()
+    assert ui.calls("cancel_recording")[-1]["args"]["sessionId"] == 21
+
+
+@pytest.mark.parametrize(
+    "answer", [{"result": False}, {"error": "Synthetic cancel failure"}]
+)
+def test_bead_failed_cancel_releases_button_and_allows_next_session(app, page, answer):
+    ui = app("overlay", config={"overlay": {"form": "bead"}})
+    ui.emit("recording-started", 1)
+    ui.queue("cancel_recording", answer)
+    button = page.get_by_role("button", name="Отменить запись", exact=True)
+    page.get_by_test_id("overlay").hover()
+    button.click()
+    expect(button).to_be_enabled()
+    page.wait_for_function(
+        "window.__sottoTest.calls.filter(c => c.command === 'hide').length >= 2"
+    )
+    ui.emit("overlay-reset")
+    ui.emit("recording-started", 2)
+    page.get_by_test_id("overlay").hover()
+    button.click()
+    expect(page.get_by_test_id("overlay")).not_to_be_visible()
+
+
+def test_overlay_config_event_wins_over_slow_initial_read(app, page):
+    ui = app("overlay", responses={"get_config": [{"hold": True}, {"hold": True}]})
+    ui.emit(
+        "config-updated",
+        {"ui_language": "en", "overlay": {"form": "bead", "size": "l"}},
+    )
+    ui.settle("get_config", result={"ui_language": "ru", "overlay": {"form": "pill"}})
+    ui.emit("recording-started", 1)
+    overlay = page.get_by_test_id("overlay")
+    expect(overlay).to_have_attribute("data-layout", "bead")
+    expect(overlay).to_have_attribute("data-size", "l")
+    expect(
+        page.get_by_role("button", name="Cancel recording", exact=True)
+    ).to_have_count(1)
+
+
+def test_processing_label_stays_while_only_counter_is_delayed(app, page):
+    page.clock.install()
+    ui = app("overlay")
+    ui.emit("recording-started", 1)
+    ui.emit("recording-stopped", 1)
+    label = page.locator(".overlay-progress > span").first
+    expect(label).to_have_text("Обрабатываю")
+    label.evaluate("e => e.dataset.identity = 'preserved'")
+    ui.emit("whisper-done", {"session_id": 1})
+    page.clock.run_for(200)
+    expect(label).to_have_attribute("data-identity", "preserved")
+    expect(page.locator(".overlay-counter")).to_have_count(0)
+    page.clock.run_for(2000)
+    expect(page.locator(".overlay-counter")).to_contain_text("2")

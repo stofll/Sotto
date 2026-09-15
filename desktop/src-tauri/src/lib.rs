@@ -26,6 +26,7 @@ pub mod model_performance;
 pub mod mutex_recover;
 mod output_volume;
 mod overlay;
+mod overlay_preferences;
 mod portable;
 pub mod secret_store;
 pub mod sherpa;
@@ -598,6 +599,9 @@ fn save_config(
 /// function. Nothing here can fail the save — the value is already on disk,
 /// so a subsystem that refuses to pick it up is logged, not propagated.
 fn apply_runtime_config(app: &AppHandle, saved: &Value, patch: &Value) {
+    if patch.get("overlay").is_some() {
+        crate::overlay::configure(saved);
+    }
     // Waiting for a restart here would keep capturing events after the user
     // opted out, which is the one thing the switch must not do.
     if patch.get(crate::telemetry::enabled_config_key()).is_some() {
@@ -3836,7 +3840,7 @@ pub fn run() {
             set_hotkey,
             fetch_provider_models,
             cancel_model_download,
-            crate::overlay::set_overlay_streaming,
+            crate::overlay::set_overlay_presentation,
             start_recording,
             stop_recording,
             cancel_recording,

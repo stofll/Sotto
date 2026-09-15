@@ -11,6 +11,7 @@ import { getLocale, isLocale, LOCALE_LABELS, LOCALES, setLocale, t, type Locale 
 import { DEFAULT_HOTKEY, normalizeHotkeyKey } from "../hotkey";
 import { fallbackLanguage, fallbackModels, speechLanguages } from "./modelCatalog";
 import { isTelemetryEnabled } from "./telemetrySettings";
+import { OverlaySettings } from "./OverlaySettings";
 import { modelUnloadMinutes, modelUnloadOptions } from "./modelUnloadSettings";
 
 type Props = {
@@ -908,6 +909,8 @@ export function SettingsPage({ config, microphones, models, portable, onConfigCh
             <MicPicker microphone={config?.microphone} microphones={microphones} onConfigChanged={onConfigChanged}/>
           </div>
         </Card>
+
+        <OverlaySettings config={config} onConfigChanged={onConfigChanged}/>
 
         {/* 4. Behaviour row: the paste settings as one sequence of checkboxes; a
             separate switch created a false visual hierarchy. */}

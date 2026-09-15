@@ -2056,3 +2056,14 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .feedback-card p, .feedback-dialog { font: 400 13px/1.5 var(--font-sans); }
 .feedback-dialog p, .feedback-preview { margin: 0; }
 .feedback-dialog .modal__head, .feedback-dialog .modal__foot { flex-shrink: 0; }
+
+/* Overlay preferences live only in the settings window. */
+.overlay-settings-grid { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 12px; }
+.overlay-settings-grid > .set-cell { flex: 1 1 150px; }
+.overlay-settings-hint { color: var(--ink-mute); font: 400 12px/1.5 var(--font-sans); margin: 12px 0; }
+.overlay-settings-error { color: var(--err); font: 400 12px/1.5 var(--font-sans); }
+.overlay-anchor-grid { display: grid; grid-template-columns: repeat(3, 32px); gap: 4px; }
+.overlay-anchor-grid .btn { padding: 0; min-width: 32px; height: 28px; }
+.overlay-anchor-grid .btn[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); }
+.overlay-palette-preview { margin-top: 12px; width: 100%; height: 28px; border-radius: var(--radius); border: 4px solid var(--overlay-shell-top); background: var(--overlay-surface); display: grid; place-items: center; }
+.overlay-palette-preview > span { width: 50%; height: 4px; border-radius: var(--radius); background: linear-gradient(90deg, var(--overlay-wave-bottom), var(--overlay-wave-mid), var(--overlay-wave-top)); }

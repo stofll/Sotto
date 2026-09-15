@@ -1,7 +1,7 @@
 use std::{
     sync::{
         mpsc::{channel, Sender},
-        Mutex, OnceLock,
+        LazyLock, Mutex, OnceLock,
     },
     thread,
     time::{Duration, Instant},
@@ -19,16 +19,6 @@ use super::windows::win_util::{
 };
 
 const OVERLAY_LABEL: &str = "overlay";
-const OVERLAY_WIDTH: f64 = 308.0;
-const OVERLAY_HEIGHT: f64 = 64.0;
-/// Window size for a streaming model: live text does not fit in the pill.
-///
-/// The window, not just the pill inside it: the overlay has a transparent
-/// background but still intercepts clicks, so keeping it large permanently means
-/// covering a third of the screen with an invisible strip. We grow only for the
-/// duration of a dictation with a streaming model.
-const OVERLAY_STREAM_WIDTH: f64 = 600.0;
-const OVERLAY_STREAM_HEIGHT: f64 = 150.0;
 // Where the window is born, before `position_overlay` places it. -32000 is
 // the standard Win32 "minimized" sentinel, so nothing is visible even if
 // something shows the window before we are ready for it. Not a parking spot
@@ -36,6 +26,22 @@ const OVERLAY_STREAM_HEIGHT: f64 = 150.0;
 // classified as occluded and stops being composited.
 const OFFSCREEN_X: i32 = -32000;
 const OFFSCREEN_Y: i32 = -32000;
+
+use crate::overlay_preferences::OverlayPreferences;
+
+static PREFERENCES: LazyLock<Mutex<OverlayPreferences>> =
+    LazyLock::new(|| Mutex::new(OverlayPreferences::from_config(&serde_json::Value::Null)));
+static PRESENTATION: Mutex<(bool, bool)> = Mutex::new((false, false));
+
+fn preferences() -> OverlayPreferences {
+    crate::mutex_recover::lock(&PREFERENCES).clone()
+}
+
+pub fn configure(config: &serde_json::Value) {
+    post(OverlayOp::Configure(OverlayPreferences::from_config(
+        config,
+    )));
+}
 
 static LAST_STATE: Mutex<Option<String>> = Mutex::new(None);
 static OVERLAY_READY: Mutex<bool> = Mutex::new(false);
@@ -88,6 +94,8 @@ fn set_on_screen(value: bool) {
 enum OverlayOp {
     Show(String),
     Hide,
+    Configure(OverlayPreferences),
+    Presentation { streaming: bool, needs_text: bool },
 }
 
 static OP_TX: OnceLock<Sender<OverlayOp>> = OnceLock::new();
@@ -110,11 +118,26 @@ pub fn start_worker(app: AppHandle) {
     if OP_TX.set(tx).is_err() {
         return;
     }
+    if let Ok(config) = crate::config::Config::load(&app) {
+        *crate::mutex_recover::lock(&PREFERENCES) =
+            OverlayPreferences::from_config(config.as_value());
+    }
     thread::spawn(move || {
         while let Ok(op) = rx.recv() {
             let result = match op {
                 OverlayOp::Show(state) => apply_show(&app, state),
                 OverlayOp::Hide => apply_hide(&app),
+                OverlayOp::Configure(next) => {
+                    *crate::mutex_recover::lock(&PREFERENCES) = next;
+                    refresh_geometry(&app)
+                }
+                OverlayOp::Presentation {
+                    streaming,
+                    needs_text,
+                } => {
+                    *crate::mutex_recover::lock(&PRESENTATION) = (streaming, needs_text);
+                    refresh_geometry(&app)
+                }
             };
             if let Err(e) = result {
                 eprintln!("[overlay] worker op failed: {e}");
@@ -170,9 +193,6 @@ fn conceal(window: &tauri::WebviewWindow) -> Result<(), String> {
 /// reapplies the styles that tao may rebuild on a visibility transition,
 /// then stops passing clicks through and re-asserts z-order.
 fn reveal(window: &tauri::WebviewWindow) -> Result<(), String> {
-    // A no-op unless the monitor layout changed under us, in which case the
-    // window does move — one rare flash beats a permanently misplaced pill.
-    position_overlay(window)?;
     #[cfg(windows)]
     {
         let hwnd = extract_hwnd(window)?;
@@ -276,10 +296,12 @@ pub fn ensure_window(app: &AppHandle) -> Result<(), String> {
         }
     } // WINDOW_CREATE_LOCK released here
 
+    let prefs = preferences();
+    let (width, height) = prefs.window_size(prefs.layout(false, false));
     let window =
         WebviewWindowBuilder::new(app, OVERLAY_LABEL, WebviewUrl::App("overlay.html".into()))
             .title("Overlay")
-            .inner_size(OVERLAY_WIDTH, OVERLAY_HEIGHT)
+            .inner_size(width, height)
             .position(OFFSCREEN_X as f64, OFFSCREEN_Y as f64)
             .resizable(false)
             .decorations(false)
@@ -358,12 +380,16 @@ pub fn show_state(state: String, _app: AppHandle) -> Result<(), String> {
 fn apply_show(app: &AppHandle, state: String) -> Result<(), String> {
     let prev_state = current_state();
     eprintln!("[overlay] apply_show({state}); current_state={prev_state:?}");
+    if state == "recording" && matches!(prev_state.as_deref(), Some("pasted" | "error")) {
+        *crate::mutex_recover::lock(&PRESENTATION) = (false, false);
+    }
     set_last_state(Some(&state));
     ensure_window(app)?;
     let window = app
         .get_webview_window(OVERLAY_LABEL)
         .ok_or_else(|| "overlay window missing after ensure_window".to_string())?;
     wait_until_ready(Duration::from_millis(500));
+    position_overlay(&window)?;
     // Prime the hidden WebView before making its HWND visible. In particular,
     // after a real window.hide() this prevents show() from presenting the
     // previous transparent/default surface while React catches up.
@@ -428,42 +454,45 @@ fn target_monitor(window: &tauri::WebviewWindow) -> Option<tauri::Monitor> {
         .and_then(|v| v.into_iter().next())
 }
 
-/// How far to lift the overlay above the bottom edge of the monitor.
-const BOTTOM_OFFSET: i32 = 96;
-
-/// Where on the monitor the overlay belongs: centred horizontally, near the
-/// bottom edge with an offset.
-///
-/// Split out of [`position_overlay`] into its own function because this is the
-/// only arithmetic in the module and there was nothing to test it against in
-/// place — everything else here needs a real window and monitor. A mistake here
-/// crashes nothing: it quietly puts the overlay in the wrong spot, and that is
-/// only visible on a second monitor or a non-standard resolution — that is, to
-/// someone who will not report it.
-///
-/// Everything is computed as an offset **inside** the monitor and only then
-/// added to its origin. Clamping the absolute coordinate is not allowed: a
-/// monitor to the left of the primary one has a negative origin, and `max(0)`
-/// over an absolute value would squeeze the overlay onto the primary screen.
+/// Compute inside the monitor before adding its possibly negative origin.
 fn overlay_origin(
     monitor_pos: (i32, i32),
     monitor_size: (u32, u32),
     window_size: (u32, u32),
-    bottom_offset: i32,
+    edge_offset: i32,
+    anchor: &str,
 ) -> (i32, i32) {
-    let (monitor_x, monitor_y) = monitor_pos;
-    let (monitor_w, monitor_h) = monitor_size;
-    let (window_w, window_h) = window_size;
-    // Window wider than the monitor — snap to the left edge instead of pushing
-    // it further left.
-    let x = monitor_x + ((monitor_w as i32 - window_w as i32) / 2).max(0);
-    // Monitor shorter than the window plus its offset — snap to the top edge.
-    let y = monitor_y + (monitor_h as i32 - window_h as i32 - bottom_offset).max(0);
-    (x, y)
+    let available_x = (monitor_size.0 as i64 - window_size.0 as i64).max(0);
+    let available_y = (monitor_size.1 as i64 - window_size.1 as i64).max(0);
+    let offset = i64::from(edge_offset);
+    let x = if anchor.ends_with("left") {
+        offset
+    } else if anchor.ends_with("right") {
+        available_x - offset
+    } else {
+        available_x / 2
+    };
+    let y = if anchor.starts_with("top") {
+        offset
+    } else if anchor.starts_with("bottom") {
+        available_y - offset
+    } else {
+        available_y / 2
+    };
+    (
+        monitor_pos.0 + x.clamp(0, available_x) as i32,
+        monitor_pos.1 + y.clamp(0, available_y) as i32,
+    )
 }
 
-/// Position the overlay window centered horizontally near the bottom of the
-/// monitor chosen by [`target_monitor`].
+fn refresh_geometry(app: &AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window(OVERLAY_LABEL) {
+        position_overlay(&window)?;
+    }
+    Ok(())
+}
+
+/// Resize and position the overlay using the configured anchor and logical size.
 ///
 /// Returns without touching the window when it already sits at the computed
 /// spot. On Windows that is the normal case for every show after the first,
@@ -471,19 +500,45 @@ fn overlay_origin(
 /// surface undisturbed. A move now also happens when the user dictates into
 /// a window on a different display than last time — which is the point.
 fn position_overlay(window: &tauri::WebviewWindow) -> Result<(), String> {
-    let monitor = target_monitor(window);
+    let monitor = if is_on_screen() {
+        window
+            .current_monitor()
+            .ok()
+            .flatten()
+            .or_else(|| target_monitor(window))
+    } else {
+        target_monitor(window)
+    };
     let Some(monitor) = monitor else {
         eprintln!("[overlay] position_overlay: no monitor detected; window stays off-screen");
         return Ok(());
     };
     let monitor_pos = monitor.position();
     let monitor_size = monitor.size();
-    let win_size = window.inner_size().map_err(|e| e.to_string())?;
+    let prefs = preferences();
+    let (streaming, needs_text) = *crate::mutex_recover::lock(&PRESENTATION);
+    let state = current_state();
+    let layout = prefs.layout(
+        streaming && state.as_deref() == Some("recording"),
+        needs_text || state.as_deref() == Some("error"),
+    );
+    let (width, height) = prefs.window_size(layout);
+    let scale = monitor.scale_factor();
+    let win_size = tauri::PhysicalSize::new(
+        (width * scale).round() as u32,
+        (height * scale).round() as u32,
+    );
+    if window.inner_size().map_err(|e| e.to_string())? != win_size {
+        window
+            .set_size(tauri::Size::Physical(win_size))
+            .map_err(|e| e.to_string())?;
+    }
     let (x, y) = overlay_origin(
         (monitor_pos.x, monitor_pos.y),
         (monitor_size.width, monitor_size.height),
         (win_size.width, win_size.height),
-        BOTTOM_OFFSET,
+        (prefs.edge_offset * scale).round() as i32,
+        prefs.anchor,
     );
     if let Ok(current) = window.outer_position() {
         if current.x == x && current.y == y {
@@ -505,34 +560,14 @@ fn position_overlay(window: &tauri::WebviewWindow) -> Result<(), String> {
     Ok(())
 }
 
-/// Switch the overlay between the pill and the window sized for live text.
-///
-/// Called from the overlay window when the dictation runs on a streaming model.
-/// The position is recomputed after a resize: the overlay is pinned to the
-/// bottom and centred, and without recomputing it would creep right and down.
-#[command]
-pub fn set_overlay_streaming(app: AppHandle, streaming: bool) -> Result<(), String> {
-    let Some(window) = app.get_webview_window(OVERLAY_LABEL) else {
-        return Ok(());
-    };
-    let (width, height) = if streaming {
-        (OVERLAY_STREAM_WIDTH, OVERLAY_STREAM_HEIGHT)
-    } else {
-        (OVERLAY_WIDTH, OVERLAY_HEIGHT)
-    };
-    let current = window.inner_size().map_err(|e| e.to_string())?;
-    let scale = window.scale_factor().unwrap_or(1.0);
-    // The comparison is in physical pixels: at fractional scaling the logical
-    // size does not round-trip, and the window would twitch every frame.
-    if (current.width as f64 - width * scale).abs() < 1.0
-        && (current.height as f64 - height * scale).abs() < 1.0
-    {
-        return Ok(());
-    }
-    window
-        .set_size(tauri::Size::Logical(tauri::LogicalSize::new(width, height)))
-        .map_err(|e| e.to_string())?;
-    position_overlay(&window)
+/// Serialize presentation changes with show/hide so native operations cannot race.
+#[tauri::command]
+pub fn set_overlay_presentation(streaming: bool, needs_text: bool) -> Result<(), String> {
+    post(OverlayOp::Presentation {
+        streaming,
+        needs_text,
+    });
+    Ok(())
 }
 
 /// Enqueue a hide. Returns as soon as the op is posted — see the
@@ -550,6 +585,7 @@ pub fn hide(_app: AppHandle) -> Result<(), String> {
 fn apply_hide(app: &AppHandle) -> Result<(), String> {
     eprintln!("[overlay] apply_hide()");
     set_last_state(None);
+    *crate::mutex_recover::lock(&PRESENTATION) = (false, false);
     // Issue #24: the cancel path is where the flash is reported. If Windows
     // is substituting a stand-in frame for a stalled UI thread, this probe
     // is what says so — and it says it without delaying the hide.
@@ -751,17 +787,18 @@ mod tests {
 
     /// Overlay 308×64 — the size from tauri.conf.json.
     const OVERLAY: (u32, u32) = (308, 64);
+    const BOTTOM_OFFSET: i32 = 96;
     const FHD: (u32, u32) = (1920, 1080);
 
     #[test]
     fn the_overlay_is_centred_horizontally() {
-        let (x, _y) = overlay_origin((0, 0), FHD, OVERLAY, BOTTOM_OFFSET);
+        let (x, _y) = overlay_origin((0, 0), FHD, OVERLAY, BOTTOM_OFFSET, "bottom-center");
         assert_eq!(x, (1920 - 308) / 2);
     }
 
     #[test]
     fn the_overlay_sits_above_the_bottom_edge() {
-        let (_x, y) = overlay_origin((0, 0), FHD, OVERLAY, BOTTOM_OFFSET);
+        let (_x, y) = overlay_origin((0, 0), FHD, OVERLAY, BOTTOM_OFFSET, "bottom-center");
         assert_eq!(y, 1080 - 64 - BOTTOM_OFFSET);
         assert!(y + 64 < 1080, "оверлей должен не доходить до нижней кромки");
     }
@@ -771,7 +808,7 @@ mod tests {
     /// screen — that is, onto the wrong monitor for the person dictating.
     #[test]
     fn a_monitor_left_of_the_primary_keeps_the_overlay() {
-        let (x, y) = overlay_origin((-1920, 0), FHD, OVERLAY, BOTTOM_OFFSET);
+        let (x, y) = overlay_origin((-1920, 0), FHD, OVERLAY, BOTTOM_OFFSET, "bottom-center");
         assert_eq!(x, -1920 + (1920 - 308) / 2);
         assert!(x < 0, "оверлей уехал на основной монитор");
         assert_eq!(y, 1080 - 64 - BOTTOM_OFFSET);
@@ -779,21 +816,33 @@ mod tests {
 
     #[test]
     fn a_monitor_below_the_primary_keeps_the_overlay() {
-        let (_x, y) = overlay_origin((0, 1080), FHD, OVERLAY, BOTTOM_OFFSET);
+        let (_x, y) = overlay_origin((0, 1080), FHD, OVERLAY, BOTTOM_OFFSET, "bottom-center");
         assert_eq!(y, 1080 + 1080 - 64 - BOTTOM_OFFSET);
     }
 
     /// Window wider than the monitor: snap to the left edge, do not go past it.
     #[test]
     fn a_window_wider_than_the_monitor_pins_to_the_left_edge() {
-        let (x, _y) = overlay_origin((100, 0), (200, 1080), OVERLAY, BOTTOM_OFFSET);
+        let (x, _y) = overlay_origin(
+            (100, 0),
+            (200, 1080),
+            OVERLAY,
+            BOTTOM_OFFSET,
+            "bottom-center",
+        );
         assert_eq!(x, 100, "ушёл левее монитора");
     }
 
     /// Monitor shorter than the window plus its offset: snap to the top edge.
     #[test]
     fn a_monitor_shorter_than_the_window_pins_to_the_top_edge() {
-        let (_x, y) = overlay_origin((0, 50), (1920, 100), OVERLAY, BOTTOM_OFFSET);
+        let (_x, y) = overlay_origin(
+            (0, 50),
+            (1920, 100),
+            OVERLAY,
+            BOTTOM_OFFSET,
+            "bottom-center",
+        );
         assert_eq!(y, 50, "ушёл выше монитора");
     }
 
@@ -801,7 +850,52 @@ mod tests {
     /// the overlay is still required to sit in the middle.
     #[test]
     fn centring_holds_on_a_larger_monitor() {
-        let (x, _y) = overlay_origin((0, 0), (3840, 2160), OVERLAY, BOTTOM_OFFSET);
+        let (x, _y) = overlay_origin(
+            (0, 0),
+            (3840, 2160),
+            OVERLAY,
+            BOTTOM_OFFSET,
+            "bottom-center",
+        );
         assert_eq!(x, (3840 - 308) / 2);
+    }
+    #[test]
+    fn all_anchors_stay_inside_a_negative_origin_monitor() {
+        let cases = [
+            ("top-left", (96, 96)),
+            ("top-center", (846, 96)),
+            ("top-right", (1596, 96)),
+            ("center-left", (96, 548)),
+            ("center", (846, 548)),
+            ("center-right", (1596, 548)),
+            ("bottom-left", (96, 1000)),
+            ("bottom-center", (846, 1000)),
+            ("bottom-right", (1596, 1000)),
+        ];
+        for (anchor, (x, y)) in cases {
+            assert_eq!(
+                overlay_origin((-2000, -1200), (2000, 1160), OVERLAY, 96, anchor),
+                (x - 2000, y - 1200)
+            );
+        }
+    }
+
+    #[test]
+    fn offsets_clamp_locally_and_scale_with_the_monitor() {
+        for scale in [1.0, 1.25, 2.0] {
+            let window = ((308.0 * scale) as u32, (64.0 * scale) as u32);
+            let offset = (96.0 * scale) as i32;
+            let (x, y) = overlay_origin((-1920, 0), FHD, window, offset, "bottom-left");
+            assert_eq!(x, -1920 + offset);
+            assert_eq!(y, 1080 - window.1 as i32 - offset);
+        }
+        assert_eq!(
+            overlay_origin((-100, 50), (200, 100), OVERLAY, 512, "bottom-right"),
+            (-100, 50)
+        );
+        assert_eq!(
+            overlay_origin((0, 0), FHD, OVERLAY, 9999, "top-left"),
+            (1612, 1016)
+        );
     }
 }

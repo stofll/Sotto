@@ -1,12 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { emit } from "@tauri-apps/api/event";
 import { invoke, subscribe, onRecordingStateChange, type RecordingState } from "./bridge";
 import { getStats } from "./bridge/stats";
 import type { ApiKeyStatus, AppVersionResult, ConfigResult, MicrophoneResult, ModelInfo, RuntimeStatusResult, StatsResult } from "./bridge/types";
-import { Card, Sidebar, TitleBar, ACCENT_OPTIONS, applyAccent, type TabId, type DownloadProgress, type AccentValue } from "./components/Shell";
+import { Card, Sidebar, TitleBar, type TabId, type DownloadProgress } from "./components/Shell";
 import { Icon } from "./components/Icon";
+import { applyAccent, resolveAccent, storedAccent } from "./accent";
 
-const ACCENT_STORAGE_KEY = "sotto.ui.accent";
 const COLLAPSE_STORAGE_KEY = "sotto.ui.sidebarCollapsed";
 const AUTO_COLLAPSE_BELOW = 1100;
 import { SettingsPage } from "./pages/SettingsPage";
@@ -92,13 +92,17 @@ export function MainWindow() {
       return raw === "true" ? true : raw === "false" ? false : null;
     } catch { return null; }
   });
-  const [accent] = useState<AccentValue>(() => {
-    try {
-      const raw = window.localStorage.getItem(ACCENT_STORAGE_KEY);
-      const known = ACCENT_OPTIONS().find((o) => o.value.toLowerCase() === (raw ?? "").toLowerCase());
-      return (known?.value ?? ACCENT_OPTIONS()[0].value) as AccentValue;
-    } catch { return ACCENT_OPTIONS()[0].value as AccentValue; }
-  });
+  const accent = resolveAccent(config?.ui_accent ?? storedAccent());
+  const accentMigrationStarted = useRef(false);
+  useEffect(() => {
+    if (!config || config.ui_accent !== undefined || accentMigrationStarted.current) return;
+    accentMigrationStarted.current = true;
+    void onConfigChanged({ ui_accent: storedAccent() }).then((saved) => {
+      if (saved) {
+        try { window.localStorage.removeItem("sotto.ui.accent"); } catch { /* optional storage */ }
+      }
+    });
+  }, [config]);
 
   const autoCollapsed = viewportWidth < AUTO_COLLAPSE_BELOW;
   const collapsed = manualCollapse ?? autoCollapsed;
@@ -109,7 +113,6 @@ export function MainWindow() {
 
   useEffect(() => {
     applyAccent(accent);
-    try { window.localStorage.setItem(ACCENT_STORAGE_KEY, accent); } catch {/* ignore */}
   }, [accent]);
 
   useEffect(() => {

@@ -289,6 +289,15 @@ fn migrate_legacy_device_at(path: &Path) -> Result<bool, String> {
 /// writes through it to *repair* an old config, and a repair must not be
 /// blocked by the very invariant it may be fixing.
 pub fn validate(candidate: &Value) -> Result<(), String> {
+    if let Some(accent) = candidate.get("ui_accent") {
+        if !matches!(
+            accent.as_str(),
+            Some("#e68a3d" | "#5b8def" | "#3dc97c" | "#9b75ef")
+        ) {
+            return Err("Invalid ui_accent".into());
+        }
+    }
+    crate::overlay_preferences::validate(candidate)?;
     validate_speech_route(candidate)?;
     crate::dictionaries::validate(candidate)
 }
@@ -785,6 +794,33 @@ mod tests {
         assert_eq!(
             model_unload_after_minutes(&json!({ MODEL_UNLOAD_KEY: 100_000 })),
             MAX_MODEL_UNLOAD_MINUTES
+        );
+    }
+    #[test]
+    fn overlay_patch_preserves_siblings_and_invalid_writes_leave_disk_unchanged() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        save_with_merge_patch_at(
+            &path,
+            json!({"overlay":{"form":"bead","size":"l"}, "ui_accent":"#5b8def"}),
+        )
+        .unwrap();
+        let next = save_with_merge_patch_at(&path, json!({"overlay":{"edge_offset":0}})).unwrap();
+        assert_eq!(next["overlay"]["form"], "bead");
+        assert_eq!(next["overlay"]["size"], "l");
+        let before = std::fs::read(&path).unwrap();
+        for patch in [
+            json!({"overlay":{"size":"xl"}}),
+            json!({"ui_accent":"#000000"}),
+        ] {
+            assert!(save_with_merge_patch_at(&path, patch).is_err());
+            assert_eq!(std::fs::read(&path).unwrap(), before);
+        }
+        let reset = save_with_merge_patch_at(&path, json!({"overlay":{"size":null}})).unwrap();
+        assert!(reset["overlay"].get("size").is_none());
+        assert_eq!(
+            crate::overlay_preferences::OverlayPreferences::from_config(&reset).size,
+            "m"
         );
     }
 }
