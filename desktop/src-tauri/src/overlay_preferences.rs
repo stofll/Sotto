@@ -1,11 +1,11 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+/// Mirrors `DEFAULT_EDGE_OFFSET` in overlayPreferences.ts.
+const DEFAULT_EDGE_OFFSET: f64 = 25.0;
 const FORMS: &[&str] = &["pill", "bead"];
 const SIZES: &[&str] = &["s", "m", "l"];
-const PALETTES: &[&str] = &[
-    "accent", "coal", "graphite", "lagoon", "amber", "violet", "custom",
-];
+const PALETTES: &[&str] = &["copper", "graphite", "lagoon", "violet", "custom"];
 const ANCHORS: &[&str] = &[
     "top-left",
     "top-center",
@@ -49,7 +49,7 @@ impl OverlayPreferences {
             edge_offset: value["edge_offset"]
                 .as_f64()
                 .filter(|n| (0.0..=512.0).contains(n) && n.fract() == 0.0)
-                .unwrap_or(96.0),
+                .unwrap_or(DEFAULT_EDGE_OFFSET),
         }
     }
 
@@ -86,6 +86,18 @@ pub enum Layout {
     Pill,
     Bead,
     Streaming,
+}
+
+// Loading repairs known retired values in memory; only a successful save writes them.
+pub fn migrate(config: &mut Value) {
+    if let Some(palette) = config
+        .get_mut("overlay")
+        .and_then(|overlay| overlay.get_mut("palette"))
+    {
+        if matches!(palette.as_str(), Some("accent" | "coal" | "amber")) {
+            *palette = Value::String("copper".into());
+        }
+    }
 }
 
 pub fn validate(config: &Value) -> Result<(), String> {
@@ -142,8 +154,14 @@ mod tests {
             assert_eq!(p.layout(false, false), Layout::Pill);
             assert_eq!(p.window_size(Layout::Pill), (308.0, 64.0));
             assert_eq!(p.anchor, "bottom-center");
-            assert_eq!(p.edge_offset, 96.0);
+            assert_eq!(p.edge_offset, 25.0);
         }
+    }
+
+    #[test]
+    fn explicit_offset_keeps_its_saved_value() {
+        let p = OverlayPreferences::from_config(&json!({"overlay":{"edge_offset":20}}));
+        assert_eq!(p.edge_offset, 20.0);
     }
 
     #[test]

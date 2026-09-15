@@ -1,11 +1,12 @@
 import type { CSSProperties } from "react";
-import { resolveAccent } from "../accent";
 import type { OverlayPreferences } from "./overlayPreferences";
 
+// Copper repeats the hue the overlay has always had, so a config that never
+// touched the palette looks the same after the setting stopped following the
+// interface colour.
 const PALETTES = {
-  coal: [45, 0.08], graphite: [0, 0], lagoon: [195, 0.1], amber: [70, 0.14], violet: [295, 0.14],
+  copper: [55, 0.14], graphite: [0, 0], lagoon: [195, 0.1], violet: [295, 0.14],
 } as const;
-const ACCENTS = { "#e68a3d": 55, "#5b8def": 260, "#3dc97c": 155, "#9b75ef": 295 } as const;
 
 // Fixed lightness separates the dark surface, shell and waveform at every hue.
 // CSS retains OKLCH so the webview handles its display's color gamut.
@@ -23,9 +24,8 @@ export function paletteVariables(hue: number, chroma: number): CSSProperties {
   } as CSSProperties;
 }
 
-export function overlayPalette(preferences: OverlayPreferences, accent: unknown): CSSProperties {
+export function overlayPalette(preferences: OverlayPreferences): CSSProperties {
   const { palette, palette_hue, palette_chroma } = preferences;
-  const [hue, chroma] = palette === "custom" ? [palette_hue, palette_chroma]
-    : palette === "accent" ? [ACCENTS[resolveAccent(accent)], 0.14] : PALETTES[palette];
+  const [hue, chroma] = palette === "custom" ? [palette_hue, palette_chroma] : PALETTES[palette];
   return paletteVariables(hue, chroma);
 }

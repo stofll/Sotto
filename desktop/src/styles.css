@@ -45,7 +45,7 @@
      menu's search field had already been trimmed to 1.5px locally for exactly
      that reason.
      No light-theme twin: `--accent` is one colour in both themes, and the
-     accent picker sets it inline on the root (see `applyAccent` in Shell), so
+     accent picker sets it inline on the root (see `applyAccent` in accent.ts), so
      the ring follows the chosen colour on its own.
      A quarter short of the full accent: at full strength the line was louder
      than the thing it marks, and where a card and its field are highlighted
@@ -134,8 +134,9 @@
   --accent-soft-2: rgba(230, 138, 61, 0.30);
 
   /* Derived from the chosen accent rather than written as a literal: the accent
-     is switchable (see ACCENT_OPTIONS), and after this mix all four options give
-     between 4.8 and 6.5 on a light background. */
+     is free-form (see `accentVariables`), and after this mix the four presets
+     give between 4.8 and 6.5 on a light background. A colour picked by hand can
+     land outside that range — the mix keeps it in the same direction. */
   --accent-text: color-mix(in srgb, var(--accent) 55%, #12101a);
 
   /* The dark theme's status colours are pastels chosen to glow against
@@ -2062,8 +2063,72 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .overlay-settings-grid > .set-cell { flex: 1 1 150px; }
 .overlay-settings-hint { color: var(--ink-mute); font: 400 12px/1.5 var(--font-sans); margin: 12px 0; }
 .overlay-settings-error { color: var(--err); font: 400 12px/1.5 var(--font-sans); }
-.overlay-anchor-grid { display: grid; grid-template-columns: repeat(3, 32px); gap: 4px; }
-.overlay-anchor-grid .btn { padding: 0; min-width: 32px; height: 28px; }
-.overlay-anchor-grid .btn[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); }
-.overlay-palette-preview { margin-top: 12px; width: 100%; height: 28px; border-radius: var(--radius); border: 4px solid var(--overlay-shell-top); background: var(--overlay-surface); display: grid; place-items: center; }
-.overlay-palette-preview > span { width: 50%; height: 4px; border-radius: var(--radius); background: linear-gradient(90deg, var(--overlay-wave-bottom), var(--overlay-wave-mid), var(--overlay-wave-top)); }
+/* Cells that hold a segmented control, the anchor pad or the offset field are
+   as wide as what is in them: stretched to the row they left a strip of empty
+   frame to the right of two buttons. */
+.overlay-settings-grid > .set-cell--auto { flex: 0 0 auto; align-items: flex-start; }
+.overlay-offset-cell .number-field { width: 104px; }
+.overlay-mini__close { display: grid; place-items: center; color: rgba(255, 255, 255, 0.84); }
+.overlay-offset-row { display: flex; align-items: center; gap: 6px; }
+.overlay-offset-row .btn { padding: 0; min-width: 34px; height: 34px; }
+
+/* Keep native logical geometry inside one scaled scene. The dark backdrop
+   matches the overlay surface in either settings theme. */
+.overlay-place-cell { margin: 18px 0 4px; gap: 10px; }
+.overlay-screen { position: relative; display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr); width: 100%; border-radius: var(--radius); box-shadow: inset 0 0 0 1px var(--line-soft); background: linear-gradient(160deg, #1b1a21, #0f0e13); overflow: hidden; }
+.overlay-screen__zone { position: relative; appearance: none; min-width: 0; padding: 0; margin: 4px; border: 1px dashed transparent; border-radius: 8px; background: transparent; cursor: pointer; }
+.overlay-screen__zone:hover:not(:disabled) { border-color: var(--line-strong); background: rgba(255, 255, 255, 0.03); }
+.overlay-screen__zone:disabled { cursor: default; }
+.overlay-screen__zone:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* The dot marks an empty zone as a place the overlay can go: an area that does
+   nothing until hovered does not look clickable. */
+.overlay-screen__zone::after { content: ""; position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%; background: var(--ink-faint); opacity: 0; transition: opacity 120ms ease; }
+.overlay-screen__zone:hover:not(:disabled)::after { opacity: 0.7; }
+/* The fixed anchor zones stay clickable through the scaled scene. */
+.overlay-screen__scene { position: absolute; top: 0; left: 0; transform-origin: top left; pointer-events: none; }
+.overlay-screen__zone[aria-pressed="true"] { border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.overlay-screen__zone[aria-pressed="true"]::after { opacity: 0; }
+/* Mirror the native window, including its transparent margin around the shell. */
+.overlay-mini { position: absolute; display: flex; align-items: center; justify-content: center; width: 308px; height: 64px; }
+.overlay-mini[data-size="s"] { width: 280px; height: 60px; }
+.overlay-mini[data-size="l"] { width: 360px; height: 72px; }
+.overlay-mini[data-form="bead"] { width: 72px; height: 72px; }
+.overlay-mini[data-form="bead"][data-size="s"] { width: 64px; height: 64px; }
+.overlay-mini[data-form="bead"][data-size="l"] { width: 80px; height: 80px; }
+.overlay-mini__shell { display: block; width: 100%; max-width: 100%; height: 56px; border-radius: 999px; padding: 4px; background: linear-gradient(180deg, var(--overlay-shell-top), var(--overlay-shell-bottom)); box-shadow: 0 1px 0 rgba(255, 255, 255, 0.05) inset; }
+.overlay-mini[data-size="s"] .overlay-mini__shell { height: 52px; }
+.overlay-mini[data-size="l"] .overlay-mini__shell { height: 64px; }
+.overlay-mini[data-form="bead"] .overlay-mini__shell { width: 64px; height: 64px; }
+.overlay-mini[data-form="bead"][data-size="s"] .overlay-mini__shell { width: 56px; height: 56px; }
+.overlay-mini[data-form="bead"][data-size="l"] .overlay-mini__shell { width: 72px; height: 72px; }
+.overlay-mini__surface { position: relative; width: 100%; height: 100%; padding: 0 8px; border-radius: 999px; background: var(--overlay-surface); display: flex; align-items: center; gap: 8px; }
+.overlay-mini[data-size="l"] .overlay-mini__surface { padding-inline: 12px; }
+.overlay-mini[data-form="bead"] .overlay-mini__surface { padding: 0; }
+.overlay-mini__surface::after { content: ""; position: absolute; inset: 0; border-radius: inherit; border: 1px solid var(--overlay-edge); opacity: 0.25; }
+.overlay-mini__timer { height: 34px; min-width: 58px; padding: 0 8px; border-radius: 999px; background: color-mix(in srgb, var(--overlay-wave-mid) 14%, transparent); color: var(--overlay-wave-mid); display: inline-flex; align-items: center; justify-content: center; gap: 6px; font: 700 12px/1 var(--font-mono); font-variant-numeric: tabular-nums; }
+.overlay-mini__timer::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--overlay-wave-mid); }
+.overlay-mini__wave { flex: 1; height: 28px; display: flex; align-items: center; justify-content: center; gap: 3px; }
+.overlay-mini__wave > span { width: 3px; border-radius: 4px; background: linear-gradient(180deg, var(--overlay-wave-top), var(--overlay-wave-mid) 55%, var(--overlay-wave-bottom)); }
+.overlay-mini__close { flex: 0 0 auto; width: 28px; height: 28px; border-radius: 50%; background: rgba(255, 255, 255, 0.08); }
+.overlay-mini__ring { position: absolute; inset: 5px; border: 2px solid var(--overlay-edge); border-radius: 50%; opacity: 0.4; }
+
+/* Swatches use the overlay palette variables; tooltips provide their names. */
+.overlay-swatches { display: flex; flex-wrap: wrap; gap: 8px; }
+.overlay-swatch { appearance: none; width: 24px; height: 24px; padding: 0; border-radius: 50%; cursor: pointer; border: 2px solid var(--overlay-shell-top); background: linear-gradient(180deg, var(--overlay-wave-top), var(--overlay-wave-mid) 55%, var(--overlay-wave-bottom)); }
+.overlay-swatch--custom { border-style: dashed; }
+.overlay-swatch--accent { border-color: color-mix(in srgb, var(--swatch) 55%, #000); background: var(--swatch); }
+.overlay-swatch[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--bg-2), 0 0 0 4px var(--accent); }
+.overlay-swatch:disabled { cursor: default; opacity: 0.55; }
+.overlay-swatch:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+.overlay-swatches { min-height: 34px; align-content: center; }
+
+/* The interface colour in «Дополнительно»: the same swatches plus the system
+   picker behind a rainbow ring. The native input is kept full-size and
+   transparent over the ring — a click has to open the picker, and browsers give
+   no styling hooks for the control itself. */
+.advanced__overlay { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line-soft); }
+.advanced__appearance-cell { gap: 12px; }
+.accent-picker { display: flex; align-items: center; gap: 8px; }
+.accent-picker__custom { position: relative; width: 24px; height: 24px; border-radius: 50%; overflow: hidden; border: 2px solid var(--line-strong); background: conic-gradient(#e6483d, #e6c83d, #3dc97c, #3dc0e6, #5b6def, #9b75ef, #e6483d); }
+.accent-picker__custom[data-active="true"] { box-shadow: 0 0 0 2px var(--bg-2), 0 0 0 4px var(--accent); }
+.accent-picker__custom input { position: absolute; inset: -4px; width: calc(100% + 8px); height: calc(100% + 8px); padding: 0; border: 0; background: transparent; opacity: 0; cursor: pointer; }

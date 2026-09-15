@@ -13,7 +13,6 @@ import { SettingsPage } from "./pages/SettingsPage";
 import { ModelsPage } from "./pages/ModelsPage";
 import { AiPage } from "./pages/AiPage";
 import { IntegrationsPage } from "./pages/IntegrationsPage";
-import { HistoryPage } from "./pages/HistoryPage";
 import { InfoPage, StatsPage, TextPage } from "./pages/OtherPages";
 import { actualModelLabel } from "./pages/runtimePresentation";
 import { applyLocaleFromConfig, t, useLocale } from "./i18n";
@@ -60,10 +59,31 @@ function pageFor(tab: TabId, data: {
     case "text": return <TextPage config={data.config} onConfigChanged={data.onConfigChanged} previewDraft={data.textPreviewDraft} onPreviewDraftChange={data.onTextPreviewDraftChange}/>;
     case "ai": return <AiPage config={data.config?.ai_processing ?? null} apiKeys={data.apiKeys} onConfigChanged={data.onConfigChanged} onNavigate={(t) => data.onNavigate(t)}/>;
     case "integrations": return <IntegrationsPage config={data.config?.ai_processing ?? null} apiKeys={data.apiKeys} onConfigChanged={data.onConfigChanged} onApiKeysChanged={data.onApiKeysChanged}/>;
-    case "history": return <HistoryPage/>;
+    case "history": return <HistoryPageLoader/>;
     case "stats": return <StatsPage stats={data.stats} typingSpeedCpm={data.config?.typing_speed_cpm} onRefresh={data.onStatsRefresh}/>;
     case "info": return <InfoPage version={data.version} config={data.config} onConfigChanged={data.onConfigChanged}/>;
   }
+}
+
+function HistoryPageLoader() {
+  const [Page, setPage] = useState<typeof import("./pages/HistoryPage")["HistoryPage"] | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let disposed = false;
+    void import("./pages/HistoryPage")
+      .then(({ HistoryPage }) => { if (!disposed) setPage(() => HistoryPage); })
+      .catch(() => { if (!disposed) setFailed(true); });
+    return () => { disposed = true; };
+  }, []);
+  if (Page) return <Page/>;
+  return <div className="loading-state" role={failed ? "alert" : "status"}>
+    {failed ? <div>
+      <p>{t("Не удалось открыть историю.")}</p>
+      <button type="button" className="btn btn--ghost" onClick={() => window.location.reload()}>
+        {t("Перезагрузить")}
+      </button>
+    </div> : t("Загрузка…")}
+  </div>;
 }
 
 export function MainWindow() {

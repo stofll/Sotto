@@ -15,7 +15,7 @@ export function OverlayApp() {
   const bead = layout === "bead";
   const closeLabel = state === "pasted" || state === "error" ? t("Закрыть") : t("Отменить запись");
   return (
-    <div data-testid="overlay" data-state={state} data-layout={layout === "pill" ? "compact" : layout} data-size={preferences.size} className="overlay" style={config ? overlayPalette(preferences, config.ui_accent) : undefined}>
+    <div data-testid="overlay" data-state={state} data-layout={layout === "pill" ? "compact" : layout} data-size={preferences.size} className="overlay" style={config ? overlayPalette(preferences) : undefined}>
       <div className="overlay-shell">
         <div className="overlay-surface" ref={surfaceRef}>
           <div className="overlay-glow" aria-hidden="true" />
