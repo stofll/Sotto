@@ -282,10 +282,6 @@ export function Sidebar({ tab, onTab, recordingState, pipelineMode, loadedModel,
   );
 }
 
-export function MainHeader({ title, subtitle, right, className, titleExtra, breadcrumb }: { title: string; subtitle?: string; right?: ReactNode; className?: string; titleExtra?: ReactNode; breadcrumb?: string }) {
-  return <header className={["main-header", className].filter(Boolean).join(" ")}><div>{breadcrumb && <div style={{ marginBottom: 6, font: "500 10px/1 var(--font-mono)", color: "var(--ink-mute)", letterSpacing: "0.08em", textTransform: "uppercase" }}>{breadcrumb}</div>}<h1>{title}{titleExtra}</h1>{subtitle && <p>{subtitle}</p>}</div>{right && <div>{right}</div>}</header>;
-}
-
 /** Redesigned page header used by Stage-2+ pages. Renders inside `.page`. */
 export function PageHeader({ title, sub, actions }: { title: string; sub?: string; actions?: ReactNode }) {
   return (
@@ -344,20 +340,6 @@ export function CardHead({ title, sub, hint, icon, actions }: {
 
 export function SectionLabel({ children }: { children: ReactNode }) {
   return <div className="section-label">{children}</div>;
-}
-
-export function SettingRow({ title, hint, stack, children }: { title: string; hint?: string; stack?: boolean; children: ReactNode }) {
-  return (
-    <div className={stack ? "setting setting--stack" : "setting"}>
-      <div className="setting__label">
-        <h3>
-          {title}
-          {hint && <Hint text={hint}/>}
-        </h3>
-      </div>
-      <div className="setting__control">{children}</div>
-    </div>
-  );
 }
 
 export function Switch({ on, onChange, label }: { on: boolean; onChange?: (value: boolean) => void; label?: string }) {
@@ -429,12 +411,4 @@ export function Segmented({ value, options, onChange, disabled = false }: { valu
       ))}
     </div>
   );
-}
-
-export function Bars({ value = 0.6, color = "var(--accent)", segments = 24 }: { value?: number; color?: string; segments?: number }) {
-  return <div style={{ display: "flex", gap: 2, height: 14, alignItems: "center" }}>{Array.from({ length: segments }).map((_, i) => <span key={i} style={{ width: 3, height: i / segments < value ? 4 + (i % 5) * 2 : 4, background: i / segments < value ? color : "var(--bg-4)", borderRadius: 1 }}/>)}</div>;
-}
-
-export function Waveform({ bars = 28, color = "var(--accent)" }: { bars?: number; color?: string }) {
-  return <div style={{ display: "flex", alignItems: "center", gap: 3, height: 24 }}>{Array.from({ length: bars }).map((_, i) => <span key={i} style={{ width: 3, height: "100%", background: color, borderRadius: 2, transformOrigin: "center", animation: `wave-pulse ${0.6 + (i % 5) * 0.1}s ease-in-out ${(i * 0.05) % 1}s infinite` }}/>)}</div>;
 }

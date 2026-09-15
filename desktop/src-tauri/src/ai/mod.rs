@@ -6,10 +6,7 @@
 //! into a single Rust module that the dispatcher and the
 //! `preview_history_ai_processing` Tauri command call directly.
 //!
-//! No Python sidecar round-trip. The pipeline parity with
-//! `ai_processor._step.ai_process_text_with_status` is covered by
-//! unit tests in this module and by the smoke test in
-//! `tests/smoke_test.rs`.
+//! Provider requests and error handling are covered by `tests/ai_mock_test.rs`.
 //!
 //! Secret keys come from the `secret_store` module — the API here
 //! takes plain `&str` keys, the caller (dispatcher) looks them up.

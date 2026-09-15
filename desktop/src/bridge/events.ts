@@ -17,3 +17,20 @@ export async function on<T>(event: string, handler: EventHandler<T>): Promise<Un
   }
   return await listen<T>(event, (e) => handler(e.payload));
 }
+
+/** Own a component subscription even when registration finishes after cleanup. */
+export function subscribe<T>(event: string, handler: EventHandler<T>): UnlistenFn {
+  let disposed = false;
+  let unlisten: UnlistenFn | undefined;
+  void on<T>(event, (payload) => {
+    if (!disposed) handler(payload);
+  }).then((stop) => {
+    if (disposed) stop();
+    else unlisten = stop;
+  }).catch((error) => console.warn(`Could not subscribe to ${event}`, error));
+  return () => {
+    if (disposed) return;
+    disposed = true;
+    unlisten?.();
+  };
+}

@@ -1011,21 +1011,6 @@ mod tests {
     }
 
     #[test]
-    fn inference_result_has_required_fields() {
-        let r = InferenceResult {
-            session_id: 42,
-            text: "hello".into(),
-            language: Some("en".into()),
-            model_id: Some("large-v3".into()),
-            inference_time_ms: 100,
-            audio_seconds: 3.0,
-        };
-        assert_eq!(r.session_id, 42);
-        assert_eq!(r.text, "hello");
-        assert_eq!(r.model_id.as_deref(), Some("large-v3"));
-    }
-
-    #[test]
     fn resolve_model_path_uses_the_models_directory_override() {
         let dir = tempfile::tempdir().unwrap();
         let _guard = crate::test_support::EnvGuard::set("SPEECH_TO_TEXT_MODELS_DIR", dir.path());
@@ -1074,7 +1059,7 @@ mod tests {
     }
 
     #[test]
-    fn inference_result_supports_empty_text() {
+    fn inference_result_serializes_empty_text_for_ipc() {
         // A no-audio / silent recording or a session that produced no
         // segments must serialize cleanly with empty text. The frontend
         // uses this struct verbatim in `whisper-done` events.
@@ -1086,9 +1071,16 @@ mod tests {
             inference_time_ms: 0,
             audio_seconds: 0.0,
         };
-        assert_eq!(r.text.len(), 0);
-        assert_eq!(r.session_id, 1);
-        assert_eq!(r.language, None);
-        assert_eq!(r.inference_time_ms, 0);
+        assert_eq!(
+            serde_json::to_value(r).unwrap(),
+            serde_json::json!({
+                "session_id": 1,
+                "text": "",
+                "language": null,
+                "model_id": null,
+                "inference_time_ms": 0,
+                "audio_seconds": 0.0,
+            })
+        );
     }
 }

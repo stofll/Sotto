@@ -31,7 +31,7 @@ pnpm install --frozen-lockfile
 pnpm tauri dev
 ```
 
-The frontend-only development server is available with `pnpm dev`. A full Tauri build also requires the native prerequisites and model/runtime assets described in [Models](models.md).
+The frontend-only development server is available with `pnpm dev`, but application commands require Tauri; there is no HTTP backend fallback. Use the isolated [browser UI harness](ui-testing.md) to exercise synthetic states without launching the native application. A full Tauri build also requires the native prerequisites and model/runtime assets described in [Models](models.md).
 
 On Windows there is also a launcher: `desktop\run_desktop.cmd`.
 

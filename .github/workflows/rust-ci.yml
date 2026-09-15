@@ -369,12 +369,7 @@ jobs:
       - name: Application version consistency
         run: sh scripts/check-version.sh
 
-      # Закрепление Actions по SHA имеет смысл, только если его нельзя
-      # незаметно отменить. Тег вроде `v4` — это ссылка, которую владелец
-      # репозитория может перевести на другой коммит; SHA — нет.
-      # Закрепление Actions по SHA имеет смысл, только если его нельзя
-      # незаметно отменить. Тег вроде `v4` — это ссылка, которую владелец
-      # репозитория может перевести на другой коммит; SHA — нет.
+      # Pin actions to immutable commits so tag moves cannot change CI code.
       - name: Every GitHub Action is pinned to a commit SHA
         run: |
           # Закреплённым считается либо полный SHA, либо workflow этого же

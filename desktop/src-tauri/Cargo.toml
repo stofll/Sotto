@@ -139,8 +139,7 @@ custom-protocol = ["tauri/custom-protocol"]
 # and `metal` does not link outside macOS. Aliasing `whisper-rs` twice does
 # not work either — Cargo rejects one crate appearing under two names.
 #
-# Who turns these on: `scripts/build-installer.bat` and
-# `scripts/build-release.bat` (vulkan), and the per-platform matrix in
+# Who turns these on: `scripts/build-installer.bat` (vulkan) and the matrix in
 # `.github/workflows/release.yml` (vulkan on Windows, metal on macOS).
 gpu-vulkan = ["whisper-rs/vulkan"]
 gpu-metal = ["whisper-rs/metal"]

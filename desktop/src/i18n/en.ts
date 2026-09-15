@@ -100,7 +100,6 @@ export const en: Record<string, string | string[]> = {
   // ── Recording states ───────────────────────────────────────────────────
   "Готово": "Ready",
   "Идёт запись": "Recording",
-  "Запись": "Recording",
   "Начать запись": "Start recording",
   "Остановить запись": "Stop recording",
   "Отменить запись": "Cancel recording",
@@ -111,7 +110,6 @@ export const en: Record<string, string | string[]> = {
   "Сохраняю": "Saving",
   "Загружаю…": "Loading…",
   "Загружаю модель": "Loading model",
-  "Загрузка модели": "Loading model",
   "Отменить скачивание": "Cancel the download",
   "Скачиваю модель": "Downloading model",
   "Скачиваю {p0}": "Downloading {p0}",

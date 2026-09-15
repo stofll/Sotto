@@ -62,19 +62,9 @@ use tauri::{AppHandle, Emitter, Manager};
 /// Run a blocking DB op on a worker thread and return the result as a
 /// `Result<T, String>`.
 ///
-/// **WS 4b (Task 9)**: every Tauri command in this module that touches
-/// the DB goes through this helper. Rationale:
-///
-/// 1. `rusqlite::Connection` is `!Send`, so we cannot hold the lock
-///    across `.await` from the async Tauri command body. The std
-///    `MutexGuard` is `Send` (when `T: Send`), but mixing it with
-///    `.await` still risks blocking the runtime if the lock is
-///    contended.
-/// 2. `spawn_blocking` hands the work to the blocking-task pool and
-///    frees the async runtime to drive other commands while DB I/O
-///    runs.
-/// 3. The closure is `FnOnce + Send + 'static` and the result is
-///    `T: Send + 'static` so it crosses the thread boundary cleanly.
+/// Keep synchronous database work and mutex contention off the async runtime.
+/// The connection stays locked inside the blocking task; its `MutexGuard`
+/// never crosses an `.await` boundary.
 ///
 /// Failure modes:
 /// - `Ok(Err(e))` — DB op ran but returned a `rusqlite::Error`. We

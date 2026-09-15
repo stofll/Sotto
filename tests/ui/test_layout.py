@@ -37,3 +37,31 @@ def test_overlay_error_layout(app, page, locale, output_path):
     expect(overlay).to_contain_text("Synthetic error")
     Path(output_path).mkdir(parents=True, exist_ok=True)
     page.screenshot(path=str(Path(output_path) / "overlay.png"), animations="disabled")
+
+
+def test_overlay_native_geometry_and_preview(app, page, output_path):
+    page.set_viewport_size({"width": 308, "height": 64})
+    ui = app("overlay", config={"ui_language": "ru"})
+    ui.emit("recording-started", 1)
+    ui.emit("audio-level", {"level": 0.8})
+    shots = Path(output_path)
+    shots.mkdir(parents=True, exist_ok=True)
+    shell = page.locator(".overlay-shell")
+    expect(shell).to_have_css("height", "56px")
+    assert shell.bounding_box()["width"] <= 308
+    close = page.get_by_role("button")
+    close.focus()
+    expect(close).to_be_focused()
+    page.screenshot(path=str(shots / "recording.png"), animations="disabled")
+    page.set_viewport_size({"width": 600, "height": 150})
+    ui.emit("live-preview-armed", {"session_id": 1, "armed": True})
+    text = "Synthetic long draft. " * 80 + "LATEST WORDS"
+    ui.emit("transcription-delta", {"session_id": 1, "text": text})
+    expect(shell).to_have_css("height", "142px")
+    preview = page.locator(".overlay-preview")
+    expect(preview).to_contain_text("LATEST WORDS")
+    assert (
+        preview.evaluate("e => Math.abs(e.scrollHeight - e.clientHeight - e.scrollTop)")
+        <= 1
+    )
+    page.screenshot(path=str(shots / "streaming.png"), animations="disabled")

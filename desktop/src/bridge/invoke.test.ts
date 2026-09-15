@@ -21,6 +21,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe("invoke() in Tauri mode (direct passthrough)", () => {
@@ -76,7 +77,7 @@ describe("invoke() outside Tauri (clear error, no HTTP bridge)", () => {
   });
 
   it("does not attempt an HTTP fetch", async () => {
-    globalThis.fetch = vi.fn();
+    vi.stubGlobal("fetch", vi.fn());
     const { invoke } = await import("./invoke");
     await expect(invoke("get_config")).rejects.toThrow();
     expect(globalThis.fetch).not.toHaveBeenCalled();

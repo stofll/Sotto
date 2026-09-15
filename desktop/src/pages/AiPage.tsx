@@ -229,6 +229,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
     let unlisten: (() => void) | null = null;
     let disposed = false;
     void getCurrentWebview().onDragDropEvent((event) => {
+      if (disposed) return;
       const payload = event.payload;
       if (payload.type === "enter" || payload.type === "over") { setFileDragActive(true); return; }
       setFileDragActive(false);

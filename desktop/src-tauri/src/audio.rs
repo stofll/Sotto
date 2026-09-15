@@ -15,14 +15,12 @@ use cpal::{SampleFormat, Stream, StreamConfig};
 #[derive(Debug, Clone, Copy)]
 pub struct AudioConfig {
     pub sample_rate_target: u32, // 16000
-    pub channels_target: u16,    // 1 (mono)
 }
 
 impl Default for AudioConfig {
     fn default() -> Self {
         Self {
             sample_rate_target: 16000,
-            channels_target: 1,
         }
     }
 }
@@ -132,11 +130,6 @@ impl std::ops::Deref for SendStream {
 impl std::ops::DerefMut for SendStream {
     fn deref_mut(&mut self) -> &mut cpal::Stream {
         &mut self.0
-    }
-}
-impl Drop for SendStream {
-    fn drop(&mut self) {
-        // Just delegate — cpal's own Drop joins the audio thread.
     }
 }
 
@@ -657,10 +650,9 @@ mod tests {
     }
 
     #[test]
-    fn audio_config_defaults_to_16khz_mono() {
+    fn audio_config_defaults_to_16khz() {
         let cfg = AudioConfig::default();
         assert_eq!(cfg.sample_rate_target, 16000);
-        assert_eq!(cfg.channels_target, 1);
     }
 
     #[test]

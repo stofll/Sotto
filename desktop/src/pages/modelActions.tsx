@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { invoke, on } from "../bridge";
+import { invoke, subscribe } from "../bridge";
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { Icon } from "../components/Icon";
 import { Hint } from "../components/Hint";
@@ -88,16 +88,15 @@ export function useModelActions({ models, value, language, onConfigChanged, onMo
   useEffect(() => () => clearToastTimers(), []);
 
   useEffect(() => {
-    let unlisten: (() => void) | null = null;
-    on<DownloadProgressEvent>("model-download-progress", (payload) => {
+    const unlisten = subscribe<DownloadProgressEvent>("model-download-progress", (payload) => {
       const modelLabel = models.find((item) => item.id === payload?.model)?.label ?? payload?.model ?? t("Модель");
       const others = [...inFlight.current].filter((id) => id !== payload?.model).length;
       const copy = downloadToastCopy(payload, modelLabel, [...cancelRequested.current], others);
       if (!copy) return;
       clearToastTimers();
       setStatus({ kind: "loading", closing: false, ...copy });
-    }).then((fn) => { unlisten = fn; });
-    return () => { unlisten?.(); };
+    });
+    return () => { unlisten(); };
   }, [models]);
 
   // Esc closes the confirmation. `useOutsideClose` is no help here: by the time

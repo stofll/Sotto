@@ -7,7 +7,7 @@
 // absent) nor the Tauri-mocked frontend tests (backend stubbed) notice.
 //
 // This test statically extracts:
-//   1. every command name the frontend invokes (invoke/rustInvoke), and
+//   1. every command name the frontend invokes (invoke/rustInvoke/tauriInvoke), and
 //   2. every command registered in src-tauri/src/lib.rs generate_handler!
 // and asserts (1) ⊆ (2). Sources are loaded as raw strings via Vite's
 // `?raw` imports (typed by vite/client) — no Node fs, no extra deps.
@@ -23,9 +23,9 @@ const frontendSources = import.meta.glob("../**/*.{ts,tsx}", {
 // The Rust command registry.
 import libRs from "../../src-tauri/src/lib.rs?raw";
 
-/** Command names passed as the first arg to invoke()/rustInvoke(). */
+/** Command names passed as the first arg to invoke()/rustInvoke()/tauriInvoke(). */
 function invokedCommands(): Set<string> {
-  const re = /\b(?:invoke|rustInvoke)\b[^("'`\n]*\(\s*["'`]([a-z_][a-z0-9_]*)["'`]/g;
+  const re = /\b(?:invoke|rustInvoke|tauriInvoke)\b[^("'`\n]*\(\s*["'`]([a-z_][a-z0-9_]*)["'`]/g;
   const names = new Set<string>();
   for (const [path, text] of Object.entries(frontendSources)) {
     if (/\.test\.(ts|tsx)$/.test(path) || path.endsWith(".d.ts")) continue;

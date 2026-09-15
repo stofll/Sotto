@@ -1,548 +1,85 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { invoke as tauriInvoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
-import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { isCurrentSession, isCurrentSessionOrUnscoped } from "../bridge/sessionEvents";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "../components/Icon";
-import { applyLocaleFromConfig, t, useLocale } from "../i18n";
-import type { ConfigResult } from "../bridge/types";
+import { t, useLocale } from "../i18n";
 import { overlayDetail } from "./overlayDetail";
-
-let _currentSessionId: number | null = null;
-
-type PreviewPayload = { session_id: number; text: string };
-
-// `done` means the speech is decoded; `pasted` means the text is in the
-// window. They used to be one state, so a slow LLM pass produced an
-// overlay that announced a character count before anything was inserted.
-type OverlayState = "recording" | "processing" | "loading" | "done" | "pasted" | "error";
-type TimedPayload = { timestamp?: number };
-type AiProcessingPayload = { fallback?: boolean; skipped_reason?: string };
-type TranscriptionPayload = { text?: string; length?: number; ai_processing?: AiProcessingPayload; ai_problem?: string };
-type PastePayload = { session_id?: number; length?: number; ai_processing?: AiProcessingPayload };
-type ErrorPayload = { session_id?: number; message?: string };
-type AudioLevelPayload = { level?: number };
-
-function belongsToCurrentSession(payload: unknown) {
-  return isCurrentSession(payload, _currentSessionId);
-}
-
-function belongsToCurrentSessionOrIsUnscoped(payload: unknown) {
-  return isCurrentSessionOrUnscoped(payload, _currentSessionId);
-}
-
-const stateMeta = () => ({
-  recording: { label: t("Запись"), color: "var(--rec)", tint: "rgba(239,111,71,0.18)" },
-  processing: { label: t("Распознаю"), color: "var(--accent)", tint: "rgba(246,169,59,0.16)" },
-  loading: { label: t("Загрузка модели"), color: "var(--accent)", tint: "rgba(246,169,59,0.16)" },
-  done: { label: t("Распознано"), color: "var(--accent)", tint: "rgba(246,169,59,0.16)" },
-  pasted: { label: t("Готово"), color: "var(--ok)", tint: "rgba(74,222,128,0.14)" },
-  error: { label: t("Ошибка"), color: "var(--err)", tint: "rgba(239,94,107,0.16)" },
-});
-
-function eventTime(payload?: TimedPayload) {
-  return payload?.timestamp ? payload.timestamp * 1000 : Date.now();
-}
-
-function formatDuration(ms: number) {
-  const total = Math.max(0, Math.floor(ms / 1000));
-  const minutes = Math.floor(total / 60);
-  const seconds = total % 60;
-  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-}
-
-function clampLevel(value: unknown) {
-  return Math.max(0, Math.min(1, typeof value === "number" && Number.isFinite(value) ? value : 0));
-}
-
-function shortAiProblem(payload?: TranscriptionPayload) {
-  if (payload?.ai_problem) return payload.ai_problem;
-  const ai = payload?.ai_processing;
-  // An unconfigured provider is not a fallback: no request was made at all, and
-  // before this line such a dictation arrived without a single word about why
-  // unprocessed text was inserted in a mode with an LLM.
-  if (ai?.skipped_reason === "missing_provider" || ai?.skipped_reason === "missing_api_key") {
-    return t("LLM не настроена, вставлен локальный текст");
-  }
-  if (!ai?.fallback) return "";
-  if (ai.skipped_reason === "provider_timeout") return t("LLM не ответила, вставлен локальный текст");
-  if (ai.skipped_reason === "provider_quota_or_rate_limit") return t("Лимит LLM, вставлен локальный текст");
-  return t("Ошибка LLM, вставлен локальный текст");
-}
+import { OverlayWaveform } from "./OverlayWaveform";
+import { useOverlaySession, type OverlaySession } from "./useOverlaySession";
 
 export function OverlayApp() {
   useLocale();
-  // The overlay is a separate webview window with its own JS context, so the
-  // main window's language does not carry over by itself. We read it once on
-  // mount and listen for later changes; this adds no IPC at recording start.
+  const session = useOverlaySession();
+  const surfaceRef = useRef<HTMLDivElement>(null);
+  const { state, streaming, previewText, handleClose, isClosing } = session;
+  if (state === null) return null;
+  const closeLabel = state === "recording" || state === "processing" || state === "done"
+    ? t("Отменить запись") : state === "error" ? t("Закрыть") : t("Отменить");
+  return (
+    <div data-testid="overlay" data-state={state} data-layout={streaming ? "streaming" : "compact"} className="overlay">
+      <div className="overlay-shell">
+        <div className="overlay-surface" ref={surfaceRef}>
+          <div className="overlay-glow" aria-hidden="true" />
+          <div className="overlay-row">
+            <TimerBadge session={session} />
+            <div className="overlay-detail">
+              {state === "recording"
+                ? <OverlayWaveform key={session.sessionId} surfaceRef={surfaceRef} />
+                : <StateDetail session={session} />}
+            </div>
+            <button className="overlay-close" aria-label={closeLabel} onClick={handleClose} disabled={isClosing}>
+              <Icon name="x" size={15} />
+            </button>
+          </div>
+          {streaming && <PreviewPane text={previewText} />}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function useNow(active: boolean) {
+  const [now, setNow] = useState(Date.now);
   useEffect(() => {
-    let disposed = false;
-    let unlisten: (() => void) | undefined;
-    void tauriInvoke<ConfigResult>("get_config")
-      .then((config) => { if (!disposed) applyLocaleFromConfig(config.ui_language); })
-      .catch(() => { if (!disposed) applyLocaleFromConfig(undefined); });
-    void listen<ConfigResult>("config-updated", (event) => {
-      applyLocaleFromConfig(event.payload.ui_language);
-    }).then((fn) => {
-      if (disposed) fn(); else unlisten = fn;
-    });
-    return () => { disposed = true; unlisten?.(); };
-  }, []);
-  const [state, setState] = useState<OverlayState | null>(null);
-  const [levels, setLevels] = useState<number[]>(Array(24).fill(0.04));
-  const [borderEnergy, setBorderEnergy] = useState(0.08);
-  const [recordingStartedAt, setRecordingStartedAt] = useState(Date.now());
-  const [recordingStoppedAt, setRecordingStoppedAt] = useState<number | null>(null);
-  const [now, setNow] = useState(Date.now());
-  // Length of the text that actually went into the window, reported by
-  // `paste-done`. Deliberately NOT derived from the `whisper-done` payload:
-  // that text is the pre-LLM draft, so counting it announced a number for
-  // characters that were never inserted.
-  const [pastedLength, setPastedLength] = useState<number | null>(null);
-  // When decoding finished, so "Распознано" can start showing how long the
-  // post-processing has been running.
-  const [decodedAt, setDecodedAt] = useState<number | null>(null);
-  // The streaming model's growing hypothesis. It lives only while recording:
-  // after the stop its place is taken by the final text, and showing the draft
-  // and the result at once means showing two different answers to one question.
-  const [previewText, setPreviewText] = useState("");
-  // The session the live preview is enabled for. Stored as a number rather than
-  // a flag: the enable event and `recording-started` come from different places
-  // and their order is not guaranteed — the number shows they are about one and
-  // the same dictation.
-  const [armedSession, setArmedSession] = useState<number | null>(null);
-  const [errorText, setErrorText] = useState("");
-  const [aiProblem, setAiProblem] = useState("");
-  const [isClosing, setIsClosing] = useState(false);
-  const isClosingRef = useRef(false);
-
-  const handleClose = useCallback(() => {
-    if (isClosingRef.current || state === null) return;
-    isClosingRef.current = true;
-    setIsClosing(true);
-    const hide = () => tauriInvoke("hide").catch(() => {});
-    // Every path below has to end in `hide()` and release `isClosingRef`.
-    // The pill has no other control, so a path that skips either one leaves
-    // the user staring at an overlay they cannot dismiss until the
-    // stuck-overlay timeout.
-    const release = () => {
-      isClosingRef.current = false;
-      setIsClosing(false);
-    };
-
-    if (state === "pasted" || state === "error") {
-      void hide().finally(release);
-      return;
-    }
-
-    if (_currentSessionId === null) {
-      void hide().finally(release);
-      return;
-    }
-    void tauriInvoke<boolean>("cancel_recording", { sessionId: _currentSessionId })
-      // A refusal (`false`) means final delivery already claimed the session,
-      // so nothing was cancelled. That is a reason not to *claim* a cancel,
-      // not a reason to keep the pill on screen — hide either way.
-      .then((cancelled) => {
-        if (!cancelled) console.warn("cancelRecording: backend refused, session already committing");
-      })
-      .catch(() => {})
-      .finally(() => hide().finally(release));
-  }, [state]);
-
-  useLayoutEffect(() => {
-    const htmlBg = document.documentElement.style.background;
-    const htmlOverflow = document.documentElement.style.overflow;
-    const bodyBg = document.body.style.background;
-    const bodyOverflow = document.body.style.overflow;
-    const root = document.getElementById("root");
-    const rootBg = root?.style.background;
-    const rootOverflow = root?.style.overflow;
-    document.documentElement.classList.add("overlay-window");
-    document.documentElement.style.background = "transparent";
-    document.documentElement.style.overflow = "hidden";
-    document.body.style.background = "transparent";
-    document.body.style.overflow = "hidden";
-    if (root) root.style.background = "transparent";
-    if (root) root.style.overflow = "hidden";
-    return () => {
-      document.documentElement.style.background = htmlBg;
-      document.documentElement.style.overflow = htmlOverflow;
-      document.documentElement.classList.remove("overlay-window");
-      document.body.style.background = bodyBg;
-      document.body.style.overflow = bodyOverflow;
-      if (root) root.style.background = rootBg ?? "";
-      if (root) root.style.overflow = rootOverflow ?? "";
-    };
-  }, []);
-
-  useEffect(() => {
+    if (!active) return;
+    setNow(Date.now());
     const timer = window.setInterval(() => setNow(Date.now()), 250);
     return () => window.clearInterval(timer);
-  }, []);
-
-  useEffect(() => {
-    const win = getCurrentWebviewWindow();
-    const isOverlayState = (value: unknown): value is OverlayState => {
-      return typeof value === "string" && ["recording", "processing", "loading", "done", "pasted", "error"].includes(value);
-    };
-    const applyOverlayState = (next: OverlayState) => {
-      isClosingRef.current = false;
-      setIsClosing(false);
-      setState(next);
-      if (next === "recording") {
-        setRecordingStartedAt(Date.now());
-        setRecordingStoppedAt(null);
-        setPastedLength(null);
-        setDecodedAt(null);
-        setErrorText("");
-        setAiProblem("");
-        setLevels(Array(24).fill(0.04));
-        setBorderEnergy(0.08);
-      }
-      if (next === "processing") {
-        setRecordingStoppedAt((current) => current ?? Date.now());
-      }
-    };
-    const resetOverlayState = () => {
-      isClosingRef.current = false;
-      setState(null);
-      setIsClosing(false);
-      setPastedLength(null);
-      setDecodedAt(null);
-      setPreviewText("");
-      setArmedSession(null);
-      setErrorText("");
-      setAiProblem("");
-      setRecordingStartedAt(Date.now());
-      setRecordingStoppedAt(null);
-      setLevels(Array(24).fill(0.04));
-      setBorderEnergy(0.08);
-    };
-
-    let disposed = false;
-    const unlistenState = win.listen<string>("overlay-state", (e) => {
-      if (!isOverlayState(e.payload)) return;
-      applyOverlayState(e.payload);
-    });
-    // Rust emits this right before window.hide() so the next window.show()
-    // doesn't flash the previous-recording UI before a fresh state arrives.
-    const unlistenReset = win.listen("overlay-reset", () => {
-      resetOverlayState();
-    });
-    const unlisten = Promise.all([unlistenState, unlistenReset]).then(async (fns) => {
-      if (!disposed) {
-        await tauriInvoke("overlay_ready").catch(() => {});
-        // Initial-state handshake: after listeners are wired up, ask Rust for
-        // the current state. Rust may have queued it before React hydrated.
-        try {
-          const current = await tauriInvoke<string | null>("current_state");
-          if (!disposed && isOverlayState(current)) {
-            applyOverlayState(current);
-          } else if (!disposed && !current) {
-            void tauriInvoke("hide").catch(() => {});
-          }
-        } catch {
-          // ignore overlay warm-up races
-        }
-      }
-      return () => fns.forEach((fn) => fn());
-    });
-    return () => {
-      disposed = true;
-      unlisten.then((fn) => fn());
-    };
-  }, []);
-
-  // A separate overlay shape for a dictation with a streaming model. The signal
-  // is the model itself, not the presence of text: otherwise the window changes
-  // shape mid-phrase, at exactly the moment somebody is looking at it.
-  // Arrived text is the safety net for when the enable event missed the window
-  // warm-up: there is nowhere to show a hypothesis inside the pill.
-  const streaming = state === "recording" && (armedSession !== null || previewText.length > 0);
-  useEffect(() => {
-    void tauriInvoke("set_overlay_streaming", { streaming }).catch(() => {});
-  }, [streaming]);
-
-  useEffect(() => {
-    const unlisteners = Promise.all([
-      listen<PreviewPayload>("transcription-delta", (e) => {
-        // An event from the previous dictation must not append to the current
-        // one: Rust already filters by session, but a window between the stop
-        // and the next start exists all the same.
-        if (_currentSessionId === null || e.payload?.session_id !== _currentSessionId) return;
-        setPreviewText(e.payload.text ?? "");
-      }),
-      listen<{ session_id?: number; armed?: boolean }>("live-preview-armed", (e) => {
-        setArmedSession(e.payload?.armed ? (e.payload.session_id ?? null) : null);
-      }),
-      listen<number>("recording-started", (e) => {
-        _currentSessionId = e.payload;
-        setPreviewText("");
-        // We do not overwrite the mark if it already arrived for this same
-        // dictation: the order of these two events is not guaranteed.
-        setArmedSession((current) => (current === e.payload ? current : null));
-        setState("recording");
-        setRecordingStartedAt(eventTime(e.payload as unknown as TimedPayload));
-        setRecordingStoppedAt(null);
-        setPastedLength(null);
-        setDecodedAt(null);
-        setErrorText("");
-        setAiProblem("");
-        setLevels(Array(24).fill(0.04));
-        setBorderEnergy(0.08);
-      }),
-      listen<number>("recording-stopped", (e) => {
-        if (!belongsToCurrentSession(e.payload)) return;
-        setPreviewText("");
-        setArmedSession(null);
-        setState("processing");
-        setRecordingStoppedAt(Date.now());
-      }),
-      listen<number>("whisper-started", (e) => {
-        if (!belongsToCurrentSession(e.payload)) return;
-        setState("processing");
-        setRecordingStoppedAt((current) => current ?? Date.now());
-      }),
-      listen<AudioLevelPayload>("audio-level", (e) => {
-        const level = clampLevel(e.payload?.level);
-        setLevels((current) => [...current.slice(1), level]);
-        setBorderEnergy((current) => current * 0.78 + Math.sqrt(level) * 0.22);
-      }),
-      // Decoded, not delivered. The payload is the raw whisper output —
-      // local formatting and the LLM pass still have to run — so nothing
-      // here may claim a length or an outcome. `paste-done` does that.
-      listen<TranscriptionPayload>("whisper-done", (e) => {
-        if (!belongsToCurrentSession(e.payload)) return;
-        setState("done");
-        setPastedLength(null);
-        setAiProblem("");
-        setDecodedAt(Date.now());
-      }),
-      // The text is in the window: the only moment a character count is
-      // true, and the first moment the LLM outcome is known.
-      listen<PastePayload>("paste-done", (e) => {
-        if (!belongsToCurrentSession(e.payload)) return;
-        _currentSessionId = null;
-        setState("pasted");
-        setPastedLength(typeof e.payload?.length === "number" ? e.payload.length : null);
-        setAiProblem(shortAiProblem(e.payload));
-        setDecodedAt(null);
-      }),
-      // Transcribed but could not be inserted. A separate event, because whisper
-      // has nothing to do with it and the overlay would otherwise keep waiting
-      // for an insertion that will never come.
-      listen<ErrorPayload>("paste-failed", (e) => {
-        if (!belongsToCurrentSession(e.payload)) return;
-        _currentSessionId = null;
-        setState("error");
-        setDecodedAt(null);
-        setErrorText(e.payload?.message ?? t("Не удалось вставить текст в активное окно."));
-      }),
-      listen<ErrorPayload>("whisper-failed", (e) => {
-        if (!belongsToCurrentSessionOrIsUnscoped(e.payload)) return;
-        _currentSessionId = null;
-        setState("error");
-        setErrorText(
-          e.payload?.message
-            ?? t("Не удалось распознать речь. Откройте «Настройки → Модели» и убедитесь, что модель скачана."),
-        );
-      }),
-      listen<ErrorPayload>("whisper-load-failed", (e) => {
-        setState("error");
-        setErrorText(
-          e.payload?.message
-            ?? t("Не удалось загрузить модель. Откройте «Настройки → Модели» и попробуйте снова."),
-        );
-      }),
-      listen<unknown>("whisper-empty", (e) => {
-        if (!belongsToCurrentSession(e.payload)) return;
-        _currentSessionId = null;
-        setState(null);
-        // Overlay hides via Rust's hide() call (subscribe_engine_events).
-      }),
-      listen<unknown>("whisper-cancelled", (e) => {
-        if (!belongsToCurrentSession(e.payload)) return;
-        _currentSessionId = null;
-        setState(null);
-        // Overlay will hide via Rust's hide() call on cancellation.
-      }),
-    ]);
-    return () => { unlisteners.then((items) => items.forEach((fn) => fn())); };
-  }, []);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") handleClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [handleClose]);
-
-  if (state === null) return null;
-
-  const duration = formatDuration((recordingStoppedAt ?? now) - recordingStartedAt);
-  const borderPulse = state === "recording" ? Math.max(0.08, Math.min(1, borderEnergy)) : 0.25;
-  const innerBorderAlpha = 0.08 + borderPulse * 0.34;
-  const innerGlowAlpha = 0.06 + borderPulse * 0.22;
-  const surfaceGlowAlpha = 0.03 + borderPulse * 0.14;
-
-  const shell = {
-    width: "100%",
-    maxWidth: streaming ? 592 : 552,
-    height: streaming ? 142 : 56,
-    borderRadius: streaming ? 22 : 999,
-    padding: 4,
-    background: "linear-gradient(180deg, rgba(142,64,43,0.82), rgba(80,38,29,0.90))",
-    boxShadow: "0 1px 0 rgba(255,255,255,0.05) inset",
-  } as const;
-  const surface = {
-    width: "100%",
-    height: "100%",
-    borderRadius: streaming ? 18 : 999,
-    background: `radial-gradient(circle at 48% 50%, rgba(239,111,71,${surfaceGlowAlpha}) 0%, rgba(239,111,71,${surfaceGlowAlpha * 0.55}) 34%, rgba(15,17,22,0) 68%), rgba(15, 17, 22, 0.97)`,
-    border: `1px solid rgba(255,154,108,${innerBorderAlpha})`,
-    boxShadow: `0 0 ${5 + borderPulse * 12}px rgba(239,111,71,${innerGlowAlpha}) inset`,
-    transition: "background 120ms ease, border-color 120ms ease, box-shadow 120ms ease",
-  } as const;
-
-  return (
-    <div data-testid="overlay" data-state={state} className="app-frame" style={{ position: "fixed", inset: 0, padding: 0, background: "transparent", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", fontFamily: "var(--font-sans)", color: "var(--ink)", letterSpacing: 0 }}>
-      <div style={shell}>
-        {streaming ? (
-          // The text takes the full width and lives below the top row: on a
-          // line between the timer and the close button it was left with less
-          // than half the window, and whatever did not fit was simply not
-          // shown.
-          <div style={{ ...surface, display: "flex", flexDirection: "column", gap: 8, padding: "9px 11px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <TimerBadge duration={duration}/>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <LevelWaveform levels={levels}/>
-              </div>
-              <CloseButton state={state} onClose={handleClose} disabled={isClosing}/>
-            </div>
-            <PreviewPane text={previewText}/>
-          </div>
-        ) : (
-          <div style={{ ...surface, display: "grid", gridTemplateColumns: "62px 1fr 30px", alignItems: "center", columnGap: 8, padding: "0 8px" }}>
-            <TimerBadge duration={state === "loading" ? "--:--" : duration}/>
-            <div style={{ minWidth: 0, alignSelf: "center" }}>
-              <StateDetail state={state} levels={levels} pastedLength={pastedLength} polishingMs={decodedAt === null ? 0 : now - decodedAt} errorText={errorText} aiProblem={aiProblem}/>
-            </div>
-            <CloseButton state={state} onClose={handleClose} disabled={isClosing}/>
-          </div>
-        )}
-      </div>
-    </div>
-  );
+  }, [active]);
+  return now;
 }
 
-function TimerBadge({ duration }: { duration: string }) {
-  return (
-    <div style={{ justifySelf: "start", height: 34, minWidth: 58, padding: "0 8px", borderRadius: 999, background: "rgba(239,111,71,0.12)", color: "var(--rec)", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-      <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--rec)", flex: "0 0 auto" }}/>
-      <span style={{ font: "700 12px/1 var(--font-mono)", fontVariantNumeric: "tabular-nums" }}>{duration}</span>
-    </div>
-  );
+function TimerBadge({ session }: { session: OverlaySession }) {
+  const now = useNow(session.state === "recording");
+  const total = Math.max(0, Math.floor(((session.recordingStoppedAt ?? now) - session.recordingStartedAt) / 1000));
+  const duration = session.state === "loading" ? "--:--"
+    : `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+  return <div className="overlay-timer"><span className="overlay-dot" /><span>{duration}</span></div>;
 }
 
-function CloseButton({ state, onClose, disabled }: { state: OverlayState; onClose: () => void; disabled?: boolean }) {
-  const meta = stateMeta()[state];
-  const label = state === "recording" || state === "processing" || state === "done" ? t("Отменить запись") : state === "error" ? t("Закрыть") : t("Отменить");
-  return (
-    <button aria-label={label} onClick={onClose} disabled={disabled} style={{ appearance: "none", width: 28, height: 28, borderRadius: "50%", border: 0, background: "rgba(255,255,255,0.08)", color: state === "recording" ? "rgba(255,255,255,0.84)" : meta.color, display: "grid", placeItems: "center", cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.55 : 1 }}>
-      <Icon name="x" size={15}/>
-    </button>
-  );
-}
-
-function StateDetail({ state, levels, pastedLength, polishingMs, errorText, aiProblem }: { state: OverlayState; levels: number[]; pastedLength: number | null; polishingMs: number; errorText: string; aiProblem: string }) {
-  const detail = overlayDetail({ state, pastedLength, polishingMs, errorText, aiProblem });
-  if (detail.kind === "waveform") {
-    return <LevelWaveform levels={levels}/>;
-  }
+function StateDetail({ session }: { session: OverlaySession }) {
+  const now = useNow(session.state === "done");
+  const detail = overlayDetail({
+    state: session.state!, pastedLength: session.pastedLength,
+    polishingMs: session.decodedAt === null ? 0 : now - session.decodedAt,
+    errorText: session.errorText, aiProblem: session.aiProblem,
+  });
+  if (detail.kind === "waveform") return null;
   if (detail.kind === "progress") {
-    return <ProgressStrip label={detail.label} />;
+    return <div className="overlay-progress"><div className="overlay-progress-track"><div /></div>{detail.label && <span>{detail.label}</span>}</div>;
   }
   if ("warning" in detail) {
-    return (
-      <div style={{ display: "grid", gap: 2, minWidth: 0, textAlign: "left" }}>
-        <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", font: "700 12px/1.1 var(--font-sans)", color: "var(--ok)" }}>{detail.text}</div>
-        <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", font: "600 10px/1.1 var(--font-sans)", color: "var(--warn)" }}>{detail.warning}</div>
-      </div>
-    );
+    return <div className="overlay-result"><div>{detail.text}</div><div>{detail.warning}</div></div>;
   }
-  return <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", font: "600 14px/1.2 var(--font-sans)", color: "var(--ink-dim)", textAlign: "left" }}>{detail.text}</div>;
+  return <div className="overlay-text" title={detail.text}>{detail.text}</div>;
 }
 
-/// A live feed of the hypothesis: the end is always in view.
-///
-/// Truncating by character count did not achieve that: it showed the first
-/// lines of the last N characters, that is the middle of what was said, while
-/// the freshest words — the very ones the overlay is watched for — stayed below
-/// the bottom edge. So instead of truncating we scroll to the end.
-///
-/// A hypothesis may be rewritten retroactively, so this is a draft rather than
-/// a result: it is inserted nowhere; the transcription of the whole recording is
-/// what gets inserted.
 function PreviewPane({ text }: { text: string }) {
-  const ref = useRef<HTMLDivElement | null>(null);
-  // A layout effect rather than an ordinary one: scrolling before paint stops
-  // the frame with the text from appearing in the wrong position and jumping.
+  const ref = useRef<HTMLDivElement>(null);
+  // Hypotheses can rewrite earlier words; show their latest end before paint.
   useLayoutEffect(() => {
     const node = ref.current;
     if (node) node.scrollTop = node.scrollHeight;
   }, [text]);
-  if (!text) {
-    return (
-      <div style={{ flex: 1, display: "flex", alignItems: "center", font: "500 12px/1.3 var(--font-sans)", color: "var(--ink-dim)", opacity: 0.6 }}>
-        {t("Говорите — текст появится здесь")}
-      </div>
-    );
-  }
-  return (
-    <div
-      ref={ref}
-      style={{
-        flex: 1,
-        overflow: "hidden",
-        wordBreak: "break-word",
-        font: "500 14px/1.45 var(--font-sans)",
-        color: "var(--ink)",
-        opacity: 0.96,
-        textAlign: "left",
-      }}
-    >
-      {text}
-    </div>
-  );
-}
-
-function LevelWaveform({ levels }: { levels: number[] }) {
-  const bars = useMemo(() => levels.slice(-24), [levels]);
-  return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 3, height: 28 }}>
-      {bars.map((level, index) => {
-        const visualLevel = Math.sqrt(Math.max(0, level));
-        const active = level > 0.04;
-        // Brighter orange as the bar gets louder: interpolate from a warm
-        // amber at low levels toward a vivid orange at the top so speech
-        // reads clearly against the dark pill (levels are perceptual 0..1).
-        const height = Math.max(5, Math.round(5 + visualLevel * 21));
-        return <span key={index} style={{ width: 3, height: `${height}px`, background: active ? "linear-gradient(180deg, #ffc27a 0%, #ff8a3d 55%, #ff6a2c 100%)" : "rgba(255,255,255,0.13)", borderRadius: 4, opacity: active ? 1 : 0.66, boxShadow: active ? `0 0 ${6 + visualLevel * 8}px rgba(255,138,61,${0.35 + visualLevel * 0.35})` : "none", transition: "height 80ms ease, background 120ms ease, opacity 120ms ease" }}/>;
-      })}
-    </div>
-  );
-}
-
-function ProgressStrip({ label }: { label?: string }) {
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-      <div style={{ position: "relative", height: 4, borderRadius: 999, background: "rgba(255,255,255,0.08)", overflow: "hidden", flex: 1 }}>
-        <div style={{ position: "absolute", inset: 0, width: "40%", borderRadius: 999, background: "linear-gradient(90deg, transparent, var(--accent), transparent)", animation: "progress-sweep 1.15s ease-in-out infinite" }}/>
-      </div>
-      {label && <span style={{ font: "500 11px/1 var(--font-sans)", color: "var(--ink-dim)", whiteSpace: "nowrap" }}>{label}</span>}
-    </div>
-  );
+  return <div ref={ref} className={`overlay-preview${text ? "" : " overlay-preview-empty"}`}>
+    {text || t("Говорите — текст появится здесь")}
+  </div>;
 }

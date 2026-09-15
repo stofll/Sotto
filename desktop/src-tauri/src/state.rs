@@ -306,13 +306,6 @@ impl AppState {
         self.engine_busy.load(Ordering::Acquire)
     }
 
-    /// Cheap clone of the engine command sender for moving into an async
-    /// task. Used by the dispatcher when forwarding hotkey presses that
-    /// arrive from a different runtime context.
-    pub fn engine_cmd_tx_clone(&self) -> tokio::sync::mpsc::Sender<crate::whisper::EngineCommand> {
-        self.engine_cmd_tx.clone()
-    }
-
     pub fn next_session_id(&self) -> u64 {
         self.session_counter.fetch_add(1, Ordering::Relaxed) + 1
     }

@@ -1,6 +1,5 @@
 import { rustInvoke } from "./rustInvoke";
 import { on } from "./events";
-import type { UnlistenFn } from "@tauri-apps/api/event";
 import { sessionIdOf } from "./sessionEvents";
 
 export type RecordingState = "idle" | "recording" | "processing" | "done" | "error" | "loading";
@@ -8,16 +7,11 @@ export type RecordingState = "idle" | "recording" | "processing" | "done" | "err
 let _state: RecordingState = "idle";
 let _stateListeners: Array<(state: RecordingState) => void> = [];
 let _subscribed = false;
-let _unlisteners: UnlistenFn[] = [];
 let _settledStateTimer: ReturnType<typeof window.setTimeout> | null = null;
 let _currentSessionId: number | null = null;
 
 export function getRecordingState(): RecordingState {
   return _state;
-}
-
-export function getCurrentSessionId(): number | null {
-  return _currentSessionId;
 }
 
 export function onRecordingStateChange(cb: (state: RecordingState) => void): () => void {
@@ -33,7 +27,7 @@ function setState(next: RecordingState) {
     _settledStateTimer = null;
   }
   _state = next;
-  // Overlay is driven by Rust (sidecar reader → sync_overlay). The bridge
+  // Overlay visibility is driven by Rust. The bridge
   // only tracks state for React consumers (status bar, tray badge, etc.) —
   // don't invoke show_state/hide from here, that would duplicate native
   // calls and spawn the overlay window for non-recording events.
@@ -88,8 +82,7 @@ function ensureSubscribed() {
     "whisper-cancelled",
     "whisper-failed",
   ]);
-  // Events after which the id must not be handed to `cancelRecording()` any
-  // more. `recording-stopped` and `whisper-done` are deliberately absent:
+  // `recording-stopped` and `whisper-done` do not finish the tracked session:
   // both are intermediate states where the overlay can still cancel while
   // the LLM pass runs.
   const terminalEvents = new Set([
@@ -118,26 +111,26 @@ function ensureSubscribed() {
       if (sessionEvents.has(ev) && sid !== null && _currentSessionId !== null && sid !== _currentSessionId) return;
       if (terminalEvents.has(ev) && sid !== null) _currentSessionId = null;
       setState(next);
-    }).then((fn) => _unlisteners.push(fn));
+    });
   }
 
   on<unknown>("whisper-ready", () => {
     if (_state === "loading") setState("idle");
-  }).then((fn) => _unlisteners.push(fn));
+  });
 
   // Legacy model events remain compatible with existing callers.
   on<unknown>("model-ready", () => {
-    if (_state === "loading" && !isRustActive()) setState("idle");
-  }).then((fn) => _unlisteners.push(fn));
+    if (_state === "loading") setState("idle");
+  });
   on<unknown>("model-unloaded", () => {
-    if (_state === "loading" && !isRustActive()) setState("idle");
-  }).then((fn) => _unlisteners.push(fn));
+    if (_state === "loading") setState("idle");
+  });
 
   // Hotkey error surface.
   on<string>("hotkey-error", (msg) => {
     if (!isRustActive()) setState("error");
     console.warn("hotkey error:", msg);
-  }).then((fn) => _unlisteners.push(fn));
+  });
 }
 
 export async function startRecording(): Promise<number> {
@@ -146,13 +139,4 @@ export async function startRecording(): Promise<number> {
 
 export async function stopRecording(): Promise<number> {
   return await rustInvoke<number>("stop_recording");
-}
-
-export async function cancelRecording(): Promise<boolean> {
-  const sessionId = _currentSessionId;
-  if (sessionId === null) {
-    console.warn("cancelRecording: no active session");
-    return false;
-  }
-  return rustInvoke<boolean>("cancel_recording", { sessionId });
 }

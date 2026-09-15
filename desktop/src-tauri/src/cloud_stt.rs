@@ -69,12 +69,6 @@ pub struct CloudSttResult {
 /// Matches the legacy Python `_audio_to_wav_bytes` so existing test
 /// WAV byte fixtures (header inspection, byte-rate sanity) still pass.
 pub fn audio_to_wav_bytes(samples: &[f32]) -> Vec<u8> {
-    const SAMPLE_RATE: u32 = 16_000;
-    const BITS_PER_SAMPLE: u16 = 16;
-    const NUM_CHANNELS: u16 = 1;
-    const BYTE_RATE: u32 = SAMPLE_RATE * NUM_CHANNELS as u32 * BITS_PER_SAMPLE as u32 / 8;
-    const BLOCK_ALIGN: u16 = NUM_CHANNELS * BITS_PER_SAMPLE / 8;
-
     // Clamp + scale to i16. NaN/Inf collapse to 0 to avoid producing
     // undefined PCM samples (a real risk if a buggy upstream stage
     // emits non-finite floats).
@@ -90,27 +84,7 @@ pub fn audio_to_wav_bytes(samples: &[f32]) -> Vec<u8> {
         })
         .collect();
 
-    let data_size = (pcm.len() * 2) as u32;
-    let riff_size = 36 + data_size;
-
-    let mut out = Vec::with_capacity(44 + pcm.len() * 2);
-    out.extend_from_slice(b"RIFF");
-    out.extend_from_slice(&riff_size.to_le_bytes());
-    out.extend_from_slice(b"WAVE");
-    out.extend_from_slice(b"fmt ");
-    out.extend_from_slice(&16_u32.to_le_bytes()); // sub-chunk size
-    out.extend_from_slice(&1_u16.to_le_bytes()); // PCM format
-    out.extend_from_slice(&NUM_CHANNELS.to_le_bytes());
-    out.extend_from_slice(&SAMPLE_RATE.to_le_bytes());
-    out.extend_from_slice(&BYTE_RATE.to_le_bytes());
-    out.extend_from_slice(&BLOCK_ALIGN.to_le_bytes());
-    out.extend_from_slice(&BITS_PER_SAMPLE.to_le_bytes());
-    out.extend_from_slice(b"data");
-    out.extend_from_slice(&data_size.to_le_bytes());
-    for sample in &pcm {
-        out.extend_from_slice(&sample.to_le_bytes());
-    }
-    out
+    crate::wav::encode_pcm16_mono(&pcm, 16_000)
 }
 
 /// Build the multipart/form-data body for an OpenAI-compatible
@@ -263,6 +237,24 @@ fn truncate(s: &str, max: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wav_wire_bytes_preserve_scaling_clipping_and_non_finite_silence() {
+        let samples = [
+            0.0,
+            -1.0,
+            1.0,
+            0.5,
+            -0.5,
+            f32::NAN,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            2.0,
+            -2.0,
+        ];
+        let expected = b"\x52\x49\x46\x46\x38\x00\x00\x00\x57\x41\x56\x45\x66\x6d\x74\x20\x10\x00\x00\x00\x01\x00\x01\x00\x80\x3e\x00\x00\x00\x7d\x00\x00\x02\x00\x10\x00\x64\x61\x74\x61\x14\x00\x00\x00\x00\x00\x00\x80\xff\x7f\x00\x40\x00\xc0\x00\x00\x00\x00\x00\x00\xff\x7f\x00\x80";
+        assert_eq!(audio_to_wav_bytes(&samples), expected);
+    }
 
     #[test]
     fn wav_bytes_have_canonical_header() {

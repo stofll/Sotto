@@ -3,7 +3,7 @@ import type { CSSProperties } from "react";
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { emit } from "@tauri-apps/api/event";
 import { Icon } from "../components/Icon";
-import { on, onRecordingStateChange, startRecording, stopRecording, type RecordingState } from "../bridge";
+import { subscribe, onRecordingStateChange, startRecording, stopRecording, type RecordingState } from "../bridge";
 import { invoke } from "../bridge/invoke";
 import type { ConfigResult, MicrophoneResult, RuntimeStatusResult } from "../bridge/types";
 import { applyLocaleFromConfig, t, useLocale } from "../i18n";
@@ -118,20 +118,16 @@ export function TrayApp() {
   }, []);
 
   useEffect(() => {
-    let unlistenConfig: (() => void) | null = null;
-    let unlistenLoading: (() => void) | null = null;
-    let unlistenLoaded: (() => void) | null = null;
-    let unlistenWhisperReady: (() => void) | null = null;
-    let unlistenError: (() => void) | null = null;
-    on<ConfigResult>("config-updated", (next) => { setConfig(next); applyLocaleFromConfig(next.ui_language); }).then((fn) => { unlistenConfig = fn; });
-    on<unknown>("whisper-loading", () => setRecordingState("loading")).then((fn) => { unlistenLoading = fn; });
-    on<string>("whisper-ready", () => {
+    const unlisteners: Array<() => void> = [];
+    unlisteners.push(subscribe<ConfigResult>("config-updated", (next) => { setConfig(next); applyLocaleFromConfig(next.ui_language); }));
+    unlisteners.push(subscribe<unknown>("whisper-loading", () => setRecordingState("loading")));
+    unlisteners.push(subscribe<string>("whisper-ready", () => {
       invoke<RuntimeStatusResult>("get_runtime_status").then((value) => {
         setRuntime(value);
         setRecordingState((current) => current === "loading" ? "idle" : current);
       }).catch(() => {});
-    }).then((fn) => { unlistenWhisperReady = fn; });
-    on<{ model_size?: string; device?: string }>("model-ready", (payload) => {
+    }));
+    unlisteners.push(subscribe<{ model_size?: string; device?: string }>("model-ready", (payload) => {
       const latestConfig = configRef.current;
       setRuntime((current) => ({
         model_loaded: true,
@@ -142,18 +138,12 @@ export function TrayApp() {
         last_error: null,
       }));
       setRecordingState((current) => current === "loading" ? "idle" : current);
-    }).then((fn) => { unlistenLoaded = fn; });
-    on<{ message?: string }>("whisper-load-failed", (payload) => {
+    }));
+    unlisteners.push(subscribe<{ message?: string }>("whisper-load-failed", (payload) => {
       setError(payload.message ?? t("Не удалось загрузить модель"));
       setRecordingState("error");
-    }).then((fn) => { unlistenError = fn; });
-    return () => {
-      unlistenConfig?.();
-      unlistenLoading?.();
-      unlistenLoaded?.();
-      unlistenWhisperReady?.();
-      unlistenError?.();
-    };
+    }));
+    return () => unlisteners.forEach((stop) => stop());
   }, []);
 
   async function toggleRecording() {
