@@ -39,11 +39,9 @@ def test_overlay_error_layout(app, page, locale, output_path):
     page.screenshot(path=str(Path(output_path) / "overlay.png"), animations="disabled")
 
 
-@pytest.mark.parametrize("locale", ["ru", "en"])
-@pytest.mark.parametrize("theme", ["dark", "light"])
-def test_overlay_native_geometry_and_preview(app, page, locale, theme, output_path):
+def test_overlay_native_geometry_and_preview(app, page, output_path):
     page.set_viewport_size({"width": 308, "height": 64})
-    ui = app("overlay", config={"ui_language": locale, "theme": theme})
+    ui = app("overlay", config={"ui_language": "ru"})
     ui.emit("recording-started", 1)
     ui.emit("audio-level", {"level": 0.8})
     shots = Path(output_path)

@@ -75,7 +75,6 @@ describe("recording bridge session routing", () => {
 
     emit("paste-done", { session_id: 7, length: 12 });
     expect(mod.getRecordingState()).toBe("recording");
-    expect(mod.getCurrentSessionId()).toBe(8);
   });
 
   it("advances the state and releases the id on the same terminal event", async () => {
@@ -88,12 +87,15 @@ describe("recording bridge session routing", () => {
     emit("recording-started", 8);
     emit("whisper-done", { session_id: 8, text: "привет" });
     expect(mod.getRecordingState()).toBe("processing");
-    // Still cancellable: the LLM pass runs after `whisper-done`.
-    expect(mod.getCurrentSessionId()).toBe(8);
+    // The LLM pass still belongs to session 8; another session cannot finish it.
+    emit("paste-done", { session_id: 7, length: 12 });
+    expect(mod.getRecordingState()).toBe("processing");
 
     emit("paste-done", { session_id: 8, length: 6 });
     expect(mod.getRecordingState()).toBe("done");
-    expect(mod.getCurrentSessionId()).toBeNull();
+    // Once finished, accept a session whose start this window did not observe.
+    emit("recording-stopped", 9);
+    expect(mod.getRecordingState()).toBe("processing");
   });
 
   it("preserves the active cycle when another start is refused", async () => {
@@ -103,7 +105,10 @@ describe("recording bridge session routing", () => {
     emit("whisper-failed", { message: "Идёт транскрипция файла" });
 
     expect(mod.getRecordingState()).toBe("recording");
-    expect(mod.getCurrentSessionId()).toBe(8);
+    emit("paste-done", { session_id: 9, length: 12 });
+    expect(mod.getRecordingState()).toBe("recording");
+    emit("recording-stopped", 8);
+    expect(mod.getRecordingState()).toBe("processing");
   });
 
   it("keeps recording through model events and finishes after a scoped error", async () => {
@@ -114,7 +119,8 @@ describe("recording bridge session routing", () => {
     expect(mod.getRecordingState()).toBe("recording");
     emit("whisper-failed", { session_id: 8, message: "capture failed" });
     expect(mod.getRecordingState()).toBe("error");
-    expect(mod.getCurrentSessionId()).toBeNull();
+    emit("recording-stopped", 9);
+    expect(mod.getRecordingState()).toBe("processing");
     emit("recording-started", 9);
     emit("whisper-cancelled", 8);
     emit("recording-stopped", 9);

@@ -14,10 +14,6 @@ export function getRecordingState(): RecordingState {
   return _state;
 }
 
-export function getCurrentSessionId(): number | null {
-  return _currentSessionId;
-}
-
 export function onRecordingStateChange(cb: (state: RecordingState) => void): () => void {
   _stateListeners.push(cb);
   ensureSubscribed();
