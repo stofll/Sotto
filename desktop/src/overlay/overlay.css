@@ -48,7 +48,7 @@
   pointer-events: none;
 }
 .overlay-surface::before {
-  background: radial-gradient(circle at 48% 50%, var(--rec), transparent 68%);
+  background: radial-gradient(circle at 48% 50%, var(--overlay-wave-mid), transparent 68%);
   opacity: calc(0.03 + var(--overlay-energy) * 0.14);
 }
 .overlay-surface::after {
@@ -56,16 +56,16 @@
   opacity: calc(0.08 + var(--overlay-energy) * 0.34);
 }
 .overlay-glow {
-  box-shadow: 0 0 calc(5px + var(--overlay-energy) * 12px) var(--rec) inset;
+  box-shadow: 0 0 calc(5px + var(--overlay-energy) * 12px) var(--overlay-wave-mid) inset;
   opacity: calc(0.06 + var(--overlay-energy) * 0.22);
 }
 .overlay-row { position: relative; display: grid; grid-template-columns: 62px 1fr 30px; align-items: center; column-gap: 8px; }
 .overlay-detail { min-width: 0; }
-.overlay-timer { justify-self: start; height: 34px; min-width: 58px; padding: 0 8px; border-radius: 999px; background: var(--rec-soft); color: var(--rec); display: flex; align-items: center; justify-content: center; gap: 6px; font: 700 12px/1 var(--font-mono); font-variant-numeric: tabular-nums; }
-.overlay-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--rec); flex: 0 0 auto; }
-.overlay-close { appearance: none; width: 28px; height: 28px; border-radius: 50%; border: 0; background: rgba(255,255,255,0.08); color: var(--accent); display: grid; place-items: center; cursor: pointer; }
+.overlay-timer { justify-self: start; height: 34px; min-width: 58px; padding: 0 8px; border-radius: 999px; background: color-mix(in srgb, var(--overlay-wave-mid) 14%, transparent); color: var(--overlay-wave-mid); display: flex; align-items: center; justify-content: center; gap: 6px; font: 700 12px/1 var(--font-mono); font-variant-numeric: tabular-nums; }
+.overlay-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--overlay-wave-mid); flex: 0 0 auto; }
+.overlay-close { appearance: none; width: 28px; height: 28px; border-radius: 50%; border: 0; background: rgba(255,255,255,0.08); color: var(--overlay-edge); display: grid; place-items: center; cursor: pointer; }
 .overlay-close:disabled { cursor: default; opacity: 0.55; }
-.overlay-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.overlay-close:focus-visible { outline: 2px solid var(--overlay-edge); outline-offset: 2px; }
 .overlay[data-state="recording"] .overlay-close { color: rgba(255,255,255,0.84); }
 .overlay[data-state="pasted"] .overlay-close { color: var(--ok); }
 .overlay[data-state="error"] .overlay-close { color: var(--err); }
@@ -73,14 +73,12 @@
 .overlay-text { font: 600 14px/1.2 var(--font-sans); color: var(--ink-dim); }
 .overlay-result { display: grid; gap: 2px; min-width: 0; }
 .overlay-result > div:first-child { font: 700 12px/1.1 var(--font-sans); color: var(--ok); }
-.overlay-result > div:last-child { font: 600 10px/1.1 var(--font-sans); color: var(--warn); }
+.overlay-result > div:last-child { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; font: 600 10px/1.1 var(--font-sans); color: var(--warn); }
 .overlay-waveform { display: flex; align-items: center; justify-content: center; gap: 3px; height: 28px; }
 .overlay-waveform > span { position: relative; width: 3px; border-radius: 4px; background: rgba(255,255,255,0.13); opacity: 0.66; transition: height 80ms ease, background 120ms ease, opacity 120ms ease; }
 .overlay-waveform > span[data-active="true"] { background: linear-gradient(180deg, var(--overlay-wave-top), var(--overlay-wave-mid) 55%, var(--overlay-wave-bottom)); opacity: 1; }
 .overlay-waveform > span[data-active="true"]::after { content: ""; position: absolute; inset: 0; border-radius: inherit; box-shadow: 0 0 var(--bar-glow) var(--overlay-wave-mid); opacity: var(--bar-glow-opacity); }
 .overlay-progress { display: flex; align-items: center; gap: 10px; }
-.overlay-progress-track { position: relative; height: 4px; border-radius: 999px; background: rgba(255,255,255,0.08); overflow: hidden; flex: 1; }
-.overlay-progress-track > div { position: absolute; inset: 0; width: 40%; border-radius: 999px; background: linear-gradient(90deg, transparent, var(--accent), transparent); animation: progress-sweep 1.15s ease-in-out infinite; }
 .overlay-progress > span { font: 500 11px/1 var(--font-sans); color: var(--ink-dim); white-space: nowrap; }
 .overlay[data-layout="streaming"] .overlay-shell { max-width: 592px; height: 142px; border-radius: 22px; }
 .overlay[data-layout="streaming"] .overlay-surface { border-radius: 18px; gap: 8px; padding: 9px 11px; }
@@ -90,5 +88,54 @@
 .overlay-preview-empty { display: flex; align-items: center; font: 500 12px/1.3 var(--font-sans); color: var(--ink-dim); opacity: 0.6; }
 @media (prefers-reduced-motion: reduce) {
   .overlay-waveform > span { transition: none; }
-  .overlay-progress-track > div { animation: none; left: 30%; }
+}
+
+/* Layout dimensions mirror the logical sizes in overlay_preferences.rs. */
+.overlay { --overlay-ring-radius: 20px; }
+.overlay-shell { position: relative; overflow: hidden; }
+.overlay-surface { z-index: 1; }
+.overlay-timer-slot { overflow: hidden; }
+.overlay-row { transition: grid-template-columns 200ms ease; }
+.overlay:not([data-state="recording"]) .overlay-row { grid-template-columns: 0 1fr 30px; column-gap: 4px; }
+.overlay[data-state="error"] .overlay-text { color: var(--err); }
+.overlay-counter { animation: overlay-counter-in 200ms ease both; font-variant-numeric: tabular-nums; }
+.overlay:is([data-state="loading"], [data-state="processing"], [data-state="done"]) .overlay-shell::before {
+  content: ""; position: absolute; inset: 0; border-radius: inherit;
+  background: linear-gradient(110deg, transparent 35%, var(--overlay-edge) 50%, transparent 65%);
+  background-size: 250% 100%; animation: overlay-edge-sweep 1.4s ease-in-out infinite;
+}
+.overlay[data-size="s"] .overlay-shell { height: 52px; }
+.overlay[data-size="l"] .overlay-shell { height: 64px; }
+.overlay[data-size="s"] .overlay-text { font-size: 13px; }
+.overlay[data-size="l"] .overlay-text { font-size: 16px; }
+.overlay[data-size="l"] .overlay-progress > span { font-size: 13px; }
+.overlay[data-size="l"] .overlay-surface { padding-inline: 12px; }
+.overlay[data-layout="streaming"][data-size="s"] .overlay-shell { max-width: 512px; height: 130px; }
+.overlay[data-layout="streaming"][data-size="l"] .overlay-shell { max-width: 672px; height: 166px; }
+.overlay[data-layout="streaming"][data-size="s"] .overlay-preview { font-size: 13px; }
+.overlay[data-layout="streaming"][data-size="l"] .overlay-preview { font-size: 16px; }
+.overlay[data-layout="bead"] .overlay-shell { width: 64px; height: 64px; }
+.overlay[data-layout="bead"][data-size="s"] { --overlay-ring-radius: 16px; }
+.overlay[data-layout="bead"][data-size="s"] .overlay-shell { width: 56px; height: 56px; }
+.overlay[data-layout="bead"][data-size="l"] { --overlay-ring-radius: 24px; }
+.overlay[data-layout="bead"][data-size="l"] .overlay-shell { width: 72px; height: 72px; }
+.overlay[data-layout="bead"] .overlay-surface { padding: 0; }
+.overlay[data-layout="bead"] .overlay-row { display: grid; place-items: center; grid-template-columns: 1fr; width: 100%; height: 100%; }
+.overlay[data-layout="bead"] .overlay-detail { position: absolute; inset: 0; }
+.overlay-waveform--circular { position: absolute; inset: 0; height: auto; }
+.overlay-waveform--circular > span { position: absolute; left: 50%; top: 50%; width: 2px; }
+.overlay[data-layout="bead"] .overlay-close { position: relative; z-index: 2; opacity: 0; transition: opacity 120ms ease; }
+.overlay[data-layout="bead"] .overlay-shell:hover .overlay-close,
+.overlay[data-layout="bead"]:focus-within .overlay-close { opacity: 1; }
+.overlay[data-layout="bead"] .overlay-close:disabled { opacity: 0.55; }
+.overlay-bead-status { position: absolute; inset: 5px; border: 2px solid var(--overlay-edge); border-radius: 50%; opacity: 0.4; }
+.overlay[data-state="pasted"] .overlay-bead-status { border-color: var(--ok); opacity: 1; }
+.overlay[data-state="pasted"] .overlay-bead-status::after { content: "✓"; position: absolute; inset: 0; display: grid; place-items: center; color: var(--ok); }
+.overlay[data-layout="bead"] .overlay-shell:hover .overlay-bead-status::after,
+.overlay[data-layout="bead"]:focus-within .overlay-bead-status::after { opacity: 0; }
+@keyframes overlay-edge-sweep { from { background-position: 150% 0; } to { background-position: -50% 0; } }
+@keyframes overlay-counter-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .overlay-row, .overlay-close { transition: none !important; }
+  .overlay-counter, .overlay-shell::before { animation: none !important; }
 }

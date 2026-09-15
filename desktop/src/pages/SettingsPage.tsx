@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { invoke, subscribe as subscribeEvent } from "../bridge";
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { Card, PageHeader, Segmented } from "../components/Shell";
@@ -11,6 +11,8 @@ import { getLocale, isLocale, LOCALE_LABELS, LOCALES, setLocale, t, type Locale 
 import { DEFAULT_HOTKEY, normalizeHotkeyKey } from "../hotkey";
 import { fallbackLanguage, fallbackModels, speechLanguages } from "./modelCatalog";
 import { isTelemetryEnabled } from "./telemetrySettings";
+import { OverlaySettings } from "./OverlaySettings";
+import { ACCENT_PRESETS, applyAccent, resolveAccent } from "../accent";
 import { modelUnloadMinutes, modelUnloadOptions } from "./modelUnloadSettings";
 
 type Props = {
@@ -276,6 +278,81 @@ function RecordingModeSegmented({ value, onConfigChanged }: { value: string; onC
 
 function HintIcon({ text }: { text: string }) {
   return <Hint text={text}/>;
+}
+
+// The interface colour. It used to be a fourth overlay setting named «Акцент
+// приложения» and the overlay could follow it; both were confusing — one
+// control coloured two unrelated things. Here it colours the app, and the
+// overlay keeps its own palette.
+//
+// Free-form: the four presets are shortcuts, and everything else comes from the
+// system colour picker. Dragging in that picker fires a change per frame, so
+// the colour is applied to the CSS variables immediately and written to the
+// config once the dragging settles.
+const ACCENT_COMMIT_DELAY = 250;
+
+function InterfaceColorPicker({ value, onConfigChanged }: { value?: string; onConfigChanged: Props["onConfigChanged"] }) {
+  const accent = resolveAccent(value);
+  const presets = ACCENT_PRESETS();
+  const [saving, setSaving] = useState(false);
+  const savedAccent = useRef(accent);
+  savedAccent.current = accent;
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (timer.current) {
+      clearTimeout(timer.current);
+      applyAccent(savedAccent.current);
+    }
+  }, []);
+
+  async function commit(color: string) {
+    timer.current = null;
+    setSaving(true);
+    try {
+      const saved = await onConfigChanged({ ui_accent: color });
+      applyAccent(saved ? resolveAccent(saved.ui_accent) : savedAccent.current);
+    } catch {
+      applyAccent(savedAccent.current);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function pick(color: string, immediate: boolean) {
+    applyAccent(color);
+    if (timer.current) clearTimeout(timer.current);
+    if (immediate) void commit(color);
+    else timer.current = setTimeout(() => void commit(color), ACCENT_COMMIT_DELAY);
+  }
+
+  return (
+    <div className="accent-picker" role="group" aria-label={t("Цвет интерфейса")}>
+      {presets.map((preset) => (
+        <Hint key={preset.value} text={preset.label}>
+          <button
+            type="button"
+            className="overlay-swatch overlay-swatch--accent"
+            aria-label={preset.label}
+            aria-pressed={preset.value === accent}
+            disabled={saving}
+            style={{ "--swatch": preset.value } as CSSProperties}
+            onClick={() => pick(preset.value, true)}
+          />
+        </Hint>
+      ))}
+      <Hint text={t("Свой цвет")}>
+        <span className="accent-picker__custom" data-active={!presets.some((preset) => preset.value === accent)}>
+          <input
+            type="color"
+            aria-label={t("Свой цвет")}
+            value={accent}
+            disabled={saving}
+            onChange={(event) => pick(event.target.value.toLowerCase(), false)}
+          />
+        </span>
+      </Hint>
+    </div>
+  );
 }
 
 function SetLabel({ title, hint }: { title: string; hint?: string }) {
@@ -680,7 +757,7 @@ function MicPicker({ microphone, microphones, onConfigChanged }: { microphone?: 
     // window, changing the device): there is one capture stream, and when it
     // ends both modes go out.
     subscribe<unknown>("microphone-test-started", () => { setError(null); });
-    subscribe<unknown>("microphone-test-stopped", () => { closePlayback(); setChecking(false); setEcho(false); resetMeter(); setStoppedStatus(t("Проверка остановлена")); });
+    subscribe<unknown>("microphone-test-stopped", () => { closePlayback(); setChecking(false); setEcho(false); resetMeter(); setStatus(null); });
     subscribe<SidecarErrorPayload>("app-error", (payload) => {
       // Permission events are shown by the banner in MainWindow — it has text
       // for the specific permission and a link into the right system settings
@@ -716,16 +793,13 @@ function MicPicker({ microphone, microphones, onConfigChanged }: { microphone?: 
     await invoke("start_microphone_test", { microphone: microphone ?? null, monitor });
   }
 
-  // Плашку гасит и здесь, и в обработчике `microphone-test-stopped`: у
-  // «работает» нет своего таймера, снять её может только сообщение об
-  // остановке. Без этого смена микрофона на ходу оставляла зелёное «Эхо
-  // включено» висеть на странице навсегда.
+  // Clear the echo status here and on external stops, including device changes.
   async function stopCapture() {
     closePlayback();
     setChecking(false);
     setEcho(false);
     resetMeter();
-    setStoppedStatus(t("Проверка остановлена"));
+    setStatus(null);
     await invoke("stop_microphone_test");
   }
 
@@ -740,11 +814,9 @@ function MicPicker({ microphone, microphones, onConfigChanged }: { microphone?: 
         // режима: без сброса он продолжал бы прыгать под погашенной кнопкой.
         if (echo) resetMeter();
         else await stopCapture();
-        setStoppedStatus(t("Проверка микрофона остановлена"));
       } else {
         await startCapture(echo);
         setChecking(true);
-        setRunningStatus(t("Проверка микрофона запущена"));
       }
     } catch (e) {
       await stopCapture().catch(() => {});
@@ -1031,6 +1103,10 @@ export function SettingsPage({ config, microphones, models, portable, onConfigCh
               </label>
               <HintIcon text={t("Нажать Enter сразу после вставки — отправит сообщение в чате или запустит поиск.")}/>
             </span>
+            <div className="set-cell advanced__appearance-cell">
+              <SetLabel title={t("Цвет интерфейса")} hint={t("Цвет кнопок, выделения и активных элементов во всём приложении. Цвет оверлея настраивается отдельно, в разделе «Оверлей».")}/>
+              <InterfaceColorPicker value={config?.ui_accent} onConfigChanged={onConfigChanged}/>
+            </div>
           </div>
 
           {/* Autostart is set once per installation — exactly the case this block
@@ -1069,6 +1145,7 @@ export function SettingsPage({ config, microphones, models, portable, onConfigCh
               <HintIcon text={t("Собираются обезличенные события использования и технические сведения: режим обработки, длительность аудио и обработки, оценка сэкономленного времени, ОС, версия приложения, архитектура и сведения о сессии.")}/>
             </span>
           </div>
+          <OverlaySettings config={config} onConfigChanged={onConfigChanged}/>
         </details>
       </div>
     </div>

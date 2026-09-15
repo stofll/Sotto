@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { invoke as tauriInvoke } from "@tauri-apps/api/core";
+import { invoke as tauriInvoke } from "../bridge/invoke";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { subscribe } from "../bridge/events";
 import { isCurrentSession, isCurrentSessionOrUnscoped } from "../bridge/sessionEvents";
 import type { ConfigResult } from "../bridge/types";
 import { applyLocaleFromConfig, t } from "../i18n";
+import { overlayPreferences, overlayLayout } from "./overlayPreferences";
 import type { OverlayDetailState as OverlayState } from "./overlayDetail";
 
 type PreviewPayload = { session_id: number; text: string };
@@ -35,6 +36,9 @@ function shortAiProblem(payload?: TranscriptionPayload) {
 
 export function useOverlaySession() {
   const sessionId = useRef<number | null>(null);
+  const initialConfig = useRef<Promise<void> | null>(null);
+  const [config, setConfig] = useState<ConfigResult | null>(null);
+  const preferences = overlayPreferences(config?.overlay);
   function belongsToCurrentSession(payload: unknown) {
     return isCurrentSession(payload, sessionId.current);
   }
@@ -48,12 +52,19 @@ export function useOverlaySession() {
   // mount and listen for later changes; this adds no IPC at recording start.
   useEffect(() => {
     let disposed = false;
-    void tauriInvoke<ConfigResult>("get_config")
-      .then((config) => { if (!disposed) applyLocaleFromConfig(config.ui_language); })
-      .catch(() => { if (!disposed) applyLocaleFromConfig(undefined); });
-    const unlisten = subscribe<ConfigResult>("config-updated", (config) => {
-      applyLocaleFromConfig(config.ui_language);
+    let updated = false;
+    const apply = (next: ConfigResult) => {
+      if (disposed) return;
+      setConfig(next);
+      applyLocaleFromConfig(next.ui_language);
+    };
+    const unlisten = subscribe<ConfigResult>("config-updated", (next) => {
+      updated = true;
+      apply(next);
     });
+    initialConfig.current = tauriInvoke<ConfigResult>("get_config")
+      .then((next) => { if (!updated) apply(next); })
+      .catch(() => { if (!disposed && !updated) applyLocaleFromConfig(undefined); });
     return () => { disposed = true; unlisten(); };
   }, []);
   const [state, setState] = useState<OverlayState | null>(null);
@@ -166,6 +177,7 @@ export function useOverlaySession() {
       }).catch(() => {});
     }
     void Promise.all(registrations).then(async () => {
+      await initialConfig.current;
       if (disposed) return;
       await tauriInvoke("overlay_ready");
       if (disposed) return;
@@ -186,9 +198,11 @@ export function useOverlaySession() {
   // Arrived text is the safety net for when the enable event missed the window
   // warm-up: there is nowhere to show a hypothesis inside the pill.
   const streaming = state === "recording" && (armedSession !== null || previewText.length > 0);
+  const needsText = state === "error" || (state === "pasted" && !!aiProblem);
+  const layout = overlayLayout(preferences.form, streaming, needsText);
   useEffect(() => {
-    void tauriInvoke("set_overlay_streaming", { streaming }).catch(() => {});
-  }, [streaming]);
+    void tauriInvoke("set_overlay_presentation", { streaming, needsText }).catch(() => {});
+  }, [streaming, needsText]);
 
   useEffect(() => {
     const unlisteners = [
@@ -294,7 +308,7 @@ export function useOverlaySession() {
   }, [handleClose]);
 
   return {
-    state, sessionId: sessionId.current, streaming, recordingStartedAt, recordingStoppedAt,
+    state, config, preferences, layout, sessionId: sessionId.current, streaming, recordingStartedAt, recordingStoppedAt,
     pastedLength, decodedAt, previewText, errorText, aiProblem, isClosing, handleClose,
   };
 }

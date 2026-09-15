@@ -28,9 +28,9 @@ describe("overlayDetail", () => {
     // POLISHING_LABEL_AFTER_MS: a test that imports the constant and counts from
     // it travels along with it and stops asserting anything. A mutation run
     // caught exactly that — zeroing the threshold did not fail the test.
-    it("на быстром пути не мигает подписью про обработку", () => {
+    it("на быстром пути не показывает счётчик обработки", () => {
         const detail = overlayDetail({ ...base, state: "done", polishingMs: 200 });
-        expect(detail).toEqual({ kind: "progress" });
+        expect(detail).toEqual({ kind: "progress", label: "Обрабатываю" });
     });
 
     it("через полсекунды с лишним подпись уже появляется", () => {
@@ -43,7 +43,7 @@ describe("overlayDetail", () => {
         const detail = overlayDetail({ ...base, state: "done", polishingMs: 7400 });
         expect(detail.kind).toBe("progress");
         // Seconds round down: 7.4 s is "7 s", not "8 s".
-        expect("label" in detail && detail.label).toContain("7");
+        expect("seconds" in detail && detail.seconds).toBe(7);
     });
 
     it("счётчик символов появляется только после вставки", () => {
@@ -90,6 +90,6 @@ describe("overlayDetail", () => {
 
     it("запись рисует уровень, распознавание — полосу", () => {
         expect(overlayDetail({ ...base, state: "recording" })).toEqual({ kind: "waveform" });
-        expect(overlayDetail({ ...base, state: "processing" })).toEqual({ kind: "progress" });
+        expect(overlayDetail({ ...base, state: "processing" })).toEqual({ kind: "progress", label: "Обрабатываю" });
     });
 });

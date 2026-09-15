@@ -13,7 +13,7 @@ export function NumberField({ value, onValueChange, onStepCommit, className = ""
 
   function step(direction: 1 | -1) {
     const input = inputRef.current;
-    if (!input) return;
+    if (!input || input.disabled || input.readOnly) return;
     if (direction > 0) input.stepUp();
     else input.stepDown();
     onValueChange(input.value);
@@ -31,10 +31,10 @@ export function NumberField({ value, onValueChange, onStepCommit, className = ""
         onChange={(event) => onValueChange(event.target.value)}
       />
       <span className="number-field__steppers">
-        <button type="button" tabIndex={-1} aria-label={t("Увеличить значение")} onMouseDown={(event) => event.preventDefault()} onClick={() => step(1)}>
+        <button type="button" tabIndex={-1} disabled={inputProps.disabled || inputProps.readOnly} aria-label={t("Увеличить значение")} onMouseDown={(event) => event.preventDefault()} onClick={() => step(1)}>
           <Icon name="chev-down" size={9}/>
         </button>
-        <button type="button" tabIndex={-1} aria-label={t("Уменьшить значение")} onMouseDown={(event) => event.preventDefault()} onClick={() => step(-1)}>
+        <button type="button" tabIndex={-1} disabled={inputProps.disabled || inputProps.readOnly} aria-label={t("Уменьшить значение")} onMouseDown={(event) => event.preventDefault()} onClick={() => step(-1)}>
           <Icon name="chev-down" size={9}/>
         </button>
       </span>
