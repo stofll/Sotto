@@ -31,6 +31,8 @@ pnpm install --frozen-lockfile
 pnpm tauri dev
 ```
 
+On macOS, `pnpm tauri dev` runs `target/debug/Sotto` directly rather than an application bundle, which matters for anything that needs Accessibility — the hotkey and automatic paste. That binary is a separate TCC client from an installed `/Applications/Sotto.app`, and macOS attributes its request to the process that launched it, so the grant has to go to the terminal you run the build from. Granting it to the installed copy does nothing for a development run. Builds are signed ad hoc, which also means every rebuild changes the code hash and silently invalidates an existing grant while the switch in Settings stays on; `tccutil reset Accessibility com.sotto.app` clears the stale entry for the bundle.
+
 The frontend-only development server is available with `pnpm dev`, but application commands require Tauri; there is no HTTP backend fallback. Use the isolated [browser UI harness](ui-testing.md) to exercise synthetic states without launching the native application. A full Tauri build also requires the native prerequisites and model/runtime assets described in [Models](models.md).
 
 On Windows there is also a launcher: `desktop\run_desktop.cmd`.
@@ -51,6 +53,14 @@ Use the installer for a normal install; the direct executable is handy for a qui
 
 ```cmd
 scripts\build-installer.bat
+```
+
+macOS artifacts land in `desktop/src-tauri/target/release/bundle/`: the application in `macos/Sotto.app` and the disk image in `dmg/`. Restricting the run to one target removes the other's output, so a `--bundles dmg` build leaves `macos/` empty and ships the application inside the disk image.
+
+The `.dmg` step drives Finder through AppleScript to lay out the volume window, so it needs Automation permission for whatever launched the build — the terminal, or the editor running the command. The first build raises the one-time macOS prompt for it, and that build still fails: the AppleScript call already in flight does not wait for the answer, so the step exits and the bundler reports the opaque `error running bundle_dmg.sh` after the `.app` has already been produced. It can also leave a `dmg.*` volume mounted, which `hdiutil detach` ejects. Allow the prompt and run the build again; later builds pass without asking. Build only the application when the disk image is not the point, or when granting that permission is not an option:
+
+```bash
+pnpm tauri build --bundles app
 ```
 
 ## Repository layout

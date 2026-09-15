@@ -3,7 +3,8 @@
 //! Public entry points:
 //! - [`copy_to_clipboard`] / [`read_clipboard_text`] — thin shim over `tauri-plugin-clipboard-manager`.
 //! - [`paste_text`] — top-level orchestrator: copy → (Windows: focus-restore +
-//!   modifier-release) → 3-strategy paste fallback. Each strategy runs only
+//!   modifier-release; macOS: wait for the hotkey modifiers to come up) →
+//!   3-strategy paste fallback. Each strategy runs only
 //!   if the previous one reported an error — every extra attempt is a
 //!   duplicate paste if the earlier one actually worked.
 //! - `paste_strategy_1_enigo` — the enigo path, non-Windows ONLY.
@@ -236,6 +237,102 @@ fn send_paste_shortcut(
     Ok(())
 }
 
+/// Physical modifiers that corrupt a synthetic Cmd+V.
+///
+/// `CGEventFlags` bits. Caps Lock and the numeric-pad flag are excluded
+/// deliberately: neither changes what Cmd+V means, and Caps Lock is a
+/// latch the user may simply leave on forever.
+#[cfg(any(target_os = "macos", test))]
+const BLOCKING_MODIFIER_FLAGS: u64 = 0x0002_0000   // Shift
+    | 0x0004_0000                                  // Control
+    | 0x0008_0000                                  // Option
+    | 0x0010_0000                                  // Command
+    | 0x0080_0000; // Fn
+
+#[cfg(any(target_os = "macos", test))]
+fn has_blocking_modifiers(flags: u64) -> bool {
+    flags & BLOCKING_MODIFIER_FLAGS != 0
+}
+
+/// Currently held physical modifiers, as the window server sees them.
+///
+/// `kCGEventSourceStateCombinedSessionState` (0) is the real keyboard
+/// state — the state merged into an event injected at the HID tap, which
+/// is what makes a held Option turn our Cmd+V into Cmd+Option+V.
+///
+/// Safety: `CGEventSourceFlagsState` is a C function taking a
+/// `CGEventSourceStateID` (an `int32_t` enum) and returning
+/// `CGEventFlags` (a `uint64_t`). It reads global state, is callable from
+/// any thread, and has no side effects observable from Rust.
+#[cfg(target_os = "macos")]
+fn current_modifier_flags() -> u64 {
+    const COMBINED_SESSION_STATE: i32 = 0;
+    extern "C" {
+        fn CGEventSourceFlagsState(state: i32) -> u64;
+    }
+    unsafe { CGEventSourceFlagsState(COMBINED_SESSION_STATE) }
+}
+
+/// Poll `flags` until no blocking modifier is held, giving up after
+/// `attempts` sleeps. Returns the last flags observed and how many times
+/// it slept, so the caller can report an actual wait.
+///
+/// Split from the polling constants and the FFI so the loop is testable
+/// without a keyboard.
+#[cfg(any(target_os = "macos", test))]
+fn wait_for_modifier_release(
+    mut flags: impl FnMut() -> u64,
+    attempts: u32,
+    mut sleep: impl FnMut(),
+) -> (u64, u32) {
+    let mut current = flags();
+    for waited in 0..attempts {
+        if !has_blocking_modifiers(current) {
+            return (current, waited);
+        }
+        sleep();
+        current = flags();
+    }
+    (current, attempts)
+}
+
+/// Wait out the hotkey that ended the dictation before pasting.
+///
+/// The paste fires immediately after the keystroke that stopped
+/// recording, and that keystroke needs a modifier — `hotkey.rs` rejects a
+/// combination without one. A Cmd+V posted while Option is still down
+/// reaches the target as Cmd+Option+V, which pastes in no application:
+/// the text silently never appears, while every layer below reports
+/// success. Windows fixes the same problem by forcing the keys up with
+/// `release_stuck_modifiers`; macOS has no such call, so we wait for the
+/// user to let go.
+///
+/// Timing out is not a reason to abort. The paste may still land, and
+/// refusing to send it guarantees that it does not.
+#[cfg(target_os = "macos")]
+fn settle_modifiers() {
+    // 25 × 10ms. Letting go of a key takes well under that, and this runs
+    // on the main thread, so the ceiling stays inside the same budget the
+    // Windows branch already spends on `wait_for_clipboard_write`.
+    const ATTEMPTS: u32 = 25;
+    const POLL: std::time::Duration = std::time::Duration::from_millis(10);
+
+    let (flags, waited) = wait_for_modifier_release(current_modifier_flags, ATTEMPTS, || {
+        std::thread::sleep(POLL)
+    });
+    if has_blocking_modifiers(flags) {
+        log::warn!(
+            "modifiers still held after {}ms (flags {flags:#x}), pasting anyway",
+            ATTEMPTS as u128 * POLL.as_millis()
+        );
+    } else if waited > 0 {
+        log::info!(
+            "waited {}ms for the hotkey modifiers to be released before pasting",
+            waited as u128 * POLL.as_millis()
+        );
+    }
+}
+
 /// Paste Strategy 2 — macOS-only osascript (Cmd+V via AppleScript).
 ///
 /// Falls back to this when enigo fails. `osascript` uses the system
@@ -267,7 +364,8 @@ pub fn paste_strategy_2_osascript() -> Result<(), String> {
 /// There is no way to confirm from outside the target application that a
 /// paste landed, so a strategy that reports success is taken at its word;
 /// guessing wrong in the other direction pastes the text twice.
-/// On macOS: copy → enigo (Strategy 1) → osascript (Strategy 2).
+/// On macOS: copy → modifier settle → enigo (Strategy 1) → osascript
+/// (Strategy 2).
 /// On Linux: copy + Strategy 1 alone.
 ///
 /// The caller is responsible for invoking this on the main thread (via
@@ -344,6 +442,11 @@ pub fn paste_text(app: AppHandle, text: String) -> Result<(), String> {
 
     #[cfg(not(windows))]
     {
+        // The hotkey that stopped the dictation is still down. Send the
+        // shortcut only once its modifiers are up — see `settle_modifiers`.
+        #[cfg(target_os = "macos")]
+        settle_modifiers();
+
         // Strategy 1: enigo SendInput (cross-platform).
         match paste_strategy_1_enigo() {
             Ok(()) => return Ok(()),
@@ -507,6 +610,59 @@ mod delivery_tests {
         assert!(send_paste_shortcut(&mut keyboard, Key::Meta, Some(MAC_V_KEYCODE)).is_ok());
         assert_eq!(keyboard.pasted, 1);
         assert!(!keyboard.command);
+    }
+
+    #[test]
+    fn a_held_option_blocks_the_paste_shortcut() {
+        // The hotkey needs a modifier, so one is always down when the
+        // dictation ends. Cmd+Option+V pastes in no application.
+        assert!(has_blocking_modifiers(0x0008_0000));
+    }
+
+    #[test]
+    fn caps_lock_and_numeric_pad_do_not_block_the_paste() {
+        // A latch the user may leave on forever, and a flag that merely
+        // marks which key was pressed. Neither changes what Cmd+V means.
+        assert!(!has_blocking_modifiers(0x0001_0000 | 0x0020_0000));
+    }
+
+    #[test]
+    fn paste_waits_until_the_hotkey_modifiers_come_up() {
+        // Option held for the first two polls, released on the third.
+        let readings = std::cell::Cell::new(0);
+        let flags = || {
+            let n = readings.get();
+            readings.set(n + 1);
+            if n < 2 {
+                0x0008_0000
+            } else {
+                0
+            }
+        };
+        let mut slept = 0;
+        let (final_flags, waited) = wait_for_modifier_release(flags, 40, || slept += 1);
+        assert_eq!(final_flags, 0);
+        assert_eq!(waited, 2);
+        assert_eq!(slept, 2);
+    }
+
+    #[test]
+    fn paste_is_not_abandoned_when_a_modifier_stays_down() {
+        // Giving up on the paste guarantees the text never arrives; sending
+        // it anyway at least leaves the chance that it does.
+        let mut slept = 0;
+        let (final_flags, waited) = wait_for_modifier_release(|| 0x0010_0000, 3, || slept += 1);
+        assert!(has_blocking_modifiers(final_flags));
+        assert_eq!(waited, 3);
+        assert_eq!(slept, 3);
+    }
+
+    #[test]
+    fn paste_does_not_wait_when_no_modifier_is_held() {
+        let mut slept = 0;
+        let (final_flags, waited) = wait_for_modifier_release(|| 0, 40, || slept += 1);
+        assert_eq!((final_flags, waited), (0, 0));
+        assert_eq!(slept, 0);
     }
 
     #[test]

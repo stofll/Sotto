@@ -71,3 +71,31 @@ def test_stats_periods_and_refresh(app, page):
     page.get_by_role("button", name="Обновить", exact=True).click()
     page.get_by_role("button", name="Всё время", exact=True).click()
     expect(page.get_by_test_id("page-stats")).to_contain_text(re.compile(r"4\s*321"))
+
+
+def test_paste_test_waits_before_pasting_and_reports_success(app, page):
+    # The countdown is the whole point of the control: pasting on the click
+    # itself would deliver the text into this settings window.
+    ui = app()
+    ui.nav("info")
+    ui.queue("test_paste", {"result": "Paste OK. Text на буфере: Тест вставки Sotto — 1"})
+    button = page.get_by_test_id("paste-test")
+    button.click()
+    expect(button).to_be_disabled()
+    assert not ui.calls("test_paste")
+    expect(page.get_by_test_id("paste-test-result")).to_contain_text(
+        "Paste OK", timeout=10_000
+    )
+    assert len(ui.calls("test_paste")) == 1
+    expect(button).to_be_enabled()
+
+
+def test_paste_test_shows_the_failure_reason(app, page):
+    ui = app()
+    ui.nav("info")
+    ui.queue("test_paste", {"error": "Paste FAILED: all paste strategies failed"})
+    page.get_by_test_id("paste-test").click()
+    expect(page.get_by_test_id("paste-test-result")).to_contain_text(
+        "all paste strategies failed", timeout=10_000
+    )
+    expect(page.get_by_test_id("paste-test")).to_be_enabled()

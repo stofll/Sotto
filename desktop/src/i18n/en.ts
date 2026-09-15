@@ -766,6 +766,10 @@ export const en: Record<string, string | string[]> = {
   "Подробность логов": "Log level",
   "Размер логов": "Log size",
   "Скопировать сводку": "Copy summary",
+  "Проверить вставку": "Test paste",
+  "Переключитесь в нужное окно… {p0}": "Switch to the target window… {p0}",
+  "Вставляю…": "Pasting…",
+  "Кладёт пробный текст в буфер и вставляет его в активное окно тем же путём, что и диктовка. Отделяет поломку вставки от поломки распознавания.": "Puts sample text on the clipboard and pastes it into the active window the same way dictation does. Separates a broken paste from broken recognition.",
   "Очистить логи": "Clear logs",
   "Класть каждую запись рядом с логами. Нужно, чтобы воспроизвести жалобу «распознало не то».":
     "Keep every recording next to the logs. Needed to reproduce a “it transcribed the wrong thing” report.",

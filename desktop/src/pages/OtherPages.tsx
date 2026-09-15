@@ -1195,6 +1195,9 @@ function UpdatesCard({ version }: { version?: string | null }) {
 
 const LOG_LEVELS = ["error", "warn", "info", "debug", "trace"] as const;
 
+// Long enough to reach another window, short enough that nobody waits for it.
+const PASTE_TEST_DELAY_SECONDS = 3;
+
 // The logs rotate at 5 MB and keep three archives, so the size lives between
 // kilobytes and a couple of dozen megabytes. "0.0 MB" on a fresh install reports
 // nothing, so small values are shown in kilobytes.
@@ -1211,6 +1214,8 @@ function DiagnosticsCard({ config, onConfigChanged }: { config: ConfigResult | n
   const [report, setReport] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [logsBytes, setLogsBytes] = useState<number | null>(null);
+  const [pasteCountdown, setPasteCountdown] = useState<number | null>(null);
+  const [pasteResult, setPasteResult] = useState<string | null>(null);
   const logLevel = config?.log_level ?? "info";
   const saveRecordings = config?.debug_save_recordings ?? false;
   const overlayDiag = config?.debug_overlay_diag ?? false;
@@ -1232,6 +1237,24 @@ function DiagnosticsCard({ config, onConfigChanged }: { config: ConfigResult | n
       // An auxiliary action: there is nothing here worth failing over.
     }
   }
+
+  // The paste test runs the real delivery pipeline, so it needs a real
+  // target — and clicking the button puts focus on Sotto, which would make
+  // the text land in this very window. The countdown is the window in which
+  // to focus the application the test is meant to reach.
+  useEffect(() => {
+    if (pasteCountdown === null) return;
+    if (pasteCountdown > 0) {
+      const timer = window.setTimeout(() => setPasteCountdown(pasteCountdown - 1), 1000);
+      return () => window.clearTimeout(timer);
+    }
+    let cancelled = false;
+    void invoke<string>("test_paste")
+      .then((ok) => { if (!cancelled) setPasteResult(ok); })
+      .catch((e) => { if (!cancelled) setPasteResult(e instanceof Error ? e.message : String(e)); })
+      .finally(() => { if (!cancelled) setPasteCountdown(null); });
+    return () => { cancelled = true; };
+  }, [pasteCountdown]);
 
   async function copyReport() {
     try {
@@ -1301,7 +1324,25 @@ function DiagnosticsCard({ config, onConfigChanged }: { config: ConfigResult | n
         <button className="btn btn--ghost" type="button" onClick={() => void clearLogs()}>
           <Icon name="trash" size={12}/> {t("Очистить логи")}
         </button>
+        <Hint text={t("Кладёт пробный текст в буфер и вставляет его в активное окно тем же путём, что и диктовка. Отделяет поломку вставки от поломки распознавания.")}>
+          <button
+            className="btn btn--ghost"
+            type="button"
+            data-testid="paste-test"
+            disabled={pasteCountdown !== null}
+            onClick={() => { setPasteResult(null); setPasteCountdown(PASTE_TEST_DELAY_SECONDS); }}
+          >
+            <Icon name="test" size={12}/> {pasteCountdown === null
+              ? t("Проверить вставку")
+              : pasteCountdown > 0
+                ? t("Переключитесь в нужное окно… {p0}", { p0: pasteCountdown.toString() })
+                : t("Вставляю…")}
+          </button>
+        </Hint>
       </div>
+      {pasteResult && (
+        <p data-testid="paste-test-result" style={{ margin: "10px 0 0", font: "400 11.5px/1.5 var(--font-sans)", color: "var(--ink-mute)" }}>{pasteResult}</p>
+      )}
       {report && (
         <pre style={{ margin: "12px 0 0", padding: 10, background: "var(--bg-2)", border: "1px solid var(--line)", borderRadius: "var(--radius)", font: "500 11px/1.5 var(--font-mono)", color: "var(--ink-mute)", whiteSpace: "pre-wrap", overflowX: "auto" }}>{report}</pre>
       )}
