@@ -37,28 +37,11 @@
   --accent-soft: rgba(230, 138, 61, 0.14);
   --accent-soft-2: rgba(230, 138, 61, 0.26);
   --accent-ink: #1a1208;
-  /* One ring for «выбрано» and «в фокусе», everywhere in the app.
-     It used to be spelled out at every site as `0 0 0 3px var(--accent-soft-2)`,
-     and since `--border-accent` is an alias of that same translucent colour, a
-     focused field wore 4px of orange fog without a crisp edge anywhere in it.
-     A single line in the accent colour is thinner and easier to see at once — the
-     menu's search field had already been trimmed to 1.5px locally for exactly
-     that reason.
-     No light-theme twin: `--accent` is one colour in both themes, and the
-     accent picker sets it inline on the root (see `applyAccent` in accent.ts), so
-     the ring follows the chosen colour on its own.
-     A quarter short of the full accent: at full strength the line was louder
-     than the thing it marks, and where a card and its field are highlighted
-     at once the two of them shouted over each other. */
-  --ring-color: color-mix(in srgb, var(--accent) 75%, transparent);
+  /* Share the contrast-adjusted text colour with focus and selection rings.
+     The translucent stroke stays quieter than the text it marks. */
+  --ring-color: color-mix(in srgb, var(--accent-text) 75%, transparent);
   --ring: 0 0 0 1px var(--ring-color);
-  /* The accent as a text colour. On a dark background this is the same as
-     --accent-strong; on a light one it gives a contrast of 2.1 and is only
-     readable up close, so the light theme replaces the token with a darkened
-     version. A separate token rather than an override of --accent-strong,
-     because applyAccent() writes the accent variables inline into the root's
-     style — inline beats any [data-theme] block, and --accent-text is never
-     written inline. */
+  /* Startup fallback; applyAccent derives text from the current theme surfaces. */
   --accent-text: var(--accent-strong);
 
   --ok: #4ade80;       --ok-soft: rgba(74, 222, 128, 0.14);
@@ -133,10 +116,7 @@
   --accent-soft: rgba(230, 138, 61, 0.16);
   --accent-soft-2: rgba(230, 138, 61, 0.30);
 
-  /* Derived from the chosen accent rather than written as a literal: the accent
-     is free-form (see `accentVariables`), and after this mix the four presets
-     give between 4.8 and 6.5 on a light background. A colour picked by hand can
-     land outside that range — the mix keeps it in the same direction. */
+  /* Startup fallback before the saved interface colour is applied. */
   --accent-text: color-mix(in srgb, var(--accent) 55%, #12101a);
 
   /* The dark theme's status colours are pastels chosen to glow against
@@ -227,7 +207,7 @@ button, input, textarea, select { font: inherit; }
 .btn--ghost { background: transparent; border-color: transparent; color: var(--ink-dim); }
 .btn--ghost:hover:not(:disabled) { background: var(--bg-2); color: var(--ink); }
 .btn--primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; box-shadow: 0 1px 0 rgba(255,255,255,0.18) inset, 0 1px 0 rgba(0,0,0,0.18); }
-.btn--primary:hover:not(:disabled) { background: #ffb649; color: var(--accent-ink); }
+.btn--primary:hover:not(:disabled) { background: var(--accent-strong); color: var(--accent-ink); }
 /* A square button for a single icon: without it the button's padding stretched
    the trash can into a rectangle wider than the icon itself. */
 .btn--icon { width: 32px; padding: 0; flex: 0 0 auto; }
@@ -272,7 +252,7 @@ button, input, textarea, select { font: inherit; }
    all: a card filled differently from the rest reads as torn out of the grid. */
 .model-card2 { display: flex; flex-direction: column; gap: 7px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg-3); min-width: 0; cursor: pointer; transition: border-color .14s ease, background .14s ease; }
 .model-card2:hover:not(:disabled) { background: var(--bg-2); }
-.model-card2:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.model-card2:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
 /* Border thickness comes from an inset shadow rather than border-width: that
    would eat a pixel from the content and the cards in the grid would drift a
    row upward. */
@@ -312,7 +292,7 @@ button, input, textarea, select { font: inherit; }
 .model-meters { margin-left: auto; flex: 0 0 auto; display: flex; flex-direction: column; gap: 2px; }
 .model-meter { display: flex; align-items: center; justify-content: space-between; gap: 7px; padding: 0; border: 0; background: transparent; color: var(--ink-dim); font: 500 11px/1.35 var(--font-sans); cursor: pointer; white-space: nowrap; }
 .model-meter:hover { color: var(--ink); }
-.model-meter:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.model-meter:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
 .model-meter[data-warning] { color: var(--warn); }
 .model-meter__track { display: inline-flex; align-items: center; width: 48px; height: 5px; border-radius: var(--radius-sm); background: var(--bg-4); }
 .model-meter__fill { height: 100%; border-radius: inherit; background: var(--ink-mute); }
@@ -422,7 +402,7 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 }
 .segmented__option[data-selected="true"] { color: var(--ink); }
 .segmented__option:disabled { cursor: not-allowed; }
-.segmented__option:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.segmented__option:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
 
 /* The motion here is decoration, and the system's request to remove it wins. */
 @media (prefers-reduced-motion: reduce) {
@@ -624,7 +604,7 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
    for the keyboard, so it is kept. */
 .custom-select__button:hover:not(:disabled),
 .custom-select__button[aria-expanded="true"] { background: var(--bg-4); border-color: var(--line-strong); }
-.custom-select__button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.custom-select__button:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
 /* The select shares a row with its caption: the caption takes the width of its
    text, the rest goes to the select. */
 .custom-select--grow { flex: 1 1 auto; min-width: 0; }
@@ -952,7 +932,7 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 .profile-add { appearance: none; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 32px; padding: 0 12px; border-radius: var(--radius-sm); border: 1px dashed var(--line-strong); background: transparent; color: var(--ink-dim); font: 500 12px/1 var(--font-sans); }
 .profile-add:hover:not(:disabled) { background: var(--bg-2); color: var(--ink); border-color: var(--accent-soft-2); }
 .profile-add--primary { background: var(--accent); color: var(--accent-ink); border-style: solid; border-color: transparent; box-shadow: 0 1px 0 rgba(255,255,255,0.18) inset, 0 1px 0 rgba(0,0,0,0.18); }
-.profile-add--primary:hover:not(:disabled) { background: #ffb649; color: var(--accent-ink); border-color: transparent; }
+.profile-add--primary:hover:not(:disabled) { background: var(--accent-strong); color: var(--accent-ink); border-color: transparent; }
 
 /* Inline save indicator next to a field */
 .save-indicator { display: inline-flex; align-items: center; gap: 4px; font: 500 10px/1 var(--font-mono); color: var(--ink-mute); }
@@ -1127,7 +1107,7 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
   transition: background .12s ease, color .12s ease, border-color .12s ease;
 }
 .sidebar-brand__toggle:hover:not(:disabled) { background: var(--bg-3); border-color: var(--line-strong); color: var(--ink); }
-.sidebar-brand__toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sidebar-brand__toggle:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
 /* The button is wrapped in a Hint, so the flex item of the row is the hint's
    anchor, not the button: the push to the right edge belongs on the anchor. */
 .sidebar-brand > .hint-anchor { margin-left: auto; flex: 0 0 auto; }
@@ -1498,7 +1478,7 @@ button.card { appearance: none; font: inherit; color: inherit; }
 /* Compact summary tile for inline pickers (model summary, etc.) */
 .summary-tile { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: var(--bg-2); border: 1px solid var(--line-strong); border-radius: 7px; min-height: 32px; flex-wrap: wrap; cursor: pointer; transition: border-color .12s, background .12s; }
 .summary-tile:hover:not(:disabled) { background: var(--bg-3); border-color: var(--line-strong); }
-.summary-tile:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.summary-tile:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
 
 /* Pickers inside a set-cell take full width of the cell */
 .set-cell .custom-select { width: 100%; max-width: none; }
@@ -1862,7 +1842,7 @@ button.card { appearance: none; font: inherit; color: inherit; }
   transition: border-color .15s, background .15s;
 }
 .ai-mode-card:hover:not(:disabled) { border-color: var(--accent-soft-2); }
-.ai-mode-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ai-mode-card:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
 .ai-mode-card[data-selected="true"] {
   border-color: var(--accent);
   background: var(--accent-soft);
@@ -2079,7 +2059,7 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .overlay-screen__zone { position: relative; appearance: none; min-width: 0; padding: 0; margin: 4px; border: 1px dashed transparent; border-radius: 8px; background: transparent; cursor: pointer; }
 .overlay-screen__zone:hover:not(:disabled) { border-color: var(--line-strong); background: rgba(255, 255, 255, 0.03); }
 .overlay-screen__zone:disabled { cursor: default; }
-.overlay-screen__zone:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.overlay-screen__zone:focus-visible { outline: 2px solid var(--overlay-edge); outline-offset: -2px; }
 /* The dot marks an empty zone as a place the overlay can go: an area that does
    nothing until hovered does not look clickable. */
 .overlay-screen__zone::after { content: ""; position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%; background: var(--ink-faint); opacity: 0; transition: opacity 120ms ease; }
@@ -2119,7 +2099,7 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .overlay-swatch--accent { border-color: color-mix(in srgb, var(--swatch) 55%, #000); background: var(--swatch); }
 .overlay-swatch[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--bg-2), 0 0 0 4px var(--accent); }
 .overlay-swatch:disabled { cursor: default; opacity: 0.55; }
-.overlay-swatch:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+.overlay-swatch:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 4px; }
 .overlay-swatches { min-height: 34px; align-content: center; }
 
 /* The interface colour in «Дополнительно»: the same swatches plus the system

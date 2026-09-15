@@ -44,6 +44,18 @@ def test_tray_pause_replacements(app, page):
     ui.saved("replacements_paused", False)
 
 
+def test_tray_uses_saved_interface_color_and_live_updates(app, page):
+    ui = app("tray", config={"ui_accent": "#102040", "theme": "dark"})
+    root = page.locator("html")
+    expect(root).to_have_css("--accent", "#102040")
+    ui.emit("config-updated", {"ui_accent": "#3dc97c", "theme": "light"})
+    expect(root).to_have_css("--accent", "#3dc97c")
+    expect(root).to_have_attribute("data-theme", "light")
+    ui.emit("config-updated", {"theme": "dark"})
+    expect(root).to_have_css("--accent", "#e68a3d")
+    expect(root).to_have_attribute("data-theme", "dark")
+
+
 @pytest.mark.parametrize(
     "label,tab",
     [("Настройки", "settings"), ("Статистика", "stats"), ("Справка", "info")],

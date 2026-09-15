@@ -528,11 +528,6 @@ fn position_overlay(window: &tauri::WebviewWindow) -> Result<(), String> {
         (width * scale).round() as u32,
         (height * scale).round() as u32,
     );
-    if window.inner_size().map_err(|e| e.to_string())? != win_size {
-        window
-            .set_size(tauri::Size::Physical(win_size))
-            .map_err(|e| e.to_string())?;
-    }
     let (x, y) = overlay_origin(
         (monitor_pos.x, monitor_pos.y),
         (monitor_size.width, monitor_size.height),
@@ -540,23 +535,59 @@ fn position_overlay(window: &tauri::WebviewWindow) -> Result<(), String> {
         (prefs.edge_offset * scale).round() as i32,
         prefs.anchor,
     );
-    if let Ok(current) = window.outer_position() {
-        if current.x == x && current.y == y {
-            return Ok(());
-        }
+    apply_geometry(window, win_size, PhysicalPosition::new(x, y))
+}
+
+trait OverlayGeometry {
+    fn size(&self) -> Result<tauri::PhysicalSize<u32>, String>;
+    fn position(&self) -> Result<PhysicalPosition<i32>, String>;
+    fn resize(&self, size: tauri::PhysicalSize<u32>) -> Result<(), String>;
+    fn move_to(&self, position: PhysicalPosition<i32>) -> Result<(), String>;
+}
+
+impl OverlayGeometry for tauri::WebviewWindow {
+    fn size(&self) -> Result<tauri::PhysicalSize<u32>, String> {
+        self.inner_size().map_err(|e| e.to_string())
     }
-    eprintln!(
-        "[overlay] position_overlay: monitor=({:?},{:?},{:?}x{:?}) window={:?}x{:?} -> ({x},{y})",
-        monitor_pos.x,
-        monitor_pos.y,
-        monitor_size.width,
-        monitor_size.height,
-        win_size.width,
-        win_size.height
-    );
-    window
-        .set_position(Position::Physical(PhysicalPosition::new(x, y)))
-        .map_err(|e| e.to_string())?;
+
+    fn position(&self) -> Result<PhysicalPosition<i32>, String> {
+        self.outer_position().map_err(|e| e.to_string())
+    }
+
+    fn resize(&self, size: tauri::PhysicalSize<u32>) -> Result<(), String> {
+        self.set_size(tauri::Size::Physical(size))
+            .map_err(|e| e.to_string())
+    }
+
+    fn move_to(&self, position: PhysicalPosition<i32>) -> Result<(), String> {
+        self.set_position(Position::Physical(position))
+            .map_err(|e| e.to_string())
+    }
+}
+
+fn apply_geometry(
+    window: &impl OverlayGeometry,
+    size: tauri::PhysicalSize<u32>,
+    position: PhysicalPosition<i32>,
+) -> Result<(), String> {
+    let moved = window.position()? != position;
+    if moved {
+        // Moving across monitors lets Tao apply the new DPI first. Resizing in
+        // target physical pixels before that move would scale the size twice.
+        window.move_to(position)?;
+    }
+    let resized = window.size()? != size;
+    if moved || resized {
+        eprintln!("[overlay] apply_geometry: window={size:?} -> {position:?}");
+    }
+    if resized {
+        window.resize(size)?;
+    }
+    // DPI handling and macOS resizing can shift the origin. Always enqueue a
+    // final move after a resize: macOS applies content sizes asynchronously.
+    if resized || (moved && window.position()? != position) {
+        window.move_to(position)?;
+    }
     Ok(())
 }
 
@@ -784,6 +815,82 @@ pub fn subscribe_engine_events(app: &AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct SimulatedGeometry {
+        size: tauri::PhysicalSize<u32>,
+        position: PhysicalPosition<i32>,
+        scale: f64,
+        writes: usize,
+    }
+
+    struct SimulatedWindow {
+        geometry: std::cell::RefCell<SimulatedGeometry>,
+        target_scale: f64,
+    }
+
+    impl OverlayGeometry for SimulatedWindow {
+        fn size(&self) -> Result<tauri::PhysicalSize<u32>, String> {
+            Ok(self.geometry.borrow().size)
+        }
+
+        fn position(&self) -> Result<PhysicalPosition<i32>, String> {
+            Ok(self.geometry.borrow().position)
+        }
+
+        fn resize(&self, size: tauri::PhysicalSize<u32>) -> Result<(), String> {
+            let mut geometry = self.geometry.borrow_mut();
+            // A native resize may preserve the bottom edge rather than the top.
+            geometry.position.y += geometry.size.height as i32 - size.height as i32;
+            geometry.size = size;
+            geometry.writes += 1;
+            Ok(())
+        }
+
+        fn move_to(&self, position: PhysicalPosition<i32>) -> Result<(), String> {
+            let mut geometry = self.geometry.borrow_mut();
+            geometry.position = position;
+            if geometry.scale != self.target_scale {
+                // Tao's WM_DPICHANGED preserves the window's logical size.
+                geometry.size = geometry
+                    .size
+                    .to_logical::<f64>(geometry.scale)
+                    .to_physical(self.target_scale);
+                geometry.scale = self.target_scale;
+                geometry.position.y += 17;
+            }
+            geometry.writes += 1;
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn geometry_survives_dpi_changes_and_native_origin_adjustments() {
+        for (old_scale, target_scale) in [(1.0, 2.0), (2.0, 1.0), (1.25, 1.5)] {
+            for (width, height) in [(72.0, 72.0), (308.0, 64.0), (600.0, 150.0)] {
+                let window = SimulatedWindow {
+                    geometry: std::cell::RefCell::new(SimulatedGeometry {
+                        size: tauri::LogicalSize::new(72.0, 72.0).to_physical(old_scale),
+                        position: PhysicalPosition::new(-1000, 50),
+                        scale: old_scale,
+                        writes: 0,
+                    }),
+                    target_scale,
+                };
+                let size = tauri::LogicalSize::new(width, height).to_physical(target_scale);
+                let position = PhysicalPosition::new(400, 800);
+                apply_geometry(&window, size, position).unwrap();
+                assert_eq!(window.size().unwrap(), size);
+                assert_eq!(window.position().unwrap(), position);
+                let writes = window.geometry.borrow().writes;
+                apply_geometry(&window, size, position).unwrap();
+                assert_eq!(
+                    window.geometry.borrow().writes,
+                    writes,
+                    "stable geometry must not touch the native window"
+                );
+            }
+        }
+    }
 
     /// Overlay 308×64 — the size from tauri.conf.json.
     const OVERLAY: (u32, u32) = (308, 64);

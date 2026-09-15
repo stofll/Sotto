@@ -152,7 +152,7 @@ export function OverlaySettings({ config, onConfigChanged }: Props) {
         <Hint text={t("Щёлкните по месту на экране, где должен появляться оверлей.")}/>
       </span>
       <div className="overlay-screen" data-testid="overlay-preview" ref={screenRef}
-        style={{ aspectRatio: `${PREVIEW_WIDTH} / ${PREVIEW_HEIGHT}` }}>
+        style={{ ...overlayPalette(draft), aspectRatio: `${PREVIEW_WIDTH} / ${PREVIEW_HEIGHT}` }}>
         {OVERLAY_ANCHORS.map((anchor, index) => <button type="button" key={anchor}
           className="overlay-screen__zone" aria-label={anchorLabels[index]}
           aria-pressed={draft.anchor === anchor} disabled={locked}

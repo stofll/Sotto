@@ -18,7 +18,9 @@ The overlay color is independent of the interface color. Older configurations us
 
 **Interface color** now lives in **Settings → Advanced**. Four presets are shortcuts; the swatch with the rainbow ring opens the system color picker and any `#rrggbb` value is accepted. The companion tokens are derived from it: hover gets a lighter shade, and the text printed on the accent flips between near-black and near-white so a pale yellow and a navy both stay readable. The color is applied while the picker is being dragged and written to the configuration once the dragging settles.
 
-The interface color is stored in the configuration. If saving fails, the interface returns to its saved color; select the color again to retry. On the first successful settings load after upgrading, an older accent from browser storage is copied to configuration if no value is already saved. An existing configuration value takes precedence.
+The interface color is stored in the configuration and applies to both Settings and the tray popup. Accent text and keyboard focus outlines adjust to the current light or dark theme to stay readable. If saving fails, the interface returns to its saved color; select the color again to retry.
+
+On the first successful settings load after upgrading, an older accent from browser storage is copied to configuration if no value is already saved. An existing configuration value takes precedence.
 
 Sizes S, M and L change the native window and its contents together. Custom color sliders preview their palette in Settings; they save when the adjustment ends.
 

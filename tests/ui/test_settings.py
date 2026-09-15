@@ -198,6 +198,10 @@ def test_overlay_preferences_persist_and_center_keeps_offset(app, page):
     offset.press("Tab")
     settings.get_by_role("button", name="По центру", exact=True).click()
     expect(offset).to_be_disabled()
+    steppers = settings.locator(".number-field__steppers button")
+    for button in steppers.all():
+        expect(button).to_be_disabled()
+        button.evaluate("e => e.click()")
     assert ui.state()["config"]["overlay"] == {
         "form": "bead",
         "size": "l",
@@ -209,6 +213,11 @@ def test_overlay_preferences_persist_and_center_keeps_offset(app, page):
     settings.get_by_role("button", name="Сверху слева", exact=True).click()
     expect(offset).to_be_enabled()
     expect(offset).to_have_value("128")
+    steppers.first.click()
+    expect(offset).to_have_value("129")
+    page.wait_for_function(
+        "window.__sottoTest.state.config.overlay.edge_offset === 129"
+    )
     expect(settings.get_by_role("button", name="Бусина", exact=True)).to_have_attribute(
         "aria-pressed", "true"
     )
@@ -217,9 +226,14 @@ def test_overlay_preferences_persist_and_center_keeps_offset(app, page):
 def test_overlay_save_failure_rolls_back_and_retries(app, page):
     ui = app(config={"ui_accent": "#e68a3d"})
     settings = open_overlay_settings(page)
-    ui.queue("save_config", {"error": "Synthetic disk full"})
+    ui.queue("save_config", {"hold": True})
     bead = settings.get_by_role("button", name="Бусина", exact=True)
     bead.click()
+    for button in settings.locator(".number-field__steppers button").all():
+        expect(button).to_be_disabled()
+        button.evaluate("e => e.click()")
+    assert len(ui.calls("save_config")) == 1
+    ui.settle("save_config", error="Synthetic disk full")
     expect(settings.get_by_role("alert")).to_contain_text("Не удалось сохранить")
     expect(settings.get_by_role("button", name="Пилюля", exact=True)).to_have_attribute(
         "aria-pressed", "true"

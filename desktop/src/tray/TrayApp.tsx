@@ -8,6 +8,7 @@ import { invoke } from "../bridge/invoke";
 import type { ConfigResult, MicrophoneResult, RuntimeStatusResult } from "../bridge/types";
 import { applyLocaleFromConfig, t, useLocale } from "../i18n";
 import { DEFAULT_HOTKEY } from "../hotkey";
+import { applyAccent, resolveAccent } from "../accent";
 import { actualDeviceLabel, actualEngineLabel, actualModelLabel } from "../pages/runtimePresentation";
 
 type TabId = "settings" | "text" | "ai" | "stats" | "info";
@@ -78,6 +79,11 @@ export function TrayApp() {
   useEffect(() => {
     configRef.current = config;
   }, [config]);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = config?.theme ?? "dark";
+    applyAccent(resolveAccent(config?.ui_accent));
+  }, [config?.ui_accent, config?.theme]);
 
   useLayoutEffect(() => {
     const htmlBg = document.documentElement.style.background;

@@ -20,36 +20,56 @@ function channels(hex: string): [number, number, number] {
 function hex(channel: number): string {
   return Math.round(Math.min(255, Math.max(0, channel))).toString(16).padStart(2, "0");
 }
-function mix(color: string, target: 0 | 255, amount: number): string {
-  const [r, g, b] = channels(color);
-  const towards = (channel: number) => channel + (target - channel) * amount;
-  return `#${hex(towards(r))}${hex(towards(g))}${hex(towards(b))}`;
+function mix(color: string, target: string, amount: number): string {
+  const rgb = channels(color);
+  const other = channels(target);
+  return `#${rgb.map((channel, index) => hex(channel + (other[index] - channel) * amount)).join("")}`;
 }
-/** sRGB luminance, enough to tell «dark colour» from «light» for a text choice. */
 function luminance(color: string): number {
-  const [r, g, b] = channels(color);
-  return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+  const [r, g, b] = channels(color).map((channel) => {
+    const value = channel / 255;
+    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
-// The four presets used to carry hand-picked companion colours. With a
-// free-form colour there is nobody to hand-pick them, so they are derived:
-// `strong` is the same colour a touch lighter for hover, and `ink` is the text
-// written *on* the accent — near-black on a light accent, near-white on a dark
-// one, so a navy or a lemon chosen in the picker both stay readable.
-export function accentVariables(color: string): Record<string, string> {
+// Retain the hue where possible, but ensure text works on every supplied surface.
+function readableColor(color: string, backgrounds: string[]): string {
+  const surfaces = backgrounds.map(luminance);
+  const contrast = (candidate: string) => {
+    const light = luminance(candidate);
+    return Math.min(...surfaces.map((surface) => (Math.max(light, surface) + 0.05) / (Math.min(light, surface) + 0.05)));
+  };
+  const target = contrast("#ffffff") > contrast("#000000") ? "#ffffff" : "#000000";
+  for (let step = 0; step <= 100; step++) {
+    const candidate = mix(color, target, step / 100);
+    if (contrast(candidate) >= 4.5) return candidate;
+  }
+  return target;
+}
+
+export function accentVariables(color: string, surfaces: string[] = []): Record<string, string> {
   const [r, g, b] = channels(color);
-  return {
+  const hover = mix(color, "#ffffff", 0.12);
+  const variables: Record<string, string> = {
     "--accent": color,
-    "--accent-strong": mix(color, 255, 0.12),
-    "--accent-ink": luminance(color) > 0.45 ? mix(color, 0, 0.9) : mix(color, 255, 0.92),
+    "--accent-strong": hover,
+    "--accent-ink": readableColor(luminance(color) > 0.179 ? mix(color, "#000000", 0.9) : mix(color, "#ffffff", 0.92), [color, hover]),
     "--accent-soft": `rgba(${r}, ${g}, ${b}, 0.14)`,
     "--accent-soft-2": `rgba(${r}, ${g}, ${b}, 0.26)`,
   };
+  if (surfaces.length) {
+    const backgrounds = surfaces.flatMap((surface) => [surface, mix(surface, color, 0.14), mix(surface, color, 0.26)]);
+    variables["--accent-text"] = readableColor(color, backgrounds);
+  }
+  return variables;
 }
 
 export function applyAccent(color: string) {
   const root = document.documentElement;
-  for (const [name, value] of Object.entries(accentVariables(resolveAccent(color)))) {
+  const style = getComputedStyle(root);
+  const surfaces = [0, 1, 2, 3, 4, 5].map((index) => style.getPropertyValue(`--bg-${index}`).trim());
+  for (const [name, value] of Object.entries(accentVariables(resolveAccent(color), surfaces))) {
     root.style.setProperty(name, value);
   }
 }

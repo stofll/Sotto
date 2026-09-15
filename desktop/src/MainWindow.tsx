@@ -133,7 +133,7 @@ export function MainWindow() {
 
   useEffect(() => {
     applyAccent(accent);
-  }, [accent]);
+  }, [accent, theme]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
