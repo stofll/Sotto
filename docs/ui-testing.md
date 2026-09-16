@@ -61,7 +61,9 @@ The layout overflow check depends on font metrics, which differ between a develo
 
 The suite saves failure traces and screenshots under `test-results/`. The layout suite also saves screenshots on success for visual review; these are not approved pixel-diff baselines. Open an individual trace with `uv run --locked --project tests/ui playwright show-trace <path-to-trace.zip>`. Keep generated reports and screenshots out of commits.
 
-`.github/workflows/ui-tests.yml` runs Chromium and WebKit on pull requests and supports manual dispatch. It uploads the JUnit report and browser artifacts for seven days. Use a different `--output` directory for concurrent local runs because pytest-playwright cleans its output directory at session start.
+`.github/workflows/ui-tests.yml` runs Chromium and WebKit in parallel jobs on pull requests and supports manual dispatch. Each browser has a 15-minute limit and uploads its JUnit report and screenshots/traces in `ui-test-results-chromium` or `ui-test-results-webkit` for seven days. The aggregate `browser-ui` check passes only when both browser jobs succeed.
+
+Use a different `--output` directory for concurrent local runs because pytest-playwright cleans its output directory at session start.
 
 ## Native verification remains required
 

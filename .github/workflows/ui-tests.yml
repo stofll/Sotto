@@ -13,9 +13,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  browser-ui:
+  browser-tests:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, webkit]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -34,7 +38,7 @@ jobs:
           echo "$RUNNER_TEMP/ui-bootstrap/bin" >> "$GITHUB_PATH"
           "$RUNNER_TEMP/ui-bootstrap/bin/uv" sync --locked --project tests/ui --python 3.12
       - name: Install browsers
-        run: uv run --locked --project tests/ui playwright install --with-deps chromium webkit
+        run: uv run --locked --project tests/ui playwright install --with-deps ${{ matrix.browser }}
       - name: Check Python tests
         run: |
           uv run --locked --project tests/ui ruff check tests/ui
@@ -42,13 +46,25 @@ jobs:
       - name: Check harness types
         working-directory: desktop
         run: pnpm exec tsc -p ../tests/ui/tsconfig.json
-      - name: Test UI in Chromium and WebKit
-        run: uv run --locked --project tests/ui pytest tests/ui --browser chromium --browser webkit --junitxml=test-results/junit.xml
+      - name: Test UI in ${{ matrix.browser }}
+        run: uv run --locked --project tests/ui pytest tests/ui --browser ${{ matrix.browser }} --junitxml=test-results/junit.xml
       - name: Upload failure traces and test report
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: ui-test-results
+          name: ui-test-results-${{ matrix.browser }}
           path: test-results/
           if-no-files-found: ignore
           retention-days: 7
+
+  # Preserve the single check name used to gate the PR.
+  browser-ui:
+    if: always()
+    needs: browser-tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 1
+    steps:
+      - name: Require both browsers to pass
+        env:
+          BROWSER_RESULT: ${{ needs.browser-tests.result }}
+        run: test "$BROWSER_RESULT" = success

@@ -145,8 +145,17 @@ def test_pill_sizes_and_long_content(app, page, locale, streaming, size, output_
             },
         )
         expect(page.locator(".overlay-result")).to_be_visible()
+        # The result appears before the timer column finishes collapsing.
+        # Measure the final layout, after the transition and font loading.
+        page.evaluate("() => document.fonts.ready.then(() => true)")
+        page.locator(".overlay-row").evaluate(
+            "e => Promise.all(e.getAnimations().map(animation => animation.finished))"
+        )
         warning = page.locator(".overlay-result > div").last
-        assert warning.evaluate("e => e.scrollHeight <= e.clientHeight + 1")
+        dimensions = warning.evaluate(
+            "e => ({scroll: e.scrollHeight, client: e.clientHeight, width: e.clientWidth})"
+        )
+        assert dimensions["scroll"] <= dimensions["client"] + 1, dimensions
     button = page.get_by_role("button").bounding_box()
     assert button["x"] >= 0 and button["x"] + button["width"] <= width
     assert button["y"] >= 0 and button["y"] + button["height"] <= height
