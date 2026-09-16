@@ -13,7 +13,7 @@ use std::sync::Mutex;
 use windows_sys::Win32::Foundation::{HGLOBAL, HWND};
 use windows_sys::Win32::System::DataExchange::GetClipboardData;
 use windows_sys::Win32::System::DataExchange::{CloseClipboard, OpenClipboard};
-use windows_sys::Win32::System::Memory::{GlobalLock, GlobalUnlock};
+use windows_sys::Win32::System::Memory::{GlobalLock, GlobalSize, GlobalUnlock};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     keybd_event, MapVirtualKeyW, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT,
     KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP, MAPVK_VK_TO_VSC, VIRTUAL_KEY, VK_CONTROL, VK_LMENU,
@@ -52,6 +52,8 @@ const MODIFIER_VKS: [VIRTUAL_KEY; 9] = [
 /// session ends. On macOS this is a no-op (no alternative focus-tracking
 /// mechanism needed — `enigo` operates on the active app directly).
 pub fn capture_target_hwnd() -> Option<HWND> {
+    // SAFETY: argument-free query, callable from any thread; the returned
+    // handle is only ever passed back to Win32, never dereferenced.
     let hwnd = unsafe { GetForegroundWindow() };
     // `windows-sys 0.52` exports `HWND` as `isize`; null is `0`.
     // (Newer `windows-sys` versions wrap HWND in a pointer type with
@@ -59,14 +61,14 @@ pub fn capture_target_hwnd() -> Option<HWND> {
     if hwnd == 0 {
         return None;
     }
-    *CAPTURED.lock().expect("CAPTURED mutex poisoned") = Some(hwnd);
+    *crate::mutex_recover::lock(&CAPTURED) = Some(hwnd);
     Some(hwnd)
 }
 
 /// Read-only accessor for the captured HWND. Returns `None` if either no
 /// snapshot has been taken yet or `clear_captured_hwnd` was called.
 pub fn get_captured_hwnd() -> Option<HWND> {
-    *CAPTURED.lock().expect("CAPTURED mutex poisoned")
+    *crate::mutex_recover::lock(&CAPTURED)
 }
 
 /// Centre point of the captured window, in physical screen coordinates.
@@ -91,6 +93,11 @@ pub fn captured_window_center() -> Option<(f64, f64)> {
     };
     // Zero means the window is gone — a stale HWND from a closed window is
     // exactly the case this guards.
+    //
+    // SAFETY: `rect` is a live, fully initialised `RECT` and the callee
+    // writes no more than that. A stale handle is a correctness problem —
+    // Windows reuses HWND values, so it can name someone else's window —
+    // but never a memory-safety one: it is an index, not a pointer.
     if unsafe { GetWindowRect(hwnd, &mut rect) } == 0 {
         return None;
     }
@@ -106,7 +113,7 @@ pub fn captured_window_center() -> Option<(f64, f64)> {
 /// Drop the captured HWND. Called on the cancel path so a cancelled
 /// recording does not leak a stale HWND into the next session.
 pub fn clear_captured_hwnd() {
-    *CAPTURED.lock().expect("CAPTURED mutex poisoned") = None;
+    *crate::mutex_recover::lock(&CAPTURED) = None;
 }
 
 /// Bring `hwnd` to the foreground across the UIPI boundary.
@@ -126,6 +133,10 @@ pub fn force_focus(hwnd: HWND) -> Result<(), String> {
     if hwnd == 0 {
         return Err("null hwnd".into());
     }
+    // SAFETY: every call here is pointer-free — a VK, a process id, a
+    // window handle. A stale `hwnd` can name a different window (Windows
+    // reuses handle values), which would raise the wrong window; it cannot
+    // be dereferenced, because it is an index into a kernel table.
     unsafe {
         // ALT-key trick to unlock the foreground-window lock.
         keybd_event(VK_MENU as u8, 0, 0, 0);
@@ -190,6 +201,8 @@ fn key_input(vk: VIRTUAL_KEY, scan: u16, flags: KEYBD_EVENT_FLAGS) -> INPUT {
 /// which is how a UIPI block surfaces. That is a real signal the caller
 /// can escalate on, unlike `keybd_event` (Strategy 2), which is `void`.
 pub fn send_ctrl_v_sendinput() -> Result<(), String> {
+    // SAFETY: `MapVirtualKeyW` is a pure VK→scan-code lookup with no
+    // pointer arguments.
     let ctrl_scan = unsafe { MapVirtualKeyW(VK_CONTROL as u32, MAPVK_VK_TO_VSC) } as u16;
     let v_scan = unsafe { MapVirtualKeyW(VK_V as u32, MAPVK_VK_TO_VSC) } as u16;
 
@@ -199,6 +212,9 @@ pub fn send_ctrl_v_sendinput() -> Result<(), String> {
         key_input(VK_V, v_scan, KEYEVENTF_KEYUP),
         key_input(VK_CONTROL, ctrl_scan, KEYEVENTF_KEYUP),
     ];
+    // SAFETY: `inputs` is a live array, and both the count and the struct
+    // size passed alongside it are derived from that array — a mismatched
+    // `cbSize` is the documented way to make `SendInput` read wrong.
     let sent = unsafe {
         SendInput(
             inputs.len() as u32,
@@ -227,11 +243,15 @@ pub fn send_ctrl_v_sendinput() -> Result<(), String> {
 /// is layout-invariant either way, but the failure mode (a partial
 /// `SendInput` under UIPI) is worth reporting identically.
 pub fn send_enter_sendinput() -> Result<(), String> {
+    // SAFETY: pure VK→scan-code lookup, no pointers involved.
     let scan = unsafe { MapVirtualKeyW(VK_RETURN as u32, MAPVK_VK_TO_VSC) } as u16;
     let inputs = [
         key_input(VK_RETURN, scan, 0),
         key_input(VK_RETURN, scan, KEYEVENTF_KEYUP),
     ];
+    // SAFETY: `inputs` is a live array, and both the count and the struct
+    // size passed alongside it are derived from that array — a mismatched
+    // `cbSize` is the documented way to make `SendInput` read wrong.
     let sent = unsafe {
         SendInput(
             inputs.len() as u32,
@@ -266,6 +286,8 @@ pub fn send_enter_sendinput() -> Result<(), String> {
 /// from the VK; passing an explicit scan code would force a hardware-
 /// specific code that might not match the user's layout.
 pub fn send_ctrl_v_keybd_event() -> Result<(), String> {
+    // SAFETY: `keybd_event` takes scalars only and is callable from any
+    // thread; there is nothing here for the caller to get wrong.
     unsafe {
         keybd_event(VK_CONTROL as u8, 0, 0, 0); // Ctrl down
         keybd_event(0x56, 0, 0, 0); // 'V' down (VK_V = 0x56)
@@ -284,6 +306,8 @@ pub fn send_ctrl_v_keybd_event() -> Result<(), String> {
 /// remain stuck regardless of which side of the keyboard the user was
 /// pressing.
 pub fn release_stuck_modifiers() -> Result<(), String> {
+    // SAFETY: `keybd_event` takes scalars only — see
+    // `send_ctrl_v_keybd_event`.
     unsafe {
         for vk in MODIFIER_VKS.iter().copied() {
             keybd_event(vk as u8, 0, KEYEVENTF_KEYUP, 0);
@@ -310,12 +334,27 @@ pub fn send_wm_paste(hwnd: HWND) -> Result<(), String> {
     if hwnd == 0 {
         return Err("null hwnd".into());
     }
+    // SAFETY: `WM_PASTE` carries no payload, so both message parameters are
+    // plain zeros rather than pointers the callee would follow; the handle
+    // is checked non-null above and validated by Win32.
     let result = unsafe {
         use windows_sys::Win32::UI::WindowsAndMessaging::{SendMessageW, WM_PASTE};
         SendMessageW(hwnd, WM_PASTE, 0, 0)
     };
     let _ = result; // success confirmed by clipboard verification in the caller
     Ok(())
+}
+
+/// Length in `u16` units of the text stored in a `CF_UNICODETEXT`
+/// buffer, or `None` if `buf` holds no NUL terminator at all.
+///
+/// `buf` is the whole allocation as reported by `GlobalSize`, so the
+/// terminator may sit anywhere inside it — including the last slot, or
+/// not at all when the writing process got the format wrong. Split out
+/// from `clipboard_contains` because that function needs a real
+/// clipboard and cannot run in CI; this part can.
+fn text_len_until_nul(buf: &[u16]) -> Option<usize> {
+    buf.iter().position(|&unit| unit == 0)
 }
 
 /// Read the current clipboard text and compare it to `expected`.
@@ -332,7 +371,15 @@ pub fn send_wm_paste(hwnd: HWND) -> Result<(), String> {
 /// lock contention says nothing about the clipboard's contents: another
 /// process (commonly the paste target itself, or a clipboard manager)
 /// simply had it open at that instant.
+///
+/// The text itself is read under a bound derived from `GlobalSize`, not
+/// up to the first NUL: a foreign process owns that buffer. A block too
+/// small to hold one UTF-16 unit and a block with no NUL inside it both
+/// yield `false`.
 pub fn clipboard_contains(expected: &str) -> bool {
+    // SAFETY: the clipboard is opened before any of these calls and closed
+    // on the way out; the handle is only used while it is open and locked,
+    // and the one raw read is bounded by `GlobalSize` (see below).
     unsafe {
         // windows-sys 0.52: `OpenClipboard(hwnd: HWND) -> BOOL`. The
         // documented failure sentinel is a zero return — `.is_err()` is
@@ -352,17 +399,37 @@ pub fn clipboard_contains(expected: &str) -> bool {
                 if ptr.is_null() {
                     false
                 } else {
-                    let mut len = 0usize;
-                    while *ptr.add(len) != 0 {
-                        len += 1;
-                    }
-                    let slice = std::slice::from_raw_parts(ptr, len);
-                    let s = String::from_utf16_lossy(slice);
+                    // Bound the read by the allocation instead of scanning
+                    // for the first NUL: the buffer is written by an
+                    // arbitrary foreign process (commonly a clipboard
+                    // manager), so a missing terminator would otherwise walk
+                    // off the end of someone else's memory. `GlobalSize`
+                    // returns the block size in bytes; `CF_UNICODETEXT` is
+                    // UTF-16, hence `/ 2` for the unit count. A 0 here means
+                    // an error: an empty clipboard string is still a lone
+                    // terminator, so a real block is never shorter than one
+                    // unit. Either way there is nothing to compare.
+                    let units = GlobalSize(hg) / 2;
+                    let matched = if units == 0 {
+                        false
+                    } else {
+                        // SAFETY: `ptr` is the locked start of a block of at
+                        // least `units * 2` bytes, so `units` u16s are in
+                        // bounds. The clipboard stays open (and the handle
+                        // locked) for the whole lifetime of `buf`.
+                        let buf = std::slice::from_raw_parts(ptr, units);
+                        match text_len_until_nul(buf) {
+                            Some(len) => String::from_utf16_lossy(&buf[..len]) == expected,
+                            // No terminator inside the allocation: treat the
+                            // contents as not ours rather than reading on.
+                            None => false,
+                        }
+                    };
                     // Balance the GlobalLock. The lock count is per-handle
                     // and persists after CloseClipboard, so skipping this
                     // leaks a lock on every single readback.
                     GlobalUnlock(hg);
-                    s == expected
+                    matched
                 }
             }
         };
@@ -458,6 +525,47 @@ mod tests {
         let _typed: u16 = VK_SHIFT;
         // And the const itself is u16.
         let _also_typed: VIRTUAL_KEY = VK_SHIFT;
+    }
+
+    /// A well-formed `CF_UNICODETEXT` block: the terminator sits before
+    /// the end of the allocation (Windows rounds block sizes up), and only
+    /// the text in front of it belongs to the clipboard contents.
+    #[test]
+    fn text_len_stops_at_the_terminator() {
+        let buf: Vec<u16> = "hi\0\0\0".encode_utf16().collect();
+        assert_eq!(text_len_until_nul(&buf), Some(2));
+    }
+
+    /// An empty clipboard string is a lone terminator — length 0, not
+    /// "no terminator".
+    #[test]
+    fn text_len_of_an_empty_string_is_zero() {
+        assert_eq!(text_len_until_nul(&[0]), Some(0));
+    }
+
+    /// The terminator may legitimately be the very last unit of the
+    /// block. Off-by-one here would report the buffer as unterminated and
+    /// discard a valid readback.
+    #[test]
+    fn text_len_accepts_a_terminator_in_the_last_slot() {
+        let buf: Vec<u16> = "abc\0".encode_utf16().collect();
+        assert_eq!(text_len_until_nul(&buf), Some(3));
+    }
+
+    /// The case the bound exists for: a foreign process wrote text with
+    /// no terminator inside the block. Reading on would leave the
+    /// allocation, so the answer is "no length", and the caller reports
+    /// a mismatch.
+    #[test]
+    fn text_len_is_none_without_a_terminator() {
+        let buf: Vec<u16> = "abc".encode_utf16().collect();
+        assert_eq!(text_len_until_nul(&buf), None);
+    }
+
+    /// A zero-length block has nothing to scan — also "no length".
+    #[test]
+    fn text_len_of_an_empty_buffer_is_none() {
+        assert_eq!(text_len_until_nul(&[]), None);
     }
 
     /// `clipboard_contains` is the success-signal after a paste attempt.

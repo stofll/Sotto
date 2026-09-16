@@ -140,6 +140,8 @@ fn wide_to_string(buf: &[u16]) -> String {
 
 fn class_name(hwnd: HWND) -> String {
     let mut buf = [0u16; 256];
+    // SAFETY: the buffer is live and its true capacity is passed alongside
+    // the pointer, so the callee cannot write past it.
     let len = unsafe { GetClassNameW(hwnd, buf.as_mut_ptr(), buf.len() as i32) };
     if len <= 0 {
         return "<unknown>".to_string();
@@ -149,6 +151,8 @@ fn class_name(hwnd: HWND) -> String {
 
 fn window_title(hwnd: HWND) -> String {
     let mut buf = [0u16; 256];
+    // SAFETY: buffer and its real capacity are passed together — see
+    // `class_name`.
     let len = unsafe { GetWindowTextW(hwnd, buf.as_mut_ptr(), buf.len() as i32) };
     if len <= 0 {
         return String::new();
@@ -161,6 +165,8 @@ fn window_title(hwnd: HWND) -> String {
 /// DWM ignored it", which the existing code cannot tell apart.
 fn cloaked(hwnd: HWND) -> String {
     let mut value: u32 = 0;
+    // SAFETY: `DWMWA_CLOAKED` writes a `DWORD`, which is exactly the local
+    // `u32` described by the `size_of_val` passed with it.
     let hr = unsafe {
         DwmGetWindowAttribute(
             hwnd,
@@ -191,6 +197,9 @@ pub fn snapshot(hwnd: HWND, label: &str) {
     if !enabled() {
         return;
     }
+    // SAFETY: five read-only window queries; the only pointer is the
+    // explicit null `GetWindowThreadProcessId` documents as "don't report
+    // the process id". An invalid handle yields zeros, not a fault.
     let (style, exstyle, visible, hung, thread) = unsafe {
         (
             GetWindowLongPtrW(hwnd, GWL_STYLE),
@@ -200,6 +209,8 @@ pub fn snapshot(hwnd: HWND, label: &str) {
             GetWindowThreadProcessId(hwnd, std::ptr::null_mut()),
         )
     };
+    // SAFETY: `RECT` is four `i32`s, for which all-zero is a valid value,
+    // and the callee only writes within the `RECT` it is handed.
     let mut rect = unsafe { std::mem::zeroed() };
     let have_rect = unsafe { GetWindowRect(hwnd, &mut rect) != 0 };
     let rect_text = if have_rect {
@@ -279,6 +290,9 @@ pub fn enumerate_top_level(ours: HWND, label: &str) {
         ours,
         found: Vec::new(),
     };
+    // SAFETY: `state` outlives the call — `EnumWindows` is synchronous —
+    // and `enum_proc` casts the `LPARAM` back to the `EnumState` it was
+    // made from, which is the only thing passed in this parameter.
     unsafe {
         EnumWindows(Some(enum_proc), &mut state as *mut _ as LPARAM);
     }

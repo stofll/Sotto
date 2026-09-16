@@ -82,8 +82,8 @@ jobs:
         run: cargo-audit audit
 
   # ---------------------------------------------------------------
-  # Lint runs once on Linux (fmt + clippy are platform-independent
-  # for our code; running them 3x wastes runner minutes).
+  # Run fmt once. Clippy also runs in the Windows/macOS build jobs
+  # because Linux cannot lint their platform-specific code.
   # ---------------------------------------------------------------
   lint:
     name: Cargo fmt + clippy (Linux)
@@ -173,7 +173,8 @@ jobs:
   build-test:
     name: Build + test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    # Allow time for the additional platform-specific Clippy pass.
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -283,6 +284,12 @@ jobs:
             cargo build --locked -p sherpa-onnx-sys
           }
           powershell -NoProfile -ExecutionPolicy Bypass -File prepare-native-libs.ps1
+
+      # Linux is already covered by the lint job.
+      - name: Clippy (deny warnings)
+        if: runner.os != 'Linux'
+        working-directory: desktop/src-tauri
+        run: cargo clippy --locked --all-targets -- -D warnings
 
       - name: Build
         working-directory: desktop/src-tauri

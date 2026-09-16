@@ -25,15 +25,20 @@ fn watch_outside_click(window: tauri::WebviewWindow) {
     }
 
     thread::spawn(move || {
+        // SAFETY: `GetAsyncKeyState` takes a virtual-key code and no
+        // pointers; it is documented as callable from any thread.
         let mut was_down = unsafe { GetAsyncKeyState(VK_LBUTTON as i32) } < 0;
         loop {
             if !window.is_visible().unwrap_or(false) {
                 break;
             }
 
+            // SAFETY: as above — scalar in, scalar out.
             let is_down = unsafe { GetAsyncKeyState(VK_LBUTTON as i32) } < 0;
             if is_down && !was_down {
                 let mut point = POINT { x: 0, y: 0 };
+                // SAFETY: `point` is a live, initialised `POINT`; the
+                // callee writes its two fields and nothing else.
                 if unsafe { GetCursorPos(&mut point) } != 0 {
                     if let (Ok(position), Ok(size)) = (window.outer_position(), window.outer_size())
                     {

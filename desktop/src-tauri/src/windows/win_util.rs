@@ -40,46 +40,60 @@ const DWMWA_COLOR_NONE: u32 = 0xFFFFFFFE;
 ///
 /// `DWMWA_TRANSITIONS_FORCEDISABLED` below is a different attribute and
 /// stays: it only suppresses the open/close fade.
-pub unsafe fn apply_noactivate_styles(hwnd: HWND) {
-    let style = GetWindowLongPtrW(hwnd, GWL_STYLE);
-    SetWindowLongPtrW(
-        hwnd,
-        GWL_STYLE,
-        (style & !(WS_OVERLAPPEDWINDOW as isize)) | WS_POPUP as isize,
-    );
-    let exstyle = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-    SetWindowLongPtrW(
-        hwnd,
-        GWL_EXSTYLE,
-        exstyle | WS_EX_NOACTIVATE as isize | WS_EX_TOOLWINDOW as isize,
-    );
-    SetWindowPos(
-        hwnd,
-        0,
-        0,
-        0,
-        0,
-        0,
-        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
-    );
-    let no_border = DWMWA_COLOR_NONE;
-    DwmSetWindowAttribute(
-        hwnd,
-        DWMWA_BORDER_COLOR_ATTR,
-        &no_border as *const _ as *const std::ffi::c_void,
-        std::mem::size_of_val(&no_border) as u32,
-    );
-    // Disable DWM's open/close transition animation for this window.
-    // Without this, ShowWindow/HideWindow trigger a brief fade where Windows
-    // composites the redirection bitmap — visible as a flash of the default
-    // system-window background on borderless transparent overlays.
-    let force_disabled: i32 = 1;
-    DwmSetWindowAttribute(
-        hwnd,
-        DWMWA_TRANSITIONS_FORCEDISABLED,
-        &force_disabled as *const _ as *const std::ffi::c_void,
-        std::mem::size_of_val(&force_disabled) as u32,
-    );
+///
+/// Safe to call: every pointer handed to `DwmSetWindowAttribute` is a local
+/// of the matching size, and `HWND` is an index into a kernel table, not a
+/// pointer — a stale one can name the wrong window, which is a correctness
+/// problem, but nothing here dereferences it. Styling a window owned by
+/// another thread is allowed — `SetWindowPos` then blocks until that
+/// thread pumps messages, which is a hang risk, not a soundness one.
+///
+/// Recheck these wrappers when upgrading windows-sys: newer versions
+/// represent HWND as an opaque pointer instead of an integer.
+pub fn apply_noactivate_styles(hwnd: HWND) {
+    // SAFETY: see the note above — no caller-supplied pointer reaches the
+    // API, and handle validity is checked by Win32 itself.
+    unsafe {
+        let style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+        SetWindowLongPtrW(
+            hwnd,
+            GWL_STYLE,
+            (style & !(WS_OVERLAPPEDWINDOW as isize)) | WS_POPUP as isize,
+        );
+        let exstyle = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        SetWindowLongPtrW(
+            hwnd,
+            GWL_EXSTYLE,
+            exstyle | WS_EX_NOACTIVATE as isize | WS_EX_TOOLWINDOW as isize,
+        );
+        SetWindowPos(
+            hwnd,
+            0,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+        );
+        let no_border = DWMWA_COLOR_NONE;
+        DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_BORDER_COLOR_ATTR,
+            &no_border as *const _ as *const std::ffi::c_void,
+            std::mem::size_of_val(&no_border) as u32,
+        );
+        // Disable DWM's open/close transition animation for this window.
+        // Without this, ShowWindow/HideWindow trigger a brief fade where Windows
+        // composites the redirection bitmap — visible as a flash of the default
+        // system-window background on borderless transparent overlays.
+        let force_disabled: i32 = 1;
+        DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_TRANSITIONS_FORCEDISABLED,
+            &force_disabled as *const _ as *const std::ffi::c_void,
+            std::mem::size_of_val(&force_disabled) as u32,
+        );
+    }
 }
 
 /// Change visibility without going through tao's `WindowFlags::apply_diff`.
@@ -89,25 +103,40 @@ pub unsafe fn apply_noactivate_styles(hwnd: HWND) {
 /// `WS_CAPTION`, so Windows can composite a one-frame system title bar even
 /// though `apply_noactivate_styles` removes it again immediately afterwards.
 /// Direct ShowWindow calls preserve the already-sanitised style set.
-pub unsafe fn show_window_noactivate(hwnd: HWND) {
-    ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+///
+/// Safe to call for the same reason as [`apply_noactivate_styles`]:
+/// `ShowWindow` takes no pointers and validates the handle. It may be
+/// called for a window owned by another thread.
+pub fn show_window_noactivate(hwnd: HWND) {
+    // SAFETY: handle-only call, validated by Win32.
+    unsafe { ShowWindow(hwnd, SW_SHOWNOACTIVATE) };
 }
 
-pub unsafe fn hide_window(hwnd: HWND) {
-    ShowWindow(hwnd, SW_HIDE);
+/// The counterpart of [`show_window_noactivate`], and safe for the same
+/// reason.
+pub fn hide_window(hwnd: HWND) {
+    // SAFETY: handle-only call, validated by Win32.
+    unsafe { ShowWindow(hwnd, SW_HIDE) };
 }
 
 /// Exclude a window from DWM presentation without tearing down its
 /// composition surface. Visibility/style transitions can then happen behind
 /// the cloak and cannot expose an intermediate native caption frame.
-pub unsafe fn set_window_cloaked(hwnd: HWND, cloaked: bool) -> Result<(), String> {
+///
+/// Safe to call: the attribute buffer is a local `i32` described by its own
+/// `size_of_val`, and an invalid handle comes back as a failing `HRESULT`.
+pub fn set_window_cloaked(hwnd: HWND, cloaked: bool) -> Result<(), String> {
     let value: i32 = i32::from(cloaked);
-    let result = DwmSetWindowAttribute(
-        hwnd,
-        DWMWA_CLOAK_ATTR,
-        &value as *const _ as *const std::ffi::c_void,
-        std::mem::size_of_val(&value) as u32,
-    );
+    // SAFETY: `DWMWA_CLOAK` expects a `BOOL`-sized buffer, which is exactly
+    // what `&value` is; the pointer stays valid for the duration of the call.
+    let result = unsafe {
+        DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_CLOAK_ATTR,
+            &value as *const _ as *const std::ffi::c_void,
+            std::mem::size_of_val(&value) as u32,
+        )
+    };
     if result < 0 {
         Err(format!(
             "DwmSetWindowAttribute(DWMWA_CLOAK) failed: 0x{result:08X}"
@@ -117,16 +146,23 @@ pub unsafe fn set_window_cloaked(hwnd: HWND, cloaked: bool) -> Result<(), String
     }
 }
 
-pub unsafe fn force_topmost_noactivate(hwnd: HWND) {
-    SetWindowPos(
-        hwnd,
-        HWND_TOPMOST,
-        0,
-        0,
-        0,
-        0,
-        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
-    );
+/// Re-assert the window's topmost position without activating it.
+///
+/// Safe to call, like [`apply_noactivate_styles`]: pointer-free, and the
+/// handle is validated by Win32.
+pub fn force_topmost_noactivate(hwnd: HWND) {
+    // SAFETY: handle-only call, validated by Win32.
+    unsafe {
+        SetWindowPos(
+            hwnd,
+            HWND_TOPMOST,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+        )
+    };
 }
 
 pub fn extract_hwnd(window: &impl HasWindowHandle) -> Result<HWND, String> {
@@ -195,6 +231,16 @@ unsafe extern "system" fn nc_guard_proc(
 /// Install the non-client guard on a window. Calling it twice for the same
 /// window is harmless: `SetWindowSubclass` with the same (procedure, id) pair
 /// replaces the entry rather than adding a second one.
+///
+/// # Safety
+///
+/// Must be called from the thread that created `hwnd`. `SetWindowSubclass`
+/// edits the window's subclass chain, and Microsoft documents it as a
+/// same-thread operation; calling it from elsewhere can corrupt that chain,
+/// which is why this wrapper — unlike the style and visibility ones above —
+/// stays `unsafe`. The subclass procedure itself is a `'static` item and
+/// removes itself on `WM_NCDESTROY`, so neither lifetime nor removal is a
+/// caller obligation.
 pub unsafe fn install_nc_guard(hwnd: HWND) -> Result<(), String> {
     if SetWindowSubclass(hwnd, Some(nc_guard_proc), NC_GUARD_SUBCLASS_ID, 0) == 0 {
         return Err("SetWindowSubclass failed".to_string());

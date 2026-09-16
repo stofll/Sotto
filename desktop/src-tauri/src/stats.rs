@@ -99,7 +99,7 @@ pub fn record_transcription(
     audio_seconds: f64,
     cpm: f64,
 ) -> Result<(), rusqlite::Error> {
-    let conn = db.lock().unwrap();
+    let conn = crate::mutex_recover::lock(db);
     let chars = text.chars().count() as i64;
     let inference_seconds = inference_time_ms as f64 / 1000.0;
     // Guard against NaN/negative durations sneaking into the aggregate.
@@ -177,7 +177,7 @@ pub fn record_ai_outcome(
     if !status.attempted {
         return Ok(());
     }
-    let conn = db.lock().unwrap();
+    let conn = crate::mutex_recover::lock(db);
     let today = chrono_today();
     let used = i64::from(status.used);
     let fallback = i64::from(status.fallback);
@@ -426,10 +426,16 @@ fn assign_total(result: &mut StatsResult, key: &str, value: f64) {
 pub fn chrono_today() -> String {
     #[cfg(unix)]
     {
+        // SAFETY: the null argument is `time()`'s documented "don't store
+        // the result" form, and `tm` is a plain struct of integers for
+        // which all-zero is a valid initial value.
         let now = unsafe { libc::time(std::ptr::null_mut()) };
         let mut tm: libc::tm = unsafe { std::mem::zeroed() };
         // localtime_r takes a pointer to time_t and a pointer to tm;
         // returns null on failure (returns the same pointer on success).
+        //
+        // SAFETY: both pointers are to live locals that outlive the call,
+        // and `localtime_r` is the reentrant variant — no shared state.
         let result = unsafe { libc::localtime_r(&now, &mut tm) };
         if result.is_null() {
             // Fall back to UTC if localtime_r fails (e.g. invalid time).
@@ -823,5 +829,32 @@ mod tests {
         // Leap day: 2024-02-29 = days=19782
         // (1970-01-01 to 2024-01-01 = 19723 days; 2024-02-29 = +59 days = 19782)
         assert_eq!(days_to_ymd(19_782), (2024, 2, 29));
+    }
+
+    /// A panic anywhere that holds the stats connection poisons the
+    /// mutex, and before this module used `mutex_recover` that turned
+    /// every subsequent write into its own panic — the cascade the
+    /// helper exists to stop. The write after the poisoning must land.
+    #[test]
+    fn writes_survive_a_poisoned_connection_mutex() {
+        let db = std::sync::Arc::new(fresh_db());
+        let holder = std::sync::Arc::clone(&db);
+        let joined = std::thread::spawn(move || {
+            let _conn = holder.lock().unwrap();
+            panic!("simulated panic while holding the stats connection");
+        })
+        .join();
+        assert!(joined.is_err(), "the holder thread should have panicked");
+        assert!(db.is_poisoned(), "the connection mutex must be poisoned");
+
+        record_transcription(&db, "hello", None, 1000, 2.0, 240.0)
+            .expect("write after poisoning should succeed");
+        record_ai_outcome(&db, &ai_status(true, true, false))
+            .expect("AI outcome after poisoning should succeed");
+
+        let stats = get_stats_from(&crate::mutex_recover::lock(&db)).unwrap();
+        assert_eq!(stats.total_transcriptions, 1);
+        assert_eq!(stats.total_characters, 5);
+        assert_eq!(stats.total_llm_attempts, 1);
     }
 }

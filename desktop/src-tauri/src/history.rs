@@ -195,7 +195,7 @@ pub fn append(
 /// `affected_rows == 0` and retry with `id + 1` until success, up to
 /// `APPEND_COLLISION_MAX_ITER` iterations as a safety bound.
 pub fn append_entry(db: &Mutex<Connection>, entry: &NewEntry) -> Result<u64, rusqlite::Error> {
-    let conn = db.lock().unwrap();
+    let conn = crate::mutex_recover::lock(db);
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(|e| {
@@ -557,6 +557,30 @@ mod tests {
             )
             .unwrap();
         assert_eq!(count, 0, "stale entry must be physically deleted");
+    }
+
+    /// The same poisoning guard as `stats::writes_survive_a_poisoned_
+    /// connection_mutex`, for the other writer on the shared connection: a
+    /// panic under the lock must not make every later transcription fail to
+    /// reach the history.
+    #[test]
+    fn appends_survive_a_poisoned_connection_mutex() {
+        let db = std::sync::Arc::new(fresh_db());
+        let holder = std::sync::Arc::clone(&db);
+        let joined = std::thread::spawn(move || {
+            let _conn = holder.lock().unwrap();
+            panic!("simulated panic while holding the history connection");
+        })
+        .join();
+        assert!(joined.is_err(), "the holder thread should have panicked");
+        assert!(db.is_poisoned(), "the connection mutex must be poisoned");
+
+        let id = append(&db, "after the panic", Some(1), None, 100, 2.0)
+            .expect("append after poisoning should succeed");
+        let list = list_history_from(&crate::mutex_recover::lock(&db), RetentionPolicy::default())
+            .unwrap();
+        assert_eq!(list.entries.len(), 1);
+        assert_eq!(list.entries[0].id, id);
     }
 
     #[test]
