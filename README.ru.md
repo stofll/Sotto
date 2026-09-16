@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="desktop/src-tauri/icons/128x128@2x.png" width="88" alt="Sotto" />
+<img src="desktop/src-tauri/icons/128x128@2x.png" width="78" alt="Sotto" />
 
 # Sotto
 
