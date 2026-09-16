@@ -27,7 +27,7 @@ cargo test --locked
 
 Build the frontend before Cargo checks: Tauri reads `desktop/dist`. On Windows, prepare the verified Sherpa runtime before direct Cargo commands using the steps in [Development](development.md) and [Rust CI](../.github/workflows/rust-ci.yml); plain Cargo does not run the bundling hook. Use CPU defaults unless testing the appropriate platform's GPU feature.
 
-The CI workflow is authoritative for the operating-system matrix. Run relevant checks locally before a pull request; CI repeats them on clean runners. Local success does not replace CI, and CI does not replace native verification.
+CI runs formatting once on Linux and Clippy on Linux, Windows, and macOS so platform-specific code is also linted. The CI workflow is authoritative for the operating-system matrix. Run relevant checks locally before a pull request; CI repeats them on clean runners. Local success does not replace CI, and CI does not replace native verification.
 
 ## Browser UI tests
 
