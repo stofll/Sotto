@@ -20,13 +20,15 @@ $outDir    = Join-Path $root 'desktop\src-tauri\installer'
 if (-not (Test-Path $iconPath)) { throw "icon not found: $iconPath" }
 if (-not (Test-Path $outDir))   { New-Item -ItemType Directory -Path $outDir | Out-Null }
 
-# Palette lifted from desktop/src/styles.css so the installer matches the app.
-$bgTop    = [System.Drawing.Color]::FromArgb(0x1B, 0x15, 0x11)
-$bgBottom = [System.Drawing.Color]::FromArgb(0x0D, 0x0B, 0x0A)
-$ink      = [System.Drawing.Color]::FromArgb(0xF5, 0xF1, 0xEC)
-$inkMute  = [System.Drawing.Color]::FromArgb(0x8A, 0x81, 0x7A)
-$accent   = [System.Drawing.Color]::FromArgb(0xE6, 0x8A, 0x3D)
-$rule     = [System.Drawing.Color]::FromArgb(0x3A, 0x2B, 0x1E)
+# Palette sampled from the icon, so the strip reads as the mark's own backdrop:
+# a cool near-black gradient, a slate hairline, no warm cast. It is deliberately
+# not the app's own accent - the wizard shows the icon, not the UI.
+$bgTop    = [System.Drawing.Color]::FromArgb(0x1B, 0x1F, 0x26)
+$bgBottom = [System.Drawing.Color]::FromArgb(0x0D, 0x0F, 0x13)
+$ink      = [System.Drawing.Color]::FromArgb(0xFF, 0xFF, 0xFF)
+$inkMute  = [System.Drawing.Color]::FromArgb(0x90, 0x99, 0xA5)
+$accent   = [System.Drawing.Color]::FromArgb(0x54, 0x62, 0x72)
+$rule     = [System.Drawing.Color]::FromArgb(0x2C, 0x32, 0x3C)
 
 $icon = [System.Drawing.Image]::FromFile($iconPath)
 
@@ -60,8 +62,10 @@ $grad.Dispose()
 # Text on a dark background: grid-fit antialiasing, no ClearType colour fringes.
 $g.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::AntiAliasGridFit
 
-$markSize = 76
-$g.DrawImage($icon, [int](($w - $markSize) / 2), 62, $markSize, $markSize)
+# icon.png is full-bleed - the mark spans its whole canvas - so the draw box is
+# the mark's size on the strip, with nothing to subtract for padding.
+$markSize = 62
+$g.DrawImage($icon, [int](($w - $markSize) / 2), 69, $markSize, $markSize)
 
 $fmt = New-Object System.Drawing.StringFormat
 $fmt.Alignment = [System.Drawing.StringAlignment]::Center
@@ -91,8 +95,8 @@ $w, $h = 150, 57
 $bmp, $g = New-Canvas $w $h
 $g.Clear([System.Drawing.Color]::White)
 
-$markSize = 38
-$g.DrawImage($icon, ($w - $markSize - 10), [int](($h - $markSize) / 2), $markSize, $markSize)
+$markSize = 30
+$g.DrawImage($icon, ($w - $markSize - 14), [int](($h - $markSize) / 2), $markSize, $markSize)
 
 $g.Dispose()
 Save-Bmp $bmp 'header.bmp'
