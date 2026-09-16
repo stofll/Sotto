@@ -85,7 +85,7 @@ fn state() -> &'static Arc<Mutex<Option<State>>> {
 /// Returns `Ok(())` on success, `Err(message)` if the log file
 /// could not be opened.
 pub fn install() -> Result<(), String> {
-    let mut guard = state().lock().unwrap();
+    let mut guard = crate::mutex_recover::lock(state());
     if guard.is_some() {
         return Ok(());
     }
@@ -121,7 +121,7 @@ pub fn clear() {
     {
         // Scoped: holding this across `recv` would block every other
         // thread's `log::` call on the writer finishing.
-        let guard = state().lock().unwrap();
+        let guard = crate::mutex_recover::lock(state());
         let Some(state) = guard.as_ref() else {
             return;
         };
@@ -377,7 +377,7 @@ impl log::Log for BridgeLogger {
         if !self.enabled(record.metadata()) {
             return;
         }
-        let guard = state().lock().unwrap();
+        let guard = crate::mutex_recover::lock(state());
         let Some(state) = guard.as_ref() else { return };
         let payload = LogRecord {
             ts: chrono_like_now(),

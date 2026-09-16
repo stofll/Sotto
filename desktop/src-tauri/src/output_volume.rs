@@ -126,6 +126,9 @@ fn worker() -> &'static std::sync::mpsc::SyncSender<Request> {
         std::thread::Builder::new()
             .name("output-volume".to_string())
             .spawn(move || {
+                // SAFETY: this is the volume worker thread, and this is
+                // its first statement — the apartment is initialised once,
+                // before any of the COM calls below.
                 unsafe { windows_impl::init_com() };
                 // What the volume was before we touched it. `None` means we
                 // are not currently ducked.
@@ -133,11 +136,13 @@ fn worker() -> &'static std::sync::mpsc::SyncSender<Request> {
                 while let Ok(request) = rx.recv() {
                     let (outcome, reply) = match request {
                         Request::Duck { level, reply } => (
+                            // SAFETY: same thread as the `init_com` above.
                             unsafe { windows_impl::duck(&mut previous, level) }
                                 .map_err(|error| error.to_string()),
                             reply,
                         ),
                         Request::Restore { reply } => (
+                            // SAFETY: same thread as the `init_com` above.
                             unsafe { windows_impl::restore(&mut previous) }
                                 .map_err(|error| error.to_string()),
                             reply,
@@ -213,7 +218,10 @@ mod windows_impl {
     }
 
     /// # Safety
-    /// Calls into COM; see [`init_com`].
+    /// Must run on a thread that has entered the same COM apartment
+    /// [`init_com`] created — in practice the single volume worker, which is
+    /// the only place this is called from. The interface stored in
+    /// `previous` belongs to that apartment and cannot be used outside it.
     pub unsafe fn duck(previous: &mut Option<DuckState>, level: f32) -> Result<()> {
         if previous.is_some() {
             return Ok(()); // already ducked
@@ -235,7 +243,8 @@ mod windows_impl {
     }
 
     /// # Safety
-    /// Calls into COM; see [`init_com`].
+    /// Must run in the same COM apartment as the [`duck`] call that filled
+    /// `previous`: the endpoint interface inside it cannot cross apartments.
     pub unsafe fn restore(previous: &mut Option<DuckState>) -> Result<()> {
         let Some(state) = previous.as_ref() else {
             return Ok(());
@@ -314,6 +323,8 @@ mod tests {
     #[test]
     #[ignore = "changes the system output volume"]
     fn round_trip() {
+        // SAFETY: the test body is the whole life of this thread, so
+        // `init_com` runs first and every COM call below stays on it.
         unsafe {
             windows_impl::init_com();
             let before = read_master_volume().expect("read volume");

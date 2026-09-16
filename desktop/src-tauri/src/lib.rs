@@ -73,6 +73,10 @@ use tauri::{AppHandle, Emitter, Manager};
 ///   `String` (no rusqlite leak across the IPC boundary).
 /// - `Err(_)` — the worker died (channel closed). We surface a stable
 ///   `"worker died"` string so callers can pattern-match.
+///
+/// A poisoned connection mutex is not a failure mode: it is recovered
+/// through [`mutex_recover`], so a panic under the lock cannot leave the
+/// UI permanently unable to read stats or history.
 async fn run_db_op<T, F>(db: Arc<std::sync::Mutex<Connection>>, f: F) -> Result<T, String>
 where
     T: Send + 'static,
@@ -80,16 +84,55 @@ where
 {
     let (tx, rx) = tokio::sync::oneshot::channel();
     tokio::task::spawn_blocking(move || {
-        let result = (|| -> Result<T, String> {
-            let conn = db.lock().map_err(|e| format!("db lock poisoned: {e}"))?;
+        // Same policy as the writers in `stats`/`history`/`telemetry`: one
+        // panic under this lock must not make every later read fail for the
+        // rest of the process. Poisoning says a previous holder died, not
+        // that the database is corrupt — SQLite has its own transaction
+        // guarantees for that.
+        let result = {
+            let conn = crate::mutex_recover::lock(&db);
             f(&conn).map_err(|e| e.to_string())
-        })();
+        };
         let _ = tx.send(result);
     });
     match rx.await {
         Ok(Ok(value)) => Ok(value),
         Ok(Err(e)) => Err(e),
         Err(_) => Err("worker died".to_string()),
+    }
+}
+
+#[cfg(test)]
+mod db_op_tests {
+    use super::run_db_op;
+    use std::sync::{Arc, Mutex};
+
+    /// Every history and stats *read* the UI makes goes through
+    /// `run_db_op`. Before it used `mutex_recover` a single panic under the
+    /// connection lock turned all of them into `"db lock poisoned"` for the
+    /// rest of the process — writes kept landing, and the user simply could
+    /// not see them again until a restart.
+    #[tokio::test]
+    async fn reads_survive_a_poisoned_connection_mutex() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        crate::db::run_migrations(&conn).unwrap();
+        let db = Arc::new(Mutex::new(conn));
+
+        let holder = Arc::clone(&db);
+        let joined = std::thread::spawn(move || {
+            let _guard = holder.lock().unwrap();
+            panic!("simulated panic while holding the connection");
+        })
+        .join();
+        assert!(joined.is_err(), "the holder thread should have panicked");
+        assert!(db.is_poisoned(), "the connection mutex must be poisoned");
+
+        let count: i64 = run_db_op(db, |conn| {
+            conn.query_row("SELECT COUNT(*) FROM history", [], |row| row.get(0))
+        })
+        .await
+        .expect("read after poisoning should succeed");
+        assert_eq!(count, 0);
     }
 }
 
@@ -2095,6 +2138,10 @@ fn open_url(url: String) -> Result<(), String> {
         }
         let url: Vec<u16> = url.encode_utf16().chain(Some(0)).collect();
         // Launch directly: cmd.exe interprets query-string ampersands as commands.
+        //
+        // SAFETY: `url` is NUL-terminated above (and rejected if it already
+        // contained an interior NUL) and outlives the call; every other
+        // pointer argument is the null the API accepts for "unused".
         let result = unsafe {
             ShellExecuteW(
                 0,

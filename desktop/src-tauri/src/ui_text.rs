@@ -55,6 +55,8 @@ fn system_locale() -> Option<String> {
 
     // LOCALE_NAME_MAX_LENGTH is 85 including the terminating NUL.
     let mut buffer = [0u16; 85];
+    // SAFETY: the buffer is live and its real length travels with the
+    // pointer, so the callee cannot write past `LOCALE_NAME_MAX_LENGTH`.
     let written = unsafe { GetUserDefaultLocaleName(buffer.as_mut_ptr(), buffer.len() as i32) };
     if written <= 1 {
         None

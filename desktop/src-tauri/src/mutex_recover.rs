@@ -10,6 +10,12 @@
 //! crash used to take down the whole Tauri shell; this helper
 //! ends the cascade at the first poisoned mutex.
 //!
+//! The same applies to the SQLite connection behind stats,
+//! history and telemetry (one shared `Mutex<Connection>`) and to
+//! the file-logger state: a panic under any of those locks would
+//! otherwise make every later write — or every later `log::` call
+//! — panic in turn.
+//!
 //! Audio-thread locks (cpal callback in `audio.rs`) intentionally
 //! continue to use `.lock().unwrap()` — a poisoned mutex on the
 //! audio thread IS a fatal bug, and panicking is the right
@@ -17,7 +23,20 @@
 //!
 //! Usage: `let mut guard = mutex_recover::lock(&state.app_fsm);`.
 
+use std::collections::BTreeSet;
 use std::sync::{Mutex, MutexGuard};
+
+/// Report recovery once per type: poison persists, and the logger takes
+/// its state lock on every record.
+static REPORTED: Mutex<BTreeSet<&'static str>> = Mutex::new(BTreeSet::new());
+
+/// `true` the first time a given type recovers, `false` afterwards.
+fn should_report(type_name: &'static str) -> bool {
+    REPORTED
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .insert(type_name)
+}
 
 /// Lock a mutex, recovering from poisoning by returning the
 /// inner data anyway. Use this for FSM / registry / dispatcher
@@ -28,10 +47,15 @@ pub fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     match mutex.lock() {
         Ok(guard) => guard,
         Err(poisoned) => {
-            eprintln!(
-                "[mutex_recover] recovered from poisoned Mutex at {}",
-                std::any::type_name::<T>()
-            );
+            // Deliberately `eprintln!` and not `log::warn!`: the file
+            // logger's own state lives behind one of the mutexes this
+            // helper recovers, and `BridgeLogger::log` would re-enter it.
+            // `std::sync::Mutex` is not reentrant, so reporting through
+            // `log` would deadlock on exactly the case worth reporting.
+            let type_name = std::any::type_name::<T>();
+            if should_report(type_name) {
+                eprintln!("[mutex_recover] recovered from poisoned Mutex at {type_name}");
+            }
             poisoned.into_inner()
         }
     }
@@ -71,5 +95,20 @@ mod tests {
             recovered.starts_with("live-poisoned"),
             "expected pre-panic data, got: {recovered}"
         );
+    }
+
+    #[test]
+    fn a_recovered_type_is_reported_once() {
+        // Names local to this test so a real recovery elsewhere in the
+        // process cannot decide the outcome.
+        assert!(should_report("test::ReportedOnce"));
+        assert!(!should_report("test::ReportedOnce"));
+        assert!(!should_report("test::ReportedOnce"));
+    }
+
+    #[test]
+    fn a_different_type_is_reported_separately() {
+        assert!(should_report("test::FirstResource"));
+        assert!(should_report("test::SecondResource"));
     }
 }

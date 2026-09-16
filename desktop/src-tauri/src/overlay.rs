@@ -167,15 +167,13 @@ fn conceal(window: &tauri::WebviewWindow) -> Result<(), String> {
         // Three snapshots bracket the two calls, so a caption that appears
         // between any two of them names the call that brought it back.
         crate::windows::overlay_diag::snapshot(hwnd, "conceal:enter");
-        unsafe {
-            // Cloak first: DWM stops presenting the HWND before ShowWindow
-            // gets a chance to expose any intermediate native frame.
-            if let Err(e) = set_window_cloaked(hwnd, true) {
-                eprintln!("[overlay] cloak before hide failed (falling back to SW_HIDE): {e}");
-            }
-            crate::windows::overlay_diag::snapshot(hwnd, "conceal:after-cloak");
-            hide_window(hwnd);
+        // Cloak first: DWM stops presenting the HWND before ShowWindow
+        // gets a chance to expose any intermediate native frame.
+        if let Err(e) = set_window_cloaked(hwnd, true) {
+            eprintln!("[overlay] cloak before hide failed (falling back to SW_HIDE): {e}");
         }
+        crate::windows::overlay_diag::snapshot(hwnd, "conceal:after-cloak");
+        hide_window(hwnd);
         crate::windows::overlay_diag::snapshot(hwnd, "conceal:after-hide");
         // The enumeration is the half that can exonerate our HWND entirely:
         // a frame drawn by a window of another class is not ours to restyle.
@@ -197,29 +195,27 @@ fn reveal(window: &tauri::WebviewWindow) -> Result<(), String> {
     {
         let hwnd = extract_hwnd(window)?;
         crate::windows::overlay_diag::snapshot(hwnd, "reveal:enter");
-        unsafe {
-            // Keep every intermediate frame behind DWM's cloak. This covers
-            // the first ShowWindow/HideWindow cycle, where USER32 otherwise
-            // briefly presents the native caption before settling.
-            if let Err(e) = set_window_cloaked(hwnd, true) {
-                eprintln!("[overlay] cloak before show failed (continuing): {e}");
-            }
-            // Before the restyle, so a caption present here proves something
-            // between window creation and this point put it back — which is
-            // the tao-rebuild hypothesis in one line.
-            crate::windows::overlay_diag::snapshot(hwnd, "reveal:before-styles");
-            apply_noactivate_styles(hwnd);
-            crate::windows::overlay_diag::snapshot(hwnd, "reveal:after-styles");
-            show_window_noactivate(hwnd);
-            crate::windows::overlay_diag::snapshot(hwnd, "reveal:after-show");
-            force_topmost_noactivate(hwnd);
-            // Once ShowWindow marks the surface visible, give WebView2 a
-            // frame to submit the already-queued React state before DWM is
-            // allowed to present it.
-            thread::sleep(Duration::from_millis(16));
-            if let Err(e) = set_window_cloaked(hwnd, false) {
-                eprintln!("[overlay] uncloak after show failed: {e}");
-            }
+        // Keep every intermediate frame behind DWM's cloak. This covers
+        // the first ShowWindow/HideWindow cycle, where USER32 otherwise
+        // briefly presents the native caption before settling.
+        if let Err(e) = set_window_cloaked(hwnd, true) {
+            eprintln!("[overlay] cloak before show failed (continuing): {e}");
+        }
+        // Before the restyle, so a caption present here proves something
+        // between window creation and this point put it back — which is
+        // the tao-rebuild hypothesis in one line.
+        crate::windows::overlay_diag::snapshot(hwnd, "reveal:before-styles");
+        apply_noactivate_styles(hwnd);
+        crate::windows::overlay_diag::snapshot(hwnd, "reveal:after-styles");
+        show_window_noactivate(hwnd);
+        crate::windows::overlay_diag::snapshot(hwnd, "reveal:after-show");
+        force_topmost_noactivate(hwnd);
+        // Once ShowWindow marks the surface visible, give WebView2 a
+        // frame to submit the already-queued React state before DWM is
+        // allowed to present it.
+        thread::sleep(Duration::from_millis(16));
+        if let Err(e) = set_window_cloaked(hwnd, false) {
+            eprintln!("[overlay] uncloak after show failed: {e}");
         }
         crate::windows::overlay_diag::snapshot(hwnd, "reveal:after-uncloak");
         crate::windows::overlay_diag::enumerate_top_level(hwnd, "reveal:after-uncloak");
@@ -320,16 +316,26 @@ pub fn ensure_window(app: &AppHandle) -> Result<(), String> {
     {
         let hwnd = extract_hwnd(&window)?;
         crate::windows::overlay_diag::snapshot(hwnd, "ensure_window:after-build");
-        unsafe {
-            // The guard is installed before the styles are edited, not after:
-            // it must precede any frame, not any style. Styles applied after it
-            // still take effect — they go through SetWindowLongPtrW, not through
-            // the window procedure.
-            if let Err(e) = install_nc_guard(hwnd) {
-                eprintln!("[overlay] non-client guard not installed: {e}");
-            }
-            apply_noactivate_styles(hwnd);
+        // The guard is installed before the styles are edited, not after:
+        // it must precede any frame, not any style. Styles applied after it
+        // still take effect — they go through SetWindowLongPtrW, not through
+        // the window procedure.
+        //
+        // SAFETY: `install_nc_guard` must run on the window's creating
+        // thread. In the normal case it does: the window is built once from
+        // `setup` (lib.rs) on the main thread, and the `apply_show` worker's
+        // own `ensure_window` call finds it already there and returns early.
+        // The exception is a startup build that failed — `setup` only logs
+        // that — after which the first `apply_show` takes the creation path
+        // from the worker thread, while tao still creates the HWND on the
+        // main one. Fixing that means dispatching this call through
+        // `run_on_main_thread`, which moves the guard behind the first turn
+        // of the event loop, so it is a deliberate change and not a
+        // drive-by one.
+        if let Err(e) = unsafe { install_nc_guard(hwnd) } {
+            eprintln!("[overlay] non-client guard not installed: {e}");
         }
+        apply_noactivate_styles(hwnd);
         // The baseline. Every later snapshot is read as a diff against this
         // one, so it has to be taken before anything else can touch the
         // window — including WebView2 finishing its own initialisation.
@@ -354,6 +360,10 @@ fn apply_macos_overlay_style(window: &tauri::WebviewWindow) -> Result<(), String
     window
         .run_on_main_thread(move || {
             let ns = ns_window as *mut AnyObject;
+            // SAFETY: `ns_window` is the live NSWindow of a window we still
+            // hold, this closure runs on the main thread (AppKit's
+            // requirement for both selectors), and each selector is sent
+            // with the argument type NSWindow declares for it.
             unsafe {
                 // NSStatusWindowLevel (25): above normal + floating windows and
                 // above full-screen app content, below screen savers/menus.
@@ -419,9 +429,7 @@ fn apply_show(app: &AppHandle, state: String) -> Result<(), String> {
             // recording usually coincides with another window activating.
             let hwnd = extract_hwnd(&window)?;
             thread::sleep(Duration::from_millis(16));
-            unsafe {
-                force_topmost_noactivate(hwnd);
-            }
+            force_topmost_noactivate(hwnd);
         }
     }
     Ok(())
