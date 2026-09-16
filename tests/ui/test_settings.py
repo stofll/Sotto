@@ -312,14 +312,19 @@ def test_interface_color_save_failure_rolls_back_and_retries(app, page, custom):
 
 
 def test_leaving_settings_cancels_unsaved_color_preview(app, page):
+    page.clock.install(time="2026-01-01T00:00:00Z")
     ui = app(config={"ui_accent": "#e68a3d"})
-    page.clock.install()
     page.get_by_text("Дополнительно", exact=True).click()
+    # Installing the clock still lets time pass during browser actions.
+    # Pause before picking so navigation cannot race the 250 ms save timer.
+    page.clock.pause_at("2026-01-01T00:01:00Z")
     page.get_by_role("group", name="Цвет интерфейса", exact=True).get_by_label(
         "Свой цвет", exact=True
     ).fill("#123456")
+    expect(page.locator("html")).to_have_css("--accent", "#123456")
     ui.nav("models")
     page.clock.run_for(300)
+    assert not ui.calls("save_config")
     assert ui.state()["config"]["ui_accent"] == "#e68a3d"
     expect(page.locator("html")).to_have_css("--accent", "#e68a3d")
 
