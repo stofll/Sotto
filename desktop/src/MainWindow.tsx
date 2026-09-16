@@ -1,19 +1,18 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { emit } from "@tauri-apps/api/event";
 import { invoke, subscribe, onRecordingStateChange, type RecordingState } from "./bridge";
 import { getStats } from "./bridge/stats";
 import type { ApiKeyStatus, AppVersionResult, ConfigResult, MicrophoneResult, ModelInfo, RuntimeStatusResult, StatsResult } from "./bridge/types";
-import { Card, Sidebar, TitleBar, ACCENT_OPTIONS, applyAccent, type TabId, type DownloadProgress, type AccentValue } from "./components/Shell";
+import { Card, Sidebar, TitleBar, type TabId, type DownloadProgress } from "./components/Shell";
 import { Icon } from "./components/Icon";
+import { applyAccent, resolveAccent, storedAccent } from "./accent";
 
-const ACCENT_STORAGE_KEY = "sotto.ui.accent";
 const COLLAPSE_STORAGE_KEY = "sotto.ui.sidebarCollapsed";
 const AUTO_COLLAPSE_BELOW = 1100;
 import { SettingsPage } from "./pages/SettingsPage";
 import { ModelsPage } from "./pages/ModelsPage";
 import { AiPage } from "./pages/AiPage";
 import { IntegrationsPage } from "./pages/IntegrationsPage";
-import { HistoryPage } from "./pages/HistoryPage";
 import { InfoPage, StatsPage, TextPage } from "./pages/OtherPages";
 import { actualModelLabel } from "./pages/runtimePresentation";
 import { applyLocaleFromConfig, t, useLocale } from "./i18n";
@@ -60,10 +59,31 @@ function pageFor(tab: TabId, data: {
     case "text": return <TextPage config={data.config} onConfigChanged={data.onConfigChanged} previewDraft={data.textPreviewDraft} onPreviewDraftChange={data.onTextPreviewDraftChange}/>;
     case "ai": return <AiPage config={data.config?.ai_processing ?? null} apiKeys={data.apiKeys} onConfigChanged={data.onConfigChanged} onNavigate={(t) => data.onNavigate(t)}/>;
     case "integrations": return <IntegrationsPage config={data.config?.ai_processing ?? null} apiKeys={data.apiKeys} onConfigChanged={data.onConfigChanged} onApiKeysChanged={data.onApiKeysChanged}/>;
-    case "history": return <HistoryPage/>;
+    case "history": return <HistoryPageLoader/>;
     case "stats": return <StatsPage stats={data.stats} typingSpeedCpm={data.config?.typing_speed_cpm} onRefresh={data.onStatsRefresh}/>;
     case "info": return <InfoPage version={data.version} config={data.config} onConfigChanged={data.onConfigChanged}/>;
   }
+}
+
+function HistoryPageLoader() {
+  const [Page, setPage] = useState<typeof import("./pages/HistoryPage")["HistoryPage"] | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let disposed = false;
+    void import("./pages/HistoryPage")
+      .then(({ HistoryPage }) => { if (!disposed) setPage(() => HistoryPage); })
+      .catch(() => { if (!disposed) setFailed(true); });
+    return () => { disposed = true; };
+  }, []);
+  if (Page) return <Page/>;
+  return <div className="loading-state" role={failed ? "alert" : "status"}>
+    {failed ? <div>
+      <p>{t("Не удалось открыть историю.")}</p>
+      <button type="button" className="btn btn--ghost" onClick={() => window.location.reload()}>
+        {t("Перезагрузить")}
+      </button>
+    </div> : t("Загрузка…")}
+  </div>;
 }
 
 export function MainWindow() {
@@ -92,13 +112,17 @@ export function MainWindow() {
       return raw === "true" ? true : raw === "false" ? false : null;
     } catch { return null; }
   });
-  const [accent] = useState<AccentValue>(() => {
-    try {
-      const raw = window.localStorage.getItem(ACCENT_STORAGE_KEY);
-      const known = ACCENT_OPTIONS().find((o) => o.value.toLowerCase() === (raw ?? "").toLowerCase());
-      return (known?.value ?? ACCENT_OPTIONS()[0].value) as AccentValue;
-    } catch { return ACCENT_OPTIONS()[0].value as AccentValue; }
-  });
+  const accent = resolveAccent(config?.ui_accent ?? storedAccent());
+  const accentMigrationStarted = useRef(false);
+  useEffect(() => {
+    if (!config || config.ui_accent !== undefined || accentMigrationStarted.current) return;
+    accentMigrationStarted.current = true;
+    void onConfigChanged({ ui_accent: storedAccent() }).then((saved) => {
+      if (saved) {
+        try { window.localStorage.removeItem("sotto.ui.accent"); } catch { /* optional storage */ }
+      }
+    });
+  }, [config]);
 
   const autoCollapsed = viewportWidth < AUTO_COLLAPSE_BELOW;
   const collapsed = manualCollapse ?? autoCollapsed;
@@ -109,8 +133,7 @@ export function MainWindow() {
 
   useEffect(() => {
     applyAccent(accent);
-    try { window.localStorage.setItem(ACCENT_STORAGE_KEY, accent); } catch {/* ignore */}
-  }, [accent]);
+  }, [accent, theme]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;

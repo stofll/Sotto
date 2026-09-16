@@ -36,7 +36,8 @@ import libRs from "../../src-tauri/src/lib.rs?raw";
 import formatCommandsRs from "../../src-tauri/src/format_commands.rs?raw";
 import audioWorkerRs from "../../src-tauri/src/audio_worker.rs?raw";
 
-const rustSources = [libRs, formatCommandsRs, audioWorkerRs];
+import overlayRs from "../../src-tauri/src/overlay.rs?raw";
+const rustSources = [libRs, formatCommandsRs, audioWorkerRs, overlayRs];
 
 /** Parameters Tauri injects itself — the frontend never sends them. */
 const INJECTED = new Set(["app", "state", "window", "webview", "app_handle"]);

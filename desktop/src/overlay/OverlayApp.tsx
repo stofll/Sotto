@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "../components/Icon";
 import { t, useLocale } from "../i18n";
+import { overlayPalette } from "./overlayPalette";
 import { overlayDetail } from "./overlayDetail";
 import { OverlayWaveform } from "./OverlayWaveform";
 import { useOverlaySession, type OverlaySession } from "./useOverlaySession";
@@ -9,31 +10,37 @@ export function OverlayApp() {
   useLocale();
   const session = useOverlaySession();
   const surfaceRef = useRef<HTMLDivElement>(null);
-  const { state, streaming, previewText, handleClose, isClosing } = session;
+  const { state, layout, previewText, handleClose, isClosing, config, preferences } = session;
   if (state === null) return null;
-  const closeLabel = state === "recording" || state === "processing" || state === "done"
-    ? t("Отменить запись") : state === "error" ? t("Закрыть") : t("Отменить");
+  const bead = layout === "bead";
+  const closeLabel = state === "pasted" || state === "error" ? t("Закрыть") : t("Отменить запись");
   return (
-    <div data-testid="overlay" data-state={state} data-layout={streaming ? "streaming" : "compact"} className="overlay">
+    <div data-testid="overlay" data-state={state} data-layout={layout === "pill" ? "compact" : layout} data-size={preferences.size} className="overlay" style={config ? overlayPalette(preferences) : undefined}>
       <div className="overlay-shell">
         <div className="overlay-surface" ref={surfaceRef}>
           <div className="overlay-glow" aria-hidden="true" />
           <div className="overlay-row">
-            <TimerBadge session={session} />
+            {!bead && <div className="overlay-timer-slot">{state === "recording" && <TimerBadge session={session} />}</div>}
             <div className="overlay-detail">
               {state === "recording"
-                ? <OverlayWaveform key={session.sessionId} surfaceRef={surfaceRef} />
-                : <StateDetail session={session} />}
+                ? <OverlayWaveform key={session.sessionId} surfaceRef={surfaceRef} circular={bead} />
+                : bead ? <span className="overlay-bead-status" aria-label={beadLabel(state)} role="status" /> : <StateDetail session={session} />}
             </div>
             <button className="overlay-close" aria-label={closeLabel} onClick={handleClose} disabled={isClosing}>
               <Icon name="x" size={15} />
             </button>
           </div>
-          {streaming && <PreviewPane text={previewText} />}
+          {layout === "streaming" && <PreviewPane text={previewText} />}
         </div>
       </div>
     </div>
   );
+}
+
+function beadLabel(state: NonNullable<OverlaySession["state"]>) {
+  if (state === "loading") return t("Подготавливаю локальную модель");
+  if (state === "pasted") return t("Текст вставлен");
+  return t("Обрабатываю");
 }
 
 function useNow(active: boolean) {
@@ -64,10 +71,10 @@ function StateDetail({ session }: { session: OverlaySession }) {
   });
   if (detail.kind === "waveform") return null;
   if (detail.kind === "progress") {
-    return <div className="overlay-progress"><div className="overlay-progress-track"><div /></div>{detail.label && <span>{detail.label}</span>}</div>;
+    return <div className="overlay-progress"><span>{detail.label}</span>{detail.seconds !== undefined && <span className="overlay-counter">{t("{p0} с", { p0: detail.seconds })}</span>}</div>;
   }
   if ("warning" in detail) {
-    return <div className="overlay-result"><div>{detail.text}</div><div>{detail.warning}</div></div>;
+    return <div className="overlay-result"><div>{detail.text}</div><div title={detail.warning}>{detail.warning}</div></div>;
   }
   return <div className="overlay-text" title={detail.text}>{detail.text}</div>;
 }

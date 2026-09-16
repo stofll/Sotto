@@ -55,10 +55,72 @@ pub fn emit_accessibility_error(app: &AppHandle) {
             "kind": "permission",
             "permission": "accessibility",
             "hint": "Privacy → Accessibility",
-            "message": "Sotto нужен доступ к Специальным возможностям (Accessibility), \
-                         чтобы автоматически вставлять распознанный текст в активное окно. \
-                         Откройте «Системные настройки → Конфиденциальность → Специальные возможности» \
-                         и разрешите доступ для приложения.",
+            "message": permission_message(std::env::current_exe().ok().as_deref()),
         }),
     );
+}
+
+/// The banner text for a missing Accessibility grant.
+///
+/// macOS grants Accessibility to the exact binary that asks for it, so
+/// naming "the application" is only unambiguous for an installed bundle.
+/// A build run straight from `target/` is a different TCC client than
+/// `/Applications/Sotto.app`, and it is attributed to whatever launched
+/// it — a terminal, typically, which is what must be granted access. A
+/// message that omits this sends the reader to a Settings list where
+/// Sotto is already switched on, which reads as "the permission is
+/// granted and the app is broken".
+///
+/// Takes the path so the branch is testable; `None` falls back to the
+/// bundle wording, the case that needs no extra explanation.
+#[cfg(any(target_os = "macos", test))]
+fn permission_message(exe: Option<&std::path::Path>) -> String {
+    const BASE: &str = "Sotto нужен доступ к Специальным возможностям (Accessibility), \
+                        чтобы автоматически вставлять распознанный текст в активное окно. \
+                        Откройте «Системные настройки → Конфиденциальность → Специальные возможности» ";
+
+    let unbundled = exe.filter(|path| !path.starts_with("/Applications"));
+    match unbundled {
+        None => format!("{BASE}и разрешите доступ для приложения."),
+        Some(path) => format!(
+            "{BASE}и разрешите доступ для «{}». Это сборка вне «Программ»: \
+             система выдаёт доступ именно этому файлу, а если он запущен из терминала — \
+             то терминалу. Включённый переключатель у другой копии Sotto здесь не поможет.",
+            path.display()
+        ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn an_installed_bundle_is_named_simply_the_application() {
+        let message = permission_message(Some(Path::new(
+            "/Applications/Sotto.app/Contents/MacOS/Sotto",
+        )));
+        assert!(message.ends_with("разрешите доступ для приложения."));
+    }
+
+    #[test]
+    fn a_build_outside_applications_names_the_binary_that_needs_the_grant() {
+        // The case the old wording got wrong: Sotto.app is switched on in
+        // Settings, but the running binary is a different TCC client.
+        let path = "/Users/me/Project/Sotto/desktop/src-tauri/target/debug/Sotto";
+        let message = permission_message(Some(Path::new(path)));
+        assert!(message.contains(path));
+        assert!(message.contains("терминалу"));
+    }
+
+    #[test]
+    fn an_unknown_executable_falls_back_to_the_bundle_wording() {
+        assert_eq!(
+            permission_message(None),
+            permission_message(Some(Path::new(
+                "/Applications/Sotto.app/Contents/MacOS/Sotto"
+            )))
+        );
+    }
 }

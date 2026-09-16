@@ -43,6 +43,8 @@ Validate workflow edits with `actionlint`. A local pass cannot verify GitHub rep
 
 Every PR runs deterministic tests without speech downloads, plus an explicitly selected real Whisper CPU smoke test on Windows, macOS and Linux. Windows and macOS also run the Sherpa smoke test. The ignored marker keeps network/model downloads out of an ordinary local `cargo test`; the CI commands explicitly include those tests.
 
+Windows CI rebuilds `whisper-rs-sys` after restoring the Cargo cache because its native CPU optimization can produce instructions unsupported by a different runner. When moving a local build cache between Windows machines, run `cargo clean -p whisper-rs-sys` before rebuilding to avoid reusing those host-specific artifacts.
+
 Reproduce the model tests locally from `desktop/src-tauri` when changing capture, resampling, model loading or inference:
 
 ```bash

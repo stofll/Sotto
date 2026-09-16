@@ -65,3 +65,154 @@ def test_overlay_native_geometry_and_preview(app, page, output_path):
         <= 1
     )
     page.screenshot(path=str(shots / "streaming.png"), animations="disabled")
+
+
+@pytest.mark.parametrize("locale", ["ru", "en"])
+@pytest.mark.parametrize("form", ["pill", "bead"])
+@pytest.mark.parametrize(
+    "state", ["loading", "recording", "processing", "done", "pasted", "error"]
+)
+def test_overlay_forms_and_states(app, page, locale, form, state, output_path):
+    bead = form == "bead" and state != "error"
+    page.set_viewport_size({"width": 72 if bead else 308, "height": 72 if bead else 64})
+    ui = app(
+        "overlay",
+        config={
+            "ui_language": locale,
+            "overlay": {"form": form, "palette": "graphite"},
+        },
+    )
+    ui.emit("recording-started", 1)
+    ui.emit("overlay-state", state)
+    overlay = page.get_by_test_id("overlay")
+    expect(overlay).to_have_attribute("data-layout", "bead" if bead else "compact")
+    shell = page.locator(".overlay-shell").bounding_box()
+    assert shell["width"] <= page.viewport_size["width"]
+    assert shell["height"] <= page.viewport_size["height"]
+    page.mouse.move(0, 0)
+    Path(output_path).mkdir(parents=True, exist_ok=True)
+    page.screenshot(path=str(Path(output_path) / "overlay.png"), animations="disabled")
+
+
+@pytest.mark.parametrize(
+    "size,window,shell", [("s", 64, 56), ("m", 72, 64), ("l", 80, 72)]
+)
+def test_bead_sizes_hover_and_focus(app, page, size, window, shell, output_path):
+    page.set_viewport_size({"width": window, "height": window})
+    ui = app("overlay", config={"overlay": {"form": "bead", "size": size}})
+    ui.emit("recording-started", 1)
+    expect(page.locator(".overlay-shell")).to_have_css("width", f"{shell}px")
+    button = page.get_by_role("button")
+    button.focus()
+    expect(button).to_be_focused()
+    expect(button).to_have_css("opacity", "1")
+    Path(output_path).mkdir(parents=True, exist_ok=True)
+    page.screenshot(
+        path=str(Path(output_path) / "bead-focus.png"), animations="disabled"
+    )
+
+
+@pytest.mark.parametrize("locale", ["ru", "en"])
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize("size", ["s", "m", "l"])
+def test_pill_sizes_and_long_content(app, page, locale, streaming, size, output_path):
+    sizes = {
+        "s": (520, 138) if streaming else (280, 60),
+        "m": (600, 150) if streaming else (308, 64),
+        "l": (680, 174) if streaming else (360, 72),
+    }
+    width, height = sizes[size]
+    page.set_viewport_size({"width": width, "height": height})
+    ui = app("overlay", config={"ui_language": locale, "overlay": {"size": size}})
+    ui.emit("recording-started", 1)
+    if streaming:
+        ui.emit("live-preview-armed", {"session_id": 1, "armed": True})
+        ui.emit(
+            "transcription-delta",
+            {"session_id": 1, "text": "Long synthetic draft. " * 80},
+        )
+        expect(page.locator(".overlay-preview")).to_be_visible()
+    else:
+        ui.emit(
+            "paste-done",
+            {
+                "session_id": 1,
+                "length": 128,
+                "ai_processing": {
+                    "fallback": True,
+                    "skipped_reason": "provider_timeout",
+                },
+            },
+        )
+        expect(page.locator(".overlay-result")).to_be_visible()
+        # The result appears before the timer column finishes collapsing.
+        # Measure the final layout, after the transition and font loading.
+        page.evaluate("() => document.fonts.ready.then(() => true)")
+        page.locator(".overlay-row").evaluate(
+            "e => Promise.all(e.getAnimations().map(animation => animation.finished))"
+        )
+        warning = page.locator(".overlay-result > div").last
+        dimensions = warning.evaluate(
+            "e => ({scroll: e.scrollHeight, client: e.clientHeight, width: e.clientWidth})"
+        )
+        assert dimensions["scroll"] <= dimensions["client"] + 1, dimensions
+    button = page.get_by_role("button").bounding_box()
+    assert button["x"] >= 0 and button["x"] + button["width"] <= width
+    assert button["y"] >= 0 and button["y"] + button["height"] <= height
+    Path(output_path).mkdir(parents=True, exist_ok=True)
+    page.screenshot(path=str(Path(output_path) / "content.png"), animations="disabled")
+
+
+def rendered_contrast(element, color_property="color"):
+    return element.evaluate(
+        r"""(element, property) => {
+            const rgb = color => color.match(/[\d.]+/g).map(Number);
+            const luminance = channels => channels.slice(0, 3).map(channel => {
+                const value = channel / 255;
+                return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+            }).reduce((sum, value, index) => sum + value * [0.2126, 0.7152, 0.0722][index], 0);
+            const ancestors = [];
+            for (let node = element; node; node = node.parentElement) ancestors.unshift(node);
+            let background = [255, 255, 255];
+            for (const node of ancestors) {
+                const color = rgb(getComputedStyle(node).backgroundColor);
+                const alpha = color[3] ?? 1;
+                background = background.map((value, index) => color[index] * alpha + value * (1 - alpha));
+            }
+            const foreground = luminance(rgb(getComputedStyle(element)[property]));
+            const surface = luminance(background);
+            return (Math.max(foreground, surface) + 0.05) / (Math.min(foreground, surface) + 0.05);
+        }""",
+        color_property,
+    )
+
+
+@pytest.mark.parametrize("locale", ["ru", "en"])
+@pytest.mark.parametrize("color", ["#102040", "#f2e14a", "#ff0000"])
+def test_custom_accent_contrast_after_theme_switch(
+    app, page, locale, color, output_path
+):
+    ui = app(config={"ui_accent": color, "ui_language": locale, "theme": "dark"})
+    ui.nav("ai")
+    selected = page.locator('.ai-mode-card[data-selected="true"]')
+    title = selected.locator(".ai-mode-card__title")
+    primary = page.locator(".btn--primary").first
+    shots = Path(output_path)
+    shots.mkdir(parents=True, exist_ok=True)
+    for theme in ["dark", "light", "dark"]:
+        if page.locator("html").get_attribute("data-theme") != theme:
+            page.locator(".theme-toggle").click()
+        expect(page.locator("html")).to_have_attribute("data-theme", theme)
+        selected.focus()
+        page.keyboard.press("Tab")
+        page.keyboard.press("Shift+Tab")
+        expect(selected).to_be_focused()
+        expect(selected).to_have_css("outline-style", "solid")
+        page.screenshot(path=str(shots / f"{theme}.png"), animations="disabled")
+        assert rendered_contrast(title) >= 4.5
+        assert rendered_contrast(selected, "outlineColor") >= 3
+        assert rendered_contrast(primary) >= 4.5
+        primary.hover()
+        primary.evaluate("e => Promise.all(e.getAnimations().map(a => a.finished))")
+        assert rendered_contrast(primary) >= 4.5
+        page.mouse.move(0, 0)

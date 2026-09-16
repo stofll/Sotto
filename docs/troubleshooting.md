@@ -36,6 +36,8 @@ For measurements, use the local `capture timing` log entries described in [Testi
 
 Check the operating-system permissions and verify that another application has not claimed the shortcut.
 
+To test delivery without recording or transcription, open **Help → Diagnostics → Test paste**. Switch to an editable field in the target application during the three-second countdown; Sotto copies sample text to the clipboard and attempts to paste it through the dictation delivery path. Check the target field yourself: a successful dispatch does not prove that the application accepted the text.
+
 If macOS dictation reaches the clipboard and manual Cmd+V works, capture and transcription completed; investigate automatic paste separately. Test in a native text editor and a browser field, record whether recording started through the hotkey or tray, and include the active keyboard layout. Sotto sends the physical V key for Cmd+V so Cyrillic layouts do not require switching to English.
 
 Automatic key dispatch cannot confirm that every target application accepted the text. If insertion fails, the clipboard remains available for manual Cmd+V. Report whether the failure affects all applications or only a particular field; repeated permission changes alone do not diagnose a layout or focus problem.

@@ -9,9 +9,7 @@
 
 import { t } from "../i18n";
 
-/// How long before «Распознано» stops keeping quiet and admits it is waiting
-/// for something. The fast path fits entirely inside this interval, and a
-/// caption shown for 200 ms would be nothing but a flicker.
+// Delay only the counter; the processing label stays mounted across phases.
 export const POLISHING_LABEL_AFTER_MS = 600;
 
 export type OverlayDetailState =
@@ -24,7 +22,7 @@ export type OverlayDetailState =
 
 export type OverlayDetail =
     | { kind: "waveform" }
-    | { kind: "progress"; label?: string }
+    | { kind: "progress"; label: string; seconds?: number }
     | { kind: "text"; text: string }
     | { kind: "text"; text: string; warning: string };
 
@@ -45,7 +43,7 @@ export function overlayDetail(input: OverlayDetailInput): OverlayDetail {
     const { state, pastedLength, polishingMs, errorText, aiProblem } = input;
 
     if (state === "recording") return { kind: "waveform" };
-    if (state === "processing") return { kind: "progress" };
+    if (state === "processing") return { kind: "progress", label: t("Обрабатываю") };
     if (state === "loading") {
         return { kind: "progress", label: t("Подготавливаю локальную модель") };
     }
@@ -57,12 +55,10 @@ export function overlayDetail(input: OverlayDetailInput): OverlayDetail {
     // second; when the LLM cleans the text it is tens of seconds, and staying
     // quiet about it read as "the cycle finished and the text was lost".
     if (state === "done") {
-        return polishingMs < POLISHING_LABEL_AFTER_MS
-            ? { kind: "progress" }
-            : {
-                kind: "progress",
-                label: t("Обрабатываю текст · {p0} с", { p0: Math.floor(polishingMs / 1000) }),
-            };
+        return {
+            kind: "progress", label: t("Обрабатываю"),
+            ...(polishingMs >= POLISHING_LABEL_AFTER_MS ? { seconds: Math.floor(polishingMs / 1000) } : {}),
+        };
     }
 
     const text = pastedLength === null

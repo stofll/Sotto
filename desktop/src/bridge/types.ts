@@ -65,6 +65,8 @@ export interface TextFormattingConfig {
 }
 
 export interface ConfigResult {
+  overlay?: Partial<import("../overlay/overlayPreferences").OverlayPreferences>;
+  ui_accent?: import("../accent").AccentValue;
   theme: "dark" | "light";
   /** UI language. Empty or missing — take the system language. Not to be confused with `language`: that one is about speech. */
   ui_language?: "ru" | "en";

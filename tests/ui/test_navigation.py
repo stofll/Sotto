@@ -34,6 +34,19 @@ def test_startup_error_is_visible(app, page):
     expect(page.get_by_text("История пуста", exact=True)).to_be_visible()
 
 
+def test_history_module_load_failure_offers_reload(app, page):
+    ui = app(config={"ui_accent": "#e68a3d"})
+    module_url = "**/src/pages/HistoryPage.tsx*"
+    page.route(module_url, lambda route: route.abort())
+    ui.nav("history")
+    expect(page.get_by_role("alert")).to_contain_text("Не удалось открыть историю.")
+    page.unroute(module_url)
+    page.get_by_role("button", name="Перезагрузить", exact=True).click()
+    expect(page.get_by_test_id("page-settings")).to_be_visible()
+    ui.nav("history")
+    expect(page.get_by_text("История пуста", exact=True)).to_be_visible()
+
+
 def test_theme_persists_after_reload(app, page):
     ui = app()
     page.get_by_role("button", name="Включить светлую тему").click()
