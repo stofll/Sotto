@@ -212,6 +212,14 @@ jobs:
           workspaces: desktop/src-tauri -> target
           cache-on-failure: true
 
+      # whisper.cpp defaults to GGML_NATIVE: cached machine instructions can
+      # exceed the next Windows runner's CPU capabilities (0xc000001d).
+      - name: Rebuild Whisper for the current Windows CPU
+        if: runner.os == 'Windows'
+        shell: pwsh
+        working-directory: desktop/src-tauri
+        run: cargo clean -p whisper-rs-sys
+
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
         with:
@@ -255,6 +263,7 @@ jobs:
       # шаг, который без разложенных DLL и падает.
       - name: Разложить нативный рантайм sherpa (Windows)
         if: runner.os == 'Windows'
+        shell: pwsh
         working-directory: desktop/src-tauri
         env:
           # Профиль для скрипта: обе следующие команды идут в debug.
