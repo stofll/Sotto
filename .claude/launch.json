@@ -4,8 +4,23 @@
     {
       "name": "sotto-ui",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--prefix", "desktop"],
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--prefix",
+        "desktop"
+      ],
       "port": 1420
+    },
+    {
+      "name": "site",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--dir",
+        "site",
+        "dev"
+      ],
+      "port": 4321
     }
   ]
 }

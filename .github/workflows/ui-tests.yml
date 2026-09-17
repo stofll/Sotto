@@ -3,6 +3,10 @@ name: UI tests
 on:
   pull_request:
     branches: [main]
+    # Здесь проверяется UI приложения из desktop/. Лендинг в site/ к нему
+    # отношения не имеет и проверяется своей сборкой.
+    paths-ignore:
+      - 'site/**'
   workflow_dispatch:
 
 permissions:
