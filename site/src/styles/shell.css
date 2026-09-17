@@ -1,0 +1,20 @@
+/* The shell stays deliberately quiet. */
+.header { position: fixed; z-index: 50; inset: 0 0 auto; height: 74px; border-bottom: 1px solid transparent; transition: background 200ms, border-color 200ms, backdrop-filter 200ms; }
+.header.is-scrolled, .header.menu-open { background: rgba(10,14,22,.94); border-bottom-color: var(--border); backdrop-filter: blur(16px); }
+.header-inner { height: 100%; display: flex; align-items: center; justify-content: space-between; }
+.desktop-nav { display: flex; gap: 31px; margin-left: 53px; align-items: center; font-size: 0.75rem; color: #aab0ba; }
+.desktop-nav a { display: inline-flex; align-items: center; gap: 5px; transition: color 150ms; }
+.desktop-nav a:hover { color: white; }
+.header-actions { display: flex; align-items: center; gap: 22px; }
+.header-github { color: #c1c7d0; transition: color 150ms; }
+.header-github:hover { color: var(--silver-bright); }
+.mobile-menu-toggle, .mobile-nav { display: none; }
+
+/* Language choice. Each locale is written in its own script so a reader can
+   find theirs without reading the current one. */
+.locale-switcher { display: inline-flex; align-items: center; gap: 2px; padding: 2px; border: 1px solid var(--border); border-radius: 7px; font-size: .688rem; font-weight: 600; letter-spacing: .04em; }
+.locale-switcher > * { display: inline-flex; align-items: center; padding: 3px 7px; border-radius: 5px; color: var(--text-muted); }
+.locale-switcher > a:hover { color: var(--text-primary); background: rgba(255,255,255,.05); }
+.locale-switcher > .is-current { color: var(--text-primary); background: rgba(255,255,255,.08); }
+.mobile-nav-locale { align-self: flex-start; margin-top: 4px; }
+@media (max-width: 850px) { .desktop-only { display: none; } }

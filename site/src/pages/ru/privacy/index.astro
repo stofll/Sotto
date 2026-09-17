@@ -1,0 +1,31 @@
+---
+import Icon from '../../../components/Icon.astro';
+import Page from '../../../layouts/Page.astro';
+import { LINKS } from '../../../data/product';
+import { localePath, privacyCopy } from '../../../i18n';
+import { translationsFor } from '../../../i18n/context';
+
+const { locale } = translationsFor(Astro.currentLocale);
+const copy = privacyCopy(locale);
+---
+
+<Page slug="privacy" title={copy.title} description={copy.lede}>
+  <article class="prose">
+    <h1>{copy.title}</h1>
+    <p class="prose-lede">{copy.lede}</p>
+
+    {copy.sections.map((section) => (
+      <section>
+        <h2>{section.heading}</h2>
+        {section.paragraphs.map((paragraph) => <p>{paragraph}</p>)}
+        {section.list && <ul>{section.list.map((item) => <li>{item}</li>)}</ul>}
+      </section>
+    ))}
+
+    <footer class="prose-footer">
+      <p class="prose-updated">{copy.updated}</p>
+      <a class="inline-link" href={LINKS.privacy}>{copy.fullDocument}<Icon name="external" size={14} /></a>
+      <a class="inline-link" href={localePath(locale)}>{copy.backHome}</a>
+    </footer>
+  </article>
+</Page>

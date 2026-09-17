@@ -1,0 +1,28 @@
+---
+import Icon from './Icon.astro';
+import { apps } from '../data/product';
+import { translationsFor } from '../i18n/context';
+import type { IconName } from '../data/icons';
+
+const { t } = translationsFor(Astro.currentLocale);
+---
+
+<section class="container works-everywhere" aria-labelledby="works-heading" data-reveal>
+  <div class="works-heading">
+    <h2 id="works-heading">{t.works.title}</h2>
+    <p>{t.works.subtitle}</p>
+  </div>
+
+  <div class="app-list" aria-label={t.works.listLabel}>
+    {apps.map((app) => (
+      <span>
+        {'icon' in app
+          ? <Icon name={app.icon as IconName} size={20} />
+          : <span class:list={['app-glyph', app.glyphClass]} aria-hidden="true">{app.glyph}</span>}
+        {t.works.apps[app.id]}
+      </span>
+    ))}
+  </div>
+
+  <p class="integration-note">{t.works.note}</p>
+</section>

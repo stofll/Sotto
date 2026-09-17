@@ -1,0 +1,27 @@
+---
+import { locales, localePath } from '../i18n';
+import { translationsFor } from '../i18n/context';
+
+interface Props {
+  /** Sub-page path segment, so switching language keeps the reader on this page. */
+  slug?: string;
+  class?: string;
+}
+
+const { slug = '', class: className = '' } = Astro.props;
+const { locale, t } = translationsFor(Astro.currentLocale);
+
+/** Each locale names itself, so a reader who cannot read the current one still recognises theirs. */
+const label: Record<string, string> = { en: 'EN', ru: 'RU' };
+const title: Record<string, string> = { en: 'English', ru: 'Русский' };
+---
+
+<div class:list={['locale-switcher', className]} role="group" aria-label={t.nav.language}>
+  {locales.map((other) =>
+    other === locale ? (
+      <span class="is-current" aria-current="true" lang={other} title={title[other]}>{label[other]}</span>
+    ) : (
+      <a href={localePath(other, slug)} lang={other} hreflang={other} title={title[other]}>{label[other]}</a>
+    ),
+  )}
+</div>

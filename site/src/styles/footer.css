@@ -1,0 +1,9 @@
+.footer { border-top: 1px solid var(--border); padding-top: 25px; padding-bottom: 23px; }
+.footer-top { display: flex; align-items: center; gap: 28px; }
+.footer-top .brand { font-size: 1.125rem; gap: 8px; }
+.footer-top .brand-icon { height: 20px; }
+.footer-top > p { font-size: 0.75rem; color: #9aa0ac; }
+.footer-top > nav { display: flex; gap: 25px; align-items: center; margin-left: auto; color: #acb3be; font-size: 0.75rem; }
+.footer a:hover { color: var(--silver-bright); }
+.footer-bottom { margin-top: 27px; display: flex; justify-content: space-between; color: #949ba6; font-size: 0.6875rem; }
+.footer-bottom > a { display: inline-flex; gap: 5px; align-items: center; }

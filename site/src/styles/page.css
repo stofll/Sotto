@@ -1,0 +1,15 @@
+/* Long-form pages: the privacy summary, and anything else that is mostly text.
+   Measure is capped so lines stay readable regardless of window width. */
+.prose-page { padding-block: 120px 96px; }
+.prose { max-width: 62ch; }
+.prose h1 { font-size: 2.375rem; letter-spacing: -1.4px; line-height: 1.15; }
+.prose-lede { margin-top: 20px; font-size: 1rem; line-height: 1.75; color: var(--text-secondary); }
+.prose section { margin-top: 46px; }
+.prose h2 { font-size: 1.125rem; letter-spacing: -.4px; }
+.prose p { margin-top: 14px; font-size: 0.875rem; line-height: 1.85; color: var(--text-secondary); }
+.prose ul { margin-top: 14px; padding-left: 20px; }
+.prose li { margin-top: 9px; font-size: 0.875rem; line-height: 1.85; color: var(--text-secondary); }
+.prose li::marker { color: var(--text-muted); }
+.prose-footer { margin-top: 56px; padding-top: 26px; border-top: 1px solid var(--border); display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
+.prose-updated { margin: 0; font-size: 0.75rem; color: var(--text-muted); }
+@media (max-width: 850px) { .prose-page { padding-block: 96px 64px; } .prose h1 { font-size: 1.875rem; } }

@@ -1,0 +1,18 @@
+---
+import Glyph from '../assets/sotto-glyph.svg';
+
+interface Props {
+  /** Height of the mark. Its width follows from the ribbon's own proportions. */
+  height?: number;
+  /** Hides the wordmark; used inside the privacy diagram. */
+  iconOnly?: boolean;
+  class?: string;
+}
+
+const { height = 22, iconOnly = false, class: className = '' } = Astro.props;
+---
+
+<span class:list={['brand', className]}>
+  <Glyph class="brand-icon" height={height} aria-hidden="true" />
+  {!iconOnly && <span>Sotto</span>}
+</span>

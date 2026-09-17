@@ -1,0 +1,165 @@
+---
+import Brand from './Brand.astro';
+import DownloadButtons from './DownloadButtons.astro';
+import Icon from './Icon.astro';
+import Waveform from './Waveform.astro';
+import WindowBar from './WindowBar.astro';
+import { LINKS } from '../data/product';
+import { latestRelease } from '../data/release';
+import { translationsFor } from '../i18n/context';
+
+const { t } = translationsFor(Astro.currentLocale);
+const { editor, overlay } = t.hero;
+const release = await latestRelease();
+
+const sidebar = [
+  { icon: 'file-text', label: editor.allNotes },
+  { icon: 'file-bars', label: editor.currentNote, selected: true },
+  { icon: 'clock', label: editor.quickThoughts },
+] as const;
+---
+
+<section class="hero container" aria-labelledby="hero-heading">
+  <div class="hero-copy">
+    <p class="hero-eyebrow">
+      <span class="status-dot" />
+      {t.hero.eyebrow.map((word, index) => (
+        <>
+          {index > 0 && <span class="eyebrow-dot">·</span>}
+          {word}
+        </>
+      ))}
+    </p>
+
+    <h1 id="hero-heading">{t.hero.titleLine1}<br /><span>{t.hero.titleLine2}</span></h1>
+
+    <p class="hero-subtitle">
+      {t.hero.subtitleLine1}<br class="desktop-break" /> {t.hero.subtitleLine2}
+    </p>
+
+    <DownloadButtons location="hero" />
+
+    <div class="hero-links">
+      {release && (
+        <>
+          <span class="release-badge">{release.version}</span>
+          <span class="thin-divider" />
+        </>
+      )}
+      <span>{t.hero.noSubscription}</span>
+      <span class="thin-divider" />
+      <a href={LINKS.github}>{t.hero.viewOnGitHub}<Icon name="external" size={13} /></a>
+    </div>
+  </div>
+
+  <div class="hero-demo" data-hero-demo data-phase="done" role="group" aria-label={t.hero.demoAria}>
+    <div class="demo-composition">
+      <div class="editor-window" data-demo-editor aria-hidden="true">
+        <WindowBar title={editor.app}>
+          <Icon name="file-text" size={14} slot="trailing" />
+        </WindowBar>
+
+        <div class="editor-layout">
+          <div class="editor-sidebar" aria-hidden="true">
+            <p>{editor.workspace}</p>
+            {sidebar.map((item) => (
+              <span class:list={{ 'sidebar-selected': 'selected' in item }}>
+                <Icon name={item.icon} size={14} /> {item.label}
+              </span>
+            ))}
+            <div class="sidebar-line" />
+            <p>{editor.personal}</p>
+            <span><Icon name="file-text" size={14} /> {editor.ideas}</span>
+          </div>
+
+          <div class="editor-page">
+            <div class="document-breadcrumb">{editor.breadcrumbRoot} <span>/</span> {editor.currentNote}</div>
+            <h2>{editor.currentNote}</h2>
+            <p class="editor-intro">{editor.intro}</p>
+            <div class="demo-output" data-demo-output>
+              {editor.tasks.map((task) => (
+                <p><span class="task-box" />{task}</p>
+              ))}
+            </div>
+            <span class="editor-caret" aria-hidden="true" />
+          </div>
+        </div>
+
+        <div class="editor-status">
+          <span><span class="tiny-dot" />{editor.savedLocally}</span>
+          <span>{editor.format}</span>
+        </div>
+      </div>
+
+      <div class="sotto-overlay" data-overlay>
+        <div class="overlay-top">
+          <Brand height={16} class="brand-small" />
+          <span class="local-indicator"><i />{overlay.local}</span>
+          <a href="#models" class="icon-button" aria-label={overlay.exploreModels}>
+            <Icon name="sliders" size={16} />
+          </a>
+          <button type="button" class="icon-button" data-overlay-close aria-label={overlay.hide}>
+            <Icon name="close" size={16} />
+          </button>
+        </div>
+
+        <Waveform />
+
+        <div class="overlay-state">
+          <span class="state-dot" />
+          <span data-demo-state>{t.demo.phases.done}</span>
+          <span class="recording-time" data-demo-time>0:04</span>
+        </div>
+
+        <p class="transcript" data-demo-transcript>{t.demo.transcript.at(-1)}</p>
+
+        <div class="overlay-footer">
+          <span>{overlay.model}</span>
+          <span class="shortcut"><kbd>⌥</kbd><kbd>Space</kbd><span>{overlay.stopHint}</span></span>
+        </div>
+      </div>
+
+      <div class="demo-side-note">
+        <span class="side-line" />
+        <span>{t.hero.sideNoteLine1}<br />{t.hero.sideNoteLine2}</span>
+      </div>
+    </div>
+
+    <div class="demo-toolbar">
+      <span class="demo-caption">
+        <span class="tiny-dot" />{t.hero.caption}
+        <span class="caption-extra">{t.hero.captionExtra}</span>
+      </span>
+      <div class="demo-controls">
+        <button type="button" class="text-button" data-demo-replay aria-label={t.hero.replayAria}>
+          <Icon name="replay" size={14} />{t.hero.replay}
+        </button>
+        <button
+          type="button"
+          class="icon-button demo-pause"
+          data-demo-pause
+          aria-label={t.demo.pause}
+          aria-pressed="false"
+        >
+          <span data-pause-icon><Icon name="pause" size={14} /></span>
+          <span data-play-icon hidden><Icon name="play" size={14} /></span>
+        </button>
+      </div>
+    </div>
+
+    <p class="sr-only">{t.hero.demoDisclaimer}</p>
+  </div>
+
+  <div class="hero-steps">
+    {t.hero.steps.map((step, index) => (
+      <div data-step={index + 1}>
+        <span>{step.number}</span>
+        <p>
+          {step.label}
+          {index === 0 && <> <kbd>⌥</kbd><kbd>Space</kbd></>}
+          {index === 2 && <Icon name="arrow-right" size={16} />}
+        </p>
+      </div>
+    ))}
+  </div>
+</section>

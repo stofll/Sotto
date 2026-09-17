@@ -1,0 +1,14 @@
+---
+/** The macOS-style title bar shared by every mock application window. */
+interface Props {
+  title?: string;
+}
+
+const { title } = Astro.props;
+---
+
+<div class="window-bar">
+  <span class="traffic-lights" aria-hidden="true"><i /><i /><i /></span>
+  <span class="window-title">{title}<slot name="title" /></span>
+  <span class="window-trailing"><slot name="trailing" /></span>
+</div>

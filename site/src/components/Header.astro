@@ -1,0 +1,57 @@
+---
+import Brand from './Brand.astro';
+import Icon from './Icon.astro';
+import LocaleSwitcher from './LocaleSwitcher.astro';
+import { LINKS } from '../data/product';
+import { translationsFor } from '../i18n/context';
+
+interface Props {
+  slug?: string;
+}
+
+const { slug = '' } = Astro.props;
+const { t } = translationsFor(Astro.currentLocale);
+const sections = [
+  { href: '#features', label: t.nav.features },
+  { href: '#models', label: t.nav.models },
+  { href: '#privacy', label: t.nav.privacy },
+];
+---
+
+<header class="header" data-header>
+  <div class="container header-inner">
+    <a href="#top" class="brand-link" aria-label={t.nav.home}><Brand /></a>
+
+    <nav class="desktop-nav" aria-label={t.nav.main}>
+      {sections.map((item) => <a href={item.href}>{item.label}</a>)}
+      <a href={LINKS.docs}>{t.nav.docs}<Icon name="external" size={12} /></a>
+    </nav>
+
+    <div class="header-actions">
+      <LocaleSwitcher slug={slug} class="desktop-only" />
+      <a class="header-github" href={LINKS.github} aria-label={t.nav.githubAria}>
+        <Icon name="github" size={20} />
+      </a>
+      <a href="#download" class="button button-header">
+        {t.nav.download}<Icon name="arrow-right" size={15} />
+      </a>
+      <button
+        type="button"
+        class="icon-button mobile-menu-toggle"
+        data-menu-toggle
+        aria-controls="mobile-nav"
+        aria-expanded="false"
+        aria-label={t.nav.openMenu}
+      >
+        <Icon name="menu" size={20} />
+      </button>
+    </div>
+  </div>
+
+  <nav id="mobile-nav" class="mobile-nav" aria-label={t.nav.mobile} hidden>
+    {sections.map((item) => <a href={item.href}>{item.label}</a>)}
+    <a href={LINKS.docs}>{t.nav.docsLong}<Icon name="external" size={16} /></a>
+    <a href={LINKS.github}>{t.nav.github}<Icon name="external" size={16} /></a>
+    <LocaleSwitcher slug={slug} class="mobile-nav-locale" />
+  </nav>
+</header>

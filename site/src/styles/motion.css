@@ -1,0 +1,2 @@
+.reveal-ready { transition: opacity 600ms var(--ease), transform 650ms var(--ease); }
+.reveal-ready:not(.is-visible) { opacity: 0; transform: translateY(12px); }

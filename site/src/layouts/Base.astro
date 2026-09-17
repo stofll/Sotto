@@ -1,0 +1,70 @@
+---
+import '../styles/global.css';
+import RuntimeStrings from '../components/RuntimeStrings.astro';
+import StructuredData from '../components/StructuredData.astro';
+import { locales, localePath } from '../i18n';
+import { translationsFor } from '../i18n/context';
+
+interface Props {
+  /** Sub-page path segment; empty for the landing page. */
+  slug?: string;
+  title?: string;
+  description?: string;
+}
+
+const { slug = '', title, description } = Astro.props;
+const { locale, t } = translationsFor(Astro.currentLocale);
+
+const canonical = new URL(localePath(locale, slug), Astro.site);
+const ogImage = new URL('/og/sotto.png', Astro.site);
+
+const pageTitle = title ? `${title} — Sotto` : t.meta.title;
+const pageDescription = description ?? t.meta.description;
+---
+
+<!doctype html>
+<html lang={t.meta.htmlLang}>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#061014" />
+
+    <title>{pageTitle}</title>
+    <meta name="description" content={pageDescription} />
+    <link rel="canonical" href={canonical} />
+
+    {locales.map((other) => (
+      <link rel="alternate" hreflang={other} href={new URL(localePath(other, slug), Astro.site)} />
+    ))}
+    <link rel="alternate" hreflang="x-default" href={new URL(localePath('en', slug), Astro.site)} />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:title" content={title ?? t.meta.ogTitle} />
+    <meta property="og:description" content={description ?? t.meta.ogDescription} />
+    <meta property="og:image" content={ogImage} />
+    <meta property="og:locale" content={locale === 'ru' ? 'ru_RU' : 'en_US'} />
+    <meta property="og:site_name" content="Sotto" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title ?? t.meta.ogTitle} />
+    <meta name="twitter:description" content={description ?? t.meta.ogDescription} />
+    <meta name="twitter:image" content={ogImage} />
+
+    <link rel="icon" href="/brand/sotto-icon.png" type="image/png" />
+
+    {!slug && <StructuredData canonical={canonical} />}
+  </head>
+
+  <body>
+    <a class="skip-link" href="#main-content">{t.nav.skipToContent}</a>
+    <div id="top"></div>
+    <slot />
+    <RuntimeStrings />
+
+    <script>
+      import { initLanding } from '../scripts';
+      initLanding();
+    </script>
+  </body>
+</html>

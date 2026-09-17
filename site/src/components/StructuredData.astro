@@ -1,0 +1,37 @@
+---
+import { LINKS, REPO } from '../data/product';
+import { translationsFor } from '../i18n/context';
+
+interface Props {
+  canonical: URL;
+}
+
+const { canonical } = Astro.props;
+const { locale, t } = translationsFor(Astro.currentLocale);
+
+/**
+ * Lets search engines render the app card — free, which platforms, which
+ * licence — instead of a plain blue link. Every value is asserted elsewhere on
+ * the page, so nothing here is a claim the page does not already make.
+ */
+const schema = {
+  '@context': 'https://schema.org',
+  '@type': 'SoftwareApplication',
+  name: 'Sotto',
+  description: t.meta.description,
+  url: canonical.href,
+  applicationCategory: 'UtilitiesApplication',
+  applicationSubCategory: 'Speech recognition',
+  operatingSystem: 'macOS, Windows',
+  inLanguage: locale,
+  isAccessibleForFree: true,
+  offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+  license: LINKS.license,
+  codeRepository: REPO,
+  softwareHelp: LINKS.docs,
+  downloadUrl: LINKS.releases,
+  author: { '@type': 'Person', name: 'Stofl', url: 'https://github.com/stofll' },
+};
+---
+
+<script type="application/ld+json" set:html={JSON.stringify(schema)} is:inline />

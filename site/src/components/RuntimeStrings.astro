@@ -1,0 +1,37 @@
+---
+import { translationsFor } from '../i18n/context';
+
+/**
+ * Strings the client scripts need. Rendering them as JSON keeps the behaviour
+ * modules locale-agnostic: they read this element instead of embedding English.
+ */
+const { t } = translationsFor(Astro.currentLocale);
+
+const runtime = {
+  demo: t.demo,
+  models: t.models.details,
+  workflow: Object.fromEntries(
+    Object.entries(t.workflow.scenarios).map(([id, scenario]) => [
+      id,
+      {
+        app: scenario.app,
+        destination: scenario.destination,
+        context: scenario.context,
+        chunks: scenario.chunks,
+      },
+    ]),
+  ),
+  copy: {
+    copied: t.openSource.copied,
+    copiedTitle: t.openSource.copiedTitle,
+    copiedAria: t.openSource.copiedAria,
+    manual: t.openSource.copyManual,
+    fallbackTitle: t.openSource.copyFallbackTitle,
+    aria: t.openSource.copyAria,
+  },
+  dialog: t.dialog,
+  nav: { openMenu: t.nav.openMenu, closeMenu: t.nav.closeMenu },
+};
+---
+
+<script id="runtime-strings" type="application/json" set:html={JSON.stringify(runtime)} is:inline />

@@ -1,0 +1,80 @@
+---
+import Icon from './Icon.astro';
+import Waveform from './Waveform.astro';
+import WindowBar from './WindowBar.astro';
+import { workflows } from '../data/product';
+import { translationsFor } from '../i18n/context';
+import type { IconName } from '../data/icons';
+
+const { t } = translationsFor(Astro.currentLocale);
+const first = t.workflow.scenarios[workflows[0].id];
+const tabIcon: Record<string, IconName> = { message: 'message', note: 'file-text', code: 'code' };
+---
+
+<section class="section container workflow-section" id="workflow" aria-labelledby="workflow-heading">
+  <div class="split-grid" data-reveal>
+    <div class="section-copy">
+      <p class="eyebrow">{t.workflow.eyebrow}</p>
+      <h2 id="workflow-heading">{t.workflow.titleLine1}<br />{t.workflow.titleLine2}</h2>
+      <p class="section-description">{t.workflow.description}</p>
+
+      <div class="workflow-tabs" role="tablist" aria-label={t.workflow.tablistLabel} aria-orientation="vertical">
+        {workflows.map((flow, index) => {
+          const scenario = t.workflow.scenarios[flow.id];
+          const selected = index === 0;
+          return (
+            <button
+              type="button"
+              role="tab"
+              id={`tab-${flow.id}`}
+              aria-selected={selected ? 'true' : 'false'}
+              aria-controls="workflow-panel"
+              tabindex={selected ? 0 : -1}
+              class:list={['workflow-tab', { 'is-selected': selected }]}
+              data-workflow={flow.id}
+            >
+              <Icon name={tabIcon[flow.icon]} size={18} />
+              <span><strong>{scenario.title}</strong><span>{scenario.sub}</span></span>
+              <Icon name="arrow-right" size={15} />
+            </button>
+          );
+        })}
+      </div>
+    </div>
+
+    <div class="workflow-visual">
+      <div class="workflow-window" id="workflow-panel" role="tabpanel" aria-labelledby={`tab-${workflows[0].id}`} tabindex="0">
+        <WindowBar>
+          <span data-workflow-app slot="title">{first.app}</span>
+        </WindowBar>
+
+        <div class="workflow-editor">
+          <div class="workflow-recipient">
+            <span class="recipient-avatar" data-recipient-initial>{first.destination[0]}</span>
+            <div>
+              <h3 data-workflow-destination>{first.destination}</h3>
+              <span>{first.destinationSub}</span>
+            </div>
+            <span class="recipient-dots" aria-hidden="true">···</span>
+          </div>
+
+          <p class="workflow-context" data-workflow-context>{first.context}</p>
+          <div class="workflow-text" data-workflow-text>{first.chunks.join(' ')}</div>
+
+          <div class="composer-footer" aria-hidden="true">
+            <span>Aa <span>＋</span></span>
+            <span class="send-icon"><Icon name="arrow-right" size={16} /></span>
+          </div>
+        </div>
+
+        <div class="mini-overlay" data-mini-overlay>
+          <Icon name="mic" size={16} />
+          <Waveform small />
+          <span>{t.workflow.overlayLabel}</span>
+        </div>
+      </div>
+
+      <p class="visual-caption"><Icon name="wifi-off" size={14} /> {t.workflow.caption}</p>
+    </div>
+  </div>
+</section>

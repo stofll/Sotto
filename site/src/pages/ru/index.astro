@@ -1,0 +1,36 @@
+---
+import Benefits from '../../components/Benefits.astro';
+import Download from '../../components/Download.astro';
+import DownloadDialog from '../../components/DownloadDialog.astro';
+import Features from '../../components/Features.astro';
+import Footer from '../../components/Footer.astro';
+import Header from '../../components/Header.astro';
+import Hero from '../../components/Hero.astro';
+import Models from '../../components/Models.astro';
+import OpenSource from '../../components/OpenSource.astro';
+import Privacy from '../../components/Privacy.astro';
+import Workflow from '../../components/Workflow.astro';
+import WorksEverywhere from '../../components/WorksEverywhere.astro';
+import Base from '../../layouts/Base.astro';
+import { translationsFor } from '../../i18n/context';
+
+const { t } = translationsFor(Astro.currentLocale);
+---
+
+<Base>
+  <Header />
+  <main id="main-content">
+    <noscript><p class="noscript-notice">{t.nav.noscript}</p></noscript>
+    <Hero />
+    <Benefits />
+    <Workflow />
+    <WorksEverywhere />
+    <Models />
+    <Privacy />
+    <Features />
+    <OpenSource />
+    <Download />
+  </main>
+  <Footer />
+  <DownloadDialog />
+</Base>

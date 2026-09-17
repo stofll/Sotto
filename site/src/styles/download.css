@@ -1,0 +1,12 @@
+/* Download affordances remain useful even with JavaScript disabled. */
+.download-section { text-align: center; padding-block: 99px 76px; }
+.cta-mark { color: #bec5d1; margin-bottom: 26px; }
+.download-section .eyebrow { color: #9ca3ae; margin-bottom: 20px; font-size: 0.6875rem; }
+.download-section h2 { font-size: 2.9375rem; letter-spacing: -1.8px; }
+.download-section > p:not(.eyebrow) { margin-top: 20px; font-size: 0.8125rem; color: var(--text-secondary); }
+.download-section .download-buttons { margin-top: 28px; }
+.platform-details { display: flex; align-items: center; justify-content: center; gap: 21px; margin-top: 22px; color: #9da4af; font-size: 0.6875rem; }
+.platform-details > a { display: inline-flex; gap: 5px; align-items: center; }
+.platform-details > a:hover { color: var(--silver-bright); }
+.installation-link { display: inline-flex; gap: 6px; align-items: center; margin-top: 19px; color: #a7aeb9; font-size: 0.75rem; }
+.installation-link:hover { color: var(--silver-bright); }

@@ -1,0 +1,112 @@
+---
+import Icon from './Icon.astro';
+import WindowBar from './WindowBar.astro';
+import { LINKS, models } from '../data/product';
+import { format } from '../i18n';
+import { translationsFor } from '../i18n/context';
+
+const { t } = translationsFor(Astro.currentLocale);
+
+/** "Multilingual · 651 MB", assembled from a fact and a translated pattern. */
+const metaFor = (model: (typeof models)[number]): string => {
+  const pattern = t.models.languageLabels[model.languages === 'russian' ? 'russian' : model.languages === 'sizes' ? 'sizes' : 'multilingual'];
+  if (model.sizeMb === undefined) return pattern;
+  return format(pattern, { size: format(t.models.megabytes, { n: model.sizeMb }) });
+};
+---
+
+<section class="section container models-section" id="models" aria-labelledby="models-heading">
+  <div class="split-grid" data-reveal>
+    <div class="section-copy models-copy">
+      <p class="eyebrow">{t.models.eyebrow}</p>
+      <h2 id="models-heading">{t.models.titleLine1}<br />{t.models.titleLine2}</h2>
+      <p class="section-description">
+        {t.models.descriptionLine1}<br />{t.models.descriptionLine2}
+      </p>
+
+      <div class="model-principles">
+        {t.models.principles.map((line) => (
+          <p><Icon name="check" size={16} />{line}</p>
+        ))}
+      </div>
+
+      <a class="inline-link" href={LINKS.models}>
+        {t.models.guideLink}<Icon name="arrow-right" size={16} />
+      </a>
+    </div>
+
+    <div class="model-manager">
+      <WindowBar>
+        <Fragment slot="title">Sotto <span class="muted">/</span> {t.models.windowTitle}</Fragment>
+        <Icon name="sliders" size={15} slot="trailing" />
+      </WindowBar>
+
+      <div class="model-manager-body">
+        <div class="model-manager-heading">
+          <h3>{t.models.panelTitle}</h3>
+          <span>{t.models.panelSubtitle}</span>
+        </div>
+
+        <div class="model-type-tabs" role="tablist" aria-label={t.models.tablistLabel}>
+          <button
+            type="button"
+            role="tab"
+            aria-selected="true"
+            aria-controls="local-model-panel"
+            id="local-model-tab"
+            data-model-type="local"
+            class="is-selected"
+          >{t.models.localTab}</button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected="false"
+            aria-controls="cloud-model-panel"
+            id="cloud-model-tab"
+            data-model-type="cloud"
+            tabindex="-1"
+          >{t.models.cloudTab} <span>{t.models.cloudTabBadge}</span></button>
+        </div>
+
+        <div role="tabpanel" id="local-model-panel" aria-labelledby="local-model-tab">
+          <div class="model-list" role="radiogroup" aria-label={t.models.radiogroupLabel}>
+            {models.map((model, index) => (
+              <button
+                type="button"
+                role="radio"
+                aria-checked={index === 0 ? 'true' : 'false'}
+                tabindex={index === 0 ? 0 : -1}
+                data-model={model.id}
+                class:list={['model-row', { 'is-selected': index === 0 }]}
+              >
+                <span class="model-monogram">{model.letter}</span>
+                <span class="model-info"><strong>{model.name}</strong><span>{metaFor(model)}</span></span>
+                {model.streaming && <span class="streaming-label">{t.models.streamingBadge}</span>}
+                <span class="model-radio"><Icon name="check" size={12} /></span>
+              </button>
+            ))}
+          </div>
+
+          <div class="model-detail">
+            <Icon name="chip" size={15} />
+            <p data-model-detail aria-live="polite">{t.models.details[models[0].id]}</p>
+          </div>
+        </div>
+
+        <div role="tabpanel" id="cloud-model-panel" aria-labelledby="cloud-model-tab" hidden>
+          <div class="cloud-model-content">
+            <Icon name="globe" size={28} />
+            <h4>{t.models.cloud.title}</h4>
+            <p>{t.models.cloud.text}</p>
+            <p class="muted">{t.models.cloud.note}</p>
+            <a class="inline-link" href={LINKS.docs}>
+              {t.models.cloud.link}<Icon name="external" size={14} />
+            </a>
+          </div>
+        </div>
+
+        <div class="model-manager-footer"><span class="tiny-dot" />{t.models.footnote}</div>
+      </div>
+    </div>
+  </div>
+</section>

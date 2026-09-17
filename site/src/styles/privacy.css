@@ -1,0 +1,26 @@
+/* The privacy diagram is a local signal path, with one on-entry pulse. */
+.privacy-section { padding-block: 92px 28px; background: #12171f; border-block: 1px solid #282d36; }
+.privacy-top { display: grid; grid-template-columns: 1fr 1.06fr; align-items: center; gap: 92px; }
+.privacy-diagram { border: 1px solid #424851; border-radius: 12px; padding: 20px 16px 19px; position: relative; }
+.device-boundary-label { font-size: 0.6875rem; letter-spacing: 1.4px; color: #afb6c1; display: flex; align-items: center; gap: 7px; padding-left: 4px; }
+.signal-path { display: grid; grid-template-columns: repeat(4,1fr); position: relative; margin-top: 25px; }
+.signal-track { height: 1px; position: absolute; top: 25px; left: 12.5%; right: 12.5%; background: #484e58; }
+.signal-pulse { display: block; position: absolute; top: -1px; left: 0; height: 3px; width: 20px; border-radius: 2px; opacity: 0; background: var(--accent-soft); }
+.signal-node { display: flex; flex-direction: column; align-items: center; gap: 13px; font-size: 0.6875rem; color: #bac2cd; z-index: 1; }
+.signal-icon { display: flex; width: 49px; height: 49px; align-items: center; justify-content: center; background: #20252e; color: #b8bfcb; border: 1px solid #535963; border-radius: 10px; }
+.signal-icon .brand-icon { height: 20px; }
+.privacy-diagram > p { font-size: 0.75rem; color: #acb3be; text-align: center; margin-top: 25px; display: flex; align-items: center; justify-content: center; gap: 6px; }
+.privacy-diagram.is-playing .signal-pulse { animation: signal-travel 1800ms var(--ease) both; }
+.privacy-diagram.is-playing .signal-icon { animation: node-light 1800ms ease-in-out both; }
+.privacy-diagram.is-playing .signal-node:nth-child(3) .signal-icon { animation-delay: 220ms; }
+.privacy-diagram.is-playing .signal-node:nth-child(4) .signal-icon { animation-delay: 440ms; }
+.privacy-diagram.is-playing .signal-node:nth-child(5) .signal-icon { animation-delay: 660ms; }
+@keyframes signal-travel { 0% { opacity: 0; left: 0; } 10% { opacity: 1; } 85% { opacity: 1; } 100% { opacity: 0; left: calc(100% - 20px); } }
+@keyframes node-light { 0%, 100% { border-color: #535963; } 35% { border-color: #acb3bf; color: #d9e1ec; } }
+.privacy-points { display: grid; grid-template-columns: repeat(3, 1fr); gap: 64px; margin-top: 58px; padding-bottom: 34px; }
+.privacy-points > div > span { font-size: 0.75rem; color: #a9b0bb; display: block; margin-bottom: 13px; }
+.privacy-points h3 { font-size: 0.75rem; font-weight: 500; margin-bottom: 9px; }
+.privacy-points p { font-size: 0.75rem; color: #acb3be; line-height: 1.85; max-width: 310px; }
+.privacy-footnote { border-top: 1px solid #333942; padding-top: 20px; display: flex; justify-content: space-between; align-items: center; gap: 42px; }
+.privacy-footnote > p { font-size: 0.75rem; line-height: 1.9; color: #a3aab5; max-width: 770px; }
+.privacy-footnote .inline-link { white-space: nowrap; font-size: 0.75rem; }

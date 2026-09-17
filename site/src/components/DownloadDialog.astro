@@ -1,0 +1,50 @@
+---
+import Brand from './Brand.astro';
+import Icon from './Icon.astro';
+import { LINKS } from '../data/product';
+import { translationsFor } from '../i18n/context';
+
+const { t } = translationsFor(Astro.currentLocale);
+---
+
+<dialog
+  class="download-dialog"
+  data-download-dialog
+  aria-labelledby="download-dialog-heading"
+  aria-describedby="download-dialog-description"
+>
+  <div class="dialog-inner">
+    <div class="dialog-top">
+      <Brand />
+      <button type="button" class="icon-button" data-dialog-close aria-label={t.dialog.closeAria}>
+        <Icon name="close" size={20} />
+      </button>
+    </div>
+
+    <p class="eyebrow">{t.dialog.eyebrow}</p>
+    <h2 id="download-dialog-heading">{t.dialog.titleMac}</h2>
+    <p id="download-dialog-description" data-download-description>{t.dialog.descriptionMac}</p>
+
+    <ol class="install-steps" data-install-steps>
+      {t.dialog.stepsMac.map((step) => <li>{step}</li>)}
+    </ol>
+
+    <div class="install-notice">
+      <Icon name="shield-check" size={18} />
+      <p>
+        {t.dialog.notice}{' '}
+        <a href={LINKS.install}>{t.dialog.noticeLink}</a>
+      </p>
+    </div>
+
+    <a class="button button-primary dialog-download" href={LINKS.releases} data-download-target>
+      {t.dialog.openRelease}<Icon name="external" size={17} />
+    </a>
+
+    <p class="download-resolution" data-download-resolution role="status">{t.dialog.hostedOnGitHub}</p>
+
+    <a class="dialog-other-platforms" href={LINKS.releases}>
+      {t.dialog.allReleases}<Icon name="external" size={12} />
+    </a>
+  </div>
+</dialog>

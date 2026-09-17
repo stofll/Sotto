@@ -1,0 +1,37 @@
+/* Readable website copy; deliberately smaller text only within scaled UI demos. */
+@media (min-width: 851px) {
+  .desktop-nav { font-size: 0.8125rem; }
+  .hero-eyebrow { font-size: 0.6875rem; }
+  .hero-subtitle { font-size: 1rem; }
+  .hero-links { font-size: 0.75rem; }
+  .benefit h2 { font-size: 0.875rem; }
+  .benefit p { font-size: 0.75rem; }
+  .section-description { font-size: 0.9375rem; }
+  .workflow-tab > span > strong { font-size: 0.8125rem; }
+  .workflow-tab > span > span { font-size: 0.75rem; }
+  .model-principles p { font-size: 0.8125rem; }
+  .works-heading h2 { font-size: 1.0625rem; }
+  .works-heading p { font-size: 0.75rem; }
+  .app-list > span { font-size: 0.875rem; }
+  .integration-note { font-size: 0.75rem; }
+  .privacy-points h3 { font-size: 0.875rem; }
+  .privacy-points p { font-size: 0.8125rem; }
+  .privacy-footnote > p, .privacy-footnote .inline-link { font-size: 0.75rem; }
+  .features-heading > p { font-size: 0.8125rem; }
+  .feature h3 { font-size: 1rem; }
+  .feature p { font-size: 0.8125rem; }
+  .feature-overline span { font-size: 0.6875rem; }
+  .features-footnote { font-size: 0.75rem; }
+  .open-source-section .section-description { font-size: 0.875rem; }
+  .open-source-section .inline-link { font-size: 0.8125rem; }
+  .download-section > p:not(.eyebrow) { font-size: 0.875rem; }
+  .platform-details { font-size: 0.6875rem; }
+  .footer-top > p, .footer-top > nav { font-size: 0.75rem; }
+  .footer-bottom { font-size: 0.6875rem; }
+}
+.cta-mark > svg { display: inline-block; }
+.editor-window { max-width: 100%; }
+.model-radio { border-color: #757c87; }
+.noscript-notice { padding: 85px 22px 0; margin-bottom: -80px; font-size: 0.75rem; color: #bcc3cf; text-align: center; }
+html:not(.js-enabled) .demo-controls, html:not(.js-enabled) .mobile-menu-toggle { display: none; }
+.hero-demo::before { max-width: 100%; }

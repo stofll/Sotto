@@ -1,0 +1,16 @@
+---
+import { waveformBars } from '../data/product';
+
+interface Props {
+  /** The compact variant used inside the workflow overlay. */
+  small?: boolean;
+}
+
+const { small = false } = Astro.props;
+---
+
+<div class:list={['waveform', { 'waveform-small': small }]} aria-hidden="true">
+  {waveformBars.map((bar) => (
+    <span style={`--bar-height:${bar.height}px;--bar-speed:${bar.speed}ms;--bar-delay:${bar.delay}ms`} />
+  ))}
+</div>

@@ -1,0 +1,19 @@
+---
+import Icon from './Icon.astro';
+import { translationsFor } from '../i18n/context';
+import type { IconName } from '../data/icons';
+
+const { t } = translationsFor(Astro.currentLocale);
+---
+
+<section class="benefits container" aria-label={t.benefits.label}>
+  <div class="benefits-grid" data-reveal>
+    {t.benefits.items.map((item) => (
+      <div class="benefit">
+        <Icon name={item.icon as IconName} size={20} />
+        <h2>{item.title}</h2>
+        <p>{item.text}</p>
+      </div>
+    ))}
+  </div>
+</section>
