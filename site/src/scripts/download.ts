@@ -22,7 +22,7 @@ interface Config {
  */
 export const initDownload = (runtime: Runtime, config: Config): Behaviour => {
   const { query, all, signal, text, later, clear, strings } = runtime;
-  const s = strings.dialog as Record<string, string> & { stepsMac: string[]; stepsWindows: string[] };
+  const s = strings.dialog;
 
   const dialog = query<HTMLDialogElement>('[data-download-dialog]');
   const target = query<HTMLAnchorElement>('[data-download-target]');

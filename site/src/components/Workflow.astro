@@ -2,13 +2,13 @@
 import Icon from './Icon.astro';
 import Waveform from './Waveform.astro';
 import WindowBar from './WindowBar.astro';
-import { workflows } from '../data/product';
+import { workflows, type Workflow } from '../data/product';
 import { translationsFor } from '../i18n/context';
 import type { IconName } from '../data/icons';
 
 const { t } = translationsFor(Astro.currentLocale);
 const first = t.workflow.scenarios[workflows[0].id];
-const tabIcon: Record<string, IconName> = { message: 'message', note: 'file-text', code: 'code' };
+const tabIcon: Record<Workflow['icon'], IconName> = { message: 'message', note: 'file-text', code: 'code' };
 ---
 
 <section class="section container workflow-section" id="workflow" aria-labelledby="workflow-heading">

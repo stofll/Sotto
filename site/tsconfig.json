@@ -3,6 +3,9 @@
   "include": [".astro/types.d.ts", "**/*.astro", "**/*.ts"],
   "exclude": ["dist"],
   "compilerOptions": {
-    "strictNullChecks": true
+    // Indexing an array or a Record yields `T | undefined`. The i18n strings
+    // reach the scripts as JSON rendered into the page rather than as types, so
+    // a missing key is something that can genuinely happen at runtime.
+    "noUncheckedIndexedAccess": true
   }
 }

@@ -32,7 +32,7 @@ export const initModels = ({ query, all, signal, text, strings }: Runtime): Beha
         else return;
 
         event.preventDefault();
-        selectModel(radios[next].dataset.model ?? '', true);
+        selectModel(radios[next]?.dataset.model ?? '', true);
       },
       { signal },
     );
@@ -65,7 +65,7 @@ export const initModels = ({ query, all, signal, text, strings }: Runtime): Beha
         else return;
 
         event.preventDefault();
-        choosePanel(tabs[next].dataset.modelType ?? 'local', true);
+        choosePanel(tabs[next]?.dataset.modelType ?? 'local', true);
       },
       { signal },
     );

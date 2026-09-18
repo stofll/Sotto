@@ -3,6 +3,7 @@ import Brand from './Brand.astro';
 import Icon from './Icon.astro';
 import LocaleSwitcher from './LocaleSwitcher.astro';
 import { LINKS } from '../data/product';
+import { localePath } from '../i18n';
 import { translationsFor } from '../i18n/context';
 
 interface Props {
@@ -10,17 +11,33 @@ interface Props {
 }
 
 const { slug = '' } = Astro.props;
-const { t } = translationsFor(Astro.currentLocale);
+const { locale, t } = translationsFor(Astro.currentLocale);
+
+/**
+ * One header serves every page, but the sections it points at exist only on the
+ * landing page: privacy and both 404s render the same markup. A bare
+ * `#features` leads nowhere there, so off the landing page the anchors are
+ * written out as full paths home.
+ *
+ * Which page this is comes from the URL rather than a prop, because a 404
+ * renders `<Header />` exactly as the home page does: a prop with a default
+ * would have to be remembered on every page added later.
+ */
+const home = localePath(locale);
+const path = Astro.url.pathname.endsWith('/') ? Astro.url.pathname : `${Astro.url.pathname}/`;
+const onLanding = path === home;
+const anchor = (hash: string) => (onLanding ? hash : `${home}${hash}`);
+
 const sections = [
-  { href: '#features', label: t.nav.features },
-  { href: '#models', label: t.nav.models },
-  { href: '#privacy', label: t.nav.privacy },
+  { href: anchor('#features'), label: t.nav.features },
+  { href: anchor('#models'), label: t.nav.models },
+  { href: anchor('#privacy'), label: t.nav.privacy },
 ];
 ---
 
 <header class="header" data-header>
   <div class="container header-inner">
-    <a href="#top" class="brand-link" aria-label={t.nav.home}><Brand /></a>
+    <a href={onLanding ? '#top' : home} class="brand-link" aria-label={t.nav.home}><Brand /></a>
 
     <nav class="desktop-nav" aria-label={t.nav.main}>
       {sections.map((item) => <a href={item.href}>{item.label}</a>)}
@@ -32,7 +49,7 @@ const sections = [
       <a class="header-github" href={LINKS.github} aria-label={t.nav.githubAria}>
         <Icon name="github" size={20} />
       </a>
-      <a href="#download" class="button button-header">
+      <a href={anchor('#download')} class="button button-header">
         {t.nav.download}<Icon name="arrow-right" size={15} />
       </a>
       <button

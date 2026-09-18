@@ -3,6 +3,9 @@ import { ru } from './ru';
 import { privacyEn, privacyRu, type PrivacyPage } from './privacy';
 import type { Dictionary, Locale } from './types';
 
+/** Must match LOCALES/DEFAULT_LOCALE in astro.config.mjs. Routing is declared
+ *  there, but these values are needed in the client bundle, which cannot import
+ *  the config. Adding a locale means editing both, plus src/pages/<locale>/. */
 export const locales: Locale[] = ['en', 'ru'];
 export const defaultLocale: Locale = 'en';
 

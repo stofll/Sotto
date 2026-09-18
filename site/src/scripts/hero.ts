@@ -65,7 +65,7 @@ export const initHero = (runtime: Runtime): Behaviour => {
     }
 
     const chunk = t < 1400 ? 0 : t < 2000 ? 1 : t < 2450 ? 2 : t < 3050 ? 3 : t < 3650 ? 4 : 5;
-    text(transcript, chunk === 0 ? strings.demo.prompt : words[chunk]);
+    text(transcript, chunk === 0 ? strings.demo.prompt : (words[chunk] ?? ''));
     text(time, t < 1200 ? '0:00' : `0:0${Math.min(4, Math.floor((t - 1200) / 800))}`);
   };
 

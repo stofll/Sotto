@@ -13,7 +13,10 @@ export const initHeader = ({ query, all, signal, strings }: Runtime): Behaviour 
     menuToggle.setAttribute('aria-expanded', String(open));
     menuToggle.setAttribute('aria-label', open ? strings.nav.closeMenu : strings.nav.openMenu);
     header?.classList.toggle('menu-open', open);
+    // Opening moves focus to the first link and Escape returns it to the
+    // toggle, so the menu never has to be hunted for from the keyboard.
     if (restoreFocus) menuToggle.focus();
+    else if (open) menu.querySelector<HTMLAnchorElement>('a')?.focus();
   };
 
   const updateHeader = () => {

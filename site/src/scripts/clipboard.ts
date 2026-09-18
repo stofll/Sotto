@@ -1,9 +1,12 @@
 import { format, type Behaviour, type Runtime } from './runtime';
 
 /** Copying that works over HTTPS and from a local file, with an honest failure state. */
-export const initClipboard = ({ query, signal, text, later, strings }: Runtime, repo: string): Behaviour => {
+export const initClipboard = ({ query, signal, text, later, clear, strings }: Runtime, repo: string): Behaviour => {
   const button = query<HTMLButtonElement>('[data-copy-clone]');
   const status = query('[data-copy-status]');
+  // A second click before the first timer expires: without this the older
+  // reset would clear the status the newer click has just shown.
+  let reset = 0;
 
   button?.addEventListener(
     'click',
@@ -43,7 +46,8 @@ export const initClipboard = ({ query, signal, text, later, strings }: Runtime, 
       button.setAttribute('aria-label', copied ? strings.copy.copiedAria : strings.copy.aria);
       button.title = copied ? strings.copy.copiedTitle : strings.copy.fallbackTitle;
 
-      later(
+      if (reset) clear(reset);
+      reset = later(
         () => {
           status?.classList.add('sr-only');
           button.setAttribute('aria-label', strings.copy.aria);

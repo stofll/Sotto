@@ -1,3 +1,5 @@
+import type { Dictionary } from '../i18n/types';
+
 /**
  * Shared plumbing for the behaviour modules: scoped queries, timers that clean
  * themselves up, and the reduced-motion signal every animation respects.
@@ -36,7 +38,9 @@ export interface RuntimeStrings {
   models: Record<string, string>;
   workflow: Record<string, { app: string; destination: string; context: string; chunks: string[] }>;
   copy: { copied: string; copiedTitle: string; copiedAria: string; manual: string; fallbackTitle: string; aria: string };
-  dialog: Record<string, string | string[]>;
+  /** The shape comes from the dictionary. An approximate Record would hide a
+   *  mismatch until runtime, where `steps.map` would throw on undefined. */
+  dialog: Dictionary['dialog'];
   nav: { openMenu: string; closeMenu: string };
 }
 

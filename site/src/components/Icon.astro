@@ -16,7 +16,7 @@ const strokeWidth = 'strokeWidth' in shape ? shape.strokeWidth : '1.6';
 
 // Non-square shapes (the download mark) keep their aspect ratio instead of
 // being squashed into a square box.
-const [, , boxWidth, boxHeight] = viewBox.split(' ').map(Number);
+const [, , boxWidth = 24, boxHeight = 24] = viewBox.split(' ').map(Number);
 const height = Math.round((size * boxHeight) / boxWidth);
 ---
 

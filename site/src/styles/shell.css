@@ -17,4 +17,8 @@
 .locale-switcher > a:hover { color: var(--text-primary); background: rgba(255,255,255,.05); }
 .locale-switcher > .is-current { color: var(--text-primary); background: rgba(255,255,255,.08); }
 .mobile-nav-locale { align-self: flex-start; margin-top: 4px; }
-@media (max-width: 850px) { .desktop-only { display: none; } }
+/* The locale switcher appears twice in the header: here, and inside the mobile
+   menu. The breakpoint has to be the menu's own (600px), or between the two
+   neither one is on screen and the page offers no way to change language at
+   all — the footer does not carry a second switcher. */
+@media (max-width: 600px) { .desktop-only { display: none; } }
