@@ -7,6 +7,7 @@ export function AccessibilityNotice() {
   const [granted, setGranted] = useState<boolean | null>(null);
   const [checking, setChecking] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
   const request = useRef(0);
 
   const check = useCallback(async () => {
@@ -42,7 +43,7 @@ export function AccessibilityNotice() {
     };
   }, [check]);
 
-  if (granted !== false && !failed) return null;
+  if (dismissed || (granted !== false && !failed)) return null;
 
   const openSettings = async () => {
     try {
@@ -62,5 +63,8 @@ export function AccessibilityNotice() {
     </div>
     <button className="btn btn--primary" type="button" onClick={() => void openSettings()}>{t("Открыть System Settings")}</button>
     <button className="btn btn--ghost" type="button" disabled={checking} onClick={() => void check()}>{checking ? t("Проверка…") : t("Проверить доступ")}</button>
+    <button className="btn btn--ghost" type="button" aria-label={t("Закрыть")} onClick={() => setDismissed(true)}>
+      <Icon name="x" size={12}/>
+    </button>
   </div>;
 }

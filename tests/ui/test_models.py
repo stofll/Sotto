@@ -1,6 +1,14 @@
 from playwright.sync_api import expect
 
 
+def test_unknown_meters_use_a_hatch_not_a_dash(app, page):
+    ui = app()
+    ui.nav("models")
+    meters = page.get_by_test_id("model-tiny").locator(".model-meter__unknown")
+    expect(meters).to_have_count(2)
+    expect(meters.first).to_have_text("")
+
+
 def test_search_and_reset(app, page):
     ui = app()
     ui.nav("models")

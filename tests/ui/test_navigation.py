@@ -27,6 +27,16 @@ def test_all_pages_render(app, page, locale, theme):
             expect(page.get_by_role("alert")).to_have_count(0)
 
 
+def test_accessibility_notice_can_be_dismissed(app, page):
+    ui = app(responses={"check_accessibility": [{"result": False}] * 8})
+    notice = page.get_by_test_id("accessibility-notice")
+    expect(notice).to_be_visible()
+    expect(notice).to_contain_text("Для автоматической вставки нужен доступ macOS")
+    notice.get_by_role("button", name="Закрыть", exact=True).click()
+    expect(notice).to_have_count(0)
+    assert ui.calls("check_accessibility")
+
+
 def test_startup_error_is_visible(app, page):
     ui = app(responses={"get_stats": [{"error": "Synthetic startup failure"}] * 2})
     expect(page.get_by_role("alert")).to_contain_text("Synthetic startup failure")

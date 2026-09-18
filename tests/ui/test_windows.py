@@ -195,6 +195,17 @@ def test_overlay_timer_stops_after_recording_and_reset(app, page):
     expect(page.locator(".overlay-timer")).to_have_text("00:00")
 
 
+def test_glow_hides_placeholder_without_live_preview(app, page):
+    page.set_viewport_size({"width": 400, "height": 112})
+    ui = app("overlay", config={"overlay": {"form": "glow"}})
+    ui.emit("recording-started", 1)
+    overlay = page.get_by_test_id("overlay")
+    expect(overlay).to_have_attribute("data-layout", "glow")
+    expect(page.locator(".overlay-preview")).to_have_count(0)
+    expect(overlay).not_to_contain_text("Говорите")
+    expect(page.locator(".overlay-beam")).to_have_count(1)
+
+
 def test_glow_keeps_live_text_and_errors(app, page):
     page.set_viewport_size({"width": 400, "height": 112})
     ui = app("overlay", config={"overlay": {"form": "glow"}})

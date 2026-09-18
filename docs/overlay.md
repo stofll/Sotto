@@ -8,7 +8,7 @@ The pill displays recording duration and audio levels. With a streaming model it
 
 The bead shows audio levels and session status in a ring. Hover over it to reveal the cancel button; after insertion, that button dismisses the notification. Cancelling an active session uses the same cancellation path as the pill. The recording hotkey stops and processes a recording; it is not a cancellation shortcut.
 
-The glow is a rounded composer: live draft or status sits above the timer and cancel button, and a colored wash along the bottom edge rises with the voice. Unlike the bead, it keeps streaming text and error messages in the same shape.
+The glow is a rounded composer. A colorful beam along the bottom edge rises with the voice; it is the MIT-licensed voice-glow construction, driven from Sotto's existing `audio-level` events rather than a microphone graph. Live draft text appears only for streaming models. After recording stops, status such as processing is centered in the window, with the timer and cancel button along the bottom. Unlike the bead, it keeps streaming text and error messages in the same shape.
 
 Streaming recognition still works with the bead, but the live text is hidden. Errors and LLM fallback warnings expand the bead into a pill so their messages remain visible. The next recording returns to the selected shape.
 

@@ -1,18 +1,18 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "../components/Icon";
 import { t, useLocale } from "../i18n";
 import { overlayPalette } from "./overlayPalette";
 import { overlayDetail } from "./overlayDetail";
-import { OverlayGlow } from "./OverlayGlow";
 import { OverlayWaveform } from "./OverlayWaveform";
-import type { GlowMode } from "./glowFrame";
 import { useOverlaySession, type OverlaySession } from "./useOverlaySession";
+
+const OverlayGlow = lazy(() => import("./OverlayGlow").then((m) => ({ default: m.OverlayGlow })));
 
 export function OverlayApp() {
   useLocale();
   const session = useOverlaySession();
   const surfaceRef = useRef<HTMLDivElement>(null);
-  const { state, layout, previewText, handleClose, isClosing, config, preferences } = session;
+  const { state, layout, previewText, streaming, handleClose, isClosing, config, preferences } = session;
   if (state === null) return null;
   const bead = layout === "bead";
   const glow = layout === "glow";
@@ -22,9 +22,13 @@ export function OverlayApp() {
       <div className="overlay-shell">
         <div className="overlay-surface" ref={surfaceRef}>
           {glow ? <>
-            <OverlayGlow key={session.sessionId} mode={glowMode(state)} />
+            <Suspense fallback={null}>
+              <OverlayGlow key={session.sessionId} mode={glowMode(state)} />
+            </Suspense>
             <div className="overlay-composer-body">
-              {state === "recording" ? <PreviewPane text={previewText} /> : <StateDetail session={session} />}
+              {state === "recording"
+                ? streaming ? <PreviewPane text={previewText} /> : null
+                : <StateDetail session={session} />}
             </div>
             <div className="overlay-composer-bar">
               {state === "recording" ? <TimerBadge session={session} /> : <span />}
@@ -53,7 +57,7 @@ export function OverlayApp() {
   );
 }
 
-function glowMode(state: NonNullable<OverlaySession["state"]>): GlowMode {
+function glowMode(state: NonNullable<OverlaySession["state"]>): "listen" | "process" | "idle" {
   if (state === "recording") return "listen";
   if (state === "loading" || state === "processing" || state === "done") return "process";
   return "idle";
