@@ -224,10 +224,10 @@ mod tests {
     /// list had never heard of.
     #[test]
     fn every_translated_key_is_used_somewhere() {
-        let root = format!("{}/src", env!("CARGO_MANIFEST_DIR"));
-        let table = format!("{root}/ui_text.rs");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let table = root.join("ui_text.rs");
         let mut sources = Vec::new();
-        collect_rust_sources(std::path::Path::new(&root), &table, &mut sources);
+        collect_rust_sources(&root, &table, &mut sources);
         // Anti-vacuity: a walk that found nothing would pass every assertion
         // below without reading a line of the application.
         assert!(sources.len() > 20, "the source walk found almost no files");
@@ -243,9 +243,77 @@ mod tests {
         }
     }
 
+    /// A key that exists only as a match arm is dead weight. Comparing the
+    /// table path as a string used to miss this on Windows: `PathBuf::push`
+    /// spells a separator the concatenation did not, the table stayed in
+    /// `sources`, and every key then "occurred" by definition.
+    #[test]
+    fn a_key_that_only_lives_in_the_table_counts_as_unused() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let table = root.join("ui_text.rs");
+        std::fs::write(
+            &table,
+            concat!(
+                "fn en(key: &str) -> Option<&'static str> {\n",
+                "    Some(match key {\n",
+                "        \"DEAD_KEY_ONLY_IN_TABLE\" => \"unused\",\n",
+                "        \"USED_KEY\" => \"used\",\n",
+                "        _ => return None,\n",
+                "    })\n",
+                "}\n",
+            ),
+        )
+        .unwrap();
+        std::fs::create_dir(root.join("nested")).unwrap();
+        std::fs::write(
+            root.join("nested").join("lib.rs"),
+            "fn f() { let _ = \"USED_KEY\"; }\n",
+        )
+        .unwrap();
+
+        let mut sources = Vec::new();
+        collect_rust_sources(root, &table, &mut sources);
+        assert_eq!(sources.len(), 1, "the table itself must not be a source");
+
+        let keys = translation_keys(&std::fs::read_to_string(&table).unwrap());
+        assert_eq!(
+            keys,
+            vec!["DEAD_KEY_ONLY_IN_TABLE".to_string(), "USED_KEY".to_string()]
+        );
+        assert!(
+            !sources
+                .iter()
+                .any(|source| source.contains("DEAD_KEY_ONLY_IN_TABLE")),
+            "a key that lives only in the table must count as unused"
+        );
+        assert!(sources.iter().any(|source| source.contains("USED_KEY")));
+    }
+
+    /// Concatenating `'/'` produces a string `DirEntry::path()` will not
+    /// equal on Windows, where `join` inserts `'\\'`. Comparing as `Path`
+    /// still excludes the table; comparing as strings would not.
+    #[cfg(windows)]
+    #[test]
+    fn the_table_is_excluded_when_separators_are_spelled_differently() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let table = std::path::PathBuf::from(format!("{}/ui_text.rs", root.display()));
+        assert!(
+            table.to_string_lossy().contains('/'),
+            "self-check: the excluded path must keep the slash DirEntry will not use"
+        );
+        let mut sources = Vec::new();
+        collect_rust_sources(&root, &table, &mut sources);
+        let table_text = std::fs::read_to_string(root.join("ui_text.rs")).unwrap();
+        assert!(
+            !sources.iter().any(|source| source == &table_text),
+            "ui_text.rs must not be a source even when excluded via a slash-spelled path"
+        );
+    }
+
     /// Every `.rs` file under `src/`, except the one holding the table itself —
     /// there every key occurs by definition.
-    fn collect_rust_sources(dir: &std::path::Path, table: &str, out: &mut Vec<String>) {
+    fn collect_rust_sources(dir: &std::path::Path, table: &std::path::Path, out: &mut Vec<String>) {
         let Ok(entries) = std::fs::read_dir(dir) else {
             return;
         };
@@ -253,9 +321,7 @@ mod tests {
             let path = entry.path();
             if path.is_dir() {
                 collect_rust_sources(&path, table, out);
-            } else if path.extension().is_some_and(|ext| ext == "rs")
-                && path.to_string_lossy() != table
-            {
+            } else if path.extension().is_some_and(|ext| ext == "rs") && path != table {
                 if let Ok(text) = std::fs::read_to_string(&path) {
                     out.push(text);
                 }
