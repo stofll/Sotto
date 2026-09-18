@@ -188,6 +188,24 @@ fn render_pcm(segments: &[(f32, u32)], volume: f32) -> Vec<i16> {
     out
 }
 
+/// Play one audio cue so the user can hear what they are enabling.
+///
+/// Takes the volume as an argument instead of reading it back from config:
+/// the settings UI previews the value under the slider *before* it is
+/// saved, and a preview that lags the control by one change is useless.
+#[tauri::command]
+pub(crate) fn preview_sound_cue(cue: String, volume: f64) -> Result<(), String> {
+    let cue = match cue.as_str() {
+        "start" => Cue::Start,
+        "stop" => Cue::Stop,
+        "done" => Cue::Done,
+        "error" => Cue::Error,
+        other => return Err(format!("unknown cue: {other}")),
+    };
+    play_at_volume(cue, volume as f32);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

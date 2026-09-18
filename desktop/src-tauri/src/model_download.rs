@@ -17,6 +17,7 @@ use std::sync::Arc;
 
 use futures_util::stream::StreamExt;
 use sha2::{Digest, Sha256};
+use tauri::{AppHandle, Emitter};
 use tokio::io::AsyncWriteExt;
 
 use crate::model::{manifest_entry, ModelManifestEntry};
@@ -645,6 +646,152 @@ pub async fn download_bundle_to_dir(
         path: final_dir,
         bytes: total_bytes,
     })
+}
+
+/// Download a model by id ("tiny", "base", "small", "medium", "large-v3", "turbo").
+///
+/// Streams the GGML file from Hugging Face, verifies SHA-256, and renames
+/// onto the final path. Emits `model-download-progress` events during
+/// download with payload `{ model, downloaded, total }`.
+///
+/// A cancelled download is `Ok(None)`, not an error: the user pressed «отменить»
+/// and got exactly what they asked for. What was not downloaded is erased along
+/// the way — we have no resume, and a leftover chunk would be nothing but
+/// occupied space.
+#[tauri::command]
+pub(crate) async fn download_model(
+    app: AppHandle,
+    state: tauri::State<'_, crate::state::AppState>,
+    model: String,
+) -> Result<Option<DownloadOutcomeInfo>, String> {
+    // Cancellation is registered before the first byte: otherwise «отменить»
+    // pressed within the first second would find nothing to cancel. The same
+    // registration rejects a second download of the same model: both would write
+    // one `*.part` and race each other checking its checksum.
+    let Some(download) = state.try_claim_download(&model) else {
+        return Err(crate::ui_text::t("Эта модель уже скачивается."));
+    };
+    let cancel = download.flag();
+    if crate::model::model_engine(&model)?.is_sherpa() {
+        let entry = crate::model::bundle_manifest_entry(&model)?;
+        let dir = crate::model::models_dir()?;
+        let final_dir = dir.join(entry.directory_name);
+        // `is_downloaded` intentionally performs only cheap size checks
+        // because it runs while refreshing the Settings list. A final bundle
+        // path must therefore always be verified here: a missing artifact or
+        // wrong-size file makes `is_downloaded` false but must not strand the
+        // downloader behind an existing destination.
+        let model_id = entry.public_id.to_string();
+        let already_ready =
+            tokio::task::spawn_blocking(move || crate::model::recover_bundle_if_needed(&model_id))
+                .await
+                .map_err(|error| format!("bundle verification task failed: {error}"))??;
+        if already_ready {
+            let bytes = entry
+                .artifacts
+                .iter()
+                .map(|artifact| artifact.expected_bytes)
+                .sum();
+            return Ok(Some(DownloadOutcomeInfo {
+                model_id: entry.public_id.to_string(),
+                path: final_dir.to_string_lossy().into_owned(),
+                bytes,
+            }));
+        }
+        let spec = BundleDownloadSpec {
+            model_id: entry.public_id.to_string(),
+            directory_name: entry.directory_name.to_string(),
+            artifacts: entry
+                .artifacts
+                .iter()
+                .map(|artifact| DownloadSpec {
+                    model_id: entry.public_id.to_string(),
+                    file_name: artifact.file_name.to_string(),
+                    url: artifact.download_url.to_string(),
+                    expected_bytes: artifact.expected_bytes,
+                    sha256: artifact.sha256.to_string(),
+                })
+                .collect(),
+        };
+        let client = reqwest::Client::new();
+        let app_for_progress = app.clone();
+        let model_for_progress = entry.public_id.to_string();
+        let progress_cb = move |p: DownloadProgress| {
+            let _ = app_for_progress.emit(
+                "model-download-progress",
+                serde_json::json!({
+                    "model": model_for_progress,
+                    "downloaded": p.downloaded,
+                    "total": p.total,
+                }),
+            );
+        };
+        let outcome =
+            match download_bundle_to_dir(&client, &spec, &dir, &cancel, Some(&progress_cb), None)
+                .await
+            {
+                Ok(outcome) => outcome,
+                Err(ModelDownloadError::Cancelled) => {
+                    discard_bundle_partial(&dir, &spec);
+                    return Ok(None);
+                }
+                Err(error) => return Err(format!("download: {error}")),
+            };
+        return Ok(Some(DownloadOutcomeInfo {
+            model_id: entry.public_id.to_string(),
+            path: outcome.path.to_string_lossy().into_owned(),
+            bytes: outcome.bytes,
+        }));
+    }
+    let entry = manifest_entry(&model).map_err(|e| format!("unknown model {model}: {e}"))?;
+    let spec = DownloadSpec {
+        model_id: entry.public_id.to_string(),
+        file_name: entry.file_name.to_string(),
+        url: entry.download_url.to_string(),
+        expected_bytes: entry.expected_bytes,
+        sha256: entry.sha256.to_string(),
+    };
+    let dir = crate::model::models_dir().map_err(|e| e.to_string())?;
+    let client = reqwest::Client::new();
+
+    // Wire progress events so the frontend can show a download bar.
+    let app_for_progress = app.clone();
+    let mid_for_progress = model.clone();
+    let progress_cb = move |p: DownloadProgress| {
+        let _ = app_for_progress.emit(
+            "model-download-progress",
+            serde_json::json!({
+                "model": mid_for_progress,
+                "downloaded": p.downloaded,
+                "total": p.total,
+            }),
+        );
+    };
+
+    let outcome =
+        match download_spec_to_dir(&client, &spec, &dir, &cancel, Some(&progress_cb), None).await {
+            Ok(outcome) => outcome,
+            Err(ModelDownloadError::Cancelled) => {
+                discard_partial(&dir, &spec);
+                return Ok(None);
+            }
+            Err(error) => return Err(format!("download: {error}")),
+        };
+
+    Ok(Some(DownloadOutcomeInfo::for_model(&model, &outcome)))
+}
+
+/// Stop a download of a model that is in progress.
+///
+/// `false` — nobody is downloading this model right now: the button was pressed
+/// after the download had already finished. That is not an error but a race, and
+/// it is cured by staying silent.
+#[tauri::command]
+pub(crate) fn cancel_model_download(
+    state: tauri::State<'_, crate::state::AppState>,
+    model: String,
+) -> bool {
+    state.cancel_download(&model)
 }
 
 #[cfg(test)]

@@ -218,7 +218,7 @@ mod tests {
     /// hangs there as dead weight and drifts from the original unnoticed.
     #[test]
     fn every_translated_key_is_used_somewhere() {
-        let sources: Vec<String> = ["lib.rs", "tray.rs", "whisper.rs", "model.rs"]
+        let sources: Vec<String> = ["lib.rs", "tray.rs", "whisper.rs", "model.rs", "ai/mod.rs"]
             .iter()
             .map(|f| {
                 std::fs::read_to_string(format!("{}/src/{f}", env!("CARGO_MANIFEST_DIR")))

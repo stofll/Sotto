@@ -603,6 +603,50 @@ fn process_samples(
     }
 }
 
+/// Enumerate available microphones with index+id+name+label.
+/// Boot-blocking — called from `MainWindow.load()` via `Promise.all`.
+///
+/// Maps each device position to `index`/`id` (same value), and
+/// copies the device `name` into both `name` and `label` fields.
+/// The frontend consumes this via:
+///   `microphones.map((mic) => ({
+///      label: mic.name || mic.label || String(mic.id ?? mic.index),
+///      value: mic.id ?? mic.index ?? null
+///   }))`
+/// Device enumeration is a WASAPI call, so it runs on the audio worker
+/// like every other one. It used to run inline on the main thread, which
+/// meant the settings page could freeze the UI on a sick audio stack.
+#[tauri::command]
+pub(crate) async fn list_microphones(
+    state: tauri::State<'_, crate::state::AppState>,
+) -> Result<Vec<serde_json::Value>, String> {
+    let devices = state
+        .audio
+        .call(AudioRecorder::list_devices)
+        .await
+        .unwrap_or_default();
+    // The id is built from the whole list at once, not per device: whether a
+    // name identifies anything depends on the other names next to it.
+    let ids = device_ids(&devices);
+    Ok(devices
+        .into_iter()
+        .zip(ids)
+        .enumerate()
+        .map(|(i, (dev, id))| {
+            // `name` stays null when cpal could not read one. A placeholder
+            // belongs to the interface, which can say it in the user's own
+            // language; here it would only be an English string pretending to
+            // be a device name.
+            serde_json::json!({
+                "id": id,
+                "index": i,
+                "name": dev.name,
+                "label": dev.name,
+            })
+        })
+        .collect())
+}
+
 // ============================================================================
 // Tests
 // ============================================================================

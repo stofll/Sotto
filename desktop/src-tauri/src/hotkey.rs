@@ -375,6 +375,41 @@ fn hotkey_do_stop(app: &AppHandle, state: &AppState) {
     }
 }
 
+/// Validate a hotkey string at the UI layer — used by `SettingsPage` to
+/// show an inline error as the user types. Pure parser call; no side
+/// effects, no sidecar round-trip, hence `sync`. Returns `Err(msg)` for
+/// any parse failure (unknown modifier, empty, modifier-only, etc.) and
+/// `Ok(())` for a valid string.
+#[tauri::command]
+pub(crate) fn validate_hotkey(hotkey: String) -> Result<(), String> {
+    parse(&hotkey).map(|_| ())
+}
+
+/// Persist a new hotkey: re-register the global shortcut (releasing the
+/// previous binding atomically) and write the new value to
+/// `config.json` directly.
+///
+/// Calls `re_register` to swap the global shortcut binding,
+/// then writes the new hotkey string into `config.json` via the
+/// `Config` API. No IPC round-trip — everything runs in-process.
+#[tauri::command]
+pub(crate) async fn set_hotkey(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+    hotkey: String,
+    old_hotkey: Option<String>,
+) -> Result<(), String> {
+    let old = old_hotkey.unwrap_or_default();
+    re_register(&app, &state, &old, &hotkey).inspect_err(|e| {
+        let _ = app.emit("hotkey-error", e.clone());
+    })?;
+    let mut config = crate::config::Config::load(&app).map_err(|e| format!("config load: {e}"))?;
+    config
+        .set("hotkey", serde_json::json!(hotkey))
+        .map_err(|e| format!("config set: {e}"))?;
+    config.save(&app).map_err(|e| format!("config save: {e}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
