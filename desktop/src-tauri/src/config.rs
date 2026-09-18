@@ -346,6 +346,132 @@ fn save_with_merge_patch_at(path: &Path, patch: Value) -> Result<Value, String> 
     Ok(cfg.as_value().clone())
 }
 
+/// Return the full on-disk config as a JSON value.
+///
+/// Phase 4 / PR-B: native replacement for the Python sidecar's
+/// `get_config` RPC. The frontend calls this via `rustInvoke` to
+/// load settings without a Python subprocess round-trip.
+#[tauri::command]
+pub(crate) fn get_config(app: AppHandle) -> Result<Value, String> {
+    let cfg = Config::load(&app)?;
+    Ok(cfg.as_value().clone())
+}
+
+/// Save a JSON Merge Patch to the on-disk config.
+///
+/// Phase 4 / PR-B: native replacement for the Python sidecar's
+/// `save_config` RPC. The frontend sends a partial config object
+/// (`patch`) which is merged per RFC 7396: null removes keys,
+/// scalars/arrays replace atomically, objects recurse.
+/// Changing `device` (CPU / GPU) additionally triggers a model reload:
+/// `use_gpu` is a *context* parameter in whisper.cpp, so it only takes
+/// effect when the context is created. Without the reload the setting
+/// would appear to save and change nothing until the next restart.
+///
+/// The reload runs detached so the settings UI is not blocked for the
+/// second-plus a large model takes to load; the frontend already reacts to
+/// the `model-loading` / `model-ready` events the engine emits.
+#[tauri::command]
+pub(crate) fn save_config(
+    app: AppHandle,
+    state: tauri::State<'_, crate::state::AppState>,
+    patch: Value,
+) -> Result<Value, String> {
+    let current_config = Config::load(&app)?;
+    let device_before = resolve_device(current_config.as_value());
+    let mut candidate_config = current_config.clone();
+    candidate_config.apply_merge_patch(&patch)?;
+    // The configured-model half of the GigaAM language rule lives in
+    // `config::validate`, which every writer goes through. This half cannot:
+    // it asks what the engine has loaded right now, which no `Value` knows.
+    if patch.get("language").is_some() || patch.get("model").is_some() {
+        let language = candidate_config
+            .get_string("language")
+            .unwrap_or_else(|| "ru".to_string());
+        let loaded_model = crate::mutex_recover::lock(&state.engine_current_model).clone();
+        if let Some(model) = loaded_model.as_deref() {
+            if !crate::model::model_supports_language(model, &language) {
+                let languages = crate::model::model_languages(model).unwrap_or_default();
+                return Err(crate::model::language_unsupported_message(languages));
+            }
+        }
+    }
+    let saved = save_with_merge_patch(&app, patch.clone())?;
+    let device_after = resolve_device(&saved);
+    apply_runtime_config(&app, &saved, &patch);
+
+    if device_before != device_after {
+        // Nothing to reload if no model is loaded — whatever loads next
+        // reads the new setting through `load_model_into_engine`.
+        let loaded = crate::mutex_recover::lock(&state.engine_current_model).clone();
+        if let Some(model) = loaded {
+            log::info!("device changed {device_before} → {device_after}, reloading {model}");
+            let reload_app = app.clone();
+            let reload_tx = state.engine_cmd_tx.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) = crate::load_model_into_engine(
+                    &reload_app,
+                    &reload_tx,
+                    &model,
+                    crate::whisper::ModelLoadReason::Requested,
+                )
+                .await
+                {
+                    log::warn!("reload after device change failed: {error}");
+                }
+            });
+        }
+    }
+
+    Ok(saved)
+}
+
+/// Everything that has to happen inside the running app once a setting has
+/// been written.
+///
+/// One place, rather than a `touches_X -> do_Y` chain growing in the middle of
+/// the save command: a new live setting adds a branch here next to its
+/// neighbours instead of another `if` three screens into an unrelated
+/// function. Nothing here can fail the save — the value is already on disk,
+/// so a subsystem that refuses to pick it up is logged, not propagated.
+fn apply_runtime_config(app: &AppHandle, saved: &Value, patch: &Value) {
+    use tauri::Manager;
+    if patch.get("overlay").is_some() {
+        crate::overlay::configure(saved);
+    }
+    // Waiting for a restart here would keep capturing events after the user
+    // opted out, which is the one thing the switch must not do.
+    if patch.get(crate::telemetry::enabled_config_key()).is_some() {
+        app.state::<crate::telemetry::Telemetry>()
+            .set_enabled(crate::telemetry::enabled_from_value(saved));
+    }
+    if patch
+        .get(crate::telemetry::session_timeout_config_key())
+        .is_some()
+    {
+        app.state::<crate::telemetry::Telemetry>()
+            .set_session_timeout_minutes(crate::telemetry::session_timeout_minutes_from_value(
+                saved,
+            ));
+    }
+    if patch.get("auto_start").is_some() {
+        crate::apply_autostart(app);
+    }
+    if patch.get(crate::ui_text::CONFIG_KEY).is_some() {
+        crate::ui_text::set_from_config(saved);
+        // The tray menu is built once at startup, so it will not notice a
+        // language change on its own — we rebuild it.
+        if let Err(error) = crate::tray::build_tray(app) {
+            log::warn!("не пересобрали трей после смены языка: {error}");
+        }
+    }
+    // Unconditional: cheap, and the point of turning up logging is usually to
+    // catch the thing that is happening right now.
+    crate::structured_log::set_level(crate::debug::log_level_from_config(saved));
+    #[cfg(windows)]
+    crate::windows::overlay_diag::configure(saved);
+}
+
 // ---------------------------------------------------------------------------
 // Tests — exercise the in-memory Config + atomic-save guarantees without
 // touching `tauri::AppHandle`. We mock `config_path` via a free function

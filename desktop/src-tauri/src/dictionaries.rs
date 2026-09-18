@@ -206,6 +206,55 @@ pub fn validate(config: &Value) -> Result<(), String> {
     Ok(())
 }
 
+/// Ready-made term sets for the dictionary.
+///
+/// We hand over the id and the words; the set's name is displayed by the
+/// frontend because the name is translatable while the word list is not.
+#[tauri::command]
+pub(crate) fn dictionary_presets() -> Vec<(String, Vec<String>)> {
+    DICTIONARY_PRESETS
+        .iter()
+        .map(|set| {
+            (
+                set.id.to_string(),
+                set.words.iter().map(|w| w.to_string()).collect(),
+            )
+        })
+        .collect()
+}
+
+/// One built-in parasite word set, as the interface needs it.
+#[derive(Serialize)]
+pub(crate) struct ParasiteSetInfo {
+    id: String,
+    language: String,
+    words: Vec<String>,
+    default_on: bool,
+}
+
+/// The built-in parasite word sets.
+///
+/// Handed to the frontend so that settings can show the words and let them be
+/// switched off. Before this existed the list was invisible: a person could see
+/// that something had been taken out of their dictation but had no way to find
+/// out what, or to stop it.
+///
+/// Which sets are ON is not reported here — that lives in the config, which the
+/// frontend already holds. This is the catalogue, and `default_on` is what a
+/// config that has never been touched resolves to.
+#[tauri::command]
+pub(crate) fn parasite_sets() -> Vec<ParasiteSetInfo> {
+    crate::formatter::PARASITE_PRESETS
+        .iter()
+        .map(|preset| ParasiteSetInfo {
+            id: preset.id.to_string(),
+            language: preset.language.to_string(),
+            words: preset.words.iter().map(|word| word.to_string()).collect(),
+            default_on: preset.default_on,
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

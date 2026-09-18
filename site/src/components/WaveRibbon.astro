@@ -1,0 +1,61 @@
+---
+/**
+ * A slow ribbon drift in the logo's language: three strands, one lit and two in
+ * shadow, folding past each other the way the glyph's two faces do. Decorative
+ * only — it carries no information and is hidden from assistive technology.
+ *
+ * Each strand is drawn twice as wide as the viewBox and slides left by exactly
+ * one viewBox width, so the loop closes on itself. Wavelengths divide 1200 for
+ * the same reason.
+ */
+const VIEW = { width: 1200, height: 160 };
+
+interface Strand {
+  wavelength: number;
+  amplitude: number;
+  /** Resting line, measured from the top of the viewBox. */
+  mid: number;
+  width: number;
+  opacity: number;
+  /** Seconds for one full pass. Different per strand, so they never lock up. */
+  duration: number;
+}
+
+const strands: Strand[] = [
+  { wavelength: 400, amplitude: 27, mid: 66, width: 2.4, opacity: 0.5, duration: 26 },
+  { wavelength: 600, amplitude: 19, mid: 82, width: 1.6, opacity: 0.28, duration: 34 },
+  { wavelength: 300, amplitude: 12, mid: 95, width: 1.2, opacity: 0.16, duration: 21 },
+];
+
+/** One cubic per half period: close enough to a sine at this scale, and cheap. */
+const sine = ({ wavelength, amplitude, mid }: Strand): string => {
+  const half = wavelength / 2;
+  const segments = [`M 0 ${mid}`];
+  for (let x = 0, index = 0; x < VIEW.width * 2; x += half, index += 1) {
+    const peak = mid + (index % 2 === 0 ? -amplitude : amplitude);
+    segments.push(`C ${x + half * 0.36} ${peak} ${x + half * 0.64} ${peak} ${x + half} ${mid}`);
+  }
+  return segments.join(' ');
+};
+---
+
+<svg
+  class="wave-ribbon"
+  viewBox={`0 0 ${VIEW.width} ${VIEW.height}`}
+  preserveAspectRatio="xMidYMid slice"
+  aria-hidden="true"
+  focusable="false"
+>
+  {strands.map((strand) => (
+    <g style={`--wave-duration: ${strand.duration}s`}>
+      <path
+        d={sine(strand)}
+        fill="none"
+        stroke="currentColor"
+        stroke-width={strand.width}
+        stroke-linecap="round"
+        opacity={strand.opacity}
+      />
+    </g>
+  ))}
+</svg>

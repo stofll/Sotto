@@ -514,7 +514,7 @@ pub async fn model_assessments(
             .unwrap_or_else(|| "auto".into());
         let gpu = crate::config::resolve_device(config.as_value()) != "cpu";
         let prompt = prompt_fingerprint(crate::custom_words_prompt(&config).as_deref());
-        let models = model::list_models(&selected, current.as_deref());
+        let models = model::list_model_infos(&selected, current.as_deref());
         let payloads = read_payloads(&crate::mutex_recover::lock(&db))
             .map_err(|_| "PERFORMANCE_UNAVAILABLE".to_owned())?;
         let observations = decode_observations(payloads);

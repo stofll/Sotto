@@ -1,0 +1,28 @@
+{
+  "name": "sotto-site",
+  "compatibility_date": "2026-09-18",
+
+  // A pure static upload: no `main`, so there is no Worker code to run and
+  // every request is answered from the uploaded assets.
+  "assets": {
+    "directory": "./dist",
+
+    // Astro builds directories (`/privacy/index.html`), and this is the
+    // handling that serves such a tree at both `/privacy` and `/privacy/`,
+    // redirecting to the canonical trailing-slash form. It has to stay in step
+    // with `build.format` in astro.config.mjs.
+    "html_handling": "auto-trailing-slash",
+
+    // A miss is answered by the nearest 404.html walking up the tree, with a
+    // real 404 status. That is what gives /ru/nonsense the Russian page and
+    // everything else the English one, without any routing code.
+    "not_found_handling": "404-page"
+  },
+
+  // The landing page exists to be found by search engines, and a second origin
+  // serving the same HTML is the one thing that undermines that. The custom
+  // domain is the only address; workers.dev and per-version preview URLs stay
+  // off.
+  "workers_dev": false,
+  "preview_urls": false
+}

@@ -2112,3 +2112,8 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .accent-picker__custom { position: relative; width: 24px; height: 24px; border-radius: 50%; overflow: hidden; border: 2px solid var(--line-strong); background: conic-gradient(#e6483d, #e6c83d, #3dc97c, #3dc0e6, #5b6def, #9b75ef, #e6483d); }
 .accent-picker__custom[data-active="true"] { box-shadow: 0 0 0 2px var(--bg-2), 0 0 0 4px var(--accent); }
 .accent-picker__custom input { position: absolute; inset: -4px; width: calc(100% + 8px); height: calc(100% + 8px); padding: 0; border: 0; background: transparent; opacity: 0; cursor: pointer; }
+
+/* Permission recovery shares the existing shell notice colours and controls. */
+.permission-notice { margin: 14px 32px 0; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 12px 14px; border-radius: var(--radius); background: var(--accent-soft); border: 1px solid var(--accent-soft-2); color: var(--accent-text); font: 500 12.5px/1.4 var(--font-sans); }
+.permission-notice__text { flex: 1 1 400px; min-width: 0; }
+.permission-notice__text p { margin: 8px 0 0; }

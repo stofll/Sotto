@@ -1,0 +1,35 @@
+---
+import { translationsFor } from '../i18n/context';
+
+interface Props {
+  canonical: URL;
+  title: string;
+  description: string;
+}
+
+const { canonical, title, description } = Astro.props;
+const { locale } = translationsFor(Astro.currentLocale);
+
+/**
+ * Sub-pages carry no app card — that claim belongs to the landing page alone.
+ * A plain WebPage node is still worth emitting: it ties the page to the site and
+ * states its language, which is what disambiguates the two privacy translations.
+ *
+ * schema.org has no privacy-policy type, so WebPage is the correct node here.
+ */
+const schema = {
+  '@context': 'https://schema.org',
+  '@type': 'WebPage',
+  name: title,
+  description,
+  url: canonical.href,
+  inLanguage: locale,
+  isPartOf: {
+    '@type': 'WebSite',
+    name: 'Sotto',
+    url: new URL('/', canonical).href,
+  },
+};
+---
+
+<script type="application/ld+json" set:html={JSON.stringify(schema)} is:inline />

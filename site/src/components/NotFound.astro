@@ -1,0 +1,40 @@
+---
+import Icon from './Icon.astro';
+import { LINKS } from '../data/product';
+import { localePath } from '../i18n';
+import { translationsFor } from '../i18n/context';
+
+/**
+ * The body of the 404 page. Both locales render it; the only thing that differs
+ * is which home page the primary link points at.
+ *
+ * The drawing carries the error code, so there is no "Error 404" label above the
+ * heading: it would be saying the same thing twice.
+ */
+const { locale, t } = translationsFor(Astro.currentLocale);
+---
+
+<div class="container not-found">
+  <figure class="lost-mark-figure">
+    <p class="lost-mark-digits" aria-hidden="true"><span>4</span><span>0</span><span>4</span></p>
+    <figcaption class="lost-mark-caption">
+      <span class="sr-only">{t.notFound.markAlt}. </span>{t.notFound.caption}
+    </figcaption>
+  </figure>
+
+  <div class="prose">
+    <h1>{t.notFound.title}</h1>
+    <p class="prose-lede">{t.notFound.lede}</p>
+
+    <div class="not-found-actions">
+      <a class="button button-primary" href={localePath(locale)}>
+        {t.notFound.backHome}<Icon name="arrow-right" size={15} />
+      </a>
+      <a class="inline-link" href={LINKS.docs}>{t.notFound.readDocs}<Icon name="external" size={14} /></a>
+    </div>
+
+    <footer class="prose-footer">
+      <a class="inline-link" href={LINKS.issues}>{t.notFound.reportIssue}<Icon name="external" size={14} /></a>
+    </footer>
+  </div>
+</div>

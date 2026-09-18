@@ -1,0 +1,36 @@
+/* Feature list and source access. */
+.features-heading { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; margin-bottom: 46px; }
+.features-heading > p { color: var(--text-secondary); font-size: 0.75rem; line-height: 1.9; padding-bottom: 3px; }
+.features-grid { display: grid; grid-template-columns: repeat(3,1fr); column-gap: 54px; row-gap: 32px; }
+.feature { padding-top: 24px; padding-bottom: 7px; border-top: 1px solid var(--border); }
+.feature-overline { display: flex; align-items: center; gap: 10px; margin-bottom: 21px; }
+.feature-overline .icon { color: #a9b0bc; }
+.feature-overline span { font-size: 0.6875rem; letter-spacing: 1.2px; color: #9ea5b0; }
+.feature h3 { font-size: 0.9375rem; font-weight: 500; letter-spacing: -.25px; margin-bottom: 11px; }
+.feature p { font-size: 0.75rem; color: #a2a9b4; line-height: 1.9; }
+.features-footnote { font-size: 0.75rem; color: #969ca7; line-height: 1.9; margin-top: 34px; }
+.open-source-section { border-block: 1px solid var(--border); padding-block: 83px; }
+.open-source-grid { display: grid; grid-template-columns: 1fr 1.06fr; gap: 92px; align-items: center; }
+.open-source-manifesto { margin-top: 24px; font-size: 0.9375rem; letter-spacing: -.1px; color: #d3dae6; }
+.open-source-section .section-description { margin-top: 12px; font-size: 0.75rem; }
+.open-source-section .inline-link { margin-top: 24px; font-size: 0.75rem; }
+.repo-panel { border: 1px solid #3b414b; background: #141921; border-radius: 10px; overflow: hidden; position: relative; }
+.repo-header { display: flex; align-items: center; gap: 11px; padding: 11px 16px; border-bottom: 1px solid #323841; }
+.repo-header > .icon { color: #b9c0cc; }
+.repo-header > span { font-size: 0.75rem; color: #c9d0dc; }
+.repo-header > span > span { color: #99a0ab; padding-inline: 5px; }
+.repo-header strong { font-weight: 500; }
+.repo-header > .repo-public { padding: 1px 7px; border: 1px solid #464d56; border-radius: 4px; font-size: 0.4375rem; color: #b3bac5; }
+.repo-header .icon-button { margin-left: auto; }
+.repo-body { padding: 20px 24px 24px; }
+.repo-file-name { display: flex; gap: 7px; align-items: center; font-size: 0.5625rem; color: #afb6c2; margin-bottom: 18px; }
+.repo-body h3 { font-size: 1.5625rem; line-height: 1.3; letter-spacing: -.65px; font-weight: 550; }
+.repo-body > p { margin-top: 12px; font-size: 0.6875rem; line-height: 1.9; max-width: 340px; color: #acb3be; }
+.repo-tags { display: flex; align-items: center; gap: 23px; margin-top: 23px; color: #b4bbc7; font-size: 0.5625rem; }
+.repo-tags > span, .repo-tags > a { display: inline-flex; gap: 7px; align-items: center; }
+.repo-tags i { display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: var(--text-muted); }
+.repo-tags a:hover { color: var(--silver-bright); }
+.clone-row { display: flex; align-items: center; gap: 9px; border-top: 1px solid #363c45; padding: 8px 14px; background: #191e26; font-size: 0.5rem; }
+.clone-row > span { color: #9fa6b1; }
+.clone-row > code { color: #c4cbd7; font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; overflow-wrap: anywhere; }
+.clone-row > .icon-button { margin-left: auto; }

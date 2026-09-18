@@ -1,0 +1,46 @@
+---
+import { AUTHOR, LINKS, OG_IMAGE, REPO } from '../data/product';
+import { latestRelease } from '../data/release';
+import { translationsFor } from '../i18n/context';
+
+interface Props {
+  canonical: URL;
+}
+
+const { canonical } = Astro.props;
+const { locale, t } = translationsFor(Astro.currentLocale);
+
+// Cached from the Hero's own call, so this costs no extra request. A failed
+// lookup simply drops the version rather than failing the build.
+const release = await latestRelease();
+const version = release?.version.replace(/^v/, '');
+
+/**
+ * Lets search engines render the app card — free, which platforms, which
+ * licence — instead of a plain blue link. Every value is asserted elsewhere on
+ * the page, so nothing here is a claim the page does not already make.
+ */
+const schema = {
+  '@context': 'https://schema.org',
+  '@type': 'SoftwareApplication',
+  name: 'Sotto',
+  description: t.meta.description,
+  url: canonical.href,
+  image: new URL(OG_IMAGE.path, Astro.site).href,
+  applicationCategory: 'UtilitiesApplication',
+  applicationSubCategory: 'Speech recognition',
+  operatingSystem: 'macOS, Windows',
+  inLanguage: locale,
+  isAccessibleForFree: true,
+  offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+  license: LINKS.license,
+  codeRepository: REPO,
+  softwareHelp: LINKS.docs,
+  downloadUrl: LINKS.releases,
+  author: { '@type': 'Person', name: AUTHOR.name, url: AUTHOR.url },
+  ...(version ? { softwareVersion: version } : {}),
+  ...(release?.published ? { datePublished: release.published } : {}),
+};
+---
+
+<script type="application/ld+json" set:html={JSON.stringify(schema)} is:inline />

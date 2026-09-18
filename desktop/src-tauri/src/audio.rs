@@ -1,5 +1,5 @@
 //! Microphone capture, mono conversion and streaming resampling to 16 kHz.
-//! Device calls are serialized by AudioWorker. Stop joins the native stream
+//! Device calls are serialized by AudioWorker. Stop releases the native stream
 //! before flushing the resampler and handing off the complete audio buffer.
 
 use crate::audio_resampler::AudioResampler;
@@ -97,7 +97,7 @@ pub fn device_ids(devices: &[DeviceInfo]) -> Vec<String> {
 // SendStream — wrap `cpal::Stream` so it can be stored in `AppState`.
 // ============================================================================
 //
-// cpal 0.15's `Stream` is intentionally `!Send + !Sync` (see the
+// cpal 0.16's `Stream` is intentionally `!Send + !Sync` (see the
 // `NotSendSyncAcrossAllPlatforms` phantom in `cpal/src/platform/mod.rs`)
 // — the design accommodates Android's AAudio API which requires the
 // stream to be owned by a single thread. macOS / Linux / Windows hosts
@@ -238,7 +238,7 @@ impl AudioRecorder {
         let supported = device
             .default_input_config()
             .map_err(|e| format!("default_input_config: {e}"))?;
-        // cpal 0.15 wraps sample_rate in `cpal::SampleRate(pub u32)`.
+        // cpal wraps sample_rate in `cpal::SampleRate(pub u32)`.
         // We extract the inner u32 everywhere it's used (preallocated
         // buffer sizing, StreamConfig, process_samples).
         let sample_rate_u32 = supported.sample_rate().0;
@@ -363,16 +363,16 @@ impl AudioRecorder {
 
     /// Canonical drop-and-drain:
     ///   1. Flip `is_recording` so the callback early-exits next invocation.
-    ///   2. Take the `Stream` out of the Option and drop it — cpal joins
-    ///      the callback thread synchronously, so this returns when the
-    ///      callback can no longer be running.
+    ///   2. Drop the stream before flushing. This relies on the backend
+    ///      releasing its callbacks; the native repeated-session test checks
+    ///      that contract for default and explicitly selected microphones.
     ///   3. Now safely lock the buffer and take ownership of the samples.
     ///      Wrap in `Arc` so callers (engine command sender) can move
     ///      the audio to a worker thread without copying.
     pub fn stop(&self) -> Result<Option<Arc<Vec<f32>>>, String> {
         // 1. Flip is_recording so the next callback early-exits.
         self.is_recording.store(false, Ordering::Release);
-        // 2. Take Stream out of Option → drop (cpal joins callback).
+        // 2. Release the native stream before touching its final buffered PCM.
         let stream_opt = self.stream.lock().expect("stream lock in stop()").take();
         if let Some(stream) = stream_opt {
             drop(stream);
@@ -603,6 +603,50 @@ fn process_samples(
     }
 }
 
+/// Enumerate available microphones with index+id+name+label.
+/// Boot-blocking — called from `MainWindow.load()` via `Promise.all`.
+///
+/// Maps each device position to `index`/`id` (same value), and
+/// copies the device `name` into both `name` and `label` fields.
+/// The frontend consumes this via:
+///   `microphones.map((mic) => ({
+///      label: mic.name || mic.label || String(mic.id ?? mic.index),
+///      value: mic.id ?? mic.index ?? null
+///   }))`
+/// Device enumeration is a WASAPI call, so it runs on the audio worker
+/// like every other one. It used to run inline on the main thread, which
+/// meant the settings page could freeze the UI on a sick audio stack.
+#[tauri::command]
+pub(crate) async fn list_microphones(
+    state: tauri::State<'_, crate::state::AppState>,
+) -> Result<Vec<serde_json::Value>, String> {
+    let devices = state
+        .audio
+        .call(AudioRecorder::list_devices)
+        .await
+        .unwrap_or_default();
+    // The id is built from the whole list at once, not per device: whether a
+    // name identifies anything depends on the other names next to it.
+    let ids = device_ids(&devices);
+    Ok(devices
+        .into_iter()
+        .zip(ids)
+        .enumerate()
+        .map(|(i, (dev, id))| {
+            // `name` stays null when cpal could not read one. A placeholder
+            // belongs to the interface, which can say it in the user's own
+            // language; here it would only be an English string pretending to
+            // be a device name.
+            serde_json::json!({
+                "id": id,
+                "index": i,
+                "name": dev.name,
+                "label": dev.name,
+            })
+        })
+        .collect())
+}
+
 // ============================================================================
 // Tests
 // ============================================================================
@@ -685,6 +729,55 @@ mod tests {
             RecorderState::Idle,
             "FSM should be Idle after stop() on empty buffer"
         );
+    }
+
+    /// Exercise native stream teardown, which feeding synthetic PCM cannot
+    /// cover. Explicit selection must use enumeration even for the default
+    /// microphone: CoreAudio installs a different disconnect listener there.
+    #[test]
+    #[ignore = "requires a real microphone and OS permission; captures only in memory"]
+    fn native_microphone_repeated_sessions_preserve_duration() {
+        use std::time::Duration;
+
+        let name = cpal::default_host()
+            .default_input_device()
+            .expect("connect a microphone")
+            .name()
+            .expect("read microphone name");
+        let selected = format!("name:{name}");
+        for selection in [None, Some(selected.as_str())] {
+            let recorder = AudioRecorder::new(AudioConfig::default()).unwrap();
+            for session in 1..=5 {
+                recorder.start_selected(selection).unwrap();
+                let started = Instant::now();
+                std::thread::sleep(Duration::from_secs(1));
+                let elapsed = started.elapsed().as_secs_f64();
+                let audio = recorder
+                    .stop()
+                    .unwrap()
+                    .expect("microphone produced no PCM");
+                let seconds = audio.len() as f64 / 16_000.0;
+                let route = if selection.is_some() {
+                    "selected"
+                } else {
+                    "default"
+                };
+                println!("{route} session {session}: wall={elapsed:.3}s, audio={seconds:.3}s");
+                assert!(
+                    (seconds - elapsed).abs() < elapsed * 0.25,
+                    "{route} session {session}: captured {seconds:.3}s during {elapsed:.3}s"
+                );
+                // A surviving callback owns the buffer even if a recording
+                // flag temporarily prevents it from appending more samples.
+                assert_eq!(
+                    Arc::strong_count(&recorder.audio_buffer),
+                    1,
+                    "{route} session {session}: native callback survived stop"
+                );
+                std::thread::sleep(Duration::from_millis(100));
+                assert!(recorder.stop().unwrap().is_none());
+            }
+        }
     }
 
     #[test]
@@ -852,7 +945,7 @@ mod tests {
         assert_eq!(
             sinks.buffer.lock().unwrap().len(),
             12,
-            "запись потеряла звук"
+            "the recording lost audio"
         );
         assert_eq!(rx.try_recv().map(|c| c.len()), Ok(4));
         // Overflow simply drops chunks without blocking the callback.

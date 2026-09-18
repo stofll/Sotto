@@ -1,0 +1,53 @@
+---
+import Icon from './Icon.astro';
+import { LINKS, REPO } from '../data/product';
+import { translationsFor } from '../i18n/context';
+
+const { t } = translationsFor(Astro.currentLocale);
+---
+
+<section class="section container open-source-section" id="open-source" aria-labelledby="open-source-heading">
+  <div class="open-source-grid" data-reveal>
+    <div>
+      <p class="eyebrow">{t.openSource.eyebrow}</p>
+      <h2 id="open-source-heading">{t.openSource.titleLine1}<br />{t.openSource.titleLine2}</h2>
+      <p class="open-source-manifesto">{t.openSource.manifesto}</p>
+      <p class="section-description">
+        {t.openSource.descriptionLine1}<br />{t.openSource.descriptionLine2}
+      </p>
+      <a href={LINKS.github} class="inline-link">
+        <Icon name="github" size={18} />{t.openSource.viewOnGitHub}<Icon name="arrow-right" size={16} />
+      </a>
+    </div>
+
+    <div class="repo-panel">
+      <div class="repo-header">
+        <Icon name="github" size={21} />
+        <span>stofll <span>/</span> <strong>Sotto</strong></span>
+        <span class="repo-public">{t.openSource.repoPublic}</span>
+        <a href={LINKS.github} class="icon-button" aria-label={t.openSource.repoOpenAria}>
+          <Icon name="external" size={17} />
+        </a>
+      </div>
+
+      <div class="repo-body">
+        <div class="repo-file-name"><Icon name="file-text" size={15} />{t.openSource.readmeName}</div>
+        <h3>{t.openSource.readmeTitle}</h3>
+        <p>{t.openSource.readmeText}</p>
+        <div class="repo-tags">
+          <span><i />{t.openSource.tagLocal}</span>
+          <a href={LINKS.license}><Icon name="share" size={14} />{t.openSource.tagLicense}</a>
+        </div>
+      </div>
+
+      <div class="clone-row">
+        <span aria-hidden="true">$</span><code>git clone {REPO}.git</code>
+        <button type="button" class="icon-button" data-copy-clone aria-label={t.openSource.copyAria}>
+          <Icon name="copy" size={16} />
+        </button>
+      </div>
+
+      <p class="copy-status sr-only" data-copy-status role="status" />
+    </div>
+  </div>
+</section>

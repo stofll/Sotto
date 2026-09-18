@@ -1,0 +1,18 @@
+.download-dialog { width: min(500px, calc(100% - 32px)); padding: 0; border: 1px solid #505660; border-radius: 16px; background: #191e26; color: var(--text-primary); box-shadow: 0 25px 100px rgba(0,0,0,.55); max-height: calc(100dvh - 40px); }
+.download-dialog::backdrop { background: rgba(2,8,12,.78); backdrop-filter: blur(6px); }
+.dialog-inner { padding: 26px; }
+.dialog-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 38px; }
+.dialog-inner .eyebrow { margin-bottom: 14px; font-size: 0.6875rem; }
+.dialog-inner h2 { font-size: 2rem; letter-spacing: -1px; }
+.dialog-inner > p { font-size: 0.75rem; color: #bdc4d0; line-height: 1.85; margin-top: 14px; }
+.install-steps { list-style-type: decimal; padding-left: 20px; font-size: 0.75rem; color: #c5ccd8; line-height: 1.85; margin-top: 22px; }
+.install-steps li { padding-left: 4px; margin-bottom: 10px; }
+.install-steps li::marker { color: #a6adb8; }
+.install-notice { display: flex; gap: 12px; background: #242a33; border: 1px solid #464c55; border-radius: 8px; padding: 14px; margin-top: 22px; }
+.install-notice > .icon { margin-top: 2px; color: #b7beca; }
+.install-notice p { font-size: 0.75rem; line-height: 1.9; color: #bdc5d0; }
+.install-notice a { text-decoration: underline; text-underline-offset: 3px; }
+.dialog-download { margin-top: 25px; width: 100%; }
+.dialog-inner > .download-resolution { font-size: 0.75rem; text-align: center; margin-top: 12px; min-height: 17px; }
+.dialog-other-platforms { display: flex; gap: 5px; align-items: center; justify-content: center; font-size: 0.75rem; color: #b7beca; margin-top: 17px; }
+body.dialog-open { overflow: hidden; }

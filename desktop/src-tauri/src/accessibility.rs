@@ -91,6 +91,14 @@ fn permission_message(exe: Option<&std::path::Path>) -> String {
     }
 }
 
+/// Returns whether the app has macOS Accessibility permission.
+/// The frontend calls this after the user follows the deep-link to
+/// System Settings to see if the permission was granted.
+#[tauri::command]
+pub(crate) fn check_accessibility() -> bool {
+    is_accessibility_granted()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

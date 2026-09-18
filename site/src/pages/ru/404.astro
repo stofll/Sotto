@@ -1,0 +1,17 @@
+---
+import Footer from '../../components/Footer.astro';
+import Header from '../../components/Header.astro';
+import NotFound from '../../components/NotFound.astro';
+import Base from '../../layouts/Base.astro';
+import { translationsFor } from '../../i18n/context';
+
+const { t } = translationsFor(Astro.currentLocale);
+---
+
+<Base noindex title={t.notFound.title} description={t.notFound.lede}>
+  <Header />
+  <main id="main-content" class="not-found-page">
+    <NotFound />
+  </main>
+  <Footer />
+</Base>

@@ -1,0 +1,112 @@
+---
+import '../styles/global.css';
+import interLatin from '@fontsource-variable/inter/files/inter-latin-wght-normal.woff2?url';
+import interCyrillic from '@fontsource-variable/inter/files/inter-cyrillic-wght-normal.woff2?url';
+import RuntimeStrings from '../components/RuntimeStrings.astro';
+import PageSchema from '../components/PageSchema.astro';
+import StructuredData from '../components/StructuredData.astro';
+import { OG_IMAGE } from '../data/product';
+import { locales, localePath } from '../i18n';
+import { translationsFor } from '../i18n/context';
+
+interface Props {
+  /** Sub-page path segment; empty for the landing page. */
+  slug?: string;
+  title?: string;
+  description?: string;
+  /**
+   * Keeps the page out of search results. A 404 is the case that needs it: it
+   * answers on every wrong URL, so a canonical or an hreflang would be a claim
+   * about a page that does not exist.
+   */
+  noindex?: boolean;
+}
+
+const { slug = '', title, description, noindex = false } = Astro.props;
+const { locale, t } = translationsFor(Astro.currentLocale);
+
+const canonical = new URL(localePath(locale, slug), Astro.site);
+const ogImage = new URL(OG_IMAGE.path, Astro.site);
+
+const pageTitle = title ? `${title} — Sotto` : t.meta.title;
+const pageDescription = description ?? t.meta.description;
+
+// The two Inter subsets are split by unicode-range, so each page needs exactly
+// one of them. Preloading both would pull a file the page can never paint with.
+const bodyFont = locale === 'ru' ? interCyrillic : interLatin;
+---
+
+<!doctype html>
+<html lang={t.meta.htmlLang}>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#061014" />
+
+    {/* The font is referenced from the stylesheet, so it is discovered only
+        after the CSS parses. Preloading starts it alongside the CSS instead and
+        shortens the window in which `font-display: swap` reflows the text.
+        `crossorigin` is required: fonts are fetched in CORS mode, and without it
+        the preloaded file is not reused and downloads twice. */}
+    <link rel="preload" href={bodyFont} as="font" type="font/woff2" crossorigin />
+
+    <title>{pageTitle}</title>
+    <meta name="description" content={pageDescription} />
+
+    {/* Canonical, hreflang and the social card all name one page at one URL.
+        A noindex page has no such URL — a 404 answers on every wrong one — so
+        it declares nothing beyond the robots directive, and sharing a miss
+        cannot pass it off as the home page. */}
+    {noindex ? (
+      <meta name="robots" content="noindex, follow" />
+    ) : (
+      <Fragment>
+        <link rel="canonical" href={canonical} />
+        {locales.map((other) => (
+          <link rel="alternate" hreflang={other} href={new URL(localePath(other, slug), Astro.site)} />
+        ))}
+        <link rel="alternate" hreflang="x-default" href={new URL(localePath('en', slug), Astro.site)} />
+
+        <meta property="og:type" content="website" />
+        <meta property="og:url" content={canonical} />
+        <meta property="og:title" content={title ?? t.meta.ogTitle} />
+        <meta property="og:description" content={description ?? t.meta.ogDescription} />
+        <meta property="og:image" content={ogImage} />
+        <meta property="og:image:width" content={String(OG_IMAGE.width)} />
+        <meta property="og:image:height" content={String(OG_IMAGE.height)} />
+        <meta property="og:image:alt" content={t.meta.ogImageAlt} />
+        <meta property="og:locale" content={locale === 'ru' ? 'ru_RU' : 'en_US'} />
+        <meta property="og:locale:alternate" content={locale === 'ru' ? 'en_US' : 'ru_RU'} />
+        <meta property="og:site_name" content="Sotto" />
+
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content={title ?? t.meta.ogTitle} />
+        <meta name="twitter:description" content={description ?? t.meta.ogDescription} />
+        <meta name="twitter:image" content={ogImage} />
+        <meta name="twitter:image:alt" content={t.meta.ogImageAlt} />
+      </Fragment>
+    )}
+
+    <link rel="icon" href="/brand/sotto-icon.png" type="image/png" />
+
+    {/* Structured data describes a real page at a real URL, so a noindex page
+        has nothing truthful to declare and stays out of it. */}
+    {noindex ? null : slug ? (
+      <PageSchema canonical={canonical} title={pageTitle} description={pageDescription} />
+    ) : (
+      <StructuredData canonical={canonical} />
+    )}
+  </head>
+
+  <body>
+    <a class="skip-link" href="#main-content">{t.nav.skipToContent}</a>
+    <div id="top"></div>
+    <slot />
+    <RuntimeStrings />
+
+    <script>
+      import { initLanding } from '../scripts';
+      initLanding();
+    </script>
+  </body>
+</html>

@@ -9,6 +9,7 @@
 //! thread would stall every other task.
 
 use std::path::Path;
+use std::sync::{atomic::AtomicBool, Arc};
 
 use symphonia::core::audio::GenericAudioBufferRef;
 use symphonia::core::codecs::audio::AudioDecoderOptions;
@@ -17,6 +18,7 @@ use symphonia::core::formats::probe::Hint;
 use symphonia::core::formats::{FormatOptions, TrackType};
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
+use tauri::{AppHandle, Emitter, Manager};
 
 /// The rate the whisper/sherpa engines expect. Not configurable: whisper.cpp
 /// is trained at 16 kHz and resamples internally (badly) if given anything
@@ -177,7 +179,13 @@ fn decode_with_limit(path: &Path, max_seconds: f64) -> Result<DecodedAudio, Stri
     let samples = if source_rate == TARGET_RATE {
         mono
     } else {
-        resample_to_target(&mono, source_rate)?
+        // rubato's own error names filter parameters, which says nothing to
+        // the person who attached the file. The rate is what failed, so that
+        // is what the panel is told; the original goes to the log.
+        resample_to_target(&mono, source_rate).map_err(|error| {
+            log::error!("decode: resample {source_rate} -> {TARGET_RATE} failed: {error}");
+            crate::ui_text::t("Не удалось преобразовать частоту дискретизации файла.")
+        })?
     };
 
     Ok(DecodedAudio {
@@ -260,6 +268,425 @@ fn describe_symphonia_error(error: &SymphoniaError) -> String {
             crate::ui_text::t("Не удалось прочитать звук из файла — возможно, он повреждён.")
         }
     }
+}
+
+/// Open the system file picker and return the chosen audio file's path.
+///
+/// The dialog lives in Rust rather than in the webview so the extension
+/// filter and the picker permission stay on this side: the frontend can
+/// ask for a file, but it cannot ask for an arbitrary one.
+///
+/// `Ok(None)` means the user closed the dialog — a normal outcome, not an
+/// error, and the panel must not show anything for it.
+#[tauri::command]
+pub(crate) async fn pick_audio_file(app: AppHandle) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    // `blocking_pick_file` on a blocking worker: the docs are explicit that
+    // it must not run on the main thread, and a Tauri command's async task
+    // is not a safe place to park a modal either.
+    let picked = tokio::task::spawn_blocking(move || {
+        app.dialog()
+            .file()
+            .add_filter(
+                crate::ui_text::t("Аудио"),
+                &["wav", "mp3", "m4a", "mp4", "ogg", "oga", "opus", "flac"],
+            )
+            .blocking_pick_file()
+    })
+    .await
+    .map_err(|e| {
+        log::error!("pick_audio_file: dialog task failed: {e}");
+        crate::ui_text::t("Не удалось открыть диалог выбора файла.")
+    })?;
+
+    Ok(picked.map(|file| file.to_string()))
+}
+
+/// What the "Прикрепить аудио" panel gets back from a file transcription.
+///
+/// Deliberately not `InferenceResult`: the panel shows the *processed*
+/// text, and it needs the intermediate stages to render the "Whisper без
+/// обработки" disclosure the same way history does.
+#[derive(Debug, serde::Serialize)]
+pub struct TranscribeFileResult {
+    /// The text to show and copy — formatted, and LLM-cleaned when the
+    /// configuration calls for it.
+    text: String,
+    /// Straight from the engine, before any formatting.
+    raw_text: String,
+    /// After local formatting, before the LLM.
+    formatted_text: String,
+    /// `None` when the LLM never ran (disabled, or the mode is local-only).
+    /// That is a normal outcome for a file, not a failure — the panel shows
+    /// "Распознано" for it, not an error.
+    ai_status: Option<crate::ai::step::AiStatus>,
+    audio_seconds: f64,
+    inference_time_ms: u64,
+    language: Option<String>,
+}
+
+/// Why a file transcription stopped, in the shape the terminal handler needs.
+///
+/// The point of the type is that the body below can go back to using `?`.
+/// Before it existed, every early return had to remember its own telemetry
+/// call — eleven of them — and a forgotten one loses the operation from the
+/// failure rate silently, without so much as a warning.
+struct FileFailure {
+    stage: crate::telemetry::FailureStage,
+    reason: crate::telemetry::FailureReason,
+    message: String,
+}
+
+impl FileFailure {
+    fn new(
+        stage: crate::telemetry::FailureStage,
+        reason: crate::telemetry::FailureReason,
+        message: String,
+    ) -> Self {
+        Self {
+            stage,
+            reason,
+            message,
+        }
+    }
+}
+
+/// Errors that arrive as a bare message from somewhere further down land in
+/// the generic bucket rather than claiming a stage they cannot know.
+impl From<String> for FileFailure {
+    fn from(message: String) -> Self {
+        Self::new(
+            crate::telemetry::FailureStage::Stt,
+            crate::telemetry::FailureReason::EngineError,
+            message,
+        )
+    }
+}
+
+/// What a completed run carries out of the inner function: the engine's
+/// result and the post-processed text, both of which the terminal event and
+/// the panel's payload are built from.
+struct FileRun {
+    inference: crate::whisper::InferenceResult,
+    processed: crate::ProcessedTranscription,
+}
+
+/// Transcribe an audio file the user attached, without touching the
+/// focused window, the history, or the statistics.
+///
+/// This runs the same engine and the same post-processing as dictation;
+/// the only difference is where the samples come from and where the text
+/// goes. Everything unusual about it is defensive, and each guard below
+/// exists because the engine is a single shared resource that the
+/// dictation path assumes it owns.
+///
+/// The body lives in [`transcribe_file_inner`]; this wrapper is the single
+/// place a terminal telemetry event is emitted, on either outcome.
+#[tauri::command]
+pub(crate) async fn transcribe_audio_file(
+    app: AppHandle,
+    state: tauri::State<'_, crate::state::AppState>,
+    path: String,
+) -> Result<TranscribeFileResult, String> {
+    let telemetry = app.state::<crate::telemetry::Telemetry>().clone();
+    telemetry.begin_usage_session(crate::telemetry::SessionTrigger::File);
+
+    // Read once, up front, because every terminal event needs it. The guards
+    // that fire before the engine is even claimed used to report `local`
+    // whatever the user had configured, which quietly mislabelled every
+    // engine-busy failure in cloud mode.
+    let config = crate::config::Config::load(&app).ok();
+    let pipeline_mode = crate::telemetry_pipeline_mode(config.as_ref());
+
+    match transcribe_file_inner(&app, &state, &path, config.as_ref(), &pipeline_mode).await {
+        Ok(run) => {
+            record_file_run(&telemetry, &pipeline_mode, config.as_ref(), &run);
+            let FileRun {
+                inference,
+                processed,
+            } = run;
+            Ok(TranscribeFileResult {
+                text: processed.final_text,
+                raw_text: processed.raw_text,
+                formatted_text: processed.formatted_text,
+                ai_status: processed.ai_status,
+                audio_seconds: inference.audio_seconds,
+                inference_time_ms: inference.inference_time_ms,
+                language: inference.language,
+            })
+        }
+        Err(failure) => {
+            // A deliberate cancellation is not a reliability failure, and
+            // counting it as one would make the failure rate meaningless.
+            if matches!(
+                failure.reason,
+                crate::telemetry::FailureReason::UserCancelled
+            ) {
+                telemetry.record_cancelled(crate::telemetry::Source::File, &pipeline_mode);
+            } else {
+                telemetry.record_failed(
+                    crate::telemetry::Source::File,
+                    &pipeline_mode,
+                    failure.stage,
+                    failure.reason,
+                );
+            }
+            Err(failure.message)
+        }
+    }
+}
+
+/// Emit the completed event for a run that produced text.
+///
+/// An empty `final_text` is not an error the caller sees — the panel still
+/// gets its (empty) result — but it means the post-processor threw away the
+/// whole transcript, which is a failure worth counting.
+fn record_file_run(
+    telemetry: &crate::telemetry::Telemetry,
+    pipeline_mode: &str,
+    config: Option<&crate::config::Config>,
+    run: &FileRun,
+) {
+    if run.processed.final_text.trim().is_empty() {
+        telemetry.record_failed(
+            crate::telemetry::Source::File,
+            pipeline_mode,
+            crate::telemetry::FailureStage::PostProcess,
+            crate::telemetry::FailureReason::EmptyAfterProcessing,
+        );
+        return;
+    }
+    let (formatting_enabled, replacement_rules) = config
+        .map(crate::telemetry_formatting)
+        .unwrap_or((false, 0));
+    telemetry.record_completed(crate::telemetry::Outcome {
+        source: crate::telemetry::Source::File,
+        pipeline_mode,
+        recording_mode: crate::telemetry::RecordingMode::NotApplicable,
+        stt_model: run.inference.model_id.as_deref(),
+        audio_seconds: run.inference.audio_seconds,
+        stt_millis: run.inference.inference_time_ms,
+        chars: run.processed.final_text.chars().count(),
+        ai_status: run.processed.ai_status.as_ref(),
+        compute: config
+            .map(|config| crate::telemetry_compute(config, run.inference.model_id.as_deref())),
+        formatting_enabled,
+        replacement_rules,
+        paste_result: crate::telemetry::PasteResult::NotApplicable,
+    });
+}
+
+async fn transcribe_file_inner(
+    app: &AppHandle,
+    state: &crate::state::AppState,
+    path: &str,
+    config: Option<&crate::config::Config>,
+    pipeline_mode: &str,
+) -> Result<FileRun, FileFailure> {
+    // 1. Claim the engine. The guard releases on every exit path below,
+    //    including the `?`s — a hand-written release would not.
+    let engine_claim = state.claim_engine().ok_or_else(|| {
+        FileFailure::new(
+            crate::telemetry::FailureStage::Start,
+            crate::telemetry::FailureReason::EngineBusy,
+            crate::ui_text::t("Идёт транскрипция файла — дождитесь её окончания."),
+        )
+    })?;
+
+    // 2. A dictation in flight owns the engine too, just through a
+    //    different mechanism (it was queued before we claimed).
+    if !matches!(
+        *crate::mutex_recover::lock(&state.app_fsm),
+        crate::state::AppFsm::Idle
+    ) {
+        return Err(FileFailure::new(
+            crate::telemetry::FailureStage::Start,
+            crate::telemetry::FailureReason::EngineBusy,
+            crate::ui_text::t("Завершите текущую запись."),
+        ));
+    }
+
+    // 3. The sherpa recognizers have no VAD of their own. They are fine on a
+    //    dictation-length utterance and degrade badly across an hour-long
+    //    recording, so refuse rather than hand back mush the user would blame
+    //    on the file. Only checked for the local path — cloud STT does not
+    //    touch the loaded model at all.
+    if pipeline_mode != "cloud" {
+        // Cloned out of the guard rather than read through it: `model_engine`
+        // is unrelated code, and holding an engine lock across it is how the
+        // next deadlock gets written.
+        let loaded = crate::mutex_recover::lock(&state.engine_current_model).clone();
+        let is_sherpa = loaded.as_deref().is_some_and(|model| {
+            crate::model::model_engine(model).is_ok_and(|engine| engine.is_sherpa())
+        });
+        if is_sherpa {
+            return Err(FileFailure::new(
+                crate::telemetry::FailureStage::Stt,
+                crate::telemetry::FailureReason::EngineError,
+                crate::ui_text::t(
+                    "Эта модель не умеет расшифровывать файлы — выберите модель Whisper в «Настройки → Модели».",
+                ),
+            ));
+        }
+    }
+
+    // 4. Decode off the async runtime: symphonia and the resampler are
+    //    CPU-bound, and an hour of MP3 would stall every other task.
+    let decode_path = std::path::PathBuf::from(path);
+    let decode_failed = |message: String| {
+        FileFailure::new(
+            crate::telemetry::FailureStage::Decode,
+            crate::telemetry::FailureReason::Decode,
+            message,
+        )
+    };
+    let decoded = tokio::task::spawn_blocking(move || decode_to_pcm16k_mono(&decode_path))
+        .await
+        .map_err(|e| {
+            log::error!("transcribe_audio_file: decode task panicked: {e}");
+            decode_failed(crate::ui_text::t(
+                "Не удалось прочитать звук из файла — возможно, он повреждён.",
+            ))
+        })?
+        .map_err(decode_failed)?;
+
+    log::info!(
+        "file transcription: {:.1}s of audio decoded from {path}",
+        decoded.audio_seconds
+    );
+
+    let session_id = state.next_session_id();
+    let audio = Arc::new(decoded.samples);
+    let cancel_flag = Arc::new(AtomicBool::new(false));
+
+    // 5. Claimed before the command is queued; the guard releases on every
+    //    exit path below.
+    let session_guard = state.claim_file_session(session_id, Arc::clone(&cancel_flag));
+    // The frontend needs the id to be able to cancel; the result carries it
+    // too late to be useful.
+    let _ = app.emit(
+        "file-transcription-started",
+        serde_json::json!({ "session_id": session_id }),
+    );
+
+    // The same queue orders restoration before file transcription as well.
+    crate::restore_unloaded_model(app, state);
+
+    let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+    // Same branch as `stop_recording`: a cloud-configured user has no local
+    // model loaded, and sending `Transcribe` would fail with «модель не
+    // загружена» for a reason that has nothing to do with their setup.
+    let command = if pipeline_mode == "cloud" {
+        // Built before the move: the request borrows the samples that the
+        // command is about to take ownership of.
+        let request = crate::build_cloud_stt_request(app, &audio).map_err(|error| {
+            FileFailure::new(
+                crate::telemetry::FailureStage::Queue,
+                crate::telemetry::FailureReason::CloudConfiguration,
+                error,
+            )
+        })?;
+        crate::whisper::EngineCommand::TranscribeCloud {
+            session_id,
+            audio,
+            cancel_flag,
+            request,
+            reply: reply_tx,
+        }
+    } else {
+        crate::whisper::EngineCommand::Transcribe {
+            source: crate::model_performance::RunSource::File,
+            session_id,
+            audio,
+            cancel_flag,
+            language: config.and_then(|cfg| cfg.get_string("language")),
+            initial_prompt: config.and_then(crate::custom_words_prompt),
+            reply: reply_tx,
+        }
+    };
+
+    // `send`, not `try_send`: the queue is ours by the claim above, and a
+    // full-channel error here would be a lie about what went wrong.
+    state.engine_cmd_tx.send(command).await.map_err(|e| {
+        log::error!("file transcription {session_id}: engine channel closed: {e}");
+        FileFailure::new(
+            crate::telemetry::FailureStage::Queue,
+            crate::telemetry::FailureReason::EngineQueue,
+            format!("engine: {e}"),
+        )
+    })?;
+
+    let inference = reply_rx.await.map_err(|e| {
+        log::error!("file transcription {session_id}: engine dropped the reply: {e}");
+        FileFailure::new(
+            crate::telemetry::FailureStage::Stt,
+            crate::telemetry::FailureReason::EngineError,
+            crate::ui_text::t("Движок не ответил. Попробуйте ещё раз."),
+        )
+    })?;
+    // Nothing else will clear the registrations — the dispatcher skipped this
+    // session — and the LLM pass below can take the better part of a minute.
+    // Observe cancellation before dropping the guard (which removes the
+    // skip-set entry); otherwise a cancel that wins during STT is lost.
+    let was_cancelled = state.is_cancelled(session_id);
+    if was_cancelled {
+        state.drop_cancellation(session_id);
+    }
+    drop(session_guard);
+
+    if was_cancelled {
+        return Err(FileFailure::new(
+            crate::telemetry::FailureStage::Stt,
+            crate::telemetry::FailureReason::UserCancelled,
+            crate::ui_text::t("Транскрипция отменена."),
+        ));
+    }
+    if inference.text.trim().is_empty() {
+        return Err(FileFailure::new(
+            crate::telemetry::FailureStage::Stt,
+            crate::telemetry::FailureReason::EmptyTranscript,
+            crate::ui_text::t("В файле не распознана речь."),
+        ));
+    }
+
+    // The engine is genuinely free from here on — what remains is local
+    // formatting and, in hybrid mode, an LLM round-trip that can take the
+    // better part of a minute. Holding the claim across it would refuse the
+    // user's dictation for no reason at all.
+    drop(engine_claim);
+    let processed = crate::post_process_transcription(app, &inference).await;
+
+    Ok(FileRun {
+        inference,
+        processed,
+    })
+}
+
+/// Cancel an in-flight file transcription.
+///
+/// Reuses the dictation cancel machinery: `cancel_session` flips the
+/// registered flag, which the engine checks before `state.full()` and
+/// between segments.
+///
+/// Ignores an id that is not the in-flight file session. A stale cancel —
+/// a click that lands just after the transcription returned, a frontend
+/// that kept the id too long — would otherwise mark that id cancelled
+/// forever, and since ids restart from zero after every dictation, the next
+/// dictation to be handed that id would be silently dropped: no paste, no
+/// history, no error. The skip-set is the authority on "is this still the
+/// file session", because the command clears it the moment it is done.
+#[tauri::command(rename_all = "snake_case")]
+pub(crate) async fn cancel_audio_file(
+    state: tauri::State<'_, crate::state::AppState>,
+    session_id: u64,
+) -> Result<(), String> {
+    if !state.is_dispatch_skipped(session_id) {
+        log::info!("cancel_audio_file: session {session_id} is no longer in flight, ignoring");
+        return Ok(());
+    }
+    state.cancel_session(session_id);
+    Ok(())
 }
 
 #[cfg(test)]

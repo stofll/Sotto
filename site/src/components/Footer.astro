@@ -1,0 +1,29 @@
+---
+import Brand from './Brand.astro';
+import Icon from './Icon.astro';
+import { LINKS } from '../data/product';
+import { localePath } from '../i18n';
+import { translationsFor } from '../i18n/context';
+
+const { locale, t } = translationsFor(Astro.currentLocale);
+const links = [
+  { href: LINKS.github, label: t.nav.github },
+  { href: LINKS.docs, label: t.footer.docs },
+  { href: localePath(locale, 'privacy'), label: t.footer.privacy },
+  { href: LINKS.license, label: t.footer.license },
+];
+---
+
+<footer class="footer container">
+  <div class="footer-top">
+    <a class="brand-link" href="#top" aria-label={t.nav.backToTop}><Brand /></a>
+    <p>{t.footer.tagline}</p>
+    <nav aria-label={t.nav.footerNav}>
+      {links.map((link) => <a href={link.href}>{link.label}</a>)}
+    </nav>
+  </div>
+  <div class="footer-bottom">
+    <span>{t.footer.freeSoftware}</span>
+    <a href={LINKS.contributing}>{t.footer.builtInTheOpen}<Icon name="external" size={12} /></a>
+  </div>
+</footer>

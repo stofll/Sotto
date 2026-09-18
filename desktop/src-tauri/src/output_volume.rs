@@ -260,6 +260,18 @@ mod windows_impl {
     }
 }
 
+/// Temporarily lower the Windows multimedia output so the setting can be
+/// verified without starting a recording. Unlike normal best-effort ducking,
+/// this command returns the Core Audio error to the settings UI.
+#[tauri::command]
+pub(crate) async fn preview_output_duck(level: f64) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        preview(level as f32, std::time::Duration::from_millis(1200))
+    })
+    .await
+    .map_err(|error| format!("output volume preview task failed: {error}"))?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

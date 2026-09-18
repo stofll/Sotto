@@ -223,3 +223,49 @@ pub async fn cancel(app: &AppHandle, state: &AppState, session_id: u64) -> Resul
         .map_err(|_| "audio worker dropped cancellation".to_string())?;
     Ok(true)
 }
+
+/// Returns the `session_id` so any sync caller can immediately use it
+/// (e.g. for cancel). The frontend currently discards the return value
+/// (it reads session_id from the `recording-started` event payload).
+#[tauri::command]
+pub(crate) async fn start_recording(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<u64, String> {
+    start(&app, &state, false)?
+        .await
+        .map_err(|_| "audio worker dropped start".to_string())?
+}
+
+/// Stop the active recording session and send the captured audio to the
+/// whisper engine.
+///
+/// Returns the stopped `session_id`, or 0 when no recording was active.
+#[tauri::command]
+pub(crate) async fn stop_recording(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<u64, String> {
+    stop(&app, &state)?
+        .await
+        .map_err(|_| "audio worker dropped stop".to_string())?
+}
+
+/// Cancel an in-flight recording / transcription session.
+///
+/// Marks the session as cancelled in `AppState` (the dispatcher checks
+/// this BEFORE pasting — see `setup()` in `lib.rs`). If a recording is
+/// still active (user pressed hotkey then cancelled before releasing),
+/// the cpal stream is dropped so the audio buffer is discarded.
+///
+/// The frontend must capture the session_id from `recording-started` and
+/// pass it here. If it loses the id (refresh, etc.), passing a wrong id is
+/// a no-op: the session is not cancellable, and the call returns `false`.
+#[tauri::command]
+pub(crate) async fn cancel_recording(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+    session_id: u64,
+) -> Result<bool, String> {
+    cancel(&app, &state, session_id).await
+}

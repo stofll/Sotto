@@ -1,0 +1,11 @@
+# Mirrors desktop/pnpm-workspace.yaml: pnpm v9+ blocks postinstall scripts by
+# default, and esbuild needs its own to bootstrap Vite. The explicit `packages`
+# list is what makes `pnpm install --frozen-lockfile` accept this project.
+#
+# `site/` is a standalone install on purpose: it is not a member of the
+# desktop/ workspace, so the landing page and the app never share a lockfile.
+packages:
+  - "."
+
+allowBuilds:
+  esbuild: true

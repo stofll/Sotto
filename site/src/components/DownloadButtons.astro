@@ -1,0 +1,22 @@
+---
+import Icon from './Icon.astro';
+import { LINKS } from '../data/product';
+import { translationsFor } from '../i18n/context';
+
+interface Props {
+  /** Recorded on the links so the dialog can tell which pair was used. */
+  location: 'hero' | 'footer';
+}
+
+const { location } = Astro.props;
+const { t } = translationsFor(Astro.currentLocale);
+---
+
+<div class="download-buttons">
+  <a class="button button-primary" href={LINKS.releases} data-download="macos" data-location={location}>
+    <Icon name="apple" size={18} />{t.hero.downloadMac}<Icon name="external" size={16} />
+  </a>
+  <a class="button button-secondary" href={LINKS.releases} data-download="windows" data-location={location}>
+    <Icon name="windows" size={16} />{t.hero.downloadWindows}
+  </a>
+</div>

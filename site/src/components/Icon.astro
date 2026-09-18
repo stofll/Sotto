@@ -1,0 +1,37 @@
+---
+import { icons, type IconName } from '../data/icons';
+
+interface Props {
+  name: IconName;
+  size?: number;
+  /** Decorative by default; pass a label to expose the icon to assistive tech. */
+  label?: string;
+  class?: string;
+}
+
+const { name, size = 20, label, class: className = '' } = Astro.props;
+const shape = icons[name];
+const viewBox = 'viewBox' in shape ? shape.viewBox : '0 0 24 24';
+const strokeWidth = 'strokeWidth' in shape ? shape.strokeWidth : '1.6';
+
+// Non-square shapes (the download mark) keep their aspect ratio instead of
+// being squashed into a square box.
+const [, , boxWidth = 24, boxHeight = 24] = viewBox.split(' ').map(Number);
+const height = Math.round((size * boxHeight) / boxWidth);
+---
+
+<svg
+  width={size}
+  height={height}
+  viewBox={viewBox}
+  fill="none"
+  stroke="currentColor"
+  stroke-width={strokeWidth}
+  stroke-linecap="round"
+  stroke-linejoin="round"
+  class:list={['icon', className]}
+  aria-hidden={label ? undefined : 'true'}
+  role={label ? 'img' : undefined}
+  aria-label={label}
+  set:html={shape.body}
+/>

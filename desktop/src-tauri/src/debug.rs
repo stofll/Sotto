@@ -242,6 +242,39 @@ pub fn open_in_file_manager(path: &Path) -> Result<(), String> {
         .map_err(|error| format!("open {path}: {error}"))
 }
 
+/// Copy-pasteable summary of the setup for a bug report.
+#[tauri::command]
+pub(crate) fn get_diagnostics(app: AppHandle) -> Result<String, String> {
+    let config = crate::config::Config::load(&app)?;
+    Ok(diagnostics_report(&app, config.as_value()))
+}
+
+/// Reveal the diagnostics folder (logs + saved recordings) in the file
+/// manager. `save_recordings` puts the WAVs in a subfolder of the same
+/// place, so one button covers both.
+#[tauri::command]
+pub(crate) fn open_diagnostics_folder() -> Result<(), String> {
+    open_in_file_manager(&diagnostics_dir())
+}
+
+/// Bytes the logs occupy: the active file plus its rotated archives.
+#[tauri::command]
+pub(crate) fn logs_size() -> u64 {
+    crate::structured_log::logs_total_bytes()
+}
+
+/// Empty the logs, returning the resulting size so the caller does not
+/// have to ask a second time.
+///
+/// Waits for the writer thread to finish, which is why it reports a size
+/// that is actually true rather than one read mid-truncate. The wait is a
+/// truncate and a few `remove_file` calls behind whatever is queued.
+#[tauri::command]
+pub(crate) fn clear_logs() -> u64 {
+    crate::structured_log::clear();
+    crate::structured_log::logs_total_bytes()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

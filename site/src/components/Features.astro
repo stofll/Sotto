@@ -1,0 +1,32 @@
+---
+import Icon from './Icon.astro';
+import { translationsFor } from '../i18n/context';
+import type { IconName } from '../data/icons';
+
+const { t } = translationsFor(Astro.currentLocale);
+---
+
+<section class="section container features-section" id="features" aria-labelledby="features-heading">
+  <div class="features-heading" data-reveal>
+    <div>
+      <p class="eyebrow">{t.features.eyebrow}</p>
+      <h2 id="features-heading">{t.features.title}</h2>
+    </div>
+    <p>{t.features.subtitleLine1}<br />{t.features.subtitleLine2}</p>
+  </div>
+
+  <div class="features-grid" data-reveal>
+    {t.features.items.map((item) => (
+      <article class="feature">
+        <div class="feature-overline">
+          <Icon name={item.icon as IconName} size={21} />
+          <span>{item.overline}</span>
+        </div>
+        <h3>{item.title}</h3>
+        <p>{item.text}</p>
+      </article>
+    ))}
+  </div>
+
+  <p class="features-footnote">{t.features.footnote}</p>
+</section>

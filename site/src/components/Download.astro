@@ -1,0 +1,28 @@
+---
+import DownloadButtons from './DownloadButtons.astro';
+import Brand from './Brand.astro';
+import Icon from './Icon.astro';
+import { LINKS } from '../data/product';
+import { translationsFor } from '../i18n/context';
+
+const { t } = translationsFor(Astro.currentLocale);
+---
+
+<section class="download-section container" id="download" aria-labelledby="download-heading" data-reveal>
+  <div class="cta-mark"><Brand height={44} iconOnly /></div>
+  <p class="eyebrow">{t.download.eyebrow}</p>
+  <h2 id="download-heading">{t.download.title}</h2>
+  <p>{t.download.subtitle}</p>
+
+  <DownloadButtons location="footer" />
+
+  <div class="platform-details">
+    <span>{t.download.mac}</span>
+    <span>{t.download.windows}</span>
+    <a href={LINKS.platforms}>{t.download.linux}<Icon name="external" size={12} /></a>
+  </div>
+
+  <a href={LINKS.install} class="installation-link">
+    {t.download.setupNotes}<Icon name="arrow-right" size={13} />
+  </a>
+</section>

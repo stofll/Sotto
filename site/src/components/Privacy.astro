@@ -1,0 +1,66 @@
+---
+import Brand from './Brand.astro';
+import Icon from './Icon.astro';
+import { localePath } from '../i18n';
+import { translationsFor } from '../i18n/context';
+
+const { locale, t } = translationsFor(Astro.currentLocale);
+---
+
+<section class="privacy-section" id="privacy" aria-labelledby="privacy-heading">
+  <div class="container">
+    <div class="privacy-top" data-reveal>
+      <div>
+        <p class="eyebrow">{t.privacy.eyebrow}</p>
+        <h2 id="privacy-heading">{t.privacy.titleLine1}<br />{t.privacy.titleLine2}</h2>
+        <p class="section-description">
+          {t.privacy.descriptionLine1}<br />{t.privacy.descriptionLine2}
+        </p>
+      </div>
+
+      <div class="privacy-diagram" data-privacy-diagram role="img" aria-label={t.privacy.diagramAlt}>
+        <div class="device-boundary-label"><span class="tiny-dot" />{t.privacy.boundary}</div>
+
+        <div class="signal-path">
+          <div class="signal-track"><span class="signal-pulse" /></div>
+
+          <div class="signal-node">
+            <span class="signal-icon"><Icon name="mic" size={24} /></span>
+            <span>{t.privacy.nodes.microphone}</span>
+          </div>
+          <div class="signal-node">
+            <span class="signal-icon"><Brand iconOnly height={20} /></span>
+            <span>{t.privacy.nodes.app}</span>
+          </div>
+          <div class="signal-node">
+            <span class="signal-icon"><Icon name="chip" size={24} /></span>
+            <span>{t.privacy.nodes.model}</span>
+          </div>
+          <div class="signal-node">
+            <span class="signal-icon"><Icon name="note" size={24} /></span>
+            <span>{t.privacy.nodes.text}</span>
+          </div>
+        </div>
+
+        <p><Icon name="shield-check" size={14} />{t.privacy.noCloud}</p>
+      </div>
+    </div>
+
+    <div class="privacy-points" data-reveal>
+      {t.privacy.points.map((point) => (
+        <div>
+          <span>{point.number}</span>
+          <h3>{point.title}</h3>
+          <p>{point.text}</p>
+        </div>
+      ))}
+    </div>
+
+    <div class="privacy-footnote">
+      <p>{t.privacy.footnote}</p>
+      <a class="inline-link" href={localePath(locale, 'privacy')}>
+        {t.privacy.footnoteLink}<Icon name="external" size={14} />
+      </a>
+    </div>
+  </div>
+</section>

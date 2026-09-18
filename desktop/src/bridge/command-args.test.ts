@@ -37,7 +37,50 @@ import formatCommandsRs from "../../src-tauri/src/format_commands.rs?raw";
 import audioWorkerRs from "../../src-tauri/src/audio_worker.rs?raw";
 
 import overlayRs from "../../src-tauri/src/overlay.rs?raw";
-const rustSources = [libRs, formatCommandsRs, audioWorkerRs, overlayRs];
+import hotkeyRs from "../../src-tauri/src/hotkey.rs?raw";
+import updaterRs from "../../src-tauri/src/updater.rs?raw";
+import soundsRs from "../../src-tauri/src/sounds.rs?raw";
+import outputVolumeRs from "../../src-tauri/src/output_volume.rs?raw";
+import micTestRs from "../../src-tauri/src/mic_test.rs?raw";
+import debugRs from "../../src-tauri/src/debug.rs?raw";
+import dictionariesRs from "../../src-tauri/src/dictionaries.rs?raw";
+import accessibilityRs from "../../src-tauri/src/accessibility.rs?raw";
+import clipboardRs from "../../src-tauri/src/clipboard.rs?raw";
+import statsRs from "../../src-tauri/src/stats.rs?raw";
+import configRs from "../../src-tauri/src/config.rs?raw";
+import audioRs from "../../src-tauri/src/audio.rs?raw";
+import secretStoreRs from "../../src-tauri/src/secret_store.rs?raw";
+import historyRs from "../../src-tauri/src/history.rs?raw";
+import modelRs from "../../src-tauri/src/model.rs?raw";
+import modelDownloadRs from "../../src-tauri/src/model_download.rs?raw";
+import dictationRs from "../../src-tauri/src/dictation.rs?raw";
+import audioFileRs from "../../src-tauri/src/audio_file.rs?raw";
+import aiRs from "../../src-tauri/src/ai/mod.rs?raw";
+const rustSources = [
+  libRs,
+  formatCommandsRs,
+  audioWorkerRs,
+  overlayRs,
+  hotkeyRs,
+  updaterRs,
+  soundsRs,
+  outputVolumeRs,
+  micTestRs,
+  debugRs,
+  dictionariesRs,
+  accessibilityRs,
+  clipboardRs,
+  statsRs,
+  configRs,
+  audioRs,
+  secretStoreRs,
+  historyRs,
+  modelRs,
+  modelDownloadRs,
+  dictationRs,
+  audioFileRs,
+  aiRs,
+];
 
 /** Parameters Tauri injects itself — the frontend never sends them. */
 const INJECTED = new Set(["app", "state", "window", "webview", "app_handle"]);
@@ -75,7 +118,7 @@ function splitParams(params: string): string[] {
 
 function rustCommands(): Map<string, CommandSpec> {
   const commands = new Map<string, CommandSpec>();
-  const re = /#\[tauri::command([^\]]*)\]\s*(?:pub\s+)?(?:async\s+)?fn\s+(\w+)\s*\(([^)]*)\)/g;
+  const re = /#\[tauri::command([^\]]*)\]\s*(?:pub(?:\(crate\))?\s+)?(?:async\s+)?fn\s+(\w+)\s*\(([^)]*)\)/g;
   for (const source of rustSources) {
     for (const [, attr, name, params] of source.matchAll(re)) {
       // Without `rename_all = "snake_case"` Tauri expects camelCase keys.

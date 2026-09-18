@@ -1,0 +1,21 @@
+---
+import Footer from '../components/Footer.astro';
+import Header from '../components/Header.astro';
+import Base from './Base.astro';
+
+interface Props {
+  slug: string;
+  title: string;
+  description: string;
+}
+
+const { slug, title, description } = Astro.props;
+---
+
+<Base slug={slug} title={title} description={description}>
+  <Header slug={slug} />
+  <main id="main-content" class="prose-page container">
+    <slot />
+  </main>
+  <Footer />
+</Base>
