@@ -179,7 +179,13 @@ fn decode_with_limit(path: &Path, max_seconds: f64) -> Result<DecodedAudio, Stri
     let samples = if source_rate == TARGET_RATE {
         mono
     } else {
-        resample_to_target(&mono, source_rate)?
+        // rubato's own error names filter parameters, which says nothing to
+        // the person who attached the file. The rate is what failed, so that
+        // is what the panel is told; the original goes to the log.
+        resample_to_target(&mono, source_rate).map_err(|error| {
+            log::error!("decode: resample {source_rate} -> {TARGET_RATE} failed: {error}");
+            crate::ui_text::t("Не удалось преобразовать частоту дискретизации файла.")
+        })?
     };
 
     Ok(DecodedAudio {
