@@ -375,6 +375,16 @@ pub fn paste_strategy_2_osascript() -> Result<(), String> {
 pub fn paste_text(app: AppHandle, text: String) -> Result<(), String> {
     copy_to_clipboard(&app, &text)?;
 
+    // CGEventPost can report success while macOS silently rejects the keys.
+    // Check after copying so denied access still leaves a usable transcript.
+    #[cfg(target_os = "macos")]
+    if !crate::accessibility::is_accessibility_granted() {
+        crate::accessibility::emit_accessibility_error(&app);
+        return Err(crate::ui_text::t(
+            "Текст скопирован. Нажмите ⌘V для вставки. Для автоматической вставки разрешите Sotto доступ в настройках универсального доступа macOS.",
+        ).into());
+    }
+
     #[cfg(windows)]
     {
         use crate::windows_util::{

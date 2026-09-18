@@ -175,6 +175,12 @@ export const en: Record<string, string | string[]> = {
   "Нужно разрешение macOS —": "macOS permission required —",
   "После выдачи прав перезапустите приложение.": "Restart the app after granting access.",
   "Открыть System Settings": "Open System Settings",
+  "Для автоматической вставки нужен доступ macOS": "Automatic pasting needs macOS permission",
+  "Разрешите Sotto доступ в «Системные настройки → Конфиденциальность и безопасность → Универсальный доступ». Пока доступ не выдан, вставляйте распознанный текст вручную через ⌘V.": "Allow Sotto in System Settings → Privacy & Security → Accessibility. Until access is granted, paste recognised text manually with ⌘V.",
+  "Если переключатель Sotto уже включён, удалите приложение из списка и добавьте установленную копию заново. После изменения прав может потребоваться перезапуск Sotto.": "If Sotto is already enabled, remove it from the list and add the installed copy again. You may need to restart Sotto after changing permissions.",
+  "Не удалось проверить доступ или открыть настройки. Попробуйте ещё раз.": "Could not check access or open settings. Please try again.",
+  "Проверить доступ": "Check access",
+  "Проверка…": "Checking…",
   "Модель распознавания не скачана.": "The speech model has not been downloaded.",
   "Не удалось распознать речь. Откройте «Настройки → Модели» и убедитесь, что модель скачана.":
     "Could not transcribe. Open Settings → Models and make sure a model is downloaded.",

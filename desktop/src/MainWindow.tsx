@@ -5,6 +5,7 @@ import { getStats } from "./bridge/stats";
 import type { ApiKeyStatus, AppVersionResult, ConfigResult, MicrophoneResult, ModelInfo, RuntimeStatusResult, StatsResult } from "./bridge/types";
 import { Card, Sidebar, TitleBar, type TabId, type DownloadProgress } from "./components/Shell";
 import { Icon } from "./components/Icon";
+import { AccessibilityNotice } from "./components/AccessibilityNotice";
 import { applyAccent, resolveAccent, storedAccent } from "./accent";
 
 const COLLAPSE_STORAGE_KEY = "sotto.ui.sidebarCollapsed";
@@ -201,6 +202,7 @@ export function MainWindow() {
     unlisteners.push(subscribe<{ kind?: string; permission?: string; hint?: string; message?: string }>("app-error", (payload) => {
       if (!mounted || !payload) return;
       if (payload.kind !== "permission" || !payload.permission) return;
+      if (payload.permission === "accessibility") return;
       setPermissions((current) => {
         if (current.some((p) => p.permission === payload.permission)) return current;
         return [...current, { permission: payload.permission!, hint: payload.hint ?? payload.permission!, message: payload.message }];
@@ -369,8 +371,9 @@ export function MainWindow() {
         <div className={`win__layout${collapsed ? " collapsed" : ""}`}>
           <Sidebar tab={tab} onTab={setTab} recordingState={recordingState} pipelineMode={config?.ai_processing?.pipeline_mode} loadedModel={actualModelLabel(runtime, "")} loadsOnDemand={runtime?.model_loads_on_demand} theme={theme} onToggleTheme={() => void toggleTheme()} downloadProgress={downloadProgress} collapsed={collapsed}/>
           <main className="win__main" data-testid="main-content">
+            <AccessibilityNotice/>
             {permissions.length > 0 && permissions.map((p) => (
-              <div key={p.permission} role="alert" style={{ margin: "14px 32px 0", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", padding: "12px 14px", borderRadius: 8, background: "var(--accent-soft)", border: "1px solid var(--accent-soft-2)", color: "var(--accent-text)", font: "500 12.5px/1.4 var(--font-sans)" }}>
+              <div key={p.permission} role="alert" className="permission-notice">
                 <Icon name="info" size={14}/>
                 <span style={{ flex: "1 1 240px", minWidth: 240 }}>
                   <strong>{t("Нужно разрешение macOS —")} {p.hint}.</strong>

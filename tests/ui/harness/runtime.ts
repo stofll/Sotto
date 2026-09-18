@@ -70,6 +70,7 @@ export function install(seed: any = {}) {
     }
     switch (command) {
       case 'app_version': return { version: '0.0.5-test' };
+      case 'check_accessibility': return true;
       case 'get_config': return structuredClone(state.config);
       case 'save_config':
         state.config = {
