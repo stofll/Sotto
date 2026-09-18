@@ -382,7 +382,7 @@ pub fn paste_text(app: AppHandle, text: String) -> Result<(), String> {
         crate::accessibility::emit_accessibility_error(&app);
         return Err(crate::ui_text::t(
             "Текст скопирован. Нажмите ⌘V для вставки. Для автоматической вставки разрешите Sotto доступ в настройках универсального доступа macOS.",
-        ).into());
+        ));
     }
 
     #[cfg(windows)]
@@ -514,6 +514,33 @@ fn wait_for_clipboard_write(expected: &str, timeout_ms: u64) -> bool {
         std::thread::sleep(Duration::from_millis(20));
     }
     false
+}
+
+/// Test the paste pipeline from the frontend.
+/// Copies test text to clipboard and attempts to paste it via the
+/// standard pipeline (enigo → osascript).
+#[tauri::command]
+pub(crate) async fn test_paste(app: AppHandle) -> Result<String, String> {
+    let test_text = "Тест вставки Sotto — ".to_owned()
+        + &std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis().to_string())
+            .unwrap_or_default();
+
+    let (reply, result) = tokio::sync::oneshot::channel();
+    let paste_app = app.clone();
+    let paste_text = test_text.clone();
+    app.run_on_main_thread(move || {
+        let _ = reply.send(crate::clipboard::paste_text(paste_app, paste_text));
+    })
+    .map_err(|error| error.to_string())?;
+    match result
+        .await
+        .map_err(|_| "paste test worker dropped reply".to_string())?
+    {
+        Ok(()) => Ok(format!("Paste OK. Text на буфере: {test_text}")),
+        Err(e) => Err(format!("Paste FAILED: {e}")),
+    }
 }
 
 #[cfg(test)]

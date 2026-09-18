@@ -1,3 +1,28 @@
+//! Crate root: application assembly, and the pieces more than one domain uses.
+//!
+//! A `#[tauri::command]` lives with its domain — `history::list_history`,
+//! `config::save_config`, `model::set_model` — and `generate_handler!` in
+//! [`run`] names them by path. What stays here is what has no single domain:
+//!
+//! - `run()` and `setup()`: window, tray, hotkey, engine and worker wiring.
+//! - The app-level commands (`app_version`, `focus_main_window`, `open_url`,
+//!   `get_runtime_status`, `get_output_contract`) — they answer for the
+//!   application, not for one of its parts.
+//! - The dictation pipeline, from `on_recording_started` to
+//!   `post_process_transcription`. It is the app's main flow rather than a
+//!   module's, and its post-processing half is shared: `audio_file` runs the
+//!   same formatting and LLM steps over an attached file, `history` re-runs
+//!   them over a stored entry. Helpers with one consumer moved out with it;
+//!   these did not, because moving a shared helper into one of its callers
+//!   only inverts the dependency.
+//! - Small shared utilities on the same footing: `run_db_op`, `panic_msg`,
+//!   `load_model_into_engine`, `speech_language`, `apply_autostart`.
+//!
+//! `generate_handler!` stays in this file for a second reason: the frontend
+//! test `bridge/command-surface.test.ts` reads it as raw text to check that
+//! every invoked command is registered, and the platform-restricted ones are
+//! guarded at the call site.
+
 mod accessibility;
 pub mod ai;
 mod audio;
@@ -77,7 +102,10 @@ use tauri::{AppHandle, Emitter, Manager};
 /// A poisoned connection mutex is not a failure mode: it is recovered
 /// through [`mutex_recover`], so a panic under the lock cannot leave the
 /// UI permanently unable to read stats or history.
-async fn run_db_op<T, F>(db: Arc<std::sync::Mutex<Connection>>, f: F) -> Result<T, String>
+pub(crate) async fn run_db_op<T, F>(
+    db: Arc<std::sync::Mutex<Connection>>,
+    f: F,
+) -> Result<T, String>
 where
     T: Send + 'static,
     F: FnOnce(&Connection) -> Result<T, rusqlite::Error> + Send + 'static,
@@ -136,578 +164,6 @@ mod db_op_tests {
     }
 }
 
-#[tauri::command]
-async fn get_stats(state: tauri::State<'_, AppState>) -> Result<stats::StatsResult, String> {
-    let db = state.db.clone();
-    run_db_op(db, stats::get_stats_from).await
-}
-
-#[tauri::command]
-async fn list_history(
-    app: AppHandle,
-    state: tauri::State<'_, AppState>,
-) -> Result<history::HistoryListResult, String> {
-    // Read the retention policy before handing off to the blocking worker —
-    // config access needs the AppHandle, which does not cross that boundary.
-    let policy = crate::config::Config::load(&app)
-        .map(|cfg| history::RetentionPolicy::from_config(cfg.as_value()))
-        .unwrap_or_default();
-    let db = state.db.clone();
-    run_db_op(db, move |conn| history::list_history_from(conn, policy)).await
-}
-
-#[tauri::command]
-async fn delete_history_entry(
-    state: tauri::State<'_, AppState>,
-    id: u64,
-) -> Result<history::DeleteResult, String> {
-    let db = state.db.clone();
-    run_db_op(db, move |conn| history::delete_from(conn, id)).await
-}
-
-#[tauri::command]
-async fn clear_history(state: tauri::State<'_, AppState>) -> Result<history::ClearResult, String> {
-    let db = state.db.clone();
-    run_db_op(db, history::clear_from).await
-}
-
-/// Return shape for `apply_history_ai_processing`.
-///
-/// `{ updated: bool, entry?: HistoryEntry, reason?: string }`. The frontend
-/// (`bridge/stats.ts`) pattern-matches on `updated + entry` to decide whether
-/// to merge the updated row into local state, and shows `reason` when
-/// `updated` is false. Whether the LLM produced anything is decided one step
-/// earlier, by `preview_history_ai_processing`: nothing reaches the apply step
-/// unless the user accepted a result.
-#[derive(Debug, Clone, serde::Serialize)]
-struct HistoryRetryAiResult {
-    updated: bool,
-    entry: Option<history::HistoryEntry>,
-    reason: Option<String>,
-}
-
-/// Pipeline mode for processing a history entry by hand.
-///
-/// The mode decides whether a dictation is processed automatically, not whether
-/// the user is allowed to process an entry by hand. Pressing «Обработать» in the
-/// history is a direct instruction, and answering it with "local mode, LLM off"
-/// means arguing with someone who has already said what they want. A provider
-/// and a key are still required: without them the refusal is meaningful and
-/// explainable.
-fn manual_llm_mode(configured: &str) -> &str {
-    if configured == "local" {
-        "hybrid"
-    } else {
-        configured
-    }
-}
-
-/// Run the LLM over an existing history entry without writing anything.
-///
-/// Phase 4 / PR-B — fully native Rust: reads the entry from the DB and calls
-/// `crate::ai::ai_process_text_with_status` (the same orchestrator the
-/// dispatcher uses for live transcriptions). Nothing is persisted here: the
-/// history panel shows the result next to the current text, and only
-/// `apply_history_ai_processing` writes it back.
-///
-/// `source_text` fallback: if `entry.formatted_text` is empty (migrated
-/// legacy entries may not have a `formatted_text` field), fall back to
-/// `entry.text` so we still have something to send to the LLM.
-async fn run_history_entry_ai(
-    state: &tauri::State<'_, AppState>,
-    app: &AppHandle,
-    id: u64,
-    profile_id: Option<String>,
-    system_prompt: Option<String>,
-) -> Result<
-    (
-        crate::ai::step::AiConfig,
-        crate::ai::step::CallOutcome,
-        String,
-        String,
-    ),
-    String,
-> {
-    // 1. Read the entry from the DB.
-    let db = state.db.clone();
-    let entry = run_db_op(db, move |conn| read_history_entry(conn, id))
-        .await?
-        .ok_or_else(|| format!("entry not found: {id}"))?;
-
-    // 2. Source-text fallback (preserve existing behaviour).
-    let source_text = if !entry.formatted_text.is_empty() {
-        entry.formatted_text.clone()
-    } else {
-        entry.text.clone()
-    };
-
-    // 3. Load ai_processing config from disk. `from_ai_processing` mirrors
-    //    the previous field-by-field extraction (no recording context, so
-    //    the duration gate is skipped).
-    let config = crate::config::Config::load(app)?;
-    let ai = ai_processing_config(&config)?;
-    let mut ai_cfg = crate::ai::step::AiConfig::from_ai_processing(ai);
-    ai_cfg.language = speech_language(Some(&config));
-    ai_cfg.pipeline_mode = manual_llm_mode(&ai_cfg.pipeline_mode).to_string();
-    apply_ai_profile(&mut ai_cfg, ai, profile_id.as_deref())?;
-    // Rust is handed finished prompt text here exactly as it is on the
-    // dictation path — it knows nothing about presets. The caller resolves the
-    // chosen profile's `prompt_preset` for us; nothing to resolve leaves the
-    // profile's own prompt standing.
-    if let Some(prompt) = system_prompt.filter(|value| !value.trim().is_empty()) {
-        ai_cfg.system_prompt = prompt;
-    }
-
-    // 4. Look up the API key from the secret store.
-    let api_key = if ai_cfg.api_key_ref.is_empty() {
-        None
-    } else {
-        crate::secret_store::get_key(&ai_cfg.api_key_ref)
-            .map_err(|e| format!("secret_store get_key({}): {e}", ai_cfg.api_key_ref))?
-    };
-
-    // 5. Call the Rust AI orchestrator (no Python subprocess).
-    let outcome =
-        crate::ai::ai_process_text_with_status(&source_text, &ai_cfg, api_key.as_deref()).await;
-
-    // 6. Build both JSON columns in the shapes the live dispatcher writes
-    //    (`ai_processing_json` = serialized AiStatus, `processing_stats_json`
-    //    = timings). They are carried to the apply step as they are rather
-    //    than rebuilt there: rebuilding means asking the model again, and the
-    //    second answer is not the one the user accepted.
-    let ai_json = ai_processing_json(Some(&outcome.status))
-        .ok_or_else(|| "serialize ai_processing".to_string())?;
-    let stats_json = stats_with_llm_timing(
-        entry.processing_stats.as_ref(),
-        outcome.status.elapsed_seconds,
-    );
-    Ok((ai_cfg, outcome, ai_json, stats_json))
-}
-
-/// Overlay one saved AI profile onto the flat active `ai_processing` fields.
-///
-/// The flat fields describe the profile used for dictation; the history panel
-/// lets a single entry be re-run through any other saved profile, and without
-/// this the request would still go to the dictation one. `None` keeps the flat
-/// fields and only fills in the profile identity that the entry badge shows —
-/// `from_ai_processing` leaves it empty because the live path sets it itself.
-fn apply_ai_profile(
-    cfg: &mut crate::ai::step::AiConfig,
-    ai: &Value,
-    profile_id: Option<&str>,
-) -> Result<(), String> {
-    let str_field = |value: &Value, key: &str| {
-        value
-            .get(key)
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string()
-    };
-    let Some(profile_id) = profile_id.filter(|id| !id.is_empty()) else {
-        cfg.profile_id = str_field(ai, "profile_id");
-        cfg.profile_name = str_field(ai, "profile_name");
-        return Ok(());
-    };
-    let profile = ai
-        .get("profiles")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .find(|profile| profile.get("id").and_then(Value::as_str) == Some(profile_id))
-        .ok_or_else(|| format!("unknown ai profile: {profile_id}"))?;
-
-    cfg.provider = str_field(profile, "provider");
-    cfg.model = str_field(profile, "model");
-    cfg.api_key_ref = str_field(profile, "api_key_ref");
-    cfg.profile_id = profile_id.to_string();
-    cfg.profile_name = str_field(profile, "name");
-    // Empty means "inherit" — but only from a config describing the same
-    // provider. A base URL is the address of one provider's API: carrying LM
-    // Studio's port over to an Anthropic profile does not leave the field
-    // unset, it points the request at the wrong server, and
-    // `AnthropicProvider::new` takes any `Some` in preference to its own
-    // endpoint.
-    let base_url = str_field(profile, "base_url");
-    if !base_url.is_empty() {
-        cfg.base_url = Some(base_url);
-    } else if cfg.provider != str_field(ai, "provider") {
-        cfg.base_url = None;
-    }
-    // The prompt is the one field a profile may legitimately leave empty while
-    // still meaning something specific: empty says «use my `prompt_preset`»,
-    // and the preset texts live in the frontend (`effectiveSystemPrompt`), so
-    // the resolved text arrives alongside `profile_id` — see
-    // `run_history_entry_ai`. What is inherited here is only the last resort.
-    let system_prompt = str_field(profile, "system_prompt");
-    if !system_prompt.is_empty() {
-        cfg.system_prompt = system_prompt;
-    }
-    if let Some(timeout) = profile
-        .get("llm_timeout_seconds")
-        .and_then(Value::as_u64)
-        .filter(|value| *value > 0)
-    {
-        cfg.llm_timeout_seconds = timeout;
-    }
-    Ok(())
-}
-
-/// A dry run of LLM processing over a history entry.
-///
-/// `ai_json` / `stats_json` are the two columns the write would need. They
-/// travel back through `apply_history_ai_processing` unchanged so that what
-/// ends up stored describes the run the user actually saw and accepted.
-#[derive(Debug, Clone, serde::Serialize)]
-struct HistoryAiPreview {
-    ok: bool,
-    text: String,
-    reason: Option<String>,
-    provider: String,
-    model: String,
-    profile_name: String,
-    elapsed_seconds: f64,
-    ai_json: String,
-    stats_json: String,
-}
-
-/// Re-run the LLM over a history entry and return the result without storing
-/// it. `profile_id` picks one of the saved AI profiles; `None` uses the one
-/// configured for dictation. `system_prompt` is that profile's prompt already
-/// resolved against its preset — the presets are the frontend's, and a profile
-/// that never edited its own carries an empty `system_prompt` field.
-#[tauri::command]
-async fn preview_history_ai_processing(
-    state: tauri::State<'_, AppState>,
-    app: AppHandle,
-    id: u64,
-    profile_id: Option<String>,
-    system_prompt: Option<String>,
-) -> Result<HistoryAiPreview, String> {
-    app.state::<telemetry::Telemetry>()
-        .begin_usage_session(telemetry::SessionTrigger::Llm);
-    let (ai_cfg, outcome, ai_json, stats_json) =
-        run_history_entry_ai(&state, &app, id, profile_id, system_prompt).await?;
-    Ok(HistoryAiPreview {
-        ok: outcome.status.used,
-        text: outcome.text,
-        reason: retry_failure_reason(&outcome.status),
-        provider: ai_cfg.provider,
-        model: ai_cfg.model,
-        profile_name: ai_cfg.profile_name,
-        elapsed_seconds: outcome.status.elapsed_seconds,
-        ai_json,
-        stats_json,
-    })
-}
-
-/// Store a previewed LLM result on its history entry.
-///
-/// The text goes in alongside the status of the run that produced it: a row
-/// showing the new text under the old «fallback» badge would describe an
-/// attempt that never happened.
-#[tauri::command]
-async fn apply_history_ai_processing(
-    state: tauri::State<'_, AppState>,
-    id: u64,
-    text: String,
-    ai_json: String,
-    stats_json: String,
-) -> Result<HistoryRetryAiResult, String> {
-    if text.trim().is_empty() {
-        return Err("refusing to store an empty LLM result".to_string());
-    }
-    let db = state.db.clone();
-    run_db_op(db, move |conn| {
-        update_entry_ai(conn, id, Some(text.as_str()), &ai_json, &stats_json)
-    })
-    .await?;
-
-    let db = state.db.clone();
-    let entry = run_db_op(db, move |conn| read_history_entry(conn, id)).await?;
-    Ok(HistoryRetryAiResult {
-        updated: entry.is_some(),
-        entry,
-        reason: None,
-    })
-}
-
-/// Replace the LLM leg of a row's `processing_stats` with a fresh
-/// measurement, leaving every other timing intact.
-///
-/// A retry re-runs only the LLM: `audio_seconds`, `whisper_seconds` and
-/// anything else on the row was measured when the recording happened and
-/// is still true, so overwriting the whole object would throw away
-/// numbers nothing can recompute. `total_seconds` is rebased off the old
-/// LLM figure rather than summed from the individual legs, because not
-/// all of them are enumerated here.
-fn stats_with_llm_timing(existing: Option<&Value>, llm_seconds: f64) -> String {
-    let mut stats = existing
-        .and_then(Value::as_object)
-        .cloned()
-        .unwrap_or_default();
-    let num = |key: &str| stats.get(key).and_then(Value::as_f64).unwrap_or(0.0);
-    let without_llm = (num("total_seconds") - num("llm_seconds")).max(0.0);
-    stats.insert("llm_seconds".into(), serde_json::json!(llm_seconds));
-    stats.insert(
-        "total_seconds".into(),
-        serde_json::json!(without_llm + llm_seconds),
-    );
-    Value::Object(stats).to_string()
-}
-
-/// Why a retry produced no new text, as the machine-readable code the
-/// frontend already knows how to label.
-///
-/// Deliberately NOT a human sentence: `HistoryPage` owns the whole
-/// vocabulary for these codes (`aiFallbackLabel` and the skip cases next
-/// to it), and duplicating it here would give the same failure two
-/// different wordings depending on which screen you looked at.
-///
-/// `skipped_reason` is always populated on failure — the provider error
-/// paths map `error_type` into it via `skipped_reason_for` — so the
-/// fallback only covers a status that failed without saying why.
-fn retry_failure_reason(status: &crate::ai::step::AiStatus) -> Option<String> {
-    if status.used {
-        return None;
-    }
-    Some(status.skipped_reason.clone())
-        .filter(|r| !r.trim().is_empty())
-        .or_else(|| Some("unknown".to_string()))
-}
-
-/// Read a single history row by id (used by the manual LLM processing path
-/// to fetch the source text and to re-fetch the row after the write).
-fn read_history_entry(
-    conn: &Connection,
-    id: u64,
-) -> Result<Option<history::HistoryEntry>, rusqlite::Error> {
-    let mut stmt = conn.prepare(
-        "SELECT id, timestamp, text, raw_text, formatted_text, language, inference_time_ms, \
-         ai_processing_json, processing_stats_json, system_prompt, transcription_model, length \
-         FROM history WHERE id = ?1",
-    )?;
-    let mut rows = stmt.query([id as i64])?;
-    if let Some(row) = rows.next()? {
-        Ok(Some(history::HistoryEntry {
-            id: row.get::<_, i64>(0)? as u64,
-            timestamp: row.get(1)?,
-            text: row.get(2)?,
-            raw_text: row.get(3)?,
-            formatted_text: row.get(4)?,
-            language: row.get(5)?,
-            inference_time_ms: row.get::<_, Option<i64>>(6)?.map(|v| v as u64),
-            ai_processing: row
-                .get::<_, Option<String>>(7)?
-                .and_then(|s| serde_json::from_str(&s).ok()),
-            processing_stats: row
-                .get::<_, Option<String>>(8)?
-                .and_then(|s| serde_json::from_str(&s).ok()),
-            system_prompt: row.get(9)?,
-            transcription_model: row.get(10)?,
-            length: row.get::<_, i64>(11)? as u32,
-        }))
-    } else {
-        Ok(None)
-    }
-}
-
-/// Write back the result of re-running the LLM over an existing history row.
-///
-/// `ai_json` and `ps_json` are always written: they describe the pass that
-/// just ran, and that is true whether it succeeded or not. This matches
-/// the live dispatcher, which records a failing `AiStatus` just as readily
-/// as a successful one — and it is what lets the history UI explain a
-/// failed retry, since it renders `provider_error` / `skipped_reason`
-/// straight off this column.
-///
-/// `text` is `Some` only when there is new text to store — the apply step
-/// passes the result the user accepted, and `None` leaves the transcript
-/// alone while still recording what the run did. `length` moves with the
-/// text: the column is what the list shows, and a stale count is a visible
-/// lie.
-fn update_entry_ai(
-    conn: &Connection,
-    id: u64,
-    text: Option<&str>,
-    ai_json: &str,
-    ps_json: &str,
-) -> Result<(), rusqlite::Error> {
-    match text {
-        Some(text) => conn.execute(
-            "UPDATE history SET text = ?1, length = ?2, ai_processing_json = ?3, \
-             processing_stats_json = ?4 WHERE id = ?5",
-            rusqlite::params![
-                text,
-                text.chars().count() as i64,
-                ai_json,
-                ps_json,
-                id as i64
-            ],
-        )?,
-        None => conn.execute(
-            "UPDATE history SET ai_processing_json = ?1, processing_stats_json = ?2 \
-             WHERE id = ?3",
-            rusqlite::params![ai_json, ps_json, id as i64],
-        )?,
-    };
-    Ok(())
-}
-
-/// Return the full on-disk config as a JSON value.
-///
-/// Phase 4 / PR-B: native replacement for the Python sidecar's
-/// `get_config` RPC. The frontend calls this via `rustInvoke` to
-/// load settings without a Python subprocess round-trip.
-#[tauri::command]
-fn get_config(app: AppHandle) -> Result<Value, String> {
-    let cfg = crate::config::Config::load(&app)?;
-    Ok(cfg.as_value().clone())
-}
-
-/// Save a JSON Merge Patch to the on-disk config.
-///
-/// Phase 4 / PR-B: native replacement for the Python sidecar's
-/// `save_config` RPC. The frontend sends a partial config object
-/// (`patch`) which is merged per RFC 7396: null removes keys,
-/// scalars/arrays replace atomically, objects recurse.
-/// Changing `device` (CPU / GPU) additionally triggers a model reload:
-/// `use_gpu` is a *context* parameter in whisper.cpp, so it only takes
-/// effect when the context is created. Without the reload the setting
-/// would appear to save and change nothing until the next restart.
-///
-/// The reload runs detached so the settings UI is not blocked for the
-/// second-plus a large model takes to load; the frontend already reacts to
-/// the `model-loading` / `model-ready` events the engine emits.
-#[tauri::command]
-fn save_config(
-    app: AppHandle,
-    state: tauri::State<'_, AppState>,
-    patch: Value,
-) -> Result<Value, String> {
-    let current_config = crate::config::Config::load(&app)?;
-    let device_before = crate::config::resolve_device(current_config.as_value());
-    let mut candidate_config = current_config.clone();
-    candidate_config.apply_merge_patch(&patch)?;
-    // The configured-model half of the GigaAM language rule lives in
-    // `config::validate`, which every writer goes through. This half cannot:
-    // it asks what the engine has loaded right now, which no `Value` knows.
-    if patch.get("language").is_some() || patch.get("model").is_some() {
-        let language = candidate_config
-            .get_string("language")
-            .unwrap_or_else(|| "ru".to_string());
-        let loaded_model = crate::mutex_recover::lock(&state.engine_current_model).clone();
-        if let Some(model) = loaded_model.as_deref() {
-            if !crate::model::model_supports_language(model, &language) {
-                let languages = crate::model::model_languages(model).unwrap_or_default();
-                return Err(crate::model::language_unsupported_message(languages));
-            }
-        }
-    }
-    let saved = crate::config::save_with_merge_patch(&app, patch.clone())?;
-    let device_after = crate::config::resolve_device(&saved);
-    apply_runtime_config(&app, &saved, &patch);
-
-    if device_before != device_after {
-        // Nothing to reload if no model is loaded — whatever loads next
-        // reads the new setting through `load_model_into_engine`.
-        let loaded = crate::mutex_recover::lock(&state.engine_current_model).clone();
-        if let Some(model) = loaded {
-            log::info!("device changed {device_before} → {device_after}, reloading {model}");
-            let reload_app = app.clone();
-            let reload_tx = state.engine_cmd_tx.clone();
-            tauri::async_runtime::spawn(async move {
-                if let Err(error) = load_model_into_engine(
-                    &reload_app,
-                    &reload_tx,
-                    &model,
-                    crate::whisper::ModelLoadReason::Requested,
-                )
-                .await
-                {
-                    log::warn!("reload after device change failed: {error}");
-                }
-            });
-        }
-    }
-
-    Ok(saved)
-}
-
-/// Everything that has to happen inside the running app once a setting has
-/// been written.
-///
-/// One place, rather than a `touches_X -> do_Y` chain growing in the middle of
-/// the save command: a new live setting adds a branch here next to its
-/// neighbours instead of another `if` three screens into an unrelated
-/// function. Nothing here can fail the save — the value is already on disk,
-/// so a subsystem that refuses to pick it up is logged, not propagated.
-fn apply_runtime_config(app: &AppHandle, saved: &Value, patch: &Value) {
-    if patch.get("overlay").is_some() {
-        crate::overlay::configure(saved);
-    }
-    // Waiting for a restart here would keep capturing events after the user
-    // opted out, which is the one thing the switch must not do.
-    if patch.get(crate::telemetry::enabled_config_key()).is_some() {
-        app.state::<crate::telemetry::Telemetry>()
-            .set_enabled(crate::telemetry::enabled_from_value(saved));
-    }
-    if patch
-        .get(crate::telemetry::session_timeout_config_key())
-        .is_some()
-    {
-        app.state::<crate::telemetry::Telemetry>()
-            .set_session_timeout_minutes(crate::telemetry::session_timeout_minutes_from_value(
-                saved,
-            ));
-    }
-    if patch.get("auto_start").is_some() {
-        apply_autostart(app);
-    }
-    if patch.get(crate::ui_text::CONFIG_KEY).is_some() {
-        crate::ui_text::set_from_config(saved);
-        // The tray menu is built once at startup, so it will not notice a
-        // language change on its own — we rebuild it.
-        if let Err(error) = crate::tray::build_tray(app) {
-            log::warn!("не пересобрали трей после смены языка: {error}");
-        }
-    }
-    // Unconditional: cheap, and the point of turning up logging is usually to
-    // catch the thing that is happening right now.
-    crate::structured_log::set_level(crate::debug::log_level_from_config(saved));
-    #[cfg(windows)]
-    crate::windows::overlay_diag::configure(saved);
-}
-
-/// Play one audio cue so the user can hear what they are enabling.
-///
-/// Takes the volume as an argument instead of reading it back from config:
-/// the settings UI previews the value under the slider *before* it is
-/// saved, and a preview that lags the control by one change is useless.
-#[tauri::command]
-fn preview_sound_cue(cue: String, volume: f64) -> Result<(), String> {
-    let cue = match cue.as_str() {
-        "start" => crate::sounds::Cue::Start,
-        "stop" => crate::sounds::Cue::Stop,
-        "done" => crate::sounds::Cue::Done,
-        "error" => crate::sounds::Cue::Error,
-        other => return Err(format!("unknown cue: {other}")),
-    };
-    crate::sounds::play_at_volume(cue, volume as f32);
-    Ok(())
-}
-
-/// Temporarily lower the Windows multimedia output so the setting can be
-/// verified without starting a recording. Unlike normal best-effort ducking,
-/// this command returns the Core Audio error to the settings UI.
-#[tauri::command]
-async fn preview_output_duck(level: f64) -> Result<(), String> {
-    tokio::task::spawn_blocking(move || {
-        crate::output_volume::preview(level as f32, std::time::Duration::from_millis(1200))
-    })
-    .await
-    .map_err(|error| format!("output volume preview task failed: {error}"))?
-}
-
 /// The rules appended to every system prompt, verbatim.
 ///
 /// The settings page shows this read-only under the prompt editor. Without it
@@ -725,80 +181,6 @@ fn get_output_contract() -> String {
 fn app_version(app: AppHandle) -> Result<serde_json::Value, String> {
     let version = app.package_info().version.to_string();
     Ok(serde_json::json!({ "version": version }))
-}
-
-/// Ask the update server. An `available: false` answer is not an error.
-#[tauri::command]
-async fn check_update(app: AppHandle) -> Result<updater::UpdateInfo, String> {
-    updater::check(&app).await
-}
-
-/// Download and install the update. Progress arrives as
-/// `update-download-progress` events; on success the application restarts and
-/// the command never returns control to the frontend.
-#[tauri::command]
-async fn install_update(app: AppHandle) -> Result<(), String> {
-    updater::install(&app).await
-}
-
-/// Enumerate available microphones with index+id+name+label.
-/// Boot-blocking — called from `MainWindow.load()` via `Promise.all`.
-///
-/// Maps each device position to `index`/`id` (same value), and
-/// copies the device `name` into both `name` and `label` fields.
-/// The frontend consumes this via:
-///   `microphones.map((mic) => ({
-///      label: mic.name || mic.label || String(mic.id ?? mic.index),
-///      value: mic.id ?? mic.index ?? null
-///   }))`
-/// Device enumeration is a WASAPI call, so it runs on the audio worker
-/// like every other one. It used to run inline on the main thread, which
-/// meant the settings page could freeze the UI on a sick audio stack.
-#[tauri::command]
-async fn list_microphones(
-    state: tauri::State<'_, AppState>,
-) -> Result<Vec<serde_json::Value>, String> {
-    let devices = state
-        .audio
-        .call(crate::audio::AudioRecorder::list_devices)
-        .await
-        .unwrap_or_default();
-    // The id is built from the whole list at once, not per device: whether a
-    // name identifies anything depends on the other names next to it.
-    let ids = crate::audio::device_ids(&devices);
-    Ok(devices
-        .into_iter()
-        .zip(ids)
-        .enumerate()
-        .map(|(i, (dev, id))| {
-            // `name` stays null when cpal could not read one. A placeholder
-            // belongs to the interface, which can say it in the user's own
-            // language; here it would only be an English string pretending to
-            // be a device name.
-            serde_json::json!({
-                "id": id,
-                "index": i,
-                "name": dev.name,
-                "label": dev.name,
-            })
-        })
-        .collect())
-}
-
-/// List available models with download/selection status.
-/// Boot-blocking — called from `MainWindow.load()` via `Promise.all`.
-///
-/// Delegates to `crate::model::list_models(selected)` which returns
-/// `Vec<ModelInfo>` with `id`, `label`, `size`, `ram`, `recommended`,
-/// `downloaded`, and `selected` fields.
-#[tauri::command]
-fn list_models(app: AppHandle, state: tauri::State<'_, AppState>) -> Vec<crate::model::ModelInfo> {
-    let selected = crate::config::Config::load(&app)
-        .ok()
-        .and_then(|c| c.get_string("model"))
-        .unwrap_or_else(|| "turbo".to_string());
-    let current = crate::mutex_recover::lock(&state.engine_current_model).clone();
-    crate::model::list_models(&selected, current.as_deref())
 }
 
 /// Return a snapshot of the current runtime status.
@@ -884,6 +266,10 @@ fn get_runtime_status(
         // `apply_autostart_inner`), and the interface has to know: a checkbox
         // that saves its value and changes nothing is worse than no checkbox.
         "portable": crate::portable::data_dir().is_some(),
+        // Build-target OS (`std::env::consts::OS`). The frontend has no
+        // build-time platform flag of its own; platform-conditional UI —
+        // hiding the Windows-only tray popup controls — reads it from here.
+        "os": std::env::consts::OS,
         "model": model,
         "loaded_model": loaded_model,
         "device": actual_device,
@@ -948,7 +334,8 @@ mod preview_queue_tests {
         let (tx, _rx) = tokio::sync::mpsc::channel::<u8>(64);
         let mut sent = 0;
         while preview_has_room(tx.capacity()) {
-            tx.try_send(0).expect("место есть, отправка обязана пройти");
+            tx.try_send(0)
+                .expect("there is room, so the send cannot fail");
             sent += 1;
         }
 
@@ -956,7 +343,7 @@ mod preview_queue_tests {
         assert_eq!(tx.capacity(), PREVIEW_QUEUE_RESERVE);
         assert!(
             tx.try_send(1).is_ok(),
-            "место под финальную расшифровку осталось"
+            "room for the final transcription is left"
         );
     }
 }
@@ -1004,193 +391,12 @@ mod runtime_status_tests {
     }
 }
 
-/// Download a model by id ("tiny", "base", "small", "medium", "large-v3", "turbo").
-///
-/// Streams the GGML file from Hugging Face, verifies SHA-256, and renames
-/// onto the final path. Emits `model-download-progress` events during
-/// download with payload `{ model, downloaded, total }`.
-///
-/// A cancelled download is `Ok(None)`, not an error: the user pressed «отменить»
-/// and got exactly what they asked for. What was not downloaded is erased along
-/// the way — we have no resume, and a leftover chunk would be nothing but
-/// occupied space.
-#[tauri::command]
-async fn download_model(
-    app: AppHandle,
-    state: tauri::State<'_, AppState>,
-    model: String,
-) -> Result<Option<crate::model_download::DownloadOutcomeInfo>, String> {
-    // Cancellation is registered before the first byte: otherwise «отменить»
-    // pressed within the first second would find nothing to cancel. The same
-    // registration rejects a second download of the same model: both would write
-    // one `*.part` and race each other checking its checksum.
-    let Some(download) = state.try_claim_download(&model) else {
-        return Err(crate::ui_text::t("Эта модель уже скачивается."));
-    };
-    let cancel = download.flag();
-    if crate::model::model_engine(&model)?.is_sherpa() {
-        let entry = crate::model::bundle_manifest_entry(&model)?;
-        let dir = crate::model::models_dir()?;
-        let final_dir = dir.join(entry.directory_name);
-        // `is_downloaded` intentionally performs only cheap size checks
-        // because it runs while refreshing the Settings list. A final bundle
-        // path must therefore always be verified here: a missing artifact or
-        // wrong-size file makes `is_downloaded` false but must not strand the
-        // downloader behind an existing destination.
-        let model_id = entry.public_id.to_string();
-        let already_ready =
-            tokio::task::spawn_blocking(move || crate::model::recover_bundle_if_needed(&model_id))
-                .await
-                .map_err(|error| format!("bundle verification task failed: {error}"))??;
-        if already_ready {
-            let bytes = entry
-                .artifacts
-                .iter()
-                .map(|artifact| artifact.expected_bytes)
-                .sum();
-            return Ok(Some(crate::model_download::DownloadOutcomeInfo {
-                model_id: entry.public_id.to_string(),
-                path: final_dir.to_string_lossy().into_owned(),
-                bytes,
-            }));
-        }
-        let spec = crate::model_download::BundleDownloadSpec {
-            model_id: entry.public_id.to_string(),
-            directory_name: entry.directory_name.to_string(),
-            artifacts: entry
-                .artifacts
-                .iter()
-                .map(|artifact| crate::model_download::DownloadSpec {
-                    model_id: entry.public_id.to_string(),
-                    file_name: artifact.file_name.to_string(),
-                    url: artifact.download_url.to_string(),
-                    expected_bytes: artifact.expected_bytes,
-                    sha256: artifact.sha256.to_string(),
-                })
-                .collect(),
-        };
-        let client = reqwest::Client::new();
-        let app_for_progress = app.clone();
-        let model_for_progress = entry.public_id.to_string();
-        let progress_cb = move |p: crate::model_download::DownloadProgress| {
-            let _ = app_for_progress.emit(
-                "model-download-progress",
-                serde_json::json!({
-                    "model": model_for_progress,
-                    "downloaded": p.downloaded,
-                    "total": p.total,
-                }),
-            );
-        };
-        let outcome = match crate::model_download::download_bundle_to_dir(
-            &client,
-            &spec,
-            &dir,
-            &cancel,
-            Some(&progress_cb),
-            None,
-        )
-        .await
-        {
-            Ok(outcome) => outcome,
-            Err(crate::model_download::ModelDownloadError::Cancelled) => {
-                crate::model_download::discard_bundle_partial(&dir, &spec);
-                return Ok(None);
-            }
-            Err(error) => return Err(format!("download: {error}")),
-        };
-        return Ok(Some(crate::model_download::DownloadOutcomeInfo {
-            model_id: entry.public_id.to_string(),
-            path: outcome.path.to_string_lossy().into_owned(),
-            bytes: outcome.bytes,
-        }));
-    }
-    let entry =
-        crate::model::manifest_entry(&model).map_err(|e| format!("unknown model {model}: {e}"))?;
-    let spec = crate::model_download::DownloadSpec {
-        model_id: entry.public_id.to_string(),
-        file_name: entry.file_name.to_string(),
-        url: entry.download_url.to_string(),
-        expected_bytes: entry.expected_bytes,
-        sha256: entry.sha256.to_string(),
-    };
-    let dir = crate::model::models_dir().map_err(|e| e.to_string())?;
-    let client = reqwest::Client::new();
-
-    // Wire progress events so the frontend can show a download bar.
-    let app_for_progress = app.clone();
-    let mid_for_progress = model.clone();
-    let progress_cb = move |p: crate::model_download::DownloadProgress| {
-        let _ = app_for_progress.emit(
-            "model-download-progress",
-            serde_json::json!({
-                "model": mid_for_progress,
-                "downloaded": p.downloaded,
-                "total": p.total,
-            }),
-        );
-    };
-
-    let outcome = match crate::model_download::download_spec_to_dir(
-        &client,
-        &spec,
-        &dir,
-        &cancel,
-        Some(&progress_cb),
-        None,
-    )
-    .await
-    {
-        Ok(outcome) => outcome,
-        Err(crate::model_download::ModelDownloadError::Cancelled) => {
-            crate::model_download::discard_partial(&dir, &spec);
-            return Ok(None);
-        }
-        Err(error) => return Err(format!("download: {error}")),
-    };
-
-    Ok(Some(crate::model_download::DownloadOutcomeInfo::for_model(
-        &model, &outcome,
-    )))
-}
-
-/// Stop a download of a model that is in progress.
-///
-/// `false` — nobody is downloading this model right now: the button was pressed
-/// after the download had already finished. That is not an error but a race, and
-/// it is cured by staying silent.
-#[tauri::command]
-fn cancel_model_download(state: tauri::State<'_, AppState>, model: String) -> bool {
-    state.cancel_download(&model)
-}
-
-/// Load a downloaded model into the whisper engine.
-///
-/// Sends `EngineCommand::SetModel` to the engine thread. The engine
-/// emits `model-loading` then `model-ready` or `model-load-failed`.
-/// Returns `Err` if the model is not downloaded or the engine channel
-/// is closed.
-#[tauri::command]
-async fn set_model(
-    app: AppHandle,
-    state: tauri::State<'_, AppState>,
-    model: String,
-) -> Result<(), String> {
-    load_model_into_engine(
-        &app,
-        &state.engine_cmd_tx,
-        &model,
-        crate::whisper::ModelLoadReason::Requested,
-    )
-    .await
-}
-
 /// Send `SetModel` to the engine thread and await its reply.
 ///
 /// Explicit loads read the current compute device from config. Idle restores
 /// do the same in `restore_unloaded_model`, but queue without waiting so capture
 /// can continue while the engine validates and loads the model.
-async fn load_model_into_engine(
+pub(crate) async fn load_model_into_engine(
     app: &AppHandle,
     engine_cmd_tx: &tokio::sync::mpsc::Sender<crate::whisper::EngineCommand>,
     model: &str,
@@ -1229,7 +435,7 @@ async fn load_model_into_engine(
 /// Verification and loading run on the engine thread, in queue order; capture
 /// only does cheap metadata checks. Returns the model that will handle audio,
 /// including one still being restored, so preview can attach immediately.
-fn restore_unloaded_model(app: &AppHandle, state: &AppState) -> Option<String> {
+pub(crate) fn restore_unloaded_model(app: &AppHandle, state: &AppState) -> Option<String> {
     let config = crate::config::Config::load(app).ok()?;
     let loaded = crate::mutex_recover::lock(&state.engine_current_model).clone();
     let model = recording_model(loaded.as_deref(), config.as_value())?;
@@ -1397,123 +603,6 @@ fn idle_unload_after(app: &AppHandle) -> Option<std::time::Duration> {
 
 /// Delete a cached model file from disk.
 ///
-/// The model the engine is currently holding may be deleted too. Refusing it
-/// left downloading something else as the only way out of a full disk, which
-/// is backwards — the files are the user's. The engine unloads the model
-/// first and the reply is awaited, so its memory is freed and, on Windows,
-/// the file handles are released before the removal is attempted. After this
-/// the app has no model until one is downloaded again; the confirmation
-/// dialog says so before calling this.
-///
-/// Returns `true` if the file existed and was deleted, `false` if it
-/// was already absent.
-#[tauri::command]
-async fn delete_model(
-    app: AppHandle,
-    state: tauri::State<'_, AppState>,
-    model: String,
-) -> Result<bool, String> {
-    // A user's own file is unknown to the catalog and normalisation fails on it.
-    // Its identifier is the file name, and `delete_cached_model` checks it by the
-    // same rule as a download does: there is no way out of the models directory
-    // from here.
-    let normalized = crate::model::normalize_model_id(&model)
-        .map(str::to_string)
-        .unwrap_or_else(|_| model.clone());
-    let loaded = crate::mutex_recover::lock(&state.engine_current_model).clone();
-    if loaded.as_deref() == Some(normalized.as_str()) {
-        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel::<()>();
-        state
-            .engine_cmd_tx
-            .send(crate::whisper::EngineCommand::UnloadModel { reply: reply_tx })
-            .await
-            .map_err(|e| format!("engine channel closed: {e}"))?;
-        // Commands are served in order on one thread, so this reply also
-        // means any transcription that was already queued has finished.
-        reply_rx
-            .await
-            .map_err(|e| format!("engine reply dropped: {e}"))?;
-        let _ = app.emit("model-unloaded", normalized.clone());
-    }
-    crate::model::delete_cached_model(&model).map_err(|e| e.to_string())
-}
-
-/// Return both configured and actually loaded model state. The two values can
-/// differ briefly during startup or after a failed switch; `engine` always
-/// describes the engine thread rather than merely echoing config.
-#[tauri::command]
-fn get_model_status(
-    app: AppHandle,
-    state: tauri::State<'_, AppState>,
-) -> Result<serde_json::Value, String> {
-    let selected = crate::config::Config::load(&app)
-        .ok()
-        .and_then(|c| c.get_string("model"));
-    let loaded = crate::mutex_recover::lock(&state.engine_current_model).clone();
-    let engine = loaded
-        .as_deref()
-        .and_then(|id| crate::model::model_engine(id).ok())
-        .map(|engine| engine.wire_name());
-    Ok(serde_json::json!({
-        "selected": selected,
-        "loaded": loaded,
-        "model_loaded": engine.is_some(),
-        "engine": engine,
-    }))
-}
-
-/// Save an API key into the platform secret store.
-///
-/// The frontend (API-keys / providers pages) invokes this with the
-/// slot ref (`key_id`) as the storage username, matching how the AI
-/// pipeline later resolves keys via `secret_store::get_key(api_key_ref)`.
-/// `provider` is passed for context but not needed for storage.
-///
-/// `rename_all = "snake_case"` because the frontend sends snake_case
-/// argument names (`key_id`) — Tauri's default is camelCase.
-///
-/// Returns `{ saved, label, masked }`. Labels are not portably stored in
-/// the OS credential store, so the caller-supplied `label` is echoed back
-/// for the in-memory UI state (it does not survive a restart).
-#[tauri::command(rename_all = "snake_case")]
-fn save_api_key(
-    key_id: String,
-    key: String,
-    label: Option<String>,
-) -> Result<serde_json::Value, String> {
-    crate::secret_store::save_key(&key_id, &key)?;
-    let masked = crate::secret_store::get_key_meta(&key_id)?
-        .map(|meta| meta.masked)
-        .unwrap_or_default();
-    Ok(serde_json::json!({
-        "saved": true,
-        "label": label.unwrap_or_default(),
-        "masked": masked,
-    }))
-}
-
-/// Report whether a key exists for the given slot ref, with its mask.
-/// Called at boot for every known slot and after edits.
-#[tauri::command(rename_all = "snake_case")]
-fn has_api_key(key_id: String) -> Result<serde_json::Value, String> {
-    match crate::secret_store::get_key_meta(&key_id)? {
-        Some(meta) => Ok(serde_json::json!({
-            "available": meta.available,
-            "label": meta.label,
-            "masked": meta.masked,
-        })),
-        None => Ok(serde_json::json!({ "available": false, "label": "", "masked": "" })),
-    }
-}
-
-/// Delete a stored API key. Returns `{ deleted }` (false if there was
-/// no key in that slot — not an error).
-#[tauri::command(rename_all = "snake_case")]
-fn delete_api_key(key_id: String) -> Result<serde_json::Value, String> {
-    let deleted = crate::secret_store::delete_key(&key_id)?;
-    Ok(serde_json::json!({ "deleted": deleted }))
-}
-
 /// The speech language substituted for `{{language}}` in the system prompt.
 ///
 /// It sits at the top level of the config, next to the model and the device,
@@ -1521,582 +610,10 @@ fn delete_api_key(key_id: String) -> Result<serde_json::Value, String> {
 /// field of the same name from its own subtree — nobody ever wrote it there, so
 /// the placeholder expanded to nothing and the model received "Output
 /// language: .".
-fn speech_language(config: Option<&crate::config::Config>) -> String {
+pub(crate) fn speech_language(config: Option<&crate::config::Config>) -> String {
     config
         .and_then(|cfg| cfg.get_string("language"))
         .unwrap_or_default()
-}
-
-/// Shared core for the two explicit-LLM commands (`test_ai_prompt`,
-/// `process_text_ai`). Both run the SAME orchestrator the live
-/// dispatcher and history-retry use, but force `pipeline_mode = "hybrid"`
-/// and `llm_min_duration_seconds = 0` so the LLM step always runs — the
-/// user pressed a button explicitly, there is no recording-duration gate.
-///
-/// Returns the `AiRunResult` shape the frontend expects:
-/// `{ available, output, message?, fallback, provider_error?, skipped_reason?, ai_processing }`.
-// The provider/model/key/url/prompt/profile fields mirror the Tauri command
-// IPC signatures below; collapsing them into a struct would change the
-// frontend invoke contract, so keep the flat arg list.
-#[allow(clippy::too_many_arguments)]
-async fn run_ai_prompt(
-    provider: Option<String>,
-    model: Option<String>,
-    api_key_ref: Option<String>,
-    base_url: Option<String>,
-    system_prompt: Option<String>,
-    profile_id: Option<String>,
-    profile_name: Option<String>,
-    language: String,
-    text: &str,
-) -> Result<serde_json::Value, String> {
-    let provider = provider.unwrap_or_default();
-    if provider.trim().is_empty() {
-        return Ok(
-            serde_json::json!({ "available": false, "message": crate::ui_text::t("Не выбран провайдер.") }),
-        );
-    }
-    let api_key_ref = api_key_ref.unwrap_or_default();
-    let cfg = crate::ai::step::AiConfig {
-        pipeline_mode: "hybrid".to_string(),
-        provider,
-        model: model.unwrap_or_default(),
-        profile_id: profile_id.unwrap_or_default(),
-        profile_name: profile_name.unwrap_or_default(),
-        api_key_ref: api_key_ref.clone(),
-        system_prompt: system_prompt.unwrap_or_default(),
-        language,
-        base_url: base_url.filter(|value| !value.trim().is_empty()),
-        audio_duration_seconds: None,
-        llm_min_duration_seconds: 0.0,
-        llm_timeout_seconds: 30,
-    };
-    let api_key = if api_key_ref.is_empty() {
-        None
-    } else {
-        crate::secret_store::get_key(&api_key_ref)
-            .map_err(|e| format!("secret_store get_key({api_key_ref}): {e}"))?
-    };
-    let outcome = crate::ai::ai_process_text_with_status(text, &cfg, api_key.as_deref()).await;
-    let status = &outcome.status;
-    let message = if status.used {
-        serde_json::Value::Null
-    } else if let Some(err) = &status.provider_error {
-        serde_json::json!(err)
-    } else if !status.skipped_reason.is_empty() {
-        serde_json::json!(status.skipped_reason)
-    } else {
-        serde_json::json!(crate::ui_text::t("LLM не вернула результат."))
-    };
-    Ok(serde_json::json!({
-        "available": status.used,
-        "output": outcome.text,
-        "fallback": status.fallback,
-        "provider_error": status.provider_error,
-        "skipped_reason": if status.skipped_reason.is_empty() {
-            serde_json::Value::Null
-        } else {
-            serde_json::json!(status.skipped_reason)
-        },
-        "message": message,
-        // The provider's response body. It is assembled in `send_request` and
-        // reaches `AiStatus`, but this response used to be built by hand and the
-        // field never made it in — that is, the only source of truth about "the
-        // response has the wrong shape" was lost at the final step, already
-        // outside the HTTP layer.
-        "http_status": status.http_status,
-        "response_snippet": status.response_snippet,
-        "ai_processing": {
-            "attempted": status.attempted,
-            "used": status.used,
-            "skipped_reason": status.skipped_reason,
-        },
-    }))
-}
-
-/// Run one LLM request through the active profile — used by the "Тест"
-/// buttons in the LLM and Providers pages. Falls back to a fixed sample
-/// sentence when the caller supplies no text.
-#[tauri::command(rename_all = "snake_case")]
-#[allow(clippy::too_many_arguments)] // IPC command signature; see run_ai_prompt
-async fn test_ai_prompt(
-    app: AppHandle,
-    provider: Option<String>,
-    model: Option<String>,
-    api_key_ref: Option<String>,
-    base_url: Option<String>,
-    system_prompt: Option<String>,
-    profile_id: Option<String>,
-    profile_name: Option<String>,
-    text: Option<String>,
-) -> Result<serde_json::Value, String> {
-    app.state::<telemetry::Telemetry>()
-        .begin_usage_session(telemetry::SessionTrigger::Llm);
-    let sample = text
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| {
-            "ну в общем нужно сегодня встретиться с командой и обсудить следующие шаги".to_string()
-        });
-    run_ai_prompt(
-        provider,
-        model,
-        api_key_ref,
-        base_url,
-        system_prompt,
-        profile_id,
-        profile_name,
-        speech_language(crate::config::Config::load(&app).ok().as_ref()),
-        &sample,
-    )
-    .await
-}
-
-/// Process arbitrary user-supplied text through the active profile's LLM
-/// — the "Обработать текст" panel in the LLM page.
-#[tauri::command(rename_all = "snake_case")]
-#[allow(clippy::too_many_arguments)] // IPC command signature; see run_ai_prompt
-async fn process_text_ai(
-    app: AppHandle,
-    text: String,
-    provider: Option<String>,
-    model: Option<String>,
-    api_key_ref: Option<String>,
-    base_url: Option<String>,
-    system_prompt: Option<String>,
-    profile_id: Option<String>,
-    profile_name: Option<String>,
-) -> Result<serde_json::Value, String> {
-    app.state::<telemetry::Telemetry>()
-        .begin_usage_session(telemetry::SessionTrigger::Llm);
-    if text.trim().is_empty() {
-        return Ok(
-            serde_json::json!({ "available": false, "message": crate::ui_text::t("Вставьте текст для обработки.") }),
-        );
-    }
-    run_ai_prompt(
-        provider,
-        model,
-        api_key_ref,
-        base_url,
-        system_prompt,
-        profile_id,
-        profile_name,
-        speech_language(crate::config::Config::load(&app).ok().as_ref()),
-        &text,
-    )
-    .await
-}
-
-/// Open the system file picker and return the chosen audio file's path.
-///
-/// The dialog lives in Rust rather than in the webview so the extension
-/// filter and the picker permission stay on this side: the frontend can
-/// ask for a file, but it cannot ask for an arbitrary one.
-///
-/// `Ok(None)` means the user closed the dialog — a normal outcome, not an
-/// error, and the panel must not show anything for it.
-#[tauri::command]
-async fn pick_audio_file(app: AppHandle) -> Result<Option<String>, String> {
-    use tauri_plugin_dialog::DialogExt;
-
-    // `blocking_pick_file` on a blocking worker: the docs are explicit that
-    // it must not run on the main thread, and a Tauri command's async task
-    // is not a safe place to park a modal either.
-    let picked = tokio::task::spawn_blocking(move || {
-        app.dialog()
-            .file()
-            .add_filter(
-                crate::ui_text::t("Аудио"),
-                &["wav", "mp3", "m4a", "mp4", "ogg", "oga", "opus", "flac"],
-            )
-            .blocking_pick_file()
-    })
-    .await
-    .map_err(|e| {
-        log::error!("pick_audio_file: dialog task failed: {e}");
-        crate::ui_text::t("Не удалось открыть диалог выбора файла.")
-    })?;
-
-    Ok(picked.map(|file| file.to_string()))
-}
-
-/// What the "Прикрепить аудио" panel gets back from a file transcription.
-///
-/// Deliberately not `InferenceResult`: the panel shows the *processed*
-/// text, and it needs the intermediate stages to render the "Whisper без
-/// обработки" disclosure the same way history does.
-#[derive(Debug, serde::Serialize)]
-pub struct TranscribeFileResult {
-    /// The text to show and copy — formatted, and LLM-cleaned when the
-    /// configuration calls for it.
-    text: String,
-    /// Straight from the engine, before any formatting.
-    raw_text: String,
-    /// After local formatting, before the LLM.
-    formatted_text: String,
-    /// `None` when the LLM never ran (disabled, or the mode is local-only).
-    /// That is a normal outcome for a file, not a failure — the panel shows
-    /// "Распознано" for it, not an error.
-    ai_status: Option<crate::ai::step::AiStatus>,
-    audio_seconds: f64,
-    inference_time_ms: u64,
-    language: Option<String>,
-}
-
-/// Why a file transcription stopped, in the shape the terminal handler needs.
-///
-/// The point of the type is that the body below can go back to using `?`.
-/// Before it existed, every early return had to remember its own telemetry
-/// call — eleven of them — and a forgotten one loses the operation from the
-/// failure rate silently, without so much as a warning.
-struct FileFailure {
-    stage: telemetry::FailureStage,
-    reason: telemetry::FailureReason,
-    message: String,
-}
-
-impl FileFailure {
-    fn new(
-        stage: telemetry::FailureStage,
-        reason: telemetry::FailureReason,
-        message: String,
-    ) -> Self {
-        Self {
-            stage,
-            reason,
-            message,
-        }
-    }
-}
-
-/// Errors that arrive as a bare message from somewhere further down land in
-/// the generic bucket rather than claiming a stage they cannot know.
-impl From<String> for FileFailure {
-    fn from(message: String) -> Self {
-        Self::new(
-            telemetry::FailureStage::Stt,
-            telemetry::FailureReason::EngineError,
-            message,
-        )
-    }
-}
-
-/// What a completed run carries out of the inner function: the engine's
-/// result and the post-processed text, both of which the terminal event and
-/// the panel's payload are built from.
-struct FileRun {
-    inference: crate::whisper::InferenceResult,
-    processed: ProcessedTranscription,
-}
-
-/// Transcribe an audio file the user attached, without touching the
-/// focused window, the history, or the statistics.
-///
-/// This runs the same engine and the same post-processing as dictation;
-/// the only difference is where the samples come from and where the text
-/// goes. Everything unusual about it is defensive, and each guard below
-/// exists because the engine is a single shared resource that the
-/// dictation path assumes it owns.
-///
-/// The body lives in [`transcribe_file_inner`]; this wrapper is the single
-/// place a terminal telemetry event is emitted, on either outcome.
-#[tauri::command]
-async fn transcribe_audio_file(
-    app: AppHandle,
-    state: tauri::State<'_, AppState>,
-    path: String,
-) -> Result<TranscribeFileResult, String> {
-    let telemetry = app.state::<telemetry::Telemetry>().clone();
-    telemetry.begin_usage_session(telemetry::SessionTrigger::File);
-
-    // Read once, up front, because every terminal event needs it. The guards
-    // that fire before the engine is even claimed used to report `local`
-    // whatever the user had configured, which quietly mislabelled every
-    // engine-busy failure in cloud mode.
-    let config = crate::config::Config::load(&app).ok();
-    let pipeline_mode = telemetry_pipeline_mode(config.as_ref());
-
-    match transcribe_file_inner(&app, &state, &path, config.as_ref(), &pipeline_mode).await {
-        Ok(run) => {
-            record_file_run(&telemetry, &pipeline_mode, config.as_ref(), &run);
-            let FileRun {
-                inference,
-                processed,
-            } = run;
-            Ok(TranscribeFileResult {
-                text: processed.final_text,
-                raw_text: processed.raw_text,
-                formatted_text: processed.formatted_text,
-                ai_status: processed.ai_status,
-                audio_seconds: inference.audio_seconds,
-                inference_time_ms: inference.inference_time_ms,
-                language: inference.language,
-            })
-        }
-        Err(failure) => {
-            // A deliberate cancellation is not a reliability failure, and
-            // counting it as one would make the failure rate meaningless.
-            if matches!(failure.reason, telemetry::FailureReason::UserCancelled) {
-                telemetry.record_cancelled(telemetry::Source::File, &pipeline_mode);
-            } else {
-                telemetry.record_failed(
-                    telemetry::Source::File,
-                    &pipeline_mode,
-                    failure.stage,
-                    failure.reason,
-                );
-            }
-            Err(failure.message)
-        }
-    }
-}
-
-/// Emit the completed event for a run that produced text.
-///
-/// An empty `final_text` is not an error the caller sees — the panel still
-/// gets its (empty) result — but it means the post-processor threw away the
-/// whole transcript, which is a failure worth counting.
-fn record_file_run(
-    telemetry: &telemetry::Telemetry,
-    pipeline_mode: &str,
-    config: Option<&crate::config::Config>,
-    run: &FileRun,
-) {
-    if run.processed.final_text.trim().is_empty() {
-        telemetry.record_failed(
-            telemetry::Source::File,
-            pipeline_mode,
-            telemetry::FailureStage::PostProcess,
-            telemetry::FailureReason::EmptyAfterProcessing,
-        );
-        return;
-    }
-    let (formatting_enabled, replacement_rules) =
-        config.map(telemetry_formatting).unwrap_or((false, 0));
-    telemetry.record_completed(telemetry::Outcome {
-        source: telemetry::Source::File,
-        pipeline_mode,
-        recording_mode: telemetry::RecordingMode::NotApplicable,
-        stt_model: run.inference.model_id.as_deref(),
-        audio_seconds: run.inference.audio_seconds,
-        stt_millis: run.inference.inference_time_ms,
-        chars: run.processed.final_text.chars().count(),
-        ai_status: run.processed.ai_status.as_ref(),
-        compute: config.map(|config| telemetry_compute(config, run.inference.model_id.as_deref())),
-        formatting_enabled,
-        replacement_rules,
-        paste_result: telemetry::PasteResult::NotApplicable,
-    });
-}
-
-async fn transcribe_file_inner(
-    app: &AppHandle,
-    state: &AppState,
-    path: &str,
-    config: Option<&crate::config::Config>,
-    pipeline_mode: &str,
-) -> Result<FileRun, FileFailure> {
-    // 1. Claim the engine. The guard releases on every exit path below,
-    //    including the `?`s — a hand-written release would not.
-    let engine_claim = state.claim_engine().ok_or_else(|| {
-        FileFailure::new(
-            telemetry::FailureStage::Start,
-            telemetry::FailureReason::EngineBusy,
-            crate::ui_text::t("Идёт транскрипция файла — дождитесь её окончания."),
-        )
-    })?;
-
-    // 2. A dictation in flight owns the engine too, just through a
-    //    different mechanism (it was queued before we claimed).
-    if !matches!(*crate::mutex_recover::lock(&state.app_fsm), AppFsm::Idle) {
-        return Err(FileFailure::new(
-            telemetry::FailureStage::Start,
-            telemetry::FailureReason::EngineBusy,
-            crate::ui_text::t("Завершите текущую запись."),
-        ));
-    }
-
-    // 3. The sherpa recognizers have no VAD of their own. They are fine on a
-    //    dictation-length utterance and degrade badly across an hour-long
-    //    recording, so refuse rather than hand back mush the user would blame
-    //    on the file. Only checked for the local path — cloud STT does not
-    //    touch the loaded model at all.
-    if pipeline_mode != "cloud" {
-        // Cloned out of the guard rather than read through it: `model_engine`
-        // is unrelated code, and holding an engine lock across it is how the
-        // next deadlock gets written.
-        let loaded = crate::mutex_recover::lock(&state.engine_current_model).clone();
-        let is_sherpa = loaded.as_deref().is_some_and(|model| {
-            crate::model::model_engine(model).is_ok_and(|engine| engine.is_sherpa())
-        });
-        if is_sherpa {
-            return Err(FileFailure::new(
-                telemetry::FailureStage::Stt,
-                telemetry::FailureReason::EngineError,
-                crate::ui_text::t(
-                    "Эта модель не умеет расшифровывать файлы — выберите модель Whisper в «Настройки → Модели».",
-                ),
-            ));
-        }
-    }
-
-    // 4. Decode off the async runtime: symphonia and the resampler are
-    //    CPU-bound, and an hour of MP3 would stall every other task.
-    let decode_path = std::path::PathBuf::from(path);
-    let decode_failed = |message: String| {
-        FileFailure::new(
-            telemetry::FailureStage::Decode,
-            telemetry::FailureReason::Decode,
-            message,
-        )
-    };
-    let decoded =
-        tokio::task::spawn_blocking(move || crate::audio_file::decode_to_pcm16k_mono(&decode_path))
-            .await
-            .map_err(|e| {
-                log::error!("transcribe_audio_file: decode task panicked: {e}");
-                decode_failed(crate::ui_text::t(
-                    "Не удалось прочитать звук из файла — возможно, он повреждён.",
-                ))
-            })?
-            .map_err(decode_failed)?;
-
-    log::info!(
-        "file transcription: {:.1}s of audio decoded from {path}",
-        decoded.audio_seconds
-    );
-
-    let session_id = state.next_session_id();
-    let audio = Arc::new(decoded.samples);
-    let cancel_flag = Arc::new(AtomicBool::new(false));
-
-    // 5. Claimed before the command is queued; the guard releases on every
-    //    exit path below.
-    let session_guard = state.claim_file_session(session_id, Arc::clone(&cancel_flag));
-    // The frontend needs the id to be able to cancel; the result carries it
-    // too late to be useful.
-    let _ = app.emit(
-        "file-transcription-started",
-        serde_json::json!({ "session_id": session_id }),
-    );
-
-    // The same queue orders restoration before file transcription as well.
-    restore_unloaded_model(app, state);
-
-    let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
-    // Same branch as `stop_recording`: a cloud-configured user has no local
-    // model loaded, and sending `Transcribe` would fail with «модель не
-    // загружена» for a reason that has nothing to do with their setup.
-    let command = if pipeline_mode == "cloud" {
-        // Built before the move: the request borrows the samples that the
-        // command is about to take ownership of.
-        let request = build_cloud_stt_request(app, &audio).map_err(|error| {
-            FileFailure::new(
-                telemetry::FailureStage::Queue,
-                telemetry::FailureReason::CloudConfiguration,
-                error,
-            )
-        })?;
-        crate::whisper::EngineCommand::TranscribeCloud {
-            session_id,
-            audio,
-            cancel_flag,
-            request,
-            reply: reply_tx,
-        }
-    } else {
-        crate::whisper::EngineCommand::Transcribe {
-            source: crate::model_performance::RunSource::File,
-            session_id,
-            audio,
-            cancel_flag,
-            language: config.and_then(|cfg| cfg.get_string("language")),
-            initial_prompt: config.and_then(custom_words_prompt),
-            reply: reply_tx,
-        }
-    };
-
-    // `send`, not `try_send`: the queue is ours by the claim above, and a
-    // full-channel error here would be a lie about what went wrong.
-    state.engine_cmd_tx.send(command).await.map_err(|e| {
-        log::error!("file transcription {session_id}: engine channel closed: {e}");
-        FileFailure::new(
-            telemetry::FailureStage::Queue,
-            telemetry::FailureReason::EngineQueue,
-            format!("engine: {e}"),
-        )
-    })?;
-
-    let inference = reply_rx.await.map_err(|e| {
-        log::error!("file transcription {session_id}: engine dropped the reply: {e}");
-        FileFailure::new(
-            telemetry::FailureStage::Stt,
-            telemetry::FailureReason::EngineError,
-            crate::ui_text::t("Движок не ответил. Попробуйте ещё раз."),
-        )
-    })?;
-    // Nothing else will clear the registrations — the dispatcher skipped this
-    // session — and the LLM pass below can take the better part of a minute.
-    // Observe cancellation before dropping the guard (which removes the
-    // skip-set entry); otherwise a cancel that wins during STT is lost.
-    let was_cancelled = state.is_cancelled(session_id);
-    if was_cancelled {
-        state.drop_cancellation(session_id);
-    }
-    drop(session_guard);
-
-    if was_cancelled {
-        return Err(FileFailure::new(
-            telemetry::FailureStage::Stt,
-            telemetry::FailureReason::UserCancelled,
-            crate::ui_text::t("Транскрипция отменена."),
-        ));
-    }
-    if inference.text.trim().is_empty() {
-        return Err(FileFailure::new(
-            telemetry::FailureStage::Stt,
-            telemetry::FailureReason::EmptyTranscript,
-            crate::ui_text::t("В файле не распознана речь."),
-        ));
-    }
-
-    // The engine is genuinely free from here on — what remains is local
-    // formatting and, in hybrid mode, an LLM round-trip that can take the
-    // better part of a minute. Holding the claim across it would refuse the
-    // user's dictation for no reason at all.
-    drop(engine_claim);
-    let processed = post_process_transcription(app, &inference).await;
-
-    Ok(FileRun {
-        inference,
-        processed,
-    })
-}
-
-/// Cancel an in-flight file transcription.
-///
-/// Reuses the dictation cancel machinery: `cancel_session` flips the
-/// registered flag, which the engine checks before `state.full()` and
-/// between segments.
-///
-/// Ignores an id that is not the in-flight file session. A stale cancel —
-/// a click that lands just after the transcription returned, a frontend
-/// that kept the id too long — would otherwise mark that id cancelled
-/// forever, and since ids restart from zero after every dictation, the next
-/// dictation to be handed that id would be silently dropped: no paste, no
-/// history, no error. The skip-set is the authority on "is this still the
-/// file session", because the command clears it the moment it is done.
-#[tauri::command(rename_all = "snake_case")]
-async fn cancel_audio_file(
-    state: tauri::State<'_, AppState>,
-    session_id: u64,
-) -> Result<(), String> {
-    if !state.is_dispatch_skipped(session_id) {
-        log::info!("cancel_audio_file: session {session_id} is no longer in flight, ignoring");
-        return Ok(());
-    }
-    state.cancel_session(session_id);
-    Ok(())
 }
 
 #[tauri::command]
@@ -2157,91 +674,6 @@ fn open_url(url: String) -> Result<(), String> {
         }
     }
     Ok(())
-}
-
-/// Validate a hotkey string at the UI layer — used by `SettingsPage` to
-/// show an inline error as the user types. Pure parser call; no side
-/// effects, no sidecar round-trip, hence `sync`. Returns `Err(msg)` for
-/// any parse failure (unknown modifier, empty, modifier-only, etc.) and
-/// `Ok(())` for a valid string.
-#[tauri::command]
-fn validate_hotkey(hotkey: String) -> Result<(), String> {
-    crate::hotkey::parse(&hotkey).map(|_| ())
-}
-
-/// Persist a new hotkey: re-register the global shortcut (releasing the
-/// previous binding atomically) and write the new value to
-/// `config.json` directly.
-///
-/// Calls `hotkey::re_register` to swap the global shortcut binding,
-/// then writes the new hotkey string into `config.json` via the
-/// `Config` API. No IPC round-trip — everything runs in-process.
-#[tauri::command]
-async fn set_hotkey(
-    app: AppHandle,
-    state: tauri::State<'_, AppState>,
-    hotkey: String,
-    old_hotkey: Option<String>,
-) -> Result<(), String> {
-    // WS 4a1 Task 13b: `re_register` no longer takes a `SidecarHandle` —
-    // it now operates directly on the shared `AppState` (which the hotkey
-    // handler closure also captures, so the round-trip is consistent).
-    let old = old_hotkey.unwrap_or_default();
-    crate::hotkey::re_register(&app, &state, &old, &hotkey).inspect_err(|e| {
-        let _ = app.emit("hotkey-error", e.clone());
-    })?;
-    // Direct write: load the existing config, patch `hotkey`, save.
-    // Single-writer per Tauri command invocation; no locking needed.
-    let mut config = crate::config::Config::load(&app).map_err(|e| format!("config load: {e}"))?;
-    config
-        .set("hotkey", serde_json::json!(hotkey))
-        .map_err(|e| format!("config set: {e}"))?;
-    config.save(&app).map_err(|e| format!("config save: {e}"))
-}
-
-/// Which key `fetch_provider_models` sends: the stored one whenever the ref
-/// resolved to something, and only otherwise the value handed in.
-///
-/// The order matters. A profile being edited passes both — its ref, and
-/// whatever sits in the wizard's field from an earlier visit — and the store
-/// is the truth about what that profile actually authenticates with.
-fn model_request_key(stored: String, passed: Option<String>) -> String {
-    if !stored.trim().is_empty() {
-        return stored;
-    }
-    passed
-        .map(|value| value.trim().to_string())
-        .unwrap_or_default()
-}
-
-/// Ask a provider which models it currently serves.
-///
-/// The key normally comes from the secret store: the frontend holds a ref and
-/// not the value. `api_key` is the exception this was widened for — in the
-/// «Новый профиль» wizard the key has been typed but not yet saved, so there is
-/// no ref to look up, and without it the «запросить модели» button would be
-/// dead in exactly the flow that needs it most. The value crosses the same IPC
-/// boundary as `save_api_key`, which the wizard calls moments later with the
-/// same string; a ref, when it resolves, still wins.
-///
-/// Errors come back as plain strings for display next to the model field.
-/// A failed list is not a failed configuration — the user can still type a
-/// model id — so the caller must not treat it as fatal.
-#[tauri::command(rename_all = "snake_case")]
-async fn fetch_provider_models(
-    provider: String,
-    base_url: Option<String>,
-    api_key_ref: Option<String>,
-    api_key: Option<String>,
-) -> Result<Vec<String>, String> {
-    let stored = match api_key_ref.filter(|value| !value.trim().is_empty()) {
-        Some(reference) => crate::secret_store::get_key(&reference)
-            .map_err(|e| format!("secret_store get_key({reference}): {e}"))?
-            .unwrap_or_default(),
-        None => String::new(),
-    };
-    let api_key = model_request_key(stored, api_key);
-    crate::ai::models::fetch_models(&provider, base_url.as_deref(), &api_key).await
 }
 
 /// Emit `audio-level` events (~30 Hz) while a recording session is live so
@@ -2340,63 +772,6 @@ fn has_transcription_route(
     selected_downloaded: bool,
 ) -> bool {
     pipeline_mode == "cloud" || loaded_model.is_some() || selected_downloaded
-}
-
-#[cfg(test)]
-mod model_request_key_tests {
-    use super::model_request_key;
-
-    /// The wizard's case: nothing is stored under the ref yet, because the key
-    /// is still only in the field.
-    #[test]
-    fn falls_back_to_the_value_handed_in() {
-        assert_eq!(
-            model_request_key(String::new(), Some("sk-typed".into())),
-            "sk-typed"
-        );
-        assert_eq!(
-            model_request_key("   ".into(), Some("sk-typed".into())),
-            "sk-typed"
-        );
-    }
-
-    /// An existing profile passes both. The store is what it authenticates
-    /// with, so a stale field must not quietly take over.
-    #[test]
-    fn the_stored_key_wins_when_there_is_one() {
-        assert_eq!(
-            model_request_key("sk-stored".into(), Some("sk-typed".into())),
-            "sk-stored"
-        );
-    }
-
-    /// A local server needs no key at all, and neither side has one.
-    #[test]
-    fn an_empty_result_is_a_valid_answer() {
-        assert_eq!(model_request_key(String::new(), None), "");
-        assert_eq!(model_request_key(String::new(), Some("  ".into())), "");
-    }
-}
-
-#[cfg(test)]
-mod manual_llm_mode_tests {
-    use super::manual_llm_mode;
-
-    /// This case is the reason the function exists: in "local" mode the
-    /// «Обработать» button in the history must still work.
-    #[test]
-    fn local_mode_still_allows_a_manual_run() {
-        assert_eq!(manual_llm_mode("local"), "hybrid");
-    }
-
-    /// The other modes are left alone: the LLM is already permitted in them, and
-    /// substituting "hybrid" for "cloud" would change the report of what
-    /// actually happened.
-    #[test]
-    fn the_other_modes_are_passed_through_untouched() {
-        assert_eq!(manual_llm_mode("hybrid"), "hybrid");
-        assert_eq!(manual_llm_mode("cloud"), "cloud");
-    }
 }
 
 #[cfg(test)]
@@ -2657,16 +1032,6 @@ pub(crate) fn on_recording_stopped(app: &AppHandle, session_id: u64, audio: Opti
     }
 }
 
-/// Returns the `session_id` so any sync caller can immediately use it
-/// (e.g. for cancel). The frontend currently discards the return value
-/// (it reads session_id from the `recording-started` event payload).
-#[tauri::command]
-async fn start_recording(app: AppHandle, state: tauri::State<'_, AppState>) -> Result<u64, String> {
-    dictation::start(&app, &state, false)?
-        .await
-        .map_err(|_| "audio worker dropped start".to_string())?
-}
-
 /// Tap audio into the loaded or queued model if it supports live text.
 ///
 /// Called from [`on_recording_started`] rather than from the `start_recording`
@@ -2739,47 +1104,6 @@ fn start_live_preview(state: &AppState, session_id: u64, model: Option<&str>) ->
     true
 }
 
-/// Stop the active recording session and send the captured audio to the
-/// whisper engine.
-///
-/// Returns the stopped `session_id`, or 0 when no recording was active.
-#[tauri::command]
-async fn stop_recording(app: AppHandle, state: tauri::State<'_, AppState>) -> Result<u64, String> {
-    dictation::stop(&app, &state)?
-        .await
-        .map_err(|_| "audio worker dropped stop".to_string())?
-}
-
-/// Cancel an in-flight recording / transcription session.
-///
-/// Marks the session as cancelled in `AppState` (the dispatcher checks
-/// this BEFORE pasting — see `setup()` in this file). If a recording is
-/// still active (user pressed hotkey then cancelled before releasing),
-/// the cpal stream is dropped so the audio buffer is discarded.
-///
-/// The frontend must capture the session_id from `recording-started` and
-/// pass it here. If it loses the id (refresh, etc.), passing a wrong id is
-/// a no-op: the session is not cancellable, and the call returns `false`.
-#[tauri::command]
-async fn cancel_recording(
-    app: AppHandle,
-    state: tauri::State<'_, AppState>,
-    session_id: u64,
-) -> Result<bool, String> {
-    dictation::cancel(&app, &state, session_id).await
-}
-
-/// Start a microphone self-test session.
-///
-/// Creates a dedicated `AudioRecorder`, starts capturing audio, and
-/// emits `microphone-test-started` / `microphone-test-level` events
-/// at ~25 Hz so the frontend can render a VU meter. Returns the test
-/// state info (`active: true` on success).
-///
-/// `monitor` turns on echo — the captured frames are also emitted as
-/// `microphone-test-audio` for the frontend to play back. It is off by
-/// default: the level check is a separate mode and must not send the
-/// user's voice to the speakers on its own.
 /// Helper: extract a panic message from `catch_unwind`'s `Box<dyn Any>`.
 pub(crate) fn panic_msg(panic: Box<dyn std::any::Any + Send + 'static>) -> String {
     panic
@@ -2787,207 +1111,6 @@ pub(crate) fn panic_msg(panic: Box<dyn std::any::Any + Send + 'static>) -> Strin
         .map(|s| s.to_string())
         .or_else(|p| p.downcast::<String>().map(|s| *s))
         .unwrap_or_else(|_| "internal error".to_string())
-}
-
-#[tauri::command]
-async fn start_microphone_test(
-    app: AppHandle,
-    state: tauri::State<'_, AppState>,
-    microphone: Option<serde_json::Value>,
-    monitor: Option<bool>,
-) -> Result<crate::mic_test::MicrophoneTestInfo, String> {
-    // catch_unwind prevents a panic inside cpal/audio from crashing
-    // the app. The microphone test path can fail silently or hard-crash
-    // on WASAPI exclusive-mode issues, device disconnects, etc.
-    let test = state.microphone_test.clone();
-    let app_for_worker = app.clone();
-    let start_result = state
-        .audio
-        .call(move || {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                test.start(
-                    &app_for_worker,
-                    crate::config::microphone_selection(microphone),
-                    monitor.unwrap_or(false),
-                )
-            }))
-        })
-        .await?;
-    match start_result {
-        Ok(Ok(_)) => state.microphone_test.info(),
-        Ok(Err(e)) => {
-            let _ = app.emit("microphone-test-failed", serde_json::json!({"message": e}));
-            Err(e)
-        }
-        Err(panic) => {
-            let msg = panic_msg(panic);
-            log::error!("microphone_test.start panicked: {msg}");
-            let _ = app.emit(
-                "microphone-test-failed",
-                serde_json::json!({"message": msg}),
-            );
-            Err(msg)
-        }
-    }
-}
-
-/// Stop an active microphone self-test session.
-///
-/// Joins the poller/silence-watch threads, drops the dedicated
-/// `AudioRecorder`, and emits `microphone-test-stopped`. Returns
-/// the final test state info (`active: false`).
-#[tauri::command]
-async fn stop_microphone_test(
-    app: AppHandle,
-    state: tauri::State<'_, AppState>,
-) -> Result<crate::mic_test::MicrophoneTestInfo, String> {
-    let test = state.microphone_test.clone();
-    let app_for_worker = app.clone();
-    let stop_result = state
-        .audio
-        .call(move || {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| test.stop(&app_for_worker)))
-        })
-        .await?;
-    match stop_result {
-        Ok(Ok(_)) => state.microphone_test.info(),
-        Ok(Err(e)) => Err(e),
-        Err(panic) => {
-            let msg = panic_msg(panic);
-            log::error!("microphone_test.stop panicked: {msg}");
-            Err(msg)
-        }
-    }
-}
-
-/// Toggle echo monitoring on a running microphone test.
-///
-/// Separate from start/stop so switching echo on or off does not restart
-/// the capture stream — the level meter keeps running across the toggle.
-///
-/// Dispatched through the audio worker like its two neighbours, even though it
-/// only flips an atomic: the `inner` mutex it takes is the same one `start`
-/// holds across `AudioRecorder::start_selected`, and opening a WASAPI device can
-/// take hundreds of milliseconds. Nothing but a `busy` flag on the frontend
-/// keeps the two commands apart today, and that invariant lives in another
-/// language on the far side of an IPC boundary.
-#[tauri::command]
-async fn set_microphone_test_monitor(
-    state: tauri::State<'_, AppState>,
-    enabled: bool,
-) -> Result<crate::mic_test::MicrophoneTestInfo, String> {
-    let test = state.microphone_test.clone();
-    state.audio.call(move || test.set_monitor(enabled)).await?;
-    state.microphone_test.info()
-}
-
-/// Test the paste pipeline from the frontend.
-/// Copies test text to clipboard and attempts to paste it via the
-/// standard pipeline (enigo → osascript).
-#[tauri::command]
-async fn test_paste(app: AppHandle) -> Result<String, String> {
-    let test_text = "Тест вставки Sotto — ".to_owned()
-        + &std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis().to_string())
-            .unwrap_or_default();
-
-    let (reply, result) = tokio::sync::oneshot::channel();
-    let paste_app = app.clone();
-    let paste_text = test_text.clone();
-    app.run_on_main_thread(move || {
-        let _ = reply.send(crate::clipboard::paste_text(paste_app, paste_text));
-    })
-    .map_err(|error| error.to_string())?;
-    match result
-        .await
-        .map_err(|_| "paste test worker dropped reply".to_string())?
-    {
-        Ok(()) => Ok(format!("Paste OK. Text на буфере: {test_text}")),
-        Err(e) => Err(format!("Paste FAILED: {e}")),
-    }
-}
-
-/// Copy-pasteable summary of the setup for a bug report.
-/// Ready-made term sets for the dictionary.
-///
-/// We hand over the id and the words; the set's name is displayed by the
-/// frontend because the name is translatable while the word list is not.
-#[tauri::command]
-fn dictionary_presets() -> Vec<(String, Vec<String>)> {
-    crate::formatter::DICTIONARY_PRESETS
-        .iter()
-        .map(|set| {
-            (
-                set.id.to_string(),
-                set.words.iter().map(|w| w.to_string()).collect(),
-            )
-        })
-        .collect()
-}
-
-/// One built-in parasite word set, as the interface needs it.
-#[derive(serde::Serialize)]
-struct ParasiteSetInfo {
-    id: String,
-    language: String,
-    words: Vec<String>,
-    default_on: bool,
-}
-
-/// The built-in parasite word sets.
-///
-/// Handed to the frontend so that settings can show the words and let them be
-/// switched off. Before this existed the list was invisible: a person could see
-/// that something had been taken out of their dictation but had no way to find
-/// out what, or to stop it.
-///
-/// Which sets are ON is not reported here — that lives in the config, which the
-/// frontend already holds. This is the catalogue, and `default_on` is what a
-/// config that has never been touched resolves to.
-#[tauri::command]
-fn parasite_sets() -> Vec<ParasiteSetInfo> {
-    crate::formatter::PARASITE_PRESETS
-        .iter()
-        .map(|preset| ParasiteSetInfo {
-            id: preset.id.to_string(),
-            language: preset.language.to_string(),
-            words: preset.words.iter().map(|word| word.to_string()).collect(),
-            default_on: preset.default_on,
-        })
-        .collect()
-}
-
-#[tauri::command]
-fn get_diagnostics(app: AppHandle) -> Result<String, String> {
-    let config = crate::config::Config::load(&app)?;
-    Ok(crate::debug::diagnostics_report(&app, config.as_value()))
-}
-
-/// Reveal the diagnostics folder (logs + saved recordings) in the file
-/// manager. `save_recordings` puts the WAVs in a subfolder of the same
-/// place, so one button covers both.
-#[tauri::command]
-fn open_diagnostics_folder() -> Result<(), String> {
-    crate::debug::open_in_file_manager(&crate::debug::diagnostics_dir())
-}
-
-/// Bytes the logs occupy: the active file plus its rotated archives.
-#[tauri::command]
-fn logs_size() -> u64 {
-    crate::structured_log::logs_total_bytes()
-}
-
-/// Empty the logs, returning the resulting size so the caller does not
-/// have to ask a second time.
-///
-/// Waits for the writer thread to finish, which is why it reports a size
-/// that is actually true rather than one read mid-truncate. The wait is a
-/// truncate and a few `remove_file` calls behind whatever is queued.
-#[tauri::command]
-fn clear_logs() -> u64 {
-    crate::structured_log::clear();
-    crate::structured_log::logs_total_bytes()
 }
 
 /// Marker the OS autostart entry launches the app with, so startup can tell
@@ -2999,7 +1122,7 @@ const AUTOSTART_ARG: &str = "--autostart";
 /// Non-fatal by design: on Windows this writes to the Run key in the user
 /// registry hive, which a policy or a cleanup tool can make unwritable. That
 /// is worth a log line, not a failed startup or a failed settings save.
-fn apply_autostart(app: &AppHandle) {
+pub(crate) fn apply_autostart(app: &AppHandle) {
     apply_autostart_inner(app, false)
 }
 
@@ -3060,14 +1183,6 @@ fn apply_autostart_inner(app: &AppHandle, rewrite_when_unchanged: bool) {
         Ok(()) => log::info!("autostart set to {wanted}"),
         Err(error) => log::warn!("autostart could not be set to {wanted}: {error}"),
     }
-}
-
-/// Returns whether the app has macOS Accessibility permission.
-/// The frontend calls this after the user follows the deep-link to
-/// System Settings to see if the permission was granted.
-#[tauri::command]
-fn check_accessibility() -> bool {
-    crate::accessibility::is_accessibility_granted()
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -3870,9 +1985,9 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            pick_audio_file,
-            transcribe_audio_file,
-            cancel_audio_file,
+            audio_file::pick_audio_file,
+            audio_file::transcribe_audio_file,
+            audio_file::cancel_audio_file,
             overlay::show_state,
             overlay::hide,
             overlay::current_state,
@@ -3883,72 +1998,72 @@ pub fn run() {
             windows::tray_popup::hide_tray_popup,
             focus_main_window,
             open_url,
-            validate_hotkey,
-            set_hotkey,
-            fetch_provider_models,
-            cancel_model_download,
+            hotkey::validate_hotkey,
+            hotkey::set_hotkey,
+            ai::fetch_provider_models,
+            model_download::cancel_model_download,
             crate::overlay::set_overlay_presentation,
-            start_recording,
-            stop_recording,
-            cancel_recording,
-            start_microphone_test,
-            stop_microphone_test,
-            set_microphone_test_monitor,
+            dictation::start_recording,
+            dictation::stop_recording,
+            dictation::cancel_recording,
+            mic_test::start_microphone_test,
+            mic_test::stop_microphone_test,
+            mic_test::set_microphone_test_monitor,
             // WS 4b Task 9: stats + history Tauri commands. Frontend calls
             // these via `rustInvoke` from `desktop/src/bridge/stats.ts`.
             // All 5 are `async fn` so the DB op runs through `spawn_blocking`
             // via the `run_db_op` helper above.
-            get_stats,
-            list_history,
-            delete_history_entry,
-            clear_history,
+            stats::get_stats,
+            history::list_history,
+            history::delete_history_entry,
+            history::clear_history,
             // Manual LLM processing of an existing history entry: the run
             // and the write are separate so the result can be reviewed first.
-            preview_history_ai_processing,
-            apply_history_ai_processing,
+            history::preview_history_ai_processing,
+            history::apply_history_ai_processing,
             // Phase 4 / PR-B: native Tauri commands (replaced Python sidecar).
-            get_config,
-            save_config,
+            config::get_config,
+            config::save_config,
             // PR-A: boot-blocking commands called from MainWindow.load() via Promise.all.
             app_version,
-            check_update,
-            install_update,
-            list_microphones,
-            list_models,
+            updater::check_update,
+            updater::install_update,
+            audio::list_microphones,
+            model::list_models,
             model_performance::model_assessments,
             model_performance::reset_model_assessment,
             get_runtime_status,
             // PR-B0: model lifecycle commands.
-            download_model,
-            set_model,
-            delete_model,
-            get_model_status,
+            model_download::download_model,
+            model::set_model,
+            model::delete_model,
+            model::get_model_status,
             // API-key storage (native secret store). The frontend's
             // API-keys / providers pages depend on these three.
-            save_api_key,
-            has_api_key,
-            delete_api_key,
+            secret_store::save_api_key,
+            secret_store::has_api_key,
+            secret_store::delete_api_key,
             // Explicit-LLM commands: "Тест" and "Обработать текст".
-            test_ai_prompt,
-            process_text_ai,
+            ai::test_ai_prompt,
+            ai::process_text_ai,
             format_commands::preview_format,
             format_commands::preview_replacements,
             // macOS: check Accessibility permission on demand (frontend can
             // call this after the user grants access in System Settings).
-            check_accessibility,
-            test_paste,
-            preview_sound_cue,
-            preview_output_duck,
+            accessibility::check_accessibility,
+            clipboard::test_paste,
+            sounds::preview_sound_cue,
+            output_volume::preview_output_duck,
             get_output_contract,
-            get_diagnostics,
+            debug::get_diagnostics,
             feedback::get_public_diagnostics,
             feedback::get_public_logs,
             feedback::save_public_logs,
-            open_diagnostics_folder,
-            logs_size,
-            clear_logs,
-            dictionary_presets,
-            parasite_sets,
+            debug::open_diagnostics_folder,
+            debug::logs_size,
+            debug::clear_logs,
+            dictionaries::dictionary_presets,
+            dictionaries::parasite_sets,
             dictionaries::analyze_dictionary,
         ])
         .build(tauri::generate_context!())
@@ -3975,15 +2090,15 @@ pub fn run() {
 /// pre-LLM text (after local formatting), and `final_text` is what actually
 /// gets pasted. `ai_json` / `stats_json` are the serialized `ai_processing`
 /// and `processing_stats` blobs the history UI renders.
-struct ProcessedTranscription {
-    raw_text: String,
-    formatted_text: String,
-    final_text: String,
+pub(crate) struct ProcessedTranscription {
+    pub(crate) raw_text: String,
+    pub(crate) formatted_text: String,
+    pub(crate) final_text: String,
     ai_json: Option<String>,
     /// Same thing as `ai_json`, unserialized. History stores the JSON; the
     /// stats aggregate needs the fields, and re-parsing our own JSON to get
     /// them back would be silly.
-    ai_status: Option<crate::ai::step::AiStatus>,
+    pub(crate) ai_status: Option<crate::ai::step::AiStatus>,
     stats_json: String,
     system_prompt: Option<String>,
 }
@@ -4134,7 +2249,7 @@ impl DictationTelemetry {
 /// Resolve the configured pipeline for a telemetry outcome.  Unknown or
 /// malformed values are reported as `local` here, matching the safe runtime
 /// default used by the recording path.
-fn telemetry_pipeline_mode(config: Option<&crate::config::Config>) -> String {
+pub(crate) fn telemetry_pipeline_mode(config: Option<&crate::config::Config>) -> String {
     config
         .and_then(|config| {
             config
@@ -4164,7 +2279,7 @@ fn telemetry_recording_mode(config: &crate::config::Config) -> crate::telemetry:
 /// Cloud mode has no local device, so [`crate::telemetry::compute_wire`]
 /// overrides this; the ONNX bundles run through sherpa, which is CPU-only
 /// whatever the device setting says.
-fn telemetry_compute(
+pub(crate) fn telemetry_compute(
     config: &crate::config::Config,
     model: Option<&str>,
 ) -> crate::telemetry::Compute {
@@ -4182,7 +2297,7 @@ fn telemetry_compute(
 /// user vocabulary or replacement text. Counting through
 /// `normalize_replacement_rules` also covers the legacy `replacements` dict,
 /// which a hand-rolled array read reports as zero.
-fn telemetry_formatting(config: &crate::config::Config) -> (bool, usize) {
+pub(crate) fn telemetry_formatting(config: &crate::config::Config) -> (bool, usize) {
     let enabled_rules = crate::formatter::normalize_replacement_rules(Some(config.as_value()))
         .iter()
         .filter(|rule| rule.enabled)
@@ -4199,7 +2314,7 @@ fn telemetry_formatting(config: &crate::config::Config) -> (bool, usize) {
 /// `provider_error` straight off the serialized [`AiStatus`]. A retried
 /// entry therefore rendered as never processed, with no error to explain
 /// it. One constructor is what keeps that from happening again.
-fn ai_processing_json(status: Option<&crate::ai::step::AiStatus>) -> Option<String> {
+pub(crate) fn ai_processing_json(status: Option<&crate::ai::step::AiStatus>) -> Option<String> {
     status.and_then(|s| serde_json::to_string(s).ok())
 }
 
@@ -4213,7 +2328,7 @@ fn ai_processing_json(status: Option<&crate::ai::step::AiStatus>) -> Option<Stri
 /// it records all three text stages plus the AI status. It NEVER fails hard —
 /// on any config or provider error it falls back to the best text available
 /// so the paste still happens.
-async fn post_process_transcription(
+pub(crate) async fn post_process_transcription(
     app: &AppHandle,
     inference: &crate::whisper::InferenceResult,
 ) -> ProcessedTranscription {
@@ -4352,7 +2467,7 @@ fn text_formatting_config(
         .unwrap_or_default()
 }
 
-fn ai_processing_config(config: &crate::config::Config) -> Result<&Value, String> {
+pub(crate) fn ai_processing_config(config: &crate::config::Config) -> Result<&Value, String> {
     config
         .as_value()
         .get("ai_processing")
@@ -4362,7 +2477,7 @@ fn ai_processing_config(config: &crate::config::Config) -> Result<&Value, String
 /// Build a `CloudSttRequest` from the on-disk config + secret
 /// store. Returns `Err(msg)` if any required field is missing —
 /// the dispatcher surfaces the error in the existing toast.
-fn build_cloud_stt_request(
+pub(crate) fn build_cloud_stt_request(
     app: &AppHandle,
     audio: &Arc<Vec<f32>>,
 ) -> Result<crate::cloud_stt::CloudSttRequest, String> {
@@ -4406,268 +2521,6 @@ fn build_cloud_stt_request(
         audio: Arc::clone(audio),
         timeout_seconds,
     })
-}
-
-#[cfg(test)]
-mod retry_ai_tests {
-    use super::*;
-    use crate::ai::step::AiStatus;
-
-    fn status(used: bool, skipped_reason: &str) -> AiStatus {
-        let mut status = AiStatus {
-            mode: "hybrid".to_string(),
-            provider: "compatible".to_string(),
-            model: "some-model".to_string(),
-            profile_id: String::new(),
-            profile_name: String::new(),
-            api_key_ref: "key_x".to_string(),
-            audio_duration_seconds: None,
-            min_duration_seconds: 0.0,
-            enabled: true,
-            attempted: used,
-            used,
-            fallback: false,
-            skipped_reason: skipped_reason.to_string(),
-            timeout_seconds: 12,
-            attempt_timeout_seconds: 4,
-            attempts: u32::from(used),
-            elapsed_seconds: 2.5,
-            usage: None,
-            error_type: None,
-            provider_error: None,
-            http_status: None,
-            response_snippet: None,
-            output_length: None,
-            provider_attempts: Vec::new(),
-        };
-        status.output_length = used.then_some(10);
-        status
-    }
-
-    fn conn_with_row(processing_stats: Option<&str>) -> rusqlite::Connection {
-        let conn = rusqlite::Connection::open_in_memory().unwrap();
-        crate::db::run_migrations(&conn).unwrap();
-        conn.execute(
-            "INSERT INTO history (id, timestamp, text, raw_text, formatted_text, length, \
-             ai_processing_json, processing_stats_json) \
-             VALUES (1, 0.0, 'старый текст', 'raw', 'formatted', 12, '{\"used\":true}', ?1)",
-            rusqlite::params![processing_stats],
-        )
-        .unwrap();
-        conn
-    }
-
-    /// The bug this whole path was fixed for: the retry used to write
-    /// `{"text": …}` here while the live dispatcher wrote a serialized
-    /// `AiStatus`, so a retried row rendered as never processed.
-    #[test]
-    fn ai_processing_json_is_the_serialized_status() {
-        let json = ai_processing_json(Some(&status(true, ""))).unwrap();
-        let parsed: Value = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed["used"], serde_json::json!(true));
-        assert_eq!(parsed["attempted"], serde_json::json!(true));
-        assert_eq!(parsed["provider"], serde_json::json!("compatible"));
-        assert!(parsed.get("text").is_none());
-    }
-
-    #[test]
-    fn ai_processing_json_is_none_without_a_status() {
-        assert!(ai_processing_json(None).is_none());
-    }
-
-    #[test]
-    fn stats_keep_recording_time_measurements_and_rebase_the_total() {
-        let existing = serde_json::json!({
-            "audio_seconds": 19.2,
-            "whisper_seconds": 0.5,
-            "llm_seconds": 3.0,
-            "total_seconds": 3.5,
-        });
-        let merged: Value =
-            serde_json::from_str(&stats_with_llm_timing(Some(&existing), 8.0)).unwrap();
-        // Measured once, at recording time — a retry cannot re-measure them.
-        assert_eq!(merged["audio_seconds"], serde_json::json!(19.2));
-        assert_eq!(merged["whisper_seconds"], serde_json::json!(0.5));
-        // Only the LLM leg is replaced, and the total follows it.
-        assert_eq!(merged["llm_seconds"], serde_json::json!(8.0));
-        assert_eq!(merged["total_seconds"], serde_json::json!(8.5));
-    }
-
-    #[test]
-    fn stats_survive_a_row_that_has_none() {
-        let merged: Value = serde_json::from_str(&stats_with_llm_timing(None, 8.0)).unwrap();
-        assert_eq!(merged["llm_seconds"], serde_json::json!(8.0));
-        assert_eq!(merged["total_seconds"], serde_json::json!(8.0));
-    }
-
-    /// A malformed `total_seconds` must not produce a negative one.
-    #[test]
-    fn stats_never_rebase_below_zero() {
-        let existing = serde_json::json!({ "llm_seconds": 9.0, "total_seconds": 1.0 });
-        let merged: Value =
-            serde_json::from_str(&stats_with_llm_timing(Some(&existing), 2.0)).unwrap();
-        assert_eq!(merged["total_seconds"], serde_json::json!(2.0));
-    }
-
-    #[test]
-    fn a_successful_pass_has_no_failure_reason() {
-        assert!(retry_failure_reason(&status(true, "")).is_none());
-    }
-
-    #[test]
-    fn a_skipped_pass_reports_its_code() {
-        assert_eq!(
-            retry_failure_reason(&status(false, "missing_api_key")),
-            Some("missing_api_key".to_string())
-        );
-    }
-
-    /// Silence is the one thing the caller must never get back: the
-    /// frontend shows an error whenever `updated` is false, and an empty
-    /// reason there is what made the button look like a no-op.
-    #[test]
-    fn a_failure_without_a_code_still_reports_something() {
-        assert_eq!(
-            retry_failure_reason(&status(false, "   ")),
-            Some("unknown".to_string())
-        );
-    }
-
-    /// The config a panel run starts from: flat active fields plus two saved
-    /// profiles, one of which overrides nothing but the model.
-    fn ai_processing_with_profiles() -> Value {
-        serde_json::json!({
-            "provider": "compatible",
-            "model": "qwen3-27b",
-            "api_key_ref": "slot-voice",
-            "base_url": "http://localhost:1234/v1",
-            "system_prompt": "почини пунктуацию",
-            "llm_timeout_seconds": 12,
-            "profile_id": "voice",
-            "profile_name": "Диктовка",
-            "profiles": [
-                {
-                    "id": "voice",
-                    "name": "Диктовка",
-                    "provider": "compatible",
-                    "model": "qwen3-27b",
-                    "api_key_ref": "slot-voice",
-                },
-                {
-                    "id": "precise",
-                    "name": "Точный",
-                    "provider": "anthropic",
-                    "model": "claude-opus-5",
-                    "api_key_ref": "slot-precise",
-                    "system_prompt": "перепиши аккуратно",
-                    "llm_timeout_seconds": 60,
-                },
-            ],
-        })
-    }
-
-    fn ai_config_from(ai: &Value) -> crate::ai::step::AiConfig {
-        crate::ai::step::AiConfig::from_ai_processing(ai)
-    }
-
-    #[test]
-    fn no_profile_keeps_the_dictation_target_and_names_it() {
-        let ai = ai_processing_with_profiles();
-        let mut cfg = ai_config_from(&ai);
-        apply_ai_profile(&mut cfg, &ai, None).unwrap();
-        assert_eq!(cfg.provider, "compatible");
-        assert_eq!(cfg.model, "qwen3-27b");
-        // `from_ai_processing` leaves the identity empty; without this the
-        // entry badge would lose the profile name on every manual run.
-        assert_eq!(cfg.profile_id, "voice");
-        assert_eq!(cfg.profile_name, "Диктовка");
-    }
-
-    #[test]
-    fn a_chosen_profile_redirects_the_request() {
-        let ai = ai_processing_with_profiles();
-        let mut cfg = ai_config_from(&ai);
-        apply_ai_profile(&mut cfg, &ai, Some("precise")).unwrap();
-        assert_eq!(cfg.provider, "anthropic");
-        assert_eq!(cfg.model, "claude-opus-5");
-        assert_eq!(cfg.api_key_ref, "slot-precise");
-        assert_eq!(cfg.profile_name, "Точный");
-        assert_eq!(cfg.system_prompt, "перепиши аккуратно");
-        assert_eq!(cfg.llm_timeout_seconds, 60);
-    }
-
-    /// Switching provider drops an inherited base URL. The flat one is LM
-    /// Studio's port; leaving it in place would send the Anthropic request to
-    /// `http://localhost:1234/v1/messages` instead of the provider's endpoint.
-    #[test]
-    fn a_chosen_profile_does_not_inherit_another_providers_base_url() {
-        let ai = ai_processing_with_profiles();
-        let mut cfg = ai_config_from(&ai);
-        apply_ai_profile(&mut cfg, &ai, Some("precise")).unwrap();
-        assert_eq!(cfg.base_url, None);
-    }
-
-    /// A profile that never overrode the prompt or the base URL inherits
-    /// them; blanking them out would send a bare request to nowhere.
-    #[test]
-    fn a_profile_without_overrides_inherits_prompt_and_base_url() {
-        let ai = ai_processing_with_profiles();
-        let mut cfg = ai_config_from(&ai);
-        apply_ai_profile(&mut cfg, &ai, Some("voice")).unwrap();
-        assert_eq!(cfg.system_prompt, "почини пунктуацию");
-        assert_eq!(cfg.base_url.as_deref(), Some("http://localhost:1234/v1"));
-        assert_eq!(cfg.llm_timeout_seconds, 12);
-    }
-
-    /// A stale id from a deleted profile must fail loudly rather than
-    /// silently sending the text to the dictation profile.
-    #[test]
-    fn an_unknown_profile_is_an_error() {
-        let ai = ai_processing_with_profiles();
-        let mut cfg = ai_config_from(&ai);
-        assert!(apply_ai_profile(&mut cfg, &ai, Some("deleted")).is_err());
-    }
-
-    #[test]
-    fn a_successful_pass_replaces_the_text_and_its_length() {
-        let conn = conn_with_row(None);
-        update_entry_ai(
-            &conn,
-            1,
-            Some("новый текст подлиннее"),
-            "{\"used\":true}",
-            "{}",
-        )
-        .unwrap();
-        let (text, length): (String, i64) = conn
-            .query_row("SELECT text, length FROM history WHERE id = 1", [], |r| {
-                Ok((r.get(0)?, r.get(1)?))
-            })
-            .unwrap();
-        assert_eq!(text, "новый текст подлиннее");
-        // Characters, not bytes — the text is Cyrillic.
-        assert_eq!(length, 21);
-    }
-
-    /// A failed pass still records what happened, but must not touch the
-    /// text: the last good result is what the user keeps.
-    #[test]
-    fn a_failed_pass_records_the_status_without_touching_the_text() {
-        let conn = conn_with_row(None);
-        update_entry_ai(&conn, 1, None, "{\"used\":false}", "{\"llm_seconds\":1.0}").unwrap();
-        let (text, length, ai, ps): (String, i64, String, String) = conn
-            .query_row(
-                "SELECT text, length, ai_processing_json, processing_stats_json \
-                 FROM history WHERE id = 1",
-                [],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
-            )
-            .unwrap();
-        assert_eq!(text, "старый текст");
-        assert_eq!(length, 12);
-        assert_eq!(ai, "{\"used\":false}");
-        assert_eq!(ps, "{\"llm_seconds\":1.0}");
-    }
 }
 
 #[cfg(test)]
@@ -4749,7 +2602,7 @@ mod completion_tests {
                     classify_completion(false, Ok(inference(blank))),
                     Completion::Empty
                 ),
-                "не распознано как пустое: {blank:?}"
+                "not classified as empty: {blank:?}"
             );
         }
     }
@@ -4759,7 +2612,7 @@ mod completion_tests {
         let outcome = classify_completion(false, Ok(inference("привет")));
         match outcome {
             Completion::Transcribed(result) => assert_eq!(result.text, "привет"),
-            other => panic!("ожидался Transcribed, получено {other:?}"),
+            other => panic!("expected Transcribed, got {other:?}"),
         }
     }
 
@@ -4771,7 +2624,7 @@ mod completion_tests {
         let outcome = classify_completion(false, Err("GigaAM v3 не умеет английский".to_string()));
         match outcome {
             Completion::Failed(message) => assert_eq!(message, "GigaAM v3 не умеет английский"),
-            other => panic!("ожидался Failed, получено {other:?}"),
+            other => panic!("expected Failed, got {other:?}"),
         }
     }
 

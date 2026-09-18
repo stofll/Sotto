@@ -61,10 +61,11 @@ pub fn build_tray(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Erro
                 }
                 #[cfg(not(windows))]
                 {
-                    // TODO(macOS): native tray popup — Phase 6.
-                    // For Phase 1, left-click shows or focuses the main window,
-                    // which is the least surprising behavior on macOS where the
-                    // tray menu already provides settings access.
+                    // No popup window exists on this platform: `tray_popup` is
+                    // a Windows-only module, so left-click shows or focuses the
+                    // main window, the least surprising behavior where the tray
+                    // menu already provides settings access. A native popup
+                    // here is still open work, not a branch that went missing.
                     if let Some(window) = app.get_webview_window("main") {
                         let _ = window.show();
                         let _ = window.set_focus();

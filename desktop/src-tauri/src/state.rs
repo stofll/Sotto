@@ -944,11 +944,11 @@ mod tests {
 
         assert!(
             state.cancel_download("parakeet-tdt-v3"),
-            "загрузка зарегистрирована, отмена обязана её найти"
+            "the download is registered, so a cancel must find it"
         );
         assert!(
             download.is_cancelled(),
-            "у скачивателя на руках тот же флаг — иначе он не остановится"
+            "the downloader holds the same flag; without it, it would not stop"
         );
     }
 
@@ -959,11 +959,11 @@ mod tests {
 
         assert!(
             !state.cancel_download("gigaam-v3"),
-            "кнопка, нажатая после конца загрузки, — гонка, а не отмена"
+            "a button pressed after the download ended is a race, not a cancel"
         );
         assert!(
             !state.cancel_download("никогда-не-качалась"),
-            "чужой идентификатор тоже ничего не отменяет"
+            "an unknown id cancels nothing either"
         );
     }
 
@@ -977,7 +977,7 @@ mod tests {
 
         assert!(
             state.try_claim_download("turbo").is_none(),
-            "вторая заявка на ту же модель отклоняется"
+            "a second claim on the same model is refused"
         );
         // A different model is not locked out: downloading them at once is fine.
         assert!(state.try_claim_download("tiny").is_some());
@@ -985,7 +985,7 @@ mod tests {
         drop(first);
         assert!(
             state.try_claim_download("turbo").is_some(),
-            "после окончания первой загрузки модель снова свободна"
+            "the model is free again once the first download ends"
         );
     }
 

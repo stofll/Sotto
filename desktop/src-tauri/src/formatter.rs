@@ -3373,7 +3373,7 @@ mod tests {
         let out = formatter.process("тайпскрипт рядом");
         assert!(
             out.contains("TypeScript"),
-            "правило замены обязано сработать, когда паузы нет; получено: {out}"
+            "the replacement rule must fire while not paused; got: {out}"
         );
     }
 
@@ -3740,7 +3740,7 @@ mod custom_words_tests {
         DICTIONARY_PRESETS
             .iter()
             .find(|p| p.id == id)
-            .unwrap_or_else(|| panic!("нет набора {id}"))
+            .unwrap_or_else(|| panic!("no preset {id}"))
             .words
             .iter()
             .map(|w| w.to_string())
@@ -3776,7 +3776,7 @@ mod custom_words_tests {
                 let lower = word.to_lowercase();
                 assert!(
                     !seen.contains(&lower),
-                    "«{word}» встречается в наборе {} дважды",
+                    "«{word}» appears twice in set {}",
                     set.id
                 );
                 seen.push(lower);
@@ -3795,7 +3795,7 @@ mod custom_words_tests {
                 assert_eq!(
                     corrector.apply(line),
                     line,
-                    "набор {} переписал обычную речь",
+                    "set {} rewrote ordinary speech",
                     set.id
                 );
             }
@@ -3834,10 +3834,13 @@ mod custom_words_tests {
     fn an_enabled_preset_is_added_to_the_users_own_words() {
         let on = fmt_with(&["Шёпот"], &["development"]);
         let words = on.effective_custom_words();
-        assert!(words.contains(&"Шёпот".to_string()), "своё слово пропало");
+        assert!(
+            words.contains(&"Шёпот".to_string()),
+            "the user's own word is gone"
+        );
         assert!(
             words.contains(&"clippy".to_string()),
-            "слово набора не приехало"
+            "the preset's word did not arrive"
         );
         assert_eq!(words.len(), 1 + PRESET_DEVELOPMENT.len());
     }
@@ -3851,7 +3854,7 @@ mod custom_words_tests {
         assert!(words.contains(&"cargo".to_string()));
         assert!(
             !words.contains(&"Cargo".to_string()),
-            "набор подменил написание, выбранное пользователем"
+            "the set replaced the spelling the user chose"
         );
     }
 
@@ -4191,12 +4194,12 @@ mod custom_words_tests {
         assert_eq!(
             CommaCleaner::new(true).apply(input),
             "раз и два",
-            "включённый шаг убирает запятую перед союзом"
+            "an enabled step removes the comma before the conjunction"
         );
         assert_eq!(
             CommaCleaner::new(false).apply(input),
             input,
-            "выключенный шаг обязан вернуть текст нетронутым"
+            "a disabled step must return the text untouched"
         );
     }
 
@@ -4205,12 +4208,12 @@ mod custom_words_tests {
         let text = twenty_words_with_split_keyword();
         assert!(
             SentenceSplitter::new(true).apply(text).contains(". Потом "),
-            "включённый шаг делит фразу по ключевому слову"
+            "an enabled step splits the phrase at the keyword"
         );
         assert_eq!(
             SentenceSplitter::new(false).apply(text),
             text,
-            "выключенный шаг обязан вернуть текст нетронутым"
+            "a disabled step must return the text untouched"
         );
     }
 
@@ -4224,25 +4227,25 @@ mod custom_words_tests {
         assert_eq!(
             short.split_whitespace().count(),
             4,
-            "проверка самого теста: вход должен быть заведомо короче порога"
+            "test self-check: the input must be clearly shorter than the threshold"
         );
         assert_eq!(
             SentenceSplitter::new(true).apply(short),
             short,
-            "текст короче двадцати слов шаг не делит, хотя ключевое слово в нём есть"
+            "the step does not split a text shorter than twenty words, even with the keyword in it"
         );
 
         let at_threshold = twenty_words_with_split_keyword();
         assert_eq!(
             at_threshold.split_whitespace().count(),
             20,
-            "проверка самого теста: вход должен быть ровно на границе"
+            "test self-check: the input must sit exactly on the boundary"
         );
         assert!(
             SentenceSplitter::new(true)
                 .apply(at_threshold)
                 .contains(". Потом "),
-            "ровно двадцать слов — уже не короткий текст, шаг обязан поделить"
+            "exactly twenty words is no longer short text, so the step must split"
         );
 
         let over_threshold = format!("{at_threshold} двадцать");
@@ -4250,7 +4253,7 @@ mod custom_words_tests {
             SentenceSplitter::new(true)
                 .apply(&over_threshold)
                 .contains(". Потом "),
-            "текст длиннее порога шаг тоже делит"
+            "the step splits a text longer than the threshold too"
         );
     }
 
@@ -4264,7 +4267,7 @@ mod custom_words_tests {
         assert_eq!(
             step.apply("тайпскрипт рядом"),
             "TypeScript рядом",
-            "включённый шаг обязан применить правило"
+            "an enabled step must apply the rule"
         );
     }
 
@@ -4277,7 +4280,7 @@ mod custom_words_tests {
         assert_eq!(
             step.apply("тайпскрипт рядом"),
             "тайпскрипт рядом",
-            "выключенный шаг не применяет правила, даже когда они есть"
+            "a disabled step does not apply the rules even when it has them"
         );
     }
 }

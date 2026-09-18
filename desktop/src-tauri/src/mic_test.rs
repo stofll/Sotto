@@ -29,6 +29,7 @@ use serde_json;
 use tauri::{AppHandle, Emitter};
 
 use crate::audio::{AudioConfig, AudioRecorder};
+use crate::{panic_msg, AppState};
 
 const SILENCE_WATCH_SECS: f64 = 2.0;
 const LEVEL_POLL_HZ: u64 = 25;
@@ -311,4 +312,107 @@ impl MicrophoneTest {
         guard.poller = Some(poller);
         guard.silence_watch = Some(watch);
     }
+}
+
+/// Start a microphone self-test session.
+///
+/// Creates a dedicated `AudioRecorder`, starts capturing audio, and
+/// emits `microphone-test-started` / `microphone-test-level` events
+/// at ~25 Hz so the frontend can render a VU meter. Returns the test
+/// state info (`active: true` on success).
+///
+/// `monitor` turns on echo — the captured frames are also emitted as
+/// `microphone-test-audio` for the frontend to play back. It is off by
+/// default: the level check is a separate mode and must not send the
+/// user's voice to the speakers on its own.
+#[tauri::command]
+pub(crate) async fn start_microphone_test(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+    microphone: Option<serde_json::Value>,
+    monitor: Option<bool>,
+) -> Result<MicrophoneTestInfo, String> {
+    // catch_unwind prevents a panic inside cpal/audio from crashing
+    // the app. The microphone test path can fail silently or hard-crash
+    // on WASAPI exclusive-mode issues, device disconnects, etc.
+    let test = state.microphone_test.clone();
+    let app_for_worker = app.clone();
+    let start_result = state
+        .audio
+        .call(move || {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                test.start(
+                    &app_for_worker,
+                    crate::config::microphone_selection(microphone),
+                    monitor.unwrap_or(false),
+                )
+            }))
+        })
+        .await?;
+    match start_result {
+        Ok(Ok(_)) => state.microphone_test.info(),
+        Ok(Err(e)) => {
+            let _ = app.emit("microphone-test-failed", serde_json::json!({"message": e}));
+            Err(e)
+        }
+        Err(panic) => {
+            let msg = panic_msg(panic);
+            log::error!("microphone_test.start panicked: {msg}");
+            let _ = app.emit(
+                "microphone-test-failed",
+                serde_json::json!({"message": msg}),
+            );
+            Err(msg)
+        }
+    }
+}
+
+/// Stop an active microphone self-test session.
+///
+/// Joins the poller/silence-watch threads, drops the dedicated
+/// `AudioRecorder`, and emits `microphone-test-stopped`. Returns
+/// the final test state info (`active: false`).
+#[tauri::command]
+pub(crate) async fn stop_microphone_test(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<MicrophoneTestInfo, String> {
+    let test = state.microphone_test.clone();
+    let app_for_worker = app.clone();
+    let stop_result = state
+        .audio
+        .call(move || {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| test.stop(&app_for_worker)))
+        })
+        .await?;
+    match stop_result {
+        Ok(Ok(_)) => state.microphone_test.info(),
+        Ok(Err(e)) => Err(e),
+        Err(panic) => {
+            let msg = panic_msg(panic);
+            log::error!("microphone_test.stop panicked: {msg}");
+            Err(msg)
+        }
+    }
+}
+
+/// Toggle echo monitoring on a running microphone test.
+///
+/// Separate from start/stop so switching echo on or off does not restart
+/// the capture stream — the level meter keeps running across the toggle.
+///
+/// Dispatched through the audio worker like its two neighbours, even though it
+/// only flips an atomic: the `inner` mutex it takes is the same one `start`
+/// holds across `AudioRecorder::start_selected`, and opening a WASAPI device can
+/// take hundreds of milliseconds. Nothing but a `busy` flag on the frontend
+/// keeps the two commands apart today, and that invariant lives in another
+/// language on the far side of an IPC boundary.
+#[tauri::command]
+pub(crate) async fn set_microphone_test_monitor(
+    state: tauri::State<'_, AppState>,
+    enabled: bool,
+) -> Result<MicrophoneTestInfo, String> {
+    let test = state.microphone_test.clone();
+    state.audio.call(move || test.set_monitor(enabled)).await?;
+    state.microphone_test.info()
 }

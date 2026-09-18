@@ -128,6 +128,20 @@ pub async fn install(app: &AppHandle) -> Result<(), String> {
     app.restart();
 }
 
+/// Ask the update server. An `available: false` answer is not an error.
+#[tauri::command]
+pub(crate) async fn check_update(app: AppHandle) -> Result<UpdateInfo, String> {
+    check(&app).await
+}
+
+/// Download and install the update. Progress arrives as
+/// `update-download-progress` events; on success the application restarts and
+/// the command never returns control to the frontend.
+#[tauri::command]
+pub(crate) async fn install_update(app: AppHandle) -> Result<(), String> {
+    install(&app).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

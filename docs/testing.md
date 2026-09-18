@@ -56,6 +56,18 @@ cargo test --locked --test test_sherpa_runtime -- --ignored --nocapture
 
 These tests download verified weights into isolated temporary directories. Their public speech fixtures are pinned by source revision and SHA-256 in the test sources. Whisper tiny checks two recognizable English phrases from the upstream JFK sample and repeated inference with the same state. Sherpa checks loading, silence, reset/reload and the final word of a Russian streaming sample. These are inference regressions, not a broad accuracy benchmark or the full hotkey-to-paste flow.
 
+## Formatter corpus tests
+
+Two ignored tests run the formatter over a dump of real transcriptions instead of hand-written cases: `collapse_over_corpus` reports how often the filler cleanup rewrites a line, and `dictionary_over_corpus` reports what a term list does to the same text. Both need a corpus file with one transcription per line, supplied through `SOTTO_CORPUS`, and the dictionary test also needs a term list through `SOTTO_DICT`, one term per line. They print the changed lines and a summary, and assert nothing: the result is a stability rate to read, not a pass/fail threshold, which is why they stay out of ordinary runs.
+
+```bash
+cd desktop/src-tauri
+SOTTO_CORPUS=corpus.txt cargo test --locked --lib formatter::tests::collapse_over_corpus -- --ignored --nocapture
+SOTTO_CORPUS=corpus.txt SOTTO_DICT=dict.txt cargo test --locked --lib formatter::custom_words_tests::dictionary_over_corpus -- --ignored --nocapture
+```
+
+Keep a user's transcription dump out of the repository: place the corpus outside the working tree, and if a case has to be committed, reduce it to a synthetic fixture.
+
 When expanding accuracy coverage, use a reviewed corpus with expected transcripts and explicit word-error tolerances per model/language. Include silence, short speech, noise and trailing speech. Keep this separate from deterministic timeout, cancellation and lifecycle tests so a recognition-quality change cannot hide a broken session transition.
 
 ## Native verification before release

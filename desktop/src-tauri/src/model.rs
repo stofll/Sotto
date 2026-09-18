@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 use sha2::Digest;
+use tauri::{AppHandle, Emitter};
 
 const MIN_VALID_MODEL_BYTES: u64 = 10 * 1024 * 1024;
 
@@ -1508,7 +1509,7 @@ pub fn quantization_of(file_name: &str) -> Option<&'static str> {
         .find(|tag| file_name.contains(tag))
 }
 
-pub fn list_models(selected: &str, loaded_model_id: Option<&str>) -> Vec<ModelInfo> {
+pub fn list_model_infos(selected: &str, loaded_model_id: Option<&str>) -> Vec<ModelInfo> {
     let selected = normalize_model_id(selected).unwrap_or(selected);
     let catalogue = MODELS.iter().map(|model| ModelInfo {
         id: model.id.to_string(),
@@ -1627,6 +1628,113 @@ pub fn delete_cached_model(model_id: &str) -> Result<bool, String> {
     Ok(true)
 }
 
+/// List available models with download/selection status.
+/// Boot-blocking — called from `MainWindow.load()` via `Promise.all`.
+///
+/// Delegates to [`list_model_infos`] which returns `Vec<ModelInfo>` with
+/// `id`, `label`, `size`, `ram`, `recommended`, `downloaded`, and
+/// `selected` fields.
+#[tauri::command]
+pub(crate) fn list_models(
+    app: AppHandle,
+    state: tauri::State<'_, crate::state::AppState>,
+) -> Vec<ModelInfo> {
+    let selected = crate::config::Config::load(&app)
+        .ok()
+        .and_then(|c| c.get_string("model"))
+        .unwrap_or_else(|| "turbo".to_string());
+    let current = crate::mutex_recover::lock(&state.engine_current_model).clone();
+    list_model_infos(&selected, current.as_deref())
+}
+
+/// Load a downloaded model into the whisper engine.
+///
+/// Sends `EngineCommand::SetModel` to the engine thread. The engine
+/// emits `model-loading` then `model-ready` or `model-load-failed`.
+/// Returns `Err` if the model is not downloaded or the engine channel
+/// is closed.
+#[tauri::command]
+pub(crate) async fn set_model(
+    app: AppHandle,
+    state: tauri::State<'_, crate::state::AppState>,
+    model: String,
+) -> Result<(), String> {
+    crate::load_model_into_engine(
+        &app,
+        &state.engine_cmd_tx,
+        &model,
+        crate::whisper::ModelLoadReason::Requested,
+    )
+    .await
+}
+
+/// Delete a cached model file or bundle directory.
+///
+/// The model the engine is currently holding may be deleted too. Refusing it
+/// left downloading something else as the only way out of a full disk, which
+/// is backwards — the files are the user's. The engine unloads the model
+/// first and the reply is awaited, so its memory is freed and, on Windows,
+/// the file handles are released before the removal is attempted. After this
+/// the app has no model until one is downloaded again; the confirmation
+/// dialog says so before calling this.
+///
+/// Returns `true` if the file existed and was deleted, `false` if it
+/// was already absent.
+#[tauri::command]
+pub(crate) async fn delete_model(
+    app: AppHandle,
+    state: tauri::State<'_, crate::state::AppState>,
+    model: String,
+) -> Result<bool, String> {
+    // A user's own file is unknown to the catalog and normalisation fails on it.
+    // Its identifier is the file name, and `delete_cached_model` checks it by the
+    // same rule as a download does: there is no way out of the models directory
+    // from here.
+    let normalized = normalize_model_id(&model)
+        .map(str::to_string)
+        .unwrap_or_else(|_| model.clone());
+    let loaded = crate::mutex_recover::lock(&state.engine_current_model).clone();
+    if loaded.as_deref() == Some(normalized.as_str()) {
+        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel::<()>();
+        state
+            .engine_cmd_tx
+            .send(crate::whisper::EngineCommand::UnloadModel { reply: reply_tx })
+            .await
+            .map_err(|e| format!("engine channel closed: {e}"))?;
+        // Commands are served in order on one thread, so this reply also
+        // means any transcription that was already queued has finished.
+        reply_rx
+            .await
+            .map_err(|e| format!("engine reply dropped: {e}"))?;
+        let _ = app.emit("model-unloaded", normalized.clone());
+    }
+    delete_cached_model(&model).map_err(|e| e.to_string())
+}
+
+/// Return both configured and actually loaded model state. The two values can
+/// differ briefly during startup or after a failed switch; `engine` always
+/// describes the engine thread rather than merely echoing config.
+#[tauri::command]
+pub(crate) fn get_model_status(
+    app: AppHandle,
+    state: tauri::State<'_, crate::state::AppState>,
+) -> Result<serde_json::Value, String> {
+    let selected = crate::config::Config::load(&app)
+        .ok()
+        .and_then(|c| c.get_string("model"));
+    let loaded = crate::mutex_recover::lock(&state.engine_current_model).clone();
+    let engine = loaded
+        .as_deref()
+        .and_then(|id| model_engine(id).ok())
+        .map(|engine| engine.wire_name());
+    Ok(serde_json::json!({
+        "selected": selected,
+        "loaded": loaded,
+        "model_loaded": engine.is_some(),
+        "engine": engine,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1701,7 +1809,7 @@ mod tests {
 
     #[test]
     fn list_models_marks_turbo_alias_selected() {
-        let models = list_models("large-v3-turbo", None);
+        let models = list_model_infos("large-v3-turbo", None);
         assert_eq!(models.iter().filter(|model| model.selected).count(), 1);
         assert!(models
             .iter()
@@ -1807,18 +1915,18 @@ mod tests {
         // The question "what exactly am I downloading" is about size and
         // precision at once, and blank space instead of an answer is worse than
         // the answer "f16".
-        for model in list_models("tiny", None) {
+        for model in list_model_infos("tiny", None) {
             if model.local {
                 continue;
             }
             assert!(
                 model.quantization.is_some(),
-                "{} не сообщает квантование",
+                "{} does not report its quantization",
                 model.id
             );
         }
 
-        let whisper = list_models("tiny", None);
+        let whisper = list_model_infos("tiny", None);
         let large = whisper.iter().find(|m| m.id == "large-v3").unwrap();
         assert_eq!(large.quantization.as_deref(), Some("f16"));
         let turbo = whisper.iter().find(|m| m.id == "turbo").unwrap();
@@ -1885,7 +1993,7 @@ mod tests {
         ] {
             assert!(
                 artifact_named(entry, role).is_ok(),
-                "трансдьюсеру нужен {role:?}"
+                "the transducer needs {role:?}"
             );
         }
     }
@@ -1902,7 +2010,7 @@ mod tests {
         let entry = bundle_manifest_entry("parakeet-tdt-v3").unwrap();
         let spec = model_load_spec("parakeet-tdt-v3", true).unwrap();
         let ModelLoadSpec::Sherpa { engine, files } = spec else {
-            panic!("трансдьюсер загружен не как sherpa: {spec:?}");
+            panic!("the transducer did not load as sherpa: {spec:?}");
         };
         assert_eq!(engine, ModelEngine::SherpaTransducer);
         // The names are literals rather than fetched via `artifact_named`:
@@ -1940,7 +2048,7 @@ mod tests {
         assert!(!ModelEngine::SherpaTransducer.is_streaming());
         assert!(!ModelEngine::Whisper.is_streaming());
 
-        let models = list_models("turbo", None);
+        let models = list_model_infos("turbo", None);
         let streaming = models
             .iter()
             .find(|m| m.id == "zipformer-ru-streaming")
@@ -1961,41 +2069,45 @@ mod tests {
         let mut ids = HashSet::new();
         let mut dirs = HashSet::new();
         for entry in bundle_manifest() {
-            assert!(ids.insert(entry.public_id), "дубль id: {}", entry.public_id);
+            assert!(
+                ids.insert(entry.public_id),
+                "duplicate id: {}",
+                entry.public_id
+            );
             assert!(
                 dirs.insert(entry.directory_name),
-                "дубль каталога: {}",
+                "duplicate directory: {}",
                 entry.directory_name
             );
             let mut roles = HashSet::new();
             for artifact in entry.artifacts {
                 assert!(
                     roles.insert(artifact.role),
-                    "{}: роль {:?} встречается дважды",
+                    "{}: role {:?} appears twice",
                     entry.public_id,
                     artifact.role
                 );
                 assert_eq!(
                     artifact.sha256.len(),
                     64,
-                    "{}: sha256 должен быть 64 hex-символа",
+                    "{}: sha256 must be 64 hex characters",
                     entry.public_id
                 );
                 assert!(
                     artifact.expected_bytes > 0,
-                    "{}: нулевой размер артефакта",
+                    "{}: the artifact size is zero",
                     entry.public_id
                 );
                 assert!(
                     artifact.download_url.ends_with(artifact.file_name),
-                    "{}: ссылка не заканчивается именем файла",
+                    "{}: the URL does not end with the file name",
                     entry.public_id
                 );
             }
             for role in entry.engine.required_roles() {
                 assert!(
                     artifact_named(entry, *role).is_ok(),
-                    "{}: не хватает роли {role:?}",
+                    "{}: missing role {role:?}",
                     entry.public_id
                 );
             }
@@ -2041,7 +2153,7 @@ mod tests {
             .artifacts
             .iter()
             .all(|artifact| artifact.sha256.len() == 64));
-        let models = list_models("gigaam-v3", None);
+        let models = list_model_infos("gigaam-v3", None);
         let gigaam = models.iter().find(|model| model.id == "gigaam-v3").unwrap();
         assert!(gigaam.cpu_only);
         assert_eq!(gigaam.engine, "sherpa-onnx");
@@ -2137,7 +2249,7 @@ mod tests {
         let error = verify_artifact(&path, 5, HELLO_SHA).unwrap_err();
         assert!(
             error.starts_with("MODEL_SHA256_MISMATCH"),
-            "подменённый файл принят как годный: {error}"
+            "a substituted file was accepted as valid: {error}"
         );
     }
 
@@ -2309,7 +2421,9 @@ mod tests {
     fn catalogue_entries_are_not_marked_local() {
         let dir = tempfile::tempdir().unwrap();
         let _g = EnvGuard::set(MODELS_DIR_ENV, dir.path());
-        assert!(list_models("turbo", None).iter().all(|model| !model.local));
+        assert!(list_model_infos("turbo", None)
+            .iter()
+            .all(|model| !model.local));
     }
 
     #[test]
@@ -2514,7 +2628,7 @@ mod tests {
 
     #[test]
     fn list_models_marks_whisper_selected_and_loaded_by_id() {
-        let models = list_models("turbo", Some("turbo"));
+        let models = list_model_infos("turbo", Some("turbo"));
         let turbo = models.iter().find(|m| m.id == "turbo").unwrap();
         assert!(turbo.selected, "turbo must be selected when requested");
         assert!(turbo.loaded, "turbo must be loaded when reported loaded");
@@ -2525,7 +2639,7 @@ mod tests {
     #[cfg(any(windows, target_os = "macos"))]
     #[test]
     fn list_models_marks_bundle_selected_and_loaded_by_id() {
-        let models = list_models("gigaam-v3", Some("gigaam-v3"));
+        let models = list_model_infos("gigaam-v3", Some("gigaam-v3"));
         let gigaam = models.iter().find(|m| m.id == "gigaam-v3").unwrap();
         assert!(gigaam.selected, "gigaam must be selected when requested");
         assert!(gigaam.loaded, "gigaam must be loaded when reported loaded");
@@ -2537,7 +2651,7 @@ mod tests {
         let _g = EnvGuard::set(MODELS_DIR_ENV, dir.path());
         write_model_file(dir.path(), "russian-finetune.bin");
 
-        let models = list_models("russian-finetune", Some("russian-finetune"));
+        let models = list_model_infos("russian-finetune", Some("russian-finetune"));
         let local = models.iter().find(|m| m.id == "russian-finetune").unwrap();
         assert!(local.local, "discovered file must be marked local");
         assert!(

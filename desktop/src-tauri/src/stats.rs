@@ -486,6 +486,14 @@ pub fn days_to_ymd(days_since_epoch: i64) -> (i32, u32, u32) {
     (y as i32, m as u32, d as u32)
 }
 
+#[tauri::command]
+pub(crate) async fn get_stats(
+    state: tauri::State<'_, crate::state::AppState>,
+) -> Result<StatsResult, String> {
+    let db = state.db.clone();
+    crate::run_db_op(db, get_stats_from).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

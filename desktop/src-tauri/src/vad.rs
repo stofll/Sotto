@@ -314,7 +314,7 @@ mod tests {
         // closure catches any regression to eager argument evaluation.
         assert_eq!(
             trim_decision(false, 32_000, || unreachable!(
-                "детектор не должен запускаться при выключенной настройке"
+                "the detector must not start while the setting is off"
             )),
             None
         );

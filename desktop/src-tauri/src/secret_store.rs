@@ -103,6 +103,58 @@ pub struct KeyMeta {
     pub masked: String,
 }
 
+/// Save an API key into the platform secret store.
+///
+/// The frontend (API-keys / providers pages) invokes this with the
+/// slot ref (`key_id`) as the storage username, matching how the AI
+/// pipeline later resolves keys via `secret_store::get_key(api_key_ref)`.
+/// `provider` is passed for context but not needed for storage.
+///
+/// `rename_all = "snake_case"` because the frontend sends snake_case
+/// argument names (`key_id`) — Tauri's default is camelCase.
+///
+/// Returns `{ saved, label, masked }`. Labels are not portably stored in
+/// the OS credential store, so the caller-supplied `label` is echoed back
+/// for the in-memory UI state (it does not survive a restart).
+#[tauri::command(rename_all = "snake_case")]
+pub(crate) fn save_api_key(
+    key_id: String,
+    key: String,
+    label: Option<String>,
+) -> Result<serde_json::Value, String> {
+    save_key(&key_id, &key)?;
+    let masked = get_key_meta(&key_id)?
+        .map(|meta| meta.masked)
+        .unwrap_or_default();
+    Ok(serde_json::json!({
+        "saved": true,
+        "label": label.unwrap_or_default(),
+        "masked": masked,
+    }))
+}
+
+/// Report whether a key exists for the given slot ref, with its mask.
+/// Called at boot for every known slot and after edits.
+#[tauri::command(rename_all = "snake_case")]
+pub(crate) fn has_api_key(key_id: String) -> Result<serde_json::Value, String> {
+    match get_key_meta(&key_id)? {
+        Some(meta) => Ok(serde_json::json!({
+            "available": meta.available,
+            "label": meta.label,
+            "masked": meta.masked,
+        })),
+        None => Ok(serde_json::json!({ "available": false, "label": "", "masked": "" })),
+    }
+}
+
+/// Delete a stored API key. Returns `{ deleted }` (false if there was
+/// no key in that slot — not an error).
+#[tauri::command(rename_all = "snake_case")]
+pub(crate) fn delete_api_key(key_id: String) -> Result<serde_json::Value, String> {
+    let deleted = delete_key(&key_id)?;
+    Ok(serde_json::json!({ "deleted": deleted }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
