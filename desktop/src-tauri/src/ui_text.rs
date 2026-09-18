@@ -216,28 +216,68 @@ mod tests {
 
     /// Every key in the table must occur in the code — otherwise a translation
     /// hangs there as dead weight and drifts from the original unnoticed.
+    ///
+    /// Both halves are read off disk: the keys from `en()` below, the code from
+    /// every `.rs` under `src/`. Hand-written lists of either were the weakness
+    /// this replaced — a list of seven keys checked against five named files
+    /// missed both a dead translation and every key that moved to a module the
+    /// list had never heard of.
     #[test]
     fn every_translated_key_is_used_somewhere() {
-        let sources: Vec<String> = ["lib.rs", "tray.rs", "whisper.rs", "model.rs", "ai/mod.rs"]
-            .iter()
-            .map(|f| {
-                std::fs::read_to_string(format!("{}/src/{f}", env!("CARGO_MANIFEST_DIR")))
-                    .unwrap_or_default()
-            })
-            .collect();
-        for key in [
-            "Выход",
-            "Не выбран провайдер.",
-            "LLM не вернула результат.",
-            "Вставьте текст для обработки.",
-            "Модель не загружена. Откройте «Настройки → Модели» и выберите модель.",
-            "Не удалось вставить текст в активное окно.",
-            "Эта модель распознаёт только русскую речь.",
-        ] {
+        let root = format!("{}/src", env!("CARGO_MANIFEST_DIR"));
+        let table = format!("{root}/ui_text.rs");
+        let mut sources = Vec::new();
+        collect_rust_sources(std::path::Path::new(&root), &table, &mut sources);
+        // Anti-vacuity: a walk that found nothing would pass every assertion
+        // below without reading a line of the application.
+        assert!(sources.len() > 20, "the source walk found almost no files");
+
+        let keys = translation_keys(&std::fs::read_to_string(&table).unwrap());
+        assert!(keys.len() > 20, "the table parser found almost no keys");
+
+        for key in keys {
             assert!(
-                sources.iter().any(|s| s.contains(key)),
+                sources.iter().any(|source| source.contains(&key)),
                 "the translation exists but the string is not in the code: {key}"
             );
         }
+    }
+
+    /// Every `.rs` file under `src/`, except the one holding the table itself —
+    /// there every key occurs by definition.
+    fn collect_rust_sources(dir: &std::path::Path, table: &str, out: &mut Vec<String>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                collect_rust_sources(&path, table, out);
+            } else if path.extension().is_some_and(|ext| ext == "rs")
+                && path.to_string_lossy() != table
+            {
+                if let Ok(text) = std::fs::read_to_string(&path) {
+                    out.push(text);
+                }
+            }
+        }
+    }
+
+    /// The left-hand sides of the `match` arms in `en()`. The arms are one key
+    /// each and carry no escapes, so the line is its own delimiter.
+    fn translation_keys(source: &str) -> Vec<String> {
+        let start = source
+            .find("fn en(")
+            .expect("fn en(…) not found in ui_text.rs");
+        source[start..]
+            .lines()
+            .skip(1)
+            .take_while(|line| !line.starts_with('}'))
+            .filter_map(|line| {
+                let rest = line.trim_start().strip_prefix('"')?;
+                let end = rest.find("\" =>")?;
+                Some(rest[..end].to_string())
+            })
+            .collect()
     }
 }
