@@ -63,6 +63,18 @@ The `.dmg` step drives Finder through AppleScript to lay out the volume window, 
 pnpm tauri build --bundles app
 ```
 
+## Content Security Policy
+
+`app.security.csp` in `desktop/src-tauri/tauri.conf.json` is the policy every window loads under. It is a single JSON string, so the reason for each relaxation is recorded here rather than next to the directive.
+
+`style-src 'self' 'unsafe-inline'` is required by how the windows style themselves: `desktop/overlay.html` and `desktop/tray.html` carry a `<style>` block that is still inline in the built HTML, and the React components set `style` attributes on their elements. `'unsafe-inline'` covers both, so removing it leaves the overlay and the tray popup without their transparent background. The Tauri runtime itself is not the reason: it injects a style element only under the isolation pattern, which this application does not enable.
+
+`script-src` stays closed at `'self'`, with no `'unsafe-inline'`, `'unsafe-eval'`, nonce, or additional host. The frontend ships as local bundles and evaluates no strings, so an exemption there would only widen what an injected script could reach; treat any proposal to relax this directive as a security change requiring review, not as a build fix.
+
+`default-src 'self'` with `connect-src 'self' ipc: http://ipc.localhost` is what lets a window reach the Rust commands and nothing else — network access belongs to the Rust side and is documented in [Privacy](privacy.md). `img-src` adds `asset:` and `http://asset.localhost` for Tauri's asset protocol and `data:` for inline images.
+
+All three windows load this one policy, so a directive relaxed for one of them is relaxed for the settings window as well.
+
 ## Repository layout
 
 ```text
