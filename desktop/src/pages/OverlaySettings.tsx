@@ -90,6 +90,7 @@ export function OverlaySettings({ config, onConfigChanged }: Props) {
         <span className="set-label">{t("Форма")}</span>
         <Segmented value={draft.form} disabled={locked} options={[
           { value: "pill", label: t("Пилюля") }, { value: "bead", label: t("Бусина") },
+          { value: "glow", label: t("Свечение") },
         ]} onChange={(form) => void save({ form: form as OverlayPreferences["form"] })}/>
       </div>
       <div className="set-cell set-cell--auto" role="group" aria-label={t("Размер")}>
@@ -164,13 +165,19 @@ export function OverlaySettings({ config, onConfigChanged }: Props) {
             style={{ ...overlayPalette(draft), ...previewPlacement(draft.anchor, draft.edge_offset) }}>
             <span className="overlay-mini__shell">
               <span className="overlay-mini__surface">
-                {draft.form === "pill" ? <>
+                {draft.form === "bead" ? <span className="overlay-mini__ring"/> : draft.form === "glow" ? <>
+                  <span className="overlay-mini__copy"/>
+                  <span className="overlay-mini__bar">
+                    <span className="overlay-mini__timer">0:07</span>
+                    <span className="overlay-mini__close"><Icon name="x" size={14}/></span>
+                  </span>
+                </> : <>
                   <span className="overlay-mini__timer">0:07</span>
                   <span className="overlay-mini__wave">
                     {PREVIEW_BARS.map((height, bar) => <span key={bar} style={{ height }}/>)}
                   </span>
                   <span className="overlay-mini__close"><Icon name="x" size={14}/></span>
-                </> : <span className="overlay-mini__ring"/>}
+                </>}
               </span>
             </span>
           </span>

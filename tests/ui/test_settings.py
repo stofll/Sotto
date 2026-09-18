@@ -349,6 +349,9 @@ def test_offset_reset_returns_to_default(app, page, saved_offset):
         ("bead", "s", ("56px", "56px")),
         ("bead", "m", ("64px", "64px")),
         ("bead", "l", ("72px", "72px")),
+        ("glow", "s", ("360px", "92px")),
+        ("glow", "m", ("400px", "104px")),
+        ("glow", "l", ("440px", "116px")),
     ],
 )
 def test_overlay_preview_matches_real_geometry(app, page, form, size, shell):

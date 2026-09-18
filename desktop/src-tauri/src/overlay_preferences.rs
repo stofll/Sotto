@@ -3,7 +3,7 @@ use serde_json::Value;
 
 /// Mirrors `DEFAULT_EDGE_OFFSET` in overlayPreferences.ts.
 const DEFAULT_EDGE_OFFSET: f64 = 25.0;
-const FORMS: &[&str] = &["pill", "bead"];
+const FORMS: &[&str] = &["pill", "bead", "glow"];
 const SIZES: &[&str] = &["s", "m", "l"];
 const PALETTES: &[&str] = &["copper", "graphite", "lagoon", "violet", "custom"];
 const ANCHORS: &[&str] = &[
@@ -54,7 +54,9 @@ impl OverlayPreferences {
     }
 
     pub fn layout(&self, streaming: bool, needs_text: bool) -> Layout {
-        if needs_text {
+        if self.form == "glow" {
+            Layout::Glow
+        } else if needs_text {
             Layout::Pill
         } else if self.form == "bead" {
             Layout::Bead
@@ -76,6 +78,9 @@ impl OverlayPreferences {
             (Layout::Streaming, "s") => (520.0, 138.0),
             (Layout::Streaming, "l") => (680.0, 174.0),
             (Layout::Streaming, _) => (600.0, 150.0),
+            (Layout::Glow, "s") => (360.0, 100.0),
+            (Layout::Glow, "l") => (440.0, 124.0),
+            (Layout::Glow, _) => (400.0, 112.0),
         }
     }
 }
@@ -86,6 +91,7 @@ pub enum Layout {
     Pill,
     Bead,
     Streaming,
+    Glow,
 }
 
 // Loading repairs known retired values in memory; only a successful save writes them.
@@ -170,6 +176,17 @@ mod tests {
         assert_eq!(p.layout(true, false), Layout::Bead);
         assert_eq!(p.layout(true, true), Layout::Pill);
         assert_eq!(p.layout(false, false), Layout::Bead);
+    }
+
+    #[test]
+    fn glow_keeps_streaming_and_errors() {
+        let p = OverlayPreferences::from_config(&json!({"overlay":{"form":"glow"}}));
+        assert_eq!(p.layout(true, false), Layout::Glow);
+        assert_eq!(p.layout(true, true), Layout::Glow);
+        assert_eq!(p.layout(false, false), Layout::Glow);
+        assert_eq!(p.window_size(Layout::Glow), (400.0, 112.0));
+        let large = OverlayPreferences::from_config(&json!({"overlay":{"form":"glow","size":"l"}}));
+        assert_eq!(large.window_size(Layout::Glow), (440.0, 124.0));
     }
 
     #[test]

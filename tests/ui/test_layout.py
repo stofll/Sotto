@@ -68,13 +68,18 @@ def test_overlay_native_geometry_and_preview(app, page, output_path):
 
 
 @pytest.mark.parametrize("locale", ["ru", "en"])
-@pytest.mark.parametrize("form", ["pill", "bead"])
+@pytest.mark.parametrize("form", ["pill", "bead", "glow"])
 @pytest.mark.parametrize(
     "state", ["loading", "recording", "processing", "done", "pasted", "error"]
 )
 def test_overlay_forms_and_states(app, page, locale, form, state, output_path):
-    bead = form == "bead" and state != "error"
-    page.set_viewport_size({"width": 72 if bead else 308, "height": 72 if bead else 64})
+    if form == "glow":
+        viewport, layout = {"width": 400, "height": 112}, "glow"
+    elif form == "bead" and state != "error":
+        viewport, layout = {"width": 72, "height": 72}, "bead"
+    else:
+        viewport, layout = {"width": 308, "height": 64}, "compact"
+    page.set_viewport_size(viewport)
     ui = app(
         "overlay",
         config={
@@ -85,7 +90,7 @@ def test_overlay_forms_and_states(app, page, locale, form, state, output_path):
     ui.emit("recording-started", 1)
     ui.emit("overlay-state", state)
     overlay = page.get_by_test_id("overlay")
-    expect(overlay).to_have_attribute("data-layout", "bead" if bead else "compact")
+    expect(overlay).to_have_attribute("data-layout", layout)
     shell = page.locator(".overlay-shell").bounding_box()
     assert shell["width"] <= page.viewport_size["width"]
     assert shell["height"] <= page.viewport_size["height"]

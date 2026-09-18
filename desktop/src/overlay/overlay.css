@@ -114,6 +114,58 @@
 .overlay[data-layout="streaming"][data-size="l"] .overlay-shell { max-width: 672px; height: 166px; }
 .overlay[data-layout="streaming"][data-size="s"] .overlay-preview { font-size: 13px; }
 .overlay[data-layout="streaming"][data-size="l"] .overlay-preview { font-size: 16px; }
+.overlay[data-layout="glow"] .overlay-shell { max-width: 400px; height: 104px; border-radius: 28px; }
+.overlay[data-layout="glow"] .overlay-surface { border-radius: 24px; padding: 10px 12px 8px; display: flex; flex-direction: column; justify-content: space-between; gap: 4px; }
+.overlay[data-layout="glow"] .overlay-surface::before,
+.overlay[data-layout="glow"] .overlay-surface::after,
+.overlay[data-layout="glow"] .overlay-glow { display: none; }
+.overlay[data-layout="glow"]:is([data-state="loading"], [data-state="processing"], [data-state="done"]) .overlay-shell::before { content: none; animation: none; }
+.overlay[data-layout="glow"][data-size="s"] .overlay-shell { max-width: 360px; height: 92px; border-radius: 24px; }
+.overlay[data-layout="glow"][data-size="s"] .overlay-surface { border-radius: 20px; }
+.overlay[data-layout="glow"][data-size="l"] .overlay-shell { max-width: 440px; height: 116px; border-radius: 32px; }
+.overlay[data-layout="glow"][data-size="l"] .overlay-surface { border-radius: 28px; }
+.overlay-composer-body { position: relative; z-index: 1; flex: 1; min-height: 0; display: flex; }
+.overlay-composer-body .overlay-preview { font: 500 14px/1.35 var(--font-sans); }
+.overlay-composer-body .overlay-preview-empty { align-items: flex-start; padding-top: 2px; }
+.overlay-composer-body .overlay-text { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.overlay-composer-bar { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; min-height: 32px; }
+.overlay-beam {
+  --vb-h: 0.85; --vb-w: 1; --vb-glow: 0.35; --vb-cx: 0px; --vb-bh: 0px; --vb-mw: 1;
+  --vb-x0: 0px; --vb-l0: 1; --vb-x1: -36px; --vb-l1: 1; --vb-x2: 36px; --vb-l2: 1;
+  --vb-x3: -72px; --vb-l3: 1; --vb-x4: 72px; --vb-l4: 1; --vb-x5: -108px; --vb-l5: 1; --vb-x6: 108px; --vb-l6: 1;
+  position: absolute; inset: 0; border-radius: inherit; overflow: hidden; pointer-events: none; z-index: 0;
+}
+.overlay-beam__inner, .overlay-beam__bloom {
+  position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  -webkit-mask-image: radial-gradient(ellipse calc(180px * var(--vb-w) * var(--vb-mw)) calc(70px * var(--vb-h) + var(--vb-bh)) at calc(50% + var(--vb-cx)) 100%, #fff 0%, rgba(255,255,255,.5) 45%, transparent 100%);
+  mask-image: radial-gradient(ellipse calc(180px * var(--vb-w) * var(--vb-mw)) calc(70px * var(--vb-h) + var(--vb-bh)) at calc(50% + var(--vb-cx)) 100%, #fff 0%, rgba(255,255,255,.5) 45%, transparent 100%);
+}
+.overlay-beam__inner {
+  opacity: calc(var(--vb-glow) * 0.55);
+  filter: saturate(1.25) brightness(1.12);
+  background:
+    radial-gradient(ellipse calc(74px * var(--vb-w) * var(--vb-l0)) calc(46px * var(--vb-h) * var(--vb-l0)) at calc(50% + var(--vb-cx) + var(--vb-x0) * var(--vb-w)) calc(100% + 2px), rgba(255,70,120,.5) 0%, transparent 70%),
+    radial-gradient(ellipse calc(54px * var(--vb-w) * var(--vb-l1)) calc(40px * var(--vb-h) * var(--vb-l1)) at calc(50% + var(--vb-cx) + var(--vb-x1) * var(--vb-w)) calc(100% + 2px), rgba(60,190,255,.46) 0%, transparent 70%),
+    radial-gradient(ellipse calc(54px * var(--vb-w) * var(--vb-l2)) calc(40px * var(--vb-h) * var(--vb-l2)) at calc(50% + var(--vb-cx) + var(--vb-x2) * var(--vb-w)) calc(100% + 2px), rgba(175,70,255,.46) 0%, transparent 70%),
+    radial-gradient(ellipse calc(48px * var(--vb-w) * var(--vb-l3)) calc(32px * var(--vb-h) * var(--vb-l3)) at calc(50% + var(--vb-cx) + var(--vb-x3) * var(--vb-w)) calc(100% + 2px), rgba(60,220,130,.4) 0%, transparent 70%),
+    radial-gradient(ellipse calc(48px * var(--vb-w) * var(--vb-l4)) calc(32px * var(--vb-h) * var(--vb-l4)) at calc(50% + var(--vb-cx) + var(--vb-x4) * var(--vb-w)) calc(100% + 2px), rgba(255,150,40,.4) 0%, transparent 70%),
+    radial-gradient(ellipse calc(42px * var(--vb-w) * var(--vb-l5)) calc(26px * var(--vb-h) * var(--vb-l5)) at calc(50% + var(--vb-cx) + var(--vb-x5) * var(--vb-w)) calc(100% + 2px), rgba(90,100,255,.36) 0%, transparent 70%),
+    radial-gradient(ellipse calc(42px * var(--vb-w) * var(--vb-l6)) calc(26px * var(--vb-h) * var(--vb-l6)) at calc(50% + var(--vb-cx) + var(--vb-x6) * var(--vb-w)) calc(100% + 2px), rgba(40,200,190,.36) 0%, transparent 70%);
+}
+.overlay-beam__bloom {
+  opacity: calc(var(--vb-glow) * 0.9);
+  filter: blur(10px) saturate(1.3) brightness(1.15);
+  -webkit-mask-image: radial-gradient(ellipse calc(210px * var(--vb-w) * var(--vb-mw)) calc(120px * var(--vb-h) + var(--vb-bh)) at calc(50% + var(--vb-cx)) 100%, #fff 0%, rgba(255,255,255,.45) 38%, transparent 100%);
+  mask-image: radial-gradient(ellipse calc(210px * var(--vb-w) * var(--vb-mw)) calc(120px * var(--vb-h) + var(--vb-bh)) at calc(50% + var(--vb-cx)) 100%, #fff 0%, rgba(255,255,255,.45) 38%, transparent 100%);
+  background:
+    radial-gradient(ellipse calc(85px * var(--vb-w) * var(--vb-l0)) calc(69px * var(--vb-h) * var(--vb-l0)) at calc(50% + var(--vb-cx) + var(--vb-x0) * var(--vb-w)) 100%, rgba(255,70,120,.9) 0%, transparent 72%),
+    radial-gradient(ellipse calc(62px * var(--vb-w) * var(--vb-l1)) calc(60px * var(--vb-h) * var(--vb-l1)) at calc(50% + var(--vb-cx) + var(--vb-x1) * var(--vb-w)) 100%, rgba(60,190,255,.85) 0%, transparent 72%),
+    radial-gradient(ellipse calc(62px * var(--vb-w) * var(--vb-l2)) calc(60px * var(--vb-h) * var(--vb-l2)) at calc(50% + var(--vb-cx) + var(--vb-x2) * var(--vb-w)) 100%, rgba(175,70,255,.85) 0%, transparent 72%),
+    radial-gradient(ellipse calc(55px * var(--vb-w) * var(--vb-l3)) calc(48px * var(--vb-h) * var(--vb-l3)) at calc(50% + var(--vb-cx) + var(--vb-x3) * var(--vb-w)) 100%, rgba(60,220,130,.75) 0%, transparent 72%),
+    radial-gradient(ellipse calc(55px * var(--vb-w) * var(--vb-l4)) calc(48px * var(--vb-h) * var(--vb-l4)) at calc(50% + var(--vb-cx) + var(--vb-x4) * var(--vb-w)) 100%, rgba(255,150,40,.75) 0%, transparent 72%),
+    radial-gradient(ellipse calc(48px * var(--vb-w) * var(--vb-l5)) calc(39px * var(--vb-h) * var(--vb-l5)) at calc(50% + var(--vb-cx) + var(--vb-x5) * var(--vb-w)) 100%, rgba(90,100,255,.7) 0%, transparent 72%),
+    radial-gradient(ellipse calc(48px * var(--vb-w) * var(--vb-l6)) calc(39px * var(--vb-h) * var(--vb-l6)) at calc(50% + var(--vb-cx) + var(--vb-x6) * var(--vb-w)) 100%, rgba(40,200,190,.7) 0%, transparent 72%);
+}
 .overlay[data-layout="bead"] .overlay-shell { width: 64px; height: 64px; }
 .overlay[data-layout="bead"][data-size="s"] { --overlay-ring-radius: 16px; }
 .overlay[data-layout="bead"][data-size="s"] .overlay-shell { width: 56px; height: 56px; }

@@ -195,6 +195,22 @@ def test_overlay_timer_stops_after_recording_and_reset(app, page):
     expect(page.locator(".overlay-timer")).to_have_text("00:00")
 
 
+def test_glow_keeps_live_text_and_errors(app, page):
+    page.set_viewport_size({"width": 400, "height": 112})
+    ui = app("overlay", config={"overlay": {"form": "glow"}})
+    overlay = page.get_by_test_id("overlay")
+    ui.emit("recording-started", 1)
+    ui.emit("live-preview-armed", {"session_id": 1, "armed": True})
+    ui.emit("transcription-delta", {"session_id": 1, "text": "Visible live draft"})
+    expect(overlay).to_have_attribute("data-layout", "glow")
+    expect(page.locator(".overlay-preview")).to_contain_text("Visible live draft")
+    expect(page.locator(".overlay-beam")).to_have_count(1)
+    expect(page.locator(".overlay-timer")).to_be_visible()
+    ui.emit("whisper-failed", {"session_id": 1, "message": "Synthetic glow error"})
+    expect(overlay).to_have_attribute("data-layout", "glow")
+    expect(overlay).to_contain_text("Synthetic glow error")
+
+
 def test_bead_suppresses_live_text_and_recovers_after_warning(app, page):
     ui = app("overlay", config={"overlay": {"form": "bead"}})
     overlay = page.get_by_test_id("overlay")

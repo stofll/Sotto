@@ -2075,15 +2075,35 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .overlay-mini[data-form="bead"] { width: 72px; height: 72px; }
 .overlay-mini[data-form="bead"][data-size="s"] { width: 64px; height: 64px; }
 .overlay-mini[data-form="bead"][data-size="l"] { width: 80px; height: 80px; }
+.overlay-mini[data-form="glow"] { width: 400px; height: 112px; }
+.overlay-mini[data-form="glow"][data-size="s"] { width: 360px; height: 100px; }
+.overlay-mini[data-form="glow"][data-size="l"] { width: 440px; height: 124px; }
 .overlay-mini__shell { display: block; width: 100%; max-width: 100%; height: 56px; border-radius: 999px; padding: 4px; background: linear-gradient(180deg, var(--overlay-shell-top), var(--overlay-shell-bottom)); box-shadow: 0 1px 0 rgba(255, 255, 255, 0.05) inset; }
 .overlay-mini[data-size="s"] .overlay-mini__shell { height: 52px; }
 .overlay-mini[data-size="l"] .overlay-mini__shell { height: 64px; }
 .overlay-mini[data-form="bead"] .overlay-mini__shell { width: 64px; height: 64px; }
 .overlay-mini[data-form="bead"][data-size="s"] .overlay-mini__shell { width: 56px; height: 56px; }
 .overlay-mini[data-form="bead"][data-size="l"] .overlay-mini__shell { width: 72px; height: 72px; }
+.overlay-mini[data-form="glow"] .overlay-mini__shell { height: 104px; border-radius: 28px; }
+.overlay-mini[data-form="glow"][data-size="s"] .overlay-mini__shell { height: 92px; border-radius: 24px; }
+.overlay-mini[data-form="glow"][data-size="l"] .overlay-mini__shell { height: 116px; border-radius: 32px; }
 .overlay-mini__surface { position: relative; width: 100%; height: 100%; padding: 0 8px; border-radius: 999px; background: var(--overlay-surface); display: flex; align-items: center; gap: 8px; }
 .overlay-mini[data-size="l"] .overlay-mini__surface { padding-inline: 12px; }
 .overlay-mini[data-form="bead"] .overlay-mini__surface { padding: 0; }
+.overlay-mini[data-form="glow"] .overlay-mini__surface { flex-direction: column; align-items: stretch; justify-content: space-between; padding: 10px 12px 8px; border-radius: 24px; overflow: hidden; }
+.overlay-mini[data-form="glow"][data-size="s"] .overlay-mini__surface { border-radius: 20px; }
+.overlay-mini[data-form="glow"][data-size="l"] .overlay-mini__surface { border-radius: 28px; }
+.overlay-mini[data-form="glow"] .overlay-mini__surface::before {
+  content: ""; position: absolute; inset: 28% 0 0 0; pointer-events: none; filter: blur(8px) saturate(1.2);
+  background:
+    radial-gradient(ellipse 90px 42px at 50% 100%, rgba(255, 70, 120, 0.85), transparent 70%),
+    radial-gradient(ellipse 70px 34px at 32% 100%, rgba(60, 190, 255, 0.8), transparent 70%),
+    radial-gradient(ellipse 70px 34px at 68% 100%, rgba(175, 70, 255, 0.8), transparent 70%),
+    radial-gradient(ellipse 56px 28px at 16% 100%, rgba(60, 220, 130, 0.7), transparent 70%),
+    radial-gradient(ellipse 56px 28px at 84% 100%, rgba(255, 150, 40, 0.7), transparent 70%);
+}
+.overlay-mini[data-form="glow"] .overlay-mini__copy { flex: 1; }
+.overlay-mini[data-form="glow"] .overlay-mini__bar { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; }
 .overlay-mini__surface::after { content: ""; position: absolute; inset: 0; border-radius: inherit; border: 1px solid var(--overlay-edge); opacity: 0.25; }
 .overlay-mini__timer { height: 34px; min-width: 58px; padding: 0 8px; border-radius: 999px; background: color-mix(in srgb, var(--overlay-wave-mid) 14%, transparent); color: var(--overlay-wave-mid); display: inline-flex; align-items: center; justify-content: center; gap: 6px; font: 700 12px/1 var(--font-mono); font-variant-numeric: tabular-nums; }
 .overlay-mini__timer::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--overlay-wave-mid); }

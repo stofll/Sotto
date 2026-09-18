@@ -1,4 +1,4 @@
-export const OVERLAY_FORMS = ["pill", "bead"] as const;
+export const OVERLAY_FORMS = ["pill", "bead", "glow"] as const;
 export const OVERLAY_PALETTES = ["copper", "graphite", "lagoon", "violet", "custom"] as const;
 export const OVERLAY_SIZES = ["s", "m", "l"] as const;
 // Logical pixels; mirrors the native default in overlay_preferences.rs.
@@ -33,8 +33,9 @@ export function overlayPreferences(raw: unknown): OverlayPreferences {
   };
 }
 
-export type OverlayLayout = "pill" | "bead" | "streaming";
+export type OverlayLayout = "pill" | "bead" | "streaming" | "glow";
 export function overlayLayout(form: OverlayPreferences["form"], streaming: boolean, needsText: boolean): OverlayLayout {
+  if (form === "glow") return "glow";
   if (needsText) return "pill";
   if (form === "bead") return "bead";
   return streaming ? "streaming" : "pill";
