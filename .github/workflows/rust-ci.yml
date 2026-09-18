@@ -15,11 +15,6 @@ name: Rust CI
 on:
   pull_request:
     branches: [main]
-    # Лендинг живёт в site/ отдельным проектом со своим локфайлом и своей
-    # сборкой. Правка текста на сайте не может сломать Rust, а матрица из
-    # трёх ОС стоит дороже всего остального вместе взятого.
-    paths-ignore:
-      - 'site/**'
   workflow_dispatch:
 
 # Пуш в ветку отменяет её предыдущий, ещё не досчитанный прогон. Иначе
@@ -31,14 +26,64 @@ concurrency:
 
 permissions:
   contents: read
+  pull-requests: read
 
 # Все джобы собирают CPU-вариант: GPU-бэкенды whisper.cpp вынесены в
 # опциональные фичи gpu-vulkan / gpu-metal (см. Cargo.toml), и без них
 # Vulkan SDK на раннере не нужен. Не добавляйте сюда установку SDK —
 # ускоритель проверяется релизной сборкой, а не этим пайплайном.
 jobs:
+  # Лендинг живёт в site/ отдельным проектом со своим локфайлом и своей
+  # сборкой. Правка текста на сайте не может сломать Rust, а матрица из трёх
+  # ОС стоит дороже всего остального вместе взятого, поэтому джобы ниже её
+  # пропускают.
+  #
+  # Фильтр висит на джобах, а не на воркфлоу: `paths-ignore` был ловушкой.
+  # Все обязательные статус-чеки main живут здесь, а незапущенный воркфлоу не
+  # репортит свои контексты вовсе, так что PR, правящий только site/, вис бы
+  # навсегда с семью pending. Пропущенный по `if:` джоб, наоборот, засчитывается
+  # как успешный.
+  #
+  # Это же и делает условие ниже `!= 'false'` внутри `!cancelled()`: раз пропуск
+  # закрывает обязательный чек, упавший гейт иначе открыл бы мерж вообще без
+  # проверок. Отказ проверять требует явного `false`, молчание — нет.
+  changes:
+    name: Changed paths
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      app: ${{ steps.filter.outputs.app }}
+    steps:
+      # Список файлов берётся из API, а не из checkout: гейту не нужно дерево,
+      # а полная история ради `git diff` стоит дороже самого ответа.
+      - id: filter
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo 'Не pull request — проверяется всё.'
+            echo 'app=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          files=$(gh api --paginate \
+            "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
+            --jq '.[].filename') || files=''
+          # Пустой ответ означает, что список получить не удалось. Гейт для
+          # экономии минут, а не для проверок: молчание трактуется как «есть
+          # правки в приложении», и обязательные чеки отрабатывают честно.
+          if printf '%s\n' "$files" | grep -qvE '^site/'; then
+            echo 'Изменения за пределами site/ — проверяется всё.'
+            echo 'app=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'Правки только в site/ — проверки приложения пропускаются.'
+            echo 'app=false' >> "$GITHUB_OUTPUT"
+          fi
+
   security-audit:
     name: Dependency security audit
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.app != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -92,6 +137,8 @@ jobs:
   # ---------------------------------------------------------------
   lint:
     name: Cargo fmt + clippy (Linux)
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.app != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -177,6 +224,8 @@ jobs:
   # ---------------------------------------------------------------
   build-test:
     name: Build + test (${{ matrix.os }})
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.app != 'false' }}
     runs-on: ${{ matrix.os }}
     # Allow time for the additional platform-specific Clippy pass.
     timeout-minutes: 60
@@ -319,6 +368,8 @@ jobs:
 
   frontend-test:
     name: TypeScript typecheck + build
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.app != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -350,6 +401,13 @@ jobs:
         working-directory: desktop
         run: npx tsc --noEmit
 
+      # У харнесса Playwright свой tsconfig: он живёт вне desktop/src и в
+      # прогон выше не попадает. Без этого шага правка типов моста ломала бы
+      # моки молча — до первого падения UI-тестов, где причина уже не видна.
+      - name: Typecheck UI test harness
+        working-directory: desktop
+        run: npx tsc --noEmit -p ../tests/ui/tsconfig.json
+
       - name: Translation coverage
         working-directory: desktop
         run: pnpm i18n:check
@@ -374,6 +432,8 @@ jobs:
   # Python sidecar RPC.
   static-gate:
     name: Static gate — no sidecar_invoke / Python runtime
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.app != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

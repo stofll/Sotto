@@ -6,6 +6,7 @@ Run the frontend checks from the repository root:
 cd desktop
 pnpm install --frozen-lockfile
 pnpm exec tsc --noEmit
+pnpm exec tsc --noEmit -p ../tests/ui/tsconfig.json
 pnpm test
 pnpm i18n:check
 pnpm build
@@ -60,6 +61,17 @@ When expanding accuracy coverage, use a reviewed corpus with expected transcript
 ## Native verification before release
 
 Changes to microphone capture, global shortcuts, clipboard behavior, installers, or model loading require checks on each affected OS with a packaged application. Establish where configuration, history, recordings and models will be stored before launching it, and isolate test data from the developer's live data. Never reset live data to prepare a test.
+
+For capture or audio-dependency changes, also run the native recorder regression on each affected OS with an available microphone and microphone permission:
+
+```bash
+cd desktop/src-tauri
+cargo test --locked --lib native_microphone_repeated_sessions_preserve_duration -- --ignored --nocapture
+```
+
+This records five short sessions with the system default microphone, then five with the same device explicitly selected through enumeration. It checks PCM duration against elapsed time and verifies that callbacks release their buffers after stop. Audio stays in memory; the test does not load app configuration, save recordings, transcribe, or write history.
+
+It is opt-in because ordinary CI runners do not guarantee a microphone or permission; a skipped hardware test is not evidence of correct capture. Synthetic PCM and prepared-speech inference tests cannot verify native stream teardown.
 
 - Start/stop through the hotkey and tray, in toggle and push-to-talk modes. Repeat immediately after silence, cancellation and a recoverable failure.
 - Cancel during capture, inference and optional LLM processing. Verify that cancelled text is neither inserted nor written as a successful history entry.

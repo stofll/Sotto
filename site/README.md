@@ -2,7 +2,7 @@
 
 The landing page for [Sotto](https://github.com/stofll/Sotto), built with Astro and served as static HTML.
 
-It lives in this repository but installs separately: `site/` has its own `pnpm-lock.yaml` and is **not** a member of the `desktop/` workspace. Changing the landing page cannot touch the app's dependency graph, and `rust-ci.yml` and `ui-tests.yml` ignore `site/**` so a copy edit does not run the three-OS build matrix.
+It lives in this repository but installs separately: `site/` has its own `pnpm-lock.yaml` and is **not** a member of the `desktop/` workspace. Changing the landing page cannot touch the app's dependency graph, and a copy edit does not run the three-OS build matrix: `ui-tests.yml` ignores `site/**` outright, while `rust-ci.yml` filters per job. The difference matters, because every required status check on `main` lives in `rust-ci.yml` — a workflow that never starts reports no contexts at all, and a site-only pull request would wait on them forever, whereas a job skipped by `if:` counts as passed.
 
 ## Commands
 
