@@ -44,7 +44,9 @@ log = "0.4"
 # runtime anyway when the GPU can't be initialised.
 whisper-rs = "0.14"
 dirs = "6"
-cpal = "0.15"
+# 0.16 fixes the CoreAudio disconnect-listener cycle that kept explicitly
+# selected microphones recording after their stream was dropped.
+cpal = "0.16"
 # WS 4b: rusqlite + bundled SQLite for the data layer (stats, history).
 # `bundled` compiles SQLite from source so we don't depend on the system libsqlite3.
 rusqlite = { version = "0.31", features = ["bundled"] }
