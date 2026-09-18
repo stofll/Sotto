@@ -25,6 +25,7 @@ export const en: Record<string, string | string[]> = {
   "Оверлей": "Overlay",
   "Отступ от края": "Edge offset",
   "Пилюля": "Pill",
+  "Свечение": "Glow",
   "Медь": "Copper",
   "Свой цвет": "Custom colour",
   "Цвет интерфейса": "Interface colour",

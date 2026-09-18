@@ -11,6 +11,7 @@ describe("overlay preferences", () => {
     expect(overlayPreferences(false)).toEqual(defaults);
     expect(overlayPreferences({ form: "bead", size: "xl", palette: "wrong", edge_offset: -1, palette_hue: 360, palette_chroma: Infinity }))
       .toEqual({ ...defaults, form: "bead" });
+    expect(overlayPreferences({ form: "glow" }).form).toBe("glow");
     expect(overlayPreferences({ edge_offset: 0.5 }).edge_offset).toBe(DEFAULT_EDGE_OFFSET);
     expect(overlayPreferences({ palette_hue: 359.9, palette_chroma: 0.2, edge_offset: 512 })).toMatchObject({ palette_hue: 359.9, palette_chroma: 0.2, edge_offset: 512 });
   });
@@ -19,6 +20,9 @@ describe("overlay preferences", () => {
     expect(overlayLayout("bead", true, true)).toBe("pill");
     expect(overlayLayout("bead", false, false)).toBe("bead");
     expect(overlayLayout("pill", true, false)).toBe("streaming");
+    expect(overlayLayout("glow", true, false)).toBe("glow");
+    expect(overlayLayout("glow", true, true)).toBe("glow");
+    expect(overlayLayout("glow", false, false)).toBe("glow");
   });
   it("accepts any hex interface colour and refuses anything else", () => {
     expect(resolveAccent("#0A0B0C")).toBe("#0a0b0c");

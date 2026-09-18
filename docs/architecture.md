@@ -28,6 +28,6 @@ Keep overlay session transitions and cancellation in `useOverlaySession`, and vi
 
 Audio levels belong to the waveform component so frequent samples do not rerender the whole window; time updates run only while recording or waiting for post-processing. New visual variants must preserve the session contract and fit the native window geometry.
 
-The bead hides streaming text and expands only for errors or LLM fallback warnings; its cancel button appears on hover. See [Overlay appearance](overlay.md) for user settings.
+The bead hides streaming text and expands only for errors or LLM fallback warnings; its cancel button appears on hover. The glow keeps streaming text and errors in the composer shape and drives its beam from the same `audio-level` events as the waveform. See [Overlay appearance](overlay.md) for user settings.
 
 Component-owned event subscriptions use `bridge/events.subscribe`, whose synchronous cleanup also disposes registrations that finish after unmount. Use the asynchronous `on` only when an operation must await registration before starting work, or when the subscription deliberately lives for the entire webview lifetime.

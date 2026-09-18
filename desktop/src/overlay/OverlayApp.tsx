@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "../components/Icon";
 import { t, useLocale } from "../i18n";
 import { overlayPalette } from "./overlayPalette";
@@ -6,35 +6,61 @@ import { overlayDetail } from "./overlayDetail";
 import { OverlayWaveform } from "./OverlayWaveform";
 import { useOverlaySession, type OverlaySession } from "./useOverlaySession";
 
+const OverlayGlow = lazy(() => import("./OverlayGlow").then((m) => ({ default: m.OverlayGlow })));
+
 export function OverlayApp() {
   useLocale();
   const session = useOverlaySession();
   const surfaceRef = useRef<HTMLDivElement>(null);
-  const { state, layout, previewText, handleClose, isClosing, config, preferences } = session;
+  const { state, layout, previewText, streaming, handleClose, isClosing, config, preferences } = session;
   if (state === null) return null;
   const bead = layout === "bead";
+  const glow = layout === "glow";
   const closeLabel = state === "pasted" || state === "error" ? t("Закрыть") : t("Отменить запись");
   return (
     <div data-testid="overlay" data-state={state} data-layout={layout === "pill" ? "compact" : layout} data-size={preferences.size} className="overlay" style={config ? overlayPalette(preferences) : undefined}>
       <div className="overlay-shell">
         <div className="overlay-surface" ref={surfaceRef}>
-          <div className="overlay-glow" aria-hidden="true" />
-          <div className="overlay-row">
-            {!bead && <div className="overlay-timer-slot">{state === "recording" && <TimerBadge session={session} />}</div>}
-            <div className="overlay-detail">
+          {glow ? <>
+            <Suspense fallback={null}>
+              <OverlayGlow key={session.sessionId} mode={glowMode(state)} />
+            </Suspense>
+            <div className="overlay-composer-body">
               {state === "recording"
-                ? <OverlayWaveform key={session.sessionId} surfaceRef={surfaceRef} circular={bead} />
-                : bead ? <span className="overlay-bead-status" aria-label={beadLabel(state)} role="status" /> : <StateDetail session={session} />}
+                ? streaming ? <PreviewPane text={previewText} /> : null
+                : <StateDetail session={session} />}
             </div>
-            <button className="overlay-close" aria-label={closeLabel} onClick={handleClose} disabled={isClosing}>
-              <Icon name="x" size={15} />
-            </button>
-          </div>
-          {layout === "streaming" && <PreviewPane text={previewText} />}
+            <div className="overlay-composer-bar">
+              {state === "recording" ? <TimerBadge session={session} /> : <span />}
+              <button className="overlay-close" aria-label={closeLabel} onClick={handleClose} disabled={isClosing}>
+                <Icon name="x" size={15} />
+              </button>
+            </div>
+          </> : <>
+            <div className="overlay-glow" aria-hidden="true" />
+            <div className="overlay-row">
+              {!bead && <div className="overlay-timer-slot">{state === "recording" && <TimerBadge session={session} />}</div>}
+              <div className="overlay-detail">
+                {state === "recording"
+                  ? <OverlayWaveform key={session.sessionId} surfaceRef={surfaceRef} circular={bead} />
+                  : bead ? <span className="overlay-bead-status" aria-label={beadLabel(state)} role="status" /> : <StateDetail session={session} />}
+              </div>
+              <button className="overlay-close" aria-label={closeLabel} onClick={handleClose} disabled={isClosing}>
+                <Icon name="x" size={15} />
+              </button>
+            </div>
+            {layout === "streaming" && <PreviewPane text={previewText} />}
+          </>}
         </div>
       </div>
     </div>
   );
+}
+
+function glowMode(state: NonNullable<OverlaySession["state"]>): "listen" | "process" | "idle" {
+  if (state === "recording") return "listen";
+  if (state === "loading" || state === "processing" || state === "done") return "process";
+  return "idle";
 }
 
 function beadLabel(state: NonNullable<OverlaySession["state"]>) {

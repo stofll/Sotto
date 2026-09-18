@@ -36,7 +36,7 @@ export function ModelMeters({ id, value, onRefresh }: { id: string; value?: Mode
           onClick={(event) => { trigger.current = event.currentTarget; setActive(active === meter.id ? null : meter.id); setError(false); }}>
           <span>{meter.label}</span>
           <span className="model-meter__track" aria-hidden="true">
-            {percent === null ? <span className="model-meter__unknown">—</span> : <span className="model-meter__fill" style={{ width: `${percent}%` }}/>}</span>
+            {percent === null ? <span className="model-meter__unknown"/> : <span className="model-meter__fill" style={{ width: `${percent}%` }}/>}</span>
         </button>;
     })}
     {open && createPortal(<div id={panelId} className="custom-select__menu model-meter-detail" ref={menuRef} style={style} role="region" aria-label={t("Оценка модели")}>

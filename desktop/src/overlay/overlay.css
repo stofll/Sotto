@@ -114,6 +114,32 @@
 .overlay[data-layout="streaming"][data-size="l"] .overlay-shell { max-width: 672px; height: 166px; }
 .overlay[data-layout="streaming"][data-size="s"] .overlay-preview { font-size: 13px; }
 .overlay[data-layout="streaming"][data-size="l"] .overlay-preview { font-size: 16px; }
+.overlay[data-layout="glow"] .overlay-shell { max-width: 400px; height: 104px; border-radius: 28px; }
+.overlay[data-layout="glow"] .overlay-surface { border-radius: 24px; padding: 10px 12px 8px; display: flex; flex-direction: column; justify-content: space-between; gap: 4px; }
+.overlay[data-layout="glow"] .overlay-surface::before,
+.overlay[data-layout="glow"] .overlay-surface::after,
+.overlay[data-layout="glow"] .overlay-glow { display: none; }
+.overlay[data-layout="glow"]:is([data-state="loading"], [data-state="processing"], [data-state="done"]) .overlay-shell::before { content: none; animation: none; }
+.overlay[data-layout="glow"][data-size="s"] .overlay-shell { max-width: 360px; height: 92px; border-radius: 24px; }
+.overlay[data-layout="glow"][data-size="s"] .overlay-surface { border-radius: 20px; }
+.overlay[data-layout="glow"][data-size="l"] .overlay-shell { max-width: 440px; height: 116px; border-radius: 32px; }
+.overlay[data-layout="glow"][data-size="l"] .overlay-surface { border-radius: 28px; }
+.overlay-composer-body { position: relative; z-index: 1; flex: 1; min-height: 0; display: flex; }
+.overlay-composer-body .overlay-preview { font: 500 14px/1.35 var(--font-sans); }
+.overlay-composer-body .overlay-preview-empty { align-items: flex-start; padding-top: 2px; }
+.overlay-composer-body .overlay-text { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.overlay[data-layout="glow"]:not([data-state="recording"]) .overlay-composer-body {
+  position: absolute; inset: 0; align-items: center; justify-content: center;
+  padding: 12px 44px; text-align: center;
+}
+.overlay[data-layout="glow"]:not([data-state="recording"]) .overlay-progress { justify-content: center; }
+.overlay[data-layout="glow"]:not([data-state="recording"]) .overlay-text,
+.overlay[data-layout="glow"]:not([data-state="recording"]) .overlay-result { text-align: center; }
+.overlay-composer-bar { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; min-height: 32px; }
+.overlay[data-layout="glow"] .overlay-composer-bar { margin-top: auto; }
+.overlay-beam {
+  position: absolute; inset: 0; border-radius: inherit; overflow: hidden; pointer-events: none; z-index: 0;
+}
 .overlay[data-layout="bead"] .overlay-shell { width: 64px; height: 64px; }
 .overlay[data-layout="bead"][data-size="s"] { --overlay-ring-radius: 16px; }
 .overlay[data-layout="bead"][data-size="s"] .overlay-shell { width: 56px; height: 56px; }
