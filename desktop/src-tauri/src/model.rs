@@ -1813,7 +1813,7 @@ mod tests {
             }
             assert!(
                 model.quantization.is_some(),
-                "{} не сообщает квантование",
+                "{} does not report its quantization",
                 model.id
             );
         }
@@ -1885,7 +1885,7 @@ mod tests {
         ] {
             assert!(
                 artifact_named(entry, role).is_ok(),
-                "трансдьюсеру нужен {role:?}"
+                "the transducer needs {role:?}"
             );
         }
     }
@@ -1902,7 +1902,7 @@ mod tests {
         let entry = bundle_manifest_entry("parakeet-tdt-v3").unwrap();
         let spec = model_load_spec("parakeet-tdt-v3", true).unwrap();
         let ModelLoadSpec::Sherpa { engine, files } = spec else {
-            panic!("трансдьюсер загружен не как sherpa: {spec:?}");
+            panic!("the transducer did not load as sherpa: {spec:?}");
         };
         assert_eq!(engine, ModelEngine::SherpaTransducer);
         // The names are literals rather than fetched via `artifact_named`:
@@ -1961,41 +1961,45 @@ mod tests {
         let mut ids = HashSet::new();
         let mut dirs = HashSet::new();
         for entry in bundle_manifest() {
-            assert!(ids.insert(entry.public_id), "дубль id: {}", entry.public_id);
+            assert!(
+                ids.insert(entry.public_id),
+                "duplicate id: {}",
+                entry.public_id
+            );
             assert!(
                 dirs.insert(entry.directory_name),
-                "дубль каталога: {}",
+                "duplicate directory: {}",
                 entry.directory_name
             );
             let mut roles = HashSet::new();
             for artifact in entry.artifacts {
                 assert!(
                     roles.insert(artifact.role),
-                    "{}: роль {:?} встречается дважды",
+                    "{}: role {:?} appears twice",
                     entry.public_id,
                     artifact.role
                 );
                 assert_eq!(
                     artifact.sha256.len(),
                     64,
-                    "{}: sha256 должен быть 64 hex-символа",
+                    "{}: sha256 must be 64 hex characters",
                     entry.public_id
                 );
                 assert!(
                     artifact.expected_bytes > 0,
-                    "{}: нулевой размер артефакта",
+                    "{}: the artifact size is zero",
                     entry.public_id
                 );
                 assert!(
                     artifact.download_url.ends_with(artifact.file_name),
-                    "{}: ссылка не заканчивается именем файла",
+                    "{}: the URL does not end with the file name",
                     entry.public_id
                 );
             }
             for role in entry.engine.required_roles() {
                 assert!(
                     artifact_named(entry, *role).is_ok(),
-                    "{}: не хватает роли {role:?}",
+                    "{}: missing role {role:?}",
                     entry.public_id
                 );
             }
@@ -2137,7 +2141,7 @@ mod tests {
         let error = verify_artifact(&path, 5, HELLO_SHA).unwrap_err();
         assert!(
             error.starts_with("MODEL_SHA256_MISMATCH"),
-            "подменённый файл принят как годный: {error}"
+            "a substituted file was accepted as valid: {error}"
         );
     }
 

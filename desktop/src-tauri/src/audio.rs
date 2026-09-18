@@ -901,7 +901,7 @@ mod tests {
         assert_eq!(
             sinks.buffer.lock().unwrap().len(),
             12,
-            "запись потеряла звук"
+            "the recording lost audio"
         );
         assert_eq!(rx.try_recv().map(|c| c.len()), Ok(4));
         // Overflow simply drops chunks without blocking the callback.

@@ -930,22 +930,22 @@ mod tests {
         // The failure here is silent: a wrong offset does not break the
         // download, it quietly assembles a corrupt file — only the SHA-256 at
         // the very end catches it.
-        assert_eq!(resume_verdict(None, 100), 0, "качать нечего");
+        assert_eq!(resume_verdict(None, 100), 0, "nothing to download");
         assert_eq!(
             resume_verdict(Some(0), 100),
             0,
-            "пустой остаток — не остаток"
+            "an empty remainder is no remainder"
         );
-        assert_eq!(resume_verdict(Some(40), 100), 40, "обычная докачка");
+        assert_eq!(resume_verdict(Some(40), 100), 40, "an ordinary resume");
         assert_eq!(
             resume_verdict(Some(100), 100),
             0,
-            "файл целиком: прошлая попытка не сошлась хешем, продолжать нечего"
+            "the whole file is here: the previous attempt failed its hash, so there is nothing to continue"
         );
         assert_eq!(
             resume_verdict(Some(140), 100),
             0,
-            "длиннее ожидаемого — остаток от другого файла"
+            "longer than expected: the remainder of a different file"
         );
     }
 
@@ -1006,7 +1006,7 @@ mod tests {
             result,
             Err(ModelDownloadError::Sha256Mismatch { .. })
         ));
-        assert!(!final_path.exists(), "битое не публикуется");
+        assert!(!final_path.exists(), "a corrupt download is not published");
     }
 
     #[test]
@@ -1367,8 +1367,8 @@ mod tests {
 
         discard_partial(dir.path(), &spec);
 
-        assert!(!partial.exists(), "недокачанное стёрто");
-        assert!(installed.exists(), "установленная модель не тронута");
+        assert!(!partial.exists(), "the partial download is erased");
+        assert!(installed.exists(), "the installed model is untouched");
         // The second call — cleanup after cleanup — need not find anything.
         discard_partial(dir.path(), &spec);
     }
@@ -1389,8 +1389,11 @@ mod tests {
 
         discard_bundle_partial(dir.path(), &spec);
 
-        assert!(!stage.exists(), "черновая папка бандла стёрта целиком");
-        assert!(installed.exists(), "установленный бандл не тронут");
+        assert!(
+            !stage.exists(),
+            "the bundle's staging directory is erased entirely"
+        );
+        assert!(installed.exists(), "the installed bundle is untouched");
     }
 
     #[test]

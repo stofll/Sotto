@@ -952,7 +952,8 @@ mod preview_queue_tests {
         let (tx, _rx) = tokio::sync::mpsc::channel::<u8>(64);
         let mut sent = 0;
         while preview_has_room(tx.capacity()) {
-            tx.try_send(0).expect("место есть, отправка обязана пройти");
+            tx.try_send(0)
+                .expect("there is room, so the send cannot fail");
             sent += 1;
         }
 
@@ -960,7 +961,7 @@ mod preview_queue_tests {
         assert_eq!(tx.capacity(), PREVIEW_QUEUE_RESERVE);
         assert!(
             tx.try_send(1).is_ok(),
-            "место под финальную расшифровку осталось"
+            "room for the final transcription is left"
         );
     }
 }
@@ -4753,7 +4754,7 @@ mod completion_tests {
                     classify_completion(false, Ok(inference(blank))),
                     Completion::Empty
                 ),
-                "не распознано как пустое: {blank:?}"
+                "not classified as empty: {blank:?}"
             );
         }
     }
@@ -4763,7 +4764,7 @@ mod completion_tests {
         let outcome = classify_completion(false, Ok(inference("привет")));
         match outcome {
             Completion::Transcribed(result) => assert_eq!(result.text, "привет"),
-            other => panic!("ожидался Transcribed, получено {other:?}"),
+            other => panic!("expected Transcribed, got {other:?}"),
         }
     }
 
@@ -4775,7 +4776,7 @@ mod completion_tests {
         let outcome = classify_completion(false, Err("GigaAM v3 не умеет английский".to_string()));
         match outcome {
             Completion::Failed(message) => assert_eq!(message, "GigaAM v3 не умеет английский"),
-            other => panic!("ожидался Failed, получено {other:?}"),
+            other => panic!("expected Failed, got {other:?}"),
         }
     }
 

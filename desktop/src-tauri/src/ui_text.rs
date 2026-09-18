@@ -236,7 +236,7 @@ mod tests {
         ] {
             assert!(
                 sources.iter().any(|s| s.contains(key)),
-                "перевод есть, а строки в коде нет: {key}"
+                "the translation exists but the string is not in the code: {key}"
             );
         }
     }

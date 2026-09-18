@@ -945,7 +945,7 @@ mod tests {
             BOTTOM_OFFSET,
             "bottom-center",
         );
-        assert_eq!(x, 100, "ушёл левее монитора");
+        assert_eq!(x, 100, "moved left of the monitor");
     }
 
     /// Monitor shorter than the window plus its offset: snap to the top edge.
@@ -958,7 +958,7 @@ mod tests {
             BOTTOM_OFFSET,
             "bottom-center",
         );
-        assert_eq!(y, 50, "ушёл выше монитора");
+        assert_eq!(y, 50, "moved above the monitor");
     }
 
     /// Scaling must not break centring: the coordinates are physical, and on 4K
