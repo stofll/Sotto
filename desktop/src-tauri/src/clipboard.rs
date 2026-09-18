@@ -202,9 +202,14 @@ pub fn paste_strategy_1_enigo() -> Result<(), String> {
     send_paste_shortcut(&mut enigo, modifier, physical_v)
 }
 
-/// enigo 0.3 resolves Unicode through the current macOS layout and returns
+/// enigo resolves Unicode through the current macOS layout and returns
 /// keycode 0 (A) when it cannot find Latin 'v'. That reports success for Cmd+A,
 /// preventing fallback. A shortcut uses the physical V key instead.
+///
+/// Still true in 0.6.1, which is worth recording so the bump does not read as
+/// having made this removable: `get_layoutdependent_keycode` initialises the
+/// keycode to 0 and returns it unchanged when no keycode in 0..128 produces
+/// the string it was asked for.
 #[cfg(any(not(windows), test))]
 fn send_paste_shortcut(
     enigo: &mut impl Keyboard,

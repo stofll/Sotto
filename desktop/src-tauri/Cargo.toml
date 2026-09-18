@@ -36,7 +36,26 @@ tauri-plugin-single-instance = "2"
 # tauri.conf.json. Integrity — yes, publisher — no: SmartScreen's "unknown
 # publisher" is only cured by Authenticode (see 4.1 in the plan).
 tauri-plugin-updater = "2"
-enigo = { version = "0.3", default-features = false, features = ["xdo"] }
+# Synthesizes the paste keystroke on macOS and Linux. Windows does not use it
+# for the keystroke — `windows_util::send_ctrl_v_sendinput` sends the raw VK
+# instead, see `clipboard.rs` — though the crate is an unconditional dependency
+# and still builds and links there, where a test double implements its
+# `Keyboard` trait.
+#
+# Upstream's default feature set, deliberately. 0.3 pinned `features = ["xdo"]`
+# with defaults off, which decided nothing: `xdo` was an empty marker feature
+# and `default` was `["xdo"]`, so the two resolved identically. The feature
+# still exists in 0.6 and could have been carried forward. The reason not to is
+# that it selects the Linux X11 backend, upstream moved that default to `x11rb`
+# in 0.5 calling it the more reliable of the two, and we have no grounds to
+# overrule them: Linux ships no artifact (docs/platforms.md), so this path is
+# only ever built in CI. Pinning either backend would mean maintaining an
+# opinion about a platform we do not ship. On the bundles that do ship, the
+# defaults add no dependency at all — `x11rb`, `nom` and `xkbcommon` are gated
+# to unix-not-macos.
+#
+# 0.4 raised enigo's MSRV to 1.85; rust-toolchain.toml pins 1.97.0.
+enigo = "0.6"
 log = "0.4"
 # Base (CPU) dependency, with no GPU backend. The backends are opt-in via
 # the `gpu` feature below, so a plain `cargo build`/`cargo test` needs no
