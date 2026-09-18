@@ -382,8 +382,7 @@ pub fn paste_text(app: AppHandle, text: String) -> Result<(), String> {
         crate::accessibility::emit_accessibility_error(&app);
         return Err(crate::ui_text::t(
             "Текст скопирован. Нажмите ⌘V для вставки. Для автоматической вставки разрешите Sotto доступ в настройках универсального доступа macOS.",
-        )
-        .into());
+        ));
     }
 
     #[cfg(windows)]
