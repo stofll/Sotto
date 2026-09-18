@@ -1,6 +1,7 @@
 /* Download affordances remain useful even with JavaScript disabled. */
 .download-section { text-align: center; padding-block: 99px 76px; }
 .cta-mark { color: #bec5d1; margin-bottom: 26px; }
+
 .download-section .eyebrow { color: #9ca3ae; margin-bottom: 20px; font-size: 0.6875rem; }
 .download-section h2 { font-size: 2.9375rem; letter-spacing: -1.8px; }
 .download-section > p:not(.eyebrow) { margin-top: 20px; font-size: 0.8125rem; color: var(--text-secondary); }

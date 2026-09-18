@@ -1,5 +1,6 @@
 ---
 import DownloadButtons from './DownloadButtons.astro';
+import Brand from './Brand.astro';
 import Icon from './Icon.astro';
 import { LINKS } from '../data/product';
 import { translationsFor } from '../i18n/context';
@@ -8,7 +9,7 @@ const { t } = translationsFor(Astro.currentLocale);
 ---
 
 <section class="download-section container" id="download" aria-labelledby="download-heading" data-reveal>
-  <div class="cta-mark" aria-hidden="true"><Icon name="waveform-mark" size={50} /></div>
+  <div class="cta-mark"><Brand height={44} iconOnly /></div>
   <p class="eyebrow">{t.download.eyebrow}</p>
   <h2 id="download-heading">{t.download.title}</h2>
   <p>{t.download.subtitle}</p>

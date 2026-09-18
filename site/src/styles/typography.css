@@ -12,7 +12,7 @@
   .model-principles p { font-size: 0.8125rem; }
   .works-heading h2 { font-size: 1.0625rem; }
   .works-heading p { font-size: 0.75rem; }
-  .app-list > span { font-size: 0.875rem; }
+  .app-list > li { font-size: 0.875rem; }
   .integration-note { font-size: 0.75rem; }
   .privacy-points h3 { font-size: 0.875rem; }
   .privacy-points p { font-size: 0.8125rem; }
@@ -29,7 +29,7 @@
   .footer-top > p, .footer-top > nav { font-size: 0.75rem; }
   .footer-bottom { font-size: 0.6875rem; }
 }
-.cta-mark > svg { display: inline-block; }
+.cta-mark .brand-icon { display: inline-block; }
 .editor-window { max-width: 100%; }
 .model-radio { border-color: #757c87; }
 .noscript-notice { padding: 85px 22px 0; margin-bottom: -80px; font-size: 0.75rem; color: #bcc3cf; text-align: center; }

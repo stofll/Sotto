@@ -2,6 +2,7 @@
 import Brand from './Brand.astro';
 import DownloadButtons from './DownloadButtons.astro';
 import Icon from './Icon.astro';
+import WaveRibbon from './WaveRibbon.astro';
 import Waveform from './Waveform.astro';
 import WindowBar from './WindowBar.astro';
 import { LINKS } from '../data/product';
@@ -19,7 +20,10 @@ const sidebar = [
 ] as const;
 ---
 
-<section class="hero container" aria-labelledby="hero-heading">
+<div class="hero-shell">
+  <WaveRibbon />
+
+  <section class="hero container" aria-labelledby="hero-heading">
   <div class="hero-copy">
     <p class="hero-eyebrow">
       <span class="status-dot" />
@@ -77,8 +81,9 @@ const sidebar = [
             <h2>{editor.currentNote}</h2>
             <p class="editor-intro">{editor.intro}</p>
             <div class="demo-output" data-demo-output>
+              <p class="output-lead">{editor.taskLead}</p>
               {editor.tasks.map((task) => (
-                <p><span class="task-box" />{task}</p>
+                <p><span class="task-marker" aria-hidden="true">-</span>{task}</p>
               ))}
             </div>
             <span class="editor-caret" aria-hidden="true" />
@@ -163,3 +168,4 @@ const sidebar = [
     ))}
   </div>
 </section>
+</div>

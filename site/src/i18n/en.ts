@@ -9,6 +9,7 @@ export const en: Dictionary = {
       'Free, open-source voice dictation for Windows and macOS. Speak naturally. Your words appear wherever you type. Local recognition by default.',
     ogTitle: 'Sotto — Your voice. More done.',
     ogDescription: 'Free, open-source desktop dictation. Local by default.',
+    ogImageAlt: 'The Sotto wordmark on a dark background, above the line “Your voice. More done.”',
   },
 
   nav: {
@@ -44,7 +45,7 @@ export const en: Dictionary = {
     viewOnGitHub: 'View on GitHub',
     demoAria: 'Interactive dictation demonstration',
     demoDisclaimer:
-      'This is a simulated preview. It does not access your microphone. Spoken release tasks are transcribed locally and formatted into a checklist with optional text processing. The shortcut is an example, not a fixed default.',
+      'This is a simulated preview. It does not access your microphone. Spoken release tasks are transcribed locally and formatted into a list by the optional text-processing step. The shortcut is an example, not a fixed default.',
     caption: 'Interactive preview',
     captionExtra: ' · Optional formatting enabled',
     replay: 'Replay',
@@ -64,7 +65,8 @@ export const en: Dictionary = {
       ideas: 'Ideas for later',
       breadcrumbRoot: 'Workspace',
       intro: 'A few things for the next release.',
-      tasks: ['Finalize onboarding', 'Prepare the launch post', 'Review translations'],
+      taskLead: 'Three things before launch:',
+      tasks: ['Finish onboarding', 'Prepare the post', 'Review translations'],
       savedLocally: 'Saved on this device',
       format: 'Plain text',
     },
@@ -134,15 +136,6 @@ export const en: Dictionary = {
     subtitle: 'If you can type there, Sotto can work there.',
     listLabel: 'Examples of desktop workflows',
     note: 'Your existing apps. No special integrations. App names are illustrative, not endorsements.',
-    apps: {
-      browser: 'Browser',
-      vscode: 'VS Code',
-      telegram: 'Telegram',
-      slack: 'Slack',
-      notion: 'Notion',
-      obsidian: 'Obsidian',
-      word: 'Word',
-    },
   },
 
   models: {
@@ -299,6 +292,16 @@ export const en: Dictionary = {
     builtInTheOpen: 'Built in the open',
   },
 
+  notFound: {
+    title: 'This page isn’t here',
+    lede: 'The link may be out of date, or the address may have a typo in it. Everything about Sotto lives on the home page.',
+    backHome: 'Back to the home page',
+    readDocs: 'Read the documentation',
+    reportIssue: 'Report a broken link',
+    caption: 'That’s all we could make out.',
+    markAlt: 'Error 404',
+  },
+
   demo: {
     phases: {
       idle: 'Ready when you are',
@@ -311,11 +314,11 @@ export const en: Dictionary = {
     prompt: 'One shortcut. Say what’s on your mind.',
     /** Progressive reveal of the dictated sentence; the last entry is the full text. */
     transcript: [
-      'Finalize onboarding,',
-      'Finalize onboarding, prepare',
-      'Finalize onboarding, prepare the launch post,',
-      'Finalize onboarding, prepare the launch post, and review',
-      'Finalize onboarding, prepare the launch post, and review translations.',
+      'Three things before launch:',
+      'Three things before launch: finish onboarding,',
+      'Three things before launch: finish onboarding, prepare the post,',
+      'Three things before launch: finish onboarding, prepare the post, review',
+      'Three things before launch: finish onboarding, prepare the post, review translations.',
     ],
     pause: 'Pause the dictation demo',
     resume: 'Resume the dictation demo',

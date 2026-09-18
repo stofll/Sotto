@@ -1,28 +1,53 @@
 ---
-import Icon from './Icon.astro';
-import { apps } from '../data/product';
+import { apps } from '../data/apps';
 import { translationsFor } from '../i18n/context';
-import type { IconName } from '../data/icons';
 
 const { t } = translationsFor(Astro.currentLocale);
+
+/**
+ * The track holds the list twice and slides by exactly half its width, so the
+ * copy arrives where the original started and the seam never shows. The second
+ * copy is decorative: screen readers and the label only see the first.
+ */
+const copies = [false, true];
 ---
 
-<section class="container works-everywhere" aria-labelledby="works-heading" data-reveal>
-  <div class="works-heading">
+<section class="works-everywhere" aria-labelledby="works-heading" data-reveal>
+  <div class="container works-heading">
     <h2 id="works-heading">{t.works.title}</h2>
     <p>{t.works.subtitle}</p>
   </div>
 
-  <div class="app-list" aria-label={t.works.listLabel}>
-    {apps.map((app) => (
-      <span>
-        {'icon' in app
-          ? <Icon name={app.icon as IconName} size={20} />
-          : <span class:list={['app-glyph', app.glyphClass]} aria-hidden="true">{app.glyph}</span>}
-        {t.works.apps[app.id]}
-      </span>
-    ))}
+  <svg class="app-sprite" aria-hidden="true" focusable="false">
+    <defs>
+      {apps.map((app) => (
+        <symbol id={`app-${app.id}`} viewBox="0 0 24 24"><path d={app.path} /></symbol>
+      ))}
+    </defs>
+  </svg>
+
+  <div class="app-marquee">
+    <div class="app-track">
+      {copies.map((duplicate) => (
+        <ul
+          class="app-list"
+          aria-label={duplicate ? undefined : t.works.listLabel}
+          aria-hidden={duplicate ? 'true' : undefined}
+        >
+          {apps.map((app) => (
+            <li>
+              <svg class="app-mark" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <use href={`#app-${app.id}`} />
+              </svg>
+              {app.name}
+            </li>
+          ))}
+        </ul>
+      ))}
+    </div>
   </div>
 
-  <p class="integration-note">{t.works.note}</p>
+  <div class="container works-note">
+    <p class="integration-note">{t.works.note}</p>
+  </div>
 </section>

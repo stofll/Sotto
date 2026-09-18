@@ -38,7 +38,6 @@ export const icons = {
   'share': { body: '<circle cx="6" cy="4" r="2"></circle><circle cx="6" cy="20" r="2"></circle><circle cx="18" cy="6" r="2"></circle><path d="M6 6v12m12-10c0 5-12 2-12 8"></path>' },
   'shield-check': { body: '<path d="m12 3 8 3v6c0 4.5-8 9-8 9s-8-4.5-8-9V6l8-3Z"></path><path d="m8 12 3 3 5-6"></path>' },
   'sliders': { body: '<path d="M4 6h16M4 12h16M4 18h16"></path><circle cx="8" cy="6" r="2"></circle><circle cx="16" cy="12" r="2"></circle><circle cx="10" cy="18" r="2"></circle>' },
-  'waveform-mark': { body: '<path d="M5 19v6m8-13v20m8-28v36m8-32v28m8-21v14m8-10v6" stroke="currentColor" stroke-width="3" stroke-linecap="round"></path>', viewBox: '0 0 50 44' },
   'wifi-off': { body: '<path d="m3 3 18 18M7 7a13 13 0 0 1 14 2M3 9l1-1m3 5 2-1m5 0 3 1m-7 4 2-1M12 21h.01"></path>' },
   'windows': { body: '<path fill="currentColor" stroke="none" d="m2 4 8-1.1v8H2V4Zm10-1.4L22 1v9.9H12V2.6ZM2 13h8v8L2 20v-7Zm10 0h10v10l-10-1.5V13Z"></path>' },
 } as const satisfies Record<string, IconShape>;

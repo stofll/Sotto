@@ -7,6 +7,10 @@
  */
 
 export const REPO = 'https://github.com/stofll/Sotto';
+export const AUTHOR = { name: 'Stofl', url: 'https://github.com/stofll' } as const;
+
+/** The social card. Dimensions mirror src/assets/og.svg, which renders it. */
+export const OG_IMAGE = { path: '/og/sotto.png', width: 1200, height: 630 } as const;
 export const RELEASES = `${REPO}/releases/latest`;
 const DOCS = `${REPO}/blob/main/docs`;
 
@@ -20,6 +24,7 @@ export const LINKS = {
   install: `${DOCS}/verifying-downloads.md`,
   contributing: `${REPO}/blob/main/CONTRIBUTING.md`,
   license: `${REPO}/blob/main/LICENSE`,
+  issues: `${REPO}/issues`,
 } as const;
 
 /** Release assets the download dialog is allowed to link to directly. */
@@ -42,7 +47,8 @@ export interface Model {
   streaming: boolean;
 }
 
-export const models: Model[] = [
+/** Non-empty by contract: the catalog markup takes the first row as selected. */
+export const models: [Model, ...Model[]] = [
   { id: 'nemotron', name: 'Nemotron 3.5', letter: 'N', sizeMb: 651, languages: 'multilingual', streaming: true },
   { id: 'whisper', name: 'Whisper', letter: 'W', languages: 'sizes', streaming: false },
   { id: 'gigaam', name: 'GigaAM v3', letter: 'G', sizeMb: 214, languages: 'russian', streaming: false },
@@ -56,26 +62,11 @@ export interface Workflow {
   icon: 'message' | 'note' | 'code';
 }
 
-export const workflows: Workflow[] = [
+/** Non-empty by contract: the first tab is the one selected on load. */
+export const workflows: [Workflow, ...Workflow[]] = [
   { id: 'messages', icon: 'message' },
   { id: 'notes', icon: 'note' },
   { id: 'code', icon: 'code' },
-];
-
-export type AppId = 'browser' | 'vscode' | 'telegram' | 'slack' | 'notion' | 'obsidian' | 'word';
-
-/**
- * Applications shown in the "works where you work" strip. `glyph` renders a
- * typographic mark where no outline icon exists; `icon` uses the shared set.
- */
-export const apps: ({ id: AppId } & ({ icon: string } | { glyph: string; glyphClass: string }))[] = [
-  { id: 'browser', icon: 'globe' },
-  { id: 'vscode', glyph: '\u22c8', glyphClass: 'vscode-glyph' },
-  { id: 'telegram', icon: 'send' },
-  { id: 'slack', glyph: '#', glyphClass: 'slack-glyph' },
-  { id: 'notion', glyph: 'N', glyphClass: 'notion-glyph' },
-  { id: 'obsidian', icon: 'obsidian' },
-  { id: 'word', glyph: 'W', glyphClass: 'word-glyph' },
 ];
 
 /**

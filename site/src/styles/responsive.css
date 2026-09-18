@@ -58,7 +58,7 @@
   .model-manager-heading > span { font-size: 0.625rem; }
   .model-type-tabs button { font-size: 0.75rem; }
   .cloud-model-content { min-height: 390px; }
-  .app-list { gap: 27px; justify-content: flex-start; }
+  .app-list { gap: 40px; padding-right: 40px; }
   .works-heading { gap: 24px; }
   .privacy-top { grid-template-columns: 1fr; gap: 36px; }
   .privacy-diagram { max-width: 560px; width: 100%; justify-self: center; }
@@ -93,6 +93,8 @@
   .mobile-nav:not([hidden]) { display: flex; flex-direction: column; padding: 12px 22px 20px; background: #12171f; border-bottom: 1px solid #393f49; }
   .mobile-nav a { display: flex; align-items: center; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border); font-size: 0.875rem; color: #c9d1dc; }
   .hero { padding-top: 112px; }
+  /* Follows the headline down as it shrinks. */
+  .wave-ribbon { top: 140px; height: 128px; }
   .hero-eyebrow { font-size: 0.6875rem; letter-spacing: 1.05px; gap: 6px; }
   h1 { font-size: 3rem; letter-spacing: -2.3px; line-height: 1.06; margin: 23px 0 22px; }
   .hero-subtitle { font-size: 0.8125rem; line-height: 1.9; max-width: 350px; margin: auto; }
@@ -152,16 +154,14 @@
   .waveform-small { gap: 1.5px; }
   .waveform-small > span { width: 1.5px; }
   .visual-caption { font-size: 0.75rem; margin-top: 29px; }
-  .works-everywhere { padding-bottom: 45px; }
+  .works-note { padding-bottom: 45px; }
   .works-heading { flex-direction: column; align-items: flex-start; gap: 10px; }
   .works-heading h2 { font-size: 1rem; }
   .works-heading p { font-size: 0.75rem; }
-  .app-list { display: grid; grid-template-columns: repeat(3,1fr); gap: 23px 13px; margin-block: 29px 23px; }
-  .app-list > span { font-size: 0.75rem; gap: 8px; }
-  .app-list > span .icon { width: 17px; height: 17px; }
-  .app-glyph { font-size: 1.3125rem; }
-  .notion-glyph { font-size: 0.9375rem; width: 17px; height: 18px; }
-  .word-glyph { font-size: 0.75rem; width: 19px; height: 18px; }
+  .app-marquee { margin-block: 29px 23px; --app-fade: linear-gradient(90deg, transparent, #000 32px, #000 calc(100% - 32px), transparent); }
+  .app-list { gap: 32px; padding-right: 32px; }
+  .app-list > li { font-size: 0.8125rem; gap: 9px; }
+  .app-mark { width: 19px; height: 19px; }
   .integration-note { font-size: 0.75rem; line-height: 1.9; }
   .model-principles { gap: 12px; margin-block: 23px; }
   .model-principles p { font-size: 0.75rem; gap: 9px; }
@@ -248,7 +248,6 @@
   .brand { gap: 7px; }
   .streaming-label { display: none; }
   .streaming-label + .model-radio { margin-left: auto; }
-  .app-list { grid-template-columns: repeat(2,1fr); }
   .clone-row > code { font-size: 0.4375rem; }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -257,7 +256,13 @@
   .reveal-ready:not(.is-visible) { opacity: 1; transform: none; }
   .waveform > span { transform: scaleY(.09); }
   .editor-caret { opacity: 1; }
-  .button:hover, .app-list > span:hover { transform: none; }
+  .lost-mark-digits > span { opacity: 1; transform: none; }
+  .button:hover { transform: none; }
+  /* No animation means no loop: show one copy, wrapped, and drop the fade. */
+  .app-marquee { -webkit-mask-image: none; mask-image: none; }
+  .app-track { width: auto; }
+  .app-list { flex-wrap: wrap; padding-right: 0; }
+  .app-list[aria-hidden='true'] { display: none; }
 }
 [data-phase="reset"] .sotto-overlay { opacity: 0; transform: translateY(4px); }
 [data-phase="reset"] .demo-output { opacity: 0; }

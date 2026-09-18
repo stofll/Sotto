@@ -13,10 +13,10 @@ importers:
         version: 7.3.2(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)(@types/node@24.13.5)(yaml@2.9.1)
     devDependencies:
       '@astrojs/check':
-        specifier: ^0.9.7
+        specifier: 0.9.10
         version: 0.9.10(prettier@3.9.7)(typescript@5.9.3)
       '@astrojs/sitemap':
-        specifier: ^3.7.4
+        specifier: 3.7.4
         version: 3.7.4
       '@fontsource-variable/inter':
         specifier: 5.3.0
@@ -27,8 +27,11 @@ importers:
       sharp:
         specifier: 0.35.4
         version: 0.35.4(@types/node@24.13.5)
+      simple-icons:
+        specifier: 16.31.0
+        version: 16.31.0
       typescript:
-        specifier: ~5.9.3
+        specifier: 5.9.3
         version: 5.9.3
 
 packages:
@@ -1652,6 +1655,10 @@ packages:
   shiki@4.4.3:
     resolution: {integrity: sha512-Mb/GvXPHBAXdgGIcnfU5L3ldpn1XcxrGkPHwqgRx17/I2XRfqlFKk2vGkHWINn1kdXvzJZeuO3is6I9KLPFm0g==}
     engines: {node: '>=20'}
+
+  simple-icons@16.31.0:
+    resolution: {integrity: sha512-dDEqvQrmxL7ZnqQtGHGjCNW6CfiwzAif+83Hol9JXAnAB6wh2zsZD7Sc1kWT0O/RRAKt7xfG8W6UZhYBPD+GAA==}
+    engines: {node: '>=0.12.18'}
 
   sisteransi@1.0.5:
     resolution: {integrity: sha512-bLGGlR1QxBcynn2d5YmDX4MGjlZvy2MRBDRNHLJ8VI6l6+9FUiyTFNJ0IveOSP0bcXgVDPRcfGqA0pjaqUpfVg==}
@@ -3705,6 +3712,8 @@ snapshots:
       '@shikijs/types': 4.4.3
       '@shikijs/vscode-textmate': 10.0.2
       '@types/hast': 3.0.5
+
+  simple-icons@16.31.0: {}
 
   sisteransi@1.0.5: {}
 

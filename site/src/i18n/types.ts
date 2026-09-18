@@ -1,4 +1,4 @@
-import type { AppId, ModelId, WorkflowId } from '../data/product';
+import type { ModelId, WorkflowId } from '../data/product';
 
 /**
  * The shape every locale must satisfy. Adding a string here makes TypeScript
@@ -33,6 +33,7 @@ export interface Dictionary {
     description: string;
     ogTitle: string;
     ogDescription: string;
+    ogImageAlt: string;
   };
   nav: Record<
     | 'home' | 'main' | 'mobile' | 'features' | 'models' | 'privacy' | 'docs' | 'docsLong'
@@ -67,6 +68,7 @@ export interface Dictionary {
       ideas: string;
       breadcrumbRoot: string;
       intro: string;
+      taskLead: string;
       tasks: string[];
       savedLocally: string;
       format: string;
@@ -86,7 +88,7 @@ export interface Dictionary {
     overlayLabel: string;
     scenarios: Record<WorkflowId, Scenario>;
   };
-  works: { title: string; subtitle: string; listLabel: string; note: string; apps: Record<AppId, string> };
+  works: { title: string; subtitle: string; listLabel: string; note: string };
   models: {
     eyebrow: string;
     titleLine1: string;
@@ -163,6 +165,16 @@ export interface Dictionary {
     allReleases: string;
   };
   footer: Record<'tagline' | 'docs' | 'privacy' | 'license' | 'freeSoftware' | 'builtInTheOpen', string>;
+  notFound: {
+    title: string;
+    lede: string;
+    backHome: string;
+    readDocs: string;
+    reportIssue: string;
+    /** Caption under the number, and the code itself for anyone who cannot see it. */
+    caption: string;
+    markAlt: string;
+  };
   demo: {
     phases: Record<'idle' | 'ready' | 'listening' | 'processing' | 'done' | 'reset', string>;
     prompt: string;
