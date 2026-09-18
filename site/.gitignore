@@ -1,5 +1,5 @@
 dist/
 node_modules/
 .astro/
-.vercel/
+.wrangler/
 .DS_Store

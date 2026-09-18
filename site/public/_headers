@@ -1,0 +1,25 @@
+# Response headers for the static assets, read by Cloudflare Workers at deploy
+# time. The file itself is never served.
+#
+# Deliberately no `no-transform`: Cloudflare Web Analytics injects its beacon by
+# rewriting the HTML on the way out, and `no-transform` forbids exactly that.
+
+/*
+  Content-Security-Policy: default-src 'none'; script-src 'self' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; connect-src 'self' https://api.github.com https://cloudflareinsights.com; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
+  Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Cross-Origin-Opener-Policy: same-origin
+  Permissions-Policy: accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()
+
+# Astro fingerprints everything under `_astro/`, so a changed file arrives under
+# a changed name and the old one can be cached until it is forgotten.
+/_astro/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# The brand and preview images keep their names across deploys, so they get a
+# revalidation window short enough that a redraw is picked up the same day.
+/brand/*
+  Cache-Control: public, max-age=3600
+/og/*
+  Cache-Control: public, max-age=3600

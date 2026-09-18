@@ -4,11 +4,18 @@ name: Site
 # этот воркфлоу смотрит только на него. Так правка лендинга не запускает
 # матрицу из трёх ОС, а правка Rust не собирает Astro.
 #
-# Деплоя здесь пока нет: хостинг и домен не выбраны. Когда выберутся, сюда
-# добавляется job с триггером `release: published` — по образцу docs.yml в
-# stablyai/orca, где проверочный job намеренно без креденшелов, чтобы
-# собираться и с форков.
+# Деплой висит на двух триггерах. Push в main — потому что лендинг живёт своим
+# циклом: опечатку в тексте не должен ждать следующий релиз. `release:
+# published` — потому что бейдж версии в герое резолвится на сборке, и без
+# пересборки он врёт до следующей правки текста.
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - '.github/workflows/site.yml'
+  release:
+    types: [published]
   pull_request:
     branches: [main]
     paths:
@@ -19,9 +26,16 @@ on:
 permissions:
   contents: read
 
+# Проверку PR отменять по новому пушу правильно, начатый деплой — нет.
+#
+# У прода группа одна на все триггеры, а не `github.ref`: на `release:
+# published` ref — это тег, так что релизный деплой попадал бы в собственную
+# группу и мог идти параллельно с деплоем от пуша в main. Освободись такой
+# пуш последним, он перезаписал бы свежий сайт своим, более старым `github.sha`
+# — и так до следующего триггера. Общая группа выстраивает их в очередь.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.event_name == 'pull_request' && format('{0}-{1}', github.workflow, github.ref) || 'site-production' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 defaults:
   run:
@@ -43,3 +57,47 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm build
+
+  deploy:
+    name: Deploy to Cloudflare
+    # Job проверки намеренно без креденшелов, чтобы собираться и с форков;
+    # секреты живут только здесь, и только на ветке main. Условие проверяет
+    # ветку явно: `workflow_dispatch` запускается с любой, а чекаут ниже берёт
+    # `github.sha`, так что без этого ручной прогон выкатил бы в прод
+    # содержимое произвольной ветки.
+    if: >-
+      github.event_name == 'release'
+      || (github.event_name != 'pull_request' && github.ref == 'refs/heads/main')
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment:
+      name: production
+      url: https://sotto.app
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # На `release: published` checkout по умолчанию берёт тег релиза, и
+          # деплой откатил бы лендинг к тексту на момент тега. Нужен ровно
+          # обратный эффект: свежий сайт, пересобранный с новой версией.
+          ref: ${{ github.event_name == 'release' && 'main' || github.sha }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .node-version
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+        with:
+          package_json_file: site/package.json
+      - run: pnpm install --frozen-lockfile
+      # Сборка занимает секунду, поэтому деплой собирает сам, а не тащит
+      # артефакт из соседнего job: меньше движущихся частей.
+      - run: pnpm build
+      - uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0 # v4.0.0
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # Для action рабочая директория задаётся здесь: `defaults.run` на неё
+          # не распространяется.
+          workingDirectory: site
+          wranglerVersion: '4.134.0'
+          packageManager: pnpm
+          command: deploy
