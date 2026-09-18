@@ -1,8 +1,16 @@
 import type { Behaviour, Runtime } from './runtime';
 
+/** Ratio at which the demo runs, and the one below which it is considered gone. */
+const PLAY = 0.25;
+const ARM = 0.01;
+/** How long the finished message stays readable before the loop starts over. */
+const HOLD = 2600;
+
 /**
- * The secondary demo runs once on entry, then only when the reader deliberately
- * picks a different scenario. Tabs use standard arrow/Home/End semantics.
+ * The secondary demo loops for as long as it is on screen, the way the hero
+ * timeline does, and settles on the finished message whenever it is not: off
+ * screen, on a hidden tab, or with reduced motion asked for. Tabs use standard
+ * arrow/Home/End semantics, and picking one restarts the loop on that scenario.
  */
 export const initWorkflow = (runtime: Runtime): Behaviour => {
   const { query, all, signal, text, observe, later, clear, strings } = runtime;
@@ -12,10 +20,14 @@ export const initWorkflow = (runtime: Runtime): Behaviour => {
   const miniOverlay = query('[data-mini-overlay]');
   const tabs = all<HTMLElement>('[data-workflow]');
 
-  const ids = Object.keys(strings.workflow);
-  let selected = strings.workflow[ids[0]];
+  // Scenarios come from the dictionary the page rendered. An empty one means
+  // there is no demo to play, which is more honest than starting from undefined
+  // and throwing on the first read of `chunks`.
+  const [first] = Object.values(strings.workflow);
+  if (!first) return {};
+  let selected = first;
   let running: number[] = [];
-  let started = false;
+  let onScreen = false;
 
   const stop = () => {
     running.forEach(clear);
@@ -24,15 +36,18 @@ export const initWorkflow = (runtime: Runtime): Behaviour => {
     miniOverlay?.classList.remove('is-active');
   };
 
-  const finish = () => {
+  /** Ends on the complete message and stays there. */
+  const settle = () => {
     stop();
     text(body, selected.chunks.join(' '));
   };
 
+  const canRun = () => onScreen && !runtime.reduced() && !document.hidden;
+
   const animate = () => {
     stop();
-    if (runtime.reduced() || document.hidden) {
-      finish();
+    if (!canRun()) {
+      settle();
       return;
     }
 
@@ -44,7 +59,12 @@ export const initWorkflow = (runtime: Runtime): Behaviour => {
     chunks.forEach((_, index) =>
       running.push(later(() => text(body, chunks.slice(0, index + 1).join(' ')), 160 + index * 420)),
     );
-    running.push(later(finish, chunks.length * 420 + 280));
+    running.push(
+      later(() => {
+        settle();
+        running.push(later(animate, HOLD));
+      }, chunks.length * 420 + 280),
+    );
   };
 
   const choose = (id: string, moveFocus = false) => {
@@ -63,7 +83,9 @@ export const initWorkflow = (runtime: Runtime): Behaviour => {
     panel?.setAttribute('aria-labelledby', `tab-${id}`);
     text(query('[data-workflow-app]'), scenario.app);
     text(query('[data-workflow-destination]'), scenario.destination);
-    text(query('[data-recipient-initial]'), scenario.destination[0]);
+    // charAt, not [0]: an empty string in the dictionary yields '' rather than
+    // undefined, so the avatar goes blank instead of reading "undefined".
+    text(query('[data-recipient-initial]'), scenario.destination.charAt(0));
     text(query('[data-workflow-context]'), scenario.context);
     animate();
   };
@@ -81,7 +103,7 @@ export const initWorkflow = (runtime: Runtime): Behaviour => {
         else return;
 
         event.preventDefault();
-        choose(tabs[next].dataset.workflow ?? '', true);
+        choose(tabs[next]?.dataset.workflow ?? '', true);
       },
       { signal },
     );
@@ -91,28 +113,31 @@ export const initWorkflow = (runtime: Runtime): Behaviour => {
     const observer = observe(
       new IntersectionObserver(
         (entries) => {
-          const visible = entries.some((entry) => entry.isIntersecting);
-          panel.classList.toggle('is-offscreen', !visible);
-          if (visible && !started) {
-            started = true;
-            animate();
-          } else if (!visible && started) {
-            finish();
+          const entry = entries[entries.length - 1];
+          if (!entry) return;
+          panel.classList.toggle('is-offscreen', !entry.isIntersecting);
+
+          // Two thresholds, so a scroll that hovers on the edge cannot restart
+          // the demo on every jitter.
+          if (entry.intersectionRatio >= PLAY) {
+            if (!onScreen) {
+              onScreen = true;
+              animate();
+            }
+          } else if (entry.intersectionRatio <= ARM && onScreen) {
+            onScreen = false;
+            settle();
           }
         },
-        { threshold: 0.25 },
+        { threshold: [0, ARM, PLAY] },
       ),
     );
     observer.observe(panel);
   }
 
   return {
-    onVisibilityChange: (hidden) => {
-      if (hidden) finish();
-    },
-    onMotionChange: (isReduced) => {
-      if (isReduced) finish();
-    },
+    onVisibilityChange: (hidden) => (hidden ? settle() : animate()),
+    onMotionChange: (isReduced) => (isReduced ? settle() : animate()),
     destroy: stop,
   };
 };
