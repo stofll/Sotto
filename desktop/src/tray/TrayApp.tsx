@@ -5,6 +5,7 @@ import { emit } from "@tauri-apps/api/event";
 import { Icon } from "../components/Icon";
 import { subscribe, onRecordingStateChange, startRecording, stopRecording, type RecordingState } from "../bridge";
 import { invoke } from "../bridge/invoke";
+import { isWindowsOs } from "../bridge/platform";
 import type { ConfigResult, MicrophoneResult, RuntimeStatusResult } from "../bridge/types";
 import { applyLocaleFromConfig, t, useLocale } from "../i18n";
 import { DEFAULT_HOTKEY } from "../hotkey";
@@ -73,6 +74,20 @@ export function TrayApp() {
   const [microphones, setMicrophones] = useState<MicrophoneResult[]>([]);
   const [runtime, setRuntime] = useState<RuntimeStatusResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Whether the popup this window drives can exist. The commands that drive it
+  // are registered under `#[cfg(windows)]`, so the popup-only controls read the
+  // OS from `get_runtime_status` (fetched on mount below).
+  //
+  // An unreported OS counts as Windows rather than as "not Windows". `runtime`
+  // is null for the first tick after mount, and tray.html is only ever loaded
+  // by `show_tray_popup`, which is Windows-only — so Windows is the platform
+  // that actually renders this, and reading that tick as non-Windows made the
+  // «Скрыть меню» button appear a frame late and, worse, let a menu click in
+  // that frame skip `hide_tray_popup`, leaving an always-on-top popup over the
+  // main window. Elsewhere the same tick can send one stray command, which is
+  // the rejection `openMain` already swallows.
+  const os = runtime?.os;
+  const isWindows = isWindowsOs(os) || os === undefined;
   const configRef = useRef<ConfigResult | null>(null);
   const isRecording = recordingState === "recording";
 
@@ -162,9 +177,11 @@ export function TrayApp() {
     }
   }
 
-  // TODO(macos-port): gate these calls per platform — tray_popup is Windows-only.
+  // The popup window only exists on Windows (windows/tray_popup.rs): there
+  // `hide_tray_popup` dismisses the popup before the main window takes focus.
+  // Elsewhere `focus_main_window` alone shows the main window.
   async function openMain(tab: TabId) {
-    await tauriInvoke("hide_tray_popup").catch(() => {});
+    if (isWindows) await tauriInvoke("hide_tray_popup").catch(() => {});
     await tauriInvoke("focus_main_window", { tab }).catch((e) => setError(e instanceof Error ? e.message : String(e)));
   }
 
@@ -221,7 +238,11 @@ export function TrayApp() {
             { icon: "info", label: t("Справка"), action: () => openMain("info") },
           ].map((item) => <button role="menuitem" key={item.label} style={rowButtonStyle({ padding: "8px 10px" })} onClick={() => void item.action()}><span style={{ color: "var(--ink-dim)", display: "flex" }}><Icon name={item.icon} size={14}/></span><span style={{ font: "500 12px/1 var(--font-sans)", color: "var(--ink)", flex: 1 }}>{item.label}</span>{item.right && <span className="mono" style={{ font: "500 10px/1 var(--font-mono)", color: "var(--ink-mute)" }}>{item.right}</span>}</button>)}
         </div>
-        <div style={{ borderTop: "1px solid var(--line)", padding: "8px 16px", display: "flex", alignItems: "center" }}><button style={{ appearance: "none", border: 0, background: "transparent", cursor: "pointer", font: "500 12px/1 var(--font-sans)", color: "var(--ink-dim)", padding: 0 }} onClick={() => tauriInvoke("hide_tray_popup").catch(() => {})}>{t("Скрыть меню")}</button></div>
+        {/* The popup exists only on Windows (tray_popup.rs): a control that
+            does nothing must not render on the other platforms. */}
+        <div style={{ borderTop: "1px solid var(--line)", padding: "8px 16px", display: "flex", alignItems: "center" }}>
+          {isWindows && <button style={{ appearance: "none", border: 0, background: "transparent", cursor: "pointer", font: "500 12px/1 var(--font-sans)", color: "var(--ink-dim)", padding: 0 }} onClick={() => tauriInvoke("hide_tray_popup").catch(() => {})}>{t("Скрыть меню")}</button>}
+        </div>
       </div>
       <div style={{ position: "absolute", bottom: 1, right: 34, width: 12, height: 12, background: "var(--bg-3)", transform: "rotate(45deg)", borderRight: "1px solid var(--line-strong)", borderBottom: "1px solid var(--line-strong)" }}/>
     </div>

@@ -884,6 +884,10 @@ fn get_runtime_status(
         // `apply_autostart_inner`), and the interface has to know: a checkbox
         // that saves its value and changes nothing is worse than no checkbox.
         "portable": crate::portable::data_dir().is_some(),
+        // Build-target OS (`std::env::consts::OS`). The frontend has no
+        // build-time platform flag of its own; platform-conditional UI —
+        // hiding the Windows-only tray popup controls — reads it from here.
+        "os": std::env::consts::OS,
         "model": model,
         "loaded_model": loaded_model,
         "device": actual_device,
