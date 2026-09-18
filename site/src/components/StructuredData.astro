@@ -1,5 +1,6 @@
 ---
-import { LINKS, REPO } from '../data/product';
+import { AUTHOR, LINKS, OG_IMAGE, REPO } from '../data/product';
+import { latestRelease } from '../data/release';
 import { translationsFor } from '../i18n/context';
 
 interface Props {
@@ -8,6 +9,11 @@ interface Props {
 
 const { canonical } = Astro.props;
 const { locale, t } = translationsFor(Astro.currentLocale);
+
+// Cached from the Hero's own call, so this costs no extra request. A failed
+// lookup simply drops the version rather than failing the build.
+const release = await latestRelease();
+const version = release?.version.replace(/^v/, '');
 
 /**
  * Lets search engines render the app card — free, which platforms, which
@@ -20,6 +26,7 @@ const schema = {
   name: 'Sotto',
   description: t.meta.description,
   url: canonical.href,
+  image: new URL(OG_IMAGE.path, Astro.site).href,
   applicationCategory: 'UtilitiesApplication',
   applicationSubCategory: 'Speech recognition',
   operatingSystem: 'macOS, Windows',
@@ -30,7 +37,9 @@ const schema = {
   codeRepository: REPO,
   softwareHelp: LINKS.docs,
   downloadUrl: LINKS.releases,
-  author: { '@type': 'Person', name: 'Stofl', url: 'https://github.com/stofll' },
+  author: { '@type': 'Person', name: AUTHOR.name, url: AUTHOR.url },
+  ...(version ? { softwareVersion: version } : {}),
+  ...(release?.published ? { datePublished: release.published } : {}),
 };
 ---
 

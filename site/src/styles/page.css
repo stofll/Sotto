@@ -13,3 +13,45 @@
 .prose-footer { margin-top: 56px; padding-top: 26px; border-top: 1px solid var(--border); display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
 .prose-updated { margin: 0; font-size: 0.75rem; color: var(--text-muted); }
 @media (max-width: 850px) { .prose-page { padding-block: 96px 64px; } .prose h1 { font-size: 1.875rem; } }
+
+/* The 404 page: the number, a heading, and the two links worth offering. */
+.not-found-page { padding-block: 108px 96px; }
+
+.lost-mark-figure { margin: 0 0 44px; }
+
+/* The number is set, not drawn: same typeface and the same tight tracking as
+   the headings, one step larger than anything else on the site. The gradient is
+   depth only — it stays on the mark's neutral axis. It sits on each digit
+   rather than the paragraph, because `background-clip: text` paints an
+   element's own text and here the text lives in the spans that carry the
+   stagger. A vertical ramp per digit is identical to one across all three,
+   since they share a height. */
+.lost-mark-digits {
+  margin: 0;
+  font-size: clamp(5.5rem, 17vw, 10.5rem);
+  font-weight: 680;
+  letter-spacing: -.055em;
+  line-height: .95;
+  color: var(--silver);
+}
+.lost-mark-digits > span {
+  display: inline-block;
+  background: linear-gradient(180deg, var(--silver-bright) 8%, #939bab 94%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  opacity: 0;
+  animation: lost-mark-settle 620ms var(--ease) forwards;
+}
+.lost-mark-digits > span:nth-child(2) { animation-delay: 110ms; }
+.lost-mark-digits > span:nth-child(3) { animation-delay: 220ms; }
+@keyframes lost-mark-settle { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+
+.lost-mark-caption { margin: 18px 0 0; font-size: 0.8125rem; color: var(--text-muted); }
+
+.not-found-actions { margin-top: 34px; display: flex; flex-wrap: wrap; align-items: center; gap: 14px 24px; }
+
+@media (max-width: 850px) {
+  .not-found-page { padding-block: 92px 64px; }
+  .lost-mark-figure { margin-bottom: 34px; }
+}
