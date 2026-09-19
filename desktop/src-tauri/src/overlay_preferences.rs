@@ -125,6 +125,11 @@ pub fn validate(config: &Value) -> Result<(), String> {
             }
         }
     }
+    if let Some(raw) = value.get("show_timer") {
+        if !raw.is_boolean() {
+            return Err("Invalid overlay.show_timer".into());
+        }
+    }
     for (key, max, exclusive, integer) in [
         ("palette_hue", 360.0, true, false),
         ("palette_chroma", 0.2, false, false),
@@ -202,9 +207,10 @@ mod tests {
             json!({"palette_chroma":0.21}),
             json!({"edge_offset":513}),
             json!({"edge_offset":0.5}),
+            json!({"show_timer":"yes"}),
         ] {
             assert!(validate(&json!({"overlay":patch})).is_err());
         }
-        assert!(validate(&json!({"overlay":{"palette":"custom","palette_hue":359.9,"palette_chroma":0.2,"edge_offset":512}})).is_ok());
+        assert!(validate(&json!({"overlay":{"palette":"custom","palette_hue":359.9,"palette_chroma":0.2,"edge_offset":512,"show_timer":false}})).is_ok());
     }
 }

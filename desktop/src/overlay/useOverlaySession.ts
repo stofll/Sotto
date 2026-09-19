@@ -91,6 +91,7 @@ export function useOverlaySession() {
   const [aiProblem, setAiProblem] = useState("");
   const [isClosing, setIsClosing] = useState(false);
   const isClosingRef = useRef(false);
+  const [hovered, setHovered] = useState(false);
 
   const handleClose = useCallback(() => {
     if (isClosingRef.current || state === null) return;
@@ -157,6 +158,7 @@ export function useOverlaySession() {
       setState(null);
       setPreviewText("");
       setArmedSession(null);
+      setHovered(false);
     };
 
     let disposed = false;
@@ -169,7 +171,13 @@ export function useOverlaySession() {
     const unlistenReset = win.listen("overlay-reset", () => {
       if (!disposed) resetOverlayState();
     });
-    const registrations = [unlistenState, unlistenReset];
+    // Native hit-test after show: the overlay can appear under the cursor,
+    // which never fires pointerenter. CSS :hover on an inactive WKWebView
+    // is equally unreliable until a click.
+    const unlistenPointer = win.listen<boolean>("overlay-pointer", (event) => {
+      if (!disposed) setHovered(Boolean(event.payload));
+    });
+    const registrations = [unlistenState, unlistenReset, unlistenPointer];
     const stops: Array<() => void> = [];
     for (const registration of registrations) {
       void registration.then((stop) => {
@@ -309,7 +317,7 @@ export function useOverlaySession() {
 
   return {
     state, config, preferences, layout, sessionId: sessionId.current, streaming, recordingStartedAt, recordingStoppedAt,
-    pastedLength, decodedAt, previewText, errorText, aiProblem, isClosing, handleClose,
+    pastedLength, decodedAt, previewText, errorText, aiProblem, isClosing, hovered, setHovered, handleClose,
   };
 }
 

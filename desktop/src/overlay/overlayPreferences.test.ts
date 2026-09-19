@@ -14,6 +14,9 @@ describe("overlay preferences", () => {
     expect(overlayPreferences({ form: "glow" }).form).toBe("glow");
     expect(overlayPreferences({ edge_offset: 0.5 }).edge_offset).toBe(DEFAULT_EDGE_OFFSET);
     expect(overlayPreferences({ palette_hue: 359.9, palette_chroma: 0.2, edge_offset: 512 })).toMatchObject({ palette_hue: 359.9, palette_chroma: 0.2, edge_offset: 512 });
+    expect(defaults.show_timer).toBe(true);
+    expect(overlayPreferences({ show_timer: false }).show_timer).toBe(false);
+    expect(overlayPreferences({ show_timer: "no" }).show_timer).toBe(true);
   });
   it("keeps a bead during streaming and restores it after a warning", () => {
     expect(overlayLayout("bead", true, false)).toBe("bead");

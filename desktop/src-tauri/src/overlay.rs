@@ -221,7 +221,11 @@ fn reveal(window: &tauri::WebviewWindow) -> Result<(), String> {
         crate::windows::overlay_diag::enumerate_top_level(hwnd, "reveal:after-uncloak");
     }
     #[cfg(not(windows))]
-    window.show().map_err(|e| e.to_string())?;
+    {
+        window.show().map_err(|e| e.to_string())?;
+        #[cfg(target_os = "macos")]
+        apply_macos_overlay_style(window)?;
+    }
     Ok(())
 }
 
@@ -373,6 +377,11 @@ fn apply_macos_overlay_style(window: &tauri::WebviewWindow) -> Result<(), String
                 // full-screen ones, never participate in Cmd+` cycling.
                 let behavior: usize = (1 << 0) | (1 << 6) | (1 << 8);
                 let _: () = msg_send![ns, setCollectionBehavior: behavior];
+                // The overlay is not the key window. Without this, AppKit
+                // withholds mouse-moved events until a click, so CSS :hover
+                // and pointerenter never fire on the first recording.
+                let _: () = msg_send![ns, setAcceptsMouseMovedEvents: true];
+                let _: () = msg_send![ns, setIgnoresMouseEvents: false];
             }
         })
         .map_err(|e| e.to_string())
@@ -432,7 +441,29 @@ fn apply_show(app: &AppHandle, state: String) -> Result<(), String> {
             force_topmost_noactivate(hwnd);
         }
     }
+    // The pill can appear under the cursor. WKWebView then never gets a
+    // pointerenter, so the cancel control would stay hidden until a click
+    // or a mouse move. Tell React whether the pointer is already inside.
+    let _ = window.emit("overlay-pointer", pointer_inside_overlay(&window));
     Ok(())
+}
+
+fn pointer_inside_overlay(window: &tauri::WebviewWindow) -> bool {
+    let Ok(cursor) = window.cursor_position() else {
+        return false;
+    };
+    let Ok(pos) = window.outer_position() else {
+        return false;
+    };
+    let Ok(size) = window.outer_size() else {
+        return false;
+    };
+    let left = f64::from(pos.x);
+    let top = f64::from(pos.y);
+    cursor.x >= left
+        && cursor.y >= top
+        && cursor.x < left + f64::from(size.width)
+        && cursor.y < top + f64::from(size.height)
 }
 
 /// Pick the monitor the overlay should appear on.

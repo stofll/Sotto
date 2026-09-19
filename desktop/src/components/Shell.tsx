@@ -316,8 +316,8 @@ export function SectionLabel({ children }: { children: ReactNode }) {
   return <div className="section-label">{children}</div>;
 }
 
-export function Switch({ on, onChange, label }: { on: boolean; onChange?: (value: boolean) => void; label?: string }) {
-  return <button type="button" className="switch" data-on={on ? "true" : "false"} onClick={() => onChange?.(!on)} aria-pressed={on} aria-label={label ?? (on ? t("Включено") : t("Выключено"))}/>;
+export function Switch({ on, onChange, label, disabled }: { on: boolean; onChange?: (value: boolean) => void; label?: string; disabled?: boolean }) {
+  return <button type="button" className="switch" data-on={on ? "true" : "false"} disabled={disabled} onClick={() => onChange?.(!on)} aria-pressed={on} aria-label={label ?? (on ? t("Включено") : t("Выключено"))}/>;
 }
 
 /**

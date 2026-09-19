@@ -6,15 +6,17 @@ Open **Settings → Advanced → Overlay** to choose the recording indicator's s
 
 The pill displays recording duration and audio levels. With a streaming model it expands into a card showing the live draft. After recording stops, the timer disappears and the pill shows processing progress until insertion finishes.
 
-The bead shows audio levels and session status in a ring. Hover over it to reveal the cancel button; after insertion, that button dismisses the notification. Cancelling an active session uses the same cancellation path as the pill. The recording hotkey stops and processes a recording; it is not a cancellation shortcut.
+The bead shows audio levels and session status in a ring. Streaming recognition still works, but the live text is hidden. Errors and LLM fallback warnings expand the bead into a pill so their messages remain visible. The next recording returns to the selected shape.
 
-The glow is a rounded composer. A colorful beam along the bottom edge rises with the voice; it is the MIT-licensed voice-glow construction, driven from Sotto's existing `audio-level` events rather than a microphone graph. Live draft text appears only for streaming models. After recording stops, status such as processing is centered in the window, with the timer and cancel button along the bottom. Unlike the bead, it keeps streaming text and error messages in the same shape.
+The glow is a rounded composer. A colorful beam along the bottom edge rises with the voice; it is the MIT-licensed voice-glow construction, driven from Sotto's existing `audio-level` events rather than a microphone graph. Live draft text appears only for streaming models. After recording stops, status such as processing is centered in the window, with the timer along the bottom. Unlike the bead, it keeps streaming text and error messages in the same shape.
 
-Streaming recognition still works with the bead, but the live text is hidden. Errors and LLM fallback warnings expand the bead into a pill so their messages remain visible. The next recording returns to the selected shape.
+Every shape hides the cancel control until the pointer is over the overlay or the control is focused from the keyboard. After insertion, the same control dismisses the notification. Cancelling an active session uses one path for all shapes. The recording hotkey stops and processes a recording; it is not a cancellation shortcut.
+
+The timer on the pill and the glow can be hidden from Overlay settings. The bead has no timer. Hiding it does not change the native window size; the waveform uses the space the timer occupied.
 
 ## Color and size
 
-Palettes are picked as colors: **Overlay color** is a row of swatches painted with the palette each one applies, sitting beside the size and offset controls. The name of a palette appears on hover rather than under the row. Choose copper, graphite, lagoon, violet, or a custom hue and saturation. Graphite is neutral. Success, warning and error colors retain their meaning regardless of the selected palette. The overlay keeps its dark surface in both app themes.
+Palettes are picked as colors: **Overlay color** is a caption with a row of rectangular swatches under it, sitting beside the size, offset and timer controls. The name of a palette appears on hover rather than under the row. Choose copper, graphite, lagoon, violet, or a custom hue and saturation. Graphite is neutral. Success, warning and error colors retain their meaning regardless of the selected palette. The overlay keeps its dark surface in both app themes.
 
 The overlay color is independent of the interface color. Older configurations using the retired app-accent, coal or amber palettes migrate to copper when loaded. The migration is written to disk on the next successful settings save.
 

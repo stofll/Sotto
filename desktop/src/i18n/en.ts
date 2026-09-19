@@ -37,6 +37,7 @@ export const en: Record<string, string | string[]> = {
   "По центру": "Center",
   "Положение на экране": "Screen position",
   "Размер": "Size",
+  "Секундомер": "Timer",
   "Сверху по центру": "Top center",
   "Сверху слева": "Top left",
   "Сверху справа": "Top right",

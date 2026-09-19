@@ -12,13 +12,15 @@ export function OverlayApp() {
   useLocale();
   const session = useOverlaySession();
   const surfaceRef = useRef<HTMLDivElement>(null);
-  const { state, layout, previewText, streaming, handleClose, isClosing, config, preferences } = session;
+  const { state, layout, previewText, streaming, handleClose, isClosing, config, preferences, hovered, setHovered } = session;
   if (state === null) return null;
   const bead = layout === "bead";
   const glow = layout === "glow";
+  const showTimer = preferences.show_timer && state === "recording";
   const closeLabel = state === "pasted" || state === "error" ? t("Закрыть") : t("Отменить запись");
   return (
-    <div data-testid="overlay" data-state={state} data-layout={layout === "pill" ? "compact" : layout} data-size={preferences.size} className="overlay" style={config ? overlayPalette(preferences) : undefined}>
+    <div data-testid="overlay" data-state={state} data-layout={layout === "pill" ? "compact" : layout} data-size={preferences.size} data-timer={preferences.show_timer ? "on" : "off"} data-hovered={hovered ? "true" : "false"} className="overlay" style={config ? overlayPalette(preferences) : undefined}
+      onPointerEnter={() => setHovered(true)} onPointerLeave={() => setHovered(false)} onPointerDown={() => setHovered(true)}>
       <div className="overlay-shell">
         <div className="overlay-surface" ref={surfaceRef}>
           {glow ? <>
@@ -31,7 +33,7 @@ export function OverlayApp() {
                 : <StateDetail session={session} />}
             </div>
             <div className="overlay-composer-bar">
-              {state === "recording" ? <TimerBadge session={session} /> : <span />}
+              {showTimer ? <TimerBadge session={session} /> : <span />}
               <button className="overlay-close" aria-label={closeLabel} onClick={handleClose} disabled={isClosing}>
                 <Icon name="x" size={15} />
               </button>
@@ -39,7 +41,7 @@ export function OverlayApp() {
           </> : <>
             <div className="overlay-glow" aria-hidden="true" />
             <div className="overlay-row">
-              {!bead && <div className="overlay-timer-slot">{state === "recording" && <TimerBadge session={session} />}</div>}
+              {!bead && <div className="overlay-timer-slot">{showTimer && <TimerBadge session={session} />}</div>}
               <div className="overlay-detail">
                 {state === "recording"
                   ? <OverlayWaveform key={session.sessionId} surfaceRef={surfaceRef} circular={bead} />

@@ -419,6 +419,7 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 }
 
 .switch { position: relative; width: 32px; height: 18px; border-radius: 999px; background: var(--bg-5); border: 1px solid var(--line-strong); transition: background .15s ease; flex: 0 0 auto; cursor: pointer; }
+.switch:disabled { cursor: default; opacity: 0.55; }
 .switch::after { content: ""; position: absolute; top: 1px; left: 1px; width: 14px; height: 14px; border-radius: 50%; background: var(--ink); transition: transform .15s cubic-bezier(.2,.7,.3,1); box-shadow: 0 1px 2px rgba(0,0,0,0.4); }
 .switch[data-on="true"] { background: var(--accent); border-color: transparent; }
 .switch[data-on="true"]::after { transform: translateX(14px); background: var(--accent-ink); }
@@ -2121,31 +2122,34 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .overlay-mini__timer::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--overlay-wave-mid); }
 .overlay-mini__wave { flex: 1; height: 28px; display: flex; align-items: center; justify-content: center; gap: 3px; }
 .overlay-mini__wave > span { width: 3px; border-radius: 4px; background: linear-gradient(180deg, var(--overlay-wave-top), var(--overlay-wave-mid) 55%, var(--overlay-wave-bottom)); }
-.overlay-mini__close { flex: 0 0 auto; width: 28px; height: 28px; border-radius: 50%; background: rgba(255, 255, 255, 0.08); }
+.overlay-mini__close { flex: 0 0 auto; width: 28px; height: 28px; border-radius: 50%; background: rgba(255, 255, 255, 0.08); opacity: 0; }
 .overlay-mini__ring { position: absolute; inset: 5px; border: 2px solid var(--overlay-edge); border-radius: 50%; opacity: 0.4; }
 
-/* Swatches use the overlay palette variables; tooltips provide their names. */
-.overlay-swatches { display: flex; flex-wrap: wrap; gap: 8px; }
-.overlay-swatch { appearance: none; width: 24px; height: 24px; padding: 0; border-radius: 50%; cursor: pointer; border: 2px solid var(--overlay-shell-top); background: linear-gradient(180deg, var(--overlay-wave-top), var(--overlay-wave-mid) 55%, var(--overlay-wave-bottom)); }
+/* Swatches use the overlay palette variables; tooltips provide their names.
+   Rectangles, not discs: the same chip as the interface-colour presets. */
+.overlay-swatches { display: flex; flex-wrap: wrap; gap: 8px; min-height: 34px; align-content: center; }
+.overlay-swatch { appearance: none; width: 22px; height: 14px; padding: 0; border-radius: 4px; cursor: pointer; border: 2px solid var(--overlay-shell-top); background: linear-gradient(180deg, var(--overlay-wave-top), var(--overlay-wave-mid) 55%, var(--overlay-wave-bottom)); }
 .overlay-swatch--custom { border-style: dashed; }
 .overlay-swatch--accent {
-  width: 22px;
-  height: 14px;
-  border-radius: 4px;
   border-color: color-mix(in srgb, var(--swatch) 55%, #000);
   background: var(--swatch);
 }
 .overlay-swatch[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--bg-2), 0 0 0 4px var(--accent); }
 .overlay-swatch:disabled { cursor: default; opacity: 0.55; }
 .overlay-swatch:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 4px; }
-.overlay-swatches { min-height: 34px; align-content: center; }
 
 /* The interface colour in «Дополнительно»: the same swatches plus the system
    picker behind a rainbow ring. The native input is kept full-size and
    transparent over the ring — a click has to open the picker, and browsers give
    no styling hooks for the control itself. */
 .advanced__overlay { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line-soft); }
-.advanced__appearance-cell { gap: 12px; }
+.advanced__appearance-cell {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.advanced__appearance-cell .accent-picker { margin-left: auto; flex: 0 0 auto; }
 .accent-picker { display: flex; align-items: center; gap: 6px; }
 .accent-picker__custom { position: relative; width: 22px; height: 14px; border-radius: 4px; overflow: hidden; border: 2px solid var(--line-strong); background: conic-gradient(#e6483d, #e6c83d, #3dc97c, #3dc0e6, #5b6def, #9b75ef, #e6483d); }
 .accent-picker__custom[data-active="true"] { box-shadow: 0 0 0 2px var(--bg-2), 0 0 0 4px var(--accent); }
