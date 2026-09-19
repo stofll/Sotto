@@ -10,12 +10,13 @@ describe("overlay glow", () => {
     expect(wrapX(-LOBE_SPAN / 2, LOBE_SPAN)).toBeCloseTo(-LOBE_SPAN / 2);
   });
 
+  // The overlay's own attack and release (see TUNING in OverlayGlow.tsx).
   it("rises faster than it falls", () => {
-    const up = follow(0, 1, 0.2, 0.325, 0.86);
-    const down = follow(1, 0, 0.2, 0.325, 0.86);
+    const up = follow(0, 1, 0.2, 0.14, 0.55);
+    const down = follow(1, 0, 0.2, 0.14, 0.55);
     expect(up).toBeGreaterThan(0.4);
     expect(1 - down).toBeLessThan(up);
-    expect(follow(0.5, 0, 0.2, 0.325, 0.86)).toBeLessThan(0.5);
+    expect(follow(0.5, 0, 0.2, 0.14, 0.55)).toBeLessThan(0.5);
   });
 
   it("gates quiet noise then saturates a shout", () => {
