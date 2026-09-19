@@ -329,12 +329,14 @@ export function ModelActionOverlays({ actions }: { actions: ModelActions }) {
           )}
         </div>
       ), document.body)}
+      {/* None of these three questions carries a close cross: «Отмена» beside
+          the confirming button is the same answer, and two controls for one
+          answer is a choice without a difference. */}
       {pendingDownload && createPortal((
         <div className="modal-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) setPendingDownload(null); }}>
           <div className="modal" role="dialog" aria-modal="true" aria-label={t("Скачать модель?")} style={{ width: "min(420px, 100%)" }}>
             <div className="modal__head">
               <h2>{t("Скачать модель?")}</h2>
-              <button className="modal__close" type="button" onClick={() => setPendingDownload(null)} aria-label={t("Закрыть")}><Icon name="x" size={14}/></button>
             </div>
             <div className="modal__body">
               <p style={{ margin: 0, font: "400 13px/1.5 var(--font-sans)", color: "var(--ink-mute)" }}>
@@ -357,9 +359,6 @@ export function ModelActionOverlays({ actions }: { actions: ModelActions }) {
       ), document.body)}
       {pendingSelect && createPortal((
         <div className="modal-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) setPendingSelect(null); }}>
-          {/* A close button is redundant here: «Отмена» next to it does the
-              same thing, and two closing buttons in a dialog asking one
-              question is a choice without a difference. */}
           <div className="modal" role="dialog" aria-modal="true" aria-label={t("Переключить модель?")} style={{ width: "min(320px, 100%)" }}>
             <div className="modal__head">
               <h2>{t("Переключить модель?")}</h2>
@@ -378,7 +377,6 @@ export function ModelActionOverlays({ actions }: { actions: ModelActions }) {
           <div className="modal" role="dialog" aria-modal="true" aria-label={t("Удалить модель?")} style={{ width: "min(420px, 100%)" }}>
             <div className="modal__head">
               <h2>{t("Удалить модель?")}</h2>
-              <button className="modal__close" type="button" onClick={() => setPendingDelete(null)} aria-label={t("Закрыть")}><Icon name="x" size={14}/></button>
             </div>
             <div className="modal__body">
               {/* A user's own file and a downloaded one are deleted the same

@@ -14,8 +14,8 @@ import { t } from "../i18n";
  * the model download and deletion questions use.
  *
  * The promise resolves `false` for every way out that is not the confirm
- * button — Escape, the close button, a click outside, so a question that
- * somehow fails to be answered destroys nothing.
+ * button — «Отмена», Escape, a click outside — so a question that somehow
+ * fails to be answered destroys nothing.
  */
 export function confirmDestructive(message: string, confirmLabel = t("Удалить")): Promise<boolean> {
   return confirmAction(message, { label: confirmLabel, icon: "trash" });
@@ -71,11 +71,11 @@ function ConfirmDialog({ message, confirmLabel, confirmIcon, onAnswer }: {
   return (
     <div className="modal-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) onAnswer(false); }}>
       <div className="modal modal--ask" role="alertdialog" aria-modal="true" aria-label={message}>
+        {/* No cross beside the title: «Отмена» in the footer answers the
+            question the same way, and a dialog that asks one thing does not
+            need two controls for the same answer. */}
         <div className="modal__head">
           <h2>{t("Подтвердите действие")}</h2>
-          <button className="modal__close" type="button" onClick={() => onAnswer(false)} aria-label={t("Закрыть")}>
-            <Icon name="x" size={14}/>
-          </button>
         </div>
         <div className="modal__body">
           <p style={{ margin: 0, font: "400 13px/1.5 var(--font-sans)", color: "var(--ink-mute)" }}>{message}</p>
