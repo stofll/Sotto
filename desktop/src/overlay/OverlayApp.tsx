@@ -19,9 +19,8 @@ export function OverlayApp() {
   const showTimer = preferences.show_timer && state === "recording";
   const closeLabel = state === "pasted" || state === "error" ? t("Закрыть") : t("Отменить запись");
   return (
-    <div data-testid="overlay" data-state={state} data-layout={layout === "pill" ? "compact" : layout} data-size={preferences.size} data-timer={preferences.show_timer ? "on" : "off"} data-hovered={hovered ? "true" : "false"} className="overlay" style={config ? overlayPalette(preferences) : undefined}
-      onPointerEnter={() => setHovered(true)} onPointerLeave={() => setHovered(false)} onPointerDown={() => setHovered(true)}>
-      <div className="overlay-shell">
+    <div data-testid="overlay" data-state={state} data-layout={layout === "pill" ? "compact" : layout} data-size={preferences.size} data-timer={preferences.show_timer ? "on" : "off"} data-hovered={hovered ? "true" : "false"} className="overlay" style={config ? overlayPalette(preferences) : undefined}>
+      <div className="overlay-shell" onPointerEnter={() => setHovered(true)} onPointerLeave={() => setHovered(false)} onPointerDown={() => setHovered(true)}>
         <div className="overlay-surface" ref={surfaceRef}>
           {glow ? <>
             <Suspense fallback={null}>
