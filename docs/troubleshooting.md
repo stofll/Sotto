@@ -32,6 +32,14 @@ Each recording opens the selected microphone again. Configuration and route chec
 
 For measurements, use the local `capture timing` log entries described in [Testing](testing.md). `queue_ms` includes start checks before the audio worker runs, and `stream_ready_ms` is measured from the same start request. `first_callback_ms` starts later, just before stream construction: it excludes device selection and configuration, and must not be treated as the full hotkey-to-audio delay or added to `stream_ready_ms`. Compare cold and repeated starts with the same microphone, OS and build; file transcription does not exercise microphone startup.
 
+## macOS asks for the microphone again after an update, and the paste stops working
+
+macOS ties both permissions to the application's signature. Builds without a publisher certificate are identified by their code hash instead, so an update is a different application to the system: the microphone is requested again, and Accessibility stops delivering the paste while its switch in **Privacy & Security → Accessibility** stays on.
+
+Grant the microphone when asked. For the paste, remove Sotto from the Accessibility list and add the updated `/Applications/Sotto.app` again — switching it off and on is not enough, because the entry itself is stale.
+
+Releases built with a signing certificate keep both grants; [Releasing](RELEASE.md#5-code-signing-checklist) covers what that needs.
+
 ## The hotkey, microphone, or paste action does not work
 
 Check the operating-system permissions and verify that another application has not claimed the shortcut.

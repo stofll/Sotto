@@ -109,12 +109,25 @@ pnpm tauri build
 
 ### 5. Code Signing Checklist
 
-Two different signatures, often confused:
+Three different signatures, often confused:
 
 | | Proves | Where it lives | Set up? |
 |---|---|---|---|
 | **minisign** (updater) | the update artifact was not tampered with and came from the key holder | `TAURI_SIGNING_PRIVATE_KEY` secret; public half in `tauri.conf.json` | yes |
 | **Authenticode** (Windows) | the *publisher* is who they claim to be — this is what silences SmartScreen | `WINDOWS_CERT_BASE64` secret | **no** |
+| **codesign** (macOS) | the update is the same application macOS already granted the microphone and Accessibility to | `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY` secrets | when the secrets exist |
+
+The macOS row is not about trust. TCC identifies an application by its signature, and the ad-hoc signature in `tauri.macos.conf.json` is identified by the code hash, so without those secrets every release is a new application: the microphone is asked for again and Accessibility stops working with its switch still on. Any certificate that stays the same across releases fixes that, including the self-signed one [scripts/macos-signing.py](../scripts/macos-signing.py) creates for local builds — export its `identity.p12` as base64 into `APPLE_CERTIFICATE` and its common name into `APPLE_SIGNING_IDENTITY`. The release workflow imports it into a temporary keychain before building and warns, without failing, when the secrets are absent.
+
+Replacing the certificate resets those permissions once, for everyone, so treat it the way the minisign key is treated: back it up and keep it.
+
+The three values of the local identity, for the repository's secrets:
+
+```bash
+base64 -i ~/.tauri/sotto-local-signing/identity.p12   # APPLE_CERTIFICATE
+cat ~/.tauri/sotto-local-signing/password             # APPLE_CERTIFICATE_PASSWORD
+openssl x509 -in ~/.tauri/sotto-local-signing/certificate.pem -noout -subject  # APPLE_SIGNING_IDENTITY, the CN
+```
 
 Without Authenticode, both the first install and every update show "unknown publisher". The updater works; it just looks untrustworthy. A certificate has not been obtained, so every release so far ships unsigned in the publisher sense.
 
@@ -122,12 +135,12 @@ Until one is, what users get instead is [Verifying a download](verifying-downloa
 
 Two conditions worth knowing before shopping, because neither is obvious from a vendor's page:
 
-- **macOS** — Tauri signs and notarizes on its own once the `APPLE_*` variables are present, so the work is a purchase plus secrets. On an individual Developer Program account the certificate carries the maintainer's legal name, and Gatekeeper shows it to users.
+- **macOS** — Tauri signs and notarizes on its own once the `APPLE_*` variables are present, so the work is a purchase plus secrets. On an individual Developer Program account the certificate carries the maintainer's legal name, and Gatekeeper shows it to users. Developer ID is what removes the quarantine warning; keeping the permissions across updates does not wait for it.
 - **Windows** — an EV certificate no longer buys instant SmartScreen trust (Microsoft removed that in 2024); reputation accrues to a consistent publisher identity either way, so the EV premium buys nothing here. Azure Artifact Signing is limited to the US and Canada for individual developers, and an OV certificate now requires a cloud HSM — the private key may not live on the build machine.
 
 - [ ] **Windows Authenticode certificate** loaded in CI secrets (`WINDOWS_CERT_BASE64`, `WINDOWS_CERT_PASSWORD`).
-- [ ] **Apple Developer Program** certificate + notarization credentials in CI secrets (`APPLE_CERT_BASE64`, `APPLE_CERT_PASSWORD`, `APPLE_NOTARIZATION_USERNAME`, `APPLE_NOTarIZATION_PASSWORD`).
-- [ ] `tauri.conf.json` has `bundle.windows.signing` and `bundle.macOS.signing` configured (or CI override).
+- [ ] **Apple Developer Program** certificate in the existing `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD` and `APPLE_SIGNING_IDENTITY` secrets, plus notarization credentials (`APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`).
+- [ ] `tauri.conf.json` has `bundle.windows.signing` configured (or a CI override); on macOS the `APPLE_SIGNING_IDENTITY` variable already overrides the ad-hoc identity in `tauri.macos.conf.json`.
 - [ ] Test signing locally before tagging: `pnpm tauri build --bundles nsis` (Windows) / `pnpm tauri build --bundles dmg` (macOS).
 
 ### 6. Bundle Target List
