@@ -109,11 +109,13 @@ export function OverlayGlow({ mode }: { mode: GlowMode }) {
       scale: SCALE,
       radius: RADIUS,
       processing: mode === "process",
-      processingDuration: DEFAULTS.processingDuration,
+      // Overlay pacing, deliberately not the geometry defaults: a pass here is
+      // slower than the library's ~350px chat input (1.1 s), and the morph in
+      // and out of the sweep is longer. `processingEase` has no preset value.
+      processingDuration: 2.8,
       processingLevel: DEFAULTS.processingLevel,
-      processingEase: 0.6,
+      processingEase: 1.1,
       processingTravel: DEFAULTS.processingTravel,
-      processingCurve: DEFAULTS.processingCurve,
       cornerFollow: DEFAULTS.cornerFollow,
       hueRange: PRESET.hueRange ?? 24,
       hueDuration: PRESET.hueDuration ?? 12,

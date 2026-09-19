@@ -225,14 +225,6 @@ export interface VoiceBeamProps extends Omit<HTMLAttributes<HTMLDivElement>, 'ch
   processingTravel?: number;
 
   /**
-   * How the processing beam eases into each turn of its sweep: 1 runs at
-   * a constant speed and turns sharply, 2 slows smoothly into the ends,
-   * higher dwells there longer before heading back.
-   * @default 2.1
-   */
-  processingCurve?: number;
-
-  /**
    * How much the coloured glow rides the element's corner arcs while
    * processing, 0–1: 0 keeps it flat along the bottom edge, 1 lifts it
    * along the rounded corner as it passes through. The band line follows

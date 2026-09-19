@@ -23,7 +23,6 @@ export interface VoiceGeometry {
   processingDuration: number;
   processingLevel: number;
   processingTravel: number;
-  processingCurve: number;
   /** How much the travelling beam rides the element's corner arcs, 0–1. */
   cornerFollow: number;
   /** Per-layer opacity multipliers on the theme preset. */
@@ -80,7 +79,6 @@ export const voiceDefaults: VoiceGeometry = {
   processingDuration: 1.1,
   processingLevel: 0.55,
   processingTravel: 1.55,
-  processingCurve: 2.1,
   cornerFollow: 0.45,
   strokeOpacity: 1,
   innerOpacity: 1,
