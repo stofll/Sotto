@@ -102,9 +102,11 @@ function StateDetail({ session }: { session: OverlaySession }) {
     return <div className="overlay-progress"><span>{detail.label}</span>{detail.seconds !== undefined && <span className="overlay-counter">{t("{p0} с", { p0: detail.seconds })}</span>}</div>;
   }
   if ("warning" in detail) {
-    return <div className="overlay-result"><div>{detail.text}</div><Hint asChild text={detail.warning}><div>{detail.warning}</div></Hint></div>;
+    return <div className="overlay-result"><div>{detail.text}</div><Hint asChild ifClipped text={detail.warning}><div>{detail.warning}</div></Hint></div>;
   }
-  return <Hint asChild text={detail.text}><div className="overlay-text">{detail.text}</div></Hint>;
+  // Both lines are cut to the width of the overlay; the bubble is how the
+  // rest of a long error is read, not a second copy of what already fits.
+  return <Hint asChild ifClipped text={detail.text}><div className="overlay-text">{detail.text}</div></Hint>;
 }
 
 function PreviewPane({ text }: { text: string }) {

@@ -214,6 +214,10 @@ function ModelCard({ model, assessment, active, busy, onSelect, onDownload, onDe
   onDelete: () => void;
 }) {
   const installed = model.downloaded || model.local;
+  // The summary lists the languages itself when there are few of them, and a
+  // bubble repeating that list adds nothing; it is worth reading only when
+  // the summary is a count.
+  const summary = languageSummary(model);
   const languages = languageList(model);
   const metadata = modelMetadata(model);
   // The outline answers one question — "which of them is working right now":
@@ -271,9 +275,9 @@ function ModelCard({ model, assessment, active, busy, onSelect, onDownload, onDe
           line with the word "no". */}
       <div className="model-card2__params">
         <div className="model-card2__capabilities">
-        <Hint asChild text={languages || undefined}><span className="model-card2__param model-card2__param--wide">
+        <Hint asChild ifClipped={languages === summary} text={languages || undefined}><span className="model-card2__param model-card2__param--wide">
           <Icon name="globe" size={11}/>
-          {languageSummary(model)}
+          {summary}
         </span></Hint>
         {model.streaming && (
           <Hint asChild text={t("Показывает текст по ходу диктовки, не дожидаясь конца записи.")}><span className="model-card2__param">
@@ -286,7 +290,9 @@ function ModelCard({ model, assessment, active, busy, onSelect, onDownload, onDe
       </div>
 
       <div className="model-card2__foot">
-        <Hint asChild text={metadata}><span className="model-card2__meta">
+        {/* The line is the bubble's own text, so the bubble is only the way
+            to read it when the card is too narrow to show it whole. */}
+        <Hint asChild ifClipped text={metadata}><span className="model-card2__meta">
           {metadata}
         </span></Hint>
         {/* Downloading is the only button on the card: everything else is done
