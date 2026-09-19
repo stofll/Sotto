@@ -267,9 +267,15 @@ def test_overlay_close_hidden_until_hover(app, page, form, viewport):
     ui = app("overlay", config={"overlay": {"form": form}})
     ui.emit("recording-started", 1)
     button = page.get_by_role("button", name="Отменить запись", exact=True)
-    page.mouse.move(0, 0)
-    expect(button).to_have_css("opacity", "0")
     overlay = page.get_by_test_id("overlay")
+    # `.overlay` fills the page (`inset: 0`), so parking the pointer at (0, 0)
+    # still fires pointerenter. Glow also mounts its beam later and can
+    # retrigger that. Wait for the form to settle, then leave the overlay.
+    if form == "glow":
+        expect(page.locator(".overlay-beam")).to_have_count(1)
+    overlay.dispatch_event("pointerleave")
+    expect(overlay).to_have_attribute("data-hovered", "false")
+    expect(button).to_have_css("opacity", "0")
     overlay.dispatch_event("pointerdown")
     expect(overlay).to_have_attribute("data-hovered", "true")
     expect(button).to_have_css("opacity", "1")
