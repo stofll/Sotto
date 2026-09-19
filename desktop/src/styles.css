@@ -2088,8 +2088,13 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .overlay-screen__zone:focus-visible { outline: 2px solid var(--overlay-edge); outline-offset: -2px; }
 /* The dot marks an empty zone as a place the overlay can go: an area that does
    nothing until hovered does not look clickable. */
-.overlay-screen__zone::after { content: ""; position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%; background: var(--ink-faint); opacity: 0; transition: opacity 120ms ease; }
-.overlay-screen__zone:hover:not(:disabled)::after { opacity: 0.7; }
+/* The nine places are marked without the pointer: the zones showed
+   nothing until hover, so the picker read as a dark sheet with one
+   outlined cell in it. The marks take the overlay's own colour — the
+   element already carries that palette for the preview inside it. */
+.overlay-screen__zone::after { content: ""; position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%; background: var(--overlay-edge); opacity: 0.3; transition: opacity 120ms ease; }
+.overlay-screen__zone:hover:not(:disabled)::after { opacity: 0.8; }
+.overlay-screen__zone:disabled::after { opacity: 0.14; }
 /* The fixed anchor zones stay clickable through the scaled scene. */
 .overlay-screen__scene { position: absolute; top: 0; left: 0; transform-origin: top left; pointer-events: none; }
 .overlay-screen__zone[aria-pressed="true"] { border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
