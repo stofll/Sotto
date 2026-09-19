@@ -4600,6 +4600,7 @@ dependencies = [
 name = "sotto"
 version = "0.1.0"
 dependencies = [
+ "block2",
  "cpal",
  "criterion",
  "dirs 6.0.0",
@@ -4611,6 +4612,8 @@ dependencies = [
  "libc",
  "log",
  "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
  "once_cell",
  "raw-window-handle",
  "regex",

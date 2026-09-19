@@ -259,6 +259,10 @@ def test_overlay_palette_swatches_save_and_name_on_hover(app, page):
     lagoon.click()
     ui.saved("overlay", {"palette": "lagoon"})
     expect(lagoon).to_have_attribute("aria-pressed", "true")
+    expect(lagoon).to_have_css("border-radius", "4px")
+    label = palette.locator(".set-label")
+    label_box, swatch_box = label.bounding_box(), lagoon.bounding_box()
+    assert label_box["y"] + label_box["height"] <= swatch_box["y"] + 1
     # The name is no longer printed under the row; hovering says it instead.
     lagoon.hover()
     expect(page.get_by_role("tooltip", name="Лагуна", exact=True)).to_be_visible()
@@ -266,10 +270,23 @@ def test_overlay_palette_swatches_save_and_name_on_hover(app, page):
     expect(settings.get_by_text("Акцент приложения")).to_have_count(0)
 
 
+def test_overlay_timer_toggle_saves(app, page):
+    ui = app()
+    settings = open_overlay_settings(page)
+    control = settings.get_by_role("button", name="Секундомер", exact=True)
+    expect(control).to_have_attribute("aria-pressed", "true")
+    control.click()
+    ui.saved("overlay", {"show_timer": False})
+    expect(control).to_have_attribute("aria-pressed", "false")
+
+
 def test_interface_color_presets_and_custom_value(app, page):
     ui = app(config={"ui_accent": "#e68a3d"})
     page.get_by_text("Дополнительно", exact=True).click()
+    cell = page.locator(".advanced__appearance-cell")
     picker = page.get_by_role("group", name="Цвет интерфейса", exact=True)
+    label = cell.locator(".set-label")
+    assert label.bounding_box()["x"] < picker.bounding_box()["x"]
     picker.get_by_role("button", name="Зелёный", exact=True).click()
     ui.saved("ui_accent", "#3dc97c")
     assert (

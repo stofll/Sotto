@@ -130,6 +130,22 @@ libc = "0.2"
 sherpa-onnx = { version = "=1.13.7" }
 tempfile = "3"
 objc2 = "0.6"
+block2 = "0.6"
+objc2-foundation = { version = "0.3.2", default-features = false, features = [
+    "std",
+    "NSDate",
+    "NSGeometry",
+    "NSObject",
+    "NSTimer",
+    "block2",
+    "objc2-core-foundation",
+] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = [
+    "std",
+    "NSEvent",
+    "NSWindow",
+    "bitflags",
+] }
 
 [lib]
 name = "sotto_lib"

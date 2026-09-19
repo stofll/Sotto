@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
-import { Segmented } from "../components/Shell";
+import { Segmented, Switch } from "../components/Shell";
 import { NumberField } from "../components/NumberField";
 import { Hint } from "../components/Hint";
 import { Icon } from "../components/Icon";
@@ -119,6 +119,10 @@ export function OverlaySettings({ config, onConfigChanged }: Props) {
           </Hint>
         </div>
       </div>
+      <div className="set-cell set-cell--auto" role="group" aria-label={t("Секундомер")}>
+        <span className="set-label">{t("Секундомер")}</span>
+        <Switch on={draft.show_timer} disabled={locked} onChange={(on) => void save({ show_timer: on })} label={t("Секундомер")}/>
+      </div>
       <div className="set-cell set-cell--auto" role="group" aria-label={t("Цвет оверлея")}>
         <span className="set-label">{t("Цвет оверлея")}</span>
         {/* The names live on the swatches themselves: a caption under the row
@@ -168,11 +172,11 @@ export function OverlaySettings({ config, onConfigChanged }: Props) {
                 {draft.form === "bead" ? <span className="overlay-mini__ring"/> : draft.form === "glow" ? <>
                   <span className="overlay-mini__copy"/>
                   <span className="overlay-mini__bar">
-                    <span className="overlay-mini__timer">0:07</span>
+                    {draft.show_timer && <span className="overlay-mini__timer">0:07</span>}
                     <span className="overlay-mini__close"><Icon name="x" size={14}/></span>
                   </span>
                 </> : <>
-                  <span className="overlay-mini__timer">0:07</span>
+                  {draft.show_timer && <span className="overlay-mini__timer">0:07</span>}
                   <span className="overlay-mini__wave">
                     {PREVIEW_BARS.map((height, bar) => <span key={bar} style={{ height }}/>)}
                   </span>

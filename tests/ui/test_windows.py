@@ -179,6 +179,15 @@ def test_overlay_audio_lifetime_and_reduced_motion(app, page):
     expect(bars.last).to_have_css("height", "16px")
 
 
+def test_overlay_hides_timer_when_disabled(app, page):
+    page.set_viewport_size({"width": 308, "height": 64})
+    ui = app("overlay", config={"overlay": {"show_timer": False}})
+    ui.emit("recording-started", 1)
+    overlay = page.get_by_test_id("overlay")
+    expect(overlay).to_have_attribute("data-timer", "off")
+    expect(page.locator(".overlay-timer")).to_have_count(0)
+
+
 def test_overlay_timer_stops_after_recording_and_reset(app, page):
     page.clock.install()
     ui = app("overlay")
@@ -243,6 +252,54 @@ def test_bead_suppresses_live_text_and_recovers_after_warning(app, page):
     ui.emit("recording-started", 2)
     expect(overlay).to_have_attribute("data-layout", "bead")
     expect(overlay).not_to_contain_text("Ошибка LLM")
+
+
+@pytest.mark.parametrize(
+    "form,viewport",
+    [
+        ("pill", {"width": 308, "height": 64}),
+        ("glow", {"width": 400, "height": 112}),
+        ("bead", {"width": 72, "height": 72}),
+    ],
+)
+def test_overlay_close_hidden_until_hover(app, page, form, viewport):
+    # Pad the page so (0, 0) sits outside `.overlay-shell`. The overlay root
+    # fills the viewport, and a synthetic pointerleave is immediately followed
+    # by a real pointerenter while the cursor is still over it.
+    page.set_viewport_size(
+        {"width": viewport["width"] + 80, "height": viewport["height"] + 80}
+    )
+    page.mouse.move(0, 0)
+    ui = app("overlay", config={"overlay": {"form": form}})
+    ui.emit("recording-started", 1)
+    button = page.get_by_role("button", name="Отменить запись", exact=True)
+    overlay = page.get_by_test_id("overlay")
+    if form == "glow":
+        expect(page.locator(".overlay-beam")).to_have_count(1)
+    page.mouse.move(0, 0)
+    expect(overlay).to_have_attribute("data-hovered", "false")
+    expect(button).to_have_css("opacity", "0")
+    page.locator(".overlay-shell").hover()
+    expect(overlay).to_have_attribute("data-hovered", "true")
+    expect(button).to_have_css("opacity", "1")
+    button.click()
+    expect(overlay).not_to_be_visible()
+    assert ui.calls("cancel_recording")[-1]["args"]["sessionId"] == 1
+
+
+def test_overlay_close_shows_on_native_pointer_event(app, page):
+    page.set_viewport_size({"width": 388, "height": 144})
+    page.mouse.move(0, 0)
+    ui = app("overlay")
+    ui.emit("recording-started", 1)
+    overlay = page.get_by_test_id("overlay")
+    button = page.get_by_role("button", name="Отменить запись", exact=True)
+    page.mouse.move(0, 0)
+    expect(overlay).to_have_attribute("data-hovered", "false")
+    expect(button).to_have_css("opacity", "0")
+    ui.emit("overlay-pointer", True)
+    expect(overlay).to_have_attribute("data-hovered", "true")
+    expect(button).to_have_css("opacity", "1")
 
 
 @pytest.mark.parametrize("state", ["recording", "loading", "processing", "done"])

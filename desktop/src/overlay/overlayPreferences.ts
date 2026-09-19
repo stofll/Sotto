@@ -12,6 +12,7 @@ export type OverlayPreferences = {
   size: typeof OVERLAY_SIZES[number];
   anchor: typeof OVERLAY_ANCHORS[number];
   edge_offset: number;
+  show_timer: boolean;
 };
 
 function choice<T extends string>(values: readonly T[], value: unknown, fallback: T): T {
@@ -30,6 +31,7 @@ export function overlayPreferences(raw: unknown): OverlayPreferences {
     size: choice(OVERLAY_SIZES, value.size, "m"),
     anchor: choice(OVERLAY_ANCHORS, value.anchor, "bottom-center"),
     edge_offset: Number.isInteger(value.edge_offset) ? number(value.edge_offset, 0, 512, DEFAULT_EDGE_OFFSET) : DEFAULT_EDGE_OFFSET,
+    show_timer: typeof value.show_timer === "boolean" ? value.show_timer : true,
   };
 }
 

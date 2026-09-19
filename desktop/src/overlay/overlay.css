@@ -63,8 +63,14 @@
 .overlay-detail { min-width: 0; }
 .overlay-timer { justify-self: start; height: 34px; min-width: 58px; padding: 0 8px; border-radius: 999px; background: color-mix(in srgb, var(--overlay-wave-mid) 14%, transparent); color: var(--overlay-wave-mid); display: flex; align-items: center; justify-content: center; gap: 6px; font: 700 12px/1 var(--font-mono); font-variant-numeric: tabular-nums; }
 .overlay-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--overlay-wave-mid); flex: 0 0 auto; }
-.overlay-close { appearance: none; width: 28px; height: 28px; border-radius: 50%; border: 0; background: rgba(255,255,255,0.08); color: var(--overlay-edge); display: grid; place-items: center; cursor: pointer; }
-.overlay-close:disabled { cursor: default; opacity: 0.55; }
+.overlay-close { appearance: none; width: 28px; height: 28px; border-radius: 50%; border: 0; background: rgba(255,255,255,0.08); color: var(--overlay-edge); display: grid; place-items: center; cursor: pointer; opacity: 0; transition: opacity 120ms ease; }
+.overlay-close:disabled { cursor: default; }
+.overlay-shell:hover .overlay-close,
+.overlay[data-hovered="true"] .overlay-close,
+.overlay-close:focus-visible { opacity: 1; }
+.overlay-shell:hover .overlay-close:disabled,
+.overlay[data-hovered="true"] .overlay-close:disabled,
+.overlay-close:focus-visible:disabled { opacity: 0.55; }
 .overlay-close:focus-visible { outline: 2px solid var(--overlay-edge); outline-offset: 2px; }
 .overlay[data-state="recording"] .overlay-close { color: rgba(255,255,255,0.84); }
 .overlay[data-state="pasted"] .overlay-close { color: var(--ok); }
@@ -96,7 +102,8 @@
 .overlay-surface { z-index: 1; }
 .overlay-timer-slot { overflow: hidden; }
 .overlay-row { transition: grid-template-columns 200ms ease; }
-.overlay:not([data-state="recording"]) .overlay-row { grid-template-columns: 0 1fr 30px; column-gap: 4px; }
+.overlay:not([data-state="recording"]) .overlay-row,
+.overlay[data-timer="off"] .overlay-row { grid-template-columns: 0 1fr 30px; column-gap: 4px; }
 .overlay[data-state="error"] .overlay-text { color: var(--err); }
 .overlay-counter { animation: overlay-counter-in 200ms ease both; font-variant-numeric: tabular-nums; }
 .overlay:is([data-state="loading"], [data-state="processing"], [data-state="done"]) .overlay-shell::before {
@@ -150,10 +157,7 @@
 .overlay[data-layout="bead"] .overlay-detail { position: absolute; inset: 0; }
 .overlay-waveform--circular { position: absolute; inset: 0; height: auto; }
 .overlay-waveform--circular > span { position: absolute; left: 50%; top: 50%; width: 2px; }
-.overlay[data-layout="bead"] .overlay-close { position: relative; z-index: 2; opacity: 0; transition: opacity 120ms ease; }
-.overlay[data-layout="bead"] .overlay-shell:hover .overlay-close,
-.overlay[data-layout="bead"]:focus-within .overlay-close { opacity: 1; }
-.overlay[data-layout="bead"] .overlay-close:disabled { opacity: 0.55; }
+.overlay[data-layout="bead"] .overlay-close { position: relative; z-index: 2; }
 .overlay-bead-status { position: absolute; inset: 5px; border: 2px solid var(--overlay-edge); border-radius: 50%; opacity: 0.4; }
 .overlay[data-state="pasted"] .overlay-bead-status { border-color: var(--ok); opacity: 1; }
 .overlay[data-state="pasted"] .overlay-bead-status::after { content: "✓"; position: absolute; inset: 0; display: grid; place-items: center; color: var(--ok); }
