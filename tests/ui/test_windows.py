@@ -286,6 +286,20 @@ def test_overlay_close_hidden_until_hover(app, page, form, viewport):
     assert ui.calls("cancel_recording")[-1]["args"]["sessionId"] == 1
 
 
+def test_overlay_close_shows_on_native_pointer_event(app, page):
+    page.set_viewport_size({"width": 308, "height": 64})
+    ui = app("overlay")
+    ui.emit("recording-started", 1)
+    overlay = page.get_by_test_id("overlay")
+    overlay.dispatch_event("pointerleave")
+    button = page.get_by_role("button", name="Отменить запись", exact=True)
+    expect(overlay).to_have_attribute("data-hovered", "false")
+    expect(button).to_have_css("opacity", "0")
+    ui.emit("overlay-pointer", True)
+    expect(overlay).to_have_attribute("data-hovered", "true")
+    expect(button).to_have_css("opacity", "1")
+
+
 @pytest.mark.parametrize("state", ["recording", "loading", "processing", "done"])
 def test_bead_hover_cancels_active_session(app, page, state):
     page.set_viewport_size({"width": 72, "height": 72})

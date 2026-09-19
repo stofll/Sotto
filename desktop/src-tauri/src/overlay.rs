@@ -52,6 +52,7 @@ static WINDOW_CREATE_LOCK: Mutex<()> = Mutex::new(());
 /// keeps duplicate state events from repeating reveal/z-order work and stays
 /// consistent across the pre-warmed and hidden window paths.
 static ON_SCREEN: Mutex<bool> = Mutex::new(false);
+static POINTER_INSIDE: Mutex<Option<bool>> = Mutex::new(None);
 
 fn is_on_screen() -> bool {
     ON_SCREEN.lock().map(|g| *g).unwrap_or(false)
@@ -377,14 +378,101 @@ fn apply_macos_overlay_style(window: &tauri::WebviewWindow) -> Result<(), String
                 // full-screen ones, never participate in Cmd+` cycling.
                 let behavior: usize = (1 << 0) | (1 << 6) | (1 << 8);
                 let _: () = msg_send![ns, setCollectionBehavior: behavior];
-                // The overlay is not the key window. Without this, AppKit
-                // withholds mouse-moved events until a click, so CSS :hover
-                // and pointerenter never fire on the first recording.
+                // The overlay is not the key window. AppKit still withholds
+                // mouse-moved events from WKWebView until a click, so CSS
+                // :hover and pointerenter stay dead on the first recording.
+                // `start_macos_pointer_watch` drives `data-hovered` instead.
                 let _: () = msg_send![ns, setAcceptsMouseMovedEvents: true];
                 let _: () = msg_send![ns, setIgnoresMouseEvents: false];
             }
         })
         .map_err(|e| e.to_string())
+}
+
+#[cfg(target_os = "macos")]
+struct MacosPointerWatch {
+    timer: objc2::rc::Retained<objc2_foundation::NSTimer>,
+}
+
+#[cfg(target_os = "macos")]
+unsafe impl Send for MacosPointerWatch {}
+
+#[cfg(target_os = "macos")]
+static MACOS_POINTER_WATCH: Mutex<Option<MacosPointerWatch>> = Mutex::new(None);
+
+/// WKWebView on a non-key window does not run CSS :hover or pointerenter
+/// until a click, even with `setAcceptsMouseMovedEvents`. Hit-test the
+/// cursor against the window frame on the main run loop while the overlay
+/// is visible and drive `overlay-pointer` from that.
+#[cfg(target_os = "macos")]
+fn start_macos_pointer_watch(window: &tauri::WebviewWindow) {
+    let window = window.clone();
+    let _ = window
+        .clone()
+        .run_on_main_thread(move || start_macos_pointer_watch_main(window));
+}
+
+#[cfg(target_os = "macos")]
+fn stop_macos_pointer_watch(window: &tauri::WebviewWindow) {
+    let _ = window.run_on_main_thread(stop_macos_pointer_watch_main);
+}
+
+#[cfg(target_os = "macos")]
+fn start_macos_pointer_watch_main(window: tauri::WebviewWindow) {
+    use std::ptr::NonNull;
+
+    use block2::RcBlock;
+    use objc2::runtime::AnyObject;
+    use objc2_foundation::NSTimer;
+
+    stop_macos_pointer_watch_main();
+    let Ok(ns) = window.ns_window() else {
+        return;
+    };
+    let ns = ns as usize;
+    let window_for_timer = window.clone();
+    let block = RcBlock::new(move |_timer: NonNull<NSTimer>| {
+        if !is_on_screen() {
+            return;
+        }
+        let inside = cursor_inside_overlay_ns(ns as *mut AnyObject);
+        emit_overlay_pointer(&window_for_timer, inside);
+    });
+    // SAFETY: the block is Send (`WebviewWindow` + `usize`) and the timer
+    // is created on the main thread, which is where it must be invalidated.
+    let timer =
+        unsafe { NSTimer::scheduledTimerWithTimeInterval_repeats_block(0.03, true, &block) };
+    *crate::mutex_recover::lock(&MACOS_POINTER_WATCH) = Some(MacosPointerWatch { timer });
+    emit_overlay_pointer(&window, cursor_inside_overlay_ns(ns as *mut AnyObject));
+}
+
+#[cfg(target_os = "macos")]
+fn stop_macos_pointer_watch_main() {
+    if let Some(watch) = crate::mutex_recover::lock(&MACOS_POINTER_WATCH).take() {
+        watch.timer.invalidate();
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn cursor_inside_overlay_ns(ns_window: *mut objc2::runtime::AnyObject) -> bool {
+    use objc2_app_kit::{NSEvent, NSWindow};
+
+    if ns_window.is_null() {
+        return false;
+    }
+    // SAFETY: `ns_window` is the live overlay NSWindow and this runs on
+    // the main thread, which AppKit requires for `frame` / `mouseLocation`.
+    let window = unsafe { &*ns_window.cast::<NSWindow>() };
+    let mouse = NSEvent::mouseLocation();
+    let frame = window.frame();
+    point_in_rect(
+        mouse.x,
+        mouse.y,
+        frame.origin.x,
+        frame.origin.y,
+        frame.size.width,
+        frame.size.height,
+    )
 }
 
 /// Enqueue a state change. Returns as soon as the op is posted — see the
@@ -440,14 +528,37 @@ fn apply_show(app: &AppHandle, state: String) -> Result<(), String> {
             thread::sleep(Duration::from_millis(16));
             force_topmost_noactivate(hwnd);
         }
+        #[cfg(target_os = "macos")]
+        start_macos_pointer_watch(&window);
     }
     // The pill can appear under the cursor. WKWebView then never gets a
     // pointerenter, so the cancel control would stay hidden until a click
     // or a mouse move. Tell React whether the pointer is already inside.
-    let _ = window.emit("overlay-pointer", pointer_inside_overlay(&window));
+    // macOS keeps watching after reveal: CSS :hover still needs a click on
+    // a non-key WKWebView, so later movement has to drive `overlay-pointer`.
+    #[cfg(not(target_os = "macos"))]
+    emit_overlay_pointer(&window, pointer_inside_overlay(&window));
     Ok(())
 }
 
+fn point_in_rect(x: f64, y: f64, origin_x: f64, origin_y: f64, width: f64, height: f64) -> bool {
+    x >= origin_x && y >= origin_y && x < origin_x + width && y < origin_y + height
+}
+
+fn emit_overlay_pointer(window: &tauri::WebviewWindow, inside: bool) {
+    if inside && !is_on_screen() {
+        return;
+    }
+    let mut last = crate::mutex_recover::lock(&POINTER_INSIDE);
+    if *last == Some(inside) {
+        return;
+    }
+    *last = Some(inside);
+    drop(last);
+    let _ = window.emit("overlay-pointer", inside);
+}
+
+#[cfg(not(target_os = "macos"))]
 fn pointer_inside_overlay(window: &tauri::WebviewWindow) -> bool {
     let Ok(cursor) = window.cursor_position() else {
         return false;
@@ -458,12 +569,14 @@ fn pointer_inside_overlay(window: &tauri::WebviewWindow) -> bool {
     let Ok(size) = window.outer_size() else {
         return false;
     };
-    let left = f64::from(pos.x);
-    let top = f64::from(pos.y);
-    cursor.x >= left
-        && cursor.y >= top
-        && cursor.x < left + f64::from(size.width)
-        && cursor.y < top + f64::from(size.height)
+    point_in_rect(
+        cursor.x,
+        cursor.y,
+        f64::from(pos.x),
+        f64::from(pos.y),
+        f64::from(size.width),
+        f64::from(size.height),
+    )
 }
 
 /// Pick the monitor the overlay should appear on.
@@ -668,6 +781,9 @@ fn apply_hide(app: &AppHandle) -> Result<(), String> {
         match conceal(&window) {
             Ok(()) => {
                 set_on_screen(false);
+                #[cfg(target_os = "macos")]
+                stop_macos_pointer_watch(&window);
+                *crate::mutex_recover::lock(&POINTER_INSIDE) = None;
                 eprintln!("[overlay] hide: window concealed successfully");
             }
             Err(e) => {
@@ -1043,5 +1159,14 @@ mod tests {
             overlay_origin((0, 0), FHD, OVERLAY, 9999, "top-left"),
             (1612, 1016)
         );
+    }
+
+    #[test]
+    fn point_in_rect_is_half_open_on_the_far_edges() {
+        assert!(point_in_rect(10.0, 20.0, 10.0, 20.0, 100.0, 50.0));
+        assert!(point_in_rect(109.9, 69.9, 10.0, 20.0, 100.0, 50.0));
+        assert!(!point_in_rect(110.0, 20.0, 10.0, 20.0, 100.0, 50.0));
+        assert!(!point_in_rect(10.0, 70.0, 10.0, 20.0, 100.0, 50.0));
+        assert!(!point_in_rect(9.9, 20.0, 10.0, 20.0, 100.0, 50.0));
     }
 }
