@@ -12,6 +12,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{Emitter, Manager};
 
 const METHOD: &str = "sotto-stt-v1-whisper-0.14.4-sherpa-1.13.7";
+/// The language setting that leaves the choice to the engine. Its measurement
+/// is the one that fits any other language the model is asked for.
+const GENERIC_LANGUAGE: &str = "auto";
+/// Apple Silicon keeps one memory pool for the processor and the graphics,
+/// so free system memory is the budget whichever of them runs the model.
+/// Elsewhere a graphics card has memory of its own that nothing here reads.
+const UNIFIED_MEMORY: bool = cfg!(all(target_os = "macos", target_arch = "aarch64"));
 const RETENTION: u64 = 30 * 24 * 60 * 60;
 const MIN_SAMPLES: usize = 5;
 
@@ -286,6 +293,11 @@ fn clear(db: &Connection, id: &str) -> rusqlite::Result<()> {
 pub struct SpeedAssessment {
     pub score: Option<f64>,
     pub source: &'static str,
+    /// The reference shown was measured in another context — another compute
+    /// device or another language setting — because this one has none. The
+    /// interface says so rather than passing it off as a measurement of the
+    /// machine in front of the user.
+    pub approximate: bool,
     pub samples: usize,
     pub median_ms: Option<f64>,
     pub audio_min: Option<f64>,
@@ -330,23 +342,34 @@ pub fn memory_assessment(
         required_bytes: required,
         available_bytes: available,
     };
-    if loaded {
-        result.status = "loaded";
-    } else if compute != "cpu" {
-        result.status = "gpu_unknown";
-    } else if let (Some(required), Some(available)) = (required.filter(|n| *n > 0), available) {
-        let budget = available as f64 * 0.8;
-        result.status = if budget < required as f64 {
-            "low"
-        } else {
-            "enough"
-        };
-        result.score = Some(if budget <= 0.0 {
-            0.0
-        } else {
-            (1.0 - required as f64 / budget).clamp(0.0, 1.0)
-        });
+    if compute != "cpu" && !UNIFIED_MEMORY {
+        result.status = if loaded { "loaded" } else { "gpu_unknown" };
+        return result;
     }
+    let (Some(required), Some(available)) = (required.filter(|n| *n > 0), available) else {
+        if loaded {
+            result.status = "loaded";
+        }
+        return result;
+    };
+    // A model already in memory holds part of what is in use, and unloading it
+    // gives that back. Counting its own footprint into the budget is what
+    // keeps the question the same one every other card answers — whether this
+    // machine has room for this model — instead of leaving the one model that
+    // demonstrably fits as the only card without a bar.
+    let budget = (available + if loaded { required } else { 0 }) as f64 * 0.8;
+    result.status = if loaded {
+        "loaded"
+    } else if budget < required as f64 {
+        "low"
+    } else {
+        "enough"
+    };
+    result.score = Some(if budget <= 0.0 {
+        0.0
+    } else {
+        (1.0 - required as f64 / budget).clamp(0.0, 1.0)
+    });
     result
 }
 
@@ -361,20 +384,40 @@ pub struct Reference {
     pub method: String,
 }
 
+/// The measurement to show before the machine has produced one of its own.
+///
+/// The catalogue is recorded per language and, so far, on the CPU, while the
+/// application asks for the GPU by default — an exact match alone left every
+/// bar on the page empty. Two fallbacks follow it: the same model measured
+/// with the language left to the engine, and the CPU measurement when the GPU
+/// is in use. The GPU is not slower than the CPU it was measured against, so a
+/// bar filled that way promises less than the machine delivers, never more.
 fn reference(profile: &Profile, language: &str) -> Option<&'static Reference> {
     static REFERENCES: OnceLock<Vec<Reference>> = OnceLock::new();
     let references = REFERENCES.get_or_init(|| {
         serde_json::from_str(include_str!("model_reference.json")).unwrap_or_default()
     });
-    references.iter().find(|value| {
-        value.model_id == profile.model_id
-            && value.revision == profile.revision
-            && value.compute == profile.compute
-            && value.method == METHOD
-            && value.language == language
-            && value.rtf.is_finite()
-            && value.rtf > 0.0
-    })
+    let measured = |compute: &str, language: &str| {
+        references.iter().find(|value| {
+            value.model_id == profile.model_id
+                && value.revision == profile.revision
+                && value.compute == compute
+                && value.method == METHOD
+                && value.language == language
+                && value.rtf.is_finite()
+                && value.rtf > 0.0
+        })
+    };
+    if let Some(exact) = measured(&profile.compute, language) {
+        return Some(exact);
+    }
+    if let Some(any_language) = measured(&profile.compute, GENERIC_LANGUAGE) {
+        return Some(any_language);
+    }
+    if profile.compute == "cpu" {
+        return None;
+    }
+    measured("cpu", language).or_else(|| measured("cpu", GENERIC_LANGUAGE))
 }
 
 fn speed(
@@ -386,6 +429,7 @@ fn speed(
     let mut result = SpeedAssessment {
         score: None,
         source: "unknown",
+        approximate: false,
         samples: 0,
         median_ms: None,
         audio_min: None,
@@ -397,6 +441,7 @@ fn speed(
     if let Some(reference) = reference(profile, language) {
         result.score = Some(speed_score(reference.rtf));
         result.source = "reference";
+        result.approximate = reference.compute != profile.compute || reference.language != language;
         result.reference = Some(reference.machine.clone());
     }
     let candidates: Vec<_> = observations
@@ -451,6 +496,7 @@ fn speed(
     }
     result.score = (!result.unstable).then(|| speed_score(median(&ratios)));
     result.source = "personal";
+    result.approximate = false;
     result.median_ms = Some(median(&times));
     result.audio_min = group
         .iter()
@@ -585,14 +631,43 @@ mod tests {
             memory_assessment(Some(100), Some(200), false, "cpu").status,
             "enough"
         );
-        assert_eq!(
-            memory_assessment(Some(100), Some(20), true, "cpu").status,
-            "loaded"
-        );
-        assert_eq!(
-            memory_assessment(Some(100), Some(200), false, "gpu_unverified").score,
-            None
-        );
+        // The model in memory is the one that demonstrably fits, so it gets a
+        // bar like every other card: its own footprint counts into the budget.
+        let loaded = memory_assessment(Some(100), Some(200), true, "cpu");
+        assert_eq!(loaded.status, "loaded");
+        assert_eq!(loaded.score, Some(1.0 - 100.0 / 240.0));
+        // A graphics card keeps memory of its own that nothing here reads; a
+        // shared pool is the same question as the processor's.
+        let discrete = memory_assessment(Some(100), Some(200), false, "gpu_unverified");
+        if UNIFIED_MEMORY {
+            assert_eq!(discrete.status, "enough");
+            assert_eq!(discrete.score, Some(1.0 - 100.0 / 160.0));
+        } else {
+            assert_eq!(discrete.status, "gpu_unknown");
+            assert_eq!(discrete.score, None);
+        }
+    }
+
+    #[test]
+    fn a_measurement_of_the_same_model_stands_in_for_the_missing_context() {
+        // The catalogue holds tiny on the CPU, for Russian and for the engine's
+        // own choice. Every other context falls back to one of those two
+        // instead of leaving the card blank.
+        let exact = reference(&Profile::new("tiny", "cpu"), "ru").expect("ru is measured");
+        assert_eq!(exact.language, "ru");
+        let other_language = reference(&Profile::new("tiny", "cpu"), "de").expect("auto stands in");
+        assert_eq!(other_language.language, GENERIC_LANGUAGE);
+        let on_gpu = reference(&Profile::new("tiny", "gpu_unverified"), "ru")
+            .expect("the CPU measurement stands in");
+        assert_eq!(on_gpu.compute, "cpu");
+        assert_eq!(on_gpu.language, "ru");
+        assert!(reference(&Profile::new("large-v3", "cpu"), "ru").is_none());
+        // A borrowed measurement is marked as one, so the interface can say
+        // which context it came from instead of presenting it as this
+        // machine's own.
+        assert!(!speed(&Profile::new("tiny", "cpu"), &[], "ru", "").approximate);
+        assert!(speed(&Profile::new("tiny", "cpu"), &[], "de", "").approximate);
+        assert!(speed(&Profile::new("tiny", "gpu_unverified"), &[], "ru", "").approximate);
     }
     #[test]
     fn measurements_need_matching_context_and_five_runs() {

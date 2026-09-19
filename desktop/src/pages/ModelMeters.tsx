@@ -17,8 +17,8 @@ export function ModelMeters({ value }: { value?: ModelAssessment }) {
   useOutsideClose(open, anchor, () => setActive(null), menuRef);
   const text = assessmentText(value);
   const meters = [
-    { id: "speed", label: t("Скорость"), score: value?.speed.score, text: text.speed, warning: false },
-    { id: "memory", label: t("Запас памяти"), score: value?.memory.score, text: text.memory, warning: value?.memory.status === "low" },
+    { id: "speed", label: t("Скорость"), score: value?.speed.score, text: text.speed, warning: false, approximate: value?.speed.approximate === true },
+    { id: "memory", label: t("Запас памяти"), score: value?.memory.score, text: text.memory, warning: value?.memory.status === "low", approximate: false },
   ];
   return <div className="model-meters" ref={anchor} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => {
     if (event.key === "Escape") { setActive(null); trigger.current?.focus(); }
@@ -31,7 +31,7 @@ export function ModelMeters({ value }: { value?: ModelAssessment }) {
           onClick={(event) => { trigger.current = event.currentTarget; event.currentTarget.focus(); setActive(active === meter.id ? null : meter.id); }}>
           <span>{meter.label}</span>
           <span className="model-meter__track" aria-hidden="true">
-            {percent === null ? <span className="model-meter__unknown"/> : <span className="model-meter__fill" style={{ width: `${percent}%` }}/>}</span>
+            {percent === null ? <span className="model-meter__unknown"/> : <span className="model-meter__fill" data-approximate={meter.approximate || undefined} style={{ width: `${percent}%` }}/>}</span>
         </button></Hint>;
     })}
     {open && createPortal(<div id={panelId} className="custom-select__menu model-meter-detail" ref={menuRef} style={style} role="region" aria-label={active === "memory" ? t("Запас памяти") : t("Скорость")}>

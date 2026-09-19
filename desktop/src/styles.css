@@ -301,6 +301,9 @@ button, input, textarea, select { font: inherit; }
 .model-meter[data-warning] { color: var(--warn); }
 .model-meter__track { display: inline-flex; align-items: center; width: 48px; height: 5px; border-radius: var(--radius-sm); background: var(--bg-4); }
 .model-meter__fill { height: 100%; border-radius: inherit; background: var(--ink-mute); }
+/* A measurement borrowed from another device or language reads fainter
+   than one of this machine's own; the panel says which it is. */
+.model-meter__fill[data-approximate] { opacity: 0.55; }
 .model-meter[data-warning] .model-meter__fill { background: var(--warn); }
 .model-meter__unknown {
   width: 100%;
