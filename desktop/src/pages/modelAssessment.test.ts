@@ -16,33 +16,27 @@ describe("model meter presentation", () => {
     expect(meterPercent(1.1)).toBe(100);
     expect(meterPercent(-1)).toBe(0);
   });
-  it("explains resource warnings and missing data without blocking selection", () => {
-    expect(assessmentText().speed).toContain("неизвестна");
-    expect(assessmentText(assessment).memory).toContain("Может не хватить");
+  it("keeps missing estimates explicit and explains low memory", () => {
+    expect(assessmentText().speed).toContain("нет оценки");
+    expect(assessmentText(assessment).memory).toContain("может не хватить");
+    expect(assessmentText(assessment).memory).toContain("1 ГБ");
     expect(assessmentText(assessment).memory).toContain("0 ГБ");
   });
-  it("distinguishes reference provenance, learning and personal measurements", () => {
+  it.each([[0.9, "Быстрая"], [0.6, "Умеренная"], [0.3, "Медленная"]])("gives a plain speed estimate for score %s", (score, label) => {
     const value = structuredClone(assessment);
-    value.speed.source = "reference";
-    value.speed.reference = "Test CPU";
-    value.speed.samples = 2;
-    expect(assessmentText(value).speed).toContain("Test CPU");
-    expect(assessmentText(value).speed).toContain("2 из 5");
-    value.speed = { ...value.speed, source: "personal", samples: 6, median_ms: 1200, audio_min: 10, audio_max: 20, unstable: true };
-    expect(assessmentText(value).speed).toContain("1.2");
-    expect(assessmentText(value).speed).toContain("нестабильна");
+    value.speed = { ...value.speed, score: Number(score), source: "reference", reference: "Test CPU", samples: 2 };
+    expect(assessmentText(value).speed).toContain(label);
     expect(assessmentText(value).speed).not.toContain("Test CPU");
+    expect(assessmentText(value).speed).not.toContain("из 5");
   });
-  it("does not call a GPU preference confirmed acceleration", () => {
+  it("does not treat RAM as available GPU memory", () => {
     const value = { ...assessment, compute: "gpu_unverified" as const, memory: { ...assessment.memory, status: "gpu_unknown" as const } };
-    expect(assessmentText(value).compute).toContain("не подтверждено");
-    expect(assessmentText(value).memory).toContain("не запрещает");
+    expect(assessmentText(value).memory).toContain("памяти видеокарты");
+    expect(assessmentText(value).memory).not.toContain("ГБ");
   });
-  it("explains why unstable personal runs fall back to a reference", () => {
-    const value = structuredClone(assessment);
-    value.speed = { ...value.speed, source: "reference", reference: "Test CPU", score: 0.5, unstable: true, samples: 8 };
-    expect(assessmentText(value).speed).toContain("Test CPU");
-    expect(assessmentText(value).speed).toContain("Личные замеры нестабильны");
-    expect(assessmentText(value).speed).not.toContain("На вашем компьютере:");
+  it("does not subtract an already loaded model's memory again", () => {
+    const value = { ...assessment, memory: { ...assessment.memory, status: "loaded" as const } };
+    expect(assessmentText(value).memory).toContain("уже загружена");
+    expect(assessmentText(value).memory).not.toContain("не хватить");
   });
 });

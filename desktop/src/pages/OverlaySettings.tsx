@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
-import { Segmented, Switch } from "../components/Shell";
+import { Segmented } from "../components/Shell";
 import { NumberField } from "../components/NumberField";
 import { Hint } from "../components/Hint";
 import { Icon } from "../components/Icon";
@@ -83,8 +83,7 @@ export function OverlaySettings({ config, onConfigChanged }: Props) {
     t("Слева по центру"), t("По центру"), t("Справа по центру"),
     t("Снизу слева"), t("Снизу по центру"), t("Снизу справа")];
   const locked = busy || !config;
-  return <section className="advanced__overlay" aria-label={t("Оверлей")} data-testid="overlay-settings">
-    <h2 className="section-title">{t("Оверлей")}</h2>
+  return <section className="overlay-settings" aria-label={t("Оверлей")} data-testid="overlay-settings">
     <div className="overlay-settings-grid">
       <div className="set-cell set-cell--auto" role="group" aria-label={t("Форма")}>
         <span className="set-label">{t("Форма")}</span>
@@ -119,9 +118,8 @@ export function OverlaySettings({ config, onConfigChanged }: Props) {
           </Hint>
         </div>
       </div>
-      <div className="set-cell set-cell--auto" role="group" aria-label={t("Секундомер")}>
-        <span className="set-label">{t("Секундомер")}</span>
-        <Switch on={draft.show_timer} disabled={locked} onChange={(on) => void save({ show_timer: on })} label={t("Секундомер")}/>
+      <div className="set-cell set-cell--auto overlay-timer-cell" role="group" aria-label={t("Секундомер")}>
+        <label className="checkbox-row"><input type="checkbox" className="checkbox" checked={draft.show_timer} disabled={locked} onChange={(event) => void save({ show_timer: event.target.checked })}/>{t("Секундомер")}</label>
       </div>
       <div className="set-cell set-cell--auto" role="group" aria-label={t("Цвет оверлея")}>
         <span className="set-label">{t("Цвет оверлея")}</span>

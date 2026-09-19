@@ -21,5 +21,5 @@ export function useModelAssessments(context: unknown) {
     window.addEventListener("focus", refresh);
     return () => { unlisten(); window.removeEventListener("focus", refresh); generation.current++; };
   }, [refresh]);
-  return { values, refresh };
+  return { values };
 }

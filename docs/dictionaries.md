@@ -6,9 +6,9 @@ Several sets can be enabled together. Sotto combines their terms without repeati
 
 ## Create and customize
 
-Choose **Create set**, enter a name and optionally a description, and paste terms on separate lines or separated by commas. A term can contain spaces, such as `Claude Code`. Empty lines and exact duplicates are removed when saving.
+Choose **Create** in the Dictionaries header, enter a name and optionally a description, and paste terms on separate lines or separated by commas. A term can contain spaces, such as `Claude Code`. Empty lines and exact duplicates are removed when saving.
 
-New sets start disabled. Select **Enable this set after saving** if you want the terms to apply immediately after saving; otherwise you can enable the set later in the library. Changes in the editor take effect only after a successful save, and Cancel leaves the saved set unchanged.
+New sets and copies are saved disabled; enable them with the switch in the library when needed. Editing an existing set preserves its enabled state. Changes in the editor take effect only after a successful save; closing it with the cross or Escape asks whether to discard unsaved changes.
 
 Built-in sets are read-only. Use **Create copy** to make an independent, initially disabled copy that you can rename and edit; future application updates do not overwrite the copy. You can also copy your own sets.
 

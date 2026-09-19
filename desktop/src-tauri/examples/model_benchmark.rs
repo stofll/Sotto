@@ -8,8 +8,64 @@ use std::sync::{atomic::AtomicBool, Arc};
 use std::time::Instant;
 type Transcribe<'a> = Box<dyn FnMut(&str) -> Result<String, String> + 'a>;
 
+#[derive(Debug, PartialEq)]
+struct Options {
+    ids: Vec<String>,
+    language: Option<String>,
+}
+
+impl Options {
+    fn parse(args: impl IntoIterator<Item = String>) -> Result<Self, String> {
+        let mut args = args.into_iter();
+        let mut options = Self {
+            ids: Vec::new(),
+            language: None,
+        };
+        while let Some(arg) = args.next() {
+            if arg == "--language" {
+                if options.language.is_some() {
+                    return Err("Pass --language only once".into());
+                }
+                let language = args.next().ok_or("--language requires ru or en")?;
+                if !matches!(language.as_str(), "ru" | "en") {
+                    return Err("Fixture language must be ru or en".into());
+                }
+                options.language = Some(language);
+            } else if arg.starts_with('-') {
+                return Err(format!("Unknown option: {arg}"));
+            } else {
+                options.ids.push(arg);
+            }
+        }
+        if options.ids.is_empty() {
+            return Err("Pass catalog model IDs explicitly".into());
+        }
+        // Validate every case before downloading fixtures or model weights.
+        for id in &options.ids {
+            options.fixture_language(id)?;
+        }
+        Ok(options)
+    }
+
+    fn fixture_language(&self, id: &str) -> Result<&str, String> {
+        model::catalog_model(id).ok_or_else(|| format!("Unknown catalog model: {id}"))?;
+        let language = self.language.as_deref().unwrap_or_else(|| {
+            if model::model_supports_language(id, "ru") {
+                "ru"
+            } else {
+                "en"
+            }
+        });
+        if !model::model_supports_language(id, language) {
+            return Err(format!("{id} does not support fixture language {language}"));
+        }
+        Ok(language)
+    }
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let options = Options::parse(std::env::args().skip(1))?;
     if cfg!(debug_assertions) {
         return Err("Reference measurements require --release".into());
     }
@@ -45,25 +101,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::env::consts::OS,
         threads
     );
-    let ids: Vec<_> = std::env::args().skip(1).collect();
-    if ids.is_empty() {
-        return Err("Pass catalog model IDs explicitly".into());
-    }
     let mut output = Vec::new();
-    for id in ids {
+    for id in &options.ids {
         eprintln!("Preparing {id}");
-        let entry = model::catalog_model(&id).ok_or("Unknown catalog model")?;
-        let language = if model::model_supports_language(&id, "ru") {
-            "ru"
-        } else {
-            "en"
-        };
-        if !model::model_supports_language(&id, language) {
-            return Err("No fixture for model language".into());
-        }
+        let entry = model::catalog_model(id).ok_or("Unknown catalog model")?;
+        let language = options.fixture_language(id)?;
         let speech = if language == "ru" { &ru } else { &en };
         if entry.engine == model::ModelEngine::Whisper {
-            let spec = model_download::DownloadSpec::from_manifest(&id)?;
+            let spec = model_download::DownloadSpec::from_manifest(id)?;
             let path = models_dir.join(&spec.file_name);
             if model_download::verify_file(&path, &spec).await.is_err() {
                 model_download::download_spec_to_dir(
@@ -77,8 +122,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .await?;
             }
         } else {
-            let manifest = model::bundle_manifest_entry(&id)?;
-            if !model::is_downloaded(&id) {
+            let manifest = model::bundle_manifest_entry(id)?;
+            if !model::is_downloaded(id) {
                 let spec = model_download::BundleDownloadSpec {
                     model_id: id.clone(),
                     directory_name: manifest.directory_name.into(),
@@ -104,10 +149,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 )
                 .await?;
             }
-            model::verify_bundle_files(&id)?;
+            model::verify_bundle_files(id)?;
         }
         let load_start = Instant::now();
-        let mut transcribe: Transcribe<'_> = match model::model_load_spec(&id, false)? {
+        let mut transcribe: Transcribe<'_> = match model::model_load_spec(id, false)? {
             model::ModelLoadSpec::Whisper { path, .. } => {
                 let ctx = whisper_rs::WhisperContext::new_with_params(
                     path.to_str().ok_or("Invalid path")?,
@@ -156,7 +201,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             times.sort_by(f64::total_cmp);
             let seconds = speech.len() as f64 / 16000.0;
-            let profile = model_performance::Profile::new(&id, "cpu");
+            let profile = model_performance::Profile::new(id, "cpu");
             let result = serde_json::json!({
                 "model_id": id, "revision": profile.revision, "method": profile.method,
                 "compute": "cpu", "language": requested_language, "rtf": times[2] / seconds,
@@ -170,4 +215,64 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(args: &[&str]) -> Result<Options, String> {
+        Options::parse(args.iter().map(|arg| (*arg).to_owned()))
+    }
+
+    #[test]
+    fn default_keeps_russian_when_supported() {
+        let options = parse(&["tiny"]).unwrap();
+        assert_eq!(options.fixture_language("tiny").unwrap(), "ru");
+    }
+
+    #[test]
+    fn explicit_english_overrides_multilingual_default() {
+        let options = parse(&["tiny", "--language", "en", "base"]).unwrap();
+        for id in &options.ids {
+            assert_eq!(options.fixture_language(id).unwrap(), "en");
+        }
+    }
+
+    #[test]
+    fn invalid_cases_fail_before_downloads() {
+        for args in [
+            vec![],
+            vec!["--language", "en"],
+            vec!["tiny", "--language"],
+            vec!["tiny", "--language", "auto"],
+            vec!["tiny", "--language", "de"],
+            vec!["tiny", "--language", "en", "--language", "ru"],
+            vec!["tiny", "--unknown"],
+            vec!["not-a-catalog-model"],
+        ] {
+            assert!(parse(&args).is_err(), "accepted {args:?}");
+        }
+    }
+
+    #[cfg(any(windows, target_os = "macos"))]
+    #[test]
+    fn streaming_models_share_english_but_parakeet_rejects_russian() {
+        let options = parse(&[
+            "--language",
+            "en",
+            "parakeet-streaming-en",
+            "nemotron-streaming",
+        ])
+        .unwrap();
+        for id in &options.ids {
+            assert_eq!(options.fixture_language(id).unwrap(), "en");
+        }
+        assert!(parse(&["--language", "ru", "parakeet-streaming-en"]).is_err());
+        let options = parse(&["parakeet-streaming-en"]).unwrap();
+        assert_eq!(
+            options.fixture_language("parakeet-streaming-en").unwrap(),
+            "en"
+        );
+    }
 }

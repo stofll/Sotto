@@ -86,8 +86,6 @@ export interface VoiceDriverConfig {
   processingEase: number;
   /** How far the beam travels to each side, × half the lobe ring (1 = the resting spread). */
   processingTravel: number;
-  /** How the sweep eases into each turn: 1 constant speed, 2 smooth, higher dwells at the ends. */
-  processingCurve: number;
   /** How much the coloured glow rides the corner arcs, 0–1 (the band line always does). */
   cornerFollow: number;
   /** How lit the glow is held while processing, 0–1. */
@@ -335,19 +333,19 @@ function paintedRadius(radius: number, cw: number, ch: number): number {
 }
 
 /**
- * How far above the bottom edge the element's outline sits at `x`: 0 along
- * the straight run, rising along the corner's circle inside the last
- * `radius` px on either side (and the full radius beyond the sides).
+ * A smooth lift near each rounded edge, held at the radius beyond the side.
+ * This approximates the corner rather than tracing its circle: the circle's
+ * vertical tangent amplifies subpixel travel before hitting a hard clamp.
  */
-function cornerLift(x: number, cw: number, radius: number, influence = 0): number {
+export function cornerLift(x: number, cw: number, radius: number, influence = 0): number {
   if (radius <= 0) return 0;
   // `influence` is how far the thing at `x` spreads sideways: a lobe whose
   // edge reaches the corner should already be lifting.
   const d = Math.min(x, cw - x) - influence;
   if (d >= radius) return 0;
   if (d <= 0) return radius;
-  const dx = radius - d;
-  return radius - Math.sqrt(Math.max(0, radius * radius - dx * dx));
+  const u = 1 - d / radius;
+  return radius * u * u * (3 - 2 * u);
 }
 
 /** The band line's points in element px, left to right. */
@@ -561,6 +559,15 @@ function drawBand(inst: VoiceInstance, f: BandFrame, pts: Array<[number, number]
   ctx.globalCompositeOperation = 'source-over';
 }
 
+/**
+ * Where the processing beam sits along its pass, -1 … 1: one cosine over two
+ * passes, so it leaves each end and returns to it with zero velocity and
+ * continuous acceleration — no visible kick at the turns.
+ */
+export function processingPosition(passes: number): number {
+  return -Math.cos(Math.PI * (passes % 2));
+}
+
 /** Cosine ease-in-out in [0, 1]: 0 at phase 0/1, 1 at phase 0.5. */
 function pingPong(phase: number): number {
   return (1 - Math.cos(TWO_PI * phase)) / 2;
@@ -675,15 +682,8 @@ function frame(ts: number): void {
     const cw = el.clientWidth;
     const ch = el.clientHeight;
     const travel = (span / 2) * config.processingTravel;
-    // -1 … 1 along the pass, ping-pong. Each pass eases symmetrically on
-    // a power curve: exponent 1 is a constant-speed triangle with sharp
-    // turns, 2 slows smoothly into the ends, higher dwells there longer.
     const passes = s.scanT / Math.max(0.05, config.processingDuration);
-    const passIndex = Math.floor(passes);
-    const u = passes - passIndex;
-    const k = Math.max(1, config.processingCurve);
-    const eased = u < 0.5 ? 0.5 * Math.pow(2 * u, k) : 1 - 0.5 * Math.pow(2 - 2 * u, k);
-    const pass = config.reducedMotion ? 0 : passIndex % 2 === 0 ? 2 * eased - 1 : 1 - 2 * eased;
+    const pass = config.reducedMotion ? 0 : processingPosition(passes);
     const cx = morph * travel * pass;
     // The cluster: lobes pulled to 40% of their resting spread, the
     // visible range narrowed to match, and — as the line type does — the
@@ -705,9 +705,10 @@ function frame(ts: number): void {
     const h = 0.5 + config.reach * eff;
     const w = (0.85 + config.spread * eff) * passWidth;
 
-    // ── Flow: the spectrum slides sideways as the voice comes in ─────
+    // Settle the internal flow as processing gathers the lobes into one beam.
+    // Otherwise the colours keep shifting even while the beam pauses at a turn.
     if (config.flow !== 0 && !config.reducedMotion) {
-      s.phase = (((s.phase + config.flow * eff * dt) % span) + span) % span;
+      s.phase = (((s.phase + config.flow * eff * (1 - morph) * dt) % span) + span) % span;
     }
 
     el.style.setProperty(`--vb-level-${config.id}`, s.level.toFixed(3));

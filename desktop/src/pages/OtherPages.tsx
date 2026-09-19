@@ -3,6 +3,7 @@ import { invoke, subscribe } from "../bridge";
 import type { ConfigResult, PreviewFormatResult, PreviewReplacementsResult, ReplacementMatchMode, ReplacementRule, StatsResult, TextFormattingConfig, UpdateDownloadProgress, UpdateInfo } from "../bridge/types";
 import { Card, CardHead, PageHeader, SectionLabel, Segmented, Switch } from "../components/Shell";
 import { Icon } from "../components/Icon";
+import { Foldable } from "../components/Foldable";
 import { Hint } from "../components/Hint";
 import { confirmDestructive } from "../components/ConfirmDialog";
 import { CustomSelect, type SelectOption } from "../components/CustomSelect";
@@ -214,7 +215,7 @@ function BarChart({ data }: { data: DailyStats[] }) {
         // The accent marks days with entries. The last five columns used to be
         // highlighted regardless of the data — on empty statistics that drew
         // activity which never happened.
-        return <div key={d.date} className={`bar-row__cell${d.count > 0 ? " active" : ""}`} title={`${shortDateLabel(d.date)}: ${d.count}`} style={{ height: `${height}%` }}/>;
+        return <Hint key={d.date} asChild text={`${shortDateLabel(d.date)}: ${d.count}`}><div className={`bar-row__cell${d.count > 0 ? " active" : ""}`} style={{ height: `${height}%` }}/></Hint>;
       })}
     </div>
   );
@@ -291,7 +292,7 @@ export function StatsPage({ stats, typingSpeedCpm = 240, onRefresh }: { stats: S
       <PageHeader
         title={t("Статистика")}
         actions={<>
-          <span className="head-count" title={t("Скорость ручного набора из настроек")}>{speedCpm.toLocaleString(localeTag())}  {t("симв/мин")}</span>
+          <Hint asChild text={t("Скорость ручного набора из настроек")}><span className="head-count">{speedCpm.toLocaleString(localeTag())}  {t("симв/мин")}</span></Hint>
           <Segmented value={range} options={RANGE_OPTIONS()} onChange={(value) => setRange(value as StatsRange)}/>
           <button className="btn btn--ghost" onClick={() => void refresh()} disabled={refreshing}><Icon name="refresh" size={13}/>{refreshing ? t("Обновляю") : t("Обновить")}</button>
         </>}
@@ -515,27 +516,6 @@ function parseCustomWords(value: string): string[] {
 // opened this page. Resetting the folds once is cheaper than a default nobody
 // ever sees.
 const TEXT_FOLDS_KEY = "sotto.text.folds.v2";
-
-/** A collapsible card on the «Текст» page.
- *
- * The header is split into two zones: the collapse button (icon, name, summary)
- * and an `aside` beside it. The switches live in `aside` on purpose — inside the
- * button a click on a switch would collapse the card as well. */
-function Foldable({ open, title, summary, aside, onToggle, children }: { open: boolean; title: string; summary?: ReactNode; aside?: ReactNode; onToggle: () => void; children: ReactNode }) {
-  return (
-    <section className="card fold">
-      <div className="fold__head">
-        <button type="button" className="fold__toggle" onClick={onToggle} aria-expanded={open}>
-          <span className="fold__chev" data-open={open ? "true" : "false"}><Icon name="chev-right" size={13}/></span>
-          <span className="fold__title">{title}</span>
-          {summary}
-        </button>
-        {aside && <div className="fold__aside">{aside}</div>}
-      </div>
-      {open && <div className="fold__body">{children}</div>}
-    </section>
-  );
-}
 
 /** «Обработка → Текст»: the entire local pass — cleanup, replacements,
  * dictionaries.
@@ -853,6 +833,7 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
             open={Boolean(folds.clean)}
             onToggle={() => toggleFold("clean")}
             title={t("Очистка")}
+            hint={t("Удаляет из распознанного текста слова-паразиты, повторы и лишние пробелы, исправляет пунктуацию. Применяются только включённые правила.")}
             summary={<span className="head-count">{activeCleanCount}/{cleanRules.length}</span>}
             /* There is no "enabled" pill next to the switch: it said exactly
                what the switch's position said, and in a narrow column it pushed
@@ -963,6 +944,7 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
             open={Boolean(folds.repl)}
             onToggle={() => toggleFold("repl")}
             title={t("Замены")}
+            hint={t("Заменяет найденные слова и фразы по вашим правилам: например, «щас» на «сейчас». Учитывает настройки регистра и совпадения каждого правила.")}
             summary={<>
               <span className="head-count">{activeCount}/{rules.length}</span>
               {!saved && <span className="pill warn">{t("не сохранено")}</span>}
@@ -999,13 +981,7 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
             </div>
           </Foldable>
 
-          <Foldable
-            open={Boolean(folds.dict)}
-            onToggle={() => toggleFold("dict")}
-            title={t("Словари")}
-          >
-            <DictionaryLibrary formatting={formatting} onSave={async (patch) => Boolean(await onConfigChanged({ text_formatting: patch as TextFormattingConfig }))}/>
-          </Foldable>
+          <DictionaryLibrary open={Boolean(folds.dict)} onToggle={() => toggleFold("dict")} formatting={formatting} onSave={async (patch) => Boolean(await onConfigChanged({ text_formatting: patch as TextFormattingConfig }))}/>
         </div>
 
         {/* The heading and the explanation live inside the first card rather

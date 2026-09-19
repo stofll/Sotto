@@ -26,7 +26,3 @@ export type ModelAssessment = {
 export function getModelAssessments(): Promise<ModelAssessment[]> {
   return invoke("model_assessments");
 }
-
-export function resetModelAssessment(id: string): Promise<void> {
-  return invoke("reset_model_assessment", { id });
-}

@@ -44,7 +44,7 @@ Validate workflow edits with `actionlint`. A local pass cannot verify GitHub rep
 
 Every PR runs deterministic tests without speech downloads, plus an explicitly selected real Whisper CPU smoke test on Windows, macOS and Linux. Windows and macOS also run the Sherpa smoke test. The ignored marker keeps network/model downloads out of an ordinary local `cargo test`; the CI commands explicitly include those tests.
 
-Windows and Linux CI rebuild `whisper-rs-sys` after restoring the Cargo cache because its native CPU optimization can produce instructions unsupported by a different runner. When moving a local build cache between Windows or Linux machines, run `cargo clean -p whisper-rs-sys` before rebuilding to avoid reusing those host-specific artifacts.
+Whisper uses the repository's portable [CPU instruction baseline](RELEASE.md#cpu-instruction-baseline), including in GPU builds. CI cache keys include its configuration. When adopting or changing that baseline in an existing local build directory, run `cargo clean -p whisper-rs-sys` before rebuilding (also `cargo clean --release -p whisper-rs-sys` for release builds): Cargo does not track edits inside the CMake toolchain file. From the repository root, run `node scripts/check-ggml-baseline.mjs desktop/src-tauri/target/debug` to check the compiled debug baseline, or pass the full target directory to check all compiled profiles. Test the benchmark's argument validation with `cargo test --locked --example model_benchmark` from `desktop/src-tauri`.
 
 Reproduce the model tests locally from `desktop/src-tauri` when changing capture, resampling, model loading or inference:
 
@@ -53,6 +53,8 @@ cargo test --locked --test test_whisper_engine -- --ignored --nocapture
 # Windows and macOS:
 cargo test --locked --test test_sherpa_runtime -- --ignored --nocapture
 ```
+
+After changing the Parakeet unified export, run `cargo test --locked --test test_parakeet_streaming -- --ignored --nocapture`. This separate test downloads approximately 632 MB into a temporary directory, or copies weights from `SOTTO_TEST_PARAKEET_DIR` when supplied; both paths verify the catalog hashes. It checks repeated full-file recognition, chunked input, final words and reset after cancellation on public English speech.
 
 These tests download verified weights into isolated temporary directories. Their public speech fixtures are pinned by source revision and SHA-256 in the test sources. Whisper tiny checks two recognizable English phrases from the upstream JFK sample and repeated inference with the same state. Sherpa checks loading, silence, reset/reload and the final word of a Russian streaming sample. These are inference regressions, not a broad accuracy benchmark or the full hotkey-to-paste flow.
 
@@ -85,7 +87,7 @@ This records five short sessions with the system default microphone, then five w
 
 It is opt-in because ordinary CI runners do not guarantee a microphone or permission; a skipped hardware test is not evidence of correct capture. Synthetic PCM and prepared-speech inference tests cannot verify native stream teardown.
 
-- Start/stop through the hotkey and tray, in toggle and push-to-talk modes. Repeat immediately after silence, cancellation and a recoverable failure.
+- Start/stop through the hotkey, in toggle and push-to-talk modes. Repeat immediately after silence, cancellation and a recoverable failure.
 - Cancel during capture, inference and optional LLM processing. Verify that cancelled text is neither inserted nor written as a successful history entry.
 - Test 44.1 kHz and 48 kHz input where available, microphone disconnect and device-open failure. Verify the next recording still works.
 - Verify paste in a native text editor and a browser input, with Latin and Cyrillic layouts. Test held/released hotkey modifiers, focus changes, clipboard-only mode and manual paste after an automatic-paste failure. On macOS this requires Accessibility access for the actual installed build.

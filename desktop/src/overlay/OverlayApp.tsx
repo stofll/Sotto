@@ -1,3 +1,4 @@
+import { Hint } from "../components/Hint";
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "../components/Icon";
 import { t, useLocale } from "../i18n";
@@ -20,7 +21,7 @@ export function OverlayApp() {
   const closeLabel = state === "pasted" || state === "error" ? t("Закрыть") : t("Отменить запись");
   return (
     <div data-testid="overlay" data-state={state} data-layout={layout === "pill" ? "compact" : layout} data-size={preferences.size} data-timer={preferences.show_timer ? "on" : "off"} data-hovered={hovered ? "true" : "false"} className="overlay" style={config ? overlayPalette(preferences) : undefined}>
-      <div className="overlay-shell" onPointerEnter={() => setHovered(true)} onPointerLeave={() => setHovered(false)} onPointerDown={() => setHovered(true)}>
+      <div className="overlay-shell" onPointerEnter={() => setHovered(true)} onPointerLeave={() => setHovered(false)}>
         <div className="overlay-surface" ref={surfaceRef}>
           {glow ? <>
             <Suspense fallback={null}>
@@ -101,9 +102,9 @@ function StateDetail({ session }: { session: OverlaySession }) {
     return <div className="overlay-progress"><span>{detail.label}</span>{detail.seconds !== undefined && <span className="overlay-counter">{t("{p0} с", { p0: detail.seconds })}</span>}</div>;
   }
   if ("warning" in detail) {
-    return <div className="overlay-result"><div>{detail.text}</div><div title={detail.warning}>{detail.warning}</div></div>;
+    return <div className="overlay-result"><div>{detail.text}</div><Hint asChild text={detail.warning}><div>{detail.warning}</div></Hint></div>;
   }
-  return <div className="overlay-text" title={detail.text}>{detail.text}</div>;
+  return <Hint asChild text={detail.text}><div className="overlay-text">{detail.text}</div></Hint>;
 }
 
 function PreviewPane({ text }: { text: string }) {

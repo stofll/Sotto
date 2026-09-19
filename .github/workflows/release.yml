@@ -136,6 +136,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2.9.2
         with:
           workspaces: desktop/src-tauri
+          key: ggml-baseline-${{ hashFiles('.cargo/config.toml', 'scripts/ggml-baseline.cmake') }}
 
       # whisper.cpp собирается с Vulkan-бэкендом, и для этого нужны glslc и
       # заголовки. В рантайме vulkan-1.dll приезжает с драйвером GPU, так что
@@ -252,6 +253,10 @@ jobs:
           includeUpdaterJson: true
           updaterJsonPreferNsis: true
           args: ${{ matrix.args }}
+
+      - name: Verify compiled Whisper CPU baseline
+        shell: bash
+        run: node scripts/check-ggml-baseline.mjs "$CARGO_TARGET_DIR"
 
       - name: Package Windows portable ZIP
         if: runner.os == 'Windows'

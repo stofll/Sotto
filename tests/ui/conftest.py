@@ -151,6 +151,7 @@ class App:
 def app(page, ui_server):
     url, harness = ui_server
     page.set_default_timeout(7000)
+    page.set_default_navigation_timeout(30000)
     errors = []
     external = []
     page.on("pageerror", lambda error: errors.append(str(error)))

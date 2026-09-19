@@ -26,7 +26,7 @@ While the model is out of memory the sidebar says so and states that it comes ba
 
 ## Recording seems to start late
 
-There is no intentional countdown before capture. The hotkey's 500 ms auto-repeat guard ignores repeated key-down events while the key is held; it does not postpone the first press. Hotkey and tray starts use the same capture lifecycle.
+There is no intentional countdown before capture. The hotkey's 500 ms auto-repeat guard ignores repeated key-down events while the key is held; it does not postpone the first press. Start dictation with the global hotkey while the target editor has focus. The tray only provides status and settings navigation.
 
 Each recording opens the selected microphone again. Configuration and route checks, the audio worker queue, device setup and the first audio callback all precede captured speech; their duration depends on the device and system. The recording overlay is notified after the stream starts and the start hooks run, so its appearance is not an exact timestamp for the first captured sample. Model restoration is queued after the stream starts and does not wait for inference readiness before capturing audio.
 
@@ -38,9 +38,9 @@ Check the operating-system permissions and verify that another application has n
 
 To test delivery without recording or transcription, open **Help → Diagnostics → Test paste**. Switch to an editable field in the target application during the three-second countdown; Sotto copies sample text to the clipboard and attempts to paste it through the dictation delivery path. Check the target field yourself: a successful dispatch does not prove that the application accepted the text.
 
-If macOS dictation reaches the clipboard and manual Cmd+V works, capture and transcription completed; investigate automatic paste separately. Test in a native text editor and a browser field, record whether recording started through the hotkey or tray, and include the active keyboard layout. Sotto sends the physical V key for Cmd+V so Cyrillic layouts do not require switching to English.
+If macOS dictation reaches the clipboard and manual Cmd+V works, capture and transcription completed; investigate automatic paste separately. Test in a native text editor and a browser field, include the active keyboard layout and the shortcut used to start recording. Sotto sends the physical V key for Cmd+V so Cyrillic layouts do not require switching to English.
 
-Automatic key dispatch cannot confirm that every target application accepted the text. If insertion fails, the clipboard remains available for manual Cmd+V. Report whether the failure affects all applications or only a particular field; repeated permission changes alone do not diagnose a layout or focus problem.
+Automatic key dispatch cannot confirm that every target application accepted the text. If insertion fails, the clipboard remains available for manual Ctrl+V on Windows or Cmd+V on macOS. On Windows, Sotto only dispatches paste after confirming that the captured target window has focus; a denied focus request leaves the text on the clipboard. Report whether the failure affects all applications or only a particular field; repeated permission changes alone do not diagnose a layout or focus problem.
 
 Sotto normalizes any microphone rate to the 16 kHz the speech models expect, so a 44.1 kHz device no longer produces distorted or wrongly timed audio. A device whose sample format the application cannot read is refused with an error at the start of the recording instead of capturing silence.
 

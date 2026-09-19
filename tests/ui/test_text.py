@@ -1,5 +1,6 @@
 import re
 
+import pytest
 from playwright.sync_api import expect
 
 
@@ -42,13 +43,17 @@ def test_replacement_example_persists(app, page):
 def test_dictionary_create_read_search_delete(app, page):
     ui = app()
     ui.nav("text")
-    page.get_by_role("button", name="Словари", exact=True).click()
-    page.get_by_role("button", name="Создать набор", exact=True).click()
+    page.get_by_role("button", name=re.compile(r"^Словари")).click()
+    page.get_by_role("button", name="Создать", exact=True).click()
     dialog = page.get_by_role("dialog", name="Редактор набора")
     dialog.get_by_label("Название набора", exact=True).fill("Synthetic vocabulary")
     dialog.get_by_label("Термины", exact=True).fill("Playwright\nSotto")
     dialog.get_by_role("button", name="Сохранить", exact=True).click()
     expect(dialog).not_to_be_visible()
+    assert (
+        ui.state()["config"]["text_formatting"]["dictionary_sets"][0]["enabled"]
+        is False
+    )
     page.get_by_role(
         "button", name=re.compile(r"^Synthetic vocabulary Пользовательский")
     ).click()
@@ -67,8 +72,8 @@ def test_dictionary_create_read_search_delete(app, page):
 def test_dictionary_unsaved_changes_and_focus_restore(app, page):
     ui = app()
     ui.nav("text")
-    page.get_by_role("button", name="Словари", exact=True).click()
-    create = page.get_by_role("button", name="Создать набор", exact=True)
+    page.get_by_role("button", name=re.compile(r"^Словари")).click()
+    create = page.get_by_role("button", name="Создать", exact=True)
     create.click()
     dialog = page.get_by_role("dialog")
     dialog.get_by_label("Название набора", exact=True).fill("Unsaved vocabulary")
@@ -331,3 +336,180 @@ def test_a_failed_save_keeps_the_typed_word(app, page):
         ".custom_parasite_words) === '[\"скажем так\"]'"
     )
     expect(field).to_have_value("")
+
+
+@pytest.mark.parametrize("locale", ["ru", "en"])
+@pytest.mark.parametrize("theme", ["dark", "light"])
+def test_dictionary_copy_layout_and_discard(app, page, locale, theme):
+    ru = locale == "ru"
+    preset = {"result": [["Test terms", [f"Synthetic term {i}" for i in range(60)]]]}
+    ui = app(
+        config={"ui_language": locale, "theme": theme},
+        responses={"dictionary_presets": [preset, preset]},
+    )
+    ui.nav("text")
+    page.get_by_role(
+        "button", name=re.compile(r"^Словари" if ru else r"^Dictionaries")
+    ).click()
+    page.locator(".dictionary-open").last.click()
+    dialog = page.get_by_role("dialog")
+    close = dialog.get_by_role("button", name="Закрыть" if ru else "Close", exact=True)
+    expect(close).to_have_count(1)
+    term_list = dialog.locator(".dictionary-term-list")
+    expect(term_list).to_have_css("scrollbar-width", "thin")
+    heading = dialog.get_by_text(
+        "Термины" if ru else "Terms", exact=True
+    ).bounding_box()
+    count = dialog.get_by_text("60", exact=True).bounding_box()
+    assert abs(heading["y"] - count["y"]) < 2
+    assert 0 < count["x"] - heading["x"] - heading["width"] <= 12
+    body = dialog.locator(".modal__body")
+    assert term_list.evaluate("e => e.scrollHeight > e.clientHeight")
+    expect(body).to_have_css("overflow-y", "hidden")
+    expect(dialog.locator(".card")).to_have_count(0)
+    search = dialog.get_by_label(
+        "Поиск по набору" if ru else "Search this set", exact=True
+    )
+    search_top = search.bounding_box()["y"]
+    term_list.evaluate("e => e.scrollTop = e.scrollHeight")
+    assert search.bounding_box()["y"] == search_top
+    expect(search).to_be_in_viewport()
+    expect(dialog.get_by_text("Synthetic term 59", exact=True)).to_be_in_viewport()
+    dialog.get_by_role(
+        "button", name="Создать копию" if ru else "Create copy", exact=True
+    ).click()
+    expect(
+        dialog.get_by_role("button", name="Отмена" if ru else "Cancel", exact=True)
+    ).to_have_count(0)
+    expect(dialog.get_by_role("checkbox")).to_have_count(0)
+    terms = dialog.get_by_label("Термины" if ru else "Terms", exact=True)
+    terms.fill("\n".join(f"Synthetic term {i}" for i in range(60)))
+    expect(dialog.locator(".dictionary-label .dictionary-note")).to_have_text("60")
+    expect(terms).to_have_css("scrollbar-width", "thin")
+    terms.focus()
+    expect(terms).to_be_focused()
+    close.click()
+    expect(close).to_have_count(0)
+    expect(dialog.get_by_role("heading")).to_have_count(0)
+    expect(dialog).to_have_accessible_name(
+        "Закрыть без сохранения изменений?" if ru else "Close without saving changes?"
+    )
+    assert dialog.bounding_box()["width"] <= 342
+    resume = dialog.get_by_role(
+        "button",
+        name="Вернуться" if ru else "Go back",
+        exact=True,
+    )
+    discard = dialog.get_by_role(
+        "button", name="Не сохранять" if ru else "Discard changes", exact=True
+    )
+    for prop in ["font-family", "font-size", "font-weight", "height"]:
+        assert resume.evaluate(
+            "(e, p) => getComputedStyle(e).getPropertyValue(p)", prop
+        ) == discard.evaluate("(e, p) => getComputedStyle(e).getPropertyValue(p)", prop)
+    expect(discard).not_to_have_class(re.compile(r"btn--primary"))
+    expect(resume).to_have_css("white-space", "nowrap")
+    expect(discard).to_have_css("white-space", "nowrap")
+    expect(resume).to_be_focused()
+    page.keyboard.press("Shift+Tab")
+    expect(discard).to_be_focused()
+    page.keyboard.press("Tab")
+    expect(resume).to_be_focused()
+    page.keyboard.press("Escape")
+    expect(close).to_be_focused()
+    expect(terms).to_have_value("\n".join(f"Synthetic term {i}" for i in range(60)))
+    close.click()
+    discard.click()
+    expect(dialog).not_to_be_visible()
+    assert ui.state()["config"]["text_formatting"]["dictionary_sets"] == []
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_dictionary_edit_preserves_activation_and_copy_starts_disabled(
+    app, page, enabled
+):
+    original = {
+        "id": "synthetic",
+        "name": "Synthetic set",
+        "description": "",
+        "words": ["Sotto"],
+        "enabled": enabled,
+    }
+    ui = app(config={"text_formatting": {"dictionary_sets": [original]}})
+    ui.nav("text")
+    page.get_by_role("button", name=re.compile(r"^Словари")).click()
+    page.get_by_role(
+        "button", name=re.compile(r"^Synthetic set Пользовательский")
+    ).click()
+    dialog = page.get_by_role("dialog")
+    dialog.get_by_role("button", name="Редактировать", exact=True).click()
+    expect(dialog.get_by_role("checkbox")).to_have_count(0)
+    dialog.get_by_label("Термины", exact=True).fill("Sotto\nPlaywright")
+    dialog.get_by_role("button", name="Сохранить", exact=True).click()
+    expect(dialog).not_to_be_visible()
+    assert (
+        ui.state()["config"]["text_formatting"]["dictionary_sets"][0]["enabled"]
+        is enabled
+    )
+    page.get_by_role(
+        "button", name=re.compile(r"^Synthetic set Пользовательский")
+    ).click()
+    dialog.get_by_role("button", name="Создать копию", exact=True).click()
+    dialog.get_by_role("button", name="Сохранить", exact=True).click()
+    expect(dialog).not_to_be_visible()
+    sets = ui.state()["config"]["text_formatting"]["dictionary_sets"]
+    copy = next(item for item in sets if item["id"] != "synthetic")
+    assert copy["enabled"] is False
+    page.get_by_role("button", name=copy["name"] + ": Выключен", exact=True).click()
+    page.wait_for_function(
+        "id => window.__sottoTest.state.config.text_formatting.dictionary_sets.find(s => s.id === id).enabled",
+        arg=copy["id"],
+    )
+
+
+def test_dictionary_header_create_while_collapsed(app, page):
+    ui = app()
+    ui.nav("text")
+    heading = page.get_by_role("button", name=re.compile(r"^Словари"))
+    expect(heading).to_contain_text("Нет активных")
+    if heading.get_attribute("aria-expanded") == "true":
+        heading.click()
+    section = heading.locator("../..")
+    create = section.get_by_role("button", name="Создать", exact=True)
+    create.click()
+    expect(heading).to_have_attribute("aria-expanded", "false")
+    dialog = page.get_by_role("dialog")
+    dialog.get_by_label("Название набора", exact=True).fill("Header terms")
+    dialog.get_by_label("Термины", exact=True).fill("Sotto")
+    dialog.get_by_role("button", name="Сохранить", exact=True).click()
+    expect(dialog).not_to_be_visible()
+    heading.click()
+    ui.queue(
+        "analyze_dictionary",
+        {"result": {"effective_count": 1, "conflicts": [], "unsupported_words": []}},
+    )
+    page.get_by_role("button", name="Header terms: Выключен", exact=True).click()
+    expect(
+        page.get_by_role("button", name="Header terms: Включён", exact=True)
+    ).to_have_attribute("aria-pressed", "true")
+
+
+@pytest.mark.parametrize("locale", ["ru", "en"])
+def test_text_section_hints(app, page, locale):
+    ui = app(config={"ui_language": locale})
+    ui.nav("text")
+    for title in (
+        ["Очистка", "Замены", "Словари"]
+        if locale == "ru"
+        else ["Cleanup", "Replacements", "Dictionaries"]
+    ):
+        toggle = page.get_by_role("button", name=re.compile("^" + title))
+        hint = toggle.locator("..").locator(".hint")
+        expanded = toggle.get_attribute("aria-expanded")
+        hint.hover()
+        expect(page.get_by_role("tooltip")).to_be_visible()
+        hint.focus()
+        expect(page.get_by_role("tooltip")).to_be_visible()
+        page.keyboard.press("Escape")
+        expect(page.get_by_role("tooltip")).not_to_be_visible()
+        expect(toggle).to_have_attribute("aria-expanded", expanded)

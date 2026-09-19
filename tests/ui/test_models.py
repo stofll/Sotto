@@ -1,3 +1,6 @@
+from pathlib import Path
+
+import pytest
 from playwright.sync_api import expect
 
 
@@ -138,3 +141,75 @@ def test_download_success_selects_model(app, page):
     ui.settle("download_model", result={"downloaded": True})
     expect(page.get_by_role("status")).to_contain_text("Модель скачана и активна")
     ui.saved("model", "base")
+
+
+@pytest.mark.parametrize("locale", ["ru", "en"])
+@pytest.mark.parametrize("theme", ["dark", "light"])
+def test_meter_details_only_explain_selected_indicator(
+    app, page, locale, theme, output_path
+):
+    ui = app(
+        config={"ui_language": locale, "theme": theme},
+        assessments=[
+            {
+                "id": "tiny",
+                "compute": "cpu",
+                "load_failed": False,
+                "speed": {
+                    "score": 0.9,
+                    "source": "reference",
+                    "samples": 7,
+                    "median_ms": 1200,
+                    "audio_min": 10,
+                    "audio_max": 20,
+                    "cold": False,
+                    "unstable": False,
+                    "reference": "Synthetic CPU",
+                },
+                "memory": {
+                    "score": 0.7,
+                    "status": "enough",
+                    "required_bytes": 2 * 1024**3,
+                    "available_bytes": 8 * 1024**3,
+                },
+            }
+        ],
+    )
+    ui.nav("models")
+    card = page.get_by_test_id("model-tiny")
+    speed_name, memory_name = (
+        ("Скорость", "Запас памяти") if locale == "ru" else ("Speed", "Memory headroom")
+    )
+    speed = card.get_by_role("button", name=speed_name + ":")
+    memory = card.get_by_role("button", name=memory_name + ":")
+    speed.hover()
+    tooltip = page.get_by_role("tooltip")
+    expect(tooltip).to_have_class("hint-bubble")
+    expect(tooltip).to_contain_text("Быстрая" if locale == "ru" else "Fast")
+    Path(output_path).mkdir(parents=True, exist_ok=True)
+    tooltip.screenshot(path=str(Path(output_path) / "tooltip.png"))
+    assert speed.get_attribute("title") is None
+    speed.focus()
+    speed.press("Escape")
+    expect(tooltip).not_to_be_visible()
+    speed.press("Enter")
+    panel = page.get_by_role("region", name=speed_name, exact=True)
+    expect(panel).to_contain_text("Быстрая" if locale == "ru" else "Fast")
+    expect(panel).not_to_contain_text("ГБ" if locale == "ru" else "GB")
+    expect(panel).not_to_contain_text("Synthetic CPU")
+    expect(panel.get_by_role("button")).to_have_count(0)
+    Path(output_path).mkdir(parents=True, exist_ok=True)
+    panel.screenshot(path=str(Path(output_path) / "speed.png"))
+    expect(page.get_by_role("tooltip")).to_have_count(0)
+    memory.click()
+    panel = page.get_by_role("region", name=memory_name, exact=True)
+    expect(panel).to_contain_text("2 ГБ" if locale == "ru" else "2 GB")
+    expect(panel).to_contain_text("8 ГБ" if locale == "ru" else "8 GB")
+    expect(panel).not_to_contain_text("Быстрая" if locale == "ru" else "Fast")
+    expect(panel.get_by_role("button")).to_have_count(0)
+    panel.screenshot(path=str(Path(output_path) / "memory.png"))
+    page.keyboard.press("Escape")
+    expect(panel).not_to_be_visible()
+    expect(memory).to_be_focused()
+    expect(page.get_by_role("dialog")).to_have_count(0)
+    assert not ui.calls("reset_model_assessment")

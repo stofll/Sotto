@@ -169,8 +169,9 @@ mod tests {
     }
 
     #[test]
+    #[cfg(debug_assertions)]
     fn dev_builds_never_check() {
-        // Tests run in debug, so a reason is guaranteed to be present.
+        // A debug build must never contact the update server.
         assert_eq!(
             unsupported_reason(),
             Some("обновления работают только в собранном приложении")

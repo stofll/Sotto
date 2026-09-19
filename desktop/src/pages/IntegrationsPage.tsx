@@ -594,7 +594,7 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
                   <span className="prov-chev" data-open={isOpen ? "true" : "false"}>
                     <Icon name="chev-right" size={14}/>
                   </span>
-                  <span className="row-dot" data-active={isActive ? "true" : "false"} title={isActive ? t("Активный профиль") : undefined}/>
+                  <Hint asChild text={isActive ? t("Активный профиль") : undefined}><span className="row-dot" data-active={isActive ? "true" : "false"}/></Hint>
                   <ProviderMark provider={provider} size={14}/>
                   <div className="prov-id">
                     <div className="prov-id__top">
@@ -785,8 +785,8 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
             const provider = PROVIDERS.find((p) => p.id === slot.provider) ?? PROVIDERS[0];
             const isEditing = editing === slot.ref;
             return (
-              <div key={slot.ref} data-testid={`key-${slot.ref}`} className="keys-row" title={`slot: ${slot.ref}`}>
-                <span className="row-dot" data-active={slot.isActive ? "true" : "false"} title={slot.isActive ? t("Используется активным профилем") : undefined}/>
+              <div key={slot.ref} data-testid={`key-${slot.ref}`} className="keys-row">
+                <Hint asChild text={slot.isActive ? t("Используется активным профилем") : undefined}><span className="row-dot" data-active={slot.isActive ? "true" : "false"}/></Hint>
                 <ProviderMark provider={provider} size={16}/>
                 <div className="keys-row__id">
                   <div className="keys-row__title">{slot.title}</div>

@@ -932,8 +932,7 @@ function EntryCard(props: {
       />
       <div style={{ minWidth: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: compact ? 4 : 6 }}>
-          <span
-            title={aiStatusText(entry)}
+          <Hint asChild text={aiStatusText(entry)}><span
             aria-label={aiStatusText(entry)}
             style={{
               width: 8, height: 8, borderRadius: "50%",
@@ -941,14 +940,14 @@ function EntryCard(props: {
               flexShrink: 0,
               boxShadow: aiStatusKind(entry) === "processed" ? "0 0 0 3px color-mix(in srgb, var(--ok) 18%, transparent)" : undefined,
             }}
-          />
+          /></Hint>
           <span style={{ font: "500 11px/1 var(--font-mono)", color: "var(--ink-mute)", letterSpacing: "0.04em" }}>{formatTime(entry.timestamp)}</span>
           <span style={{ font: "400 11px/1 var(--font-sans)", color: "var(--ink-faint)" }}>· {relativeAge(entry.timestamp)}</span>
-          <span style={{ font: "500 11px/1 var(--font-mono)", color: "var(--ink-mute)" }} title={t("Модель первичной транскрибации: {p0}", { p0: sttLabel })}>
+          <Hint asChild text={t("Модель первичной транскрибации: {p0}", { p0: sttLabel })}><span style={{ font: "500 11px/1 var(--font-mono)", color: "var(--ink-mute)" }}>
             · {t("STT: {p0}", { p0: sttLabel })}
-          </span>
+          </span></Hint>
           {profileLabel && (
-            <span style={{ font: "500 11px/1 var(--font-mono)", color: "var(--ink-mute)" }} title={aiStatusText(entry)}>· {t("AI: {p0}", { p0: profileLabel })}</span>
+            <Hint asChild text={aiStatusText(entry)}><span style={{ font: "500 11px/1 var(--font-mono)", color: "var(--ink-mute)" }}>· {t("AI: {p0}", { p0: profileLabel })}</span></Hint>
           )}
           {fresh && <span className="tag" style={{ height: 18, fontSize: 9, background: "var(--accent-soft-2)", borderColor: "var(--accent-soft-2)", color: "var(--ink)" }}>{t("новое")}</span>}
         </div>
@@ -962,12 +961,11 @@ function EntryCard(props: {
           </Hint>
         ) : (
           <>
-            <div
-              title={t("{p0} симв.", { p0: entry.length })}
+            <Hint asChild text={t("{p0} симв.", { p0: entry.length })}><div
               style={{ font: "400 13px/1.5 var(--font-sans)", color: "var(--ink)", whiteSpace: "pre-wrap", overflowWrap: "break-word" }}
             >
               {entry.text}
-            </div>
+            </div></Hint>
             {(hasDetails || canDiff || canReprocess) && (
               <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 6 }}>
                 {hasDetails && (

@@ -415,7 +415,10 @@ pub fn paste_text(app: AppHandle, text: String) -> Result<(), String> {
             log::warn!("clipboard write unconfirmed after 200ms, pasting anyway");
         }
 
-        let _ = force_focus(h);
+        if let Err(error) = force_focus(h) {
+            clear_captured_hwnd();
+            return Err(error);
+        }
         let _ = release_stuck_modifiers();
         std::thread::sleep(std::time::Duration::from_millis(20));
 
