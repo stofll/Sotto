@@ -1,0 +1,3 @@
+[env]
+# Cargo resolves relative env paths from the repository root, not the caller's cwd.
+CMAKE_TOOLCHAIN_FILE = { value = "scripts/ggml-baseline.cmake", relative = true }

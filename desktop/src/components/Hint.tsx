@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { cloneElement, isValidElement, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type HTMLAttributes, type ReactNode, type Ref } from "react";
 import { createPortal } from "react-dom";
 import { Icon } from "./Icon";
 
@@ -26,14 +26,15 @@ const MARGIN = 8;   // minimum distance from the bubble to the window edge
 // `className` and `style` go on the anchor. Wrapping a button turns the anchor
 // into the flex or grid item in its place, so whatever held that place —
 // `flex: 1`, `margin-left: auto`, a full-width cell — has to move onto it.
-export function Hint({ text, children, className, style }: { text: string; children?: ReactNode; className?: string; style?: CSSProperties }) {
-  const anchorRef = useRef<HTMLSpanElement>(null);
+export function Hint({ text, children, className, style, asChild = false }: { text?: string; children?: ReactNode; className?: string; style?: CSSProperties; asChild?: boolean }) {
+  const anchorRef = useRef<HTMLElement>(null);
+  const bubbleId = useId();
   const bubbleRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
 
   useLayoutEffect(() => {
-    if (!open) {
+    if (!open || !text) {
       setPos(null);
       return;
     }
@@ -43,7 +44,8 @@ export function Hint({ text, children, className, style }: { text: string; child
     const maxLeft = Math.max(MARGIN, window.innerWidth - bubble.width - MARGIN);
     const left = Math.min(Math.max(MARGIN, anchor.left + anchor.width / 2 - bubble.width / 2), maxLeft);
     const above = anchor.top - GAP - bubble.height;
-    const top = above >= MARGIN ? above : anchor.bottom + GAP;
+    const preferredTop = above >= MARGIN ? above : anchor.bottom + GAP;
+    const top = Math.max(MARGIN, Math.min(preferredTop, window.innerHeight - bubble.height - MARGIN));
     setPos({ left, top });
   }, [open, text]);
 
@@ -60,37 +62,44 @@ export function Hint({ text, children, className, style }: { text: string; child
     };
   }, [open]);
 
-  return (
-    <span
-      ref={anchorRef}
-      className={`${children ? "hint-anchor" : "hint"}${className ? ` ${className}` : ""}`}
-      style={style}
-      // The icon does not take focus on its own — it is given focus, otherwise
-      // the hint exists for the mouse only. A wrapper around a control needs no
-      // focus of its own and is harmed by it: it becomes an extra stop before
-      // the control itself.
-      tabIndex={children ? undefined : 0}
-      // A name on the wrapper would replace the name of the control inside, so
-      // the text goes to the screen reader as a separate line rather than as a
-      // label on the anchor.
-      aria-label={children ? undefined : text}
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
-      onFocus={() => setOpen(true)}
-      onBlur={() => setOpen(false)}
-    >
-      {children ?? <Icon name="info" size={11}/>}
-      {children && <span className="sr-only">{text}</span>}
-      {open && createPortal((
-        <div
-          ref={bubbleRef}
-          className="hint-bubble"
-          role="tooltip"
-          style={pos ? { left: pos.left, top: pos.top } : { left: 0, top: 0, visibility: "hidden" }}
-        >
-          {text}
-        </div>
-      ), document.body)}
-    </span>
-  );
+  const bubble = open && text && createPortal(
+    <div id={bubbleId} ref={bubbleRef} className="hint-bubble" role="tooltip"
+      style={pos ? { left: pos.left, top: pos.top } : { left: 0, top: 0, visibility: "hidden" }}>
+      {text}
+    </div>, document.body);
+
+  // Attach to the existing element so grid/flex placement and text truncation
+  // do not change when replacing a native title tooltip.
+  if (asChild && isValidElement<HTMLAttributes<HTMLElement> & { ref?: Ref<HTMLElement> }>(children)) {
+    const props = children.props;
+    return <>{cloneElement(children, {
+      ref: (node: HTMLElement | null) => {
+        anchorRef.current = node;
+        if (typeof props.ref === "function") return props.ref(node);
+        if (props.ref) props.ref.current = node;
+      },
+      "aria-describedby": open && text ? [props["aria-describedby"], bubbleId].filter(Boolean).join(" ") : props["aria-describedby"],
+      onMouseEnter: (event) => { props.onMouseEnter?.(event); setOpen(true); },
+      onMouseLeave: (event) => { props.onMouseLeave?.(event); setOpen(false); },
+      onFocus: (event) => { props.onFocus?.(event); setOpen(true); },
+      onBlur: (event) => { props.onBlur?.(event); setOpen(false); },
+      onKeyDown: (event) => { props.onKeyDown?.(event); if (event.key === "Escape") setOpen(false); },
+    })}{bubble}</>;
+  }
+
+  return <span
+    ref={(node) => { anchorRef.current = node; }}
+    className={`${children ? "hint-anchor" : "hint"}${className ? ` ${className}` : ""}`}
+    style={style}
+    tabIndex={children ? undefined : 0}
+    aria-label={children ? undefined : text}
+    aria-describedby={open && text ? bubbleId : undefined}
+    onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}
+    onFocus={() => setOpen(true)} onBlur={() => setOpen(false)}
+    onKeyDown={(event) => { if (event.key === "Escape") setOpen(false); }}
+  >
+    {children ?? <Icon name="info" size={11}/>}
+    {children && <span className="sr-only">{text}</span>}
+    {bubble}
+  </span>;
 }

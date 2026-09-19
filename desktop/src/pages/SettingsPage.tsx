@@ -7,6 +7,8 @@ import { HotkeyDisplay, RecordingModeSegmented } from "./settings/CaptureSection
 import { LanguagePicker, UiLanguagePicker } from "./settings/LanguageSection";
 import { MicPicker } from "./settings/MicrophoneSection";
 import { BehaviorSection } from "./settings/BehaviorSection";
+import { Icon } from "../components/Icon";
+import { OverlaySettings } from "./OverlaySettings";
 import { AdvancedSection } from "./settings/AdvancedSection";
 import { SetLabel } from "./settings/controls";
 
@@ -77,6 +79,11 @@ export function SettingsPage({ config, microphones, models, portable, onConfigCh
         <Card pad="rows">
           <BehaviorSection config={config} onConfigChanged={onConfigChanged}/>
         </Card>
+
+        <details className="card card--rows advanced" data-testid="overlay-disclosure">
+          <summary><Icon name="chev-down" size={13}/>{t("Оверлей")}</summary>
+          <OverlaySettings config={config} onConfigChanged={onConfigChanged}/>
+        </details>
 
         {/* 5. Everything that is configured once or never. Collapsed on purpose:
             at the top level these controls cost a new user more than they saved an

@@ -19,6 +19,7 @@ Platform-specific prerequisites, permissions, and the commands contributors shou
 
 ## Platform caveats
 
+- Windows x64 requires AVX2, FMA and F16C CPU instructions, including for GPU-enabled builds. Whisper's CPU backend follows the fixed [release baseline](RELEASE.md#cpu-instruction-baseline) rather than the build machine's instruction set.
 - Sherpa-ONNX bundles run on CPU on Windows and macOS. The macOS runtime is statically linked; Linux currently exposes only Whisper models.
 - Whisper is the portable local engine; GPU acceleration depends on the build target and available native toolchain.
 - Microphone capture, global shortcuts, clipboard access, and accessibility behavior are platform-specific. Report a problem with OS version, hardware, app version, and exact reproduction steps.

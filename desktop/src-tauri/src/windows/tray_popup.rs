@@ -75,7 +75,7 @@ pub fn show_tray_popup(app: AppHandle) -> Result<(), String> {
     let window =
         WebviewWindowBuilder::new(&app, TRAY_POPUP_LABEL, WebviewUrl::App("tray.html".into()))
             .title("TrayPopup")
-            .inner_size(300.0, 440.0)
+            .inner_size(300.0, 360.0)
             .resizable(false)
             .decorations(false)
             .shadow(false)

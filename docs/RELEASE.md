@@ -6,6 +6,12 @@
 
 ## Pre-release
 
+### CPU instruction baseline
+
+Whisper's ggml CPU backend uses AVX2, FMA and F16C on x86-64, with AVX-512, AVX-VNNI and AMX disabled. Windows x64 therefore requires a CPU supporting those baseline instructions. On macOS arm64 the compiler's target default applies, without detecting extensions on the build host. GPU builds retain this CPU baseline because some operations still run on the CPU.
+
+The repository's `.cargo/config.toml` selects `scripts/ggml-baseline.cmake` for both local and CI builds. Do not override `CMAKE_TOOLCHAIN_FILE` for distributed binaries unless the replacement preserves this baseline. Host-native compilation can otherwise produce illegal-instruction crashes on a different machine, including when reusing cached builds. After changing the baseline file, rebuild `whisper-rs-sys` with `cargo clean -p whisper-rs-sys` (and `cargo clean --release -p whisper-rs-sys` for release builds); Cargo does not track edits inside a CMake toolchain file. CI cache keys include the baseline files so old native artifacts are not restored. `node scripts/check-ggml-baseline.mjs <cargo-target-dir>` checks the generated CMake caches and fails if a compiled variant does not use the baseline.
+
 ### 1. Prepare the version in GitHub Actions
 
 Keep the application version unchanged during normal development. Once the intended changes are merged, open **Actions → Prepare Release → Run workflow**, leave the branch set to `main`, and select `patch`, `minor`, or `major`. An optional exact stable version such as `0.1.0` overrides that selection; enter it without a `v` prefix.

@@ -1,36 +1,18 @@
+from pathlib import Path
+
 import pytest
 from playwright.sync_api import expect
 
 
 @pytest.mark.parametrize("locale", ["ru", "en"])
-def test_tray_record_stop_complete(app, page, locale):
+def test_tray_has_no_recording_controls(app, page, locale):
     ui = app("tray", config={"ui_language": locale})
-    button = page.get_by_test_id("tray-record")
-    start, stop = (
-        ("Начать запись", "Остановить запись")
-        if locale == "ru"
-        else ("Start recording", "Stop recording")
-    )
-    expect(button).to_contain_text(start)
-    button.click()
-    expect(button).to_contain_text(stop)
-    button.click()
-    expect(
-        page.get_by_text("Распознаю" if locale == "ru" else "Transcribing", exact=False)
-    ).to_be_visible()
-    ui.emit("paste-done", {"session_id": 1, "length": 12})
-    expect(button).to_contain_text(start)
-    assert len(ui.calls("start_recording")) == 1
-    assert len(ui.calls("stop_recording")) == 1
-
-
-def test_tray_start_failure_can_retry(app, page):
-    app("tray", responses={"start_recording": [{"error": "Microphone unavailable"}]})
-    page.get_by_test_id("tray-record").click()
-    expect(page.get_by_role("alert")).to_have_text("Microphone unavailable")
-    page.get_by_test_id("tray-record").click()
-    expect(page.get_by_test_id("tray-record")).to_contain_text("Остановить запись")
-    expect(page.get_by_role("alert")).not_to_be_visible()
+    expect(page.get_by_role("menu")).to_be_visible()
+    expect(page.get_by_test_id("tray-record")).to_have_count(0)
+    ui.emit("recording-started", 1)
+    expect(page.get_by_test_id("tray-record")).to_have_count(0)
+    assert not ui.calls("start_recording")
+    assert not ui.calls("stop_recording")
 
 
 def test_tray_pause_replacements(app, page):
@@ -67,6 +49,39 @@ def test_tray_navigation(app, page, label, tab):
         "window.__sottoTest.calls.some(x => x.command === 'focus_main_window')"
     )
     assert ui.calls("focus_main_window")[-1]["args"]["tab"] == tab
+
+
+@pytest.mark.parametrize("os", ["windows", "macos", "linux"])
+def test_tray_navigation_dismisses_popup_only_on_windows(app, page, os):
+    ui = app("tray", runtime={"os": os})
+    hide = page.get_by_role("button", name="Скрыть меню", exact=True)
+    if os == "windows":
+        expect(hide).to_be_visible()
+    else:
+        expect(hide).to_have_count(0)
+    page.get_by_role("menuitem", name="Настройки").click()
+    page.wait_for_function(
+        "window.__sottoTest.calls.some(x => x.command === 'focus_main_window')"
+    )
+    commands = page.evaluate(
+        "window.__sottoTest.calls.map(x => x.command).filter("
+        "x => ['hide_tray_popup', 'focus_main_window'].includes(x))"
+    )
+    assert commands == (
+        ["hide_tray_popup", "focus_main_window"]
+        if os == "windows"
+        else ["focus_main_window"]
+    )
+    assert ui.calls("focus_main_window")[-1]["args"]["tab"] == "settings"
+
+
+def test_tray_can_dismiss_before_runtime_status_arrives(app, page):
+    ui = app("tray", responses={"get_runtime_status": [{"hold": True}]})
+    page.get_by_role("button", name="Скрыть меню", exact=True).click()
+    page.wait_for_function(
+        "window.__sottoTest.calls.some(x => x.command === 'hide_tray_popup')"
+    )
+    assert len(ui.calls("hide_tray_popup")) == 1
 
 
 def test_overlay_full_lifecycle_and_stale_events(app, page):
@@ -120,6 +135,7 @@ def test_overlay_error_and_recovery(app, page, event):
 def test_overlay_escape_cancels_active_session(app, page):
     ui = app("overlay")
     ui.emit("recording-started", 42)
+    expect(page.get_by_test_id("overlay")).to_have_attribute("data-state", "recording")
     page.keyboard.press("Escape")
     expect(page.get_by_test_id("overlay")).not_to_be_visible()
     assert ui.calls("cancel_recording")[-1]["args"]["sessionId"] == 42
@@ -137,12 +153,11 @@ def test_overlay_streaming_preview(app, page):
 
 def test_tray_updates_locale_from_settings_event(app, page):
     ui = app("tray")
-    expect(page.get_by_test_id("tray-record")).to_contain_text("Начать запись")
+    expect(page.get_by_role("menuitem", name="Пауза замен")).to_be_visible()
     ui.emit(
         "config-updated",
         {**ui.state()["config"], "ui_language": "en", "replacements_paused": True},
     )
-    expect(page.get_by_test_id("tray-record")).to_contain_text("Start recording")
     expect(
         page.get_by_role("menuitem", name="Resume replacements", exact=True)
     ).to_be_visible()
@@ -367,3 +382,82 @@ def test_processing_label_stays_while_only_counter_is_delayed(app, page):
     expect(page.locator(".overlay-counter")).to_have_count(0)
     page.clock.run_for(2000)
     expect(page.locator(".overlay-counter")).to_contain_text("2")
+
+
+@pytest.mark.parametrize("locale", ["ru", "en"])
+@pytest.mark.parametrize("theme", ["light", "dark"])
+def test_pill_processing_is_centred(app, page, locale, theme):
+    page.set_viewport_size({"width": 308, "height": 64})
+    ui = app("overlay", config={"ui_language": locale, "theme": theme})
+    ui.emit("recording-started", 8)
+    ui.emit("recording-stopped", 8)
+    ui.emit("whisper-done", {"session_id": 8, "text": "Synthetic speech"})
+    expect(page.get_by_test_id("overlay")).to_have_attribute("data-state", "done")
+    progress = page.locator(".overlay-progress")
+    expect(progress).to_be_visible()
+    page.wait_for_timeout(250)  # Wait for the grid's 200 ms size transition.
+    surface = page.locator(".overlay-surface").bounding_box()
+    bounds = progress.bounding_box()
+    assert (
+        abs(bounds["x"] + bounds["width"] / 2 - surface["x"] - surface["width"] / 2) < 1
+    )
+
+
+def test_native_pointer_leave_overrides_stale_css_hover(app, page):
+    page.set_viewport_size({"width": 388, "height": 144})
+    ui = app("overlay")
+    ui.emit("recording-started", 1)
+    shell = page.locator(".overlay-shell")
+    shell.hover()
+    button = page.get_by_role("button", name="Отменить запись", exact=True)
+    expect(button).to_have_css("opacity", "1")
+    # WKWebView can keep :hover after the native window has moved/hidden.
+    ui.emit("overlay-pointer", False)
+    expect(button).to_have_css("opacity", "0")
+    ui.emit("overlay-reset")
+    page.mouse.move(0, 0)
+    ui.emit("recording-started", 2)
+    expect(button).to_have_css("opacity", "0")
+    ui.emit("overlay-pointer", True)
+    expect(button).to_have_css("opacity", "1")
+
+
+@pytest.mark.parametrize(
+    "size,width,height", [("s", 280, 60), ("m", 308, 64), ("l", 360, 72)]
+)
+@pytest.mark.parametrize("timer", [False, True])
+def test_pill_waveform_fills_space_and_makes_room_for_cancel(
+    app, page, size, width, height, timer, output_path
+):
+    page.set_viewport_size({"width": width + 80, "height": height + 80})
+    page.mouse.move(0, 0)
+    ui = app(
+        "overlay",
+        config={"overlay": {"form": "pill", "size": size, "show_timer": timer}},
+    )
+    page.add_style_tag(content=f".overlay-shell {{ max-width: {width}px; }}")
+    ui.emit("recording-started", 1)
+    overlay = page.get_by_test_id("overlay")
+    expect(overlay).to_have_attribute("data-hovered", "false")
+    page.wait_for_timeout(250)
+    wave = page.locator(".overlay-waveform")
+    bars = wave.locator("span")
+    bounds = wave.bounding_box()
+    first, last = bars.first.bounding_box(), bars.last.bounding_box()
+    assert abs(first["x"] - bounds["x"]) < 1
+    assert abs(last["x"] + last["width"] - bounds["x"] - bounds["width"]) < 1
+    if not timer:
+        row = page.locator(".overlay-row").bounding_box()
+        assert abs(bounds["width"] - row["width"]) < 1
+    Path(output_path).mkdir(parents=True, exist_ok=True)
+    page.screenshot(path=str(Path(output_path) / "waveform.png"))
+    page.locator(".overlay-shell").hover()
+    cancel = page.get_by_role("button", name="Отменить запись", exact=True)
+    expect(cancel).to_have_css("opacity", "1")
+    page.wait_for_timeout(250)
+    hovered, button = wave.bounding_box(), cancel.bounding_box()
+    assert hovered["width"] < bounds["width"] - 30
+    assert hovered["x"] + hovered["width"] <= button["x"]
+    cancel.click()
+    expect(overlay).not_to_be_visible()
+    assert ui.calls("cancel_recording")[-1]["args"]["sessionId"] == 1

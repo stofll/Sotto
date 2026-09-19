@@ -137,6 +137,9 @@ objc2-foundation = { version = "0.3.2", default-features = false, features = [
     "NSGeometry",
     "NSObject",
     "NSTimer",
+    "NSRunLoop",
+    "NSObjCRuntime",
+    "NSString",
     "block2",
     "objc2-core-foundation",
 ] }

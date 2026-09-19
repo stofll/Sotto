@@ -598,8 +598,8 @@ impl OnlineRecognizer {
     /// stopped talking a moment before releasing the hotkey.
     pub fn finish(&mut self) -> Result<String, String> {
         if let Some(rate) = self.input_rate {
-            // Longer than the widest look-ahead among the streaming models in
-            // the catalog (560 ms), so a chunk is never left waiting.
+            // Covers the cache-aware catalog models. Buffered Parakeet also
+            // zero-pads its remaining right context after input_finished().
             let samples = vec![0.0_f32; (rate as usize) * 3 / 5];
             self.stream.accept_waveform(rate as i32, &samples);
         }

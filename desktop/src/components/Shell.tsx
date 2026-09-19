@@ -148,9 +148,9 @@ export function StatusPill({ state, pipelineMode, loadedModel, loadsOnDemand, do
   if (compact) {
     const title = detail ? `${headline} · ${detail}` : headline;
     return (
-      <div title={title} style={{ display: "grid", placeItems: "center", height: 42, borderRadius: "var(--radius)", background: "var(--bg-2)", border: isCloud ? "1px solid var(--accent-soft-2)" : "1px solid var(--line)" }}>
+      <Hint asChild text={title}><div style={{ display: "grid", placeItems: "center", height: 42, borderRadius: "var(--radius)", background: "var(--bg-2)", border: isCloud ? "1px solid var(--accent-soft-2)" : "1px solid var(--line)" }}>
         <span style={{ width: 8, height: 8, borderRadius: "50%", background: dot, boxShadow: active ? `0 0 0 4px ${dot}22` : "none", animation: active ? "rec-halo 1.4s ease-out infinite" : "none" }}/>
-      </div>
+      </div></Hint>
     );
   }
 
@@ -186,7 +186,7 @@ export function StatusPill({ state, pipelineMode, loadedModel, loadsOnDemand, do
       <span style={{ width: 8, height: 8, borderRadius: "50%", background: dot, boxShadow: active ? `0 0 0 4px ${dot}22` : "none", animation: active ? "rec-halo 1.4s ease-out infinite" : "none", flex: "0 0 auto" }}/>
       <div className="status-pill__text" style={{ minWidth: 0, flex: 1 }}>
         <div style={{ font: "500 12px/1.1 var(--font-sans)", color: "var(--ink)", display: "flex", alignItems: "center", gap: 6 }}>{headline}{isCloud && <span className="tag tag--rec" style={{ height: 16, fontSize: 9, padding: "0 5px" }}>Cloud</span>}</div>
-        {detail && <div style={{ font: "500 10px/1.2 var(--font-mono)", color: "var(--ink-mute)", marginTop: 3, letterSpacing: "0.04em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={detail}>{detail}</div>}
+        {detail && <Hint asChild text={detail}><div style={{ font: "500 10px/1.2 var(--font-mono)", color: "var(--ink-mute)", marginTop: 3, letterSpacing: "0.04em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{detail}</div></Hint>}
       </div>
     </div>
   );

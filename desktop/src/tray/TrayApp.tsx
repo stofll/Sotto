@@ -3,12 +3,11 @@ import type { CSSProperties } from "react";
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { emit } from "@tauri-apps/api/event";
 import { Icon } from "../components/Icon";
-import { subscribe, onRecordingStateChange, startRecording, stopRecording, type RecordingState } from "../bridge";
+import { subscribe, onRecordingStateChange, type RecordingState } from "../bridge";
 import { invoke } from "../bridge/invoke";
 import { isWindowsOs } from "../bridge/platform";
 import type { ConfigResult, MicrophoneResult, RuntimeStatusResult } from "../bridge/types";
 import { applyLocaleFromConfig, t, useLocale } from "../i18n";
-import { DEFAULT_HOTKEY } from "../hotkey";
 import { applyAccent, resolveAccent } from "../accent";
 import { actualDeviceLabel, actualEngineLabel, actualModelLabel } from "../pages/runtimePresentation";
 
@@ -19,18 +18,6 @@ const LANGUAGE_LABEL = (): Record<string, string> => ({
   en: "English",
   auto: t("Авто"),
 });
-
-function hotkeyParts(value?: string) {
-  return (value || DEFAULT_HOTKEY).split("+").map((part) => {
-    const key = part.trim().toLowerCase();
-    if (key === "ctrl") return "Ctrl";
-    if (key === "shift") return "Shift";
-    if (key === "alt") return "Alt";
-    if (key === "win" || key === "cmd" || key === "super") return "Win";
-    if (key === "space") return "Space";
-    return part.trim() || key;
-  });
-}
 
 // Anything but an explicit "cpu" is GPU (Rust: `resolve_device`). This used to
 // compare against "cuda", which made the tray print «CPU» for any other value.
@@ -167,16 +154,6 @@ export function TrayApp() {
     return () => unlisteners.forEach((stop) => stop());
   }, []);
 
-  async function toggleRecording() {
-    setError(null);
-    try {
-      if (isRecording) await stopRecording();
-      else await startRecording();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  }
-
   // The popup window only exists on Windows (windows/tray_popup.rs): there
   // `hide_tray_popup` dismisses the popup before the main window takes focus.
   // Elsewhere `focus_main_window` alone shows the main window.
@@ -200,7 +177,6 @@ export function TrayApp() {
   const micLabel = currentMic?.name ?? currentMic?.label ?? t("Системный");
   const modelLabel = actualModelLabel(runtime, t("Модель не загружена"));
   const subtitle = `${statusText(recordingState, runtime)} · ${modelLabel} · ${actualEngineLabel(runtime)} · ${deviceLabel(actualDeviceLabel(runtime))}`;
-  const parts = hotkeyParts(config?.hotkey);
 
   return (
     <div className="app-frame" style={{ width: "100%", height: "100%", background: "transparent", position: "relative", paddingBottom: 7, overflow: "hidden" }}>
@@ -214,13 +190,6 @@ export function TrayApp() {
           </div>
         </div>
         <div style={{ padding: "14px 14px 8px" }}>
-          <button data-testid="tray-record" onClick={toggleRecording} style={{ width: "100%", appearance: "none", cursor: "pointer", padding: "12px 14px", borderRadius: 10, background: "var(--bg-2)", border: "1px solid var(--line-strong)", display: "flex", alignItems: "center", gap: 12, color: "var(--ink)", textAlign: "left" }}>
-            <div style={{ width: 32, height: 32, borderRadius: "50%", background: isRecording ? "var(--accent)" : "var(--rec)", display: "grid", placeItems: "center", color: "white", flex: "0 0 auto" }}><Icon name={isRecording ? "pause" : "mic"} size={15}/></div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ font: "500 13px/1.1 var(--font-sans)" }}>{isRecording ? t("Остановить запись") : t("Начать запись")}</div>
-              <div style={{ display: "flex", gap: 4, marginTop: 4, alignItems: "center", flexWrap: "wrap" }}>{parts.map((part, index) => <span key={`${part}-${index}`} style={{ display: "inline-flex", gap: 4, alignItems: "center" }}>{index > 0 && <span style={{ color: "var(--ink-mute)", fontSize: 10 }}>+</span>}<span className="kbd" style={{ height: 18, fontSize: 10 }}>{part}</span></span>)}</div>
-            </div>
-          </button>
           {error && <div role="alert" style={{ marginTop: 8, color: "var(--err)", font: "500 11px/1.35 var(--font-sans)" }}>{error}</div>}
         </div>
         <div style={{ padding: "0 14px 8px", display: "flex", flexDirection: "column", gap: 2 }}>

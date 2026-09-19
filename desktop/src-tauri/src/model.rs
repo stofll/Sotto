@@ -177,8 +177,7 @@ const OMNILINGUAL_300M_ARTIFACTS: &[BundleArtifactManifestEntry] = &[
 
 /// Nemotron 3.5 ASR (NVIDIA), the multilingual streaming transducer.
 ///
-/// Upstream exports the same model at five chunk sizes; 560 ms is taken for
-/// the same reason as with Parakeet — see the entry in the manifest.
+/// The catalog pins the 560 ms cache-aware streaming export.
 #[cfg(any(windows, target_os = "macos"))]
 const NEMOTRON_STREAMING_ARTIFACTS: &[BundleArtifactManifestEntry] = &[
     BundleArtifactManifestEntry {
@@ -462,28 +461,28 @@ const PARAKEET_STREAMING_EN_ARTIFACTS: &[BundleArtifactManifestEntry] = &[
     BundleArtifactManifestEntry {
         role: ArtifactRole::Encoder,
         file_name: "encoder.int8.onnx",
-        download_url: concat!("https://huggingface.co/csukuangfj2/sherpa-onnx-nemo-parakeet-unified-en-0.6b-int8-streaming-560ms/resolve/7551fd26fc810cc1e4e043e608db4d13b59be31e", "/encoder.int8.onnx"),
-        expected_bytes: 654_046_389,
-        sha256: "e566c3f014598a41724f2df028779a2d4cf7943cbefa324964f6a72e8ee255fb",
+        download_url: concat!("https://huggingface.co/csukuangfj2/sherpa-onnx-nemo-parakeet-unified-en-0.6b-int8-streaming-1120ms/resolve/615bf8c5ad39692dc96cf1105afde73ec3eb2a59", "/encoder.int8.onnx"),
+        expected_bytes: 654_046_391,
+        sha256: "1c03f1192de41771384af22972ca10203613ba56197a024f275b86727cd35911",
     },
     BundleArtifactManifestEntry {
         role: ArtifactRole::Decoder,
         file_name: "decoder.int8.onnx",
-        download_url: concat!("https://huggingface.co/csukuangfj2/sherpa-onnx-nemo-parakeet-unified-en-0.6b-int8-streaming-560ms/resolve/7551fd26fc810cc1e4e043e608db4d13b59be31e", "/decoder.int8.onnx"),
+        download_url: concat!("https://huggingface.co/csukuangfj2/sherpa-onnx-nemo-parakeet-unified-en-0.6b-int8-streaming-1120ms/resolve/615bf8c5ad39692dc96cf1105afde73ec3eb2a59", "/decoder.int8.onnx"),
         expected_bytes: 7_257_777,
         sha256: "34fea72425d2506600772ba191a6d3f99c0710abdb68d9a3dc89fa8cb2aa473a",
     },
     BundleArtifactManifestEntry {
         role: ArtifactRole::Joiner,
         file_name: "joiner.int8.onnx",
-        download_url: concat!("https://huggingface.co/csukuangfj2/sherpa-onnx-nemo-parakeet-unified-en-0.6b-int8-streaming-560ms/resolve/7551fd26fc810cc1e4e043e608db4d13b59be31e", "/joiner.int8.onnx"),
+        download_url: concat!("https://huggingface.co/csukuangfj2/sherpa-onnx-nemo-parakeet-unified-en-0.6b-int8-streaming-1120ms/resolve/615bf8c5ad39692dc96cf1105afde73ec3eb2a59", "/joiner.int8.onnx"),
         expected_bytes: 1_735_860,
         sha256: "869f43f7d24595c55581ad3bf249a935fb8a71389fbdaa7504b9f46f93140f8a",
     },
     BundleArtifactManifestEntry {
         role: ArtifactRole::Tokens,
         file_name: "tokens.txt",
-        download_url: concat!("https://huggingface.co/csukuangfj2/sherpa-onnx-nemo-parakeet-unified-en-0.6b-int8-streaming-560ms/resolve/7551fd26fc810cc1e4e043e608db4d13b59be31e", "/tokens.txt"),
+        download_url: concat!("https://huggingface.co/csukuangfj2/sherpa-onnx-nemo-parakeet-unified-en-0.6b-int8-streaming-1120ms/resolve/615bf8c5ad39692dc96cf1105afde73ec3eb2a59", "/tokens.txt"),
         expected_bytes: 8_952,
         sha256: "dc0b4584ab2e4ddbf888425c076c61b736e7356a015250db7d307e6f1a8188ff",
     },
@@ -524,10 +523,8 @@ pub const BUNDLE_MODEL_MANIFEST: &[BundleModelManifestEntry] = &[
         engine: ModelEngine::SherpaStreamingTransducer,
         family: "Nemotron",
         languages: Some(NEMOTRON_LANGUAGES),
-        // Upstream publishes five look-aheads: 80, 160, 320, 560 and 1120 ms.
-        // The 560 ms one is taken for the same reason as with Parakeet — the
-        // shorter ones show text sooner but rewrite it retroactively more
-        // often, and it is the rewriting that grates in a live preview.
+        // This export caches encoder state between 560 ms chunks. It does
+        // not use the overlapping-window path of Parakeet unified.
         label: "Nemotron 3.5",
         size: "651 MB",
         ram_mib: 1434,
@@ -605,10 +602,9 @@ pub const BUNDLE_MODEL_MANIFEST: &[BundleModelManifestEntry] = &[
         engine: ModelEngine::SherpaStreamingTransducer,
         family: "Parakeet",
         languages: Some(&["en"]),
-        // Upstream publishes three variants with different look-ahead: 240, 560
-        // and 1120 ms. The middle one is taken — at 240 ms the text appears
-        // sooner but is rewritten retroactively more often, and it is precisely
-        // the rewriting that grates in a live preview.
+        // The 1120 ms preset advances 56 feature frames instead of 16,
+        // reducing repeated encoder work at the cost of initial latency.
+        // Keep speed references tied to this exact artifact revision.
         label: "Parakeet unified",
         size: "632 MB",
         ram_mib: 1434,

@@ -177,7 +177,8 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2.9.2
         with:
           workspaces: desktop/src-tauri -> target
-          cache-on-failure: true
+          key: ggml-baseline-${{ hashFiles('.cargo/config.toml', 'scripts/ggml-baseline.cmake') }}
+          cache-on-failure: false
 
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
@@ -265,15 +266,8 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2.9.2
         with:
           workspaces: desktop/src-tauri -> target
-          cache-on-failure: true
-
-      # whisper.cpp defaults to GGML_NATIVE: cached machine instructions can
-      # exceed the next runner's CPU (Windows 0xc000001d, Linux SIGILL).
-      # macOS runners are homogeneous Apple Silicon, so the cache is safe.
-      - name: Rebuild Whisper for the current runner CPU
-        if: runner.os != 'macOS'
-        working-directory: desktop/src-tauri
-        run: cargo clean -p whisper-rs-sys
+          key: ggml-baseline-${{ hashFiles('.cargo/config.toml', 'scripts/ggml-baseline.cmake') }}
+          cache-on-failure: false
 
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
@@ -348,6 +342,13 @@ jobs:
       - name: Build
         working-directory: desktop/src-tauri
         run: cargo build --locked --verbose
+
+      - name: Verify compiled Whisper CPU baseline
+        run: node scripts/check-ggml-baseline.mjs desktop/src-tauri/target
+
+      - name: Test model benchmark arguments
+        working-directory: desktop/src-tauri
+        run: cargo test --locked --example model_benchmark
 
       - name: Test
         working-directory: desktop/src-tauri
@@ -446,6 +447,9 @@ jobs:
 
       - name: Release version regression tests
         run: node --test scripts/release-version.test.mjs scripts/check-release-source.test.mjs
+
+      - name: CPU baseline regression tests
+        run: node --test scripts/check-ggml-baseline.test.mjs
 
       - name: Application version consistency
         run: sh scripts/check-version.sh

@@ -15,12 +15,13 @@ use windows_sys::Win32::System::DataExchange::GetClipboardData;
 use windows_sys::Win32::System::DataExchange::{CloseClipboard, OpenClipboard};
 use windows_sys::Win32::System::Memory::{GlobalLock, GlobalSize, GlobalUnlock};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    keybd_event, MapVirtualKeyW, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT,
-    KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP, MAPVK_VK_TO_VSC, VIRTUAL_KEY, VK_CONTROL, VK_LMENU,
-    VK_LSHIFT, VK_LWIN, VK_MENU, VK_RETURN, VK_RMENU, VK_RSHIFT, VK_RWIN, VK_SHIFT,
+    keybd_event, GetAsyncKeyState, MapVirtualKeyW, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD,
+    KEYBDINPUT, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP, MAPVK_VK_TO_VSC, VIRTUAL_KEY, VK_CONTROL,
+    VK_LCONTROL, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_MENU, VK_RCONTROL, VK_RETURN, VK_RMENU,
+    VK_RSHIFT, VK_RWIN, VK_SHIFT,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    AllowSetForegroundWindow, BringWindowToTop, GetForegroundWindow, SetForegroundWindow,
+    GetForegroundWindow, IsWindow, SetForegroundWindow,
 };
 
 /// Win32 clipboard format for Unicode text. Declared as a local constant
@@ -35,12 +36,22 @@ const CF_UNICODETEXT: u32 = 13;
 /// work — capture writes from one thread, paste reads from another.
 static CAPTURED: Mutex<Option<HWND>> = Mutex::new(None);
 
-/// All 9 modifier VKs the production `release_stuck_modifiers` iterates
+/// All modifier VKs the production `release_stuck_modifiers` iterates
 /// over. `keybd_event` takes `bVk: u8` but windows-sys 0.52 exports VK
 /// constants as `VIRTUAL_KEY` (a `u16` alias), so we cast at the call
 /// site (`vk as u8`).
-const MODIFIER_VKS: [VIRTUAL_KEY; 9] = [
-    VK_CONTROL, VK_SHIFT, VK_MENU, VK_LMENU, VK_RMENU, VK_LSHIFT, VK_RSHIFT, VK_LWIN, VK_RWIN,
+const MODIFIER_VKS: [VIRTUAL_KEY; 11] = [
+    VK_CONTROL,
+    VK_LCONTROL,
+    VK_RCONTROL,
+    VK_SHIFT,
+    VK_MENU,
+    VK_LMENU,
+    VK_RMENU,
+    VK_LSHIFT,
+    VK_RSHIFT,
+    VK_LWIN,
+    VK_RWIN,
 ];
 
 /// Snapshot the foreground window's HWND into the process-wide `Mutex`.
@@ -116,39 +127,22 @@ pub fn clear_captured_hwnd() {
     *crate::mutex_recover::lock(&CAPTURED) = None;
 }
 
-/// Bring `hwnd` to the foreground across the UIPI boundary.
-///
-/// Strategy (best-effort, applies when the Tauri host is *not* the
-/// foreground process):
-///   1. Synthesize an ALT press+release — this unlocks Windows' foreground
-///      lock so external processes can call `SetForegroundWindow`.
-///   2. `AllowSetForegroundWindow(ASFW_ANY)` — let the target process set
-///      itself foreground.
-///   3. `BringWindowToTop` + `SetForegroundWindow` — actually raise.
-///
-/// Returns `Err("null hwnd")` if `hwnd` is null. Always returns `Ok(())`
-/// from the API calls regardless of their return value — partial success
-/// is preferable to aborting the whole paste pipeline.
+/// Restore the dictation target without injecting Alt, which activates menu
+/// access keys in editors such as Notepad. Refuse to paste into another app
+/// when Windows denies the foreground request.
 pub fn force_focus(hwnd: HWND) -> Result<(), String> {
-    if hwnd == 0 {
-        return Err("null hwnd".into());
-    }
-    // SAFETY: every call here is pointer-free — a VK, a process id, a
-    // window handle. A stale `hwnd` can name a different window (Windows
-    // reuses handle values), which would raise the wrong window; it cannot
-    // be dereferenced, because it is an index into a kernel table.
+    // SAFETY: Win32 validates these opaque handles; no pointers are dereferenced.
     unsafe {
-        // ALT-key trick to unlock the foreground-window lock.
-        keybd_event(VK_MENU as u8, 0, 0, 0);
-        keybd_event(VK_MENU as u8, 0, KEYEVENTF_KEYUP, 0);
-
-        // windows-sys 0.52: `AllowSetForegroundWindow(dwProcessId: u32)`.
-        // `ASFW_ANY = -1i32 as u32 = 0xFFFF_FFFF_u32` lets any process
-        // set the foreground — required when the Tauri host is not itself
-        // the foreground process at the moment of the call.
-        AllowSetForegroundWindow(0xFFFF_FFFF);
-        BringWindowToTop(hwnd);
+        if hwnd == 0 || IsWindow(hwnd) == 0 {
+            return Err("paste target no longer exists".into());
+        }
+        if GetForegroundWindow() == hwnd {
+            return Ok(());
+        }
         SetForegroundWindow(hwnd);
+        if GetForegroundWindow() != hwnd {
+            return Err("could not restore paste target focus; text is on the clipboard".into());
+        }
     }
     Ok(())
 }
@@ -310,7 +304,10 @@ pub fn release_stuck_modifiers() -> Result<(), String> {
     // `send_ctrl_v_keybd_event`.
     unsafe {
         for vk in MODIFIER_VKS.iter().copied() {
-            keybd_event(vk as u8, 0, KEYEVENTF_KEYUP, 0);
+            // Do not send unsolicited Alt releases to the target menu.
+            if GetAsyncKeyState(vk as i32) < 0 {
+                keybd_event(vk as u8, 0, KEYEVENTF_KEYUP, 0);
+            }
         }
     }
     Ok(())

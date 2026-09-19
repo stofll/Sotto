@@ -423,7 +423,7 @@ fn start_macos_pointer_watch_main(window: tauri::WebviewWindow) {
 
     use block2::RcBlock;
     use objc2::runtime::AnyObject;
-    use objc2_foundation::NSTimer;
+    use objc2_foundation::{NSRunLoop, NSRunLoopCommonModes, NSTimer};
 
     stop_macos_pointer_watch_main();
     let Ok(ns) = window.ns_window() else {
@@ -442,6 +442,9 @@ fn start_macos_pointer_watch_main(window: tauri::WebviewWindow) {
     // is created on the main thread, which is where it must be invalidated.
     let timer =
         unsafe { NSTimer::scheduledTimerWithTimeInterval_repeats_block(0.03, true, &block) };
+    // Keep hover tracking alive during AppKit menu/mouse tracking loops.
+    // SAFETY: both objects belong to the main thread; the mode is an AppKit constant.
+    unsafe { NSRunLoop::mainRunLoop().addTimer_forMode(&timer, NSRunLoopCommonModes) };
     *crate::mutex_recover::lock(&MACOS_POINTER_WATCH) = Some(MacosPointerWatch { timer });
     emit_overlay_pointer(&window, cursor_inside_overlay_ns(ns as *mut AnyObject));
 }
@@ -665,8 +668,11 @@ fn position_overlay(window: &tauri::WebviewWindow) -> Result<(), String> {
         eprintln!("[overlay] position_overlay: no monitor detected; window stays off-screen");
         return Ok(());
     };
-    let monitor_pos = monitor.position();
-    let monitor_size = monitor.size();
+    // Keep clear of the taskbar; it may rise above other topmost windows.
+    #[cfg(windows)]
+    let (monitor_pos, monitor_size) = (&monitor.work_area().position, &monitor.work_area().size);
+    #[cfg(not(windows))]
+    let (monitor_pos, monitor_size) = (monitor.position(), monitor.size());
     let prefs = preferences();
     let (streaming, needs_text) = *crate::mutex_recover::lock(&PRESENTATION);
     let state = current_state();

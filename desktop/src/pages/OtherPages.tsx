@@ -214,7 +214,7 @@ function BarChart({ data }: { data: DailyStats[] }) {
         // The accent marks days with entries. The last five columns used to be
         // highlighted regardless of the data — on empty statistics that drew
         // activity which never happened.
-        return <div key={d.date} className={`bar-row__cell${d.count > 0 ? " active" : ""}`} title={`${shortDateLabel(d.date)}: ${d.count}`} style={{ height: `${height}%` }}/>;
+        return <Hint key={d.date} asChild text={`${shortDateLabel(d.date)}: ${d.count}`}><div className={`bar-row__cell${d.count > 0 ? " active" : ""}`} style={{ height: `${height}%` }}/></Hint>;
       })}
     </div>
   );
@@ -291,7 +291,7 @@ export function StatsPage({ stats, typingSpeedCpm = 240, onRefresh }: { stats: S
       <PageHeader
         title={t("Статистика")}
         actions={<>
-          <span className="head-count" title={t("Скорость ручного набора из настроек")}>{speedCpm.toLocaleString(localeTag())}  {t("симв/мин")}</span>
+          <Hint asChild text={t("Скорость ручного набора из настроек")}><span className="head-count">{speedCpm.toLocaleString(localeTag())}  {t("симв/мин")}</span></Hint>
           <Segmented value={range} options={RANGE_OPTIONS()} onChange={(value) => setRange(value as StatsRange)}/>
           <button className="btn btn--ghost" onClick={() => void refresh()} disabled={refreshing}><Icon name="refresh" size={13}/>{refreshing ? t("Обновляю") : t("Обновить")}</button>
         </>}

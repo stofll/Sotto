@@ -141,7 +141,6 @@ export function ModelsPage({ models, config, onConfigChanged, onModelsChanged }:
                     key={model.id}
                     model={model}
                     assessment={assessments.values[model.id]}
-                    onAssessmentRefresh={assessments.refresh}
                     active={model.id === selectedId}
                     busy={actions.isBusy(model.id)}
                     onSelect={() => actions.requestSelect(model)}
@@ -205,10 +204,9 @@ function CardMenu({ busy, onDelete }: { busy: boolean; onDelete: () => void }) {
   );
 }
 
-function ModelCard({ model, assessment, onAssessmentRefresh, active, busy, onSelect, onDownload, onDelete }: {
+function ModelCard({ model, assessment, active, busy, onSelect, onDownload, onDelete }: {
   model: ModelInfo;
   assessment?: ModelAssessment;
-  onAssessmentRefresh: () => void;
   active: boolean;
   busy: boolean;
   onSelect: () => void;
@@ -256,9 +254,9 @@ function ModelCard({ model, assessment, onAssessmentRefresh, active, busy, onSel
             «скачана» and «загружена» are too alike for two adjacent labels to
             separate a file on disk from a model in RAM. */}
         {model.loaded && (
-          <span className="model-card2__state model-card2__state--memory" title={t("Модель загружена в оперативную память и распознаёт прямо сейчас.")}>
+          <Hint asChild text={t("Модель загружена в оперативную память и распознаёт прямо сейчас.")}><span className="model-card2__state model-card2__state--memory">
             {t("В памяти")}
-          </span>
+          </span></Hint>
         )}
         {model.local && <span className="model-card2__state model-card2__state--own">{t("Свой файл")}</span>}
         {/* A user's own file is deleted from here too. What differs is not the
@@ -273,24 +271,24 @@ function ModelCard({ model, assessment, onAssessmentRefresh, active, busy, onSel
           line with the word "no". */}
       <div className="model-card2__params">
         <div className="model-card2__capabilities">
-        <span className="model-card2__param model-card2__param--wide" title={languages || undefined}>
+        <Hint asChild text={languages || undefined}><span className="model-card2__param model-card2__param--wide">
           <Icon name="globe" size={11}/>
           {languageSummary(model)}
-        </span>
+        </span></Hint>
         {model.streaming && (
-          <span className="model-card2__param" title={t("Показывает текст по ходу диктовки, не дожидаясь конца записи.")}>
+          <Hint asChild text={t("Показывает текст по ходу диктовки, не дожидаясь конца записи.")}><span className="model-card2__param">
             <Icon name="spark" size={11}/>
             {t("Потоковая")}
-          </span>
+          </span></Hint>
         )}
         </div>
-        <ModelMeters id={model.id} value={assessment} onRefresh={onAssessmentRefresh}/>
+        <ModelMeters value={assessment}/>
       </div>
 
       <div className="model-card2__foot">
-        <span className="model-card2__meta" title={metadata}>
+        <Hint asChild text={metadata}><span className="model-card2__meta">
           {metadata}
-        </span>
+        </span></Hint>
         {/* Downloading is the only button on the card: everything else is done
             by clicking the card itself. One icon instead of a word: labelling
             the single action means spending a row on the obvious. */}

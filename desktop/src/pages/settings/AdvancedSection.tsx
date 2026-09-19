@@ -9,7 +9,6 @@ import type { ConfigResult } from "../../bridge/types";
 import { ACCENT_PRESETS, applyAccent, resolveAccent } from "../../accent";
 import { modelUnloadMinutes, modelUnloadOptions } from "../modelUnloadSettings";
 import { isTelemetryEnabled } from "../telemetrySettings";
-import { OverlaySettings } from "../OverlaySettings";
 import { HintIcon, SetLabel, type ConfigChanged } from "./controls";
 
 // Changing the device reloads the model on the Rust side — that is the only
@@ -219,7 +218,7 @@ export function AdvancedSection({ config, portable, cpuOnly, onConfigChanged }: 
   const autoStart = config?.auto_start ?? false;
 
   return (
-    <details className="card card--rows advanced">
+    <details className="card card--rows advanced" data-testid="advanced-settings">
       <summary>
         <Icon name="chev-down" size={13}/>
         {t("Дополнительно")}
@@ -312,7 +311,6 @@ export function AdvancedSection({ config, portable, cpuOnly, onConfigChanged }: 
           <HintIcon text={t("Собираются обезличенные события использования и технические сведения: режим обработки, длительность аудио и обработки, оценка сэкономленного времени, ОС, версия приложения, архитектура и сведения о сессии.")}/>
         </span>
       </div>
-      <OverlaySettings config={config} onConfigChanged={onConfigChanged}/>
     </details>
   );
 }

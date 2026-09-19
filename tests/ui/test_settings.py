@@ -5,10 +5,10 @@ from playwright.sync_api import expect
 
 
 def open_overlay_settings(page):
-    advanced = page.locator("details.advanced")
-    if advanced.get_attribute("open") is None:
-        advanced.locator("summary").click()
-    settings = advanced.get_by_test_id("overlay-settings")
+    disclosure = page.get_by_test_id("overlay-disclosure")
+    if disclosure.get_attribute("open") is None:
+        disclosure.locator("summary").click()
+    settings = disclosure.get_by_test_id("overlay-settings")
     expect(settings).to_be_visible()
     return settings
 
@@ -273,11 +273,11 @@ def test_overlay_palette_swatches_save_and_name_on_hover(app, page):
 def test_overlay_timer_toggle_saves(app, page):
     ui = app()
     settings = open_overlay_settings(page)
-    control = settings.get_by_role("button", name="Секундомер", exact=True)
-    expect(control).to_have_attribute("aria-pressed", "true")
+    control = settings.get_by_role("checkbox", name="Секундомер", exact=True)
+    expect(control).to_be_checked()
     control.click()
     ui.saved("overlay", {"show_timer": False})
-    expect(control).to_have_attribute("aria-pressed", "false")
+    expect(control).not_to_be_checked()
 
 
 def test_interface_color_presets_and_custom_value(app, page):
@@ -481,7 +481,7 @@ def test_position_preview_visuals(app, page, locale, theme, form, output_path):
         }
     )
     expect(page.get_by_test_id("overlay-settings")).not_to_be_visible()
-    summary = page.locator("details.advanced > summary")
+    summary = page.get_by_test_id("overlay-disclosure").locator("summary")
     summary.focus()
     summary.press("Enter")
     settings = open_overlay_settings(page)
@@ -497,7 +497,7 @@ def test_position_preview_visuals(app, page, locale, theme, form, output_path):
     field = settings.locator("#overlay-offset")
     field.fill("400")
     field.press("Tab")
-    settings.get_by_role("heading").click()
+    settings.locator(".set-label").first.click()
     page.mouse.move(0, 0)
     settings.screenshot(path=str(shots / "offset-400.png"), animations="disabled")
 
@@ -529,3 +529,54 @@ def test_failed_accent_migration_retains_legacy_value_for_restart(app, page):
     expect(page.get_by_role("alert")).to_contain_text("Synthetic migration failure")
     assert page.evaluate("localStorage.getItem('sotto.ui.accent')") == "#9b75ef"
     assert "ui_accent" not in ui.state()["config"]
+
+
+@pytest.mark.parametrize("locale", ["ru", "en"])
+@pytest.mark.parametrize("theme", ["dark", "light"])
+def test_overlay_and_advanced_are_independent_collapsed_sections(
+    app, page, locale, theme, output_path
+):
+    app(config={"ui_language": locale, "theme": theme})
+    overlay = page.get_by_test_id("overlay-disclosure")
+    advanced = page.get_by_test_id("advanced-settings")
+    expect(overlay).not_to_have_attribute("open", "")
+    expect(advanced).not_to_have_attribute("open", "")
+    assert overlay.evaluate(
+        "e => e.parentElement === document.querySelector('[data-testid=advanced-settings]').parentElement"
+    )
+    summary = overlay.locator("summary")
+    summary.focus()
+    summary.press("Enter")
+    expect(page.get_by_test_id("overlay-settings")).to_be_visible()
+    expect(advanced).not_to_have_attribute("open", "")
+    timer = overlay.get_by_role(
+        "checkbox", name="Секундомер" if locale == "ru" else "Timer", exact=True
+    )
+    label = timer.locator("..")
+    swatches = overlay.locator(".overlay-swatches").bounding_box()
+    timer_box = label.bounding_box()
+    assert timer_box["x"] + timer_box["width"] <= swatches["x"]
+    assert (
+        abs(
+            timer_box["y"]
+            + timer_box["height"] / 2
+            - swatches["y"]
+            - swatches["height"] / 2
+        )
+        < 1
+    )
+    caption = overlay.locator(".set-label").first
+    for prop in ["font-size", "font-weight", "font-family", "color"]:
+        expect(label).to_have_css(
+            prop,
+            caption.evaluate("(e, p) => getComputedStyle(e).getPropertyValue(p)", prop),
+        )
+    advanced.locator("summary").click()
+    expect(overlay).to_have_attribute("open", "")
+    expect(advanced).to_have_attribute("open", "")
+    shots = Path(output_path)
+    shots.mkdir(parents=True, exist_ok=True)
+    overlay.screenshot(path=str(shots / "overlay-section.png"), animations="disabled")
+    summary.click()
+    expect(page.get_by_test_id("overlay-settings")).not_to_be_visible()
+    expect(advanced).to_have_attribute("open", "")

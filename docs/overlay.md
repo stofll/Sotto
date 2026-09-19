@@ -1,6 +1,6 @@
 # Overlay appearance
 
-Open **Settings → Advanced → Overlay** to choose the recording indicator's shape, palette, size and screen position. Changes are saved automatically and apply to an open overlay. If saving fails, the controls return to the saved values; change the setting again to retry.
+Open **Settings → Overlay** to choose the recording indicator's shape, palette, size and screen position. Overlay and Advanced are separate sections, both collapsed when Settings opens. Changes are saved automatically and apply to an open overlay. If saving fails, the controls return to the saved values; change the setting again to retry.
 
 ## Shapes and cancellation
 
@@ -39,3 +39,5 @@ The edge offset runs from 0 to 512 logical pixels. The offset field sits with sh
 Offsets are measured from the overlay window to the full monitor boundary and scale with the display. Very large offsets are constrained to keep the window within the monitor. The default is 25 logical pixels. An explicitly saved offset is preserved; use the reset button to apply the default.
 
 On Windows the next recording uses the monitor of the captured target window when available, falling back to the primary monitor. macOS currently uses the primary monitor. Changing appearance while the overlay is visible keeps it on its current monitor.
+
+On Windows, positioning uses the monitor work area so the overlay stays clear of the taskbar. The edge offset is measured from that work area. The tray shows status and settings links; start and stop dictation with the global hotkey while the target editor has focus.
