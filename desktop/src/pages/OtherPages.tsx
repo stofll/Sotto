@@ -3,6 +3,7 @@ import { invoke, subscribe } from "../bridge";
 import type { ConfigResult, PreviewFormatResult, PreviewReplacementsResult, ReplacementMatchMode, ReplacementRule, StatsResult, TextFormattingConfig, UpdateDownloadProgress, UpdateInfo } from "../bridge/types";
 import { Card, CardHead, PageHeader, SectionLabel, Segmented, Switch } from "../components/Shell";
 import { Icon } from "../components/Icon";
+import { Foldable } from "../components/Foldable";
 import { Hint } from "../components/Hint";
 import { confirmDestructive } from "../components/ConfirmDialog";
 import { CustomSelect, type SelectOption } from "../components/CustomSelect";
@@ -516,27 +517,6 @@ function parseCustomWords(value: string): string[] {
 // ever sees.
 const TEXT_FOLDS_KEY = "sotto.text.folds.v2";
 
-/** A collapsible card on the «Текст» page.
- *
- * The header is split into two zones: the collapse button (icon, name, summary)
- * and an `aside` beside it. The switches live in `aside` on purpose — inside the
- * button a click on a switch would collapse the card as well. */
-function Foldable({ open, title, summary, aside, onToggle, children }: { open: boolean; title: string; summary?: ReactNode; aside?: ReactNode; onToggle: () => void; children: ReactNode }) {
-  return (
-    <section className="card fold">
-      <div className="fold__head">
-        <button type="button" className="fold__toggle" onClick={onToggle} aria-expanded={open}>
-          <span className="fold__chev" data-open={open ? "true" : "false"}><Icon name="chev-right" size={13}/></span>
-          <span className="fold__title">{title}</span>
-          {summary}
-        </button>
-        {aside && <div className="fold__aside">{aside}</div>}
-      </div>
-      {open && <div className="fold__body">{children}</div>}
-    </section>
-  );
-}
-
 /** «Обработка → Текст»: the entire local pass — cleanup, replacements,
  * dictionaries.
  *
@@ -853,6 +833,7 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
             open={Boolean(folds.clean)}
             onToggle={() => toggleFold("clean")}
             title={t("Очистка")}
+            hint={t("Удаляет из распознанного текста слова-паразиты, повторы и лишние пробелы, исправляет пунктуацию. Применяются только включённые правила.")}
             summary={<span className="head-count">{activeCleanCount}/{cleanRules.length}</span>}
             /* There is no "enabled" pill next to the switch: it said exactly
                what the switch's position said, and in a narrow column it pushed
@@ -963,6 +944,7 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
             open={Boolean(folds.repl)}
             onToggle={() => toggleFold("repl")}
             title={t("Замены")}
+            hint={t("Заменяет найденные слова и фразы по вашим правилам: например, «щас» на «сейчас». Учитывает настройки регистра и совпадения каждого правила.")}
             summary={<>
               <span className="head-count">{activeCount}/{rules.length}</span>
               {!saved && <span className="pill warn">{t("не сохранено")}</span>}
@@ -999,13 +981,7 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
             </div>
           </Foldable>
 
-          <Foldable
-            open={Boolean(folds.dict)}
-            onToggle={() => toggleFold("dict")}
-            title={t("Словари")}
-          >
-            <DictionaryLibrary formatting={formatting} onSave={async (patch) => Boolean(await onConfigChanged({ text_formatting: patch as TextFormattingConfig }))}/>
-          </Foldable>
+          <DictionaryLibrary open={Boolean(folds.dict)} onToggle={() => toggleFold("dict")} formatting={formatting} onSave={async (patch) => Boolean(await onConfigChanged({ text_formatting: patch as TextFormattingConfig }))}/>
         </div>
 
         {/* The heading and the explanation live inside the first card rather

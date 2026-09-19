@@ -1,8 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { DictionaryAnalysis, DictionarySet, TextFormattingConfig } from "../bridge/types";
 import { analyzeDictionary, getDictionaryPresets } from "../bridge/dictionaries";
-import { Card, Switch } from "../components/Shell";
+import { Switch } from "../components/Shell";
 import { Icon } from "../components/Icon";
+import { Foldable } from "../components/Foldable";
 import { Modal } from "../components/Modal";
 import { t, tPlural } from "../i18n";
 import { dictionaryName, dictionaryPatch, parseDictionaryWords, replaceDictionarySet } from "./dictionarySets";
@@ -14,7 +15,14 @@ type Save = (patch: Partial<TextFormattingConfig>) => Promise<boolean>;
 const signature = (formatting: TextFormattingConfig) => JSON.stringify(dictionaryPatch(formatting));
 const termCount = (count: number) => `${count} ${tPlural(count, ["термин", "термина", "терминов"])}`;
 
-export function DictionaryLibrary({ formatting, onSave }: { formatting: TextFormattingConfig; onSave: Save }) {
+/** The fold header's one line: how many terms the enabled sets actually apply. */
+function librarySummary(analysis: DictionaryAnalysis | null, error: boolean): string {
+  if (!analysis) return error ? t("Ошибка") : t("Загрузка…");
+  if (analysis.effective_count === 0) return t("Нет активных");
+  return `${analysis.effective_count} ${tPlural(analysis.effective_count, ["активный термин", "активных термина", "активных терминов"])}`;
+}
+
+export function DictionaryLibrary({ open, onToggle, formatting, onSave }: { open: boolean; onToggle: () => void; formatting: TextFormattingConfig; onSave: Save }) {
   const [presets, setPresets] = useState<Entry[]>([]);
   const [analysis, setAnalysis] = useState<DictionaryAnalysis | null>(null);
   const [error, setError] = useState(false);
@@ -64,27 +72,29 @@ export function DictionaryLibrary({ formatting, onSave }: { formatting: TextForm
     finally { busyRef.current = false; setBusy(false); }
   }
 
-  return <div className="dictionary-library">
-    <div className="dictionary-toolbar">
-      <span className="dictionary-note" role="status">{analysis ? t("В активных наборах: {count}", { count: termCount(analysis.effective_count) }) : t("Загрузка…")}</span>
-      <button ref={createRef} type="button" className="btn btn--ghost" disabled={busy || !analysis} onClick={() => setSession({ create: true, baseline: configKey })}><Icon name="plus" size={12}/>{t("Создать набор")}</button>
-    </div>
-    {!formatting.enabled && <p className="dictionary-note">{t("Форматирование выключено: словари не исправляют текст. Подсказка Whisper продолжает работать.")}</p>}
-    <p className="dictionary-note">{t("Откройте набор, чтобы посмотреть термины. Включённые наборы работают вместе.")}</p>
-    {error && <div className="dictionary-error" role="alert">{t("Не удалось загрузить или сохранить словари. Изменения не применены.")} <button type="button" className="btn btn--ghost" onClick={() => setRevision((value) => value + 1)}>{t("Повторить")}</button></div>}
-    {analysis && entries.length === 0 && <p className="dictionary-note">{t("Наборов пока нет. Создайте набор для своих имён и терминов.")}</p>}
-    <fieldset className="dictionary-fieldset" disabled={busy}>
-      {entries.map((entry) => <div className="dictionary-row" key={`${entry.builtin ? "builtin" : "user"}:${entry.id}`}>
-        <button type="button" className="dictionary-open" onClick={() => setSession({ entry, baseline: configKey })}>
-          <span className="dictionary-name">{dictionaryName(entry)}</span>
-          <span className="dictionary-note">{entry.builtin ? t("Встроенный") : t("Пользовательский")} · {termCount(entry.words.length)} · {entry.enabled ? t("Включён") : t("Выключен")}</span>
-        </button>
-        <Switch on={entry.enabled} label={`${dictionaryName(entry)}: ${entry.enabled ? t("Включён") : t("Выключен")}`} onChange={() => void toggle(entry)}/>
-      </div>)}
-    </fieldset>
+  return <>
+    <Foldable open={open} onToggle={onToggle} title={t("Словари")}
+      hint={t("Помогает исправлять похожие написания имён, брендов и терминов после распознавания. Активные наборы работают вместе; Whisper также использует их как подсказку. Это не точная замена текста.")}
+      summary={<span className="dictionary-note" role="status">{librarySummary(analysis, error)}</span>}
+      aside={<button ref={createRef} type="button" className="btn btn--ghost btn--sm" disabled={busy || !analysis} onClick={() => setSession({ create: true, baseline: configKey })}><Icon name="plus" size={12}/>{t("Создать")}</button>}>
+      <div className="dictionary-library">
+        {!formatting.enabled && <p className="dictionary-note">{t("Форматирование выключено: словари не исправляют текст. Подсказка Whisper продолжает работать.")}</p>}
+        {error && <div className="dictionary-error" role="alert">{t("Не удалось загрузить или сохранить словари. Изменения не применены.")} <button type="button" className="btn btn--ghost" onClick={() => setRevision((value) => value + 1)}>{t("Повторить")}</button></div>}
+        {analysis && entries.length === 0 && <p className="dictionary-note">{t("Наборов пока нет. Создайте набор для своих имён и терминов.")}</p>}
+        <fieldset className="dictionary-fieldset" disabled={busy}>
+          {entries.map((entry) => <div className="dictionary-row" key={`${entry.builtin ? "builtin" : "user"}:${entry.id}`}>
+            <button type="button" className="dictionary-open" onClick={() => setSession({ entry, baseline: configKey })}>
+              <span className="dictionary-name">{dictionaryName(entry)}</span>
+              <span className="dictionary-note">{entry.builtin ? t("Встроенный") : t("Пользовательский")} · {termCount(entry.words.length)}</span>
+            </button>
+            <Switch on={entry.enabled} label={`${dictionaryName(entry)}: ${entry.enabled ? t("Включён") : t("Выключен")}`} onChange={() => void toggle(entry)}/>
+          </div>)}
+        </fieldset>
+      </div>
+    </Foldable>
     {session && <DictionaryDialog key={session.entry?.id ?? "new"} session={session} formatting={formatting}
       onSave={save} onClose={() => { setSession(null); requestAnimationFrame(() => { if (!document.activeElement || document.activeElement === document.body) createRef.current?.focus(); }); }}/ >}
-  </div>;
+  </>;
 }
 
 function DictionaryDialog({ session, formatting, onSave, onClose }: { session: Session; formatting: TextFormattingConfig; onSave: (next: TextFormattingConfig) => Promise<boolean>; onClose: () => void }) {
@@ -150,22 +160,28 @@ function DictionaryDialog({ session, formatting, onSave, onClose }: { session: S
   const unsupported = analysis?.unsupported_words.filter((word) => (editing ? parseDictionaryWords(words) : entry.words).includes(word)) ?? [];
   const title = session.draft ? t("Выберите написание") : editing ? t("Редактор набора") : dictionaryName(entry);
 
-  return <Modal title={title} busy={busy} onClose={close} className="dictionary-modal">
+  // Three shells: the discard question is a narrow ask box with no header, the
+  // read-only set scrolls its term list under a fixed heading, and the editor,
+  // the draft picker and the delete confirmation keep the plain dialog.
+  const viewing = !editing && !session.draft && !deleting;
+  let shell = "dictionary-modal";
+  if (discarding) shell += " modal--ask";
+  else if (viewing) shell += " dictionary-modal--view";
+
+  return <Modal title={discarding ? t("Закрыть без сохранения изменений?") : title} busy={busy} onClose={close} showHeader={!discarding} closeRef={editing ? returnRef : undefined} className={shell}>
     <div className="modal__body dictionary-body">
-      {discarding ? <><p>{t("Закрыть без сохранения изменений?")}</p><div className="dictionary-toolbar"><button ref={confirmationRef} type="button" className="btn btn--ghost" onClick={() => setDiscarding(false)}>{t("Продолжить редактирование")}</button><button type="button" className="btn btn--primary" onClick={onClose}>{t("Не сохранять")}</button></div></> : <>
+      {discarding ? <><p>{t("Закрыть без сохранения изменений?")}</p><div className="dictionary-toolbar dictionary-confirm-actions"><button ref={confirmationRef} type="button" className="btn btn--ghost btn--sm" onClick={() => setDiscarding(false)}>{t("Вернуться")}</button><button type="button" className="btn btn--ghost btn--sm" onClick={onClose}>{t("Не сохранять")}</button></div></> : <>
         {stale && <p className="dictionary-error" role="alert">{t("Словари изменились в другом окне. Скопируйте несохранённый текст и откройте набор заново.")}</p>}
         <fieldset className="dictionary-fieldset dictionary-body" disabled={busy}>
           {editing ? <>
             <label className="dictionary-label">{t("Название набора")}<input autoFocus className="field" value={entry.name} onChange={(event) => setEntry({ ...entry, name: event.target.value })}/></label>
             <label className="dictionary-label">{t("Описание (необязательно)")}<input className="field" value={entry.description} onChange={(event) => setEntry({ ...entry, description: event.target.value })}/></label>
-            <label className="dictionary-label">{t("Термины")}<textarea className="field mono dictionary-words" value={words} onChange={(event) => setWords(event.target.value)} placeholder={t("например: Tauri\nClaude Code")}/></label>
-            <p className="dictionary-note">{t("По одному слову или фразе в строке. Также можно разделять запятыми.")} {termCount(parseDictionaryWords(words).length)}</p>
-            <label className="dictionary-check"><input type="checkbox" className="checkbox" checked={entry.enabled} onChange={(event) => setEntry({ ...entry, enabled: event.target.checked })}/>{t("Включить набор после сохранения")}</label>
+            <label className="dictionary-label"><span className="dictionary-term-heading"><span>{t("Термины")}</span><span className="dictionary-note" aria-hidden="true">{parseDictionaryWords(words).length}</span></span><textarea aria-label={t("Термины")} className="field mono dictionary-words" value={words} onChange={(event) => setWords(event.target.value)} placeholder={t("например: Tauri\nClaude Code")}/></label>
+            <p className="dictionary-note">{t("По одному слову или фразе в строке. Также можно разделять запятыми.")}</p>
           </> : !session.draft && <>
-            <p className="dictionary-note">{entry.builtin ? t("Встроенный") : t("Пользовательский")} · {entry.enabled ? t("Включён") : t("Выключен")} · {termCount(entry.words.length)}</p>
-            {entry.description && <p className="dictionary-note">{entry.description}</p>}
             <label className="dictionary-label">{t("Поиск по набору")}<input className="field" value={filter} onChange={(event) => setFilter(event.target.value)}/></label>
-            <Card pad="rows"><ul className="dictionary-term-list">{shownWords.map((word, index) => <li key={`${index}:${word}`}>{word}</li>)}</ul>{!shownWords.length && <p className="dictionary-note">{entry.words.length ? t("Ничего не найдено") : t("В наборе пока нет терминов")}</p>}</Card>
+            <div className="dictionary-label"><div className="dictionary-term-heading"><span>{t("Термины")}</span><span className="dictionary-note">{entry.words.length}</span></div></div>
+            <ul className="dictionary-term-list">{shownWords.map((word, index) => <li key={`${index}:${word}`}>{word}</li>)}</ul>{!shownWords.length && <p className="dictionary-note">{entry.words.length ? t("Ничего не найдено") : t("В наборе пока нет терминов")}</p>}
           </>}
           {unsupported.length > 0 && <p className="dictionary-note">{t("Эти термины слишком короткие для коррекции текста, но остаются в подсказке Whisper:")} <span className="mono">{unsupported.join(", ")}</span></p>}
           {(editing || session.draft || deleting) && analysis?.conflicts.map((conflict) => <div className="dictionary-label" role="group" aria-label={t("Написание термина «{term}»", { term: conflict.key })} key={conflict.key}>
@@ -180,14 +196,12 @@ function DictionaryDialog({ session, formatting, onSave, onClose }: { session: S
       </>}
     </div>
     {!discarding && !deleting && <div className="modal__foot dictionary-actions">
-      {editing || session.draft ? <>
-        <button type="button" className="btn btn--primary" disabled={busy || stale || checking || !analysis || (editing && !entry.name.trim()) || analysis.conflicts.some((conflict) => !conflict.selected)} onClick={() => void persist(candidate)}>{busy ? t("Сохранение…") : t("Сохранить")}</button>
-        <button ref={returnRef} type="button" className="btn btn--ghost" disabled={busy} onClick={close}>{t("Отмена")}</button>
-      </> : <>
+      {editing || session.draft
+        ? <button type="button" className="btn btn--primary" disabled={busy || stale || checking || !analysis || (editing && !entry.name.trim()) || analysis.conflicts.some((conflict) => !conflict.selected)} onClick={() => void persist(candidate)}>{busy ? t("Сохранение…") : t("Сохранить")}</button>
+        : <>
         {!entry.builtin && <button type="button" className="btn btn--primary" disabled={busy || stale} onClick={() => { setEntry({ ...entry, name: dictionaryName(entry) }); setEditing(true); }}>{t("Редактировать")}</button>}
         <button type="button" className="btn btn--ghost" disabled={busy || stale} onClick={copy}>{t("Создать копию")}</button>
         {!entry.builtin && <button ref={returnRef} type="button" className="btn btn--ghost" disabled={busy || stale} onClick={() => setDeleting(true)}>{t("Удалить")}</button>}
-        <button type="button" className="btn btn--ghost" disabled={busy} onClick={close}>{t("Закрыть")}</button>
       </>}
     </div>}
   </Modal>;

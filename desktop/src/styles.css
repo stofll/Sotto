@@ -183,13 +183,18 @@ button, input, textarea, select { font: inherit; }
 .app-frame { font-family: var(--font-sans); color: var(--ink); background: var(--bg-0); font-feature-settings: "ss01", "cv11"; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; letter-spacing: -0.005em; }
 .app-frame ::selection { background: var(--accent-soft); }
 .app-frame ::-webkit-scrollbar { width: 0; height: 0; }
-/* Bringing the scrollbar back in one specific place. Hiding the bar is fine
-   where the content obviously continues; in a twelve-line field holding another
-   three screens of text, an invisible scrollbar is hidden text. */
-.app-frame .scroll-visible::-webkit-scrollbar { width: 10px; height: 10px; }
-.app-frame .scroll-visible::-webkit-scrollbar-track { background: transparent; }
-.app-frame .scroll-visible::-webkit-scrollbar-thumb { background: var(--bg-5); border: 2px solid transparent; background-clip: padding-box; border-radius: 999px; }
-.app-frame .scroll-visible::-webkit-scrollbar-thumb:hover { background: var(--accent-soft-2); background-clip: padding-box; }
+/* Bringing the scrollbar back where hiding it would hide content: in a
+   twelve-line field holding another three screens of text an invisible
+   scrollbar is hidden text, and a dialog or a menu scrolls the same way.
+   Dialogs and select menus are portalled into body — outside `.app-frame` — so
+   the rule above never reaches them and neither would a `.app-frame …` rule of
+   ours; each of them has to be named here, in every one of these selectors. */
+:is(.app-frame .scroll-visible, .scroll-visible, .modal *, .custom-select__menu, .model-select__menu) { scrollbar-width: thin; scrollbar-color: var(--bg-5) transparent; }
+:is(.app-frame .scroll-visible, .scroll-visible, .modal *, .custom-select__menu, .model-select__menu)::-webkit-scrollbar { width: 10px; height: 10px; }
+:is(.app-frame .scroll-visible, .scroll-visible, .modal *, .custom-select__menu, .model-select__menu)::-webkit-scrollbar-track { background: transparent; }
+:is(.app-frame .scroll-visible, .scroll-visible, .modal *, .custom-select__menu, .model-select__menu)::-webkit-scrollbar-thumb { background: var(--bg-5); border: 2px solid transparent; background-clip: padding-box; border-radius: 999px; }
+:is(.app-frame .scroll-visible, .scroll-visible, .modal *, .custom-select__menu, .model-select__menu)::-webkit-scrollbar-thumb:hover { background: var(--accent-soft-2); background-clip: padding-box; }
+:is(.scroll-visible, .modal *, .custom-select__menu, .model-select__menu)::-webkit-scrollbar-corner { background: transparent; }
 
 .btn { appearance: none; border: 1px solid var(--line-strong); background: var(--bg-2); color: var(--ink); font: 500 13px/1 var(--font-sans); height: 32px; padding: 0 12px; border-radius: var(--radius-sm); display: inline-flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer; transition: background .12s ease, border-color .12s ease, color .12s ease; }
 /* Optical, not geometric, centring of a label that starts with an icon.
@@ -625,16 +630,6 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 .custom-select__button[aria-expanded="true"] .custom-select__chev { transform: translateY(-50%) rotate(180deg); }
 .custom-select__menu, .custom-select__menu * { box-sizing: border-box; }
 .custom-select__menu { --menu-bg: color-mix(in srgb, var(--bg-3) 96%, black); position: fixed; width: max-content; max-width: min(420px, calc(100vw - 32px)); padding: 6px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--menu-bg); box-shadow: var(--shadow-modal); font-family: var(--font-sans); color: var(--ink); z-index: 1100; overflow: auto; }
-/* The menu lives portalled into body — not inside `.custom-select` and not
-   inside `.app-frame`. So neither the general scrollbar-hiding rule reaches it
-   (hence the system bar in the language list) nor selectors of the form
-   `.custom-select--my-modifier .custom-select__menu`: such rules silently do
-   not apply. Everything the menu needs is set on the menu itself. */
-.custom-select__menu { scrollbar-width: thin; scrollbar-color: var(--bg-5) transparent; }
-.custom-select__menu::-webkit-scrollbar { width: 10px; height: 10px; }
-.custom-select__menu::-webkit-scrollbar-track { background: transparent; }
-.custom-select__menu::-webkit-scrollbar-thumb { background: var(--bg-5); border: 2px solid transparent; background-clip: padding-box; border-radius: 999px; }
-.custom-select__menu::-webkit-scrollbar-thumb:hover { background: var(--accent-soft-2); background-clip: padding-box; }
 /* The scrollbar belongs to whoever scrolls. While the inner list was the one
    scrolling, the bar also started below the search box — from it to the bottom
    rather than along the full height of the window. So the menu itself scrolls
@@ -1607,7 +1602,7 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .parasite-chip--own { cursor: default; padding-right: 4px; }
 .parasite-chip__remove { appearance: none; border: 0; background: transparent; color: var(--ink-mute); cursor: pointer; display: grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; padding: 0; }
 .parasite-chip__remove:hover { background: var(--bg-2); color: var(--err); }
-.dictionary-toolbar, .dictionary-row, .dictionary-check { display: flex; align-items: center; gap: var(--pad-3); }
+.dictionary-toolbar, .dictionary-row { display: flex; align-items: center; gap: var(--pad-3); }
 .dictionary-toolbar { justify-content: space-between; flex-wrap: wrap; }
 .dictionary-row { padding: var(--pad-3) 0; border-bottom: 1px solid var(--line-soft); }
 .dictionary-row:last-child { border-bottom: 0; }
@@ -1620,14 +1615,28 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .dictionary-fieldset:disabled { opacity: 0.65; }
 .dictionary-body { display: grid; gap: var(--pad-4); }
 .dictionary-modal { width: min(620px, calc(100vw - 2 * var(--pad-4))); max-height: calc(100vh - 2 * var(--pad-4)); }
+.dictionary-modal.modal--ask { width: min(340px, calc(100vw - 2 * var(--pad-4))); }
 .dictionary-modal .modal__head h2 { overflow-wrap: anywhere; min-width: 0; }
 .dictionary-modal .modal__body { overflow-y: auto; min-height: 0; }
 .dictionary-label { display: grid; gap: var(--pad-2); font: 500 12px/1.5 var(--font-sans); }
 .dictionary-label .field { width: 100%; }
 .dictionary-words { min-height: 180px; padding: var(--pad-3); resize: vertical; line-height: 1.5; }
-.dictionary-check { font: 400 12px/1.5 var(--font-sans); }
-.dictionary-term-list { list-style: none; margin: 0; padding: 0; max-height: 280px; overflow-y: auto; font: 400 12px/1.6 var(--font-mono); }
+.dictionary-term-heading { display: flex; align-items: baseline; gap: var(--pad-2); }
+.dictionary-term-list { list-style: none; margin: 0; padding: 0; font: 400 12px/1.6 var(--font-mono); }
 .dictionary-term-list li { padding: var(--pad-2) 0; overflow-wrap: anywhere; }
+
+/* A set open for reading scrolls its term list and nothing else, so the search
+   field and the heading stay in place while it does. The list reaches into the
+   body's right padding so its scrollbar runs along the edge of the dialog. */
+.dictionary-modal--view .modal__body { overflow: hidden; padding-bottom: 0; }
+.dictionary-modal--view .dictionary-fieldset { display: flex; flex-direction: column; min-height: 0; }
+.dictionary-modal--view .dictionary-fieldset > :not(.dictionary-term-list) { flex-shrink: 0; }
+.dictionary-modal--view .dictionary-term-list { overflow-y: auto; min-height: 0; max-height: 280px; margin-right: -18px; padding-right: 18px; }
+
+/* The discard question carries no header: the question is the body. */
+.dictionary-modal.modal--ask .modal__body { padding: var(--pad-4); }
+.dictionary-confirm-actions { justify-content: flex-end; flex-wrap: nowrap; gap: var(--pad-2); }
+.dictionary-confirm-actions .btn { white-space: nowrap; }
 .dictionary-error { color: var(--err); font: 400 12px/1.5 var(--font-sans); }
 .dictionary-actions { flex-wrap: wrap; }
 
@@ -1967,6 +1976,12 @@ button.card { appearance: none; font: inherit; color: inherit; }
    competed in weight with the heading itself and confused the count with the
    state pills («активный», «не сохранено») that remain as bubbles nearby. */
 .head-count { font: 500 10.5px/1.7 var(--font-mono); color: var(--ink-dim); white-space: nowrap; flex-shrink: 0; }
+
+/* The hint sits beside the collapse button rather than inside it, for the same
+   reason the switches do: a click on it must not fold the card away. The button
+   keeps the free width; the hint follows its text. */
+.fold__heading { display: flex; align-items: center; flex: 1; min-width: 0; gap: var(--pad-2); }
+.fold__heading .fold__toggle { flex: 0 1 auto; padding-right: 0; }
 
 .fold__aside { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .fold__body { border-top: 1px solid var(--line-soft); }
