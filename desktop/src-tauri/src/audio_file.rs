@@ -149,10 +149,8 @@ fn decode_with_limit(path: &Path, max_seconds: f64) -> Result<DecodedAudio, Stri
         };
 
         let rate = decoded.spec().rate();
-        if rate == 0 || source_rate.is_some_and(|previous| previous != rate) {
-            return Err(crate::ui_text::t(
-                "Не удалось прочитать звук из файла — возможно, он повреждён.",
-            ));
+        if let Some(refusal) = rate_refusal(rate, source_rate) {
+            return Err(refusal);
         }
         if filter.is_none() {
             source_rate = Some(rate);
@@ -219,6 +217,28 @@ fn append_downmixed(
     for frame in interleaved.chunks_exact(channels) {
         mono.push(frame.iter().sum::<f32>() / channels as f32);
     }
+}
+
+/// Why this packet's rate cannot continue the file, or `None` if it can.
+///
+/// A rate that changes partway through is a joined recording, not a damaged
+/// one: two files concatenated, or a chained Ogg stream. One filter holds one
+/// ratio for the whole run and cannot follow the change, so such a file is
+/// still refused — but refused for what it is. Reporting damage sends the user
+/// looking for corruption that re-encoding to a single stream would not reveal,
+/// and re-encoding is the fix.
+fn rate_refusal(rate: u32, established: Option<u32>) -> Option<String> {
+    if rate == 0 {
+        return Some(crate::ui_text::t(
+            "Не удалось прочитать звук из файла — возможно, он повреждён.",
+        ));
+    }
+    if established.is_some_and(|previous| previous != rate) {
+        return Some(crate::ui_text::t(
+            "В файле меняется частота дискретизации. Перекодируйте его в один поток.",
+        ));
+    }
+    None
 }
 
 fn describe_resampling_error(error: String) -> String {
@@ -695,6 +715,26 @@ pub(crate) async fn cancel_audio_file(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A joined recording and a damaged one need different answers: only one of
+    /// them is fixed by re-encoding, and the message is the only place the user
+    /// learns which they have.
+    #[test]
+    fn a_changed_rate_is_refused_as_a_joined_file_not_a_damaged_one() {
+        let damaged = rate_refusal(0, None).expect("a zero rate is unusable");
+        assert_eq!(rate_refusal(0, Some(44_100)).as_deref(), Some(&*damaged));
+
+        let changed = rate_refusal(48_000, Some(44_100)).expect("the rate changed");
+        assert_ne!(
+            changed, damaged,
+            "a mid-file rate change must not be reported as corruption"
+        );
+
+        // The first packet establishes the rate, and every later packet that
+        // agrees with it continues the file.
+        assert_eq!(rate_refusal(44_100, None), None);
+        assert_eq!(rate_refusal(44_100, Some(44_100)), None);
+    }
 
     #[test]
     fn engine_errors_retain_their_reason_unless_the_file_was_cancelled() {

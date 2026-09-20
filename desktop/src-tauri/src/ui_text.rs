@@ -129,6 +129,9 @@ fn en(key: &str) -> Option<&'static str> {
         "Не удалось преобразовать частоту дискретизации файла." => {
             "Could not convert the file's sample rate."
         }
+        "В файле меняется частота дискретизации. Перекодируйте его в один поток." => {
+            "The file changes sample rate partway through. Re-encode it as a single stream."
+        }
         "Этот формат не поддерживается. Сконвертируйте файл в wav, mp3 или m4a." => {
             "This format is not supported. Convert the file to wav, mp3 or m4a."
         }
