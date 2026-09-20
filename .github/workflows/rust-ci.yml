@@ -6,24 +6,46 @@ name: Rust CI
 # `#[cfg(target_os = ...)]` surface is only ever compiled on whichever machine
 # the work happened on, which is Windows.
 #
-# Deliberately not on `push: main`. Work goes through pull requests, so the
-# merge commit would check exactly the content `pull_request` just checked —
-# paying twice for one answer. Use workflow_dispatch when main really does
-# need a run of its own (a direct push, a revert).
+# It also runs on `push: main`, and that run exists for its cargo cache rather
+# than for its answer. A GitHub Actions cache can only be restored by the ref
+# that wrote it or by the default branch, and a `pull_request` run writes to
+# `refs/pull/N/merge` — a scope no other pull request can reach. With pull
+# requests as the only trigger, nothing ever wrote a cache on main: across 48
+# runs, every first run on a branch logged `No cache found` and rebuilt the
+# whole dependency graph, which cost about eight minutes on Windows (12m48 to
+# 14m19 cold against 4m49 to 5m39 warm). Merging to main now leaves a cache
+# every later pull request can restore from, including a partial restore
+# through the prefix key when the lockfile differs.
+#
+# That is also why `save-if` below limits writing to main: pull requests only
+# read. It keeps the repository under the 10 GB cache ceiling, which the
+# per-pull-request caches were already exceeding, and it takes the cache upload
+# off the critical path.
 #
 # The expensive release build is not here; it lives in release.yml and hangs
 # off the tag. This pipeline is CPU-only, see the comment below.
 on:
   pull_request:
     branches: [main]
+  push:
+    branches: [main]
+    # Unlike the jobs below, this filter is safe here: required status checks
+    # apply to pull requests, and a push to main reports to nothing. A landing
+    # page merge has no dependencies to warm.
+    paths-ignore:
+      - 'site/**'
   workflow_dispatch:
 
 # A push to a branch cancels that branch's previous, still-running run.
 # Otherwise every edit during review is paid for twice: the superseded run
 # would finish the whole three-OS matrix for an answer nobody needs.
+#
+# Runs on main are not cancelled. Their point is the cache they leave behind,
+# and two merges in quick succession would otherwise kill the first upload and
+# send the next pull request back to a cold build.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -217,6 +239,11 @@ jobs:
           workspaces: desktop/src-tauri -> target
           key: ggml-baseline-${{ hashFiles('.cargo/config.toml', 'scripts/ggml-baseline.cmake') }}
           cache-on-failure: false
+          # Only main writes; see the note on the triggers above. A pull
+          # request that pushes several times now restores from main each time
+          # instead of from its own previous run, which is a full match unless
+          # it changed the lockfile and a prefix restore when it did.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
