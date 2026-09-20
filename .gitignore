@@ -31,10 +31,6 @@ TTS2/uploads/
 desktop/src-tauri/logs/recordings/
 desktop/src-tauri/recordings/
 
-# --- A/B experiment artefacts ---
-scripts/ab_*.json
-scripts/ab_run.log
-
 # --- Local agent / IDE settings ---
 .claude/settings.local.json
 .kilo/
