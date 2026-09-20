@@ -13,21 +13,23 @@ a key in the login keychain and notarytool, not this script.
 """
 
 import argparse
-from contextlib import contextmanager
 import os
-from pathlib import Path
 import re
 import secrets
 import shlex
 import subprocess
 import sys
+from contextlib import contextmanager
+from pathlib import Path
 
 
 def run(args, password=None):
     env = os.environ.copy()
     if password is not None:
         env["SOTTO_SIGN_PASSWORD"] = password
-    result = subprocess.run(args, env=env, capture_output=True, text=True)
+    # Not `check=True`: the failure is raised below with the password redacted
+    # out of the message, which CalledProcessError would print verbatim.
+    result = subprocess.run(args, env=env, capture_output=True, text=True, check=False)
     if result.returncode:
         message = result.stderr.strip() or result.stdout.strip()
         if password:
