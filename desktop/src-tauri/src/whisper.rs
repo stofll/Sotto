@@ -43,18 +43,16 @@ pub enum EngineCommand {
         /// sherpa engine: an offline NemoCtc recognizer has no equivalent
         /// input (hotwords in sherpa-onnx exist for transducer models only).
         initial_prompt: Option<String>,
-        reply: oneshot::Sender<InferenceResult>,
+        reply: oneshot::Sender<Result<InferenceResult, String>>,
     },
-    /// Phase 4 / Batch 4 / PR 4.5: cloud STT path. Bypasses
-    /// whisper and uploads to an OpenAI-compatible provider.
-    /// Reply uses the same `InferenceResult` shape so the
-    /// dispatcher does not need a new branch.
+    /// Upload to an OpenAI-compatible provider, with the same result/error
+    /// contract as local inference for both dictation and file callers.
     TranscribeCloud {
         session_id: u64,
         audio: Arc<Vec<f32>>,
         cancel_flag: Arc<AtomicBool>,
         request: crate::cloud_stt::CloudSttRequest,
-        reply: oneshot::Sender<InferenceResult>,
+        reply: oneshot::Sender<Result<InferenceResult, String>>,
     },
     SetModel {
         name: String,
@@ -157,7 +155,7 @@ pub struct InferenceResult {
     pub inference_time_ms: u64,
     /// Duration of the captured audio in seconds (samples / 16 kHz). Carried
     /// back so the dispatcher can record it in per-entry history + daily
-    /// stats. 0.0 on error/short-circuit paths (no audio was transcribed).
+    /// stats. Failed inference travels as `Err` instead of an empty result.
     #[serde(default)]
     pub audio_seconds: f64,
 }
@@ -270,7 +268,6 @@ pub fn engine_thread_main(
                     short_circuit_error(
                         session_id,
                         "transcribe cancelled before .full()".to_string(),
-                        model_id.clone(),
                         &event_tx,
                         reply,
                     );
@@ -299,7 +296,6 @@ pub fn engine_thread_main(
                             crate::model::language_unsupported_message(
                                 languages.unwrap_or_default(),
                             ),
-                            model_id.clone(),
                             &event_tx,
                             reply,
                         );
@@ -349,18 +345,7 @@ pub fn engine_thread_main(
                             }
                         }
                     }
-                    let _ = event_tx.blocking_send(EngineEvent::InferenceCompleted {
-                        session_id,
-                        result: result.clone(),
-                    });
-                    let _ = reply.send(result.unwrap_or(InferenceResult {
-                        session_id,
-                        text: String::new(),
-                        language: None,
-                        model_id: model_id.clone(),
-                        inference_time_ms: 0,
-                        audio_seconds: 0.0,
-                    }));
+                    complete_inference(session_id, result, &event_tx, reply);
                     continue;
                 }
 
@@ -373,18 +358,7 @@ pub fn engine_thread_main(
                             Ok(s) => current_state = Some(s),
                             Err(e) => {
                                 let err = format!("create_state: {e}");
-                                let _ = event_tx.blocking_send(EngineEvent::InferenceCompleted {
-                                    session_id,
-                                    result: Err(err.clone()),
-                                });
-                                let _ = reply.send(InferenceResult {
-                                    session_id,
-                                    text: String::new(),
-                                    language: None,
-                                    model_id: model_id.clone(),
-                                    inference_time_ms: 0,
-                                    audio_seconds: 0.0,
-                                });
+                                short_circuit_error(session_id, err, &event_tx, reply);
                                 continue;
                             }
                         }
@@ -397,18 +371,7 @@ pub fn engine_thread_main(
                         let err = crate::ui_text::t(
                             "Модель не загружена. Откройте «Настройки → Модели» и выберите модель.",
                         );
-                        let _ = event_tx.blocking_send(EngineEvent::InferenceCompleted {
-                            session_id,
-                            result: Err(err.clone()),
-                        });
-                        let _ = reply.send(InferenceResult {
-                            session_id,
-                            text: String::new(),
-                            language: None,
-                            model_id: model_id.clone(),
-                            inference_time_ms: 0,
-                            audio_seconds: 0.0,
-                        });
+                        short_circuit_error(session_id, err, &event_tx, reply);
                         continue;
                     }
                 }
@@ -529,10 +492,8 @@ pub fn engine_thread_main(
                     }
                 };
 
-                // Always emit InferenceCompleted (success or error) so the
-                // dispatcher / UI can react. Always reply on the oneshot
-                // (even on error with empty payload) so the Tauri command
-                // never blocks forever.
+                // Both completion channels retain errors: file callers consume
+                // the reply while dictation uses the event dispatcher.
                 if !cancel_flag.load(std::sync::atomic::Ordering::Relaxed) {
                     if let (Some(profile), Ok(inference)) = (&performance_profile, &result) {
                         if let Some(observation) = crate::model_performance::Observation::inference(
@@ -549,23 +510,7 @@ pub fn engine_thread_main(
                         }
                     }
                 }
-                let completed_event = EngineEvent::InferenceCompleted {
-                    session_id,
-                    result: result.clone().map_err(|e| e.clone()),
-                };
-                let _ = event_tx.blocking_send(completed_event);
-                let reply_payload = match &result {
-                    Ok(r) => r.clone(),
-                    Err(_) => InferenceResult {
-                        session_id,
-                        text: String::new(),
-                        language: None,
-                        model_id: model_id.clone(),
-                        inference_time_ms: 0,
-                        audio_seconds: 0.0,
-                    },
-                };
-                let _ = reply.send(reply_payload);
+                complete_inference(session_id, result, &event_tx, reply);
                 last_activity = std::time::Instant::now();
             }
             EngineCommand::SetModel {
@@ -791,7 +736,6 @@ pub fn engine_thread_main(
                     short_circuit_error(
                         session_id,
                         "cloud transcribe cancelled before request".to_string(),
-                        cloud_model_id.clone(),
                         &event_tx,
                         reply,
                     );
@@ -807,36 +751,18 @@ pub fn engine_thread_main(
                     std::thread::JoinHandle<Result<crate::cloud_stt::CloudSttResult, String>>,
                     String,
                 > = std::thread::Builder::new()
-                        .name("cloud-stt-call".to_string())
-                        .spawn(move || {
-                            let rt = tokio::runtime::Builder::new_current_thread()
-                                .enable_all()
-                                .build()
-                                .map_err(|error| format!("runtime: {error}"))?;
-                            rt.block_on(async move {
-                                // Cancel poll: every 100 ms while
-                                // the HTTP call is in flight, recheck
-                                // the flag. We cannot interrupt
-                                // reqwest directly, but once the
-                                // timeout-driven request returns we
-                                // drop the result if the flag was
-                                // flipped during the call.
-                                loop {
-                                    if cancel_flag_for_call
-                                        .load(std::sync::atomic::Ordering::Relaxed)
-                                    {
-                                        return Err(
-                                            "cloud transcribe cancelled mid-request".to_string()
-                                        );
-                                    }
-                                    tokio::select! {
-                                        _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => continue,
-                                        result = crate::cloud_stt::transcribe(request_for_call.clone()) => return result,
-                                    }
-                                }
-                            })
-                        })
-                        .map_err(|error| format!("spawn cloud-stt thread: {error}"));
+                    .name("cloud-stt-call".to_string())
+                    .spawn(move || {
+                        let rt = tokio::runtime::Builder::new_current_thread()
+                            .enable_all()
+                            .build()
+                            .map_err(|error| format!("runtime: {error}"))?;
+                        rt.block_on(crate::cloud_stt::transcribe_cancellable(
+                            request_for_call,
+                            &cancel_flag_for_call,
+                        ))
+                    })
+                    .map_err(|error| format!("spawn cloud-stt thread: {error}"));
                 let outcome: Result<crate::cloud_stt::CloudSttResult, String> = match join_outcome {
                     Ok(handle) => handle
                         .join()
@@ -863,23 +789,7 @@ pub fn engine_thread_main(
                     Err(error) => Err(error),
                 };
 
-                let completed_event = EngineEvent::InferenceCompleted {
-                    session_id,
-                    result: result.clone().map_err(|e| e.clone()),
-                };
-                let _ = event_tx.blocking_send(completed_event);
-                let reply_payload = match &result {
-                    Ok(r) => r.clone(),
-                    Err(_) => InferenceResult {
-                        session_id,
-                        text: String::new(),
-                        language: None,
-                        model_id: cloud_model_id.clone(),
-                        inference_time_ms: 0,
-                        audio_seconds: 0.0,
-                    },
-                };
-                let _ = reply.send(reply_payload);
+                complete_inference(session_id, result, &event_tx, reply);
                 last_activity = std::time::Instant::now();
             }
             EngineCommand::Shutdown => break,
@@ -906,30 +816,27 @@ fn app_is_busy(app: &AppHandle) -> bool {
     state.recorder.is_recording() || state.is_engine_busy()
 }
 
-/// Emit `InferenceCompleted(Err(msg))` AND reply on the oneshot
-/// with an empty `InferenceResult` so the Tauri command never
-/// blocks. Used for every "skip .full()" arm in the Transcribe
-/// handler (cancel pre-.full(), model-not-loaded, create_state
-/// failure).
+/// Complete both callers with the same failure, including pre-inference errors.
 fn short_circuit_error(
     session_id: u64,
     message: String,
-    model_id: Option<String>,
     event_tx: &tokio::sync::mpsc::Sender<EngineEvent>,
-    reply: oneshot::Sender<InferenceResult>,
+    reply: oneshot::Sender<Result<InferenceResult, String>>,
+) {
+    complete_inference(session_id, Err(message), event_tx, reply);
+}
+
+fn complete_inference(
+    session_id: u64,
+    result: Result<InferenceResult, String>,
+    event_tx: &EngineEventTx,
+    reply: oneshot::Sender<Result<InferenceResult, String>>,
 ) {
     let _ = event_tx.blocking_send(EngineEvent::InferenceCompleted {
         session_id,
-        result: Err(message),
+        result: result.clone(),
     });
-    let _ = reply.send(InferenceResult {
-        session_id,
-        text: String::new(),
-        language: None,
-        model_id,
-        inference_time_ms: 0,
-        audio_seconds: 0.0,
-    });
+    let _ = reply.send(result);
 }
 
 /// Append one whisper segment to the running transcript.
@@ -969,6 +876,57 @@ pub fn resolve_model_path(model_name: &str) -> Result<PathBuf, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn inference_failures_reach_both_dictation_and_file_callers() {
+        for message in [
+            "model not loaded",
+            "http 401",
+            "timeout after 1s",
+            "cancelled",
+        ] {
+            let (events, mut received_events) = tmpsc::channel(1);
+            let (reply, received_reply) = oneshot::channel();
+            short_circuit_error(42, message.into(), &events, reply);
+            assert_eq!(
+                received_reply.blocking_recv().unwrap().unwrap_err(),
+                message
+            );
+            match received_events.blocking_recv().unwrap() {
+                EngineEvent::InferenceCompleted { session_id, result } => {
+                    assert_eq!(session_id, 42);
+                    assert_eq!(result.unwrap_err(), message);
+                }
+                event => panic!("unexpected event: {event:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn an_empty_success_remains_distinct_from_an_inference_failure() {
+        let (events, mut received_events) = tmpsc::channel(1);
+        let (reply, received_reply) = oneshot::channel();
+        complete_inference(
+            42,
+            Ok(InferenceResult {
+                session_id: 42,
+                text: String::new(),
+                language: None,
+                model_id: Some("tiny".into()),
+                inference_time_ms: 7,
+                audio_seconds: 0.1,
+            }),
+            &events,
+            reply,
+        );
+        let result = received_reply.blocking_recv().unwrap().unwrap();
+        assert!(result.text.is_empty());
+        assert_eq!(result.inference_time_ms, 7);
+        assert!(matches!(
+            received_events.blocking_recv(),
+            Some(EngineEvent::InferenceCompleted { result: Ok(_), .. })
+        ));
+    }
     use std::thread;
 
     #[test]

@@ -21,6 +21,10 @@ export type DiffSegment = { text: string; change: "keep" | "add" | "remove" };
  */
 const MIN_COMMON_SHARE = 0.34;
 
+// At most 1 MiB for exact alignment. Large rewrites remain readable as whole
+// removed/added runs instead of freezing the UI to find a minimal edit script.
+const MAX_ALIGNMENT_CELLS = 262_144;
+
 /** Split into words *and* the whitespace between them, so the runs can be
  *  reassembled without inventing separators. */
 function splitWords(text: string): string[] {
@@ -35,25 +39,40 @@ function splitWords(text: string): string[] {
  * {@link refineReplacement} can then look at.
  */
 function diffTokens(a: string[], b: string[]): DiffSegment[] {
-  const m = a.length;
-  const n = b.length;
-  const dp: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  const prefix = commonPrefixLength(a, b);
+  const suffix = commonSuffixLength(a, b, prefix);
+  const m = a.length - prefix - suffix;
+  const n = b.length - prefix - suffix;
+  const out: DiffSegment[] = [{ text: a.slice(0, prefix).join(""), change: "keep" }];
+  const appendSuffix = () => {
+    out.push({ text: a.slice(a.length - suffix).join(""), change: "keep" });
+    return out;
+  };
+  if (!m || !n || (m + 1) * (n + 1) > MAX_ALIGNMENT_CELLS) {
+    out.push({ text: a.slice(prefix, prefix + m).join(""), change: "remove" });
+    out.push({ text: b.slice(prefix, prefix + n).join(""), change: "add" });
+    return appendSuffix();
+  }
+
+  const width = n + 1;
+  const dp = new Uint32Array((m + 1) * width);
   for (let i = m - 1; i >= 0; i--) {
     for (let j = n - 1; j >= 0; j--) {
-      dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+      dp[i * width + j] = a[prefix + i] === b[prefix + j]
+        ? dp[(i + 1) * width + j + 1] + 1
+        : Math.max(dp[(i + 1) * width + j], dp[i * width + j + 1]);
     }
   }
-  const out: DiffSegment[] = [];
   let i = 0;
   let j = 0;
   while (i < m && j < n) {
-    if (a[i] === b[j]) { out.push({ text: a[i], change: "keep" }); i++; j++; }
-    else if (dp[i + 1][j] >= dp[i][j + 1]) { out.push({ text: a[i], change: "remove" }); i++; }
-    else { out.push({ text: b[j], change: "add" }); j++; }
+    if (a[prefix + i] === b[prefix + j]) { out.push({ text: a[prefix + i], change: "keep" }); i++; j++; }
+    else if (dp[(i + 1) * width + j] >= dp[i * width + j + 1]) { out.push({ text: a[prefix + i], change: "remove" }); i++; }
+    else { out.push({ text: b[prefix + j], change: "add" }); j++; }
   }
-  while (i < m) out.push({ text: a[i++], change: "remove" });
-  while (j < n) out.push({ text: b[j++], change: "add" });
-  return out;
+  while (i < m) out.push({ text: a[prefix + i++], change: "remove" });
+  while (j < n) out.push({ text: b[prefix + j++], change: "add" });
+  return appendSuffix();
 }
 
 function mergeAdjacent(segments: DiffSegment[]): DiffSegment[] {

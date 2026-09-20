@@ -177,6 +177,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
   const builtinPrompt = presetPrompt(activeProfile.prompt_preset);
   const promptCustom = promptIsCustom(activeProfile);
   const [promptDraft, setPromptDraft] = useState(effectiveSystemPrompt(activeProfile));
+  const [promptSaving, setPromptSaving] = useState(false);
   // The tail Rust appends to any prompt, including a hand-written one. We read
   // it from the backend rather than keep a copy here: a copy would diverge from
   // the original on the very first edit, and then "what goes to the model" would
@@ -201,10 +202,8 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
   // closure over state would freeze the values of the first render.
   const fileStageRef = useRef<FileStage>(null);
   const manualLoadingRef = useRef(false);
-  const skipResetRef = useRef(false);
 
   useEffect(() => {
-    if (skipResetRef.current) { skipResetRef.current = false; return; }
     setPromptDraft(effectiveSystemPrompt(activeProfile));
   }, [activeProfile.id, activeProfile.system_prompt, activeProfile.prompt_preset]);
 
@@ -264,8 +263,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
   async function saveAi(patch: Partial<AiConfig>) {
     if (patch.active_profile_id) {
       const nextActive = profiles.find((profile) => profile.id === patch.active_profile_id) ?? activeProfile;
-      await onConfigChanged({ ai_processing: activeConfigFromProfile(baseAi, nextActive, profiles) });
-      return;
+      return onConfigChanged({ ai_processing: activeConfigFromProfile(baseAi, nextActive, profiles) });
     }
     const updatedProfile = normalizeProfile(ai, {
       ...activeProfile,
@@ -282,29 +280,38 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
       ? { ...patch, provider_models: { ...(ai.provider_models ?? {}), [ai.provider]: patch.model }, profiles: nextProfiles }
       : { ...patch, profiles: nextProfiles };
     const next = mergeAi(activeConfigFromProfile(ai, updatedProfile, nextProfiles), nextPatch);
-    skipResetRef.current = true;
-    await onConfigChanged({ ai_processing: next });
+    return onConfigChanged({ ai_processing: next });
   }
 
   async function savePrompt() {
     const next = promptDraft.trim();
-    if (!next || next === (activeProfile.system_prompt ?? "")) return;
-    skipResetRef.current = true;
+    if (promptSaving || !next || next === (activeProfile.system_prompt ?? "")) return;
     // It matched the built-in one — we save emptiness rather than a copy: a copy
     // freezes and stops receiving edits to the built-in prompt.
-    await saveAi({ system_prompt: next === builtinPrompt.trim() ? "" : next });
-    showMessage(t("Системный промпт сохранён."));
+    setMessage(null);
+    setPromptSaving(true);
+    try {
+      const saved = await saveAi({ system_prompt: next === builtinPrompt.trim() ? "" : next });
+      if (saved) showMessage(t("Системный промпт сохранён."));
+    } finally {
+      setPromptSaving(false);
+    }
   }
 
-  // Reset used to only put the text into the field and save nothing: until you
-  // also pressed «Сохранить промпт», the old one came back on your next visit.
-  // Hence "you have to click every time".
   async function resetPrompt() {
-    setPromptDraft(builtinPrompt);
-    if (!activeProfile.system_prompt?.trim()) return;
-    skipResetRef.current = true;
-    await saveAi({ system_prompt: "" });
-    showMessage(t("Профиль снова использует встроенный промпт."));
+    if (promptSaving) return;
+    if (!activeProfile.system_prompt?.trim()) {
+      setPromptDraft(builtinPrompt);
+      return;
+    }
+    setMessage(null);
+    setPromptSaving(true);
+    try {
+      const saved = await saveAi({ system_prompt: "" });
+      if (saved) showMessage(t("Профиль снова использует встроенный промпт."));
+    } finally {
+      setPromptSaving(false);
+    }
   }
 
   /** A trial request is a real request: it goes to the provider and it spends
@@ -527,6 +534,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
               <div className="active-profile__pick">
                 <CustomSelect<string>
                   value={activeProfile.id}
+                  disabled={promptSaving}
                   inlineMeta
                   options={profiles.map((profile) => {
                     const itemProvider = PROVIDERS.find((item) => item.id === profile.provider) ?? PROVIDERS[0];
@@ -534,9 +542,11 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
                   })}
                   onChange={(next) => {
                     if (next === activeProfile.id) return;
-                    void saveAi({ active_profile_id: next });
                     const picked = profiles.find((profile) => profile.id === next);
-                    if (picked) showMessage(t("Активный профиль: «{p0}».", { p0: picked.name }));
+                    setMessage(null);
+                    void saveAi({ active_profile_id: next }).then((saved) => {
+                      if (saved && picked) showMessage(t("Активный профиль: «{p0}».", { p0: picked.name }));
+                    });
                   }}
                 />
               </div>
@@ -630,6 +640,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <span className="picker-label">{t("Пресет")}</span>
                 <Segmented
+                  disabled={promptSaving}
                   value={SYSTEM_PROMPT_PRESETS().find((preset) => promptDraft.trim() === preset.prompt.trim())?.id ?? ""}
                   options={SYSTEM_PROMPT_PRESETS().map((preset) => ({ value: preset.id, label: preset.label }))}
                   onChange={(next) => {
@@ -652,7 +663,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
                   <span style={{ font: "500 11.5px/1.4 var(--font-sans)", color: "var(--ink)" }}>
                     {t("У профиля свой промпт — правки встроенного до него не доходят.")}
                   </span>
-                  <button className="btn btn--ghost" type="button" onClick={() => void resetPrompt()} style={{ height: 24, padding: "0 8px", fontSize: 11, marginLeft: "auto" }}>
+                  <button className="btn btn--ghost" type="button" disabled={promptSaving} onClick={() => void resetPrompt()} style={{ height: 24, padding: "0 8px", fontSize: 11, marginLeft: "auto" }}>
                     <Icon name="refresh" size={11}/>{t("Вернуть встроенный")}
                   </button>
                 </div>
@@ -665,6 +676,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
               <textarea
                 className="field mono scroll-visible"
                 value={promptDraft}
+                disabled={promptSaving}
                 onChange={(e) => setPromptDraft(e.target.value)}
                 rows={8}
                 style={{ width: "100%", resize: "vertical", fontSize: 12 }}
@@ -674,14 +686,14 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
                 <button
                   className="btn btn--primary"
                   onClick={() => void savePrompt()}
-                  disabled={!promptDraft.trim() || promptDraft === (activeProfile.system_prompt ?? "")}
+                  disabled={promptSaving || !promptDraft.trim() || promptDraft === (activeProfile.system_prompt ?? "")}
                 >
                   <Icon name="check" size={12}/>{t("Сохранить промпт")}</button>
                 <Hint text={t("Вернуть встроенный промпт и снова получать его правки")}>
                   <button
                     className="btn btn--ghost"
                     onClick={() => void resetPrompt()}
-                    disabled={!promptCustom && promptDraft.trim() === builtinPrompt.trim()}
+                    disabled={promptSaving || (!promptCustom && promptDraft.trim() === builtinPrompt.trim())}
                   >
                     <Icon name="refresh" size={12}/>{t("Вернуть встроенный")}</button>
                 </Hint>

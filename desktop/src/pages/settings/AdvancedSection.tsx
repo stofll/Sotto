@@ -13,7 +13,7 @@ import { HintIcon, SetLabel, type ConfigChanged } from "./controls";
 
 // Changing the device reloads the model on the Rust side — that is the only
 // moment whisper.cpp applies use_gpu. While the reload runs, the usual
-// model-loading / model-ready events arrive.
+// whisper-loading / whisper-ready events arrive.
 function DevicePicker({ device, cpuOnly, onConfigChanged }: { device?: string; cpuOnly?: boolean; onConfigChanged: ConfigChanged }) {
   // Anything but an explicit "cpu" is GPU: Rust reckons the same way
   // (`resolve_device`), including the legacy value "cuda".

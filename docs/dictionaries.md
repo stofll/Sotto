@@ -6,7 +6,7 @@ Several sets can be enabled together. Sotto combines their terms without repeati
 
 ## Create and customize
 
-Choose **Create** in the Dictionaries header, enter a name and optionally a description, and paste terms on separate lines or separated by commas. A term can contain spaces, such as `Claude Code`. Empty lines and exact duplicates are removed when saving.
+Choose **Create** in the Dictionaries header, enter a name and optionally a description, and paste terms on separate lines or separated by commas. A term can contain spaces, such as `Claude Code`. Empty lines and exact duplicates are removed when saving. A set may contain no terms, but its name cannot be empty.
 
 New sets and copies are saved disabled; enable them with the switch in the library when needed. Editing an existing set preserves its enabled state. Changes in the editor take effect only after a successful save; closing it with the cross or Escape asks whether to discard unsaved changes.
 
@@ -16,7 +16,7 @@ Existing personal dictionary entries appear in **My words** with their previous 
 
 ## Spelling and limits
 
-User terms take precedence over built-in terms when they differ only in letter case. If enabled user sets contain multiple spellings of the same case-insensitive term, choose the desired spelling before saving. The choice applies while that spelling is present in an enabled user set; output capitalization also follows the existing correction rules and the source text.
+User terms take precedence over built-in terms when they differ only in letter case. If enabled user sets contain multiple spellings of the same term after trimming surrounding whitespace and ignoring case, choose the desired spelling before saving. Phonetically similar terms are not spelling conflicts. The choice applies while that spelling is present in an enabled user set; output capitalization also follows the existing correction rules and the source text.
 
 The dictionary corrects similar spellings after recognition. Whisper additionally receives enabled terms as recognition hints; disabling local formatting stops text correction but leaves these Whisper hints active. Other engines do not necessarily support recognition hints, and dictionary entries do not guarantee that a term will be recognized or corrected.
 

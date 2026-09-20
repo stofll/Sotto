@@ -130,18 +130,13 @@ pub struct AppState {
     /// the app.
     pub audio: crate::audio_worker::AudioWorker,
 
-    /// WS 4b: rusqlite data layer (stats + history). Wrapped in
-    /// `std::sync::Mutex<Connection>` (NOT `tokio::sync::Mutex` — the std
-    /// variant's guard is `Send` when `T: Send`, which is what
-    /// `tokio::task::spawn_blocking` requires; `tokio::sync::Mutex` is
-    /// not `Send`-safe across await points). Held by `Arc` so the
-    /// dispatcher can spawn a blocking write task and keep the original
-    /// `AppState` in Tauri-managed state.
+    /// Shared SQLite connection for statistics and history. Blocking jobs
+    /// receive an `Arc` clone and acquire/release the standard mutex guard
+    /// inside the job; that guard is not `Send` and never crosses an await.
     pub db: Arc<Mutex<rusqlite::Connection>>,
 
-    /// Microphone test state (Phase 4 / Batch 4 / PR 4.1). Wired to the
-    /// shared `AudioRecorder` so the test can start/stop audio capture
-    /// and poll levels during a self-test session.
+    /// Microphone self-test with its own `AudioRecorder`, separate from
+    /// dictation capture. Device operations use the shared audio worker.
     pub microphone_test: crate::mic_test::MicrophoneTest,
 
     /// Toggle-mode arm flag: set to true when the first toggle hotkey
@@ -455,17 +450,11 @@ impl AppState {
         }
     }
 
-    /// Register a cancel flag for an in-flight session. Called by
-    /// `stop_recording` just before it queues the `Transcribe`
-    /// command.
-    /// Register a file-transcription session and hand back the guard that
-    /// unregisters it.
+    /// Register a file session through STT and post-processing.
     ///
-    /// A file session is invisible to the dispatcher by construction, so
-    /// unlike a dictation it has to clean up after itself — on every exit
-    /// path, including the `?`s. A leaked skip-set entry is not untidiness:
-    /// ids restart from zero after every dictation, so a stale one silently
-    /// swallows a later dictation with no paste and no error.
+    /// IDs increase monotonically within this `AppState`. The guard bounds
+    /// active-session, cancel-flag and dispatch-skip registrations on early
+    /// exits and through optional post-processing, independently of engine ownership.
     pub fn claim_file_session(
         &self,
         session_id: u64,
@@ -484,6 +473,8 @@ impl AppState {
         }
     }
 
+    /// Register the engine's cancel flag before queueing transcription.
+    /// Preserve cancellation requested before the flag was available.
     pub fn register_cancel_flag(&self, session_id: u64, flag: Arc<AtomicBool>) {
         let cancelled = crate::mutex_recover::lock(&self.cancelled_sessions);
         if cancelled.contains(&session_id) {
@@ -544,9 +535,7 @@ pub struct FileSessionGuard {
 impl Drop for FileSessionGuard {
     fn drop(&mut self) {
         self.state.unskip_dispatch(self.session_id);
-        self.state.clear_cancel_flag(self.session_id);
-        crate::mutex_recover::lock(&self.state.active_sessions).remove(&self.session_id);
-        crate::mutex_recover::lock(&self.state.committing_sessions).remove(&self.session_id);
+        self.state.finish_session(self.session_id);
     }
 }
 
@@ -989,30 +978,32 @@ mod tests {
         );
     }
 
-    #[test]
-    fn dispatch_skip_survives_the_started_check_and_clears_on_the_completed_one() {
-        // The dispatcher sees two events per session. `InferenceStarted`
-        // must be able to ask without consuming the entry, or
-        // `InferenceCompleted` walks straight into the paste-and-record
-        // path it was registered to avoid.
+    #[tokio::test]
+    async fn file_post_processing_stays_cancellable_after_engine_release() {
         let state = test_state();
-        state.skip_dispatch(7);
-
-        assert!(state.is_dispatch_skipped(7), "the started-branch check");
+        let engine = state.claim_engine().unwrap();
+        let id = state.next_session_id();
+        let guard = state.claim_file_session(id, Arc::new(AtomicBool::new(false)));
+        drop(engine);
+        let next_engine = state
+            .claim_engine()
+            .expect("post-processing must not hold the engine");
+        assert!(state.is_dispatch_skipped(id));
+        assert!(state.request_cancel(id));
+        tokio::time::timeout(std::time::Duration::from_secs(1), state.wait_cancelled(id))
+            .await
+            .unwrap();
+        assert!(!state.begin_commit(id));
+        drop(guard);
+        assert!(!state.is_dispatch_skipped(id));
+        assert!(!state.is_cancelled(id));
+        assert!(!state.is_session_active(id));
+        assert!(!state.request_cancel(id));
         assert!(
-            state.is_dispatch_skipped(7),
-            "asking twice must not consume the entry — the started-branch \
-             fires once per session but nothing guarantees the ordering"
+            state.is_engine_busy(),
+            "file cleanup must not release another job's claim"
         );
-
-        assert!(
-            crate::mutex_recover::lock(&state.dispatch_skipped).remove(&7),
-            "the completed-branch must find the entry still there"
-        );
-        assert!(
-            !crate::mutex_recover::lock(&state.dispatch_skipped).remove(&7),
-            "completion consumes the marker exactly once"
-        );
+        drop(next_engine);
     }
 
     #[test]
@@ -1083,9 +1074,8 @@ mod tests {
     }
     #[test]
     fn file_session_registrations_clear_on_drop() {
-        // The skip-set entry is the dangerous one: ids restart from zero
-        // after every dictation, so one left behind eats a later dictation's
-        // result with no paste and no error.
+        // Every per-session registration must be released on early returns as
+        // well as success; session ids themselves are never reused.
         let state = test_state();
         let flag = Arc::new(AtomicBool::new(false));
 
@@ -1101,7 +1091,7 @@ mod tests {
 
         assert!(
             !state.is_dispatch_skipped(9),
-            "a leaked skip entry silently swallows a later dictation"
+            "the file registration must retire with its guard"
         );
         // Reset and cancel again: if the flag were still registered under
         // this id it would flip a second time, which is how a cancel meant

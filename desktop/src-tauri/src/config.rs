@@ -1,14 +1,25 @@
-//! Config helpers. Originally just `load_hotkey`; extended in Task 13 with
-//! a full `Config` struct so `set_hotkey` can persist via `config::save`
-//! directly instead of round-tripping through the Python sidecar's
-//! `save_config` RPC.
+//! JSON configuration, migrations, merge patches and live settings updates.
 
 use serde_json::{Map, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use tauri::{AppHandle, Manager};
 
 const DEFAULT_HOTKEY: &str = "ctrl+shift+space";
+
+// The application permits one process, but settings and hotkey commands can
+// run concurrently. Serialize their entire read-modify-write operation.
+static CONFIG_WRITES: Mutex<()> = Mutex::new(());
+
+fn with_locked_config<T>(
+    path: &Path,
+    update: impl FnOnce(&mut Config, &Path) -> Result<T, String>,
+) -> Result<T, String> {
+    let _writer = crate::mutex_recover::lock(&CONFIG_WRITES);
+    let mut config = Config::load_at(path)?;
+    update(&mut config, path)
+}
 
 /// Value of the `device` config key meaning "run inference on the GPU".
 pub const DEVICE_GPU: &str = "gpu";
@@ -16,7 +27,7 @@ pub const DEVICE_GPU: &str = "gpu";
 pub const DEVICE_CPU: &str = "cpu";
 
 /// Load the saved hotkey from `config.json` in the app config dir.
-/// Returns the default if the file is missing or unreadable.
+/// Returns the default if the file or key is missing; read/parse errors propagate.
 pub fn load_hotkey(app: &AppHandle) -> Result<String, String> {
     let config = Config::load(app)?;
     Ok(hotkey_from(&config))
@@ -57,19 +68,8 @@ pub fn config_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir.join("config.json"))
 }
 
-// ---------------------------------------------------------------------------
-// `Config` struct — used by `set_hotkey` to persist settings without the
-// Python sidecar (WS 4a1, Task 13). Single-writer: the `set_hotkey` Tauri
-// command. No locking required for v1 because the only writer runs from
-// the main thread's IPC dispatcher; concurrent `get_config` reads go
-// through a clone of the in-memory JSON. If a future command needs to
-// mutate config from another thread, swap `Mutex<Value>` in here.
-// ---------------------------------------------------------------------------
-
-/// In-memory mirror of `config.json`. Cheap to clone (the `Value` inside
-/// is reference-counted via `serde_json::Value::Map` internals for the
-/// common small-config case; for very large configs, clone is still
-/// cheap relative to the on-disk read).
+/// Owned snapshot of `config.json`; cloning copies the JSON tree.
+/// Disk writers load their snapshot inside `with_locked_config`.
 #[derive(Debug, Clone)]
 pub struct Config {
     data: Value,
@@ -103,7 +103,7 @@ impl Config {
         self.data.get(key).cloned()
     }
 
-    /// Set a single key. Mutates in memory; persist with `save`.
+    /// Set a single key in this owned snapshot.
     pub fn set(&mut self, key: &str, value: Value) -> Result<(), String> {
         let map = self
             .data
@@ -113,8 +113,7 @@ impl Config {
         Ok(())
     }
 
-    /// Convenience setter for keys that should default to `String` when
-    /// present (returns `None` if the key is absent or not a string).
+    /// Read a string value, or `None` if the key is absent or has another type.
     pub fn get_string(&self, key: &str) -> Option<String> {
         self.get(key)
             .and_then(|v| v.as_str().map(|s| s.to_string()))
@@ -128,17 +127,8 @@ impl Config {
         &self.data
     }
 
-    /// Write the in-memory config back to `config.json`. Pretty-printed
-    /// for human readability. Atomic-ish: writes to a sibling tmp file
-    /// then renames, so a crash mid-write leaves the previous config
-    /// intact.
-    pub fn save(&self, app: &AppHandle) -> Result<(), String> {
-        validate(&self.data)?;
-        self.save_at(&config_path(app)?)
-    }
-
-    /// Write the in-memory config to an explicit path. See [`Self::save`]
-    /// for the atomic-ish semantics.
+    /// Replace the file via a sibling temporary file. Production writers hold
+    /// CONFIG_WRITES from snapshot loading through this rename and runtime sync.
     fn save_at(&self, path: &Path) -> Result<(), String> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).map_err(|e| format!("create config dir: {e}"))?;
@@ -153,8 +143,7 @@ impl Config {
 
     /// Apply an RFC 7396 JSON Merge Patch to the in-memory config.
     /// The patch is merged into `self.data` (objects recurse, null
-    /// removes keys, scalars/arrays replace atomically). Call `save`
-    /// afterwards to persist.
+    /// removes keys, scalars/arrays replace atomically).
     pub fn apply_merge_patch(&mut self, patch: &Value) -> Result<(), String> {
         let merged = merge_json_patch(self.as_value().clone(), patch.clone());
         self.data = merged;
@@ -167,13 +156,17 @@ impl Config {
 /// Returns a new `Value` that is the result of applying `patch` onto
 /// `target`. Semantics:
 /// - If `patch` is `null`, return `null` (delete the whole target).
-/// - If both are objects, recurse for each key: null in patch → delete;
-///   otherwise merge recursively.
+/// - An object patch treats a non-object target as an empty object, then
+///   recurses for each key: null in patch → delete; otherwise merge recursively.
 /// - Otherwise, `patch` replaces `target` (arrays replace atomically;
 ///   they are NOT merged element-wise).
 pub fn merge_json_patch(target: Value, patch: Value) -> Value {
     match (target, patch) {
-        (Value::Object(mut t), Value::Object(p)) => {
+        (target, Value::Object(p)) => {
+            let mut t = match target {
+                Value::Object(object) => object,
+                _ => Map::new(),
+            };
             for (k, v) in p {
                 if v.is_null() {
                     t.remove(&k);
@@ -261,7 +254,10 @@ pub fn migrate_legacy_device(app: &AppHandle) -> Result<bool, String> {
 /// Path-closed variant of [`migrate_legacy_device`] so the migration can be
 /// exercised against a temp file without an `AppHandle`.
 fn migrate_legacy_device_at(path: &Path) -> Result<bool, String> {
-    let mut cfg = Config::load_at(path)?;
+    with_locked_config(path, migrate_legacy_device_config)
+}
+
+fn migrate_legacy_device_config(cfg: &mut Config, path: &Path) -> Result<bool, String> {
     let mut changed = false;
     if cfg.get_string("device").as_deref() == Some("cuda") {
         cfg.set("device", Value::String(DEVICE_GPU.to_string()))?;
@@ -279,8 +275,7 @@ fn migrate_legacy_device_at(path: &Path) -> Result<bool, String> {
 /// Invariants a config must hold no matter who writes it.
 ///
 /// This lives here rather than inside the settings command because the
-/// command is not the only writer: `Config::set` + [`Config::save`] reaches
-/// the same file, and a validator that only guards one door guards nothing.
+/// hotkey updates reach the same file and must enforce the same rules.
 ///
 /// Only config-only rules belong here. A rule that needs runtime state — what
 /// the engine currently has loaded, what a device reports — cannot be decided
@@ -307,9 +302,7 @@ pub fn validate(candidate: &Value) -> Result<(), String> {
     crate::dictionaries::validate(candidate)
 }
 
-/// GigaAM v3 only knows Russian. Pairing it with another language does not
-/// fail loudly — it mis-decodes every dictation — so it is refused at the
-/// point the pair is written.
+/// Reject a speech language outside the selected model's declared languages.
 fn validate_speech_route(candidate: &Value) -> Result<(), String> {
     let Some(model) = candidate.get("model").and_then(Value::as_str) else {
         return Ok(());
@@ -329,28 +322,58 @@ fn validate_speech_route(candidate: &Value) -> Result<(), String> {
     Err(crate::model::language_unsupported_message(languages))
 }
 
-/// Apply a JSON Merge Patch to the on-disk config and return
-/// the new value. Used by the `save_config` Tauri command.
-pub fn save_with_merge_patch(app: &AppHandle, patch: Value) -> Result<Value, String> {
-    save_with_merge_patch_at(&config_path(app)?, patch)
+/// Exercise serialized persistence without native settings effects.
+#[cfg(test)]
+fn save_with_merge_patch_at(path: &Path, patch: Value) -> Result<Value, String> {
+    with_locked_config(path, |cfg, path| {
+        cfg.apply_merge_patch(&patch)?;
+        validate(cfg.as_value())?;
+        cfg.save_at(path)?;
+        Ok(cfg.as_value().clone())
+    })
 }
 
-/// Path-closed variant of [`save_with_merge_patch`]: loads, patches, saves,
-/// and returns the value now on disk. Rejects before touching the disk, so a
-/// refused patch leaves the previous config intact.
-fn save_with_merge_patch_at(path: &Path, patch: Value) -> Result<Value, String> {
-    let mut cfg = Config::load_at(path)?;
-    cfg.apply_merge_patch(&patch)?;
-    validate(cfg.as_value())?;
-    cfg.save_at(path)?;
-    Ok(cfg.as_value().clone())
+/// Register a new shortcut and persist it under the same writer lock as settings.
+/// A failed write restores the previous binding before another writer can enter.
+pub(crate) fn change_hotkey(
+    app: &AppHandle,
+    hotkey: &str,
+    replace_binding: impl FnOnce(&str, &str) -> Result<crate::hotkey::BindingRollback, String>,
+) -> Result<(), String> {
+    change_hotkey_at(&config_path(app)?, hotkey, replace_binding)
+}
+
+fn change_hotkey_at(
+    path: &Path,
+    hotkey: &str,
+    replace_binding: impl FnOnce(&str, &str) -> Result<crate::hotkey::BindingRollback, String>,
+) -> Result<(), String> {
+    with_locked_config(path, |config, path| {
+        let old = hotkey_from(config);
+        config.set("hotkey", Value::String(hotkey.into()))?;
+        validate(config.as_value())?;
+        persist_with_hotkey(config, path, &old, replace_binding)
+    })
+}
+
+fn persist_with_hotkey(
+    config: &Config,
+    path: &Path,
+    old: &str,
+    replace_binding: impl FnOnce(&str, &str) -> Result<crate::hotkey::BindingRollback, String>,
+) -> Result<(), String> {
+    let hotkey = hotkey_from(config);
+    let rollback = replace_binding(old, &hotkey)?;
+    if let Err(error) = config.save_at(path) {
+        return match rollback() {
+            Ok(()) => Err(error),
+            Err(rollback) => Err(format!("{error}; restore previous shortcut: {rollback}")),
+        };
+    }
+    Ok(())
 }
 
 /// Return the full on-disk config as a JSON value.
-///
-/// Phase 4 / PR-B: native replacement for the Python sidecar's
-/// `get_config` RPC. The frontend calls this via `rustInvoke` to
-/// load settings without a Python subprocess round-trip.
 #[tauri::command]
 pub(crate) fn get_config(app: AppHandle) -> Result<Value, String> {
     let cfg = Config::load(&app)?;
@@ -359,8 +382,7 @@ pub(crate) fn get_config(app: AppHandle) -> Result<Value, String> {
 
 /// Save a JSON Merge Patch to the on-disk config.
 ///
-/// Phase 4 / PR-B: native replacement for the Python sidecar's
-/// `save_config` RPC. The frontend sends a partial config object
+/// The frontend sends a partial config object
 /// (`patch`) which is merged per RFC 7396: null removes keys,
 /// scalars/arrays replace atomically, objects recurse.
 /// Changing `device` (CPU / GPU) additionally triggers a model reload:
@@ -370,14 +392,32 @@ pub(crate) fn get_config(app: AppHandle) -> Result<Value, String> {
 ///
 /// The reload runs detached so the settings UI is not blocked for the
 /// second-plus a large model takes to load; the frontend already reacts to
-/// the `model-loading` / `model-ready` events the engine emits.
+/// the `whisper-loading` / `whisper-ready` events the engine emits.
 #[tauri::command]
-pub(crate) fn save_config(
+pub(crate) async fn save_config(
     app: AppHandle,
     state: tauri::State<'_, crate::state::AppState>,
     patch: Value,
 ) -> Result<Value, String> {
-    let current_config = Config::load(&app)?;
+    let state = state.inner().clone();
+    // Neither disk I/O nor waiting for a writer/native menu may block the UI
+    // thread or an async runtime worker.
+    tauri::async_runtime::spawn_blocking(move || {
+        with_locked_config(&config_path(&app)?, |current_config, path| {
+            save_config_locked(&app, &state, current_config, path, patch)
+        })
+    })
+    .await
+    .map_err(|error| format!("config worker: {error}"))?
+}
+
+fn save_config_locked(
+    app: &AppHandle,
+    state: &crate::state::AppState,
+    current_config: &mut Config,
+    path: &Path,
+    patch: Value,
+) -> Result<Value, String> {
     let device_before = resolve_device(current_config.as_value());
     let mut candidate_config = current_config.clone();
     candidate_config.apply_merge_patch(&patch)?;
@@ -396,9 +436,20 @@ pub(crate) fn save_config(
             }
         }
     }
-    let saved = save_with_merge_patch(&app, patch.clone())?;
+    validate(candidate_config.as_value())?;
+    if patch.get("hotkey").is_some() {
+        persist_with_hotkey(
+            &candidate_config,
+            path,
+            &hotkey_from(current_config),
+            |old, new| crate::hotkey::re_register_with_rollback(app, state, old, new),
+        )?;
+    } else {
+        candidate_config.save_at(path)?;
+    }
+    let saved = candidate_config.as_value().clone();
     let device_after = resolve_device(&saved);
-    apply_runtime_config(&app, &saved, &patch);
+    apply_runtime_config(app, &saved, &patch);
 
     if device_before != device_after {
         // Nothing to reload if no model is loaded — whatever loads next
@@ -459,10 +510,9 @@ fn apply_runtime_config(app: &AppHandle, saved: &Value, patch: &Value) {
     }
     if patch.get(crate::ui_text::CONFIG_KEY).is_some() {
         crate::ui_text::set_from_config(saved);
-        // The tray menu is built once at startup, so it will not notice a
-        // language change on its own — we rebuild it.
+        // Refresh native menu labels while retaining the existing tray icon.
         if let Err(error) = crate::tray::build_tray(app) {
-            log::warn!("не пересобрали трей после смены языка: {error}");
+            log::warn!("tray menu language update failed: {error}");
         }
     }
     // Unconditional: cheap, and the point of turning up logging is usually to
@@ -473,16 +523,201 @@ fn apply_runtime_config(app: &AppHandle, saved: &Value, patch: &Value) {
 }
 
 // ---------------------------------------------------------------------------
-// Tests — exercise the in-memory Config + atomic-save guarantees without
-// touching `tauri::AppHandle`. We mock `config_path` via a free function
-// to keep this dependency-free; production code uses Tauri's
-// `app_config_dir()`.
+// Configuration tests use owned JSON and temporary paths. The opt-in tray
+// regression uses a native AppHandle without application setup or persistence.
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn concurrent_settings_and_hotkey_writers_preserve_independent_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        let start = std::sync::Barrier::new(9);
+        std::thread::scope(|scope| {
+            for writer in 0..8 {
+                let path = &path;
+                let start = &start;
+                scope.spawn(move || {
+                    start.wait();
+                    for update in 0..12 {
+                        save_with_merge_patch_at(
+                            path,
+                            json!({
+                                format!("writer_{writer}_{update}"): true
+                            }),
+                        )
+                        .unwrap();
+                    }
+                });
+            }
+            start.wait();
+            for _ in 0..12 {
+                change_hotkey_at(&path, "ctrl+shift+a", |_, _| Ok(Box::new(|| Ok(())))).unwrap();
+            }
+        });
+        let saved = Config::load_at(&path).unwrap();
+        for writer in 0..8 {
+            for update in 0..12 {
+                assert_eq!(
+                    saved.get(&format!("writer_{writer}_{update}")),
+                    Some(json!(true))
+                );
+            }
+        }
+        assert_eq!(hotkey_from(&saved), "ctrl+shift+a");
+        assert!(!path.with_extension("json.tmp").exists());
+    }
+
+    #[test]
+    fn failed_hotkey_write_restores_binding_and_preserves_disk_before_retry() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        let original = json!({"hotkey": "ctrl+space", "theme": "dark"});
+        fs::write(&path, original.to_string()).unwrap();
+        fs::create_dir(path.with_extension("json.tmp")).unwrap();
+        let binding = std::rc::Rc::new(std::cell::RefCell::new("ctrl+space".to_string()));
+        let changes = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let replace = |old: &str, new: &str| -> Result<crate::hotkey::BindingRollback, String> {
+            assert_eq!(old, *binding.borrow());
+            changes
+                .borrow_mut()
+                .push((old.to_string(), new.to_string()));
+            *binding.borrow_mut() = new.to_string();
+            let binding = binding.clone();
+            let changes = changes.clone();
+            let previous = old.to_string();
+            Ok(Box::new(move || {
+                changes
+                    .borrow_mut()
+                    .push((binding.borrow().clone(), previous.clone()));
+                *binding.borrow_mut() = previous;
+                Ok(())
+            }))
+        };
+        assert!(change_hotkey_at(&path, "ctrl+shift+a", replace).is_err());
+        fs::remove_dir(path.with_extension("json.tmp")).unwrap();
+        assert_eq!(Config::load_at(&path).unwrap().as_value(), &original);
+        change_hotkey_at(&path, "ctrl+shift+a", replace).unwrap();
+        assert_eq!(*binding.borrow(), "ctrl+shift+a");
+        assert_eq!(
+            *changes.borrow(),
+            vec![
+                ("ctrl+space".into(), "ctrl+shift+a".into()),
+                ("ctrl+shift+a".into(), "ctrl+space".into()),
+                ("ctrl+space".into(), "ctrl+shift+a".into()),
+            ]
+        );
+        assert_eq!(
+            Config::load_at(&path).unwrap().as_value(),
+            &json!({
+                "hotkey": "ctrl+shift+a", "theme": "dark"
+            })
+        );
+    }
+
+    #[test]
+    fn failed_hotkey_write_runs_the_snapshot_undo_even_when_old_was_absent() {
+        for old in ["invalid", "ctrl+alt+shift+f23"] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("config.json");
+            let original = json!({"hotkey": old});
+            fs::write(&path, original.to_string()).unwrap();
+            fs::create_dir(path.with_extension("json.tmp")).unwrap();
+            let binding = std::rc::Rc::new(std::cell::RefCell::new(None::<String>));
+            let error = change_hotkey_at(&path, "ctrl+alt+shift+f23", |_, new| {
+                let previous = binding.borrow().clone();
+                *binding.borrow_mut() = Some(new.to_string());
+                let binding = binding.clone();
+                Ok(Box::new(move || {
+                    *binding.borrow_mut() = previous;
+                    Ok(())
+                }))
+            })
+            .unwrap_err();
+            assert!(error.contains("write config tmp"));
+            assert!(
+                binding.borrow().is_none(),
+                "rollback restores actual absence, not the old setting string"
+            );
+            assert_eq!(Config::load_at(&path).unwrap().as_value(), &original);
+        }
+    }
+
+    #[test]
+    fn rejected_hotkey_never_changes_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        let original = json!({"hotkey": "ctrl+space", "theme": "light"});
+        fs::write(&path, original.to_string()).unwrap();
+        let error =
+            change_hotkey_at(&path, "ctrl+shift+a", |_, _| Err("reserved".into())).unwrap_err();
+        assert_eq!(error, "reserved");
+        assert_eq!(Config::load_at(&path).unwrap().as_value(), &original);
+    }
+
+    #[test]
+    fn corrupt_config_does_not_touch_the_hotkey_and_rollback_failure_is_reported() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        fs::write(&path, "{").unwrap();
+        let error =
+            change_hotkey_at(&path, "ctrl+a", |_, _| panic!("must not rebind")).unwrap_err();
+        assert!(error.contains("parse config"));
+        fs::write(&path, "{}").unwrap();
+        fs::create_dir(path.with_extension("json.tmp")).unwrap();
+        let error = change_hotkey_at(&path, "ctrl+a", |_, _| {
+            Ok(Box::new(|| Err("native restore failed".into())))
+        })
+        .unwrap_err();
+        assert!(error.contains("write config tmp"));
+        assert!(error.contains("native restore failed"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "creates a native tray icon; requires a Windows desktop session"]
+    fn language_changes_preserve_one_native_tray() {
+        use tauri::tray::TrayIcon;
+
+        // No application setup, plugins or windows: this test never opens the
+        // user's config, database, microphone, model cache or global hotkey.
+        let mut context = tauri::generate_context!();
+        context.config_mut().identifier = "com.sotto.tray-test".into();
+        context.config_mut().app.windows.clear();
+        let app = tauri::Builder::default()
+            .any_thread()
+            .build(context)
+            .expect("create isolated native app");
+        let handle = app.handle();
+        let tray_resources = || {
+            let resources = handle.resources_table();
+            resources
+                .names()
+                .filter_map(|(id, _)| resources.get::<TrayIcon>(id).ok().map(|_| id))
+                .collect::<Vec<_>>()
+        };
+
+        crate::tray::build_tray(handle).unwrap();
+        let original = tray_resources();
+        assert_eq!(original.len(), 1);
+        for language in ["en", "ru", "en", "en", "ru"] {
+            let patch = json!({ "ui_language": language });
+            apply_runtime_config(handle, &patch, &patch);
+            assert_eq!(
+                tray_resources(),
+                original,
+                "changing language must retain the original native tray resource"
+            );
+        }
+
+        drop(handle.remove_tray_by_id("main-tray").unwrap());
+        assert!(tray_resources().is_empty());
+        assert!(handle.tray_by_id("main-tray").is_none());
+    }
 
     #[test]
     fn microphone_selection_accepts_legacy_indexes_and_names() {
@@ -608,6 +843,20 @@ mod tests {
         let patch = json!({ "hotkey": "ctrl+space" });
         let result = merge_json_patch(target, patch);
         assert_eq!(result, json!({ "theme": "dark", "hotkey": "ctrl+space" }));
+    }
+
+    #[test]
+    fn merge_patch_deletes_null_members_when_creating_an_object() {
+        for target in [Value::Null, json!(42), json!([1, 2]), json!("old")] {
+            assert_eq!(
+                merge_json_patch(target, json!({ "removed": null, "kept": true })),
+                json!({ "kept": true })
+            );
+        }
+        assert_eq!(
+            merge_json_patch(json!({}), json!({ "a": { "bb": { "ccc": null } } })),
+            json!({ "a": { "bb": {} } })
+        );
     }
 
     // ------------------------------------------------------------------
@@ -831,19 +1080,15 @@ mod tests {
         assert_eq!(on_disk.as_value(), &returned);
     }
 
-    // The only rule `validate` has is about GigaAM, and GigaAM is deliberately
-    // Windows-only (see sherpa-onnx in Cargo.toml). Outside Windows "gigaam-v3" is
-    // an unknown model, `validate_speech_route` bails out at the very first
-    // check, and the tests either fail or go green for nothing. Hence the
-    // `#[cfg(windows)]` here and on the two tests below.
-    #[cfg(windows)]
+    // GigaAM is in the Sherpa catalog on both supported desktop platforms.
+    #[cfg(any(windows, target_os = "macos"))]
     #[test]
     fn validate_refuses_a_russian_only_model_in_another_language() {
         let bad = json!({ "model": "gigaam-v3", "language": "en" });
         assert!(validate(&bad).is_err());
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     #[test]
     fn validate_allows_the_languages_a_russian_only_model_can_serve() {
         for language in ["ru", "auto"] {
@@ -863,19 +1108,14 @@ mod tests {
     /// The seam exists so that *every* writer is covered, not just the
     /// settings command. A refused patch must also leave the previous config
     /// intact rather than half-applying it.
-    ///
-    /// Windows-only not because of the seam itself but because there is nothing
-    /// to reject: the only pair `validate` rules out is GigaAM with a foreign
-    /// language. Once a platform-independent rule appears, drop the `cfg`.
-    #[cfg(windows)]
     #[test]
     fn merge_patch_refuses_an_invalid_pair_and_leaves_the_file_alone() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.json");
-        let before = json!({ "model": "gigaam-v3", "language": "ru", "theme": "dark" });
+        let before = json!({ "model": "small.en", "language": "en", "theme": "dark" });
         std::fs::write(&path, before.to_string()).unwrap();
 
-        let refused = save_with_merge_patch_at(&path, json!({ "language": "en" }));
+        let refused = save_with_merge_patch_at(&path, json!({ "language": "ru" }));
 
         assert!(refused.is_err());
         assert_eq!(Config::load_at(&path).unwrap().as_value(), &before);

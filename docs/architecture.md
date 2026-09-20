@@ -8,7 +8,7 @@ The default path is:
 global hotkey → audio capture → local STT → optional text formatting → paste/copy
 ```
 
-File transcription uses the same speech pipeline without touching the focused window or adding the result to history.
+File transcription uses the same speech pipeline without touching the focused window or adding the result to history. Cancellation remains available through optional LLM processing; once speech recognition finishes, other dictations can use the engine independently.
 
 Local model files are downloaded into the application cache; see [Models](models.md) for the current engine split and platform restrictions.
 

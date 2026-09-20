@@ -9,10 +9,10 @@ homepage = "https://github.com/stofll/Sotto"
 edition = "2021"
 
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+tauri-build = { version = "2.6.3", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["macos-private-api", "tray-icon", "image-png"] }
+tauri = { version = "2.11.6", features = ["macos-private-api", "tray-icon", "image-png"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 raw-window-handle = "0.6"
@@ -54,7 +54,7 @@ tauri-plugin-updater = "2"
 # defaults add no dependency at all — `x11rb`, `nom` and `xkbcommon` are gated
 # to unix-not-macos.
 #
-# 0.4 raised enigo's MSRV to 1.85; rust-toolchain.toml pins 1.97.0.
+# 0.4 raised enigo's MSRV to 1.85; the pinned Rust toolchain satisfies it.
 enigo = "0.6"
 log = "0.4"
 # Base (CPU) dependency, with no GPU backend. The backends are opt-in via

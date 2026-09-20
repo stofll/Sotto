@@ -27,6 +27,7 @@
 //!
 //! These map cleanly to frontend toasts in the existing error banner.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -63,6 +64,31 @@ pub struct CloudSttResult {
     pub text: String,
     pub model: String,
     pub elapsed_ms: u64,
+}
+
+/// Run one request while observing the engine's cancellation flag.
+/// The pinned future retains its connection and timeout across cancellation polls.
+pub async fn transcribe_cancellable(
+    request: CloudSttRequest,
+    cancelled: &AtomicBool,
+) -> Result<CloudSttResult, String> {
+    let pending = transcribe(request);
+    tokio::pin!(pending);
+    loop {
+        if cancelled.load(Ordering::Relaxed) {
+            return Err("cloud transcribe cancelled".into());
+        }
+        tokio::select! {
+            _ = tokio::time::sleep(Duration::from_millis(100)) => {}
+            result = &mut pending => {
+                return if cancelled.load(Ordering::Relaxed) {
+                    Err("cloud transcribe cancelled".into())
+                } else {
+                    result
+                };
+            }
+        }
+    }
 }
 
 /// Encode mono 16 kHz f32 samples as 16-bit PCM WAV bytes.
@@ -201,10 +227,13 @@ pub async fn transcribe(req: CloudSttRequest) -> Result<CloudSttResult, String> 
         ));
     }
 
-    let parsed: serde_json::Value = response
-        .json()
-        .await
-        .map_err(|error| format!("malformed: invalid JSON: {error}"))?;
+    let parsed: serde_json::Value = response.json().await.map_err(|error| {
+        if error.is_timeout() {
+            format!("timeout after {}s", req.timeout_seconds.max(1))
+        } else {
+            format!("malformed: invalid JSON: {error}")
+        }
+    })?;
 
     let text = parsed
         .get("text")
@@ -228,7 +257,7 @@ fn truncate(s: &str, max: usize) -> String {
     if s.len() <= max {
         s.to_string()
     } else {
-        let mut truncated = s[..max].to_string();
+        let mut truncated = s[..s.floor_char_boundary(max)].to_string();
         truncated.push('…');
         truncated
     }
@@ -237,6 +266,13 @@ fn truncate(s: &str, max: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn error_body_truncation_preserves_utf8_boundaries() {
+        assert_eq!(truncate("Я🙂ошибка", 3), "Я…");
+        assert_eq!(truncate("Я🙂ошибка", 6), "Я🙂…");
+        assert_eq!(truncate("Я", 2), "Я");
+    }
 
     #[test]
     fn wav_wire_bytes_preserve_scaling_clipping_and_non_finite_silence() {

@@ -12,11 +12,149 @@
 
 use std::io::{Read, Write};
 use std::net::TcpListener;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use sotto_lib::cloud_stt::{audio_to_wav_bytes, transcribe, CloudSttProvider, CloudSttRequest};
+use sotto_lib::cloud_stt::{
+    audio_to_wav_bytes, transcribe, transcribe_cancellable, CloudSttProvider, CloudSttRequest,
+};
+
+struct DelayedServer {
+    url: String,
+    requests: Arc<AtomicUsize>,
+    task: tokio::task::JoinHandle<()>,
+}
+
+impl Drop for DelayedServer {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
+async fn delayed_server(delay: Duration) -> DelayedServer {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let requests = Arc::new(AtomicUsize::new(0));
+    let count = requests.clone();
+    // The task owns all response tasks so dropping the fixture cancels them too.
+    let task = tokio::spawn(async move {
+        let mut responses = tokio::task::JoinSet::new();
+        loop {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let count = count.clone();
+            responses.spawn(async move {
+                let mut request = Vec::new();
+                loop {
+                    let mut chunk = [0; 4096];
+                    let size = stream.read(&mut chunk).await.unwrap_or(0);
+                    if size == 0 {
+                        return;
+                    }
+                    request.extend_from_slice(&chunk[..size]);
+                    if let Some(end) = find_double_crlf(&request).map(|end| end + 4) {
+                        let length = String::from_utf8_lossy(&request[..end])
+                            .lines()
+                            .find_map(|line| {
+                                let (key, value) = line.split_once(':')?;
+                                key.eq_ignore_ascii_case("content-length")
+                                    .then(|| value.trim().parse::<usize>().unwrap())
+                            })
+                            .unwrap_or(0);
+                        if request.len() >= end + length {
+                            break;
+                        }
+                    }
+                }
+                count.fetch_add(1, Ordering::SeqCst);
+                tokio::time::sleep(delay).await;
+                let body = r#"{"text":"delayed result"}"#;
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = stream.write_all(response.as_bytes()).await;
+            });
+        }
+    });
+    DelayedServer {
+        url,
+        requests,
+        task,
+    }
+}
+
+#[tokio::test]
+async fn engine_cloud_request_survives_multiple_cancel_polls_without_reposting() {
+    let server = delayed_server(Duration::from_millis(350)).await;
+    let cancel = AtomicBool::new(false);
+    let result = tokio::time::timeout(
+        Duration::from_secs(3),
+        transcribe_cancellable(sample_request(server.url.clone()), &cancel),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(result.text, "delayed result");
+    assert_eq!(server.requests.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn engine_cloud_timeout_is_one_total_request_budget() {
+    let server = delayed_server(Duration::from_secs(10)).await;
+    let mut request = sample_request(server.url.clone());
+    request.timeout_seconds = 1;
+    let cancel = AtomicBool::new(false);
+    let error = tokio::time::timeout(
+        Duration::from_secs(3),
+        transcribe_cancellable(request, &cancel),
+    )
+    .await
+    .unwrap()
+    .unwrap_err();
+    assert!(error.contains("timeout"), "{error}");
+    assert_eq!(server.requests.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn engine_cloud_cancellation_drops_stalled_request_without_waiting_for_response() {
+    let server = delayed_server(Duration::from_secs(10)).await;
+    let cancel = Arc::new(AtomicBool::new(false));
+    let flag = cancel.clone();
+    let request = sample_request(server.url.clone());
+    let task = tokio::spawn(async move { transcribe_cancellable(request, &flag).await });
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while server.requests.load(Ordering::SeqCst) == 0 {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    cancel.store(true, Ordering::SeqCst);
+    let error = tokio::time::timeout(Duration::from_secs(1), task)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap_err();
+    assert!(error.contains("cancelled"), "{error}");
+    assert_eq!(server.requests.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn cancelled_cloud_request_does_not_upload() {
+    let server = delayed_server(Duration::ZERO).await;
+    let cancel = AtomicBool::new(true);
+    assert!(
+        transcribe_cancellable(sample_request(server.url.clone()), &cancel)
+            .await
+            .unwrap_err()
+            .contains("cancelled")
+    );
+    assert_eq!(server.requests.load(Ordering::SeqCst), 0);
+}
 
 #[derive(Default, Debug)]
 struct Captured {

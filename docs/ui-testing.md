@@ -12,7 +12,7 @@ uv run --locked --project tests/ui playwright install chromium webkit
 uv run --locked --project tests/ui pytest tests/ui --browser chromium --browser webkit
 ```
 
-Python 3.12 or newer is required. `tests/ui/uv.lock` pins Python dependencies; CI installs uv 0.11.29 and uses Python 3.12 on Ubuntu 24.04. On a fresh Linux machine, use `playwright install --with-deps chromium webkit` to install browser system dependencies too.
+Python 3.12 or newer is required. `tests/ui/uv.lock` pins Python dependencies; CI installs uv 0.12.17 and uses Python 3.12 on Ubuntu 24.04. On a fresh Linux machine, use `playwright install --with-deps chromium webkit` to install browser system dependencies too.
 
 The session fixture creates a fresh minified build and a separate test harness in a temporary directory, then serves the build through `vite preview` on an available loopback port. It clears `TAURI_DEBUG` for the build and uses the Windows frontend target by default; select `--ui-build-platform macos` for the macOS target. It neither reuses nor overwrites `desktop/dist`, and stops its own server at teardown.
 

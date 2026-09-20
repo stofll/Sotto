@@ -16,6 +16,45 @@ TABS = {
 }
 
 
+@pytest.mark.parametrize("window", ["main", "tray"])
+def test_startup_waits_for_stylesheet_before_deriving_accent(
+    app, page, pytestconfig, window
+):
+    if pytestconfig.getoption("--ui-mode") != "production":
+        pytest.skip(
+            "Production links CSS separately; Vite dev injects it with JavaScript"
+        )
+
+    # Keep CSS pending while browser callbacks and module scripts continue.
+    # The load event must recompute contrast after the stylesheet arrives.
+    def delayed_stylesheet(route):
+        # Explicit import reproduces WebKit's early module execution even in
+        # browsers that normally block the initial module on CSS readiness.
+        page.wait_for_function("document.getElementById('root') !== null")
+        page.evaluate(
+            "async () => { await import(document.querySelector('script[type=module]').src); }"
+        )
+        page.wait_for_function(
+            "document.documentElement.style.getPropertyValue('--accent') === '#102040'"
+        )
+        assert (
+            page.evaluate(
+                "getComputedStyle(document.documentElement).getPropertyValue('--bg-0')"
+            )
+            == ""
+        )
+        route.continue_()
+
+    page.route("**/assets/styles-*.css", delayed_stylesheet)
+    app(window, config={"ui_accent": "#102040", "theme": "light"})
+    if window == "tray":
+        expect(page.get_by_role("menu")).to_be_visible()
+    expect(page.locator("html")).to_have_css("--accent", "#102040")
+    assert page.locator("html").evaluate(
+        "el => el.style.getPropertyValue('--accent-text').trim().length > 0"
+    )
+
+
 @pytest.mark.parametrize("locale", ["ru", "en"])
 @pytest.mark.parametrize("theme", ["dark", "light"])
 def test_all_pages_render(app, page, locale, theme):

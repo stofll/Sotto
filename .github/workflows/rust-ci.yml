@@ -49,7 +49,7 @@ jobs:
   # проверок. Отказ проверять требует явного `false`, молчание — нет.
   changes:
     name: Changed paths
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       app: ${{ steps.filter.outputs.app }}
@@ -84,18 +84,18 @@ jobs:
     name: Dependency security audit
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.app != 'false' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .node-version
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1  # v4.3.0
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
           version: 11.9.0
 
@@ -119,10 +119,15 @@ jobs:
       # база advisory тянется с гита в момент запуска, в бинарник она не
       # вшита. Бампать её нужно, только если cargo-audit перестанет читать
       # новый формат Cargo.lock.
-      - name: Install cargo-audit
-        uses: taiki-e/install-action@e67fa11c4b9316fa714ddf0abed07a0c3143b95b  # v2.87.4
+      - name: Install dependency audit tools
+        uses: taiki-e/install-action@94c31af3204a9f15ab40b35ad084410b905bbc73 # v2.87.17
         with:
-          tool: cargo-audit@0.22.2
+          tool: cargo-audit@0.22.2,uv@0.12.17
+
+      - name: Audit exact Python test dependencies
+        run: |
+          uv export --locked --project tests/ui --format requirements-txt --no-emit-project --output-file "$RUNNER_TEMP/ui-audit.txt"
+          uvx --python 3.12 --from pip-audit==2.10.1 pip-audit --strict --disable-pip --require-hashes -r "$RUNNER_TEMP/ui-audit.txt"
 
       # Зовём бинарник напрямую, а не через `cargo audit`: шим rustup увидел
       # бы rust-toolchain.toml и потащил качать весь закреплённый тулчейн,
@@ -139,10 +144,10 @@ jobs:
     name: Cargo fmt + clippy (Linux)
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.app != 'false' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Версию задаёт rust-toolchain.toml в корне — rustup читает его для
       # любого cargo внутри репозитория и всё равно переопределит то, что
@@ -181,12 +186,12 @@ jobs:
           cache-on-failure: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .node-version
 
       - name: Install pnpm
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1  # v4.3.0
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
           version: 11.9.0
 
@@ -233,9 +238,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-24.04, windows-latest, macos-latest]
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Версию задаёт rust-toolchain.toml — см. комментарий в джобе lint.
       - name: Install Rust toolchain
@@ -270,12 +275,12 @@ jobs:
           cache-on-failure: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .node-version
 
       - name: Install pnpm
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1  # v4.3.0
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
           version: 11.9.0
 
@@ -286,6 +291,10 @@ jobs:
       - name: Build frontend (produces desktop/dist for Tauri macro)
         working-directory: desktop
         run: pnpm build
+
+      - name: Windows packaging regressions
+        if: runner.os == 'Windows'
+        run: node --test scripts/build-portable.test.mjs scripts/build-windows-installer.test.mjs
 
       # `sherpa-onnx-sys` качает нативный архив сам и хеш не проверяет.
       # Скачиваем и сверяем его здесь, а сборочному скрипту отдаём готовый
@@ -371,23 +380,23 @@ jobs:
     name: TypeScript typecheck + build
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.app != 'false' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .node-version
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1  # v4.3.0
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
           version: 11.9.0
 
       - name: Cache pnpm store
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.local/share/pnpm/store
           key: ${{ runner.os }}-pnpm-${{ hashFiles('desktop/pnpm-lock.yaml') }}
@@ -435,13 +444,13 @@ jobs:
     name: Static gate — no sidecar_invoke / Python runtime
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.app != 'false' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .node-version
 
@@ -450,6 +459,9 @@ jobs:
 
       - name: CPU baseline regression tests
         run: node --test scripts/check-ggml-baseline.test.mjs
+
+      - name: Native dependency inventory regressions
+        run: node --test scripts/generate-native-inventory.test.mjs
 
       - name: Application version consistency
         run: sh scripts/check-version.sh

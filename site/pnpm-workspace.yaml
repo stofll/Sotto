@@ -9,3 +9,8 @@ packages:
 
 allowBuilds:
   esbuild: true
+
+# Potrace's legacy Jimp dependency uses phin 2; retain the local PNG tracing
+# workflow while removing GHSA-x565-32qp-m3vf from its dependency graph.
+overrides:
+  'phin@<3.7.1': 3.7.1
