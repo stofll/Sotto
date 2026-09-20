@@ -1,5 +1,5 @@
 import { t } from "./i18n";
-import { parseRgb } from "./overlay/voice-glow/color";
+import { parseRgb } from "./color";
 
 export const DEFAULT_ACCENT = "#e68a3d";
 
@@ -15,7 +15,7 @@ export const ACCENT_PRESETS = () => ([
 export type AccentValue = string;
 
 function channels(hex: string): [number, number, number] {
-  // Release CSS can shorten #ffffff to #fff. Use the same parser as the glow.
+  // Release CSS can shorten #ffffff to #fff.
   const rgb = parseRgb(hex);
   if (!rgb) throw new Error("Unsupported interface color");
   return rgb;

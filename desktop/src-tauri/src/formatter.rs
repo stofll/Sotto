@@ -22,9 +22,12 @@
 //!   * `case_sensitive=false` → IGNORECASE
 //!   * `preserve_case=true` → keep all-uppercase / first-letter-uppercase
 //!
-//! `preview_format` is the Tauri command for the live Settings preview;
-//! `preview_replacements` is the Tauri command for the rule-list live
-//! preview. Both are sync (no I/O) so they can run inline.
+//! The preview helpers here are synchronous; their Tauri command wrappers
+//! live in `format_commands`. The async `preview_format` command runs the
+//! full pipeline in `spawn_blocking`, as dictation does, to keep lexicon
+//! initialization and spelling work off the UI thread. The rule-only
+//! `preview_replacements` command remains synchronous and does not use
+//! the spelling lexicon.
 
 use once_cell::sync::Lazy;
 use regex::Regex;
@@ -600,10 +603,6 @@ pub fn apply_replacement_rules(
 
     let mut current = text.to_string();
     for rule in rules.iter().filter(|r| r.enabled) {
-        // Build the regex with the case-sensitive flag wired in.
-        // Rust's `regex` crate does not support inline `(?i)`, so we
-        // use the builder pattern. `(?-i)` resets case sensitivity
-        // in case the user's `find` regex embeds its own flag.
         let pattern = match replacement_regex(rule) {
             Ok(pattern) => pattern,
             Err(error) => {
