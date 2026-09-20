@@ -1,13 +1,15 @@
 name: Site
 
-# Зеркало к paths-ignore в rust-ci.yml и ui-tests.yml: те игнорируют site/,
-# этот воркфлоу смотрит только на него. Так правка лендинга не запускает
-# матрицу из трёх ОС, а правка Rust не собирает Astro.
+# The mirror image of paths-ignore in rust-ci.yml and ui-tests.yml: those
+# ignore site/, this workflow looks at nothing else. That way a landing page
+# edit does not start the three-OS matrix, and a Rust change does not build
+# Astro.
 #
-# Деплой висит на двух триггерах. Push в main — потому что лендинг живёт своим
-# циклом: опечатку в тексте не должен ждать следующий релиз. `release:
-# published` — потому что бейдж версии в герое резолвится на сборке, и без
-# пересборки он врёт до следующей правки текста.
+# Deployment hangs off two triggers. Push to main, because the landing page
+# lives on its own cycle: a typo in the copy should not wait for the next
+# release. `release: published`, because the version badge in the hero is
+# resolved at build time, and without a rebuild it lies until the next copy
+# change.
 on:
   push:
     branches: [main]
@@ -26,13 +28,15 @@ on:
 permissions:
   contents: read
 
-# Проверку PR отменять по новому пушу правильно, начатый деплой — нет.
+# Cancelling a pull request check on a new push is right; cancelling a
+# deployment already under way is not.
 #
-# У прода группа одна на все триггеры, а не `github.ref`: на `release:
-# published` ref — это тег, так что релизный деплой попадал бы в собственную
-# группу и мог идти параллельно с деплоем от пуша в main. Освободись такой
-# пуш последним, он перезаписал бы свежий сайт своим, более старым `github.sha`
-# — и так до следующего триггера. Общая группа выстраивает их в очередь.
+# Production uses one group for every trigger rather than `github.ref`: on
+# `release: published` the ref is a tag, so the release deploy would land in a
+# group of its own and could run alongside a deploy from a push to main. If
+# that push finished last, it would overwrite the fresh site with its own,
+# older `github.sha` — and so on until the next trigger. A shared group puts
+# them in a queue.
 concurrency:
   group: ${{ github.event_name == 'pull_request' && format('{0}-{1}', github.workflow, github.ref) || 'site-production' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -60,11 +64,11 @@ jobs:
 
   deploy:
     name: Deploy to Cloudflare
-    # Job проверки намеренно без креденшелов, чтобы собираться и с форков;
-    # секреты живут только здесь, и только на ветке main. Условие проверяет
-    # ветку явно: `workflow_dispatch` запускается с любой, а чекаут ниже берёт
-    # `github.sha`, так что без этого ручной прогон выкатил бы в прод
-    # содержимое произвольной ветки.
+    # The check job deliberately has no credentials so it also builds from
+    # forks; the secrets live only here, and only on the main branch. The
+    # condition checks the branch explicitly: `workflow_dispatch` can be started
+    # from any branch, and the checkout below takes `github.sha`, so without
+    # this a manual run would ship an arbitrary branch to production.
     if: >-
       github.event_name == 'release'
       || (github.event_name != 'pull_request' && github.ref == 'refs/heads/main')
@@ -77,9 +81,10 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          # На `release: published` checkout по умолчанию берёт тег релиза, и
-          # деплой откатил бы лендинг к тексту на момент тега. Нужен ровно
-          # обратный эффект: свежий сайт, пересобранный с новой версией.
+          # On `release: published` checkout takes the release tag by default,
+          # and the deploy would roll the landing page back to the copy as of
+          # that tag. The desired effect is the exact opposite: the current
+          # site, rebuilt with the new version.
           ref: ${{ github.event_name == 'release' && 'main' || github.sha }}
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
@@ -88,15 +93,15 @@ jobs:
         with:
           package_json_file: site/package.json
       - run: pnpm install --frozen-lockfile
-      # Сборка занимает секунду, поэтому деплой собирает сам, а не тащит
-      # артефакт из соседнего job: меньше движущихся частей.
+      # The build takes a second, so the deploy builds for itself rather than
+      # pulling an artifact from the neighbouring job: fewer moving parts.
       - run: pnpm build
       - uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0 # v4.0.0
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          # Для action рабочая директория задаётся здесь: `defaults.run` на неё
-          # не распространяется.
+          # The working directory for an action is set here: `defaults.run`
+          # does not apply to it.
           workingDirectory: site
           wranglerVersion: '4.134.0'
           packageManager: pnpm

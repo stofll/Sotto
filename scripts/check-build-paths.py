@@ -1,22 +1,23 @@
 #!/usr/bin/env python3
-"""Проверить, что в раздаваемом артефакте нет путей сборочной машины.
+"""Check that a distributed artifact carries no build machine paths.
 
     python scripts/check-build-paths.py desktop/src-tauri/target/release/Sotto.exe
 
-Зачем. rustc вшивает `file!()` каждой зависимости в сообщения паники, а MSVC —
-`__FILE__` в ассерты whisper.cpp. И то и другое — абсолютные пути той машины,
-где собирали: домашний каталог с именем пользователя ОС и каталог сборки. В
-раздаваемом бинаре им делать нечего. Подробности и замеры — в issue #41.
+Why. rustc bakes every dependency's `file!()` into panic messages, and MSVC
+bakes `__FILE__` into the whisper.cpp asserts. Both are absolute paths of the
+machine that built it: the home directory carrying the OS account name, and the
+build directory. Neither belongs in a distributed binary. Details and
+measurements are in issue #41.
 
-Скрипт ничего не чинит, он только ловит регрессию: флаги ремапа живут в
-`scripts/build-installer.sh`, и первая же сборка мимо этого скрипта вернёт
-пути обратно незамеченными.
+This script fixes nothing, it only catches a regression: the remap flags live in
+`scripts/build-installer.sh`, and the first build that bypasses this script
+would bring the paths back unnoticed.
 
-Ищем в сыром байтовом содержимом, а не в извлечённых строках: пути лежат и в
-UTF-8, и в UTF-16, и внутри сжатых секций — построчный разбор формата PE тут
-дал бы меньше, чем простой поиск подстроки.
+The search runs over the raw bytes rather than extracted strings: the paths sit
+in UTF-8, in UTF-16 and inside compressed sections alike, and parsing the PE
+format properly would buy less here than a plain substring search.
 
-Выход: 0 — чисто, 1 — найдены следы, 2 — файл не читается.
+Exit codes: 0 clean, 1 traces found, 2 file unreadable.
 """
 
 from __future__ import annotations
@@ -46,10 +47,11 @@ CARGO_HOME = Path(os.environ.get("CARGO_HOME") or Path.home() / ".cargo")
 
 
 def variants(path: Path | str) -> list[bytes]:
-    """Один и тот же каталог в тех видах, в каких он может лежать в бинаре.
+    """The same directory in every form it may take inside the binary.
 
-    Пути приезжают из разных инструментов: rustc пишет их через прямой слэш,
-    MSVC — через обратный, а в UTF-16-секциях каждый байт разделён нулём.
+    The paths arrive from different tools: rustc writes them with a forward
+    slash, MSVC with a backslash, and in UTF-16 sections every byte is
+    separated by a zero.
     """
     text = str(path)
     forms = {text, text.replace("\\", "/"), text.replace("/", "\\")}
@@ -61,16 +63,16 @@ def variants(path: Path | str) -> list[bytes]:
 
 
 def checks() -> list[tuple[str, list[bytes]]]:
-    """Что ищем. Порядок — от «однозначно утечка» к «след машины»."""
+    """What to look for, ordered from "definitely a leak" to "a trace of the machine"."""
     return [
         # The user's home directory: it carries the OS account name.
-        ("домашний каталог пользователя", variants("C:\\Users\\")),
+        ("user home directory", variants("C:\\Users\\")),
         # The crate registry is the same home directory, but it has its own
         # reason to end up in the binary (file!() of dependencies) and its own
         # remap, so it gets its own check.
-        ("реестр cargo", variants(CARGO_HOME)),
+        ("cargo registry", variants(CARGO_HOME)),
         # The working copy: the maintainer's directory name and disk layout.
-        ("рабочая копия", variants(REPO_ROOT)),
+        ("working copy", variants(REPO_ROOT)),
     ]
 
 
@@ -78,10 +80,10 @@ def scan(path: Path) -> int:
     try:
         data = path.read_bytes()
     except OSError as e:
-        print(f"не прочитать {path}: {e}", file=sys.stderr)
+        print(f"cannot read {path}: {e}", file=sys.stderr)
         return 2
 
-    print(f"{path} — {len(data) / 1024 / 1024:.1f} МБ")
+    print(f"{path} — {len(data) / 1024 / 1024:.1f} MB")
     found = False
     for label, needles in checks():
         hits = sum(len(re.findall(re.escape(n), data)) for n in needles)
@@ -91,8 +93,8 @@ def scan(path: Path) -> int:
 
     if found:
         print(
-            "\nВ артефакте остались пути сборочной машины. Собирайте релиз "
-            "через scripts/build-installer.sh — он выставляет ремап; см. #41.",
+            "\nBuild machine paths are still in the artifact. Build the release "
+            "through scripts/build-installer.sh, which sets the remap; see #41.",
             file=sys.stderr,
         )
     return 1 if found else 0

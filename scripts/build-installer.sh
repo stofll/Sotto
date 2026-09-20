@@ -41,13 +41,13 @@ export SOTTO_POSTHOG_API_KEY
 
 if [[ -z "${SOTTO_POSTHOG_API_KEY:-}" ]]; then
     if [[ "${SOTTO_ALLOW_NO_TELEMETRY:-}" != "1" ]]; then
-        echo "[build-installer] нет ingest-токена PostHog." >&2
-        echo "[build-installer] Положите публичный токен проекта (phc_...) в:" >&2
+        echo "[build-installer] no PostHog ingest token." >&2
+        echo "[build-installer] Put the project public token (phc_...) in:" >&2
         echo "[build-installer]   $posthog_key_file" >&2
-        echo "[build-installer] Сборка без телеметрии — SOTTO_ALLOW_NO_TELEMETRY=1." >&2
+        echo "[build-installer] To build without telemetry: SOTTO_ALLOW_NO_TELEMETRY=1." >&2
         exit 1
     fi
-    echo "[build-installer] SOTTO_ALLOW_NO_TELEMETRY=1 — собираем без телеметрии"
+    echo "[build-installer] SOTTO_ALLOW_NO_TELEMETRY=1 — building without telemetry"
 fi
 
 # Otherwise the build machine's paths travel into the distributed binary: rustc
@@ -108,10 +108,10 @@ python check-build-paths.py "$exe"
 # later. The string is POSTHOG_CAPTURE_URL from telemetry.rs.
 if [[ "${SOTTO_ALLOW_NO_TELEMETRY:-}" != "1" ]]; then
     if grep -aqF "eu.i.posthog.com" "$exe"; then
-        echo "[build-installer] телеметрия: адрес ingest в бинаре есть"
+        echo "[build-installer] telemetry: the ingest address is present in the binary"
     else
-        echo "[build-installer] в бинаре нет адреса ingest PostHog:" >&2
-        echo "[build-installer] телеметрия скомпилирована в no-op." >&2
+        echo "[build-installer] the binary carries no PostHog ingest address:" >&2
+        echo "[build-installer] telemetry compiled down to a no-op." >&2
         exit 1
     fi
 fi

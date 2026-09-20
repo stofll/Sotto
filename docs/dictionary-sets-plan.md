@@ -1,113 +1,113 @@
-# План развития словарей
+# Dictionary development plan
 
-Статус: первая версия реализована и прошла независимое ревью Astra medium. Руководство по доступным возможностям: [dictionaries.md](dictionaries.md); этот документ сохраняет согласованный объём и границы дальнейшего развития.
+Status: the first version is implemented and has passed an independent Astra medium review. For a guide to what is available today see [dictionaries.md](dictionaries.md); this document records the agreed scope and the boundaries of further work.
 
-## Цель
+## Goal
 
-Превратить словари в библиотеку понятных, управляемых наборов терминов. Пользователь должен иметь возможность посмотреть содержимое до включения, создать набор для своей работы и адаптировать готовый набор.
+Turn dictionaries into a library of understandable, manageable term sets. A user should be able to inspect the contents before enabling a set, create a set for their own work, and adapt a built-in one.
 
-Словари остаются локальной функцией без обязательного облака или LLM. Изменения не должны добавлять заметную задержку между записью, распознаванием и вставкой.
+Dictionaries remain a local feature with no mandatory cloud or LLM. The changes must not add noticeable latency between recording, recognition and paste.
 
-## Исходное состояние перед реализацией
+## State before implementation
 
-На странице «Обработка → Текст» находятся общий личный словарь, свои слова-паразиты и переключатели готовых наборов. В исходниках сейчас определён один готовый набор — «Разработка»; интерфейс получает его полный список слов, но показывает только название и количество в подсказке.
+The «Processing → Text» page holds the shared personal dictionary, custom filler words and the toggles for built-in sets. The sources currently define one built-in set, «Development»; the interface receives its full word list but shows only the name and a count in the tooltip.
 
-Готовый набор включается по идентификатору, его содержимое не копируется в личный словарь. Обработка объединяет личные слова и включённые наборы, убирая повторы без учёта регистра; при таком совпадении личное написание имеет приоритет.
+A built-in set is enabled by identifier and its contents are not copied into the personal dictionary. Processing merges personal words with the enabled sets, dropping case-insensitive duplicates; on such a match the personal spelling wins.
 
-Локальный корректор исправляет похожие написания, а для Whisper словарь также используется как подсказка распознаванию. Некоторые короткие термины не проходят ограничения корректора, поэтому присутствие термина в словаре не гарантирует исправление.
+The local corrector fixes similar spellings, and for Whisper the dictionary also serves as a recognition prompt. Some short terms do not pass the corrector's constraints, so a term being in the dictionary does not guarantee a correction.
 
-Исходные точки для реализации: [страница обработки текста](../desktop/src/pages/OtherPages.tsx), [контракты frontend](../desktop/src/bridge/types.ts), [словарные наборы и корректор](../desktop/src-tauri/src/formatter.rs), [команды и подсказка Whisper](../desktop/src-tauri/src/lib.rs). Перед изменениями перепроверить актуальные вызовы и связанные тесты.
+Starting points for the implementation: [the text processing page](../desktop/src/pages/OtherPages.tsx), [the frontend contracts](../desktop/src/bridge/types.ts), [dictionary sets and the corrector](../desktop/src-tauri/src/formatter.rs), [the commands and the Whisper prompt](../desktop/src-tauri/src/lib.rs). Re-check the current call sites and related tests before making changes.
 
-## Первая версия
+## First version
 
-### Список и просмотр
+### List and inspection
 
-- Заменить маленькие кнопки наборами строк с названием, количеством терминов и отдельным переключателем.
-- Открывать содержимое нажатием на название, не меняя состояние включения.
-- Показывать полный список терминов, поиск внутри набора, короткое описание при наличии и явный статус «Включён» / «Выключен».
-- Разрешить просмотр любого набора до его включения.
-- Различать встроенные и пользовательские наборы. Встроенные доступны для чтения и копирования; пользовательские — для редактирования.
-- Показывать число активных уникальных терминов, не смешивая его с количеством слов-паразитов. Не обозначать это число как гарантию исправления всех терминов.
+- Replace the small buttons with rows carrying a name, a term count and a toggle of their own.
+- Open the contents by clicking the name, without changing the enabled state.
+- Show the full term list, search within the set, a short description where one exists and an explicit «Enabled» / «Disabled» status.
+- Allow any set to be inspected before it is enabled.
+- Distinguish built-in sets from user ones. Built-in sets are readable and copyable; user sets are editable.
+- Show the number of active unique terms without mixing it with the filler word count. Do not present that number as a guarantee that every term will be corrected.
 
-### Создание и редактирование
+### Creating and editing
 
-- Добавить действие «Создать набор»: название, необязательное описание и список терминов по одному в строке.
-- Поддержать вставку многострочного списка, удаление пустых строк и повторов. Проверить совместимость с текущим вводом через запятые, сохранив возможность терминов из нескольких слов.
-- Разрешить переименование, изменение содержимого, дублирование, включение, выключение и удаление своих наборов.
-- Дать действие «Создать копию» для встроенного набора. Копия независима от последующих обновлений встроенного оригинала.
-- Создание и редактирование выполнять через черновик с явными «Сохранить» и «Отмена». Ошибка сохранения не должна уничтожать введённые данные; предоставить повторную попытку.
-- Создавать копию выключенной, чтобы просмотр и подготовка изменений не меняли действующую обработку. В форме создания явно показывать, будет ли новый набор включён после сохранения.
-- При удалении показывать название удаляемого набора и предупреждать о потере его содержимого; выключение остаётся отдельным действием без потери данных.
+- Add a «Create set» action: a name, an optional description and a list of terms, one per line.
+- Support pasting a multi-line list, dropping blank lines and duplicates. Check compatibility with the current comma-separated input while keeping multi-word terms possible.
+- Allow renaming, editing, duplicating, enabling, disabling and deleting a user's own sets.
+- Provide a «Make a copy» action for a built-in set. The copy is independent of later updates to the built-in original.
+- Perform creation and editing through a draft with explicit «Save» and «Cancel». A save failure must not destroy the entered data; offer a retry.
+- Create the copy disabled, so that inspecting and preparing changes does not alter live processing. In the creation form, state explicitly whether the new set will be enabled after saving.
+- On deletion, show the name of the set being removed and warn that its contents will be lost; disabling remains a separate action with no data loss.
 
-### Организация страницы
+### Page organisation
 
-Перенести «Свои слова-паразиты» в «Очистку», сохранив их содержимое и существующее поведение. В «Словарях» оставить термины, имена и правильные написания.
+Move «Custom filler words» into «Cleanup», preserving their contents and existing behaviour. Leave terms, names and correct spellings in «Dictionaries».
 
-Использовать существующие компоненты, токены, карточки и средства i18n. Способ открытия подробностей выбрать по существующим паттернам приложения и доступному месту; отдельный новый раздел навигации для первой версии не требуется.
+Use the existing components, tokens, cards and i18n facilities. Choose how to open the details from the app's existing patterns and the space available; a separate new navigation section is not needed for the first version.
 
-### Совместимость и правила применения
+### Compatibility and application rules
 
-- Преобразовать текущий личный список в включённый набор «Мои слова», сохранив содержимое и результат обработки. Не создавать лишний пустой набор для нового пользователя.
-- Сохранить выбранные встроенные наборы и настройки очистки. Повторная загрузка или миграция не должна создавать дубликаты.
-- Разрешить одновременное включение нескольких наборов; выключенный набор не участвует ни в коррекции, ни в формировании подсказки распознаванию.
-- Учитывать одинаковые термины один раз. Сохранить приоритет пользовательского написания над встроенным при совпадении без учёта регистра.
-- При конфликтующих написаниях в пользовательских наборах показывать варианты и давать выбрать действующее написание. Не вводить скрытый приоритет по порядку включения или открытия набора.
-- До реализации уточнить границу между точным дублем, разницей регистра и фонетически похожими терминами. Не считать всякое похожее слово конфликтом и не менять алгоритм нечёткого сопоставления в рамках организации наборов.
-- Показывать ограничения корректора для неподдерживаемых терминов понятным пояснением. Не удалять такие термины молча: у подсказки распознаванию могут быть другие ограничения.
-- Не скрывать библиотеку при ошибке загрузки: показать ошибку и действие повтора. Обработать пустую библиотеку, пустой набор и отсутствие результатов поиска.
-- Сохранить существующие зависимости от настроек обработки; явно объяснять пользователю, когда отключение обработки мешает применению словаря. Не вводить новый общий переключатель без необходимости.
+- Convert the current personal list into an enabled set named «My words», preserving its contents and the processing result. Do not create a spare empty set for a new user.
+- Preserve the selected built-in sets and the cleanup settings. Reloading or migrating again must not create duplicates.
+- Allow several sets to be enabled at once; a disabled set takes part in neither correction nor the recognition prompt.
+- Count identical terms once. Keep the user spelling's precedence over the built-in one on a case-insensitive match.
+- When user sets carry conflicting spellings, show the options and let the user pick the effective one. Do not introduce a hidden precedence based on the order in which sets were enabled or opened.
+- Before implementing, settle the boundary between an exact duplicate, a case difference and phonetically similar terms. Do not treat every similar word as a conflict, and do not change the fuzzy matching algorithm as part of organising sets.
+- Explain the corrector's limits for unsupported terms in plain language. Do not drop such terms silently: the recognition prompt may have different limits.
+- Do not hide the library on a load error: show the error and a retry action. Handle an empty library, an empty set and a search with no results.
+- Preserve the existing dependencies on the processing settings; explain to the user explicitly when disabling processing prevents the dictionary from applying. Do not introduce a new global toggle without need.
 
-## Этапы реализации
+## Implementation stages
 
-1. Проверить актуальные контракты, хранение конфигурации и все места применения словаря: диктовка, файловая транскрипция, повторная обработка истории и предпросмотр. Зафиксировать точные правила дублей, конфликтов и включения при создании, не расширяя объём первой версии.
-2. Добавить хранение пользовательских наборов и безопасный переход со старого личного списка. Собирать действующий словарь в Rust через общий механизм; обновить затронутые IPC-контракты с обеих сторон и bridge-тесты.
-3. Реализовать список, просмотр и поиск по содержимому встроенных и пользовательских наборов. Отделить открытие набора от переключения его действия.
-4. Добавить создание, редактирование, копирование и удаление, обработку конфликтов и ошибок сохранения. Перенести свои слова-паразиты в очистку.
-5. Проверить совместимость обработки и интерфейс, обновить пользовательское описание словарей и отчитаться о проверках и ограничениях.
+1. Check the current contracts, configuration storage and every place the dictionary is applied: dictation, file transcription, reprocessing from history and preview. Pin down the exact rules for duplicates, conflicts and enablement on creation, without widening the scope of the first version.
+2. Add storage for user sets and a safe transition from the old personal list. Assemble the effective dictionary in Rust through one shared mechanism; update the affected IPC contracts on both sides along with the bridge tests.
+3. Implement the list, inspection and content search across built-in and user sets. Separate opening a set from toggling its effect.
+4. Add creation, editing, copying and deletion, along with conflict handling and save errors. Move custom filler words into cleanup.
+5. Verify processing compatibility and the interface, update the user-facing description of dictionaries, and report what was checked and what the limits are.
 
-Не перестраивать алгоритм коррекции и не добавлять новые источники данных ради редактора наборов. Повторно использовать существующую обработку и предпросмотр; не добавлять чтение файлов или сетевые запросы в горячий путь диктовки.
+Do not rebuild the correction algorithm and do not add new data sources for the sake of the set editor. Reuse the existing processing and preview; do not add file reads or network requests to the hot dictation path.
 
-## Проверка и критерии готовности
+## Verification and acceptance criteria
 
-- Набор можно открыть и найти термин до включения; просмотр ничего не активирует.
-- Пользователь может создать набор вставкой списка, сохранить, изменить, выключить и снова включить его; данные сохраняются после перезапуска.
-- Копирование встроенного набора не изменяет оригинал и действующий словарь до явного включения копии.
-- Старые личные слова и включённые встроенные наборы сохраняют поведение после перехода; повторная миграция безопасна.
-- Дубли, конфликты, пустые строки и термины из нескольких слов имеют предсказуемое поведение и регрессионные тесты. Удаление или отключение одного набора не убирает термин, который остаётся в другом активном наборе.
-- Ошибки загрузки и сохранения видимы, повторная попытка работает, несохранённый ввод не теряется.
-- Проверены обе локали, светлая и тёмная темы, клавиатурная навигация, фокус при открытии и закрытии редактора, длинные названия и большие списки.
-- На синтетических примерах проверены исправления и отсутствие нежелательных изменений обычного текста. Проверены существующие пути использования словаря и подсказка Whisper; предпросмотр текста не выдаётся за проверку распознавания аудио.
-- Выполнены применимые проверки из [testing.md](testing.md), включая i18n и бюджеты сборки. Нативные сценарии проверяются на затронутых ОС с изолированными данными; непроверенные платформы и сценарии явно перечисляются.
+- A set can be opened and a term found in it before it is enabled; inspection activates nothing.
+- A user can create a set by pasting a list, save it, edit it, disable it and enable it again; the data survives a restart.
+- Copying a built-in set changes neither the original nor the effective dictionary until the copy is explicitly enabled.
+- Old personal words and enabled built-in sets keep their behaviour after the transition; migrating again is safe.
+- Duplicates, conflicts, blank lines and multi-word terms behave predictably and have regression tests. Deleting or disabling one set does not remove a term that remains in another active set.
+- Load and save errors are visible, the retry works, and unsaved input is not lost.
+- Both locales, the light and dark themes, keyboard navigation, focus when the editor opens and closes, long names and large lists are all checked.
+- Corrections, and the absence of unwanted changes to ordinary text, are checked on synthetic examples. The existing dictionary usage paths and the Whisper prompt are checked; a text preview is not passed off as a check of audio recognition.
+- The applicable checks from [testing.md](testing.md) are done, including i18n and the build budgets. Native scenarios are checked on the affected operating systems with isolated data; unchecked platforms and scenarios are listed explicitly.
 
-Для подготовки нативных проверок использовать [development.md](development.md), для границ приложения — [architecture.md](architecture.md), для утверждений о поддержке ОС — [platforms.md](platforms.md). Автотесты не должны читать или мигрировать живую пользовательскую конфигурацию.
+Use [development.md](development.md) to prepare native checks, [architecture.md](architecture.md) for the app's boundaries, and [platforms.md](platforms.md) for claims about OS support. Automated tests must not read or migrate a live user configuration.
 
-## После первой версии
+## After the first version
 
-Следующие улучшения согласованы как направление развития, но не входят в первую реализацию:
+The following improvements are agreed as a direction but are not part of the first implementation:
 
-- Импорт и экспорт наборов с предпросмотром содержимого и разбором дублей до применения.
-- Поиск по всем наборам с указанием источника и состояния включения.
-- Объяснение исправлений в существующем предпросмотре: исходный фрагмент, результат и набор-источник. Отдельно обозначать коррекцию текста и влияние подсказки на распознавание.
-- Добавление термина из истории в выбранный набор.
-- Исключение отдельных слов из встроенного набора, если практика покажет, что копирования недостаточно.
-- Привязка наборов к приложениям или рабочим профилям после оценки реальной потребности в переключении контекста.
+- Importing and exporting sets, with a content preview and duplicate resolution before anything is applied.
+- Search across all sets, showing the source and the enabled state.
+- An explanation of corrections inside the existing preview: the original fragment, the result and the set it came from. Distinguish text correction from the prompt's effect on recognition.
+- Adding a term from history into a chosen set.
+- Excluding individual words from a built-in set, should practice show that copying is not enough.
+- Binding sets to applications or work profiles, after assessing the real need for context switching.
 
-Расширение каталога готовых наборов выполнять с проверкой качества терминов и риска ложных исправлений. Большое число слов само по себе не является целью.
+Expand the catalogue of built-in sets only with checks on term quality and the risk of false corrections. A large word count is not a goal in itself.
 
-## Уточнения после ревью перед реализацией
+## Clarifications from the pre-implementation review
 
-Конфликт — несколько разных написаний с одинаковым ключом после удаления краевых пробелов и приведения к нижнему регистру. Точные повторы учитываются один раз; фонетическое сходство не считается конфликтом. Пользователь выбирает написание до сохранения конфликтующей активной конфигурации; выбор хранится явно и действует только пока выбранный вариант есть в активных пользовательских наборах.
+A conflict is several different spellings sharing one key after trimming edge whitespace and lowercasing. Exact duplicates are counted once; phonetic similarity is not a conflict. The user picks the spelling before a conflicting active configuration is saved; the choice is stored explicitly and applies only while the chosen variant is present in the active user sets.
 
-Новый набор и копия по умолчанию выключены; состояние можно изменить в редакторе перед сохранением. Редактирование включённого набора начинает действовать только после успешного сохранения. Пустой набор допустим, пустое название — нет.
+A new set and a copy are disabled by default; the state can be changed in the editor before saving. Editing an enabled set takes effect only after a successful save. An empty set is allowed, an empty name is not.
 
-Старый список преобразуется в памяти при чтении конфигурации и записывается в новом виде при следующем успешном сохранении. Порядок терминов и прежний выбор первого написания сохраняются; повторное чтение не создаёт копий.
+The old list is converted in memory when the configuration is read and written in the new shape on the next successful save. The term order and the previous choice of first spelling are preserved; reading again creates no copies.
 
-Отключение локального форматирования по-прежнему отключает коррекцию текста, но не подсказку Whisper. Интерфейс объясняет это различие. Первая версия не меняет механизм сохранения регистра при коррекции: выбранное написание остаётся входом существующего алгоритма, а не обещанием буквальной замены в любом контексте.
+Turning off local formatting still turns off text correction but not the Whisper prompt. The interface explains that difference. The first version does not change how case is preserved during correction: the chosen spelling remains an input to the existing algorithm, not a promise of a literal replacement in every context.
 
-## Проверка результата
+## Result verification
 
-Выполнены frontend-тесты, проверка TypeScript, i18n, сборка и проверка бюджетов всех окон; выполнены Rust-тесты, Clippy и rustfmt. Автотесты покрывают миграцию, членство в активных наборах, конфликты, подсказку Whisper, коррекцию текста, сохранность файла при отказе записи и успешную повторную попытку.
+The frontend tests, the TypeScript check, i18n, the build and the budget checks for every window were run; the Rust tests, Clippy and rustfmt were run. Automated tests cover the migration, membership in the active sets, conflicts, the Whisper prompt, text correction, file integrity on a write failure and a successful retry.
 
-В отдельной нативной сборке Windows с временной конфигурацией проверены перенос личных слов, просмотр выключенного встроенного набора, сохранение независимой выключенной копии, создание включённого набора, удаление точных повторов при сохранении, пояснение коротких терминов и выбор написания при конфликте. Список проверен в обеих локалях и обеих темах.
+In a separate native Windows build with a temporary configuration, the following were checked: migrating personal words, inspecting a disabled built-in set, saving an independent disabled copy, creating an enabled set, dropping exact duplicates on save, the explanation for short terms and picking a spelling on a conflict. The list was checked in both locales and both themes.
 
-Независимое ревью выявило уход фокуса при переходе к подтверждениям; исправление прошло повторное ревью. Нативная проверка исправленных клавиатурных переходов, повторного сохранения после искусственной ошибки и состояния интерфейса после перезапуска была прервана пользователем через Escape. Эти сценарии UI, длинные названия и очень большие списки требуют дополнительной ручной проверки; macOS и распознавание реальной записи в рамках этой доработки не проверялись.
+The independent review found focus being lost on the way to the confirmations; the fix passed a second review. The native check of the fixed keyboard transitions, of saving again after an artificial error, and of the interface state after a restart was interrupted by the user via Escape. Those UI scenarios, long names and very large lists need additional manual checking; macOS and recognition of a real recording were not checked as part of this work.

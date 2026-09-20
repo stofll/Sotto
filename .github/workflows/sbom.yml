@@ -1,12 +1,13 @@
 name: SBOM
 
-# Инвентарь того, из чего собрано приложение: CycloneDX для Rust и npm плюс
-# читаемый отчёт по лицензиям. Считается не на каждый PR — граф зависимостей
-# меняется только вместе с lock-файлами, поэтому на них и висит.
+# An inventory of what the app is built from: CycloneDX for Rust and npm plus
+# a readable license report. Not computed on every pull request — the
+# dependency graph only changes together with the lockfiles, so it hangs off
+# those.
 #
-# На теге релиза вызывается из release.yml, уже после того как tauri-action
-# создал черновик: тогда SBOM кладётся в него как ассет, а не остаётся
-# артефактом прогона, который истечёт.
+# On a release tag it is called from release.yml, after tauri-action has
+# created the draft: the SBOM then goes into it as an asset rather than staying
+# a run artifact that expires.
 on:
   pull_request:
     branches: [main]
@@ -20,7 +21,7 @@ on:
   workflow_call:
     inputs:
       release_tag:
-        description: "Тег релиза: SBOM прикладывается к черновику с этим тегом"
+        description: "Release tag: the SBOM is attached to the draft with this tag"
         required: false
         type: string
 
@@ -33,11 +34,11 @@ permissions:
 
 jobs:
   sbom:
-    name: Собрать SBOM и отчёт по лицензиям
+    name: Build the SBOM and license report
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
-      # Заливка ассета в черновик релиза. Без release_tag не используется.
+      # Uploads an asset to the draft release. Unused without release_tag.
       contents: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
@@ -54,9 +55,9 @@ jobs:
         with:
           version: 11.9.0
 
-      # Версию задаёт rust-toolchain.toml в корне.
+      # The version comes from rust-toolchain.toml at the repo root.
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87  # ветка stable на 2026-09-03
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87  # stable branch as of 2026-09-03
 
       - name: Cache cargo registry & target
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2.9.2
@@ -69,10 +70,11 @@ jobs:
       - name: Install cargo-cyclonedx
         run: cargo install cargo-cyclonedx --locked
 
-      # --target all: половина графа приезжает через `[target.'cfg(...)']`
-      # (windows-sys, objc2, ashpd). Без этого флага инвентарь описывал бы
-      # только Linux-раннер, а раздаём мы Windows и macOS.
-      # --all-features: gpu-vulkan / gpu-metal опциональны, но в релиз идут.
+      # --target all: half the graph arrives through `[target.'cfg(...)']`
+      # (windows-sys, objc2, ashpd). Without this flag the inventory would
+      # describe only the Linux runner, while what we ship is Windows and macOS.
+      # --all-features: gpu-vulkan / gpu-metal are optional but do go into the
+      # release.
       - name: SBOM — Rust
         working-directory: desktop/src-tauri
         run: |
@@ -97,10 +99,10 @@ jobs:
             -o "$GITHUB_WORKSPACE/sbom/sbom-npm.cdx.json" \
             .
 
-      # Читаемый срез поверх SBOM: что и под какой лицензией пришло. `paths`
-      # из вывода pnpm выкидываем — это абсолютные пути раннера, в артефакте
-      # им делать нечего.
-      - name: Отчёт по лицензиям npm
+      # A readable slice on top of the SBOM: what arrived and under which
+      # license. `paths` is dropped from the pnpm output — those are absolute
+      # runner paths and have no business being in an artifact.
+      - name: npm license report
         working-directory: desktop
         run: |
           for scope in prod dev; do
@@ -116,11 +118,12 @@ jobs:
             ' "/tmp/licenses-$scope.json" "$GITHUB_WORKSPACE/sbom/licenses-npm-$scope.json"
           done
 
-      # Не гейт, а сводка в логе: сколько компонентов попало в инвентарь и у
-      # скольких не нашлось лицензии. Пустая лицензия — не всегда проблема
-      # (платформенные бинарники esbuild под чужую ОС не устанавливаются, и
-      # читать их package.json неоткуда), но это то, на что смотрят глазами.
-      - name: Сводка
+      # Not a gate but a summary in the log: how many components made it into
+      # the inventory and how many had no license. An empty license is not
+      # always a problem (esbuild's platform binaries for other operating
+      # systems are never installed, so there is no package.json to read), but
+      # it is what a human looks at.
+      - name: Summary
         run: |
           node -e '
             const fs = require("fs");
@@ -128,20 +131,20 @@ jobs:
               const bom = JSON.parse(fs.readFileSync(f, "utf8"));
               const comps = bom.components || [];
               const noLicense = comps.filter((c) => !c.licenses || c.licenses.length === 0);
-              console.log(`${f}: ${comps.length} компонент(ов), без лицензии ${noLicense.length}`);
+              console.log(`${f}: ${comps.length} component(s), without a license ${noLicense.length}`);
               for (const c of noLicense.slice(0, 20)) console.log(`    ${c.name}@${c.version}`);
-              if (noLicense.length > 20) console.log(`    … ещё ${noLicense.length - 20}`);
+              if (noLicense.length > 20) console.log(`    … ${noLicense.length - 20} more`);
             }
           '
 
-      - name: Выложить как артефакт прогона
+      - name: Upload as a run artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: sbom
           path: sbom/
           if-no-files-found: error
 
-      - name: Приложить к черновику релиза
+      - name: Attach to the draft release
         if: inputs.release_tag != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

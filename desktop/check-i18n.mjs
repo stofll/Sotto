@@ -88,12 +88,12 @@ for (const file of walkFiles(root)) {
 if (process.argv.includes("--keys")) {
   const sorted = [...used].sort((a, b) => a.localeCompare(b, "ru"));
   fs.writeFileSync("src/i18n/keys.json", JSON.stringify(sorted, null, 2) + "\n", "utf8");
-  console.log(`keys.json переписан: ${sorted.length}`);
+  console.log(`keys.json rewritten: ${sorted.length}`);
 }
 
 const indexed = JSON.parse(fs.readFileSync("src/i18n/keys.json", "utf8"));
 const staleIndex = indexed.length !== used.size || new Set(indexed).size !== used.size || indexed.some((key) => !used.has(key));
-if (staleIndex) console.error("keys.json устарел; выполните pnpm i18n:keys");
+if (staleIndex) console.error("keys.json is stale; run pnpm i18n:keys");
 
 // The dictionary is read as text: a .ts file cannot be imported from node
 // without a build, and all we need are the top-level keys.
@@ -106,22 +106,22 @@ for (const m of enSource.matchAll(/^\s{2}"((?:[^"\\]|\\.)*)":/gm)) {
 const missing = [...used].filter((k) => !translated.has(k)).sort((a, b) => a.localeCompare(b, "ru"));
 const stale = [...translated].filter((k) => !used.has(k)).sort((a, b) => a.localeCompare(b, "ru"));
 
-console.log(`ключей в коде: ${used.size}`);
-console.log(`переведено:    ${translated.size}`);
-console.log(`не переведено: ${missing.length}`);
-console.log(`лишних в en:   ${stale.length}`);
-console.log(`кириллица вне t(): ${bare.length}`);
+console.log(`keys in code:      ${used.size}`);
+console.log(`translated:        ${translated.size}`);
+console.log(`untranslated:      ${missing.length}`);
+console.log(`stale in en:       ${stale.length}`);
+console.log(`Cyrillic outside t(): ${bare.length}`);
 
 if (missing.length) {
-  console.log("\nбез перевода:");
+  console.log("\nwithout a translation:");
   for (const k of missing) console.log(`  ${JSON.stringify(k)}`);
 }
 if (stale.length) {
-  console.log("\nперевод есть, ключа в коде нет (копию правили после перевода?):");
+  console.log("\ntranslated, but no key in code (was the copy edited after translation?):");
   for (const k of stale) console.log(`  ${JSON.stringify(k)}`);
 }
 if (bare.length) {
-  console.log("\nкириллица вне t():");
+  console.log("\nCyrillic outside t():");
   for (const b of bare) console.log(`  ${b.file}:${b.line} ${JSON.stringify(b.text)}`);
 }
 
