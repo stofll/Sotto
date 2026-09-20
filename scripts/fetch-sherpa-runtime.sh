@@ -64,7 +64,9 @@ if ! lib_dir_is_populated "$lib_dir"; then
   tar -xjf "$archive_path" -C "$staging"
   lib_dir_is_populated "$staging/${archive%.tar.bz2}/lib" ||
     { echo "No lib directory with files in $archive" >&2; exit 1; }
-  rm -rf "$cache_dir/${archive%.tar.bz2}"
+  # `:?` guards the one rm whose path could collapse to `/`: the others are
+  # rooted at "$staging", which carries a name of its own.
+  rm -rf "${cache_dir:?}/${archive%.tar.bz2}"
   mv "$staging/${archive%.tar.bz2}" "$cache_dir/"
   rm -rf "$staging"
   trap - EXIT INT TERM
