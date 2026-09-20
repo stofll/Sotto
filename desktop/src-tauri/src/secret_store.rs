@@ -20,6 +20,12 @@
 
 const SERVICE: &str = "speech-to-text";
 
+/// Characters the long mask keeps from each end of the key, and the prefix the
+/// short mask keeps. Each is revealed only by a key at least twice its length.
+const HEAD: usize = 6;
+const TAIL: usize = 4;
+const SHORT_HEAD: usize = 2;
+
 fn entry(provider: &str) -> Result<keyring::Entry, String> {
     keyring::Entry::new(SERVICE, provider).map_err(|error| format!("SECRET_STORE_INIT: {error}"))
 }
@@ -30,16 +36,20 @@ fn mask_key(key: &str) -> String {
     }
     let chars: Vec<char> = key.chars().collect();
     let len = chars.len();
-    // The long mask exposes ten characters; shorter keys need a smaller prefix.
-    if len <= 10 {
-        if len > 2 {
-            let prefix: String = key.chars().take(2).collect();
+    // Never reveal more than half the key. The long mask exposes ten
+    // characters, so it needs twenty to earn them: at eleven it printed ten of
+    // the eleven, which hides a secret only in the sense that one character is
+    // missing. Every provider's key is far longer than this threshold.
+    if len < 2 * (HEAD + TAIL) {
+        // Two characters need four to earn them, by the same half rule.
+        if len >= 2 * SHORT_HEAD {
+            let prefix: String = chars[..SHORT_HEAD].iter().collect();
             return format!("{prefix}…");
         }
         return "…".to_string();
     }
-    let head: String = chars[..6].iter().collect();
-    let tail: String = chars[len - 4..].iter().collect();
+    let head: String = chars[..HEAD].iter().collect();
+    let tail: String = chars[len - TAIL..].iter().collect();
     format!("{head}…{tail}")
 }
 
@@ -157,20 +167,40 @@ mod tests {
     fn mask_key_short_strings() {
         assert_eq!(mask_key(""), "");
         assert_eq!(mask_key("ab"), "…");
-        assert_eq!(mask_key("abc"), "ab…");
+        assert_eq!(mask_key("abc"), "…");
+        assert_eq!(mask_key("abcd"), "ab…");
         assert_eq!(mask_key("abcdefgh"), "ab…");
         assert_eq!(mask_key("abcdefghi"), "ab…");
         assert_eq!(mask_key("abcdefghij"), "ab…");
-        assert_eq!(mask_key("abcdefghijk"), "abcdef…hijk");
+        // Eleven characters used to print ten of them.
+        assert_eq!(mask_key("abcdefghijk"), "ab…");
+        assert_eq!(mask_key("abcdefghijklmnopqrs"), "ab…");
+        assert_eq!(mask_key("abcdefghijklmnopqrst"), "abcdef…qrst");
         assert_eq!(mask_key("a"), "…");
+    }
+
+    /// The point of the mask is what it withholds, so that is what is asserted:
+    /// no key may show more than half of itself, at any length.
+    #[test]
+    fn mask_key_never_reveals_more_than_half_of_any_key() {
+        for len in 1..64 {
+            let key: String = ('a'..='z').cycle().take(len).collect();
+            let revealed = mask_key(&key).chars().filter(|c| *c != '…').count();
+            assert!(
+                revealed * 2 <= len,
+                "{len}-character key revealed {revealed} characters"
+            );
+        }
     }
 
     #[test]
     fn mask_key_unicode() {
         assert_eq!(mask_key("абвгдежзи"), "аб…");
         assert_eq!(mask_key("абвгдежзий"), "аб…");
-        assert_eq!(mask_key("абвгдежзийк"), "абвгде…зийк");
-        assert_eq!(mask_key("🔑🔒🔐"), "🔑🔒…");
+        assert_eq!(mask_key("абвгдежзийк"), "аб…");
+        assert_eq!(mask_key("абвгдежзийклмнопрсту"), "абвгде…рсту");
+        assert_eq!(mask_key("🔑🔒🔐"), "…");
+        assert_eq!(mask_key("🔑🔒🔐🗝"), "🔑🔒…");
     }
 
     #[test]
