@@ -14,6 +14,35 @@ function reconstruct(segments: DiffSegment[], side: "before" | "after"): string 
 }
 
 describe("wordDiff", () => {
+  it("narrows punctuation in a long transcript without aligning the unchanged text", () => {
+    const words = Array.from({ length: 20_000 }, (_, i) => `word${i}`);
+    const before = words.join(" ");
+    words[10_000] += ",";
+    const after = words.join(" ");
+    const segments = wordDiff(before, after);
+    expect(segments.filter((s) => s.change !== "keep")).toEqual([
+      { text: ",", change: "add" },
+    ]);
+    expect(reconstruct(segments, "before")).toBe(before);
+    expect(reconstruct(segments, "after")).toBe(after);
+  });
+
+  it("renders a large rewrite as bounded coarse runs while retaining common edges", () => {
+    const removed = Array.from({ length: 10_000 }, (_, i) => `old${i}`).join(" ");
+    const added = Array.from({ length: 10_000 }, (_, i) => `new${i}`).join(" ");
+    const before = `Shared beginning\n${removed}\nShared ending 🙂`;
+    const after = `Shared beginning\n${added}\nShared ending 🙂`;
+    const segments = wordDiff(before, after);
+    expect(segments).toEqual([
+      { text: "Shared beginning\n", change: "keep" },
+      { text: removed, change: "remove" },
+      { text: added, change: "add" },
+      { text: "\nShared ending 🙂", change: "keep" },
+    ]);
+    expect(reconstruct(segments, "before")).toBe(before);
+    expect(reconstruct(segments, "after")).toBe(after);
+  });
+
   it("marks nothing when the texts match", () => {
     const segments = wordDiff("привет как дела", "привет как дела");
     expect(segments.every((s) => s.change === "keep")).toBe(true);

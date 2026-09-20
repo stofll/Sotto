@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import type { CSSProperties } from "react";
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { emit } from "@tauri-apps/api/event";
@@ -19,10 +19,9 @@ const LANGUAGE_LABEL = (): Record<string, string> => ({
   auto: t("Авто"),
 });
 
-// Anything but an explicit "cpu" is GPU (Rust: `resolve_device`). This used to
-// compare against "cuda", which made the tray print «CPU» for any other value.
+// Local accelerated backends share one label; an unloaded route has no device.
 function deviceLabel(device?: string | null) {
-  if (!device) return "—";
+  if (!device || device === "—") return "—";
   if (device === "cloud") return t("Облако");
   return device === "cpu" ? "CPU" : "GPU";
 }
@@ -30,9 +29,10 @@ function deviceLabel(device?: string | null) {
 function statusText(state: RecordingState, runtime: RuntimeStatusResult | null) {
   if (state === "recording") return t("Идёт запись");
   if (state === "processing") return t("Распознаю");
-  const cloudRouteReady = runtime?.active_engine === "cloud-stt" && !!runtime.active_model;
-  if (state === "loading" || runtime?.state === "loading" || (runtime?.model_loaded === false && !cloudRouteReady)) return t("Загружаю модель");
+  if (state === "loading" || runtime?.state === "loading") return t("Загружаю модель");
   if (state === "error") return t("Ошибка");
+  const cloudRouteReady = runtime?.active_engine === "cloud-stt" && !!runtime.active_model;
+  if (runtime?.model_loaded === false && !cloudRouteReady) return t("Модель не загружена");
   return t("Готово");
 }
 
@@ -75,12 +75,7 @@ export function TrayApp() {
   // the rejection `openMain` already swallows.
   const os = runtime?.os;
   const isWindows = isWindowsOs(os) || os === undefined;
-  const configRef = useRef<ConfigResult | null>(null);
   const isRecording = recordingState === "recording";
-
-  useEffect(() => {
-    configRef.current = config;
-  }, [config]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = config?.theme ?? "dark";
@@ -117,41 +112,40 @@ export function TrayApp() {
 
   useEffect(() => {
     let mounted = true;
-    void Promise.allSettled([
-      invoke<ConfigResult>("get_config").then((value) => { if (mounted) { setConfig(value); applyLocaleFromConfig(value.ui_language); } }),
-      invoke<MicrophoneResult[]>("list_microphones").then((value) => { if (mounted) setMicrophones(value); }),
-      invoke<RuntimeStatusResult>("get_runtime_status").then((value) => { if (mounted) setRuntime(value); }),
-    ]);
-    return () => { mounted = false; };
-  }, []);
-
-  useEffect(() => {
-    const unlisteners: Array<() => void> = [];
-    unlisteners.push(subscribe<ConfigResult>("config-updated", (next) => { setConfig(next); applyLocaleFromConfig(next.ui_language); }));
-    unlisteners.push(subscribe<unknown>("whisper-loading", () => setRecordingState("loading")));
-    unlisteners.push(subscribe<string>("whisper-ready", () => {
-      invoke<RuntimeStatusResult>("get_runtime_status").then((value) => {
+    let runtimeRequest = 0;
+    const refreshRuntime = () => {
+      const request = ++runtimeRequest;
+      void invoke<RuntimeStatusResult>("get_runtime_status").then((value) => {
+        // A slow earlier snapshot must not overwrite a later model event.
+        if (!mounted || request !== runtimeRequest) return;
         setRuntime(value);
         setRecordingState((current) => current === "loading" ? "idle" : current);
       }).catch(() => {});
+    };
+    void Promise.allSettled([
+      invoke<ConfigResult>("get_config").then((value) => { if (mounted) { setConfig(value); applyLocaleFromConfig(value.ui_language); } }),
+      invoke<MicrophoneResult[]>("list_microphones").then((value) => { if (mounted) setMicrophones(value); }),
+    ]);
+    refreshRuntime();
+    const unlisteners: Array<() => void> = [];
+    unlisteners.push(subscribe<ConfigResult>("config-updated", (next) => {
+      setConfig(next);
+      applyLocaleFromConfig(next.ui_language);
+      refreshRuntime();
     }));
-    unlisteners.push(subscribe<{ model_size?: string; device?: string }>("model-ready", (payload) => {
-      const latestConfig = configRef.current;
-      setRuntime((current) => ({
-        model_loaded: true,
-        model: payload.model_size ?? current?.model ?? latestConfig?.model ?? null,
-        device: payload.device ?? current?.device ?? latestConfig?.device ?? null,
-        recording: current?.recording ?? false,
-        state: current?.recording ? "recording" : "idle",
-        last_error: null,
-      }));
-      setRecordingState((current) => current === "loading" ? "idle" : current);
+    unlisteners.push(subscribe<unknown>("whisper-loading", () => {
+      ++runtimeRequest;
     }));
+    for (const event of ["whisper-ready", "model-ready", "model-unloaded", "model-restored"]) {
+      unlisteners.push(subscribe<unknown>(event, refreshRuntime));
+    }
     unlisteners.push(subscribe<{ message?: string }>("whisper-load-failed", (payload) => {
       setError(payload.message ?? t("Не удалось загрузить модель"));
-      setRecordingState("error");
     }));
-    return () => unlisteners.forEach((stop) => stop());
+    return () => {
+      mounted = false;
+      unlisteners.forEach((stop) => stop());
+    };
   }, []);
 
   // The popup window only exists on Windows (windows/tray_popup.rs): there
@@ -176,7 +170,8 @@ export function TrayApp() {
   const currentMic = microphones.find((mic) => String(mic.id ?? mic.index) === String(config?.microphone));
   const micLabel = currentMic?.name ?? currentMic?.label ?? t("Системный");
   const modelLabel = actualModelLabel(runtime, t("Модель не загружена"));
-  const subtitle = `${statusText(recordingState, runtime)} · ${modelLabel} · ${actualEngineLabel(runtime)} · ${deviceLabel(actualDeviceLabel(runtime))}`;
+  const statusLabel = statusText(recordingState, runtime);
+  const subtitle = [statusLabel, statusLabel === modelLabel ? null : modelLabel, actualEngineLabel(runtime), deviceLabel(actualDeviceLabel(runtime))].filter(Boolean).join(" · ");
 
   return (
     <div className="app-frame" style={{ width: "100%", height: "100%", background: "transparent", position: "relative", paddingBottom: 7, overflow: "hidden" }}>
@@ -189,9 +184,9 @@ export function TrayApp() {
             </div>
           </div>
         </div>
-        <div style={{ padding: "14px 14px 8px" }}>
-          {error && <div role="alert" style={{ marginTop: 8, color: "var(--err)", font: "500 11px/1.35 var(--font-sans)" }}>{error}</div>}
-        </div>
+        {error && <div style={{ padding: "14px 14px 8px" }}>
+          <div role="alert" style={{ marginTop: 8, color: "var(--err)", font: "500 11px/1.35 var(--font-sans)" }}>{error}</div>
+        </div>}
         <div style={{ padding: "0 14px 8px", display: "flex", flexDirection: "column", gap: 2 }}>
           {[
             { icon: "mic", label: t("Микрофон"), right: micLabel, tab: "settings" as TabId },

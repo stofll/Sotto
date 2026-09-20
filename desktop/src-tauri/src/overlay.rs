@@ -1,6 +1,6 @@
 use std::{
     sync::{
-        mpsc::{channel, Sender},
+        mpsc::{channel, Receiver, RecvTimeoutError, Sender},
         LazyLock, Mutex, OnceLock,
     },
     thread,
@@ -94,6 +94,7 @@ fn set_on_screen(value: bool) {
 
 enum OverlayOp {
     Show(String),
+    ShowFor(String, Duration),
     Hide,
     Configure(OverlayPreferences),
     Presentation { streaming: bool, needs_text: bool },
@@ -112,6 +113,37 @@ fn post(op: OverlayOp) {
     }
 }
 
+/// One deadline belongs to the worker's current presentation. Replacing or
+/// hiding that presentation discards its deadline, even if the next state
+/// has the same name. No detached timer can enqueue a stale hide afterwards.
+#[derive(Default)]
+struct AutoHide {
+    deadline: Option<Instant>,
+}
+
+impl AutoHide {
+    fn observe(&mut self, op: &OverlayOp, now: Instant) {
+        match op {
+            OverlayOp::ShowFor(_, delay) => self.deadline = Some(now + *delay),
+            OverlayOp::Show(_) | OverlayOp::Hide => self.deadline = None,
+            OverlayOp::Configure(_) | OverlayOp::Presentation { .. } => {}
+        }
+    }
+
+    fn receive(&self, rx: &Receiver<OverlayOp>) -> Option<OverlayOp> {
+        match self.deadline {
+            Some(deadline) => {
+                match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+                    Ok(op) => Some(op),
+                    Err(RecvTimeoutError::Timeout) => Some(OverlayOp::Hide),
+                    Err(RecvTimeoutError::Disconnected) => None,
+                }
+            }
+            None => rx.recv().ok(),
+        }
+    }
+}
+
 /// Spawn the overlay worker. Call once from `lib.rs::setup()`; later calls
 /// are ignored.
 pub fn start_worker(app: AppHandle) {
@@ -124,9 +156,11 @@ pub fn start_worker(app: AppHandle) {
             OverlayPreferences::from_config(config.as_value());
     }
     thread::spawn(move || {
-        while let Ok(op) = rx.recv() {
+        let mut auto_hide = AutoHide::default();
+        while let Some(op) = auto_hide.receive(&rx) {
+            auto_hide.observe(&op, Instant::now());
             let result = match op {
-                OverlayOp::Show(state) => apply_show(&app, state),
+                OverlayOp::Show(state) | OverlayOp::ShowFor(state, _) => apply_show(&app, state),
                 OverlayOp::Hide => apply_hide(&app),
                 OverlayOp::Configure(next) => {
                     *crate::mutex_recover::lock(&PREFERENCES) = next;
@@ -827,9 +861,8 @@ fn apply_hide(app: &AppHandle) -> Result<(), String> {
 //   `whisper-loading`         → show_state("loading")
 //   `whisper-load-failed`     → show_state("error") only if currently visible
 //
-// Auto-hide after 1800ms mirrors the original behavior; it fires only if
-// the overlay state is still the same (so a follow-up `recording-started`
-// arriving 200ms later isn't preempted by a stale hide).
+// Auto-hide belongs to the current presentation in the worker. A subsequent
+// show/hide replaces that deadline, including a new session with the same state.
 //
 // `whisper-done` is the one state that does NOT auto-hide on that cadence.
 // It used to, which is what made a slow LLM look like a finished cycle:
@@ -849,22 +882,6 @@ const AUTO_HIDE_DELAY_MS: u64 = 1800;
 /// guards against is a paste path that never reports back at all, which
 /// would otherwise leave the overlay on screen until the app restarts.
 const STUCK_OVERLAY_TIMEOUT_MS: u64 = 180_000;
-
-/// Hide the overlay after `delay_ms`, but only if it is still showing
-/// `expected_state`.
-///
-/// The state check is what makes overlapping timers safe: a newer
-/// `recording-started` (or the `paste-done` that follows a `whisper-done`)
-/// advances the state, and the older timer then finds a state it does not
-/// recognise and does nothing.
-fn hide_if_still_showing(expected_state: &'static str, delay_ms: u64) {
-    thread::spawn(move || {
-        thread::sleep(Duration::from_millis(delay_ms));
-        if current_state().as_deref() == Some(expected_state) {
-            post(OverlayOp::Hide);
-        }
-    });
-}
 
 /// Subscribe the overlay to engine lifecycle events. Call once from
 /// `lib.rs::setup()` after the engine dispatcher task is spawned. The
@@ -899,32 +916,40 @@ pub fn subscribe_engine_events(app: &AppHandle) {
     // the cycle. The long timer is only a stuck-overlay guard — see
     // `STUCK_OVERLAY_TIMEOUT_MS`.
     app.listen("whisper-done", move |_event| {
-        post(OverlayOp::Show("done".to_string()));
-        hide_if_still_showing("done", STUCK_OVERLAY_TIMEOUT_MS);
+        post(OverlayOp::ShowFor(
+            "done".to_string(),
+            Duration::from_millis(STUCK_OVERLAY_TIMEOUT_MS),
+        ));
     });
 
     // paste-done: dispatcher fires this once the text is actually in the
     // focused window. This is the real end of the cycle and the only
     // point where a character count is true.
     app.listen("paste-done", move |_event| {
-        post(OverlayOp::Show("pasted".to_string()));
-        hide_if_still_showing("pasted", AUTO_HIDE_DELAY_MS);
+        post(OverlayOp::ShowFor(
+            "pasted".to_string(),
+            Duration::from_millis(AUTO_HIDE_DELAY_MS),
+        ));
     });
 
     // paste-failed: the transcription succeeded but the text never reached
     // the window. Releases the overlay from the "распознано" state it
     // would otherwise hold until the stuck-overlay timeout.
     app.listen("paste-failed", move |_event| {
-        post(OverlayOp::Show("error".to_string()));
-        hide_if_still_showing("error", AUTO_HIDE_DELAY_MS);
+        post(OverlayOp::ShowFor(
+            "error".to_string(),
+            Duration::from_millis(AUTO_HIDE_DELAY_MS),
+        ));
     });
 
     // whisper-failed: dispatcher fires this on a failed
     // InferenceCompleted. Same auto-hide cadence as done, but with the
     // "error" state.
     app.listen("whisper-failed", move |_event| {
-        post(OverlayOp::Show("error".to_string()));
-        hide_if_still_showing("error", AUTO_HIDE_DELAY_MS);
+        post(OverlayOp::ShowFor(
+            "error".to_string(),
+            Duration::from_millis(AUTO_HIDE_DELAY_MS),
+        ));
     });
 
     // whisper-empty: dispatcher fires this when a transcription returns
@@ -976,6 +1001,39 @@ pub fn subscribe_engine_events(app: &AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn terminal_deadlines_belong_to_the_latest_presentation() {
+        for terminal in ["done", "pasted", "error"] {
+            let start = Instant::now();
+            let delay = Duration::from_secs(2);
+            let mut timer = AutoHide::default();
+            timer.observe(&OverlayOp::ShowFor(terminal.into(), delay), start);
+            timer.observe(&OverlayOp::Show("recording".into()), start + delay / 4);
+            assert!(timer.deadline.is_none(), "recording cancels the old timer");
+            timer.observe(&OverlayOp::Show("processing".into()), start + delay / 2);
+            timer.observe(&OverlayOp::ShowFor(terminal.into(), delay), start + delay);
+            assert_eq!(timer.deadline, Some(start + delay * 2));
+            timer.observe(&OverlayOp::Hide, start + delay);
+            assert!(timer.deadline.is_none());
+        }
+    }
+
+    #[test]
+    fn queued_new_presentation_wins_over_an_expired_deadline() {
+        let (tx, rx) = channel();
+        let mut timer = AutoHide {
+            deadline: Some(Instant::now()),
+        };
+        tx.send(OverlayOp::ShowFor("error".into(), Duration::from_secs(2)))
+            .unwrap();
+        let next = timer.receive(&rx).unwrap();
+        assert!(matches!(next, OverlayOp::ShowFor(_, _)));
+        timer.observe(&next, Instant::now());
+        assert!(timer.deadline.unwrap() > Instant::now());
+        timer.deadline = Some(Instant::now());
+        assert!(matches!(timer.receive(&rx), Some(OverlayOp::Hide)));
+    }
 
     struct SimulatedGeometry {
         size: tauri::PhysicalSize<u32>,

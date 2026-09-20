@@ -22,11 +22,13 @@ export function HotkeyDisplay({ hotkey, fallback = DEFAULT_HOTKEY, onConfigChang
   const [pressedKeys, setPressedKeys] = useState<Set<string>>(new Set());
   const pressedRef = useRef<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
 
   // Sync local value when the persisted hotkey changes (e.g. config reload).
   useEffect(() => {
-    if (!recording) setValue(hotkey || fallback);
-  }, [hotkey, fallback, recording]);
+    if (!editing) setValue(hotkey || fallback);
+  }, [hotkey, fallback, editing]);
 
   // Reject macOS shortcuts needed to leave or hide the app before calling
   // the native `validate_hotkey` command.
@@ -61,6 +63,7 @@ export function HotkeyDisplay({ hotkey, fallback = DEFAULT_HOTKEY, onConfigChang
   }
 
   async function commit(combo: string) {
+    if (savingRef.current) return;
     setError(null);
     if (!combo) return;
     if (RESERVED.has(combo)) {
@@ -71,30 +74,26 @@ export function HotkeyDisplay({ hotkey, fallback = DEFAULT_HOTKEY, onConfigChang
     }
     // Update the text input immediately so the user sees what we caught.
     setValue(combo);
-    // Validate via Rust (Result<(), String>) — throws on error.
+    cancelRecording();
+    savingRef.current = true;
+    setSaving(true);
     try {
       await tauriInvoke("validate_hotkey", { hotkey: combo });
-    } catch (e) {
-      setError(String(e));
-      cancelRecording();
-      return;
-    }
-    // Apply through the existing onConfigChanged callback — it already does
-    // save_config + state update via the bridge. We additionally call
-    // set_hotkey to register the global shortcut at runtime.
-    try {
-      const oldHotkey = hotkey ?? "";
-      await tauriInvoke("set_hotkey", { hotkey: combo, oldHotkey });
-      await onConfigChanged({ hotkey: combo });
-      cancelRecording();
+      // One backend transaction registers and persists the binding, restoring
+      // the previous shortcut if saving fails. The caller displays save errors.
+      const saved = await onConfigChanged({ hotkey: combo });
+      if (!saved) return;
       setEditing(false);
     } catch (e) {
       setError(String(e));
-      cancelRecording();
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
     }
   }
 
   function startRecording() {
+    if (savingRef.current) return;
     setError(null);
     pressedRef.current = new Set();
     setPressedKeys(new Set());
@@ -157,8 +156,8 @@ export function HotkeyDisplay({ hotkey, fallback = DEFAULT_HOTKEY, onConfigChang
       window.removeEventListener("keydown", onKeyDown, true);
       window.removeEventListener("keyup", onKeyUp, true);
     };
-    // We intentionally re-attach only when `recording` flips. The handlers read
-    // stable refs and setters, so stale closure is not an issue here.
+    // Capture only while armed; the synchronous saving ref also rejects a
+    // second chord before React has removed these listeners.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recording]);
 
@@ -174,20 +173,20 @@ export function HotkeyDisplay({ hotkey, fallback = DEFAULT_HOTKEY, onConfigChang
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") void commit(value);
-              if (e.key === "Escape" && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey) { cancelRecording(); setEditing(false); }
+              if (!savingRef.current && e.key === "Escape" && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey) { cancelRecording(); setEditing(false); }
             }}
             autoFocus
-            disabled={recording}
+            disabled={recording || saving}
             placeholder={recording ? t("Нажмите комбинацию…") : undefined}
             style={{ height: "var(--control-h)", maxWidth: 260 }}
           />
           {!recording && (
             <>
-              <button className="btn btn--primary" type="button" onClick={() => void commit(value)}>
+              <button className="btn btn--primary" type="button" disabled={saving} onClick={() => void commit(value)}>
                 <Icon name="check" size={12}/>{t("Применить")} </button>
-              <button className="btn btn--ghost" type="button" onClick={startRecording} aria-pressed={recording}>
+              <button className="btn btn--ghost" type="button" disabled={saving} onClick={startRecording} aria-pressed={recording}>
                 <Icon name="key" size={12}/>{t("Записать")} </button>
-              <button className="btn btn--ghost" type="button" onClick={() => setEditing(false)}>{t("Отмена")}</button>
+              <button className="btn btn--ghost" type="button" disabled={saving} onClick={() => setEditing(false)}>{t("Отмена")}</button>
             </>
           )}
           {recording && (

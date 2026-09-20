@@ -14,12 +14,13 @@ Disabling telemetry stops new capture and delivery; it does not retract events a
 
 See [telemetry.md](telemetry.md) for the versioned event contract. That file also contains maintainer-only deployment details and is not a substitute for a privacy notice.
 
-## Optional network requests
+## Network requests
 
-Depending on the features a user enables, the application may contact:
+The application may contact:
 
 - the configured cloud STT or LLM provider, sending the audio/text required by that provider;
 - the model hosting endpoint used by the model downloader;
+- GitHub Releases for the startup/manual update check in installed release builds, and for an update download after the user requests installation;
 - PostHog Cloud EU for telemetry, when telemetry is enabled in the build.
 
 The application UI uses system fonts and does not load font assets from a third-party CDN.

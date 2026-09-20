@@ -38,7 +38,11 @@ Run the Python/Playwright suite for UI changes. [Browser UI testing](ui-testing.
 
 Run `node --test scripts/release-version.test.mjs scripts/check-release-source.test.mjs` from the repository root when changing version preparation. These tests use temporary Git repositories and metadata copies; they do not bump the working copy, push tags, or launch the application. PR CI also runs them and checks version consistency with `sh scripts/check-version.sh`.
 
+On Windows, run these release tests from Git Bash or put Git for Windows' `bin` directory on `PATH`: the tests invoke `sh` to check version consistency.
+
 Validate workflow edits with `actionlint`. A local pass cannot verify GitHub repository permissions, the release App’s bypass permission, or signed artifact publication; those require a real Prepare Release run after the workflow is merged.
+
+For Windows packaging changes, run `node --test scripts/build-portable.test.mjs scripts/build-windows-installer.test.mjs` on Windows. These use temporary fixtures to verify ZIP cleanup and native preparation order, cache recovery and failure handling; they do not build or install a signed application. Run `node --test scripts/generate-native-inventory.test.mjs` when changing native dependency inventory or its locks.
 
 ## Prepared speech and real models
 
@@ -79,6 +83,10 @@ To compare the complete local pipeline, run `cargo test --locked --lib formatter
 When expanding accuracy coverage, use a reviewed corpus with expected transcripts and explicit word-error tolerances per model/language. Include silence, short speech, noise and trailing speech. Keep this separate from deterministic timeout, cancellation and lifecycle tests so a recognition-quality change cannot hide a broken session transition.
 
 ## Native verification before release
+
+On a Windows desktop session, run `cargo test --locked --lib language_changes_preserve_one_native_tray -- --ignored --nocapture` from `desktop/src-tauri` after native runtime preparation. It creates a tray in a minimal Tauri application, applies repeated RU/EN configuration changes, and checks that the original native tray resource survives without duplicates. It creates no application windows, loads no application plugins, and never opens configuration, history, recordings or models. This opt-in test requires a native desktop; browser mocks cannot verify icon ownership. Separately check the translated menu labels, left-click popup and right-click actions in a packaged application on each affected OS.
+
+Run `cargo test --locked --lib native_hotkey_rebinding_preserves_ownership -- --ignored --nocapture` separately to check Windows shortcut ownership. This isolated app loads only the shortcut plugin, temporarily registers Ctrl+Alt+Shift+F23/F24, checks aliases, replacement, invalid settings and reacquisition, and releases its own shortcuts on exit. It sends no key presses and opens no microphone or application data. A conflicting external shortcut fails the test instead of unregistering another application's binding. Use separate Cargo invocations for these native tests because Tauri permits only one event loop per process; neither test verifies real hotkey-to-paste delivery.
 
 Changes to microphone capture, global shortcuts, clipboard behavior, installers, or model loading require checks on each affected OS with a packaged application. Establish where configuration, history, recordings and models will be stored before launching it, and isolate test data from the developer's live data. Never reset live data to prepare a test.
 

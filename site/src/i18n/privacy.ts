@@ -17,7 +17,7 @@ export interface PrivacyPage {
 export const privacyEn: PrivacyPage = {
   title: 'Privacy',
   lede: 'What Sotto does with your voice, what it never touches, and what this website does. The short version: recognition runs on your computer unless you deliberately connect a cloud provider.',
-  updated: 'Summarised from the repository document on 17 September 2026.',
+  updated: 'Summarised from the repository document on 21 September 2026.',
   sections: [
     {
       heading: 'Your speech stays on your computer',
@@ -27,12 +27,13 @@ export const privacyEn: PrivacyPage = {
       ],
     },
     {
-      heading: 'What is optional, and what it sends',
-      paragraphs: ['Some features reach the network, and each one is off until you configure it:'],
+      heading: 'Network requests',
+      paragraphs: ['These features contact external services:'],
       list: [
         'A cloud speech provider you connect yourself receives the audio you dictate, and only while you use it.',
         'Cloud text processing you configure yourself receives the text to be reformatted — never the audio.',
         'The model downloader contacts the model hosting endpoint when you download a model.',
+        'Installed release builds contact GitHub Releases to check for updates at startup and when you request a check. An update is downloaded and installed only after you request installation.',
       ],
     },
     {
@@ -72,7 +73,7 @@ export const privacyEn: PrivacyPage = {
 export const privacyRu: PrivacyPage = {
   title: 'Приватность',
   lede: 'Что Sotto делает с вашим голосом, чего не касается никогда и как устроен этот сайт. Коротко: распознавание работает на вашем компьютере, пока вы сами не подключите облачного провайдера.',
-  updated: 'Составлено по документу из репозитория 17 сентября 2026 года.',
+  updated: 'Составлено по документу из репозитория 21 сентября 2026 года.',
   sections: [
     {
       heading: 'Речь остаётся на вашем компьютере',
@@ -82,12 +83,13 @@ export const privacyRu: PrivacyPage = {
       ],
     },
     {
-      heading: 'Что опционально и что оно отправляет',
-      paragraphs: ['Часть возможностей обращается к сети, и каждая выключена, пока вы её не настроите:'],
+      heading: 'Обращения к сети',
+      paragraphs: ['Эти функции обращаются к внешним сервисам:'],
       list: [
         'Облачный провайдер распознавания, которого вы подключили сами, получает надиктованное аудио — и только пока вы им пользуетесь.',
         'Облачная обработка текста, настроенная вами, получает текст для переформатирования, но не аудио.',
         'Загрузчик моделей обращается к хранилищу моделей, когда вы скачиваете модель.',
+        'Установленная релизная версия обращается к GitHub Releases для проверки обновлений при запуске и по вашему запросу. Загрузка и установка обновления начинаются только после вашего запроса на установку.',
       ],
     },
     {

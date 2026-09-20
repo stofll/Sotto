@@ -245,19 +245,62 @@ pub fn unregister(app: &AppHandle, hotkey: &str) -> Result<(), String> {
 /// it again or restart. Registering first means a rejected combination
 /// costs an error and nothing else.
 ///
-/// `old == new` is a re-bind of the same combination, and there the old order
-/// is the only one that works: the plugin refuses to register a shortcut it
-/// already holds.
+/// Re-selecting a shortcut already owned by this application is a no-op.
 pub fn re_register(app: &AppHandle, state: &AppState, old: &str, new: &str) -> Result<(), String> {
-    if old == new {
-        let _ = unregister(app, old);
-        return register(app, state, new);
+    let new_shortcut = to_shortcut(&parse(new)?)?;
+    // Modifier order, case and aliases can spell the same native shortcut.
+    // An invalid/unregistered old setting must not prevent repairing it.
+    let old_shortcut = parse(old).and_then(|spec| to_shortcut(&spec)).ok();
+    if old_shortcut == Some(new_shortcut) && app.global_shortcut().is_registered(new_shortcut) {
+        return Ok(());
     }
     register(app, state, new)?;
-    if !old.is_empty() {
-        let _ = unregister(app, old);
+    if old_shortcut
+        .filter(|shortcut| *shortcut != new_shortcut)
+        .is_some_and(|shortcut| app.global_shortcut().is_registered(shortcut))
+    {
+        if let Err(error) = unregister(app, old) {
+            return match unregister(app, new) {
+                Ok(()) => Err(error),
+                Err(rollback) => Err(format!("{error}; release new shortcut: {rollback}")),
+            };
+        }
     }
     Ok(())
+}
+
+/// Undo one binding change while the configuration writer lock is still held.
+pub(crate) type BindingRollback = Box<dyn FnOnce() -> Result<(), String>>;
+
+pub(crate) fn re_register_with_rollback(
+    app: &AppHandle,
+    state: &AppState,
+    old: &str,
+    new: &str,
+) -> Result<BindingRollback, String> {
+    let registered = |text| {
+        parse(text)
+            .and_then(|spec| to_shortcut(&spec))
+            .is_ok_and(|shortcut| app.global_shortcut().is_registered(shortcut))
+    };
+    let had_old = registered(old);
+    let had_new = registered(new);
+    re_register(app, state, old, new)?;
+    let app = app.clone();
+    let state = state.clone();
+    let old = old.to_string();
+    let new = new.to_string();
+    Ok(Box::new(move || {
+        if had_old {
+            re_register(&app, &state, &new, &old)
+        } else if !had_new {
+            // A missing/invalid old setting had no native binding to restore.
+            // Remove only the new binding acquired by this transaction.
+            unregister(&app, &new)
+        } else {
+            Ok(())
+        }
+    }))
 }
 
 /// Handle a global-shortcut event.
@@ -295,8 +338,8 @@ static LAST_PRESS_MS: AtomicU64 = AtomicU64::new(0);
 
 fn handle_shortcut_event(app: AppHandle, state: AppState, event: ShortcutEvent) {
     // Read recording_mode from config to determine toggle vs push-to-talk.
-    // Reading the small JSON file on each event is negligible (~50us) and
-    // avoids the complexity of syncing a cached atomic into AppState.
+    // Read the current setting on each event so mode changes take effect
+    // without a separate cache synchronization path in AppState.
     // Toggle is the default: only an explicit `"push_to_talk"` selects
     // push-to-talk. Absent key, unreadable config, or any other value all
     // fall through to toggle so the runtime behaviour matches the UI.
@@ -385,13 +428,8 @@ pub(crate) fn validate_hotkey(hotkey: String) -> Result<(), String> {
     parse(&hotkey).map(|_| ())
 }
 
-/// Persist a new hotkey: re-register the global shortcut (releasing the
-/// previous binding atomically) and write the new value to
-/// `config.json` directly.
-///
-/// Calls `re_register` to swap the global shortcut binding,
-/// then writes the new hotkey string into `config.json` via the
-/// `Config` API. No IPC round-trip — everything runs in-process.
+/// Change the binding and config together, restoring the previous binding if
+/// persistence fails. The latest saved binding is authoritative across windows.
 #[tauri::command]
 pub(crate) async fn set_hotkey(
     app: AppHandle,
@@ -399,20 +437,139 @@ pub(crate) async fn set_hotkey(
     hotkey: String,
     old_hotkey: Option<String>,
 ) -> Result<(), String> {
-    let old = old_hotkey.unwrap_or_default();
-    re_register(&app, &state, &old, &hotkey).inspect_err(|e| {
-        let _ = app.emit("hotkey-error", e.clone());
-    })?;
-    let mut config = crate::config::Config::load(&app).map_err(|e| format!("config load: {e}"))?;
-    config
-        .set("hotkey", serde_json::json!(hotkey))
-        .map_err(|e| format!("config set: {e}"))?;
-    config.save(&app).map_err(|e| format!("config save: {e}"))
+    // Retain the IPC argument for existing callers, but a webview's snapshot
+    // can be stale after another window changed the shortcut.
+    let _ = old_hotkey;
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::config::change_hotkey(&app, &hotkey, |old, new| {
+            re_register_with_rollback(&app, &state, old, new)
+        })
+        .inspect_err(|error| {
+            let _ = app.emit("hotkey-error", error.clone());
+        })
+    })
+    .await
+    .map_err(|error| format!("hotkey worker: {error}"))?
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "temporarily registers Ctrl+Alt+Shift+F23/F24; requires a Windows desktop session"]
+    fn native_hotkey_rebinding_preserves_ownership() {
+        use std::sync::{Arc, Mutex};
+
+        const FIRST: &str = "ctrl+alt+shift+f23";
+        const SECOND: &str = "ctrl+alt+shift+f24";
+        let first = to_shortcut(&parse(FIRST).unwrap()).unwrap();
+        let second = to_shortcut(&parse(SECOND).unwrap()).unwrap();
+        // No application setup, windows, running event loop or injected keys. The
+        // recorder constructors allocate state but never open a native stream.
+        let mut context = tauri::generate_context!();
+        context.config_mut().identifier = "com.sotto.hotkey-test".into();
+        context.config_mut().app.windows.clear();
+        let app = tauri::Builder::default()
+            .any_thread()
+            .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+            .build(context)
+            .expect("create isolated native shortcut app");
+        let handle = app.handle();
+        struct OwnedShortcuts<'a> {
+            app: &'a AppHandle,
+            keys: [Shortcut; 2],
+        }
+        impl Drop for OwnedShortcuts<'_> {
+            fn drop(&mut self) {
+                for key in self.keys {
+                    // This registry only contains this test app's shortcuts.
+                    // Never unregister a key merely because another process
+                    // owns it, and clean up even when an assertion panics.
+                    if self.app.global_shortcut().is_registered(key) {
+                        if let Err(error) = self.app.global_shortcut().unregister(key) {
+                            eprintln!("native shortcut test cleanup failed: {error}");
+                        }
+                    }
+                }
+            }
+        }
+        let cleanup = OwnedShortcuts {
+            app: handle,
+            keys: [first, second],
+        };
+        let db = rusqlite::Connection::open_in_memory().unwrap();
+        crate::db::run_migrations(&db).unwrap();
+        let state = AppState::new(
+            tokio::sync::mpsc::channel(1).0,
+            std::thread::spawn(|| {}),
+            Arc::new(
+                crate::audio::AudioRecorder::new(crate::audio::AudioConfig::default()).unwrap(),
+            ),
+            Arc::new(Mutex::new(db)),
+            crate::mic_test::MicrophoneTest::new(),
+            Arc::new(Mutex::new(None)),
+        );
+        // Defensively refuse capture even if a physical shortcut event were
+        // delivered by native code; this test exercises registration only.
+        state.engine_busy.store(true, Ordering::Release);
+        assert!(!handle.global_shortcut().is_registered(first));
+        assert!(!handle.global_shortcut().is_registered(second));
+
+        re_register(handle, &state, FIRST, FIRST)
+            .expect("register absent old==new; the test key must be available");
+        assert!(handle.global_shortcut().is_registered(first));
+        re_register(handle, &state, FIRST, " ALT + CONTROL + SHIFT + F23 ")
+            .expect("aliases of the same native shortcut must be a no-op");
+        assert!(handle.global_shortcut().is_registered(first));
+
+        re_register(handle, &state, FIRST, SECOND).unwrap();
+        assert!(!handle.global_shortcut().is_registered(first));
+        assert!(handle.global_shortcut().is_registered(second));
+        // Re-acquiring the released key goes through RegisterHotKey again;
+        // checking only the plugin's registry would miss a native leak.
+        handle.global_shortcut().register(first).unwrap();
+        handle.global_shortcut().unregister(first).unwrap();
+        assert!(re_register(handle, &state, SECOND, "ctrl+unsupported-key").is_err());
+        assert!(handle.global_shortcut().is_registered(second));
+
+        for invalid_old in ["invalid", "ctrl+unsupported-key"] {
+            unregister(handle, SECOND).unwrap();
+            re_register(handle, &state, invalid_old, SECOND)
+                .expect("repairing an invalid saved shortcut must keep the new registration");
+            assert!(handle.global_shortcut().is_registered(second));
+        }
+        // A real persistence failure must restore absence as well as a binding.
+        let blocked_destination = tempfile::tempdir().unwrap();
+        unregister(handle, SECOND).unwrap();
+        for old in ["invalid", "ctrl+unsupported-key", FIRST] {
+            let undo = re_register_with_rollback(handle, &state, old, FIRST).unwrap();
+            assert!(handle.global_shortcut().is_registered(first));
+            assert!(std::fs::write(blocked_destination.path(), b"config").is_err());
+            undo().unwrap();
+            assert!(!handle.global_shortcut().is_registered(first));
+            assert!(!handle.global_shortcut().is_registered(second));
+        }
+        register(handle, &state, SECOND).unwrap();
+        let undo = re_register_with_rollback(handle, &state, SECOND, FIRST).unwrap();
+        assert!(std::fs::write(blocked_destination.path(), b"config").is_err());
+        undo().unwrap();
+        assert!(!handle.global_shortcut().is_registered(first));
+        assert!(handle.global_shortcut().is_registered(second));
+        let undo =
+            re_register_with_rollback(handle, &state, SECOND, "ALT+CONTROL+SHIFT+F24").unwrap();
+        undo().unwrap();
+        assert!(
+            handle.global_shortcut().is_registered(second),
+            "no-op rollback preserves existing ownership"
+        );
+        drop(cleanup);
+        assert!(!handle.global_shortcut().is_registered(first));
+        assert!(!handle.global_shortcut().is_registered(second));
+        assert!(!state.recorder.is_recording());
+    }
 
     #[test]
     fn captured_keys_convert_to_native_shortcuts() {

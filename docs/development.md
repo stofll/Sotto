@@ -37,6 +37,28 @@ The frontend-only development server is available with `pnpm dev`, but applicati
 
 On Windows there is also a launcher: `desktop\run_desktop.cmd`.
 
+### Prepare native dependencies for direct Cargo checks
+
+Build the frontend first with `pnpm --dir desktop build`. On Windows, run the following from the repository root in a PowerShell session with MSVC, CMake and libclang available:
+
+```powershell
+$env:SHERPA_ONNX_LIB_DIR = ./scripts/fetch-sherpa-runtime.ps1 -Target win-x64-shared
+Set-Location desktop/src-tauri
+cargo build --locked -p sherpa-onnx-sys
+if ($LASTEXITCODE -ne 0) { throw "Sherpa runtime build failed" }
+if (-not (Test-Path target/debug/sherpa-onnx-c-api.dll)) {
+    cargo clean -p sherpa-onnx-sys
+    cargo build --locked -p sherpa-onnx-sys
+    if ($LASTEXITCODE -ne 0) { throw "Sherpa runtime rebuild failed" }
+}
+$env:TAURI_ENV_DEBUG = "true"
+./prepare-native-libs.ps1
+```
+
+Keep this session for the Cargo checks so `SHERPA_ONNX_LIB_DIR` remains set. The fetch script verifies the archive against `scripts/sherpa-runtime.lock`; staging supplies Tauri's resource glob and the DLLs needed by test executables. A cached Cargo build can lack those DLLs, which is why the missing-file branch rebuilds the native dependency. Plain Cargo does not run Tauri's bundling hook.
+
+On macOS arm64, prepare the verified static runtime from the repository root with `export SHERPA_ONNX_LIB_DIR="$(sh scripts/fetch-sherpa-runtime.sh osx-arm64-static)"` before Cargo checks. The executable preparation steps and platform matrix live in [Rust CI](../.github/workflows/rust-ci.yml).
+
 ## Build the desktop app
 
 ```bash
@@ -49,11 +71,15 @@ Windows artifacts land in `desktop\src-tauri\target\release\`:
 - Installer: `bundle\nsis\Sotto_<version>_x64-setup.exe`
 - Direct executable: `Sotto.exe`
 
-Use the installer for a normal install; the direct executable is handy for a quick local check without installing. On Windows, prefer the scripted build, which sets up the MSVC / CMake / LLVM environment for you:
+Use the installer for a normal install; the direct executable is handy for a quick local check without installing. For the Windows maintainer build, invoke the wrapper from Git Bash; it prepares signing and telemetry inputs before calling the batch script that sets up MSVC / CMake / LLVM:
 
-```cmd
-scripts\build-installer.bat
+```bash
+scripts/build-installer.sh
 ```
+
+That wrapper uses a build directory outside the checkout by default and prints the artifact path. See [Release process](RELEASE.md) for its required signing and telemetry inputs; calling `build-installer.bat` directly is rejected.
+
+The wrapper verifies the pinned Sherpa archive, builds its release runtime and stages the DLLs before compiling the application. It also repairs a warm Cargo cache whose runtime DLLs were removed. Install the desktop dependencies with `pnpm install --frozen-lockfile` first: the wrapper uses the repository's locked Tauri CLI.
 
 macOS artifacts land in `desktop/src-tauri/target/release/bundle/`: the application in `macos/Sotto.app` and the disk image in `dmg/`. Restricting the run to one target removes the other's output, so a `--bundles dmg` build leaves `macos/` empty and ships the application inside the disk image.
 

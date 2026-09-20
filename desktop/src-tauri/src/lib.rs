@@ -922,7 +922,7 @@ pub(crate) fn build_dictation_command(
     session_id: u64,
     audio: Arc<Vec<f32>>,
     cancel_flag: Arc<AtomicBool>,
-    reply: tokio::sync::oneshot::Sender<crate::whisper::InferenceResult>,
+    reply: tokio::sync::oneshot::Sender<Result<crate::whisper::InferenceResult, String>>,
 ) -> Result<crate::whisper::EngineCommand, String> {
     let audio = match config {
         Some(cfg) => crate::vad::trim_for_transcription(cfg.as_value(), audio),
@@ -1224,7 +1224,7 @@ pub fn run() {
         .on_window_event(crate::window_state::handle)
         .setup(|app| {
             crate::window_state::restore(app.handle());
-            // Before the tray: its single menu item is built immediately.
+            // Set the locale before creating the native tray menu.
             if let Ok(cfg) = crate::config::Config::load(app.handle()) {
                 crate::ui_text::set_from_config(cfg.as_value());
             }
@@ -1549,10 +1549,9 @@ pub fn run() {
                             // engine's `oneshot` reply itself (file
                             // transcription). None of the dictation delivery
                             // below applies to it: no paste, no history, no
-                            // stats, no FSM transition. Removed here — one
-                            // completion per session, so the entry is gone
-                            // for good. Session IDs are never reused.
-                            if crate::mutex_recover::lock(&dispatch_skipped).remove(&session_id) {
+                            // stats, no FSM transition. The file guard owns this
+                            // marker through post-processing, which remains cancellable.
+                            if crate::mutex_recover::lock(&dispatch_skipped).contains(&session_id) {
                                 log::info!("session {session_id} dispatch skipped (file job)");
                                 continue;
                             }

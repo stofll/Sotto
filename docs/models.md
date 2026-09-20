@@ -65,6 +65,8 @@ Before calling sherpa, every file of a bundle is checked against a closed SHA-25
 
 The loader assembles a bundle in a staging directory and only then atomically publishes the subfolder — an interrupted download leaves no half-installed model, and the download resumes where it stopped.
 
+A stalled download remains cancellable while waiting for the server or the next data chunk. A connection that does not return response headers within 30 seconds, or sends no new data for 60 seconds, fails with a retryable transport error; the whole download has no fixed duration limit. Network interruptions retain partial progress for retry, while explicit cancellation removes download staging files.
+
 ## Speed and memory hints
 
 Model cards have two continuous bars: **Speed** and **Memory headroom**. More fill means faster processing or more available memory headroom. Click either label or bar for a short explanation of that indicator only. There are no manual refresh or measurement-reset controls. Unknown values show a hatched bar; warnings never prevent selecting or downloading a model.
