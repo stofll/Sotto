@@ -56,12 +56,14 @@ mod portable;
 pub mod secret_store;
 pub mod sherpa;
 mod sounds;
+mod spelling;
 pub mod state;
 mod stats;
 pub mod structured_log;
 mod telemetry;
 #[cfg(test)]
 mod test_support;
+mod text_protection;
 mod tray;
 mod ui_text;
 mod updater;
@@ -1353,6 +1355,17 @@ pub fn run() {
             // stored in SQLite meta; no machine/account fingerprinting is
             // used. A missing build key makes the whole path a no-op.
             let startup_config = crate::config::Config::load(app.handle()).ok();
+            if startup_config.as_ref().is_some_and(|config| {
+                let formatting = text_formatting_config(config);
+                formatting.enabled
+                    && ((formatting.correct_spelling
+                        && speech_language(Some(config)) == "ru")
+                        || !formatting.effective_custom_words().is_empty())
+            }) {
+                // Prepare the local lexicon off the UI thread before the first
+                // dictation. Lazy also covers later changes to these settings.
+                tauri::async_runtime::spawn_blocking(crate::spelling::prepare);
+            }
             let telemetry =
                 crate::telemetry::Telemetry::new(db_arc.clone(), startup_config.as_ref());
             app.manage(telemetry.clone());
@@ -2341,33 +2354,18 @@ pub(crate) async fn post_process_transcription(
     //    trims, so `formatted_text == raw_text` and the "Whisper без
     //    обработки" block stays hidden.
     //
-    //    An empty result normally means some cleanup step over-reached
-    //    (e.g. the parasite remover ate a "ну да"), so we fall back to the
-    //    raw text rather than pasting nothing. The ONE case where empty is
-    //    the correct answer is a pure Whisper silence hallucination
-    //    ("Субтитры сделал DimaTorzok", "Thank you.", "you"): there the
-    //    fallback would paste exactly the artifact we just removed, so we
-    //    keep the empty string and let the caller skip the paste.
+    //    The shared formatter classifies intentional empty results after
+    //    protecting code and replacement matches. Incidental empty cleanup
+    //    falls back to raw text; hallucinations and explicit deletions do not.
     let formatted_text = match &config {
         Some(cfg) => {
-            let formatting = text_formatting_config(cfg);
-            if formatting.enabled
-                && formatting.remove_hallucinations
-                && crate::formatter::is_pure_hallucination(&raw_text)
-            {
-                log::info!(
-                    "session {}: whole transcription is a Whisper hallucination, dropping it",
-                    inference.session_id
-                );
-                String::new()
-            } else {
-                let out = crate::formatter::format_with_config_value(cfg.as_value(), &raw_text);
-                if out.trim().is_empty() {
-                    raw_text.clone()
-                } else {
-                    out
-                }
-            }
+            let value = cfg.as_value().clone();
+            let text = raw_text.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                crate::formatter::format_transcription_with_config_value(&value, &text)
+            })
+            .await
+            .unwrap_or_else(|_| raw_text.clone())
         }
         None => raw_text.clone(),
     };

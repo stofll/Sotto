@@ -70,14 +70,16 @@ fn load_config_apply_patch(app: &AppHandle, patch: &Value) -> Result<Value, Stri
 /// into the saved config (without persisting), runs the formatter, and
 /// returns `{ original, formatted }`.
 #[tauri::command]
-pub fn preview_format(
+pub async fn preview_format(
     app: AppHandle,
     text: String,
     patch: Option<Value>,
 ) -> Result<crate::formatter::PreviewFormatResult, String> {
     let patch = resolve_patch(patch);
     let merged = load_config_apply_patch(&app, &patch)?;
-    crate::formatter::preview_format(&text, &merged)
+    tauri::async_runtime::spawn_blocking(move || crate::formatter::preview_format(&text, &merged))
+        .await
+        .map_err(|_| "Formatting worker failed".to_string())?
 }
 
 /// Preview just the replacement-rule pass with a temporary patch.

@@ -1,6 +1,6 @@
 # Browser UI testing
 
-The UI suite uses Python, pytest and Playwright against Sotto's real Vite entry points. It complements Vitest logic/bridge tests and native Rust tests. These are browser UI integration tests with a controlled backend, not end-to-end verification of a packaged Tauri application.
+The UI suite uses Python, pytest and Playwright against Sotto's production frontend by default. It complements Vitest logic/bridge tests and native Rust tests. These are browser UI integration tests with a controlled backend, not end-to-end verification of a packaged Tauri application.
 
 ## Run
 
@@ -14,13 +14,17 @@ uv run --locked --project tests/ui pytest tests/ui --browser chromium --browser 
 
 Python 3.12 or newer is required. `tests/ui/uv.lock` pins Python dependencies; CI installs uv 0.11.29 and uses Python 3.12 on Ubuntu 24.04. On a fresh Linux machine, use `playwright install --with-deps chromium webkit` to install browser system dependencies too.
 
-The session fixture starts Vite on an available loopback port, builds the test harness in a temporary directory, waits for server readiness and stops its own process at teardown. Do not launch `pnpm tauri dev` for this suite. No Rust build, microphone, model download, credentials or existing Sotto installation is needed.
+The session fixture creates a fresh minified build and a separate test harness in a temporary directory, then serves the build through `vite preview` on an available loopback port. It clears `TAURI_DEBUG` for the build and uses the Windows frontend target by default; select `--ui-build-platform macos` for the macOS target. It neither reuses nor overwrites `desktop/dist`, and stops its own server at teardown.
+
+Use `--ui-mode dev` to exercise Vite's development server and React StrictMode's extra effect setup/cleanup cycle. Production tests catch failures caused by minification, chunk loading and the absence of development-only behavior. Both modes are required in CI. Do not launch `pnpm tauri dev` for this suite; no Rust build, microphone, model download, credentials or existing Sotto installation is needed.
 
 Useful focused runs:
 
 ```bash
 uv run --locked --project tests/ui pytest tests/ui/test_settings.py --headed
 uv run --locked --project tests/ui pytest tests/ui/test_windows.py --browser webkit
+uv run --locked --project tests/ui pytest tests/ui --browser webkit --ui-build-platform macos
+uv run --locked --project tests/ui pytest tests/ui --ui-mode dev
 uv run --locked --project tests/ui pytest tests/ui -k cancellation
 uv run --locked --project tests/ui ruff check tests/ui
 uv run --locked --project tests/ui ruff format --check tests/ui
@@ -34,7 +38,13 @@ Playwright injects the separately bundled `tests/ui/harness/runtime.ts` before a
 
 Each test receives a fresh browser context. Synthetic configuration, model metadata, history and key availability live in memory; session storage preserves them only across that test's page reloads. No application config directory, history database, recording directory or operating-system credential store is accessed. Test keys and paths must always be synthetic.
 
-Unknown IPC commands, uncaught page errors and external HTTP requests fail the test. An expected backend failure must be explicitly queued in the test and handled by the actual UI. Processing outputs are supplied fixtures: the harness does not reproduce Rust transcription, formatting or provider algorithms. A UI assertion about a mocked result proves how the frontend presents that result, not whether Rust can produce it.
+Unknown IPC commands, uncaught page errors, failed script/style/font/image requests and external HTTP requests fail the test. Failure-path tests must explicitly allow the exact asset pattern they interrupt with `ui.allow_asset_failure(...)`; the remaining assets stay checked. Lazy-module tests cover both source URLs and hashed production chunks, including recovery from a missing history chunk and preservation of recording cancellation when the optional glow chunk is unavailable.
+
+Lazy entries are fetched by `import()` rather than also being module-preloaded: WebKit can retain a failed modulepreload across document reloads and prevent recovery. Their dependencies and the HTML entry points retain preloading. Keep the failed-history-load/reload test in both browsers when changing Vite's preload configuration.
+
+Production pages receive the Content Security Policy from `tauri.conf.json` as an HTTP response header, and policy violations fail the test. This exercises the configured browser restrictions without relaxing the application policy; it does not reproduce Tauri's custom protocol or native IPC enforcement. Predicate waits use the automation evaluation API because Playwright's animation-frame polling invokes `eval`, which WebKit rejects under this policy. Development pages omit this header because Vite's development runtime has different requirements.
+
+An expected backend failure must be explicitly queued in the test and handled by the actual UI. Processing outputs are supplied fixtures: the harness does not reproduce Rust transcription, formatting or provider algorithms. A UI assertion about a mocked result proves how the frontend presents that result, not whether Rust can produce it.
 
 `app()` opens settings by default; `app("overlay")` and `app("tray")` open the other entry points. Open one window per test — the fixture refuses a second call, because Playwright accumulates init scripts and the second harness would lose its seed to the first. Initial state can be supplied through `config`, `models`, `history`, `keys`, `runtime` and `stats`. `queue` supplies one-shot command results, errors or held promises; `settle` completes a held command. `emit` waits for a live subscription before delivering an event, avoiding arbitrary UI sleeps.
 
@@ -61,7 +71,9 @@ The layout overflow check depends on font metrics, which differ between a develo
 
 The suite saves failure traces and screenshots under `test-results/`. The layout suite also saves screenshots on success for visual review; these are not approved pixel-diff baselines. Open an individual trace with `uv run --locked --project tests/ui playwright show-trace <path-to-trace.zip>`. Keep generated reports and screenshots out of commits.
 
-`.github/workflows/ui-tests.yml` runs Chromium and WebKit in parallel jobs on pull requests and supports manual dispatch. Each browser has a 15-minute limit and uploads its JUnit report and screenshots/traces in `ui-test-results-chromium` or `ui-test-results-webkit` for seven days. The aggregate `browser-ui` check passes only when both browser jobs succeed.
+`.github/workflows/ui-tests.yml` runs Chromium and WebKit against both production and development servers on pull requests and supports manual dispatch. Production Chromium uses the Windows build target; production WebKit uses the macOS target. Each browser/mode job has a 15-minute limit and uploads its JUnit report and screenshots/traces in `ui-test-results-<browser>-<mode>` for seven days. The aggregate `browser-ui` check passes only when all four jobs succeed.
+
+The release workflow also calls this suite on the resolved release-tag commit before packaging. A successful compilation alone cannot pass this gate, and a manual release retry cannot substitute tests of a different branch.
 
 Use a different `--output` directory for concurrent local runs because pytest-playwright cleans its output directory at session start.
 

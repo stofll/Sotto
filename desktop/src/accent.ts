@@ -1,4 +1,5 @@
 import { t } from "./i18n";
+import { parseRgb } from "./color";
 
 export const DEFAULT_ACCENT = "#e68a3d";
 
@@ -14,8 +15,10 @@ export const ACCENT_PRESETS = () => ([
 export type AccentValue = string;
 
 function channels(hex: string): [number, number, number] {
-  const match = hex.match(/^#(.{2})(.{2})(.{2})$/)!;
-  return [parseInt(match[1], 16), parseInt(match[2], 16), parseInt(match[3], 16)];
+  // Release CSS can shorten #ffffff to #fff.
+  const rgb = parseRgb(hex);
+  if (!rgb) throw new Error("Unsupported interface color");
+  return rgb;
 }
 function hex(channel: number): string {
   return Math.round(Math.min(255, Math.max(0, channel))).toString(16).padStart(2, "0");

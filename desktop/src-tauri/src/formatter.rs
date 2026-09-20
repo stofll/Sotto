@@ -1,15 +1,9 @@
-//! Local text post-processing pipeline (Phase 4 / Batch 2 / PR 2.2).
-//!
-//! A 1:1 Rust port of `transcription/text_formatter.py`. Each
-//! `FormatStep` has a stable Python counterpart (see the doc comment on
-//! each step); the parity tests in `tests/formatter_parity_test.rs`
-//! replay the Python test suite's fixtures against this module.
+//! Offline text cleanup shared by dictation, file transcription and preview.
 //!
 //! Pipeline
 //! ---------
 //!
-//! `Formatter::process` applies the steps in a fixed order (the same
-//! order the Python `TextFormatter` uses). Toggling a step off in the
+//! `Formatter::process` applies the steps in a fixed order. Toggling a step off in the
 //! config flips the corresponding `enabled` flag, but the order is
 //! preserved. The order matters — for example, hallucination cleanup
 //! must run BEFORE filler removal, otherwise a sign-off like
@@ -28,9 +22,12 @@
 //!   * `case_sensitive=false` → IGNORECASE
 //!   * `preserve_case=true` → keep all-uppercase / first-letter-uppercase
 //!
-//! `preview_format` is the Tauri command for the live Settings preview;
-//! `preview_replacements` is the Tauri command for the rule-list live
-//! preview. Both are sync (no I/O) so they can run inline.
+//! The preview helpers here are synchronous; their Tauri command wrappers
+//! live in `format_commands`. The async `preview_format` command runs the
+//! full pipeline in `spawn_blocking`, as dictation does, to keep lexicon
+//! initialization and spelling work off the UI thread. The rule-only
+//! `preview_replacements` command remains synchronous and does not use
+//! the spelling lexicon.
 
 use once_cell::sync::Lazy;
 use regex::Regex;
@@ -326,9 +323,6 @@ static SOUND_TAG: Lazy<Regex> = Lazy::new(|| {
 static MUSIC_NOTES: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"[♪♫]+(?:[^♪♫\n]*[♪♫]+)?").expect("valid music-note pattern"));
 
-static COMMA_BEFORE_CONJ: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"\s*,\s+(и|а|но|да|или)\s+").expect("valid comma-conj pattern"));
-
 static DOUBLE_COMMA: Lazy<Regex> = Lazy::new(|| Regex::new(r",\s*,").expect("valid double comma"));
 
 static LEADING_COMMA: Lazy<Regex> =
@@ -562,6 +556,15 @@ fn replacement_pattern(rule: &ReplacementRule) -> String {
     }
 }
 
+fn replacement_regex(rule: &ReplacementRule) -> Result<Regex, regex::Error> {
+    let source = replacement_pattern(rule);
+    if rule.case_sensitive {
+        Regex::new(&source)
+    } else {
+        Regex::new(&format!("(?i){source}"))
+    }
+}
+
 fn preserve_replacement_case(matched: &str, replacement: &str) -> String {
     if replacement.is_empty() {
         return replacement.to_string();
@@ -600,16 +603,7 @@ pub fn apply_replacement_rules(
 
     let mut current = text.to_string();
     for rule in rules.iter().filter(|r| r.enabled) {
-        let pattern_src = replacement_pattern(rule);
-        // Build the regex with the case-sensitive flag wired in.
-        // Rust's `regex` crate does not support inline `(?i)`, so we
-        // use the builder pattern. `(?-i)` resets case sensitivity
-        // in case the user's `find` regex embeds its own flag.
-        let pattern = match if rule.case_sensitive {
-            Regex::new(&pattern_src)
-        } else {
-            Regex::new(&format!("(?i){pattern_src}"))
-        } {
+        let pattern = match replacement_regex(rule) {
             Ok(pattern) => pattern,
             Err(error) => {
                 log::warn!(
@@ -704,7 +698,25 @@ fn expand_capture_references(template: &str, caps: &regex::Captures<'_>) -> Stri
 pub trait FormatStep {
     fn name(&self) -> &str;
     fn description(&self) -> &str;
-    fn apply(&self, text: &str) -> String;
+    fn apply_unprotected(&self, text: &str) -> String;
+    fn edits_protected_text(&self) -> bool {
+        false
+    }
+    fn permits_empty_output(&self) -> bool {
+        false
+    }
+    fn protected_spans(&self, text: &str) -> Vec<std::ops::Range<usize>> {
+        crate::text_protection::technical_spans(text)
+    }
+    fn apply(&self, text: &str) -> String {
+        if self.edits_protected_text() {
+            self.apply_unprotected(text)
+        } else {
+            crate::text_protection::apply(text, self.protected_spans(text), |s| {
+                self.apply_unprotected(s)
+            })
+        }
+    }
     fn enabled(&self) -> bool;
     fn set_enabled(&mut self, value: bool);
 }
@@ -815,7 +827,8 @@ fn strip_sound_tags(text: &str) -> String {
 ///
 /// Empty input is NOT a hallucination — the caller's own empty-text
 /// guard owns that case.
-pub fn is_pure_hallucination(text: &str) -> bool {
+#[cfg(test)]
+fn is_pure_hallucination(text: &str) -> bool {
     let stripped = strip_sound_tags(text);
     if text.trim().is_empty() {
         return false;
@@ -828,13 +841,21 @@ pub fn is_pure_hallucination(text: &str) -> bool {
 }
 
 impl FormatStep for HallucinationCleaner {
+    fn permits_empty_output(&self) -> bool {
+        true
+    }
+    fn protected_spans(&self, text: &str) -> Vec<std::ops::Range<usize>> {
+        // Strong signatures can contain a domain (Amara.org). Quoted code
+        // remains literal, but a domain must not hide a silence hallucination.
+        crate::text_protection::code_spans(text)
+    }
     fn name(&self) -> &str {
         "Remove hallucinations"
     }
     fn description(&self) -> &str {
         "субтитры, «спасибо за просмотр», [Music] и др. артефакты Whisper"
     }
-    fn apply(&self, text: &str) -> String {
+    fn apply_unprotected(&self, text: &str) -> String {
         if !self.enabled || text.is_empty() {
             return text.to_string();
         }
@@ -960,13 +981,27 @@ impl FormatStep for FillerWordsRemover {
     fn description(&self) -> &str {
         "э-э, ммм, а-а, uh, umm, hmm и подобные"
     }
-    fn apply(&self, text: &str) -> String {
+    fn apply_unprotected(&self, text: &str) -> String {
         if !self.enabled {
             return text.to_string();
         }
         let mut out = text.to_string();
         for pattern in &self.patterns {
-            out = pattern.replace_all(&out, "").into_owned();
+            out = pattern
+                .replace_all(&out, |caps: &regex::Captures| {
+                    let matched = caps.get(0).unwrap();
+                    let before = out[..matched.start()].chars().next_back();
+                    let after = out[matched.end()..].chars().next();
+                    if before == Some('-')
+                        || (matched.as_str().ends_with('-')
+                            && after.is_some_and(char::is_alphabetic))
+                    {
+                        matched.as_str().to_string()
+                    } else {
+                        String::new()
+                    }
+                })
+                .into_owned();
         }
         out = MULTI_SPACE.replace_all(&out, " ").into_owned();
         out.trim().to_string()
@@ -1060,8 +1095,8 @@ mod localized_preview_tests {
             "Пишите на first.last@example.com. Потом обсудим"
         );
         assert_eq!(
-            capitalizer.apply("hello.world?yes!fine"),
-            "Hello.World?Yes!Fine"
+            capitalizer.apply("hello. world?yes!fine"),
+            "Hello. World?Yes!Fine"
         );
         for (input, expected) in [
             ("контакт:name@example.com", "Контакт:name@example.com"),
@@ -1277,7 +1312,6 @@ fn fold_for_match(word: &str) -> String {
         .replace("zh", "Z")
         .replace("ph", "f")
         .replace("ck", "k")
-        .replace("th", "t")
         .replace("kh", "h")
         .replace("qu", "kv");
 
@@ -1486,7 +1520,15 @@ impl CustomWordsCorrector {
     fn best_match(&self, words: &[&str], start: usize) -> Option<(usize, &str)> {
         let limit = self.max_window().min(words.len() - start);
         let mut best: Option<(f64, usize, &str)> = None;
+        let mut ambiguous = false;
         for n in 1..=limit {
+            if n > 1
+                && words[start..start + n - 1]
+                    .iter()
+                    .any(|word| !trailing_punctuation(word).is_empty())
+            {
+                break;
+            }
             let folded: String = words[start..start + n]
                 .iter()
                 .map(|w| fold_for_match(w))
@@ -1494,7 +1536,27 @@ impl CustomWordsCorrector {
             if folded.chars().filter(|c| c.is_alphanumeric()).count() < CUSTOM_WORD_MIN_CHARS {
                 continue;
             }
+            let ordinary_russian = words[start..start + n].iter().all(|word| {
+                crate::spelling::known_russian_word(
+                    word.trim_matches(|c: char| !c.is_alphanumeric()),
+                )
+            });
             for (canonical, key) in &self.terms {
+                // A dictionary term is not permission to rewrite valid prose.
+                // Exact phonetic matches still restore transliterated terms.
+                if ordinary_russian && &folded != key {
+                    continue;
+                }
+                // A single edit in a short token can change the subject
+                // entirely (REST → Rust, «буст» → Rust). Acronyms explicitly
+                // supplied in capitals retain their existing matching budget.
+                let acronym = canonical.chars().all(|c| c.is_ascii_uppercase());
+                if folded != *key
+                    && folded.chars().count().min(key.chars().count()) <= 4
+                    && !acronym
+                {
+                    continue;
+                }
                 if !within_budget(&folded, key) {
                     continue;
                 }
@@ -1515,11 +1577,18 @@ impl CustomWordsCorrector {
                 // long, and an equal score must go to the long one.
                 match best {
                     Some((best_score, _, _)) if score < best_score => {}
-                    _ => best = Some((score, n, canonical.as_str())),
+                    Some((best_score, best_n, best_term)) if score == best_score && n == best_n => {
+                        ambiguous |= !canonical.eq_ignore_ascii_case(best_term);
+                    }
+                    _ => {
+                        best = Some((score, n, canonical.as_str()));
+                        ambiguous = false;
+                    }
                 }
             }
         }
-        best.map(|(_, n, canonical)| (n, canonical))
+        best.filter(|_| !ambiguous)
+            .map(|(_, n, canonical)| (n, canonical))
     }
 }
 
@@ -1592,7 +1661,7 @@ impl FormatStep for CustomWordsCorrector {
     fn description(&self) -> &str {
         "имена, термины и бренды из словаря пользователя"
     }
-    fn apply(&self, text: &str) -> String {
+    fn apply_unprotected(&self, text: &str) -> String {
         if !self.enabled || self.terms.is_empty() {
             return text.to_string();
         }
@@ -1681,7 +1750,7 @@ impl FormatStep for ParasiteWordsRemover {
     fn description(&self) -> &str {
         "ну, типа, как бы, в общем..."
     }
-    fn apply(&self, text: &str) -> String {
+    fn apply_unprotected(&self, text: &str) -> String {
         if !self.enabled {
             return text.to_string();
         }
@@ -1710,18 +1779,55 @@ impl FormatStep for ParasiteWordsRemover {
             // dictated in lower case at all. Without it the English set would
             // miss most of its own matches, and the Russian one still missed a
             // sentence-leading «Ну».
-            let pattern = format!(r"(?i)\b{}\b", regex::escape(word));
+            let pattern = format!(r"(?i)\b{}\b(?:[ \t]*,)?", regex::escape(word));
             if let Ok(re) = Regex::new(&pattern) {
-                out = re.replace_all(&out, "").into_owned();
+                out = re
+                    .replace_all(&out, |caps: &regex::Captures| {
+                        let matched = caps.get(0).unwrap();
+                        let before = out[..matched.start()].chars().next_back();
+                        let after = out[matched.end()..].chars().next();
+                        let prefix = out[..matched.start()].trim_end();
+                        let suffix = out[matched.end()..].trim_start();
+                        // Preserve comparative «короче» inside a clause and
+                        // the fixed expression «в общем и целом».
+                        let explicit_custom = self
+                            .custom_words
+                            .iter()
+                            .any(|custom| custom.eq_ignore_ascii_case(word));
+                        let meaningful = !explicit_custom
+                            && ((word == "короче"
+                                && !prefix.is_empty()
+                                && !prefix.ends_with(['.', '!', '?', '…'])
+                                && prefix
+                                    .rsplit(['.', '!', '?', '…'])
+                                    .next()
+                                    .is_none_or(|clause| clause.trim().to_lowercase() != "ну")
+                                && !(prefix.ends_with(',') && matched.as_str().ends_with(',')))
+                                || (word == "в общем"
+                                    && suffix
+                                        .split_whitespace()
+                                        .take(2)
+                                        .map(|s| {
+                                            s.trim_matches(|c: char| !c.is_alphabetic())
+                                                .to_lowercase()
+                                        })
+                                        .eq(["и", "целом"])));
+                        // A word boundary also occurs inside «чё-то» and «ну-ка».
+                        // Removing only one side would leave a dangling suffix.
+                        if meaningful
+                            || before.is_some_and(|c| matches!(c, '-' | '‑' | '–' | '\''))
+                            || after.is_some_and(|c| matches!(c, '-' | '‑' | '–' | '\''))
+                        {
+                            matched.as_str().to_string()
+                        } else {
+                            String::new()
+                        }
+                    })
+                    .into_owned();
             }
         }
         out = MULTI_SPACE.replace_all(&out, " ").into_owned();
         let out = SPACE_BEFORE_PUNCT.replace_all(&out, "$1").into_owned();
-        // Comma-punctuation dedup: `, ,` → `,`.
-        let out = Regex::new(r"([,.;:!?])\s*,")
-            .unwrap()
-            .replace_all(&out, "$1,")
-            .into_owned();
         out.trim().to_string()
     }
     fn enabled(&self) -> bool {
@@ -1749,7 +1855,7 @@ impl FormatStep for DuplicateWordsRemover {
     fn description(&self) -> &str {
         "я я хочу → я хочу"
     }
-    fn apply(&self, text: &str) -> String {
+    fn apply_unprotected(&self, text: &str) -> String {
         if !self.enabled {
             return text.to_string();
         }
@@ -1797,7 +1903,9 @@ fn dedupe_adjacent_words(text: &str) -> String {
     for (tok, is_word) in tokens {
         if is_word {
             let lowered = tok.to_lowercase();
-            if last_word.as_deref() == Some(lowered.as_str()) {
+            if last_word.as_deref() == Some(lowered.as_str())
+                && !matches!(lowered.as_str(), "чуть" | "еле" | "едва")
+            {
                 continue;
             }
             last_word = Some(lowered);
@@ -1837,7 +1945,7 @@ impl FormatStep for PhraseLoopCollapser {
     fn description(&self) -> &str {
         "я думаю что. я думаю что. → я думаю что."
     }
-    fn apply(&self, text: &str) -> String {
+    fn apply_unprotected(&self, text: &str) -> String {
         if !self.enabled {
             return text.to_string();
         }
@@ -2012,14 +2120,13 @@ impl FormatStep for CommaCleaner {
         "Clean commas"
     }
     fn description(&self) -> &str {
-        "убрать лишние запятые перед и/а/но"
+        "убрать двойные запятые и запятую в начале текста"
     }
-    fn apply(&self, text: &str) -> String {
+    fn apply_unprotected(&self, text: &str) -> String {
         if !self.enabled {
             return text.to_string();
         }
         let mut out = text.to_string();
-        out = COMMA_BEFORE_CONJ.replace_all(&out, " $1 ").into_owned();
         out = DOUBLE_COMMA.replace_all(&out, ",").into_owned();
         out = LEADING_COMMA.replace_all(&out, "").into_owned();
         out
@@ -2049,13 +2156,13 @@ impl FormatStep for SpaceNormalizer {
     fn description(&self) -> &str {
         "двойные пробелы, пробелы перед знаками"
     }
-    fn apply(&self, text: &str) -> String {
+    fn apply_unprotected(&self, text: &str) -> String {
         if !self.enabled {
             return text.to_string();
         }
         let mut out = MULTI_SPACE.replace_all(text, " ").into_owned();
         out = SPACE_BEFORE_PUNCT.replace_all(&out, "$1").into_owned();
-        out.trim().to_string()
+        restore_sentence_spaces(out.trim())
     }
     fn enabled(&self) -> bool {
         self.enabled
@@ -2063,6 +2170,34 @@ impl FormatStep for SpaceNormalizer {
     fn set_enabled(&mut self, value: bool) {
         self.enabled = value;
     }
+}
+
+fn restore_sentence_spaces(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for part in text.split_inclusive(char::is_whitespace) {
+        let chars: Vec<char> = part.chars().collect();
+        for (i, &ch) in chars.iter().enumerate() {
+            out.push(ch);
+            let Some(&next) = chars.get(i + 1) else {
+                continue;
+            };
+            let previous = i.checked_sub(1).and_then(|j| chars.get(j));
+            let cyrillic = |c: char| matches!(c, 'а'..='я' | 'А'..='Я' | 'ё' | 'Ё');
+            if previous.is_some_and(|&c| cyrillic(c))
+                && cyrillic(next)
+                && (matches!(ch, ',' | ';' | '!' | '?') || (ch == '.' && next.is_uppercase()))
+            {
+                // Initials are not sentence endings.
+                let initial = ch == '.'
+                    && previous.is_some_and(|c| c.is_uppercase())
+                    && (i == 1 || chars.get(i - 2) == Some(&'.'));
+                if !initial {
+                    out.push(' ');
+                }
+            }
+        }
+    }
+    out
 }
 
 pub struct SentenceSplitter {
@@ -2082,7 +2217,7 @@ impl FormatStep for SentenceSplitter {
     fn description(&self) -> &str {
         "разбивать длинные предложения"
     }
-    fn apply(&self, text: &str) -> String {
+    fn apply_unprotected(&self, text: &str) -> String {
         if !self.enabled {
             return text.to_string();
         }
@@ -2126,13 +2261,19 @@ impl ContextReplacements {
 }
 
 impl FormatStep for ContextReplacements {
+    fn permits_empty_output(&self) -> bool {
+        true
+    }
+    fn edits_protected_text(&self) -> bool {
+        true
+    }
     fn name(&self) -> &str {
         "Text replacements"
     }
     fn description(&self) -> &str {
         "замена слов из списка"
     }
-    fn apply(&self, text: &str) -> String {
+    fn apply_unprotected(&self, text: &str) -> String {
         if !self.enabled || self.rules.is_empty() {
             return text.to_string();
         }
@@ -2162,12 +2303,6 @@ impl FormatStep for ContextReplacements {
     }
 }
 
-// Protect ordinary email addresses, excluding surrounding prose punctuation.
-static EMAIL_ADDRESS: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"[\p{L}\p{N}_%+\-]+(?:\.[\p{L}\p{N}_%+\-]+)*@[\p{L}\p{N}](?:[\p{L}\p{N}\-]*[\p{L}\p{N}])?(?:\.[\p{L}\p{N}](?:[\p{L}\p{N}\-]*[\p{L}\p{N}])?)*")
-        .expect("valid email pattern")
-});
-
 pub struct Capitalizer {
     enabled: bool,
 }
@@ -2185,35 +2320,22 @@ impl FormatStep for Capitalizer {
     fn description(&self) -> &str {
         "заглавные в начале предложений"
     }
-    fn apply(&self, text: &str) -> String {
+    fn apply_unprotected(&self, text: &str) -> String {
         if !self.enabled {
             return text.to_string();
         }
         let mut out = String::with_capacity(text.len());
         let mut capitalize_next = true;
-        let mut cursor = 0;
-        for (start, end) in EMAIL_ADDRESS
-            .find_iter(text)
-            .map(|address| (address.start(), address.end()))
-            .chain(std::iter::once((text.len(), text.len())))
-        {
-            for ch in text[cursor..start].chars() {
-                if capitalize_next && ch.is_alphabetic() {
-                    out.extend(ch.to_uppercase());
-                    capitalize_next = false;
-                } else {
-                    out.push(ch);
-                }
-                if matches!(ch, '.' | '!' | '?') {
-                    capitalize_next = true;
-                }
-            }
-            if end > start {
-                // Address case and internal dots are data, not sentence boundaries.
-                out.push_str(&text[start..end]);
+        for ch in text.chars() {
+            if capitalize_next && ch.is_alphabetic() {
+                out.extend(ch.to_uppercase());
                 capitalize_next = false;
+            } else {
+                out.push(ch);
             }
-            cursor = end;
+            if matches!(ch, '.' | '!' | '?') {
+                capitalize_next = true;
+            }
         }
         out
     }
@@ -2236,14 +2358,24 @@ impl PunctuationFinalizer {
 }
 
 impl FormatStep for PunctuationFinalizer {
+    fn protected_spans(&self, _text: &str) -> Vec<std::ops::Range<usize>> {
+        // This step only appends punctuation and needs to see the actual ending.
+        Vec::new()
+    }
     fn name(&self) -> &str {
         "Final punctuation"
     }
     fn description(&self) -> &str {
         "точка в конце если нет знаков"
     }
-    fn apply(&self, text: &str) -> String {
+    fn apply_unprotected(&self, text: &str) -> String {
         if !self.enabled || text.is_empty() {
+            return text.to_string();
+        }
+        if crate::text_protection::code_spans(text)
+            .last()
+            .is_some_and(|span| span.end == text.len())
+        {
             return text.to_string();
         }
         let last = text.chars().last().unwrap();
@@ -2299,6 +2431,8 @@ pub struct TextFormattingConfig {
     pub clean_commas: bool,
     #[serde(default = "default_true")]
     pub normalize_spaces: bool,
+    #[serde(default = "default_true")]
+    pub correct_spelling: bool,
     #[serde(default)]
     pub split_sentences: bool,
     /// Identifiers of the enabled ready-made sets ([`DICTIONARY_PRESETS`]).
@@ -2385,6 +2519,7 @@ impl Default for TextFormattingConfig {
             collapse_phrase_loops: true,
             clean_commas: true,
             normalize_spaces: true,
+            correct_spelling: true,
             // Off by default: sentence splitting rewrites the user's
             // phrasing, which is a bigger intervention than the cleanup
             // steps above.
@@ -2425,6 +2560,7 @@ pub struct FormatterConfig {
 pub struct Formatter {
     enabled: bool,
     steps: Vec<Box<dyn FormatStep>>,
+    replacement_protection: Vec<Regex>,
 }
 
 impl Formatter {
@@ -2445,6 +2581,13 @@ impl Formatter {
             })))
         };
         let replacements_enabled = !rules.is_empty() && !config.replacements_paused;
+        let words = fmt.effective_custom_words();
+        let spelling_terms = words.clone();
+        let replacement_protection = rules
+            .iter()
+            .filter(|rule| replacements_enabled && rule.enabled)
+            .filter_map(|rule| replacement_regex(rule).ok())
+            .collect();
 
         let steps: Vec<Box<dyn FormatStep>> = vec![
             Box::new(HallucinationCleaner::new(fmt.remove_hallucinations)),
@@ -2469,10 +2612,12 @@ impl Formatter {
             // spaces rather than on random clumps. And before the replacement
             // rules: a user rule must see the already-corrected term rather than
             // what the engine thought it heard.
-            Box::new({
-                let words = fmt.effective_custom_words();
-                CustomWordsCorrector::new(!words.is_empty(), words)
-            }),
+            Box::new(CustomWordsCorrector::new(!words.is_empty(), words)),
+            Box::new(crate::spelling::RussianSpellingCorrector::new(
+                fmt.correct_spelling,
+                config.language.as_deref(),
+                &spelling_terms,
+            )),
             Box::new(SentenceSplitter::new(fmt.split_sentences)),
             Box::new(ContextReplacements::new(replacements_enabled, rules)),
             Box::new(Capitalizer::new(fmt.capitalize_sentences)),
@@ -2481,6 +2626,7 @@ impl Formatter {
         Self {
             enabled: fmt.enabled,
             steps,
+            replacement_protection,
         }
     }
 
@@ -2488,6 +2634,10 @@ impl Formatter {
     /// input (Python parity for `TextFormatter.process` when
     /// `text_formatting.enabled = False`).
     pub fn process(&self, text: &str) -> String {
+        self.process_inner(text, false)
+    }
+
+    fn process_inner(&self, text: &str, restore_accidental_empty: bool) -> String {
         if !self.enabled {
             return text.trim().to_string();
         }
@@ -2495,12 +2645,34 @@ impl Formatter {
         if current.is_empty() {
             return current;
         }
+        let mut before_replacements = true;
         for step in &self.steps {
             if step.enabled() {
-                current = step.apply(&current);
+                let had_text = !current.trim().is_empty();
+                if step.edits_protected_text() {
+                    current = step.apply(&current);
+                    before_replacements = false;
+                } else {
+                    let mut spans = step.protected_spans(&current);
+                    if before_replacements {
+                        for pattern in &self.replacement_protection {
+                            spans.extend(pattern.find_iter(&current).map(|m| m.range()));
+                        }
+                    }
+                    current = crate::text_protection::apply(&current, spans, |s| {
+                        step.apply_unprotected(s)
+                    });
+                }
+                if had_text && current.trim().is_empty() && step.permits_empty_output() {
+                    return String::new();
+                }
             }
         }
-        current
+        if restore_accidental_empty && current.trim().is_empty() {
+            text.trim().to_string()
+        } else {
+            current
+        }
     }
 }
 
@@ -2546,13 +2718,23 @@ pub fn normalize_replacement_rules_value(value: Value) -> Value {
 
 /// Run the full text-formatting pipeline on `text`, building the
 /// `Formatter` from a whole-config JSON `Value`. `unwrap_or_default` so a
-/// malformed/partial config degrades to a disabled formatter (which just
-/// trims) rather than erroring. Shared by the live dictation path
+/// malformed config falls back to defaults rather than erroring; partial
+/// configs use the per-field defaults. Shared by the live dictation path
 /// (`post_process_transcription` in lib.rs) and the Settings `preview_format`
 /// command so the two can never diverge on how the formatter is built.
 pub fn format_with_config_value(config: &Value, text: &str) -> String {
+    formatter_from_value(config).process(text)
+}
+
+fn formatter_from_value(config: &Value) -> Formatter {
     let fmt_cfg: FormatterConfig = serde_json::from_value(config.clone()).unwrap_or_default();
-    Formatter::from_config(&fmt_cfg).process(text)
+    Formatter::from_config(&fmt_cfg)
+}
+
+/// Dictation/file delivery keeps the raw text if incidental cleanup erased it.
+/// Silence hallucinations and explicit deletion rules deliberately stay empty.
+pub fn format_transcription_with_config_value(config: &Value, text: &str) -> String {
+    formatter_from_value(config).process_inner(text, true)
 }
 
 /// Run the full text-formatting pipeline on `text` using the given
@@ -2630,6 +2812,7 @@ mod tests {
                 collapse_phrase_loops: true,
                 clean_commas: true,
                 normalize_spaces: true,
+                correct_spelling: true,
                 split_sentences: false,
                 capitalize_sentences: true,
                 final_punctuation: true,
@@ -2644,6 +2827,156 @@ mod tests {
             replacement_rules: Vec::new(),
             replacements_paused: false,
         }
+    }
+
+    #[test]
+    fn local_cleanup_preserves_prose_and_repairs_only_unambiguous_errors() {
+        let mut config = default_fmt();
+        config.text_formatting.enabled_presets = vec!["development".into()];
+        let formatter = Formatter::from_config(&config);
+        for (input, expected) in [
+            (
+                "заголовок редактора готов, но стал меньше",
+                "Заголовок редактора готов, но стал меньше.",
+            ),
+            (
+                "можно стать лучше, а не хуже",
+                "Можно стать лучше, а не хуже.",
+            ),
+            ("это работает? Ну, продолжим", "Это работает? Продолжим."),
+            (
+                "трудно описать. Ну, попробуем",
+                "Трудно описать. Попробуем.",
+            ),
+            ("чё-то изменилось", "Чё-то изменилось."),
+            (
+                "нажали.Затем проверили,кажется всё готово",
+                "Нажали. Затем проверили, кажется всё готово.",
+            ),
+            ("по итогуу нужна проверкка", "По итогу нужна проверка."),
+            (
+                "передай какомуто человеку компьюетр",
+                "Передай какому-то человеку компьютер.",
+            ),
+        ] {
+            assert_eq!(formatter.process(input), expected, "input: {input}");
+            assert_eq!(
+                formatter.process(expected),
+                expected,
+                "must be stable: {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn new_spelling_option_works_in_live_and_preview_configs() {
+        let mut config = serde_json::json!({"language": "ru"});
+        let input = "по итогуу";
+        assert_eq!(format_with_config_value(&config, input), "По итогу.");
+        assert_eq!(
+            preview_format(input, &config).unwrap().formatted,
+            "По итогу."
+        );
+        config["text_formatting"] = serde_json::json!({"correct_spelling": false});
+        assert_eq!(format_with_config_value(&config, input), "По итогуу.");
+        config["text_formatting"] = serde_json::json!({"enabled": false});
+        assert_eq!(format_with_config_value(&config, input), input);
+    }
+
+    #[test]
+    fn local_cleanup_preserves_comparisons_and_fixed_expressions() {
+        let formatter = Formatter::from_config(&default_fmt());
+        for (input, expected) in [
+            (
+                "после правок текст стал короче",
+                "После правок текст стал короче.",
+            ),
+            ("в общем и целом всё готово", "В общем и целом всё готово."),
+            ("чуть чуть поправь текст", "Чуть чуть поправь текст."),
+            ("еле еле успели", "Еле еле успели."),
+            ("короче, надо решать", "Надо решать."),
+            ("ну короче надо решать", "Надо решать."),
+            ("Ну короче надо решать", "Надо решать."),
+            ("проверь пример.рф", "Проверь пример.рф."),
+            ("готово.затем проверили", "готово.затем проверили."),
+        ] {
+            assert_eq!(formatter.process(input), expected);
+            assert_eq!(formatter.process(expected), expected);
+        }
+    }
+
+    #[test]
+    fn spelling_preserves_explicit_replacement_triggers_and_output_spacing() {
+        let mut config = default_fmt();
+        config.replacement_rules = vec![word_rule("итогуу", "конец  проверки")];
+        assert_eq!(
+            Formatter::from_config(&config).process("итогуу"),
+            "Конец  проверки."
+        );
+    }
+
+    #[test]
+    fn cleanup_keeps_conjunctions_compounds_and_technical_punctuation() {
+        let cleaner = CommaCleaner::new(true);
+        for text in [
+            "лучше, но медленнее",
+            "не слева, а справа",
+            "он ушёл, и дверь закрылась",
+        ] {
+            assert_eq!(cleaner.apply(text), text);
+        }
+        let normalizer = SpaceNormalizer::new(true);
+        for text in [
+            "Cargo.toml 3.14 https://example.com/a?b=1",
+            "А.Б.В. пример.рф",
+            "путь/файл.Название",
+            "`тест,пример`",
+        ] {
+            assert_eq!(normalizer.apply(text), text);
+        }
+        assert_eq!(
+            SpaceNormalizer::new(false).apply("готово.Затем"),
+            "готово.Затем"
+        );
+        assert_eq!(
+            FillerWordsRemover::new(true, Some("ru")).apply("будетээ-э подсказка"),
+            "будетээ-э подсказка"
+        );
+    }
+
+    #[test]
+    #[ignore = "needs SOTTO_CORPUS, SOTTO_FORMAT_CONFIG and SOTTO_FORMATTED outside the repository"]
+    fn format_over_corpus() {
+        use std::io::Write;
+        let config: Value = serde_json::from_str(
+            &std::fs::read_to_string(
+                std::env::var("SOTTO_FORMAT_CONFIG").expect("SOTTO_FORMAT_CONFIG"),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let corpus =
+            std::fs::read_to_string(std::env::var("SOTTO_CORPUS").expect("SOTTO_CORPUS")).unwrap();
+        let mut output = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(std::env::var("SOTTO_FORMATTED").expect("SOTTO_FORMATTED"))
+            .unwrap();
+        let mut timings = Vec::new();
+        for line in corpus.lines() {
+            let started = std::time::Instant::now();
+            let formatted = format_with_config_value(&config, line);
+            timings.push(started.elapsed().as_secs_f64() * 1000.0);
+            writeln!(output, "{}", serde_json::to_string(&formatted).unwrap()).unwrap();
+        }
+        let first = timings.first().copied().unwrap_or_default();
+        timings.sort_by(f64::total_cmp);
+        eprintln!(
+            "{} entries; first={first:.1} ms; median={:.1} ms; max={:.1} ms",
+            timings.len(),
+            timings[timings.len() / 2],
+            timings.last().unwrap()
+        );
     }
 
     // ----- Phrase-loop collapsing -----
@@ -3623,7 +3956,8 @@ mod custom_words_tests {
     #[test]
     fn a_long_identifier_survives_several_errors() {
         assert_eq!(fix("В структуре тлок лежит"), "В structured_log лежит");
-        assert_eq!(fix("В структуре лог лежит"), "В structured_log лежит");
+        // Both words are valid Russian: a fuzzy term must not override them.
+        assert_eq!(fix("В структуре лог лежит"), "В структуре лог лежит");
     }
 
     /// A file name with a dot: the engines hear it as two words or as one, and
@@ -3810,6 +4144,27 @@ mod custom_words_tests {
         assert_eq!(corrector.apply("открой пул реквест"), "открой pull request");
         assert_eq!(corrector.apply("поправь карга томол"), "поправь Cargo.toml");
         assert_eq!(corrector.apply("прогони клипи"), "прогони clippy");
+    }
+
+    #[test]
+    fn short_unrelated_terms_and_ambiguous_brands_are_preserved() {
+        let corrector = CustomWordsCorrector::new(true, preset("development"));
+        for input in [
+            "получили буст",
+            "Rest Asuret",
+            "скли запрос",
+            "гитхаб",
+            "Githabe",
+        ] {
+            assert_eq!(corrector.apply(input), input);
+        }
+        for terms in [["GitHub", "GitLab"], ["GitLab", "GitHub"]] {
+            assert_eq!(correct(&terms, "гитхаб"), "гитхаб");
+            assert_eq!(correct(&terms, "GitHub"), "GitHub");
+            assert_eq!(correct(&terms, "GitLab"), "GitLab");
+        }
+        assert_eq!(corrector.apply("код на Rust"), "код на Rust");
+        assert_eq!(corrector.apply("гитлаб"), "GitLab");
     }
 
     // ── Enabling and disabling sets ─────────────────────────────────────
@@ -4190,11 +4545,11 @@ mod custom_words_tests {
     /// also shown that an enabled step changes the same text.
     #[test]
     fn comma_cleaner_runs_only_when_enabled() {
-        let input = "раз, и два";
+        let input = "раз,, и два";
         assert_eq!(
             CommaCleaner::new(true).apply(input),
-            "раз и два",
-            "an enabled step removes the comma before the conjunction"
+            "раз, и два",
+            "an enabled step collapses duplicate commas"
         );
         assert_eq!(
             CommaCleaner::new(false).apply(input),

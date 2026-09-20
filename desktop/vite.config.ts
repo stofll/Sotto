@@ -15,6 +15,14 @@ export default defineConfig(async () => ({
     target: process.env.TAURI_PLATFORM === "windows" ? "chrome105" : "es2022",
     minify: !process.env.TAURI_DEBUG ? "esbuild" : false,
     sourcemap: !!process.env.TAURI_DEBUG,
+    modulePreload: {
+      // WebKit retains a failed modulepreload across reloads. Let import()
+      // fetch the lazy entry itself so Reload can retry; still preload its
+      // dependencies and every HTML entry's startup graph.
+      resolveDependencies: (file, dependencies, context) => context.hostType === "js"
+        ? dependencies.filter((dependency) => dependency !== file)
+        : dependencies,
+    },
     // Three application windows — three entry points. One bundle used to serve
     // all three, and the overlay pill dragged in the entire settings screen:
     // 535 KB for a window that shows a single line of text. Splitting by entry

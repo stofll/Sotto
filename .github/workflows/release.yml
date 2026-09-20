@@ -50,9 +50,15 @@ jobs:
           fi
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
+  browser-ui:
+    needs: resolve
+    uses: ./.github/workflows/ui-tests.yml
+    with:
+      ref: ${{ needs.resolve.outputs.sha }}
+
   release:
     name: Собрать и подписать
-    needs: resolve
+    needs: [resolve, browser-ui]
     permissions:
       # tauri-action создаёт черновик релиза и заливает в него артефакты.
       contents: write

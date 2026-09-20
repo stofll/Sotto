@@ -80,6 +80,7 @@ function HistoryPageLoader() {
   return <div className="loading-state" role={failed ? "alert" : "status"}>
     {failed ? <div>
       <p>{t("Не удалось открыть историю.")}</p>
+      <p>{t("Если перезагрузка не помогла, полностью закройте Sotto и запустите снова.")}</p>
       <button type="button" className="btn btn--ghost" onClick={() => window.location.reload()}>
         {t("Перезагрузить")}
       </button>

@@ -7,7 +7,7 @@ Use the same platform you intend to test on. Native audio, window, and bundle be
 Common to all platforms:
 
 - **Rust** stable toolchain — <https://rustup.rs>. The version is pinned by `rust-toolchain.toml` at the repository root.
-- **Node.js** LTS (20+) and **pnpm** (`npm i -g pnpm` or via Corepack)
+- **Node.js** from [`.node-version`](../.node-version) and **pnpm** from the `packageManager` field in [`desktop/package.json`](../desktop/package.json).
 - **CMake** — required by the `whisper-rs-sys` build script
 - **LLVM / libclang** — required by `bindgen` (set `LIBCLANG_PATH`)
 

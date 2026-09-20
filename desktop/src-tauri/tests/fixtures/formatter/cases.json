@@ -1,0 +1,594 @@
+[
+  {
+    "id": "repeated-letter",
+    "category": "correction",
+    "input": "по итогуу нужна проверкка",
+    "expected": "По итогу нужна проверка."
+  },
+  {
+    "id": "transposition",
+    "category": "correction",
+    "input": "нужен компьюетр",
+    "expected": "Нужен компьютер."
+  },
+  {
+    "id": "indefinite-pronoun",
+    "category": "correction",
+    "input": "передай какомуто человеку",
+    "expected": "Передай какому-то человеку."
+  },
+  {
+    "id": "unknown-jargon",
+    "category": "preservation",
+    "input": "мержить чекбокс сотто",
+    "expected": "Мержить чекбокс сотто."
+  },
+  {
+    "id": "capitalized-name",
+    "category": "preservation",
+    "input": "ник Итогуу",
+    "expected": "Ник Итогуу."
+  },
+  {
+    "id": "ambiguous-word",
+    "category": "preservation",
+    "input": "нужно имееть доступ",
+    "expected": "Нужно имееть доступ."
+  },
+  {
+    "id": "comparative",
+    "category": "preservation",
+    "input": "описание стало короче",
+    "expected": "Описание стало короче."
+  },
+  {
+    "id": "fixed-expression",
+    "category": "preservation",
+    "input": "в общем и целом всё готово",
+    "expected": "В общем и целом всё готово."
+  },
+  {
+    "id": "lexical-repetition",
+    "category": "preservation",
+    "input": "чуть чуть и еле еле",
+    "expected": "Чуть чуть и еле еле."
+  },
+  {
+    "id": "conjunction-comma",
+    "category": "punctuation",
+    "input": "быстрее, но дороже",
+    "expected": "Быстрее, но дороже."
+  },
+  {
+    "id": "missing-space",
+    "category": "punctuation",
+    "input": "готово.Затем проверили,кажется всё",
+    "expected": "Готово. Затем проверили, кажется всё."
+  },
+  {
+    "id": "duplicate-comma",
+    "category": "punctuation",
+    "input": "кажется,, готово",
+    "expected": "Кажется, готово."
+  },
+  {
+    "id": "code-words",
+    "category": "protected-code",
+    "input": "пример: `ну по итогуу текст,пример`",
+    "expected": "Пример: `ну по итогуу текст,пример`"
+  },
+  {
+    "id": "nested-backtick",
+    "category": "protected-code",
+    "input": "пример: ``текст ` итогуу проверкка`` после итогуу",
+    "expected": "Пример: ``текст ` итогуу проверкка`` после итогу."
+  },
+  {
+    "id": "multiline-fence",
+    "category": "protected-code",
+    "input": "пример:\n```rs\nну  итогуу,пример\n```\nпо итогуу",
+    "expected": "Пример:\n```rs\nну  итогуу,пример\n```\nпо итогу."
+  },
+  {
+    "id": "longer-closing-fence",
+    "category": "protected-code",
+    "input": "```\nитогуу ` текст\n````\nпо итогуу",
+    "expected": "```\nитогуу ` текст\n````\nпо итогу."
+  },
+  {
+    "id": "unclosed-code",
+    "category": "protected-code",
+    "input": "пример: `ну итогуу",
+    "expected": "Пример: `ну итогуу",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "final_punctuation": false
+      }
+    }
+  },
+  {
+    "id": "distinct-code-repeats",
+    "category": "protected-code",
+    "input": "пример `итогуу` `итогуу`",
+    "expected": "Пример `итогуу` `итогуу`"
+  },
+  {
+    "id": "url",
+    "category": "protected-token",
+    "input": "открой https://example.com/path?word=итогуу",
+    "expected": "Открой https://example.com/path?word=итогуу."
+  },
+  {
+    "id": "email",
+    "category": "protected-token",
+    "input": "пиши first.last@example.com. потом проверим",
+    "expected": "Пиши first.last@example.com. Потом проверим."
+  },
+  {
+    "id": "windows-path",
+    "category": "protected-token",
+    "input": "открой C:\\данные\\итогуу.txt",
+    "expected": "Открой C:\\данные\\итогуу.txt."
+  },
+  {
+    "id": "unix-path",
+    "category": "protected-token",
+    "input": "открой /данные/итогуу.txt",
+    "expected": "Открой /данные/итогуу.txt."
+  },
+  {
+    "id": "filename",
+    "category": "protected-token",
+    "input": "открой Cargo.toml",
+    "expected": "Открой Cargo.toml."
+  },
+  {
+    "id": "cyrillic-domain",
+    "category": "protected-token",
+    "input": "открой пример.рф",
+    "expected": "Открой пример.рф."
+  },
+  {
+    "id": "identifier",
+    "category": "protected-token",
+    "input": "поле итогуу_проверки",
+    "expected": "Поле итогуу_проверки."
+  },
+  {
+    "id": "rule-phrase-punctuation",
+    "category": "replacement",
+    "input": "итогуу, готово",
+    "expected": "Готовый результат.",
+    "config": {
+      "language": "ru",
+      "replacement_rules": [
+        {
+          "find": "итогуу, готово",
+          "replace": "готовый результат",
+          "match": "phrase"
+        }
+      ]
+    }
+  },
+  {
+    "id": "rule-regex",
+    "category": "replacement",
+    "input": "по итогуу",
+    "expected": "По результату.",
+    "config": {
+      "language": "ru",
+      "replacement_rules": [
+        {
+          "find": "итогуу\\b",
+          "replace": "результату",
+          "match": "regex"
+        }
+      ]
+    }
+  },
+  {
+    "id": "rule-regex-capture",
+    "category": "replacement",
+    "input": "итогуу проверки",
+    "expected": "Результат проверки.",
+    "config": {
+      "language": "ru",
+      "replacement_rules": [
+        {
+          "find": "итогуу (проверки)",
+          "replace": "результат $1",
+          "match": "regex"
+        }
+      ]
+    }
+  },
+  {
+    "id": "rule-contains",
+    "category": "replacement",
+    "input": "итогуу",
+    "expected": "Результату.",
+    "config": {
+      "language": "ru",
+      "replacement_rules": [
+        {
+          "find": "итогу",
+          "replace": "результат",
+          "match": "contains"
+        }
+      ]
+    }
+  },
+  {
+    "id": "rule-overrides-cleanup",
+    "category": "replacement",
+    "input": "ну итогуу",
+    "expected": "Готово.",
+    "config": {
+      "language": "ru",
+      "replacement_rules": [
+        {
+          "find": "ну итогуу",
+          "replace": "готово",
+          "match": "phrase"
+        }
+      ]
+    }
+  },
+  {
+    "id": "rule-overrides-term",
+    "category": "replacement",
+    "input": "открой гитлаб",
+    "expected": "Открой репозиторий.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development"
+        ]
+      },
+      "replacement_rules": [
+        {
+          "find": "гитлаб",
+          "replace": "репозиторий",
+          "match": "word"
+        }
+      ]
+    }
+  },
+  {
+    "id": "explicit-code-replacement",
+    "category": "replacement",
+    "input": "код `итогуу`",
+    "expected": "Код `результат`",
+    "config": {
+      "language": "ru",
+      "replacement_rules": [
+        {
+          "find": "итогуу",
+          "replace": "результат",
+          "match": "word"
+        }
+      ]
+    }
+  },
+  {
+    "id": "rule-disabled",
+    "category": "replacement",
+    "input": "по итогуу",
+    "expected": "По итогу.",
+    "config": {
+      "language": "ru",
+      "replacement_rules": [
+        {
+          "find": "итогуу",
+          "replace": "результату",
+          "enabled": false
+        }
+      ]
+    }
+  },
+  {
+    "id": "rules-paused",
+    "category": "replacement",
+    "input": "по итогуу",
+    "expected": "По итогу.",
+    "config": {
+      "language": "ru",
+      "replacements_paused": true,
+      "replacement_rules": [
+        {
+          "find": "итогуу",
+          "replace": "результату"
+        }
+      ]
+    }
+  },
+  {
+    "id": "rule-case-sensitive",
+    "category": "replacement",
+    "input": "по итогуу",
+    "expected": "По итогу.",
+    "config": {
+      "language": "ru",
+      "replacement_rules": [
+        {
+          "find": "ИТОГУУ",
+          "replace": "результату",
+          "case_sensitive": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "rule-invalid-regex",
+    "category": "replacement",
+    "input": "по итогуу",
+    "expected": "По итогу.",
+    "config": {
+      "language": "ru",
+      "replacement_rules": [
+        {
+          "find": "[",
+          "replace": "результату",
+          "match": "regex"
+        }
+      ]
+    }
+  },
+  {
+    "id": "rule-keeps-output-spacing",
+    "category": "replacement",
+    "input": "итогуу",
+    "expected": "Конец  проверки.",
+    "config": {
+      "language": "ru",
+      "replacement_rules": [
+        {
+          "find": "итогуу",
+          "replace": "конец  проверки"
+        }
+      ]
+    },
+    "idempotent": false
+  },
+  {
+    "id": "custom-vocabulary",
+    "category": "dictionary",
+    "input": "ник проверкка",
+    "expected": "Ник проверкка.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "custom_words": [
+          "проверкка"
+        ]
+      }
+    }
+  },
+  {
+    "id": "short-terms",
+    "category": "dictionary",
+    "input": "Rest буст сотто",
+    "expected": "Rest буст сотто.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development"
+        ]
+      }
+    }
+  },
+  {
+    "id": "ambiguous-brands",
+    "category": "dictionary",
+    "input": "гитхаб и гитлаб",
+    "expected": "Гитхаб и GitLab.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "custom_words": [
+          "GitHub",
+          "GitLab"
+        ]
+      }
+    }
+  },
+  {
+    "id": "dictionary-order",
+    "category": "dictionary",
+    "input": "гитхаб и гитлаб",
+    "expected": "Гитхаб и GitLab.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "custom_words": [
+          "GitLab",
+          "GitHub"
+        ]
+      }
+    }
+  },
+  {
+    "id": "spelling-disabled",
+    "category": "settings",
+    "input": "по итогуу",
+    "expected": "По итогуу.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "correct_spelling": false
+      }
+    }
+  },
+  {
+    "id": "formatting-disabled",
+    "category": "settings",
+    "input": "ну итогуу,пример",
+    "expected": "ну итогуу,пример",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled": false
+      }
+    }
+  },
+  {
+    "id": "auto-language",
+    "category": "language",
+    "input": "по итогуу",
+    "expected": "По итогуу.",
+    "config": {
+      "language": "auto"
+    }
+  },
+  {
+    "id": "foreign-language",
+    "category": "language",
+    "input": "по итогуу",
+    "expected": "По итогуу.",
+    "config": {
+      "language": "uk"
+    }
+  },
+  {
+    "id": "german-pronoun",
+    "category": "language",
+    "input": "Er kommt um acht",
+    "expected": "Er kommt um acht.",
+    "config": {
+      "language": "de"
+    }
+  },
+  {
+    "id": "english-fillers",
+    "category": "language",
+    "input": "Um, this works",
+    "expected": "This works.",
+    "config": {
+      "language": "en"
+    }
+  },
+  {
+    "id": "empty",
+    "category": "boundary",
+    "input": "",
+    "expected": ""
+  },
+  {
+    "id": "silence-filler",
+    "category": "boundary",
+    "input": "эээ",
+    "expected": "",
+    "transcription_expected": "эээ"
+  },
+  {
+    "id": "protected-hallucination-code",
+    "category": "delivery",
+    "input": "`Amara.org`",
+    "expected": "`Amara.org`"
+  },
+  {
+    "id": "pure-hallucination",
+    "category": "delivery",
+    "input": "Subtitles by the Amara.org community",
+    "expected": ""
+  },
+  {
+    "id": "replacement-before-silence-filter",
+    "category": "delivery",
+    "input": "Thank you",
+    "expected": "Благодарю.",
+    "config": {
+      "language": "ru",
+      "replacement_rules": [
+        {
+          "find": "Thank you",
+          "replace": "благодарю",
+          "match": "phrase"
+        }
+      ]
+    }
+  },
+  {
+    "id": "explicit-delete",
+    "category": "delivery",
+    "input": "убрать целиком",
+    "expected": "",
+    "config": {
+      "language": "ru",
+      "replacement_rules": [
+        {
+          "find": "убрать целиком",
+          "replace": "",
+          "match": "phrase"
+        }
+      ]
+    }
+  },
+  {
+    "id": "hallucination-cleanup-disabled",
+    "category": "delivery",
+    "input": "Thank you",
+    "expected": "Thank you.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "remove_hallucinations": false
+      }
+    }
+  },
+  {
+    "id": "english-address-punctuation",
+    "category": "protected-token",
+    "input": "name@example.com!next",
+    "expected": "name@example.com!Next."
+  },
+  {
+    "id": "explicit-delete-separate-words",
+    "category": "delivery",
+    "input": "foo bar",
+    "expected": "",
+    "config": {
+      "language": "en",
+      "replacement_rules": [
+        {
+          "find": "foo",
+          "replace": ""
+        },
+        {
+          "find": "bar",
+          "replace": ""
+        }
+      ]
+    }
+  },
+  {
+    "id": "explicit-whitespace-replacement",
+    "category": "delivery",
+    "input": "foo",
+    "expected": "",
+    "config": {
+      "language": "en",
+      "replacement_rules": [
+        {
+          "find": "foo",
+          "replace": "  "
+        }
+      ]
+    }
+  },
+  {
+    "id": "adjacent-files",
+    "category": "protected-token",
+    "input": "открой foo.txt,bar.txt;Cargo.toml",
+    "expected": "Открой foo.txt,bar.txt;Cargo.toml."
+  },
+  {
+    "id": "email-next-to-file",
+    "category": "protected-token",
+    "input": "контакт:name@example.com,foo.txt",
+    "expected": "Контакт:name@example.com,foo.txt."
+  }
+]

@@ -8,12 +8,18 @@ on:
     paths-ignore:
       - 'site/**'
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: Exact source revision to test before packaging
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: ui-tests-${{ github.ref }}
+  group: ui-tests-${{ github.event_name }}-${{ inputs.ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -23,9 +29,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        mode: [production, dev]
         browser: [chromium, webkit]
+        include:
+          - browser: chromium
+            platform: windows
+          - browser: webkit
+            platform: macos
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ inputs.ref || github.ref }}
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: .node-version
@@ -50,13 +64,13 @@ jobs:
       - name: Check harness types
         working-directory: desktop
         run: pnpm exec tsc -p ../tests/ui/tsconfig.json
-      - name: Test UI in ${{ matrix.browser }}
-        run: uv run --locked --project tests/ui pytest tests/ui --browser ${{ matrix.browser }} --junitxml=test-results/junit.xml
+      - name: Test ${{ matrix.mode }} UI in ${{ matrix.browser }}
+        run: uv run --locked --project tests/ui pytest tests/ui --browser ${{ matrix.browser }} --ui-mode ${{ matrix.mode }} --ui-build-platform ${{ matrix.platform }} --junitxml=test-results/junit.xml
       - name: Upload failure traces and test report
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: ui-test-results-${{ matrix.browser }}
+          name: ui-test-results-${{ matrix.browser }}-${{ matrix.mode }}
           path: test-results/
           if-no-files-found: ignore
           retention-days: 7
@@ -68,7 +82,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 1
     steps:
-      - name: Require both browsers to pass
+      - name: Require both browsers and build modes to pass
         env:
           BROWSER_RESULT: ${{ needs.browser-tests.result }}
         run: test "$BROWSER_RESULT" = success

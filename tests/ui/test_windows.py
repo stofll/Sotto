@@ -59,9 +59,41 @@ def test_tray_uses_saved_interface_color_and_live_updates(app, page):
     ui.emit("config-updated", {"ui_accent": "#3dc97c", "theme": "light"})
     expect(root).to_have_css("--accent", "#3dc97c")
     expect(root).to_have_attribute("data-theme", "light")
+    expect(page.get_by_role("menu")).to_be_visible()
     ui.emit("config-updated", {"theme": "dark"})
     expect(root).to_have_css("--accent", "#e68a3d")
     expect(root).to_have_attribute("data-theme", "dark")
+    expect(page.get_by_role("menu")).to_be_visible()
+
+
+@pytest.mark.parametrize("locale", ["ru", "en"])
+def test_tray_starts_in_saved_light_theme(app, page, locale):
+    app("tray", config={"theme": "light", "ui_language": locale})
+    expect(page.get_by_role("menu")).to_be_visible()
+    expect(page.locator("html")).to_have_attribute("data-theme", "light")
+    page.reload()
+    expect(page.get_by_role("menu")).to_be_visible()
+
+
+def test_glow_module_failure_keeps_cancel_available(app, page, pytestconfig):
+    production = pytestconfig.getoption("--ui-mode") == "production"
+    module_url = (
+        "**/assets/OverlayGlow-*.js"
+        if production
+        else "**/src/overlay/OverlayGlow.tsx*"
+    )
+    ui = app("overlay", config={"overlay": {"form": "glow"}})
+    ui.allow_asset_failure(module_url)
+    page.route(module_url, lambda route: route.abort())
+    ui.emit("recording-started", 42)
+    expect(page.get_by_test_id("overlay")).to_be_visible()
+    expect(page.locator(".overlay-glow")).to_be_attached()
+    page.locator(".overlay-shell").hover()
+    page.get_by_role("button", name="Отменить запись").click()
+    expect(page.get_by_test_id("overlay")).not_to_be_visible()
+    assert ui.calls("cancel_recording")[-1]["args"]["sessionId"] == 42
+    ui.emit("recording-started", 43)
+    expect(page.get_by_test_id("overlay")).to_be_visible()
 
 
 @pytest.mark.parametrize(
