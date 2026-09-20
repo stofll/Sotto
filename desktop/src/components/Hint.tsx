@@ -26,12 +26,16 @@ const MARGIN = 8;   // minimum distance from the bubble to the window edge
 // `className` and `style` go on the anchor. Wrapping a button turns the anchor
 // into the flex or grid item in its place, so whatever held that place —
 // `flex: 1`, `margin-left: auto`, a full-width cell — has to move onto it.
-export function Hint({ text, children, className, style, asChild = false }: { text?: string; children?: ReactNode; className?: string; style?: CSSProperties; asChild?: boolean }) {
+export function Hint({ text, children, className, style, asChild = false, ifClipped = false }: { text?: string; children?: ReactNode; className?: string; style?: CSSProperties; asChild?: boolean; ifClipped?: boolean }) {
   const anchorRef = useRef<HTMLElement>(null);
   const bubbleId = useId();
   const bubbleRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  // A bubble that repeats what the anchor already says is noise. `ifClipped`
+  // is for the case where it does not always repeat it: the anchor cuts its
+  // own text off, and hovering is the only way to read the rest.
+  const show = () => setOpen(!ifClipped || clipped(anchorRef.current));
 
   useLayoutEffect(() => {
     if (!open || !text) {
@@ -79,9 +83,9 @@ export function Hint({ text, children, className, style, asChild = false }: { te
         if (props.ref) props.ref.current = node;
       },
       "aria-describedby": open && text ? [props["aria-describedby"], bubbleId].filter(Boolean).join(" ") : props["aria-describedby"],
-      onMouseEnter: (event) => { props.onMouseEnter?.(event); setOpen(true); },
+      onMouseEnter: (event) => { props.onMouseEnter?.(event); show(); },
       onMouseLeave: (event) => { props.onMouseLeave?.(event); setOpen(false); },
-      onFocus: (event) => { props.onFocus?.(event); setOpen(true); },
+      onFocus: (event) => { props.onFocus?.(event); show(); },
       onBlur: (event) => { props.onBlur?.(event); setOpen(false); },
       onKeyDown: (event) => { props.onKeyDown?.(event); if (event.key === "Escape") setOpen(false); },
     })}{bubble}</>;
@@ -94,12 +98,19 @@ export function Hint({ text, children, className, style, asChild = false }: { te
     tabIndex={children ? undefined : 0}
     aria-label={children ? undefined : text}
     aria-describedby={open && text ? bubbleId : undefined}
-    onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}
-    onFocus={() => setOpen(true)} onBlur={() => setOpen(false)}
+    onMouseEnter={show} onMouseLeave={() => setOpen(false)}
+    onFocus={show} onBlur={() => setOpen(false)}
     onKeyDown={(event) => { if (event.key === "Escape") setOpen(false); }}
   >
     {children ?? <Icon name="info" size={11}/>}
     {children && <span className="sr-only">{text}</span>}
     {bubble}
   </span>;
+}
+
+/** Whether the element cuts its own content off, in either direction: the
+ *  single line with an ellipsis and the clamped paragraph both report it. */
+function clipped(element: HTMLElement | null) {
+  if (!element) return false;
+  return element.scrollWidth > element.clientWidth + 1 || element.scrollHeight > element.clientHeight + 1;
 }

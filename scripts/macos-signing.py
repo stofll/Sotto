@@ -71,6 +71,9 @@ def initialize(root):
         "-name", "Sotto Local Code Signing", "-passin", "env:SOTTO_SIGN_PASSWORD",
         "-passout", "env:SOTTO_SIGN_PASSWORD",
     ], password)
+    # The p12 carries the key from here on; a second copy of it would only
+    # outlive a failure below and sit next to its own password.
+    (root / "key.pem").unlink()
     keychain = root / "signing.keychain-db"
     original = shlex.split(run(["security", "list-keychains", "-d", "user"]))
     try:
@@ -80,13 +83,14 @@ def initialize(root):
             "security", "import", str(root / "identity.p12"), "-k", str(keychain),
             "-P", password, "-T", "/usr/bin/codesign",
         ], password)
+        # `codesign:` is what lets /usr/bin/codesign reach the key without a
+        # GUI prompt; `security import -T` alone grants the tool nothing.
         run([
-            "security", "set-key-partition-list", "-S", "apple-tool:,apple:",
+            "security", "set-key-partition-list", "-S", "apple-tool:,apple:,codesign:",
             "-s", "-k", password, str(keychain),
         ], password)
     finally:
         run(["security", "list-keychains", "-d", "user", "-s", *original])
-    (root / "key.pem").unlink()
     print(f"Identity created in {root}. Back up this directory securely; do not regenerate it.")
 
 

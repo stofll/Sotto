@@ -873,7 +873,6 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
                 <h2>{t("Новый API-ключ")}</h2>
                 <div className="sub">{t("Сохраняется в DPAPI, отдельным слотом. Привязать к профилю можно потом.")}</div>
               </div>
-              <button className="modal__close" onClick={() => { setAdding(false); setNewRevealed(false); }} aria-label={t("Закрыть")}><Icon name="x" size={14}/></button>
             </div>
             <div className="modal__body">
               <label style={{ display: "grid", gap: 6 }}>

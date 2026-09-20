@@ -382,6 +382,23 @@ def test_overlay_preview_matches_real_geometry(app, page, form, size, shell):
     expect(mini).to_have_css("height", shell[1])
 
 
+def test_overlay_position_zones_are_marked_before_hovering(app, page):
+    app()
+    open_overlay_settings(page)
+    page.mouse.move(0, 0)
+    screen = page.get_by_test_id("overlay-preview")
+    # Every place the overlay can take is visible on its own; only the chosen
+    # one drops its mark, because the preview of the overlay stands there.
+    marks = screen.evaluate(
+        "el => [...el.querySelectorAll('.overlay-screen__zone')]"
+        ".map(zone => Number(getComputedStyle(zone, '::after').opacity))"
+    )
+    assert len(marks) == 9
+    assert sum(1 for value in marks if value > 0) == 8
+    chosen = screen.get_by_role("button", name="Снизу по центру", exact=True)
+    assert chosen.evaluate("el => getComputedStyle(el, '::after').opacity") == "0"
+
+
 def test_overlay_position_is_chosen_on_the_screen_preview(app, page):
     ui = app()
     open_overlay_settings(page)

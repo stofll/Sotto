@@ -78,8 +78,12 @@
 .overlay-result { display: grid; gap: 2px; min-width: 0; }
 .overlay-result > div:first-child { font: 700 12px/1.1 var(--font-sans); color: var(--ok); }
 .overlay-result > div:last-child { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; font: 600 10px/1.1 var(--font-sans); color: var(--warn); }
+/* Bar width and gap are the pitch OverlayWaveform.tsx counts the bars by.
+   Height carries no transition: readings arrive every ~33 ms, so an eased
+   bar never reached one before the next replaced it and the wave smeared
+   instead of holding its shape as it travelled. */
 .overlay-waveform { display: flex; align-items: center; justify-content: center; gap: 3px; height: 28px; }
-.overlay-waveform > span { position: relative; width: 3px; border-radius: 4px; background: rgba(255,255,255,0.13); opacity: 0.66; transition: height 80ms ease, background 120ms ease, opacity 120ms ease; }
+.overlay-waveform > span { position: relative; width: 3px; height: 5px; border-radius: 4px; background: rgba(255,255,255,0.13); opacity: 0.66; transition: background 120ms ease, opacity 120ms ease; }
 .overlay-waveform > span[data-active="true"] { background: linear-gradient(180deg, var(--overlay-wave-top), var(--overlay-wave-mid) 55%, var(--overlay-wave-bottom)); opacity: 1; }
 .overlay-waveform > span[data-active="true"]::after { content: ""; position: absolute; inset: 0; border-radius: inherit; box-shadow: 0 0 var(--bar-glow) var(--overlay-wave-mid); opacity: var(--bar-glow-opacity); }
 .overlay-progress { display: flex; align-items: center; gap: 10px; }
@@ -154,7 +158,7 @@
 .overlay[data-layout="bead"] .overlay-row { display: grid; place-items: center; grid-template-columns: 1fr; width: 100%; height: 100%; }
 .overlay[data-layout="bead"] .overlay-detail { position: absolute; inset: 0; }
 .overlay-waveform--circular { position: absolute; inset: 0; height: auto; }
-.overlay-waveform--circular > span { position: absolute; left: 50%; top: 50%; width: 2px; }
+.overlay-waveform--circular > span { position: absolute; left: 50%; top: 50%; width: 2px; height: 3px; }
 .overlay[data-layout="bead"] .overlay-close { position: relative; z-index: 2; }
 .overlay-bead-status { position: absolute; inset: 5px; border: 2px solid var(--overlay-edge); border-radius: 50%; opacity: 0.4; }
 .overlay[data-state="pasted"] .overlay-bead-status { border-color: var(--ok); opacity: 1; }

@@ -486,7 +486,9 @@ export function ProfileWizard({ apiKeys, existingProfiles, seed, onClose, onCrea
           )}
         </div>
         <div className="modal__foot">
-          <button className="btn btn--ghost" onClick={state.step === 1 ? requestClose : prev}>{state.step === 1 ? t("Отмена") : t("Назад")}</button>
+          {/* Step one has nothing to go back to, and leaving is what the
+              cross in the header already does. */}
+          {state.step === 1 ? <span/> : <button className="btn btn--ghost" onClick={prev}>{t("Назад")}</button>}
           {state.step < 3 ? (
             <button className="btn btn--primary" onClick={next} disabled={!canNext}><Icon name="arrow-right" size={12}/>{t("Далее")}</button>
           ) : (

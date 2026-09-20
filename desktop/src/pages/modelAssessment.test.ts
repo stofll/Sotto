@@ -5,7 +5,7 @@ import type { ModelAssessment } from "../bridge/modelAssessments";
 const assessment: ModelAssessment = {
   id: "tiny", compute: "cpu", load_failed: false,
   memory: { status: "low", score: 0, required_bytes: 1024 ** 3, available_bytes: 0 },
-  speed: { score: null, source: "unknown", samples: 0, median_ms: null, audio_min: null, audio_max: null, cold: false, unstable: false, reference: null },
+  speed: { score: null, source: "unknown", approximate: false, samples: 0, median_ms: null, audio_min: null, audio_max: null, cold: false, unstable: false, reference: null },
 };
 
 describe("model meter presentation", () => {
@@ -28,6 +28,18 @@ describe("model meter presentation", () => {
     expect(assessmentText(value).speed).toContain(label);
     expect(assessmentText(value).speed).not.toContain("Test CPU");
     expect(assessmentText(value).speed).not.toContain("из 5");
+  });
+  it("says when the number was measured in another context", () => {
+    const own = structuredClone(assessment);
+    own.speed = { ...own.speed, score: 0.9, source: "reference" };
+    expect(assessmentText(own).speed).not.toContain("в другом режиме");
+    const borrowed = structuredClone(own);
+    borrowed.speed = { ...borrowed.speed, approximate: true };
+    expect(assessmentText(borrowed).speed).toContain("в другом режиме");
+    // A measurement of this machine is never labelled as someone else's.
+    const personal = structuredClone(own);
+    personal.speed = { ...personal.speed, source: "personal", approximate: true };
+    expect(assessmentText(personal).speed).not.toContain("в другом режиме");
   });
   it("does not treat RAM as available GPU memory", () => {
     const value = { ...assessment, compute: "gpu_unverified" as const, memory: { ...assessment.memory, status: "gpu_unknown" as const } };
