@@ -45,6 +45,7 @@
     "copyright": "Copyright (c) 2026 Stofl",
     "license": "MIT",
     "licenseFile": "../../LICENSE",
+    "resources": ["resources/spelling/README_ru_RU.txt", "resources/spelling/SOURCES.md"],
     "targets": ["dmg", "nsis"],
     "icon": [
       "icons/32x32.png",

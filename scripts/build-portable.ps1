@@ -14,6 +14,7 @@ $staging = Join-Path ([IO.Path]::GetTempPath()) ('sotto-portable-' + [guid]::New
 New-Item -ItemType Directory -Path $staging | Out-Null
 Copy-Item -LiteralPath $executable -Destination $staging
 Get-ChildItem -LiteralPath $binaryRoot -Filter '*.dll' -File | Copy-Item -Destination $staging
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot '../desktop/src-tauri/resources/spelling/README_ru_RU.txt') -Destination (Join-Path $staging 'RUSSIAN-DICTIONARY-LICENSE.txt')
 New-Item -ItemType File -Path (Join-Path $staging 'portable.flag') | Out-Null
 Set-Content -LiteralPath (Join-Path $staging 'README.txt') -Encoding UTF8 -Value @"
 Sotto portable for Windows x64

@@ -466,6 +466,7 @@ const FORMAT_DEFAULTS: TextFormattingConfig = {
   collapse_phrase_loops: true,
   clean_commas: true,
   normalize_spaces: true,
+  correct_spelling: true,
   split_sentences: false,
   capitalize_sentences: true,
   final_punctuation: true,
@@ -489,8 +490,9 @@ const CLEAN_RULES = (): FormatRule[] => ([
   { key: "remove_parasites", title: t("Удалять слова-паразиты"), sub: t("встроенный список только русский; свои слова работают на любом языке") },
   { key: "remove_duplicates", title: t("Удалять повторы"), sub: t("я я хочу -> я хочу") },
   { key: "collapse_phrase_loops", title: t("Схлопывать зациклившиеся фразы"), sub: t("я думаю что. я думаю что. я думаю что. -> я думаю что.") },
-  { key: "clean_commas", title: t("Чистить запятые"), sub: t("лишние запятые перед и/а/но, двойные запятые") },
-  { key: "normalize_spaces", title: t("Нормализовать пробелы"), sub: t("двойные пробелы и пробелы перед знаками") },
+  { key: "clean_commas", title: t("Чистить запятые"), sub: t("двойные запятые и запятая в начале текста") },
+  { key: "normalize_spaces", title: t("Нормализовать пробелы"), sub: t("лишние пробелы и пропущенные пробелы после знаков в русском тексте") },
+  { key: "correct_spelling", title: t("Исправлять опечатки"), sub: t("при русском языке диктовки: однозначные исправления по встроенному словарю, без LLM") },
   { key: "split_sentences", title: t("Разбивать длинные предложения"), sub: t("мягкое разделение длинных фраз по связкам") },
   { key: "capitalize_sentences", title: t("Капитализация предложений"), sub: t("заглавная буква в начале текста и после точки") },
   { key: "final_punctuation", title: t("Финальная пунктуация"), sub: t("добавлять точку, если фраза без знака в конце") },
@@ -858,7 +860,7 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
                           <Icon name="sliders" size={12}/>{t("Список")}: {parasiteSummary}
                         </button>}
                     </div>
-                    <Switch on={value} onChange={(next) => void saveFormatting({ [opt.key]: next })}/>
+                    <Switch label={opt.title} on={value} onChange={(next) => void saveFormatting({ [opt.key]: next })}/>
                   </div>
                 );
               })}

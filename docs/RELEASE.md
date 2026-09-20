@@ -347,7 +347,7 @@ sha256sum *.dmg *.exe 2>/dev/null > SHA256SUMS.txt
 The release itself already exists by this point: `tauri-action` opened it as a draft when the tag build started, and the `sbom` and `checksums` jobs added their assets to it. Nothing here creates a release or uploads an asset.
 
 1. Open the draft and check the assets against [Draft contents](#draft-contents) below.
-2. Install each artifact and smoke-test it. This is the only gate between the build and every existing installation.
+2. Install each artifact and smoke-test it. Packaging is gated on browser tests of the release-tag commit in production and development modes, but those tests mock the backend. This manual check remains the gate for the actual installer, native windows, audio, hotkeys, clipboard and model loading.
 3. Write the release description using the [template below](#whats-new-template). Review merged PRs or `git log --oneline <previous tag>..vX.Y.Z` as source material, then describe the changes in user-facing language.
 4. Publish the draft.
 

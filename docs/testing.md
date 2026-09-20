@@ -60,6 +60,10 @@ These tests download verified weights into isolated temporary directories. Their
 
 ## Formatter corpus tests
 
+`cargo test --locked --test formatter_corpus` runs the reviewed synthetic examples in [the formatter fixture](../desktop/src-tauri/tests/fixtures/formatter/cases.json). Each case declares its input, settings, expected output and category. The test checks the full formatter, preview, dictation/file delivery and repeated processing. A separate delivery expectation covers intentional differences such as restoring raw text after incidental empty cleanup; a case may explicitly opt out of repeated-processing checks when its configured replacement produces a result that later cleanup can change. This corpus also runs in the ordinary Cargo test suite.
+
+For a correction change, add both an example that should be corrected and a similar valid or ambiguous example that must be preserved. Include interaction cases for replacement modes, technical text and language settings rather than testing only one step. Review expected outputs as product behavior; do not regenerate them from the implementation. Ordinary vocabulary, term dictionaries, replacement rules and deletion rules have different purposes and need separate categories, even though they share the same pipeline.
+
 Two ignored tests run the formatter over a dump of real transcriptions instead of hand-written cases: `collapse_over_corpus` reports how often the filler cleanup rewrites a line, and `dictionary_over_corpus` reports what a term list does to the same text. Both need a corpus file with one transcription per line, supplied through `SOTTO_CORPUS`, and the dictionary test also needs a term list through `SOTTO_DICT`, one term per line. They print the changed lines and a summary, and assert nothing: the result is a stability rate to read, not a pass/fail threshold, which is why they stay out of ordinary runs.
 
 ```bash
@@ -69,6 +73,8 @@ SOTTO_CORPUS=corpus.txt SOTTO_DICT=dict.txt cargo test --locked --lib formatter:
 ```
 
 Keep a user's transcription dump out of the repository: place the corpus outside the working tree, and if a case has to be committed, reduce it to a synthetic fixture.
+
+To compare the complete local pipeline, run `cargo test --locked --lib formatter::tests::format_over_corpus -- --ignored --nocapture` with `SOTTO_CORPUS`, `SOTTO_FORMAT_CONFIG` (a JSON file containing only language and formatting settings), and `SOTTO_FORMATTED` (a new output path). The test writes one JSON string per input line, reports first-pass, median and maximum elapsed times, and refuses to overwrite an existing output file. Keep all three files outside the repository and review the changes against the input; timings and changed-line counts alone do not establish correction accuracy.
 
 When expanding accuracy coverage, use a reviewed corpus with expected transcripts and explicit word-error tolerances per model/language. Include silence, short speech, noise and trailing speech. Keep this separate from deterministic timeout, cancellation and lifecycle tests so a recognition-quality change cannot hide a broken session transition.
 

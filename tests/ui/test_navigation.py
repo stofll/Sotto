@@ -1,3 +1,6 @@
+import re
+from pathlib import Path
+
 import pytest
 from playwright.sync_api import expect
 
@@ -44,25 +47,100 @@ def test_startup_error_is_visible(app, page):
     expect(page.get_by_text("История пуста", exact=True)).to_be_visible()
 
 
-def test_history_module_load_failure_offers_reload(app, page):
-    ui = app(config={"ui_accent": "#e68a3d"})
-    module_url = "**/src/pages/HistoryPage.tsx*"
-    page.route(module_url, lambda route: route.abort())
+@pytest.mark.parametrize("locale", ["ru", "en"])
+@pytest.mark.parametrize("theme", ["dark", "light"])
+def test_history_module_load_failure_offers_recovery(
+    app, page, pytestconfig, locale, theme, output_path
+):
+    page.set_viewport_size({"width": 1000, "height": 710})
+    ui = app(config={"ui_accent": "#e68a3d", "ui_language": locale, "theme": theme})
+    failure = (
+        "Не удалось открыть историю." if locale == "ru" else "Could not open history."
+    )
+    restart = "полностью закройте Sotto" if locale == "ru" else "quit Sotto completely"
+    production = pytestconfig.getoption("--ui-mode") == "production"
+    module_url = (
+        "**/assets/HistoryPage-*.js" if production else "**/src/pages/HistoryPage.tsx*"
+    )
+    ui.allow_asset_failure(module_url)
+    page.route(
+        module_url,
+        lambda route: route.fulfill(
+            status=503,
+            body="Synthetic module unavailable",
+            headers={"Cache-Control": "no-store"},
+        ),
+    )
     ui.nav("history")
-    expect(page.get_by_role("alert")).to_contain_text("Не удалось открыть историю.")
+    expect(page.get_by_role("alert")).to_contain_text(failure)
+    expect(page.get_by_role("alert")).to_contain_text(restart)
+    reload_button = page.get_by_role(
+        "button", name="Перезагрузить" if locale == "ru" else "Reload", exact=True
+    )
+    reload_button.focus()
+    expect(reload_button).to_be_focused()
+    shots = Path(output_path)
+    shots.mkdir(parents=True, exist_ok=True)
+    page.screenshot(path=str(shots / "history-error.png"), animations="disabled")
     page.unroute(module_url)
-    page.get_by_role("button", name="Перезагрузить", exact=True).click()
+    page.get_by_role(
+        "button", name="Перезагрузить" if locale == "ru" else "Reload", exact=True
+    ).click()
     expect(page.get_by_test_id("page-settings")).to_be_visible()
     ui.nav("history")
-    expect(page.get_by_text("История пуста", exact=True)).to_be_visible()
+    expect(
+        page.get_by_text(
+            "История пуста" if locale == "ru" else "History is empty", exact=True
+        )
+    ).to_be_visible()
 
 
-def test_theme_persists_after_reload(app, page):
-    ui = app()
-    page.get_by_role("button", name="Включить светлую тему").click()
-    ui.saved("theme", "light")
-    page.reload()
-    expect(page.locator("html")).to_have_attribute("data-theme", "light")
+@pytest.mark.parametrize("locale", ["ru", "en"])
+def test_theme_persists_after_reload(app, page, locale):
+    ui = app(config={"ui_language": locale})
+    for theme in ["light", "dark"]:
+        page.locator(".theme-toggle").click()
+        ui.saved("theme", theme)
+        expect(page.get_by_test_id("page-settings")).to_be_visible()
+        page.reload()
+        expect(page.locator("html")).to_have_attribute("data-theme", theme)
+        expect(page.get_by_test_id("page-settings")).to_be_visible()
+        page.locator(".theme-toggle").focus()
+        expect(page.locator(".theme-toggle")).to_be_focused()
+
+
+@pytest.mark.parametrize("window", ["main", "overlay", "tray"])
+def test_built_entry_loads_under_application_csp(app, page, pytestconfig, window):
+    if pytestconfig.getoption("--ui-mode") != "production":
+        pytest.skip("Release assets and CSP are production-only")
+    responses = []
+    page.on(
+        "response",
+        lambda response: (
+            responses.append(response)
+            if response.request.resource_type == "document"
+            else None
+        ),
+    )
+    ui = app(window)
+    if window == "overlay":
+        ui.emit("recording-started", 1)
+        expect(page.get_by_test_id("overlay")).to_be_visible()
+    elif window == "tray":
+        expect(page.get_by_role("menu")).to_be_visible()
+    if window != "main":
+        for selector in ["html", "body", "#root"]:
+            expect(page.locator(selector)).to_have_css(
+                "background-color", "rgba(0, 0, 0, 0)"
+            )
+    assert (
+        responses
+        and "script-src 'self'" in responses[0].headers["content-security-policy"]
+    )
+    expect(page.locator('script[type="module"][src]').first).to_have_attribute(
+        "src", re.compile(r"/assets/.*\.js$")
+    )
+    assert not page.locator('script[src*="/src/"], script[src*="@vite/client"]').count()
 
 
 def test_theme_failure_rolls_back(app, page):

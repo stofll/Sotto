@@ -25,6 +25,7 @@
 // reference. Guessing there would produce failures nobody can act on.
 
 import { describe, it, expect } from "vitest";
+import ts from "typescript";
 
 const frontendSources = import.meta.glob("../**/*.{ts,tsx}", {
   query: "?raw",
@@ -32,58 +33,16 @@ const frontendSources = import.meta.glob("../**/*.{ts,tsx}", {
   eager: true,
 }) as Record<string, string>;
 
-import libRs from "../../src-tauri/src/lib.rs?raw";
-import formatCommandsRs from "../../src-tauri/src/format_commands.rs?raw";
-import audioWorkerRs from "../../src-tauri/src/audio_worker.rs?raw";
-
-import overlayRs from "../../src-tauri/src/overlay.rs?raw";
-import hotkeyRs from "../../src-tauri/src/hotkey.rs?raw";
-import updaterRs from "../../src-tauri/src/updater.rs?raw";
-import soundsRs from "../../src-tauri/src/sounds.rs?raw";
-import outputVolumeRs from "../../src-tauri/src/output_volume.rs?raw";
-import micTestRs from "../../src-tauri/src/mic_test.rs?raw";
-import debugRs from "../../src-tauri/src/debug.rs?raw";
-import dictionariesRs from "../../src-tauri/src/dictionaries.rs?raw";
-import accessibilityRs from "../../src-tauri/src/accessibility.rs?raw";
-import clipboardRs from "../../src-tauri/src/clipboard.rs?raw";
-import statsRs from "../../src-tauri/src/stats.rs?raw";
-import configRs from "../../src-tauri/src/config.rs?raw";
-import audioRs from "../../src-tauri/src/audio.rs?raw";
-import secretStoreRs from "../../src-tauri/src/secret_store.rs?raw";
-import historyRs from "../../src-tauri/src/history.rs?raw";
-import modelRs from "../../src-tauri/src/model.rs?raw";
-import modelDownloadRs from "../../src-tauri/src/model_download.rs?raw";
-import dictationRs from "../../src-tauri/src/dictation.rs?raw";
-import audioFileRs from "../../src-tauri/src/audio_file.rs?raw";
-import aiRs from "../../src-tauri/src/ai/mod.rs?raw";
-const rustSources = [
-  libRs,
-  formatCommandsRs,
-  audioWorkerRs,
-  overlayRs,
-  hotkeyRs,
-  updaterRs,
-  soundsRs,
-  outputVolumeRs,
-  micTestRs,
-  debugRs,
-  dictionariesRs,
-  accessibilityRs,
-  clipboardRs,
-  statsRs,
-  configRs,
-  audioRs,
-  secretStoreRs,
-  historyRs,
-  modelRs,
-  modelDownloadRs,
-  dictationRs,
-  audioFileRs,
-  aiRs,
-];
+// Discover new command modules automatically; a hand-maintained list silently
+// skipped argument validation when a registered command moved to another file.
+const rustSources = Object.values(import.meta.glob<string>("../../src-tauri/src/**/*.rs", {
+  query: "?raw",
+  import: "default",
+  eager: true,
+}));
 
 /** Parameters Tauri injects itself — the frontend never sends them. */
-const INJECTED = new Set(["app", "state", "window", "webview", "app_handle"]);
+const INJECTED_TYPE = /^(?:tauri::)?(?:AppHandle|State|Window|Webview|WebviewWindow)\b/;
 
 interface CommandSpec {
   /** Argument names as the frontend must spell them. */
@@ -118,7 +77,7 @@ function splitParams(params: string): string[] {
 
 function rustCommands(): Map<string, CommandSpec> {
   const commands = new Map<string, CommandSpec>();
-  const re = /#\[tauri::command([^\]]*)\]\s*(?:pub(?:\(crate\))?\s+)?(?:async\s+)?fn\s+(\w+)\s*\(([^)]*)\)/g;
+  const re = /#\[(?:tauri::)?command([^\]]*)\](?:\s|\/\/[^\n]*|#\[[^\]]*\])*(?:pub(?:\(crate\))?\s+)?(?:async\s+)?fn\s+(\w+)\s*\(([^)]*)\)/g;
   for (const source of rustSources) {
     for (const [, attr, name, params] of source.matchAll(re)) {
       // Without `rename_all = "snake_case"` Tauri expects camelCase keys.
@@ -128,8 +87,10 @@ function rustCommands(): Map<string, CommandSpec> {
       for (const raw of splitParams(params)) {
         const param = raw.trim();
         if (!param) continue;
-        const rustName = param.split(":")[0].trim();
-        if (INJECTED.has(rustName)) continue;
+        const colon = param.indexOf(":");
+        const rustName = param.slice(0, colon).trim();
+        const rustType = param.slice(colon + 1).trim();
+        if (INJECTED_TYPE.test(rustType)) continue;
         const jsName = snake ? rustName : toCamel(rustName);
         accepted.add(jsName);
         if (!param.includes("Option<")) required.add(jsName);
@@ -146,65 +107,32 @@ interface Call {
   keys: string[];
 }
 
-/** Keys of an object literal, top level only — nested objects are values. */
-function topLevelKeys(body: string): string[] {
-  const keys: string[] = [];
-  let depth = 0;
-  let atKeyPosition = true;
-  let token = "";
-  for (let i = 0; i < body.length; i++) {
-    const ch = body[i];
-    if (ch === "{" || ch === "[" || ch === "(") depth++;
-    else if (ch === "}" || ch === "]" || ch === ")") depth--;
-    if (depth !== 0) continue;
-    if (ch === ",") {
-      // Shorthand property (`{ sessionId }`) — the token is the key.
-      if (atKeyPosition && token.trim()) keys.push(token.trim());
-      token = "";
-      atKeyPosition = true;
-      continue;
-    }
-    if (ch === ":" && atKeyPosition) {
-      keys.push(token.trim());
-      token = "";
-      atKeyPosition = false;
-      continue;
-    }
-    token += ch;
-  }
-  if (atKeyPosition && token.trim()) keys.push(token.trim());
-  return keys.filter((key) => /^[A-Za-z_]\w*$/.test(key));
-}
-
-function frontendCalls(): Call[] {
+// Parse call syntax so comments, generic return types and nested values cannot
+// hide an argument; calls without an argument object still need validation.
+function frontendCalls(sources = frontendSources): Call[] {
   const calls: Call[] = [];
-  // Only calls whose second argument is an inline object literal: a spread
-  // or a variable cannot be checked statically, and guessing would produce
-  // failures nobody can act on.
-  const re = /\b(?:invoke|rustInvoke|tauriInvoke)\b[^("'`\n]*\(\s*["'`](\w+)["'`]\s*,\s*\{/g;
-  for (const [path, text] of Object.entries(frontendSources)) {
-    if (/\.test\.(ts|tsx)$/.test(path) || path.endsWith(".d.ts")) continue;
-    for (const match of text.matchAll(re)) {
-      const open = match.index! + match[0].length - 1;
-      let depth = 0;
-      let close = -1;
-      for (let i = open; i < text.length; i++) {
-        if (text[i] === "{") depth++;
-        else if (text[i] === "}") {
-          depth--;
-          if (depth === 0) {
-            close = i;
-            break;
-          }
+  for (const [file, text] of Object.entries(sources)) {
+    if (/\.test\.(ts|tsx)$/.test(file) || file.endsWith(".d.ts")) continue;
+    const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true,
+      file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+    function visit(node: ts.Node) {
+      if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)
+          && ["invoke", "rustInvoke", "tauriInvoke"].includes(node.expression.text)) {
+        const [name, args] = node.arguments;
+        if (name && ts.isStringLiteralLike(name)
+            && (!args || (ts.isObjectLiteralExpression(args)
+              && args.properties.every((property) => !ts.isSpreadAssignment(property))))) {
+          const keys = args && ts.isObjectLiteralExpression(args)
+            ? args.properties.flatMap((property) => {
+              const key = property.name;
+              return key && (ts.isIdentifier(key) || ts.isStringLiteralLike(key)) ? [key.text] : [];
+            }) : [];
+          calls.push({ file, command: name.text, keys });
         }
       }
-      if (close === -1) continue;
-      calls.push({
-        file: path,
-        command: match[1],
-        keys: topLevelKeys(text.slice(open + 1, close)),
-      });
+      ts.forEachChild(node, visit);
     }
+    visit(source);
   }
   return calls;
 }
@@ -228,11 +156,40 @@ describe("Tauri command arguments", () => {
     );
   });
 
+  it("reads signatures with additional attributes and comments", () => {
+    expect(commands.get("process_text_ai")?.required).toEqual(new Set(["text"]));
+    expect(commands.get("test_ai_prompt")?.accepted.has("profile_id")).toBe(true);
+    expect(commands.get("hide")?.required).toEqual(new Set());
+    expect(commands.get("hide_tray_popup")?.required).toEqual(new Set());
+    expect(commands.get("show_state")?.required).toEqual(new Set(["state"]));
+  });
+
+  it("includes calls without args and preserves keys after comments", () => {
+    const parsed = frontendCalls({ "fixture.ts": `
+      invoke<string>("process_text_ai");
+      invoke("process_text_ai", {
+        // A comment cannot hide the required argument.
+        text: example({ nested: true }),
+        "profile_id": "synthetic"
+      });
+    ` });
+    expect(parsed.map(({ command, keys }) => ({ command, keys }))).toEqual([
+      { command: "process_text_ai", keys: [] },
+      { command: "process_text_ai", keys: ["text", "profile_id"] },
+    ]);
+  });
+
+  it("finds a native signature for every inspected frontend call", () => {
+    const missing = calls.filter((call) => !commands.has(call.command))
+      .map((call) => `${call.file}: ${call.command}`);
+    expect(missing, "Argument checks must not silently skip commands").toEqual([]);
+  });
+
   it("passes only arguments the command declares", () => {
     const problems: string[] = [];
     for (const call of calls) {
       const spec = commands.get(call.command);
-      if (!spec) continue; // covered by command-surface.test.ts
+      if (!spec) continue; // reported by the signature-coverage check above
       const unknown = call.keys.filter((key) => !spec.accepted.has(key));
       if (unknown.length) {
         problems.push(

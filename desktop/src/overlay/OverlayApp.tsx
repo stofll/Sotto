@@ -7,7 +7,14 @@ import { overlayDetail } from "./overlayDetail";
 import { OverlayWaveform } from "./OverlayWaveform";
 import { useOverlaySession, type OverlaySession } from "./useOverlaySession";
 
-const OverlayGlow = lazy(() => import("./OverlayGlow").then((m) => ({ default: m.OverlayGlow })));
+// A missing animation chunk must not unmount the recording/cancel controls.
+const OverlayGlow = lazy(() => import("./OverlayGlow")
+  .then((m) => ({ default: m.OverlayGlow }))
+  .catch(() => ({ default: GlowFallback })));
+
+function GlowFallback() {
+  return <div className="overlay-glow" aria-hidden="true" />;
+}
 
 export function OverlayApp() {
   useLocale();

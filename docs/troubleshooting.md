@@ -4,9 +4,13 @@
 
 Expected: the builds carry no publisher certificate, so SmartScreen and Gatekeeper cannot say who made them. [Verifying a download](verifying-downloads.md) has the click-through for both systems, plus the checksum and update-signature checks worth doing first.
 
+## History does not open after a module-loading error
+
+Try the Reload button in the error message. If the error persists, quit Sotto completely and start it again; closing the settings window alone can leave the application running. If restarting does not help, reinstall a verified application package; reloading cannot repair a missing or damaged bundled file.
+
 ## The application does not build
 
-Confirm that Rust stable, Node.js LTS, pnpm, CMake, LLVM/libclang, and the platform-specific native toolchain are installed.
+Use the Rust, Node.js and pnpm versions pinned in `rust-toolchain.toml`, `.node-version` and `desktop/package.json`. Confirm that CMake, LLVM/libclang, and the platform-specific native toolchain are installed.
 
 Run the frontend and Rust checks separately from their documented working directories in [Development](development.md), which also lists the Windows-specific MSVC, NSIS, WebView2, and `LIBCLANG_PATH` requirements.
 

@@ -4,6 +4,48 @@ import pytest
 from playwright.sync_api import expect
 
 
+@pytest.mark.parametrize("locale", ["ru", "en"])
+@pytest.mark.parametrize("theme", ["dark", "light"])
+def test_local_spelling_switch_persists_and_recovers_from_save_failure(
+    app, page, locale, theme, output_path
+):
+    from pathlib import Path
+
+    page.set_viewport_size({"width": 1000, "height": 710})
+    ui = app(config={"ui_language": locale, "theme": theme})
+    ui.nav("text")
+    title = "Очистка" if locale == "ru" else "Cleanup"
+    page.get_by_role("button", name=re.compile("^" + title)).click()
+    label = "Исправлять опечатки" if locale == "ru" else "Correct spelling"
+    switch = page.get_by_role("button", name=label, exact=True)
+    expect(switch).to_have_attribute("aria-pressed", "true")
+    ui.queue("save_config", {"error": "Synthetic spelling save failure"})
+    switch.click()
+    expect(page.get_by_role("alert")).to_contain_text("Synthetic spelling save failure")
+    expect(switch).to_have_attribute("aria-pressed", "true")
+    switch.focus()
+    expect(switch).to_be_focused()
+    page.keyboard.press("Space")
+    expect(switch).to_have_attribute("aria-pressed", "false")
+    page.wait_for_function(
+        "window.__sottoTest.state.config.text_formatting.correct_spelling === false"
+    )
+    page.reload()
+    ui.nav("text")
+    heading = page.get_by_role("button", name=re.compile("^" + title))
+    if heading.get_attribute("aria-expanded") != "true":
+        heading.click()
+    expect(switch).to_have_attribute("aria-pressed", "false")
+    switch.focus()
+    expect(switch).to_be_focused()
+    overflow = page.get_by_test_id("main-content").evaluate(
+        "e => e.scrollWidth - e.clientWidth"
+    )
+    assert overflow <= 1
+    Path(output_path).mkdir(parents=True, exist_ok=True)
+    page.screenshot(path=str(Path(output_path) / "spelling.png"), animations="disabled")
+
+
 def test_preview_preserves_draft_across_navigation(app, page):
     ui = app()
     ui.nav("text")
