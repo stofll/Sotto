@@ -1,15 +1,10 @@
-//! Phase 4 / Batch 1 / PR 1.1 — GGML model downloader and verifier.
+//! Model artifact downloads, integrity checks and Tauri progress events.
 //!
-//! The downloader streams an HTTP response into a `*.part` sibling, then
-//! re-hashes the file in one pass and renames it onto the final path only
-//! when the size and SHA-256 match the manifest entry. The pipeline is
-//! self-contained: it owns the HTTP client, the disk I/O, and the
-//! cancellation signal — there is no Python or sidecar round-trip.
-//!
-//! PR 1.1 deliberately stops at the Tauri-command boundary. A separate PR
-//! (1.2) wraps `download_spec_to_dir` in a Tauri command + events; PR 1.3
-//! wires Settings to the new commands. The work in this file is only the
-//! trusted, unit-tested, no-IPC core that PR 1.2 will build on.
+//! The downloader hashes bytes while streaming into a `*.part` sibling and
+//! renames it onto the final path only when the size and SHA-256 match the
+//! manifest entry. Resumed downloads hash the existing prefix first. The
+//! core accepts an HTTP client, progress callbacks and a cancellation flag;
+//! command wrappers manage download state and emit events to the frontend.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -23,7 +18,7 @@ use tokio::io::AsyncWriteExt;
 use crate::model::{manifest_entry, ModelManifestEntry};
 
 /// Errors surfaced by the downloader. The variants are deliberately
-/// `Clone + PartialEq` so the Tauri command layer (PR 1.2) can pattern
+/// `Clone + PartialEq` so the Tauri command layer can pattern
 /// match and forward stable, human-readable messages to the frontend.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ModelDownloadError {
@@ -75,7 +70,7 @@ impl std::error::Error for ModelDownloadError {}
 /// A description of a single model artifact, fully derived from the
 /// in-Rust manifest (see `crate::model::model_manifest`). The
 /// downloader treats this as the authoritative contract — the Tauri
-/// command layer (PR 1.2) looks entries up via
+/// command layer looks entries up via
 /// `crate::model::manifest_entry(&model_id)` and feeds the result in.
 #[derive(Debug, Clone)]
 pub struct DownloadSpec {
@@ -88,7 +83,7 @@ pub struct DownloadSpec {
 
 impl DownloadSpec {
     /// Look up the manifest entry for `model_id` and project it into a
-    /// `DownloadSpec`. Centralizes the Tauri-side lookup so PR 1.2
+    /// `DownloadSpec`. Centralizes the Tauri-side lookup so callers
     /// cannot accidentally re-introduce mismatched filenames.
     pub fn from_manifest(model_id: &str) -> Result<Self, String> {
         let entry = manifest_entry(model_id)?;
@@ -107,7 +102,7 @@ impl DownloadSpec {
 }
 
 /// Progress event surfaced by the downloader. The Tauri command layer
-/// (PR 1.2) translates each into a `model-download-progress` event with
+/// translates each into a `model-download-progress` event with
 /// `model`/`downloaded`/`total` fields. `total` is `None` until the
 /// server's `Content-Length` is known.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -181,10 +176,9 @@ pub fn stage_dir_for(dir: &Path, directory_name: &str) -> PathBuf {
 
 /// Remove everything left over from an interrupted single-file download.
 ///
-/// Called after a cancel: we have no resume here, every attempt starts from
-/// scratch, and an unfinished gigabyte on disk is simply space the user never
-/// asked to give up. Deletion errors are swallowed: the file may already be
-/// gone, and there is no point failing while cleaning up after a cancel.
+/// Explicit cancellation discards partial data; interrupted/failed downloads
+/// retain it for resume. Cleanup errors are ignored if the file is already gone
+/// or cannot be removed.
 pub fn discard_partial(dir: &Path, spec: &DownloadSpec) {
     let _ = std::fs::remove_file(part_path_for(&dir.join(&spec.file_name)));
 }
@@ -194,11 +188,8 @@ pub fn discard_bundle_partial(dir: &Path, spec: &BundleDownloadSpec) {
     let _ = std::fs::remove_dir_all(stage_dir_for(dir, &spec.directory_name));
 }
 
-/// Synchronously verify that `path` matches `spec`. The size and the
-/// SHA-256 hash are both checked before returning `Ok(())`. The check
-/// is intentionally `async` so PR 1.2 can call it from inside a Tokio
-/// worker without blocking; the body streams the file in 64 KiB chunks
-/// so a 1.6 GB model never has to live in memory all at once.
+/// Verify the file size and SHA-256 before accepting an artifact. Asynchronous
+/// reads use 64 KiB chunks so verification does not load the whole model into RAM.
 pub async fn verify_file(path: &Path, spec: &DownloadSpec) -> Result<(), ModelDownloadError> {
     let metadata = tokio::fs::metadata(path)
         .await
@@ -339,6 +330,37 @@ async fn hash_existing_prefix(
     Ok(())
 }
 
+// These deadlines bound a stalled network operation, not the whole download:
+// a multi-gigabyte model may legitimately take hours while still progressing.
+const RESPONSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+const CHUNK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
+async fn wait_download_io<T>(
+    operation: impl std::future::Future<Output = T>,
+    cancel_flag: &AtomicBool,
+    timeout: std::time::Duration,
+) -> Result<T, ModelDownloadError> {
+    tokio::pin!(operation);
+    let deadline = tokio::time::sleep(timeout);
+    tokio::pin!(deadline);
+    // The public download registry uses AtomicBool. Poll it only while network
+    // I/O is pending; pinning the operation keeps this from restarting requests.
+    let mut cancellation = tokio::time::interval(std::time::Duration::from_millis(100));
+    loop {
+        if cancel_flag.load(Ordering::Acquire) {
+            return Err(ModelDownloadError::Cancelled);
+        }
+        tokio::select! {
+            biased;
+            _ = cancellation.tick() => {}
+            _ = &mut deadline => {
+                return Err(ModelDownloadError::Transport("download made no network progress before timeout".into()));
+            }
+            result = &mut operation => return Ok(result),
+        }
+    }
+}
+
 /// Download `spec` into `dir`, verifying on completion.
 ///
 /// Steps:
@@ -346,11 +368,10 @@ async fn hash_existing_prefix(
 ///    `InsufficientFreeSpace`, abort before opening any socket.
 /// 2. Download the remainder if a usable `*.part` is left from the previous
 ///    attempt and the server agrees to `Range` (see `resume_verdict`).
-/// 3. Stream the response body to `*.part`, periodically checking
-///    `cancel_flag` and forwarding byte counts to `progress`.
-/// 4. After the stream completes, fire `on_verifying` (PR 1.2) so
-///    the UI can flip to a "verifying" spinner before the SHA-256
-///    check starts.
+/// 3. Stream and hash the response body into `*.part`, checking
+///    cancellation during network waits and forwarding byte counts to `progress`.
+/// 4. After the stream completes, fire `on_verifying` before comparing
+///    the accumulated size and digest with the manifest.
 /// 5. Verify the final size and SHA-256 against the manifest.
 /// 6. Atomically rename `*.part` onto the final path. The final
 ///    path is NOT touched on failure — the partial file remains
@@ -386,6 +407,9 @@ pub async fn download_spec_to_dir(
     // What is finished and verified is not downloaded again. Inside a bundle
     // these are artifacts the previous attempt managed to pull down in full.
     if final_path.exists() && verify_file(&final_path, spec).await.is_ok() {
+        if cancel_flag.load(Ordering::Acquire) {
+            return Err(ModelDownloadError::Cancelled);
+        }
         if let Some(progress_cb) = progress {
             progress_cb(DownloadProgress {
                 downloaded: spec.expected_bytes,
@@ -408,9 +432,8 @@ pub async fn download_spec_to_dir(
         if offset > 0 {
             request = request.header(reqwest::header::RANGE, format!("bytes={offset}-"));
         }
-        let response = request
-            .send()
-            .await
+        let response = wait_download_io(request.send(), cancel_flag, RESPONSE_TIMEOUT)
+            .await?
             .map_err(|error| ModelDownloadError::Transport(format!("send: {error}")))?;
         let status = response.status();
         if offset == 0 {
@@ -463,7 +486,17 @@ pub async fn download_spec_to_dir(
         }
     }
     let mut stream = response.bytes_stream();
-    while let Some(chunk_result) = stream.next().await {
+    loop {
+        let chunk_result = match wait_download_io(stream.next(), cancel_flag, CHUNK_TIMEOUT).await {
+            Ok(Some(chunk)) => chunk,
+            Ok(None) => break,
+            Err(error) => {
+                // Finish any buffered write before the command wrapper removes
+                // cancelled staging files (especially with Windows file locks).
+                file.flush().await.ok();
+                return Err(error);
+            }
+        };
         if cancel_flag.load(Ordering::Relaxed) {
             file.flush().await.ok();
             return Err(ModelDownloadError::Cancelled);
@@ -484,11 +517,13 @@ pub async fn download_spec_to_dir(
         .map_err(|error| ModelDownloadError::Transport(format!("flush: {error}")))?;
     drop(file);
 
-    // Stream finished. Notify observers (PR 1.2 emits the
-    // `model-download-verifying` event here) so the UI can switch
-    // to a verifying spinner before the SHA-256 / size check runs.
+    // Notify the UI before comparing the accumulated digest and size.
     if let Some(verifying_cb) = on_verifying {
         verifying_cb();
+    }
+
+    if cancel_flag.load(Ordering::Acquire) {
+        return Err(ModelDownloadError::Cancelled);
     }
 
     if downloaded != spec.expected_bytes {
@@ -941,6 +976,100 @@ mod tests {
             .build()
             .unwrap()
             .block_on(future)
+    }
+
+    #[test]
+    fn cancellation_interrupts_stalled_headers_and_body() {
+        for send_headers in [false, true] {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let addr = listener.local_addr().unwrap();
+            let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+            let (release_tx, release_rx) = std::sync::mpsc::channel();
+            let server = thread::spawn(move || {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = Vec::new();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+                while !request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+                    let mut chunk = [0; 1024];
+                    let read = stream.read(&mut chunk).unwrap();
+                    assert!(read > 0, "client closed before sending request headers");
+                    request.extend_from_slice(&chunk[..read]);
+                    assert!(request.len() <= 16 * 1024, "request headers too large");
+                }
+                if send_headers {
+                    stream
+                        .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 6\r\n\r\na")
+                        .unwrap();
+                    stream.flush().unwrap();
+                }
+                ready_tx.send(()).unwrap();
+                // The client must cancel before this server closes or sends more.
+                let _ = release_rx.recv_timeout(Duration::from_secs(5));
+            });
+            let spec = tiny_spec(format!("http://{addr}/model"), b"abcdef");
+            let dir = tempfile::tempdir().unwrap();
+            let cancel = Arc::new(AtomicBool::new(false));
+            let client = reqwest::Client::new();
+            let received = AtomicU64::new(0);
+            let progress = |event: DownloadProgress| {
+                received.store(event.downloaded, Ordering::Relaxed);
+                if send_headers {
+                    cancel.store(true, Ordering::Release);
+                }
+            };
+            let result = block_on(async {
+                let download = download_spec_to_dir(
+                    &client,
+                    &spec,
+                    dir.path(),
+                    &cancel,
+                    Some(&progress),
+                    None,
+                );
+                let stop = async {
+                    ready_rx.await.unwrap();
+                    if !send_headers {
+                        cancel.store(true, Ordering::Release);
+                    }
+                };
+                let (result, ()) =
+                    tokio::join!(tokio::time::timeout(Duration::from_secs(2), download), stop);
+                result
+            });
+            release_tx.send(()).unwrap();
+            server.join().unwrap();
+            assert!(
+                matches!(result, Ok(Err(ModelDownloadError::Cancelled))),
+                "headers={send_headers}: {result:?}"
+            );
+            assert!(!dir.path().join(&spec.file_name).exists());
+            if send_headers {
+                assert_eq!(
+                    received.load(Ordering::Relaxed),
+                    1,
+                    "cancel after the first body chunk"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn stalled_io_times_out_without_restarting_the_operation() {
+        block_on(async {
+            let calls = AtomicU64::new(0);
+            let cancel = AtomicBool::new(false);
+            let operation = async {
+                calls.fetch_add(1, Ordering::Relaxed);
+                std::future::pending::<()>().await;
+            };
+            assert!(matches!(
+                wait_download_io(operation, &cancel, Duration::from_millis(250)).await,
+                Err(ModelDownloadError::Transport(_))
+            ));
+            assert_eq!(calls.load(Ordering::Relaxed), 1);
+        });
     }
 
     #[test]
@@ -1414,6 +1543,27 @@ mod tests {
             total: Some(0),
         };
         assert_eq!(progress.fraction(), None);
+    }
+
+    #[test]
+    fn cancellation_at_verification_never_publishes_the_download() {
+        let body = b"verified but cancelled".to_vec();
+        let spec = tiny_spec(serve_once(body.clone(), None), &body);
+        let dir = tempfile::tempdir().unwrap();
+        let final_path = dir.path().join(&spec.file_name);
+        let cancel = Arc::new(AtomicBool::new(false));
+        let on_verifying = || cancel.store(true, Ordering::Release);
+        let result = block_on(download_spec_to_dir(
+            &reqwest::Client::new(),
+            &spec,
+            dir.path(),
+            &cancel,
+            None,
+            Some(&on_verifying),
+        ));
+        assert!(matches!(result, Err(ModelDownloadError::Cancelled)));
+        assert!(!final_path.exists());
+        assert_eq!(std::fs::read(part_path_for(&final_path)).unwrap(), body);
     }
 
     #[test]

@@ -68,12 +68,25 @@ export function accentVariables(color: string, surfaces: string[] = []): Record<
   return variables;
 }
 
+let waitingForStyles = false;
+
 export function applyAccent(color: string) {
   const root = document.documentElement;
   const style = getComputedStyle(root);
   const surfaces = [0, 1, 2, 3, 4, 5].map((index) => style.getPropertyValue(`--bg-${index}`).trim());
-  for (const [name, value] of Object.entries(accentVariables(resolveAccent(color), surfaces))) {
+  const surfacesReady = surfaces.every((surface) => parseRgb(surface) !== null);
+  for (const [name, value] of Object.entries(accentVariables(resolveAccent(color), surfacesReady ? surfaces : []))) {
     root.style.setProperty(name, value);
+  }
+  // WebKit can run module effects before the linked stylesheet has loaded.
+  // Keep its CSS text-color fallback until surfaces exist, then derive contrast
+  // from the latest accent/theme rather than a stale startup value.
+  if (!surfacesReady && document.readyState !== "complete" && !waitingForStyles) {
+    waitingForStyles = true;
+    window.addEventListener("load", () => {
+      waitingForStyles = false;
+      applyAccent(root.style.getPropertyValue("--accent"));
+    }, { once: true });
   }
 }
 

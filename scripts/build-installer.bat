@@ -14,7 +14,7 @@ REM Requires:
 REM   - Visual Studio BuildTools 2022 (vcvars64.bat)
 REM   - LLVM at C:\LLVM\bin (set via LIBCLANG_PATH for bindgen)
 REM   - NSIS 3.x installed (winget install NSIS.NSIS)
-REM   - tauri-cli installed (cargo install tauri-cli --version "^2" --locked)
+REM   - desktop dependencies installed with pnpm install --frozen-lockfile
 
 call "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat" >nul 2>&1
 if errorlevel 1 (
@@ -30,7 +30,7 @@ set "PATH=C:\Program Files\CMake\bin;%PATH%"
 set LIBCLANG_PATH=C:\LLVM\bin
 
 REM Updater artifacts are signed at bundle time. Without the key
-REM "cargo tauri build" fails, because tauri.conf.json has
+REM the Tauri build fails, because tauri.conf.json has
 REM bundle.createUpdaterArtifacts = true. The key lives outside the
 REM repo; the public half is in tauri.conf.json.
 set "TAURI_SIGNING_PRIVATE_KEY_PATH=%USERPROFILE%\.tauri\sotto.key"
@@ -56,7 +56,7 @@ if not defined SOTTO_SIGNING_PASSWORD_EXPORTED (
 )
 if not exist "%TAURI_SIGNING_PRIVATE_KEY_PATH%" (
     echo [build-installer] signing key not found: %TAURI_SIGNING_PRIVATE_KEY_PATH%
-    echo [build-installer] regenerate with: tauri signer generate -w %%USERPROFILE%%\.tauri\sotto.key
+    echo [build-installer] regenerate from desktop/: pnpm exec tauri signer generate -w %%USERPROFILE%%\.tauri\sotto.key
     exit /b 1
 )
 
@@ -69,9 +69,9 @@ if errorlevel 1 (
 REM --features gpu-vulkan: the GPU backend is opt-in so that CI and a plain
 REM cargo build need no Vulkan SDK. A release without it would silently ship
 REM CPU-only inference.
-cargo tauri build --features gpu-vulkan -- --locked
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0build-windows-installer.ps1"
 if errorlevel 1 (
-    echo [build-installer] cargo tauri build failed
+    echo [build-installer] native preparation or Tauri build failed
     exit /b 1
 )
 

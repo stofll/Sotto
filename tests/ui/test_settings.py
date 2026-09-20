@@ -77,6 +77,41 @@ def test_locale_changes_live_and_persists(app, page):
     expect(page.get_by_role("heading", name="Settings", exact=True)).to_be_visible()
 
 
+@pytest.mark.parametrize(
+    "locale,next_locale,label", [("ru", "en", "English"), ("en", "ru", "Русский")]
+)
+@pytest.mark.parametrize("theme", ["light", "dark"])
+def test_locale_save_failure_keeps_language_and_selection(
+    app, page, locale, next_locale, label, theme, output_path
+):
+    ui = app(config={"ui_language": locale, "theme": theme})
+    ui.queue("save_config", {"hold": True})
+    button = page.get_by_role("button", name=label, exact=True)
+    button.focus()
+    expect(button).to_be_focused()
+    Path(output_path).mkdir(parents=True, exist_ok=True)
+    page.screenshot(
+        path=str(Path(output_path) / "locale-focused.png"), animations="disabled"
+    )
+    button.press("Enter")
+    expect(button).to_be_disabled()
+    page.screenshot(
+        path=str(Path(output_path) / "locale-pending.png"), animations="disabled"
+    )
+    expect(page.locator("html")).to_have_attribute("lang", locale)
+    expect(button).to_have_attribute("aria-pressed", "false")
+    ui.settle("save_config", error="Synthetic language save failure")
+    expect(page.get_by_role("alert")).to_contain_text("Synthetic language save failure")
+    expect(button).to_be_enabled()
+    expect(page.locator("html")).to_have_attribute("lang", locale)
+    expect(button).to_have_attribute("aria-pressed", "false")
+    assert ui.state()["config"]["ui_language"] == locale
+    button.click()
+    ui.saved("ui_language", next_locale)
+    expect(page.locator("html")).to_have_attribute("lang", next_locale)
+    expect(button).to_have_attribute("aria-pressed", "true")
+
+
 def test_microphone_selection(app, page):
     ui = app()
     page.get_by_role(
@@ -91,13 +126,11 @@ def test_microphone_selection(app, page):
 
 @pytest.mark.parametrize("failure", [False, True])
 def test_hotkey_validation(app, page, failure):
-    ui = app()
+    ui = app(config={"ui_accent": "#e68a3d"})
     ui.queue(
         "validate_hotkey",
         {"error": "Invalid shortcut"} if failure else {"result": None},
     )
-    if not failure:
-        ui.queue("set_hotkey", {"result": None})
     page.get_by_role("button", name="Изменить", exact=True).click()
     field = page.get_by_test_id("hotkey-input")
     field.fill("ctrl+alt+k")
@@ -108,6 +141,43 @@ def test_hotkey_validation(app, page, failure):
     else:
         ui.saved("hotkey", "ctrl+alt+k")
         expect(field).not_to_be_visible()
+        assert len(ui.calls("save_config")) == 1
+        assert not ui.calls("set_hotkey")
+
+
+@pytest.mark.parametrize("capture", [False, True])
+def test_hotkey_failed_save_keeps_draft_and_retries_one_transaction(app, page, capture):
+    ui = app(config={"ui_accent": "#e68a3d"})
+    page.get_by_role("button", name="Изменить", exact=True).click()
+    field = page.get_by_test_id("hotkey-input")
+    ui.queue("validate_hotkey", {"result": None}, {"result": None})
+    ui.queue("save_config", {"hold": True})
+    if capture:
+        page.get_by_role("button", name="Записать", exact=True).click()
+        page.keyboard.press("Control+Alt+k")
+    else:
+        field.fill("ctrl+alt+k")
+        field.press("Enter")
+    apply = page.get_by_role("button", name="Применить", exact=True)
+    expect(field).to_be_disabled()
+    expect(apply).to_be_disabled()
+    expect(field).to_have_value("ctrl+alt+k")
+    # Even a synthetic second key event cannot enqueue another transaction.
+    field.dispatch_event("keydown", {"key": "Enter"})
+    ui.settle("save_config", error="Synthetic hotkey persistence failure")
+    expect(page.get_by_role("alert")).to_contain_text(
+        "Synthetic hotkey persistence failure"
+    )
+    expect(field).to_be_enabled()
+    expect(field).to_have_value("ctrl+alt+k")
+    assert len(ui.calls("save_config")) == 1
+    assert not ui.calls("set_hotkey")
+    assert ui.state()["config"]["hotkey"] == "Ctrl+Shift+Space"
+    apply.click()
+    ui.saved("hotkey", "ctrl+alt+k")
+    expect(field).not_to_be_visible()
+    assert len(ui.calls("save_config")) == 2
+    assert not ui.calls("set_hotkey")
 
 
 def test_hotkey_escape_leaves_config_unchanged(app, page):

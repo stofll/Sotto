@@ -374,9 +374,7 @@ pub fn paste_strategy_2_osascript() -> Result<(), String> {
 /// On Linux: copy + Strategy 1 alone.
 ///
 /// The caller is responsible for invoking this on the main thread (via
-/// `app.run_on_main_thread`). `AppHandle` (not `&AppHandle`) so the inner
-/// closures can `clone()` it cheaply when scheduling further main-thread
-/// work (e.g. `copy_to_clipboard` from `sidecar.rs::reader_loop`).
+/// `app.run_on_main_thread`).
 pub fn paste_text(app: AppHandle, text: String) -> Result<(), String> {
     copy_to_clipboard(&app, &text)?;
 

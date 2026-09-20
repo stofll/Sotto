@@ -52,6 +52,84 @@ def test_tray_pause_replacements(app, page):
     ui.saved("replacements_paused", False)
 
 
+@pytest.mark.parametrize("locale", ["ru", "en"])
+@pytest.mark.parametrize("theme", ["light", "dark"])
+def test_tray_refreshes_unloaded_and_restored_model(
+    app, page, locale, theme, output_path
+):
+    page.set_viewport_size({"width": 300, "height": 360})
+    ui = app(
+        "tray",
+        config={"ui_language": locale, "theme": theme},
+        runtime={
+            "active_model": "tiny",
+            "active_engine": "whisper.cpp",
+            "active_device": "cpu",
+        },
+    )
+    expect(page.locator("body")).to_contain_text("tiny · whisper.cpp · CPU")
+    page.evaluate("""window.__sottoTest.state.runtime = {
+        ...window.__sottoTest.state.runtime, model_loaded: false,
+        loaded_model: null, active_model: null, active_engine: null,
+        active_device: null
+    }""")
+    ui.emit("model-unloaded", "tiny")
+    unloaded = "Модель не загружена" if locale == "ru" else "No model loaded"
+    expect(page.locator("body")).to_contain_text(unloaded)
+    expect(page.locator("body")).not_to_contain_text("tiny")
+    expect(page.locator("body")).not_to_contain_text("GPU")
+    hide = page.get_by_role(
+        "button", name="Скрыть меню" if locale == "ru" else "Hide menu", exact=True
+    )
+    hide.focus()
+    expect(hide).to_be_focused()
+    box = hide.bounding_box()
+    assert box["y"] + box["height"] <= page.viewport_size["height"]
+    Path(output_path).mkdir(parents=True, exist_ok=True)
+    page.screenshot(
+        path=str(Path(output_path) / "tray-unloaded.png"), animations="disabled"
+    )
+    loading = "Загружаю модель" if locale == "ru" else "Loading model"
+    expect(page.locator("body")).not_to_contain_text(loading)
+    page.evaluate("""window.__sottoTest.state.runtime = {
+        ...window.__sottoTest.state.runtime, model_loaded: true,
+        loaded_model: 'base', active_model: 'base', active_engine: 'whisper.cpp',
+        active_device: 'cpu'
+    }""")
+    ui.emit("model-restored", "base")
+    expect(page.locator("body")).to_contain_text("base · whisper.cpp · CPU")
+    expect(page.locator("body")).not_to_contain_text(unloaded)
+    page.screenshot(
+        path=str(Path(output_path) / "tray-restored.png"), animations="disabled"
+    )
+
+
+def test_tray_ignores_snapshot_started_before_unload(app, page):
+    ui = app("tray", responses={"get_runtime_status": [{"hold": True}]})
+    page.evaluate("""window.__sottoTest.state.runtime = {
+        ...window.__sottoTest.state.runtime, model_loaded: false,
+        loaded_model: null, active_model: null, active_engine: null,
+        active_device: null
+    }""")
+    ui.emit("model-unloaded", "tiny")
+    expect(page.locator("body")).to_contain_text("Модель не загружена")
+    ui.settle(
+        "get_runtime_status",
+        result={
+            "model_loaded": True,
+            "loaded_model": "stale-model",
+            "state": "idle",
+            "active_model": "stale-model",
+            "active_engine": "whisper.cpp",
+            "active_device": "cpu",
+        },
+    )
+    # Drain the settled promise and the next browser frame before checking the UI.
+    page.evaluate("() => new Promise(resolve => requestAnimationFrame(resolve))")
+    expect(page.locator("body")).not_to_contain_text("stale-model")
+    expect(page.locator("body")).to_contain_text("Модель не загружена")
+
+
 def test_tray_uses_saved_interface_color_and_live_updates(app, page):
     ui = app("tray", config={"ui_accent": "#102040", "theme": "dark"})
     root = page.locator("html")

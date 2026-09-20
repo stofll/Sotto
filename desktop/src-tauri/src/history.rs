@@ -1,4 +1,4 @@
-//! History persistence (WS 4b).
+//! Dictation history and optional LLM reprocessing.
 //!
 //! Replaces Python `transcription_history.py`. Used by the frontend as a
 //! fallback when auto-paste misses (focus changed, clipboard race, etc.) and
@@ -12,8 +12,7 @@
 //! Schema: see `migrations/v1.sql` and `migrations/v3.sql` — `history` table
 //! with `id INTEGER PRIMARY KEY` (ms timestamp + collision suffix),
 //! `timestamp REAL`, exact `transcription_model`, and JSON-blob columns for
-//! `ai_processing` / `processing_stats` (deferred to WS 4c for real LLM
-//! metrics).
+//! `ai_processing` / `processing_stats` containing the recorded pipeline metrics.
 
 use std::sync::Mutex;
 

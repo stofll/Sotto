@@ -31,14 +31,7 @@ type Params = {
   onBeforeDialog?: () => void;
 };
 
-/**
- * Downloading, deleting and switching models — one set for the whole app.
- *
- * The dropdown in settings and the catalog page do the same things to models
- * while looking different. Copies of this logic drifting apart would mean that a
- * model downloaded from one place behaves unlike the same model downloaded from
- * another — so all of it lives here and the markup is left to the caller.
- */
+/** Model catalog operations and their confirmation/progress state. */
 export function useModelActions({ models, value, language, onConfigChanged, onModelsChanged, onBeforeDialog }: Params) {
   // Lists rather than a single id: several downloads may be running, and
   // finishing the first cleared the "busy" mark from all the rest — the second

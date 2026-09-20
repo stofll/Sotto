@@ -11,12 +11,19 @@ foreach ($name in @('onnxruntime.dll', 'onnxruntime_providers_shared.dll', 'sher
     if (-not (Test-Path -LiteralPath (Join-Path $binaryRoot $name))) { throw "Missing runtime: $name" }
 }
 $staging = Join-Path ([IO.Path]::GetTempPath()) ('sotto-portable-' + [guid]::NewGuid().ToString('N'))
+# Only remove the unique directory created by this invocation.
+$tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\', '/')
+$staging = [IO.Path]::GetFullPath($staging)
+if ([IO.Path]::GetDirectoryName($staging) -ne $tempRoot) {
+    throw "Portable staging directory is outside the temporary root"
+}
 New-Item -ItemType Directory -Path $staging | Out-Null
-Copy-Item -LiteralPath $executable -Destination $staging
-Get-ChildItem -LiteralPath $binaryRoot -Filter '*.dll' -File | Copy-Item -Destination $staging
-Copy-Item -LiteralPath (Join-Path $PSScriptRoot '../desktop/src-tauri/resources/spelling/README_ru_RU.txt') -Destination (Join-Path $staging 'RUSSIAN-DICTIONARY-LICENSE.txt')
-New-Item -ItemType File -Path (Join-Path $staging 'portable.flag') | Out-Null
-Set-Content -LiteralPath (Join-Path $staging 'README.txt') -Encoding UTF8 -Value @"
+try {
+    Copy-Item -LiteralPath $executable -Destination $staging
+    Get-ChildItem -LiteralPath $binaryRoot -Filter '*.dll' -File | Copy-Item -Destination $staging
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot '../desktop/src-tauri/resources/spelling/README_ru_RU.txt') -Destination (Join-Path $staging 'RUSSIAN-DICTIONARY-LICENSE.txt')
+    New-Item -ItemType File -Path (Join-Path $staging 'portable.flag') | Out-Null
+    Set-Content -LiteralPath (Join-Path $staging 'README.txt') -Encoding UTF8 -Value @"
 Sotto portable for Windows x64
 Extract this ZIP to a writable folder and run Sotto.exe.
 Microsoft Edge WebView2 Runtime is required.
@@ -25,7 +32,10 @@ API keys use Windows Credential Manager and do not move to another computer.
 To update, close Sotto through its tray menu and replace the application files.
 Keep the data folder and portable.flag. Do not run the installed and portable copies together.
 "@
-$archive = [IO.Path]::GetFullPath($OutputPath)
-New-Item -ItemType Directory -Force -Path ([IO.Path]::GetDirectoryName($archive)) | Out-Null
-Compress-Archive -Path (Join-Path $staging '*') -DestinationPath $archive -Force
-Write-Output $archive
+    $archive = [IO.Path]::GetFullPath($OutputPath)
+    New-Item -ItemType Directory -Force -Path ([IO.Path]::GetDirectoryName($archive)) | Out-Null
+    Compress-Archive -Path (Join-Path $staging '*') -DestinationPath $archive -Force
+    Write-Output $archive
+} finally {
+    Remove-Item -LiteralPath $staging -Recurse -Force
+}

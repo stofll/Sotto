@@ -1,23 +1,13 @@
-//! Stats persistence (WS 4b).
+//! Daily and lifetime transcription/formatting statistics in SQLite.
 //!
-//! Replaces Python `stats.py`. Single source of truth for daily + totals
-//! in `~/.speech_to_text/sotto.db` (mirror Python `stats.py` schema 1:1).
-//!
-//! Writes are serialized via `std::sync::Mutex<Connection>` (NOT
-//! `tokio::sync::Mutex` — `MutexGuard` from std is `Send` when `T: Send`,
-//! which is what `spawn_blocking` requires; the Tokio variant is not).
+//! Each operation locks the shared connection on its calling worker thread.
 
 use std::sync::Mutex;
 
 use rusqlite::Connection;
 use serde::Serialize;
 
-/// Fallback typing speed (chars per minute) used when no config is
-/// available. Matches Python `config.py` `typing_speed_cpm` default.
-///
-/// `pub` so the dispatcher in `lib.rs::setup` can use the same constant
-/// when calling `record_transcription` (WS 4b doesn't yet plumb the live
-/// config value — that's deferred to WS 4c).
+/// Typing speed estimate in characters per minute, shared by dictation and telemetry.
 pub const TIME_SAVED_CPM_FALLBACK: f64 = 240.0;
 
 /// Days of daily_history retained in DB (mirror Python `HISTORY_DAYS = 365`).
@@ -82,9 +72,8 @@ pub struct DailyEntry {
 
 /// Increment stats for a successful transcription.
 ///
-/// `cpm` — typing speed in chars/minute. WS 4c will pass the live config
-/// value here; until then we fall back to `TIME_SAVED_CPM_FALLBACK` so
-/// `time_saved` math matches Python `stats.py:119` exactly:
+/// `cpm` is typing speed in characters per minute. Nonpositive/NaN values use
+/// `TIME_SAVED_CPM_FALLBACK`:
 ///
 /// ```text
 ///     time_saved_seconds = chars * 60 / cpm
@@ -156,7 +145,7 @@ pub fn record_transcription(
     )?;
 
     tx.commit()?;
-    let _ = language; // unused at WS 4b; WS 4c will persist language stats
+    let _ = language; // Statistics are aggregated across speech languages.
     Ok(())
 }
 

@@ -12,6 +12,130 @@ FILE_RESULT = {
     "language": "en",
 }
 
+PROMPT_PROFILES = [
+    {
+        "id": name,
+        "name": "Profile " + name,
+        "provider": "openai",
+        "model": "model-" + name,
+        "api_key_ref": "openai",
+        "prompt_preset": "plain",
+        "system_prompt": "Prompt " + name,
+    }
+    for name in ["A", "B"]
+]
+
+
+@pytest.mark.parametrize("failure", [False, True])
+def test_profile_prompt_resets_after_unrelated_save(app, page, failure):
+    ui = app(
+        config={
+            "ai_processing": {"profiles": PROMPT_PROFILES, "active_profile_id": "A"}
+        }
+    )
+    ui.nav("ai")
+    prompt = page.locator("textarea").first
+    expect(prompt).to_have_value("Prompt A")
+    prompt.fill("Unsaved draft A")
+    if failure:
+        ui.queue("save_config", {"error": "Synthetic disk full"})
+    page.get_by_role("radiogroup", name="Режим обработки").get_by_role("radio").nth(
+        1
+    ).click()
+    if failure:
+        expect(page.get_by_text("Synthetic disk full", exact=True)).to_be_visible()
+    else:
+        page.wait_for_function(
+            "window.__sottoTest.state.config.ai_processing.pipeline_mode === 'hybrid'"
+        )
+    expect(prompt).to_have_value("Unsaved draft A")
+    page.locator(".active-profile__pick button").click()
+    page.get_by_role("option", name="Profile B", exact=False).click()
+    expect(prompt).to_have_value("Prompt B")
+    assert ui.state()["config"]["ai_processing"]["profiles"][0]["system_prompt"] == (
+        "Prompt A"
+    )
+
+
+@pytest.mark.parametrize("action", ["save", "reset"])
+def test_prompt_save_failure_preserves_draft_and_can_retry(app, page, action):
+    ui = app(
+        config={
+            "ai_processing": {"profiles": PROMPT_PROFILES, "active_profile_id": "A"}
+        }
+    )
+    ui.nav("ai")
+    prompt = page.locator("textarea").first
+    prompt.fill("Edited prompt A")
+    button = (
+        page.get_by_role("button", name="Сохранить промпт", exact=True)
+        if action == "save"
+        else page.get_by_role("button", name="Вернуть встроенный", exact=True).last
+    )
+    success = (
+        "Системный промпт сохранён."
+        if action == "save"
+        else "Профиль снова использует встроенный промпт."
+    )
+    ui.queue("save_config", {"hold": True})
+    button.click()
+    expect(button).to_be_disabled()
+    expect(prompt).to_be_disabled()
+    expect(page.locator(".active-profile__pick button")).to_be_disabled()
+    ui.settle("save_config", error="Synthetic disk full")
+    expect(page.get_by_text("Synthetic disk full", exact=True)).to_be_visible()
+    expect(page.get_by_text(success, exact=True)).not_to_be_visible()
+    expect(prompt).to_have_value("Edited prompt A")
+    expect(button).to_be_enabled()
+    assert ui.state()["config"]["ai_processing"]["profiles"][0]["system_prompt"] == (
+        "Prompt A"
+    )
+    button.click()
+    expect(page.get_by_text(success, exact=True)).to_be_visible()
+    expected = "Edited prompt A" if action == "save" else ""
+    assert ui.state()["config"]["ai_processing"]["profiles"][0]["system_prompt"] == (
+        expected
+    )
+    if action == "save":
+        expect(prompt).to_have_value(expected)
+    else:
+        expect(prompt).not_to_have_value("Edited prompt A")
+    page.reload()
+    ui.nav("ai")
+    if action == "save":
+        expect(prompt).to_have_value(expected)
+    else:
+        expect(prompt).not_to_have_value("Prompt A")
+
+
+def test_failed_profile_switch_keeps_draft_and_does_not_claim_success(app, page):
+    ui = app(
+        config={
+            "ai_processing": {"profiles": PROMPT_PROFILES, "active_profile_id": "A"}
+        }
+    )
+    ui.nav("ai")
+    prompt = page.locator("textarea").first
+    prompt.fill("Unsaved draft A")
+    ui.queue("save_config", {"error": "Synthetic profile save failure"})
+    page.locator(".active-profile__pick button").click()
+    page.get_by_role("option", name="Profile B", exact=False).click()
+    expect(
+        page.get_by_text("Synthetic profile save failure", exact=True)
+    ).to_be_visible()
+    expect(page.locator(".active-profile__pick")).to_contain_text("Profile A")
+    expect(prompt).to_have_value("Unsaved draft A")
+    expect(
+        page.get_by_text("Активный профиль: «Profile B».", exact=True)
+    ).not_to_be_visible()
+    assert ui.state()["config"]["ai_processing"]["active_profile_id"] == "A"
+    page.locator(".active-profile__pick button").click()
+    page.get_by_role("option", name="Profile B", exact=False).click()
+    expect(prompt).to_have_value("Prompt B")
+    expect(
+        page.get_by_text("Активный профиль: «Profile B».", exact=True)
+    ).to_be_visible()
+
 
 def test_pipeline_keyboard_selection(app, page):
     ui = app()

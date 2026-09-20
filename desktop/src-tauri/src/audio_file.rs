@@ -28,15 +28,11 @@ pub const TARGET_RATE: u32 = 16_000;
 /// Longest file we will decode, in seconds.
 ///
 /// This is a memory guard, not a policy: the decoded buffer is `f32`, so
-/// three hours is 3 × 3600 × 16000 × 4 B ≈ 691 MB — and the source buffer
-/// at the file's own rate exists alongside it for part of the run. Beyond
+/// three hours is 3 × 3600 × 16000 × 4 B ≈ 691 MB. Source-rate PCM is
+/// resampled one packet at a time instead of retained for the whole file. Beyond
 /// this the app is a likelier cause of the user's next out-of-memory than
 /// whatever they were transcribing.
 pub const MAX_DURATION_SECONDS: f64 = 3.0 * 3600.0;
-
-/// Chunk size fed to the resampler. Large enough that the per-call overhead
-/// is irrelevant, small enough that the scratch buffers stay in cache.
-const RESAMPLE_CHUNK: usize = 1024;
 
 #[derive(Debug, Clone)]
 pub struct DecodedAudio {
@@ -106,6 +102,9 @@ fn decode_with_limit(path: &Path, max_seconds: f64) -> Result<DecodedAudio, Stri
         .map_err(|e| describe_symphonia_error(&e))?;
 
     let mut mono = Vec::<f32>::new();
+    let mut samples = Vec::<f32>::new();
+    let mut filter: Option<crate::audio_resampler::AudioResampler> = None;
+    let mut source_frames = 0usize;
     let mut interleaved = Vec::<f32>::new();
     // Taken from the decoded buffers, not from `codec_params`: for some
     // containers the header rate is absent or stale, and the decoder is the
@@ -149,44 +148,48 @@ fn decode_with_limit(path: &Path, max_seconds: f64) -> Result<DecodedAudio, Stri
             Err(e) => return Err(describe_symphonia_error(&e)),
         };
 
+        let rate = decoded.spec().rate();
+        if rate == 0 || source_rate.is_some_and(|previous| previous != rate) {
+            return Err(crate::ui_text::t(
+                "Не удалось прочитать звук из файла — возможно, он повреждён.",
+            ));
+        }
+        if filter.is_none() {
+            source_rate = Some(rate);
+            filter = Some(
+                crate::audio_resampler::AudioResampler::new(rate, TARGET_RATE)
+                    .map_err(describe_resampling_error)?,
+            );
+        }
+        mono.clear();
         append_downmixed(&decoded, &mut interleaved, &mut mono);
-        let rate = *source_rate.get_or_insert(decoded.spec().rate());
-
-        // Checked inside the loop, not from the container's duration
-        // field, so the guard holds for a file whose header understates its
-        // length. Bailing here also means we never allocate the full buffer
-        // for a 10-hour file before noticing.
-        if rate > 0 && mono.len() as f64 / f64::from(rate) > max_seconds {
+        source_frames += mono.len();
+        // Count decoded frames, not container metadata or padded resampler output.
+        if source_frames as f64 / f64::from(rate) > max_seconds {
             return Err(crate::ui_text::t("Файл длиннее {p0} часов.")
                 .replace("{p0}", &format!("{:.0}", max_seconds / 3600.0)));
         }
+        samples.extend_from_slice(
+            filter
+                .as_mut()
+                .unwrap()
+                .push(&mono)
+                .map_err(describe_resampling_error)?,
+        );
     }
 
-    // Checked before the rate, and it is the check that fires: a file whose
-    // header parses but whose data chunk is empty yields no packets, so
-    // there is no rate either. Ordering them the other way round reports
-    // "corrupt" for a file that is merely empty, and leaves this branch
-    // unreachable — which is how it read before a mutation test caught it.
-    if mono.is_empty() {
+    if source_frames == 0 {
         return Err(crate::ui_text::t("В файле нет звука."));
     }
-
-    // Reached only when packets decoded but none carried a usable rate.
-    let source_rate = source_rate.filter(|rate| *rate > 0).ok_or_else(|| {
-        crate::ui_text::t("Не удалось прочитать звук из файла — возможно, он повреждён.")
-    })?;
-
-    let samples = if source_rate == TARGET_RATE {
-        mono
-    } else {
-        // rubato's own error names filter parameters, which says nothing to
-        // the person who attached the file. The rate is what failed, so that
-        // is what the panel is told; the original goes to the log.
-        resample_to_target(&mono, source_rate).map_err(|error| {
-            log::error!("decode: resample {source_rate} -> {TARGET_RATE} failed: {error}");
-            crate::ui_text::t("Не удалось преобразовать частоту дискретизации файла.")
-        })?
-    };
+    // Flush once even for a truncated final packet, preserving the filter tail
+    // and the exact rounded duration instead of padding to a whole block.
+    samples.extend_from_slice(
+        filter
+            .as_mut()
+            .unwrap()
+            .finish()
+            .map_err(describe_resampling_error)?,
+    );
 
     Ok(DecodedAudio {
         audio_seconds: samples.len() as f64 / f64::from(TARGET_RATE),
@@ -218,24 +221,9 @@ fn append_downmixed(
     }
 }
 
-/// Resample mono `samples` from `source_rate` to [`TARGET_RATE`].
-///
-/// Sinc interpolation rather than linear: every common source rate here is
-/// a downsample (44.1 or 48 kHz → 16 kHz), and downsampling without an
-/// anti-aliasing filter folds everything above 8 kHz back into the speech
-/// band as noise — which whisper hears as words. rubato scales the sinc
-/// cutoff by the ratio automatically when the ratio is below 1, so the
-/// filter is correct for the direction we always go.
-fn resample_to_target(samples: &[f32], source_rate: u32) -> Result<Vec<f32>, String> {
-    let mut filter = crate::audio_resampler::AudioResampler::new(source_rate, TARGET_RATE)?;
-    let mut out = Vec::with_capacity(
-        (samples.len() as f64 * f64::from(TARGET_RATE) / f64::from(source_rate)).round() as usize,
-    );
-    for chunk in samples.chunks(RESAMPLE_CHUNK) {
-        out.extend_from_slice(filter.push(chunk)?);
-    }
-    out.extend_from_slice(filter.finish()?);
-    Ok(out)
+fn describe_resampling_error(error: String) -> String {
+    log::error!("decode: resampling to {TARGET_RATE} failed: {error}");
+    crate::ui_text::t("Не удалось преобразовать частоту дискретизации файла.")
 }
 
 /// Turn a symphonia error into something a person can act on.
@@ -332,6 +320,7 @@ pub struct TranscribeFileResult {
 /// Before it existed, every early return had to remember its own telemetry
 /// call — eleven of them — and a forgotten one loses the operation from the
 /// failure rate silently, without so much as a warning.
+#[derive(Debug)]
 struct FileFailure {
     stage: crate::telemetry::FailureStage,
     reason: crate::telemetry::FailureReason,
@@ -625,23 +614,7 @@ async fn transcribe_file_inner(
             crate::ui_text::t("Движок не ответил. Попробуйте ещё раз."),
         )
     })?;
-    // Nothing else will clear the registrations — the dispatcher skipped this
-    // session — and the LLM pass below can take the better part of a minute.
-    // Observe cancellation before dropping the guard (which removes the
-    // skip-set entry); otherwise a cancel that wins during STT is lost.
-    let was_cancelled = state.is_cancelled(session_id);
-    if was_cancelled {
-        state.drop_cancellation(session_id);
-    }
-    drop(session_guard);
-
-    if was_cancelled {
-        return Err(FileFailure::new(
-            crate::telemetry::FailureStage::Stt,
-            crate::telemetry::FailureReason::UserCancelled,
-            crate::ui_text::t("Транскрипция отменена."),
-        ));
-    }
+    let inference = file_inference_result(inference, state.is_cancelled(session_id))?;
     if inference.text.trim().is_empty() {
         return Err(FileFailure::new(
             crate::telemetry::FailureStage::Stt,
@@ -655,7 +628,18 @@ async fn transcribe_file_inner(
     // better part of a minute. Holding the claim across it would refuse the
     // user's dictation for no reason at all.
     drop(engine_claim);
-    let processed = crate::post_process_transcription(app, &inference).await;
+    let processed = await_file_processing(
+        crate::post_process_transcription(app, &inference),
+        state.wait_cancelled(session_id),
+    )
+    .await
+    .ok_or_else(|| file_cancelled(crate::telemetry::FailureStage::PostProcess))?;
+    // This is the file's delivery point: a concurrent cancel either wins here
+    // or arrives after a completed result. It never cancels a later dictation.
+    if !state.begin_commit(session_id) {
+        return Err(file_cancelled(crate::telemetry::FailureStage::PostProcess));
+    }
+    drop(session_guard);
 
     Ok(FileRun {
         inference,
@@ -663,19 +647,38 @@ async fn transcribe_file_inner(
     })
 }
 
-/// Cancel an in-flight file transcription.
-///
-/// Reuses the dictation cancel machinery: `cancel_session` flips the
-/// registered flag, which the engine checks before `state.full()` and
-/// between segments.
-///
-/// Ignores an id that is not the in-flight file session. A stale cancel —
-/// a click that lands just after the transcription returned, a frontend
-/// that kept the id too long — would otherwise mark that id cancelled
-/// forever, and since ids restart from zero after every dictation, the next
-/// dictation to be handed that id would be silently dropped: no paste, no
-/// history, no error. The skip-set is the authority on "is this still the
-/// file session", because the command clears it the moment it is done.
+fn file_cancelled(stage: crate::telemetry::FailureStage) -> FileFailure {
+    FileFailure::new(
+        stage,
+        crate::telemetry::FailureReason::UserCancelled,
+        crate::ui_text::t("Транскрипция отменена."),
+    )
+}
+
+fn file_inference_result(
+    result: Result<crate::whisper::InferenceResult, String>,
+    cancelled: bool,
+) -> Result<crate::whisper::InferenceResult, FileFailure> {
+    if cancelled {
+        return Err(file_cancelled(crate::telemetry::FailureStage::Stt));
+    }
+    result.map_err(FileFailure::from)
+}
+
+async fn await_file_processing<T>(
+    processing: impl std::future::Future<Output = T>,
+    cancellation: impl std::future::Future<Output = ()>,
+) -> Option<T> {
+    tokio::select! {
+        biased;
+        _ = cancellation => None,
+        result = processing => Some(result),
+    }
+}
+
+/// Cancel an active file session during STT or optional post-processing.
+/// The file guard keeps its registration alive after releasing the engine,
+/// so this can stop the LLM request without affecting another dictation.
 #[tauri::command(rename_all = "snake_case")]
 pub(crate) async fn cancel_audio_file(
     state: tauri::State<'_, crate::state::AppState>,
@@ -685,13 +688,61 @@ pub(crate) async fn cancel_audio_file(
         log::info!("cancel_audio_file: session {session_id} is no longer in flight, ignoring");
         return Ok(());
     }
-    state.cancel_session(session_id);
+    state.request_cancel(session_id);
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn engine_errors_retain_their_reason_unless_the_file_was_cancelled() {
+        for message in ["HTTP 401", "request timed out", "model not loaded"] {
+            let failure = file_inference_result(Err(message.into()), false).unwrap_err();
+            assert_eq!(failure.message, message);
+            assert!(matches!(
+                failure.reason,
+                crate::telemetry::FailureReason::EngineError
+            ));
+            let cancelled = file_inference_result(Err(message.into()), true).unwrap_err();
+            assert!(matches!(
+                cancelled.reason,
+                crate::telemetry::FailureReason::UserCancelled
+            ));
+        }
+    }
+
+    #[tokio::test]
+    async fn cancellation_drops_an_in_flight_file_post_processor() {
+        struct InFlight(Arc<AtomicBool>);
+        impl Drop for InFlight {
+            fn drop(&mut self) {
+                self.0.store(true, std::sync::atomic::Ordering::Release);
+            }
+        }
+        let dropped = Arc::new(AtomicBool::new(false));
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let active = InFlight(Arc::clone(&dropped));
+        let processing = async move {
+            let _active = active;
+            started_tx.send(()).unwrap();
+            std::future::pending::<String>().await
+        };
+        let result = await_file_processing(processing, async {
+            started_rx.await.unwrap();
+        })
+        .await;
+        assert!(result.is_none());
+        assert!(dropped.load(std::sync::atomic::Ordering::Acquire));
+        assert_eq!(
+            await_file_processing(async { "result" }, std::future::pending()).await,
+            Some("result")
+        );
+        assert!(await_file_processing(async { "already ready" }, async {})
+            .await
+            .is_none());
+    }
 
     /// A WAV file built in memory, so the tests do not depend on committed
     /// binary fixtures for the one format we can encode ourselves.
@@ -747,6 +798,38 @@ mod tests {
             "audio_seconds must follow the sample count, got {}",
             decoded.audio_seconds
         );
+    }
+
+    #[test]
+    fn packet_resampling_preserves_partial_tails_at_high_rates() {
+        let dir = tempfile::tempdir().unwrap();
+        for rate in [44_100, 48_000, 96_000] {
+            // A non-block-aligned stereo tail exercises both downmix and flush.
+            let frames = rate as usize + 317;
+            let mut interleaved = Vec::with_capacity(frames * 2);
+            for i in 0..frames {
+                let sample = if i > frames - 500 { 0.5 } else { 0.0 };
+                interleaved.extend_from_slice(&[sample, sample]);
+            }
+            let path = dir.path().join(format!("tail-{rate}.wav"));
+            std::fs::write(&path, wav_bytes(&interleaved, rate, 2)).unwrap();
+            let decoded = decode_to_pcm16k_mono(&path).unwrap();
+            let expected = (frames as f64 * 16_000.0 / f64::from(rate)).round() as usize;
+            assert_eq!(decoded.samples.len(), expected, "rate {rate}");
+            assert!(
+                decoded.samples[expected - 50..expected - 20]
+                    .iter()
+                    .all(|v| *v > 0.4),
+                "lost tail at {rate}"
+            );
+            // Container truncation must still preserve all complete decoded packets.
+            let mut bytes = std::fs::read(&path).unwrap();
+            bytes.truncate(bytes.len() - 40);
+            std::fs::write(&path, bytes).unwrap();
+            let partial = decode_to_pcm16k_mono(&path).unwrap();
+            assert!(!partial.samples.is_empty());
+            assert!(partial.samples.len() <= expected);
+        }
     }
 
     #[test]

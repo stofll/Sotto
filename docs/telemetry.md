@@ -31,9 +31,9 @@ Because the token is a compile-time input, a build that misses it cannot be repa
 
 `SOTTO_ALLOW_NO_TELEMETRY=1` waives both checks, for a build that is meant to report nothing.
 
-The release workflow reads the same variable from a repository secret, which is set, so released builds do carry telemetry — but it has no equivalent guard, and would ship a silently reportless release if the secret ever went missing. See [RELEASE.md](RELEASE.md).
+The release workflow reads the same variable from a repository secret. It has no equivalent guard and can ship a build without telemetry if the secret is absent. Check the repository's release configuration rather than treating this document as evidence that a secret is present. See [RELEASE.md](RELEASE.md).
 
-Without a token the telemetry service is a complete no-op: no outbox rows are written, and neither the delivery worker nor the session watcher is started, so there are no background timers and no database access at all.
+Without a token no events are queued and neither the delivery worker nor the session watcher starts. Initialization still reads or creates the random installation ID in SQLite; it does not eliminate all database access.
 
 The v1 endpoint is fixed to `https://eu.i.posthog.com/capture/`. Every event sets `$process_person_profile: false` and `$geoip_disable: true`.
 

@@ -1,18 +1,22 @@
-# pnpm workspace config.
-#
-# This file has TWO responsibilities:
-#   1. Allow esbuild's postinstall script to run (pnpm v9+
-#      blocks postinstall scripts by default; required for
-#      vite/esbuild to bootstrap).
-#   2. Declare workspace members so `pnpm install --frozen-lockfile`
-#      accepts the project. Without an explicit `packages:` list,
-#      pnpm v9+ reports "packages field missing or empty" when
-#      invoked with --frozen-lockfile.
-#
-# `desktop/` is the workspace root and today its only member.
-# Add further members here as they appear.
+# Package-manager policy for the standalone desktop workspace.
+# esbuild needs its postinstall step to bootstrap the UI test harness.
 packages:
   - "."
 
 allowBuilds:
   esbuild: true
+
+# Exact security release reviewed alongside the Rust Tauri upgrade.
+minimumReleaseAgeExclude:
+  - '@tauri-apps/cli-darwin-arm64@2.11.5'
+  - '@tauri-apps/cli-darwin-x64@2.11.5'
+  - '@tauri-apps/cli-linux-arm-gnueabihf@2.11.5'
+  - '@tauri-apps/cli-linux-arm64-gnu@2.11.5'
+  - '@tauri-apps/cli-linux-arm64-musl@2.11.5'
+  - '@tauri-apps/cli-linux-riscv64-gnu@2.11.5'
+  - '@tauri-apps/cli-linux-x64-gnu@2.11.5'
+  - '@tauri-apps/cli-linux-x64-musl@2.11.5'
+  - '@tauri-apps/cli-win32-arm64-msvc@2.11.5'
+  - '@tauri-apps/cli-win32-ia32-msvc@2.11.5'
+  - '@tauri-apps/cli-win32-x64-msvc@2.11.5'
+  - '@tauri-apps/cli@2.11.5'

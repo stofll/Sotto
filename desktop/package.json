@@ -23,13 +23,13 @@
     "bundle:check": "node check-bundle-size.mjs"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.11.0",
+    "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-dialog": "^2.7.3",
     "react": "^19.2.6",
     "react-dom": "^19.2.6"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.11.2",
+    "@tauri-apps/cli": "^2.11.5",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.2",

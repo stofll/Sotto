@@ -234,7 +234,7 @@ git push origin v0.2.0
 
 Release builds compile the public PostHog ingest token in at build time, so a build either has telemetry or does not — the runtime toggle cannot add it back.
 
-Built without the token, telemetry is a complete no-op: nothing is queued, no worker runs, and the linker drops the delivery path out of the binary.
+Without a token no events are queued and neither the delivery worker nor the session watcher starts. Initialization still reads or creates the random installation ID in SQLite.
 
 Settings still shows the toggle as on, so such a build is indistinguishable from a working one until the dashboard stays empty.
 
@@ -242,7 +242,7 @@ The token reaches a build from one of two places, and they must hold the same pr
 
 | Build | Source |
 |---|---|
-| tag build in `release.yml` | repository secret `SOTTO_POSTHOG_API_KEY` — **set**, so both targets ship with telemetry |
+| tag build in `release.yml` | repository secret `SOTTO_POSTHOG_API_KEY`; verify its presence in the repository's release configuration |
 | `build-installer.sh`, outside CI | `~/.tauri/sotto-posthog.key`, next to the updater signing key |
 
 For the local script, override the file with `SOTTO_POSTHOG_KEY_PATH`, or set `SOTTO_POSTHOG_API_KEY` in the environment to win over it.
@@ -281,9 +281,11 @@ So instead of a flag, the release build moves the target directory itself: whisp
 
 `scripts/build-installer.sh` sets `CARGO_TARGET_DIR` to `<repo drive>:/sotto-build`; override with `SOTTO_BUILD_DIR`. The bundle therefore lands in `$CARGO_TARGET_DIR/release/bundle/nsis`, **not** under `desktop/src-tauri`.
 
+The Windows wrapper verifies and stages the pinned Sherpa runtime before compiling, including on a clean checkout, and uses the CLI from `desktop/pnpm-lock.yaml`. The release SBOM includes `native-components.json`: archive URLs and SHA-256 pins, the vendored Whisper source version, and the platform-specific ONNX Runtime versions. When updating a native dependency, review `scripts/native-components.json` together with the Cargo and runtime locks; this source inventory does not replace verification of the packaged binaries.
+
 The cost is a second build tree: a release build shares nothing with a plain `cargo build`, and the first one after this change compiles whisper.cpp from scratch.
 
-The profile-level `trim-paths` would replace the remap declaratively, but it still requires nightly in Cargo 1.95. Swap it in when it stabilises.
+Keep both Rust path remapping and the MSVC prefix flags until a tested stable replacement covers both sources of embedded paths. A Cargo-only replacement does not remove paths embedded by C/C++ through `__FILE__`.
 
 Verify any binary you are about to hand out:
 

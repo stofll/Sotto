@@ -24,5 +24,6 @@ This is the public documentation index for Sotto. Start with the guides below; d
 ## Project context
 
 - [Architecture](architecture.md) — stable high-level boundaries and data flow.
+- [Dictionary design](dictionary-sets-plan.md) — decision rationale, limits, and possible extensions; current behavior is in the dictionaries guide.
 
 If a document here disagrees with the executable CI configuration or the application UI, open an issue with the discrepancy and include the relevant platform and version.

@@ -1,0 +1,23 @@
+{
+  "whisper": {
+    "crate": "whisper-rs-sys",
+    "crateVersion": "0.13.1",
+    "version": "1.7.4",
+    "license": "MIT",
+    "evidence": "whisper-rs-sys 0.13.1: whisper.cpp/CMakeLists.txt",
+    "source": "https://crates.io/crates/whisper-rs-sys/0.13.1"
+  },
+  "sherpaVersion": "1.13.7",
+  "onnxruntime": {
+    "win-x64-shared": {
+      "version": "1.27.1",
+      "license": "MIT",
+      "source": "https://github.com/k2-fsa/sherpa-onnx/blob/v1.13.7/cmake/onnxruntime-win-x64.cmake"
+    },
+    "osx-arm64-static": {
+      "version": "1.28.1",
+      "license": "MIT",
+      "source": "https://github.com/k2-fsa/sherpa-onnx/blob/v1.13.7/cmake/onnxruntime-osx-arm64-static.cmake"
+    }
+  }
+}

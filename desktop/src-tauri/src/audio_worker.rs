@@ -33,10 +33,7 @@
 //! arrangement — created on the main thread by the hotkey, dropped on an
 //! arbitrary tokio worker by `cancel_recording` — did not guarantee that.
 
-use std::sync::{
-    mpsc::{channel, Sender},
-    Arc, Mutex,
-};
+use std::sync::mpsc::{channel, Sender};
 use std::thread;
 
 type Job = Box<dyn FnOnce() + Send + 'static>;
@@ -45,11 +42,8 @@ type Job = Box<dyn FnOnce() + Send + 'static>;
 /// `Clone`, and a second audio thread would defeat the point.
 #[derive(Clone)]
 pub struct AudioWorker {
-    /// `std::sync::mpsc::Sender` is `Send` but not `Sync`, and `AppState`
-    /// has to be `Sync`. The lock is only ever held across a send on an
-    /// unbounded channel, which cannot block — nothing here can become the
-    /// kind of contention this module exists to remove.
-    tx: Arc<Mutex<Sender<Job>>>,
+    // Sender is Clone + Send + Sync; clones retain the same serialized queue.
+    tx: Sender<Job>,
 }
 
 impl AudioWorker {
@@ -71,9 +65,7 @@ impl AudioWorker {
                 log::info!("audio worker thread exiting (channel closed)");
             })
             .expect("spawn audio worker thread");
-        Self {
-            tx: Arc::new(Mutex::new(tx)),
-        }
+        Self { tx }
     }
 
     /// Queue a job and return immediately.
@@ -81,8 +73,8 @@ impl AudioWorker {
     /// For callers that must not block under any circumstances — above all
     /// the hotkey handler, which Windows runs on the main thread.
     pub fn submit(&self, job: impl FnOnce() + Send + 'static) -> Result<(), String> {
-        let tx = crate::mutex_recover::lock(&self.tx);
-        tx.send(Box::new(job))
+        self.tx
+            .send(Box::new(job))
             .map_err(|_| "audio worker is gone".to_string())
     }
 

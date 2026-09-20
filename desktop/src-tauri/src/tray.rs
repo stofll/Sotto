@@ -12,11 +12,18 @@ fn tray_icon_image() -> Image<'static> {
         .expect("tray.png is a valid PNG embedded at build time")
 }
 
+/// Create the tray at startup, or refresh its menu after a language change.
 pub fn build_tray(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
-    // Right-click context menu with a single "Quit" entry.
     let quit_item = MenuItem::with_id(app, "quit", crate::ui_text::t("Выход"), true, None::<&str>)?;
     let open_item = MenuItem::with_id(app, "open", "Sotto", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open_item, &quit_item])?;
+
+    // Tauri retains each built icon, even when its ID already exists. Reuse
+    // the icon and its event handlers instead of registering another copy.
+    if let Some(tray) = app.tray_by_id("main-tray") {
+        tray.set_menu(Some(menu))?;
+        return Ok(());
+    }
 
     TrayIconBuilder::with_id("main-tray")
         .icon(tray_icon_image())

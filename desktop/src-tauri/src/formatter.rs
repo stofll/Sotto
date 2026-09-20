@@ -14,8 +14,8 @@
 //! Replacement rules
 //! -----------------
 //!
-//! `apply_replacement_rules` mirrors Python's behaviour:
-//!   * `match=word` → word-boundary regex (Rust: `(?<!\w){find}(?!\w)`)
+//! Replacement matching modes:
+//!   * `match=word` → Unicode word-boundary regex (`\b`)
 //!   * `match=phrase` → literal, no boundary
 //!   * `match=contains` → literal, no boundary (legacy alias for phrase)
 //!   * `match=regex` → user-supplied regex
@@ -204,9 +204,7 @@ const ENGLISH_FILLER_PATTERNS: &[&str] = &[
 
 /// The filler patterns in force for a dictation in `language`.
 ///
-/// Compiled here rather than in a `Lazy` to keep the module's loading order
-/// side-effect-free (Rust forbids `Lazy<Regex>` with a non-const initialiser at
-/// the top level).
+/// Each formatter instance compiles the patterns selected for its language.
 fn default_filler_patterns(language: Option<&str>) -> Vec<Regex> {
     let mut patterns: Vec<&str> = RUSSIAN_FILLER_PATTERNS.to_vec();
     if language == Some("en") {
@@ -587,39 +585,64 @@ fn preserve_replacement_case(matched: &str, replacement: &str) -> String {
     out
 }
 
+struct CompiledReplacement {
+    rule: ReplacementRule,
+    pattern: Regex,
+}
+
+fn compile_replacements(rules: Vec<ReplacementRule>) -> Vec<CompiledReplacement> {
+    rules
+        .into_iter()
+        .filter(|rule| rule.enabled)
+        .filter_map(|mut rule| {
+            rule.find = rule.find.trim().to_string();
+            if rule.find.is_empty() {
+                return None;
+            }
+            match replacement_regex(&rule) {
+                Ok(pattern) => Some(CompiledReplacement { rule, pattern }),
+                Err(error) => {
+                    log::warn!(
+                        "formatter: invalid replacement regex skipped: {}: {error}",
+                        rule.find
+                    );
+                    None
+                }
+            }
+        })
+        .collect()
+}
+
 pub fn apply_replacement_rules(
     text: &str,
     source: Option<&Value>,
     paused: bool,
 ) -> (String, ReplacementStats) {
-    let rules = normalize_replacement_rules(source);
+    if text.is_empty() || paused {
+        return (text.to_string(), ReplacementStats::default());
+    }
+    apply_compiled_replacements(
+        text,
+        &compile_replacements(normalize_replacement_rules(source)),
+    )
+}
+
+fn apply_compiled_replacements(
+    text: &str,
+    rules: &[CompiledReplacement],
+) -> (String, ReplacementStats) {
+    if text.is_empty() {
+        return (String::new(), ReplacementStats::default());
+    }
     let mut stats = ReplacementStats {
         total: 0,
         rules: Vec::new(),
     };
-    if text.is_empty() || paused {
-        return (text.to_string(), stats);
-    }
-
     let mut current = text.to_string();
-    for rule in rules.iter().filter(|r| r.enabled) {
-        let pattern = match replacement_regex(rule) {
-            Ok(pattern) => pattern,
-            Err(error) => {
-                log::warn!(
-                    "formatter: invalid replacement regex skipped: {}: {error}",
-                    rule.find
-                );
-                continue;
-            }
-        };
-
+    for CompiledReplacement { rule, pattern } in rules {
         let preserve_case = rule.preserve_case;
         let match_mode = rule.match_;
         let replace_template = rule.replace.clone();
-        let id = rule.id.clone();
-        let find = rule.find.clone();
-        let replace_owned = rule.replace.clone();
 
         let mut total_count: u64 = 0;
         let new_string = pattern
@@ -644,9 +667,9 @@ pub fn apply_replacement_rules(
         if count > 0 {
             stats.total += count;
             stats.rules.push(ReplacementRuleMatch {
-                id,
-                find,
-                replace: replace_owned,
+                id: rule.id.clone(),
+                find: rule.find.clone(),
+                replace: rule.replace.clone(),
                 count,
             });
         }
@@ -1226,16 +1249,13 @@ fn edit_budget(key_len: usize) -> usize {
     }
 }
 
-/// Whether a folded window counts as a distortion of a folded term.
+#[cfg(test)]
 fn within_budget(folded: &str, key: &str) -> bool {
     let folded: Vec<char> = folded.chars().collect();
     let key: Vec<char> = key.chars().collect();
-    // The length difference is itself no less than the distance: it rejects
-    // obviously foreign windows before the matrix is computed.
-    if folded.len().abs_diff(key.len()) > edit_budget(key.len()) {
-        return false;
-    }
-    edit_distance(&folded, &key) <= edit_budget(key.len())
+    DistanceScratch::default()
+        .within(&folded, &key, edit_budget(key.len()))
+        .is_some()
 }
 
 /// Shorter than this, fuzzy comparison does not work: for three-letter words
@@ -1340,39 +1360,66 @@ fn fold_for_match(word: &str) -> String {
     deduped
 }
 
-/// Levenshtein distance over characters (not bytes — the text is mixed, and
-/// Cyrillic and Latin have different widths in UTF-8).
-///
-/// Our own implementation instead of a dependency: thirty lines against an
-/// extra crate in the build tree.
-fn edit_distance(a: &[char], b: &[char]) -> usize {
-    if a.is_empty() {
-        return b.len();
-    }
-    if b.is_empty() {
-        return a.len();
-    }
-    let mut prev: Vec<usize> = (0..=b.len()).collect();
-    let mut current = vec![0usize; b.len() + 1];
-    for (i, ca) in a.iter().enumerate() {
-        current[0] = i + 1;
-        for (j, cb) in b.iter().enumerate() {
-            let cost = usize::from(ca != cb);
-            current[j + 1] = (prev[j] + cost).min(prev[j + 1] + 1).min(current[j] + 1);
-        }
-        std::mem::swap(&mut prev, &mut current);
-    }
-    prev[b.len()]
+/// Reuse the two Levenshtein rows for every candidate in one formatting call.
+/// The result supplies both the edit-budget check and the similarity score.
+#[derive(Default)]
+struct DistanceScratch {
+    previous: Vec<usize>,
+    current: Vec<usize>,
 }
 
-fn ratio(a: &str, b: &str) -> f64 {
-    let ac: Vec<char> = a.chars().collect();
-    let bc: Vec<char> = b.chars().collect();
-    let longest = ac.len().max(bc.len());
+impl DistanceScratch {
+    fn distance(&mut self, a: &[char], b: &[char]) -> usize {
+        self.within(a, b, usize::MAX).expect("unbounded distance")
+    }
+
+    fn within(&mut self, a: &[char], b: &[char], budget: usize) -> Option<usize> {
+        if a.len().abs_diff(b.len()) > budget {
+            return None;
+        }
+        if a.is_empty() {
+            return Some(b.len());
+        }
+        if b.is_empty() {
+            return Some(a.len());
+        }
+        self.previous.clear();
+        self.previous.extend(0..=b.len());
+        self.current.resize(b.len() + 1, 0);
+        for (i, ca) in a.iter().enumerate() {
+            self.current[0] = i + 1;
+            let mut row_min = self.current[0];
+            for (j, cb) in b.iter().enumerate() {
+                let cost = usize::from(ca != cb);
+                let distance = (self.previous[j] + cost)
+                    .min(self.previous[j + 1] + 1)
+                    .min(self.current[j] + 1);
+                self.current[j + 1] = distance;
+                row_min = row_min.min(distance);
+            }
+            // Every path into a later row extends one of these prefixes; if
+            // all already exceed the budget, no suffix can restore a match.
+            if row_min > budget {
+                return None;
+            }
+            std::mem::swap(&mut self.previous, &mut self.current);
+        }
+        let distance = self.previous[b.len()];
+        (distance <= budget).then_some(distance)
+    }
+}
+
+#[cfg(test)]
+fn edit_distance(a: &[char], b: &[char]) -> usize {
+    DistanceScratch::default().distance(a, b)
+}
+
+fn distance_score(distance: usize, a_len: usize, b_len: usize) -> f64 {
+    let longest = a_len.max(b_len);
     if longest == 0 {
         return 0.0;
     }
-    1.0 - (edit_distance(&ac, &bc) as f64 / longest as f64)
+    1.0 - distance as f64 / longest as f64
 }
 
 /// Similarity of two folded keys.
@@ -1390,8 +1437,11 @@ fn ratio(a: &str, b: &str) -> f64 {
 /// The cross-alphabet case — the one this was all started for — the folding
 /// covers even without the skeleton: «таури» and «Tauri» match exactly after
 /// transliteration.
+#[cfg(test)]
 fn similarity(a: &str, b: &str) -> f64 {
-    ratio(a, b)
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    distance_score(edit_distance(&a, &b), a.len(), b.len())
 }
 
 /// Carry the case of the matched fragment over to the dictionary form.
@@ -1432,8 +1482,14 @@ fn apply_case_of(matched: &str, canonical: &str) -> String {
 /// those cases where the engine heard something close but wrote it otherwise.
 pub struct CustomWordsCorrector {
     enabled: bool,
-    /// (dictionary form, folded joined key)
-    terms: Vec<(String, String)>,
+    terms: Vec<CustomTerm>,
+    max_window: usize,
+}
+
+struct CustomTerm {
+    canonical: String,
+    key: Vec<char>,
+    acronym: bool,
 }
 
 pub(crate) fn custom_word_supported(word: &str) -> bool {
@@ -1448,7 +1504,7 @@ pub(crate) fn custom_word_supported(word: &str) -> bool {
 
 impl CustomWordsCorrector {
     pub fn new(enabled: bool, words: Vec<String>) -> Self {
-        let terms: Vec<(String, String)> = words
+        let terms: Vec<CustomTerm> = words
             .into_iter()
             .filter_map(|word| {
                 let canonical = word.trim().to_string();
@@ -1464,10 +1520,25 @@ impl CustomWordsCorrector {
                 if key.chars().filter(|c| c.is_alphanumeric()).count() < CUSTOM_WORD_MIN_CHARS {
                     return None;
                 }
-                Some((canonical, key))
+                let acronym = canonical.chars().all(|c| c.is_ascii_uppercase());
+                Some(CustomTerm {
+                    canonical,
+                    key: key.chars().collect(),
+                    acronym,
+                })
             })
             .collect();
-        Self { enabled, terms }
+        let max_window = terms
+            .iter()
+            .map(|term| term.canonical.split_whitespace().count())
+            .max()
+            .unwrap_or(0)
+            + 1;
+        Self {
+            enabled,
+            terms,
+            max_window,
+        }
     }
 
     /// How many text tokens it makes sense to try at once.
@@ -1475,17 +1546,19 @@ impl CustomWordsCorrector {
     /// The word count of the longest term plus one: the engine may split on one
     /// more space than the dictionary does («Клод Код» against «Клодкод»).
     fn max_window(&self) -> usize {
-        self.terms
-            .iter()
-            .map(|(canonical, _)| canonical.split_whitespace().count())
-            .max()
-            .unwrap_or(0)
-            + 1
+        self.max_window
     }
 
     /// Similarity of the window `words[start .. start + n]` to a specific term.
     /// `None` if the window is too short to be compared at all.
-    fn window_score(&self, words: &[&str], start: usize, n: usize, key: &str) -> Option<f64> {
+    fn window_score(
+        &self,
+        words: &[&str],
+        start: usize,
+        n: usize,
+        key: &[char],
+        scratch: &mut DistanceScratch,
+    ) -> Option<f64> {
         if n == 0 || start + n > words.len() {
             return None;
         }
@@ -1496,7 +1569,12 @@ impl CustomWordsCorrector {
         if folded.chars().filter(|c| c.is_alphanumeric()).count() < CUSTOM_WORD_MIN_CHARS {
             return None;
         }
-        Some(similarity(&folded, key))
+        let folded: Vec<char> = folded.chars().collect();
+        Some(distance_score(
+            scratch.distance(&folded, key),
+            folded.len(),
+            key.len(),
+        ))
     }
 
     /// The best match beginning at position `start`.
@@ -1517,7 +1595,12 @@ impl CustomWordsCorrector {
     ///
     /// On an equal score the long window wins: otherwise «Claude» would eat the
     /// beginning of «Claude Code» and leave «код» dangling.
-    fn best_match(&self, words: &[&str], start: usize) -> Option<(usize, &str)> {
+    fn best_match(
+        &self,
+        words: &[&str],
+        start: usize,
+        scratch: &mut DistanceScratch,
+    ) -> Option<(usize, &str)> {
         let limit = self.max_window().min(words.len() - start);
         let mut best: Option<(f64, usize, &str)> = None;
         let mut ambiguous = false;
@@ -1541,7 +1624,17 @@ impl CustomWordsCorrector {
                     word.trim_matches(|c: char| !c.is_alphanumeric()),
                 )
             });
-            for (canonical, key) in &self.terms {
+            let folded: Vec<char> = folded.chars().collect();
+            for term in &self.terms {
+                let CustomTerm {
+                    canonical,
+                    key,
+                    acronym,
+                } = term;
+                let budget = edit_budget(key.len());
+                if folded.len().abs_diff(key.len()) > budget {
+                    continue;
+                }
                 // A dictionary term is not permission to rewrite valid prose.
                 // Exact phonetic matches still restore transliterated terms.
                 if ordinary_russian && &folded != key {
@@ -1550,24 +1643,18 @@ impl CustomWordsCorrector {
                 // A single edit in a short token can change the subject
                 // entirely (REST → Rust, «буст» → Rust). Acronyms explicitly
                 // supplied in capitals retain their existing matching budget.
-                let acronym = canonical.chars().all(|c| c.is_ascii_uppercase());
-                if folded != *key
-                    && folded.chars().count().min(key.chars().count()) <= 4
-                    && !acronym
-                {
+                if folded != *key && folded.len().min(key.len()) <= 4 && !acronym {
                     continue;
                 }
-                if !within_budget(&folded, key) {
+                let Some(distance) = scratch.within(&folded, key, budget) else {
                     continue;
-                }
-                // The score is needed later too — it picks the best among the
-                // matching candidates and compares nested windows.
-                let score = similarity(&folded, key);
+                };
+                let score = distance_score(distance, folded.len(), key.len());
                 if n > 1 {
                     let trimmed = self
-                        .window_score(words, start + 1, n - 1, key)
+                        .window_score(words, start + 1, n - 1, key, scratch)
                         .into_iter()
-                        .chain(self.window_score(words, start, n - 1, key))
+                        .chain(self.window_score(words, start, n - 1, key, scratch))
                         .fold(0.0_f64, f64::max);
                     if trimmed >= score {
                         continue;
@@ -1669,8 +1756,9 @@ impl FormatStep for CustomWordsCorrector {
         let raws: Vec<&str> = tokens.iter().map(|t| t.raw).collect();
         let mut out = String::with_capacity(text.len());
         let mut i = 0;
+        let mut scratch = DistanceScratch::default();
         while i < tokens.len() {
-            match self.best_match(&raws, i) {
+            match self.best_match(&raws, i, &mut scratch) {
                 Some((n, canonical)) => {
                     let first = &tokens[i];
                     let last = &tokens[i + n - 1];
@@ -2251,12 +2339,15 @@ impl FormatStep for SentenceSplitter {
 
 pub struct ContextReplacements {
     enabled: bool,
-    rules: Vec<ReplacementRule>,
+    rules: Vec<CompiledReplacement>,
 }
 
 impl ContextReplacements {
     pub fn new(enabled: bool, rules: Vec<ReplacementRule>) -> Self {
-        Self { enabled, rules }
+        Self {
+            enabled,
+            rules: compile_replacements(rules),
+        }
     }
 }
 
@@ -2277,23 +2368,7 @@ impl FormatStep for ContextReplacements {
         if !self.enabled || self.rules.is_empty() {
             return text.to_string();
         }
-        let source = serde_json::json!({ "replacement_rules": self.rules.iter().map(|r| serde_json::json!({
-            "id": r.id,
-            "find": r.find,
-            "replace": r.replace,
-            "enabled": r.enabled,
-            "match": match r.match_ {
-                ReplacementMatchMode::Word => "word",
-                ReplacementMatchMode::Phrase => "phrase",
-                ReplacementMatchMode::Contains => "contains",
-                ReplacementMatchMode::Regex => "regex",
-            },
-            "case_sensitive": r.case_sensitive,
-            "preserve_case": r.preserve_case,
-            "usage_count": r.usage_count,
-        })).collect::<Vec<_>>() });
-        let (out, _) = apply_replacement_rules(text, Some(&source), false);
-        out
+        apply_compiled_replacements(text, &self.rules).0
     }
     fn enabled(&self) -> bool {
         self.enabled
@@ -2564,29 +2639,23 @@ pub struct Formatter {
 }
 
 impl Formatter {
-    /// Build a pipeline from a config. The `replacement_rules` source
-    /// is taken from the explicit field, falling back to the legacy
-    /// `replacements` dict inside `text_formatting` (Python parity).
+    /// Build a pipeline from the typed settings and prepare its matchers once.
     pub fn from_config(config: &FormatterConfig) -> Self {
         let fmt = &config.text_formatting;
-        let rules: Vec<ReplacementRule> = if !config.replacement_rules.is_empty() {
-            config.replacement_rules.clone()
+        let rules = if config.replacements_paused {
+            Vec::new()
         } else {
-            normalize_replacement_rules(Some(&serde_json::json!({
-                "replacements": config
-                    .replacement_rules
-                    .iter()
-                    .map(|r| (r.id.clone(), r.replace.clone()))
-                    .collect::<std::collections::HashMap<_, _>>(),
-            })))
+            config.replacement_rules.clone()
         };
-        let replacements_enabled = !rules.is_empty() && !config.replacements_paused;
+        let replacements_enabled = !rules.is_empty();
         let words = fmt.effective_custom_words();
         let spelling_terms = words.clone();
-        let replacement_protection = rules
+        let replacements = ContextReplacements::new(replacements_enabled, rules);
+        let replacement_protection = replacements
+            .rules
             .iter()
-            .filter(|rule| replacements_enabled && rule.enabled)
-            .filter_map(|rule| replacement_regex(rule).ok())
+            .filter(|_| replacements_enabled)
+            .map(|compiled| compiled.pattern.clone())
             .collect();
 
         let steps: Vec<Box<dyn FormatStep>> = vec![
@@ -2619,7 +2688,7 @@ impl Formatter {
                 &spelling_terms,
             )),
             Box::new(SentenceSplitter::new(fmt.split_sentences)),
-            Box::new(ContextReplacements::new(replacements_enabled, rules)),
+            Box::new(replacements),
             Box::new(Capitalizer::new(fmt.capitalize_sentences)),
             Box::new(PunctuationFinalizer::new(fmt.final_punctuation)),
         ];
@@ -4502,10 +4571,56 @@ mod custom_words_tests {
     fn window_score_rejects_out_of_bounds_and_short_windows() {
         let c = CustomWordsCorrector::new(true, vec!["Claude Code".to_string()]);
         // A window running past the input's edge is None, not a panic.
-        assert!(c.window_score(&["a", "b"], 1, 2, "claudecode").is_none());
+        assert!(c
+            .window_score(
+                &["a", "b"],
+                1,
+                2,
+                &"claudecode".chars().collect::<Vec<_>>(),
+                &mut DistanceScratch::default()
+            )
+            .is_none());
         // Exactly CUSTOM_WORD_MIN_CHARS alphanumeric characters is the
         // boundary.
-        assert!(c.window_score(&["abcd"], 0, 1, "abcd").is_some());
+        assert!(c
+            .window_score(
+                &["abcd"],
+                0,
+                1,
+                &"abcd".chars().collect::<Vec<_>>(),
+                &mut DistanceScratch::default()
+            )
+            .is_some());
+    }
+
+    #[test]
+    fn reused_distance_rows_preserve_unicode_and_length_boundaries() {
+        let mut scratch = DistanceScratch::default();
+        for (a, b, expected) in [
+            ("kitten", "sitting", 3),
+            ("a", "b", 1),
+            ("", "два", 3),
+            ("привет", "привіт", 1),
+            ("abcdef", "", 6),
+            ("ab", "b", 1),
+            ("same", "same", 0),
+            ("Saturday", "Sunday", 3),
+        ] {
+            let a: Vec<char> = a.chars().collect();
+            let b: Vec<char> = b.chars().collect();
+            assert_eq!(scratch.distance(&a, &b), expected);
+            assert_eq!(scratch.distance(&b, &a), expected);
+            for budget in 0..=expected + 1 {
+                assert_eq!(
+                    scratch.within(&a, &b, budget),
+                    (expected <= budget).then_some(expected)
+                );
+                assert_eq!(
+                    scratch.within(&b, &a, budget),
+                    (expected <= budget).then_some(expected)
+                );
+            }
+        }
     }
 
     #[test]
@@ -4617,12 +4732,66 @@ mod custom_words_tests {
     /// checked only through `apply_replacement_rules` directly, bypassing the
     /// step itself.
     #[test]
+    fn prepared_replacements_keep_order_captures_deletion_and_pause_behavior() {
+        let rules = normalize_replacement_rules(Some(&serde_json::json!([
+            {"id":"first", "find":" alpha ", "replace":"beta", "match":"word"},
+            {"id":"capture", "find":"(beta) ([0-9]+)", "replace":"$2:$1", "match":"regex"},
+            {"id":"delete", "find":"remove", "replace":"", "match":"word"},
+            {"id":"invalid", "find":"[", "replace":"broken", "match":"regex"},
+            {"id":"empty", "find":" ", "replace":"broken"},
+            {"id":"disabled", "find":"keep", "replace":"broken", "enabled":false}
+        ])));
+        let mut step = ContextReplacements::new(true, rules);
+        assert_eq!(step.apply("alpha 42 remove keep"), "42:beta  keep");
+        assert_eq!(step.apply("alpha 7"), "7:beta");
+        step.set_enabled(false);
+        assert_eq!(step.apply("alpha 7"), "alpha 7");
+        step.set_enabled(true);
+        assert_eq!(step.apply("alpha 7"), "7:beta");
+    }
+
+    #[test]
     fn context_replacements_apply_the_rule() {
         let step = ContextReplacements::new(true, vec![word_rule("тайпскрипт", "TypeScript")]);
         assert_eq!(
             step.apply("тайпскрипт рядом"),
             "TypeScript рядом",
             "an enabled step must apply the rule"
+        );
+    }
+
+    #[test]
+    fn prepared_replacements_do_not_create_text_from_empty_input() {
+        let source = serde_json::json!([
+            {"id":"prefix", "find":"^", "replace":"prefix", "match":"regex"}
+        ]);
+        let step = ContextReplacements::new(true, normalize_replacement_rules(Some(&source)));
+        assert_eq!(step.apply(""), "");
+        let (preview, stats) = apply_replacement_rules("", Some(&source), false);
+        assert_eq!(preview, "");
+        assert_eq!(stats.total, 0);
+        assert!(stats.rules.is_empty());
+        assert_eq!(step.apply("text"), "prefixtext");
+    }
+
+    #[test]
+    fn prepared_replacements_preserve_raw_fallback_after_filler_removal() {
+        let config = serde_json::json!({
+            "language": "en",
+            "text_formatting": {
+                "remove_fillers": true,
+                "correct_spelling": false,
+                "capitalize_sentences": false,
+                "final_punctuation": false
+            },
+            "replacement_rules": [
+                {"id":"prefix", "find":"^", "replace":"prefix", "match":"regex"}
+            ]
+        });
+        assert_eq!(preview_format("umm", &config).unwrap().formatted, "");
+        assert_eq!(
+            format_transcription_with_config_value(&config, "umm"),
+            "umm"
         );
     }
 

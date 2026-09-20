@@ -1,25 +1,23 @@
-//! SQLite persistence layer (WS 4b).
+//! SQLite storage, schema migrations and import of legacy JSON data.
 //!
-//! Single `sotto.db` file in `~/.speech_to_text/` (mirror Python `config.py`).
-//! WAL mode for concurrent reads. All writes serialized via `std::sync::Mutex<Connection>`
-//! (rusqlite Connection is `!Send`, and `spawn_blocking` requires `Send` closures —
-//! `std::sync::Mutex` satisfies this where `tokio::sync::Mutex` would not, because
-//! `std::sync::MutexGuard<T>` is `Send` whenever `T: Send`).
+//! `Connection` is Send but not Sync. A mutex serializes access to the shared
+//! connection; blocking workers acquire their guards inside the worker closure.
 
 use std::path::PathBuf;
 use std::sync::Mutex;
 
 use rusqlite::Connection;
 
-/// Returns the config directory path (mirror Python `config.py`).
+/// Directory containing `sotto.db` and legacy history/statistics files.
 ///
 /// Priority:
-/// 1. Env `SOTTO_CONFIG_DIR` (if set, even to empty)
-/// 2. `~/.speech_to_text` (via `dirs` crate)
+/// 1. Portable data directory, when enabled on Windows
+/// 2. Env `SOTTO_CONFIG_DIR` (if set, even to empty)
+/// 3. `~/.speech_to_text` (via `dirs` crate)
 ///
 /// NOT `app.path().app_config_dir()` — that resolves to a different path on macOS
-/// (`~/Library/Application Support/<bundle>/`), which would split Rust data from
-/// Python data and break the WS 4b migration.
+/// (`~/Library/Application Support/<bundle>/`). Keeping the legacy directory
+/// preserves access to existing history and statistics.
 pub fn db_path() -> PathBuf {
     if let Some(dir) = crate::portable::data_dir() {
         return dir;
@@ -59,39 +57,41 @@ pub fn open() -> Result<Mutex<Connection>, rusqlite::Error> {
 /// v5: telemetry installation metadata and durable event outbox.
 /// v6: bounded local model performance observations.
 pub fn run_migrations(conn: &Connection) -> Result<(), rusqlite::Error> {
-    let current: i32 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    // Schema changes and their version must survive (or roll back) together.
+    let tx = rusqlite::Transaction::new_unchecked(conn, rusqlite::TransactionBehavior::Immediate)?;
+    let current: i32 = tx.query_row("PRAGMA user_version", [], |r| r.get(0))?;
     if current >= SCHEMA_VERSION {
         return Ok(());
     }
     if current < 1 {
-        conn.execute_batch(SCHEMA_V1)?;
-        conn.execute("PRAGMA user_version = 1", [])?;
-        log::info!("db: migration v1 applied (initial schema)");
+        tx.execute_batch(SCHEMA_V1)?;
     }
     if current < 2 {
-        conn.execute_batch(SCHEMA_V2)?;
-        conn.execute("PRAGMA user_version = 2", [])?;
-        log::info!("db: migration v2 applied (llm_fallback_reasons)");
+        tx.execute_batch(SCHEMA_V2)?;
     }
     if current < 3 {
-        conn.execute_batch(SCHEMA_V3)?;
-        conn.execute("PRAGMA user_version = 3", [])?;
-        log::info!("db: migration v3 applied (history transcription model)");
+        // Older builds could commit ALTER TABLE before updating user_version.
+        let has_model: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('history') WHERE name = 'transcription_model')",
+            [],
+            |row| row.get(0),
+        )?;
+        if !has_model {
+            tx.execute_batch(SCHEMA_V3)?;
+        }
     }
     if current < 4 {
-        conn.execute_batch(SCHEMA_V4)?;
-        conn.execute("PRAGMA user_version = 4", [])?;
-        log::info!("db: migration v4 applied (repair swapped retry columns)");
+        tx.execute_batch(SCHEMA_V4)?;
     }
     if current < 5 {
-        conn.execute_batch(SCHEMA_V5)?;
-        conn.execute("PRAGMA user_version = 5", [])?;
-        log::info!("db: migration v5 applied (telemetry metadata + outbox)");
+        tx.execute_batch(SCHEMA_V5)?;
     }
     if current < 6 {
-        conn.execute_batch(include_str!("migrations/v6.sql"))?;
-        conn.execute("PRAGMA user_version = 6", [])?;
+        tx.execute_batch(include_str!("migrations/v6.sql"))?;
     }
+    tx.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+    tx.commit()?;
+    log::info!("db: migrated schema from v{current} to v{SCHEMA_VERSION}");
     Ok(())
 }
 
@@ -121,9 +121,9 @@ const SCHEMA_V5: &str = include_str!("migrations/v5.sql");
 ///
 /// `config_dir` is the directory holding the legacy `.json` files
 /// (typically `db_path()`). Returns Err with a human-readable message on
-/// any I/O or parse failure — callers (e.g. `setup()`) treat migration
-/// failures as non-fatal warnings so a broken JSON file can't prevent
-/// app startup.
+/// read, parse or database failure. Each file is imported atomically before
+/// it is retired; a failed rename is logged separately. Callers treat import
+/// failures as non-fatal warnings so a broken JSON file cannot prevent startup.
 pub fn migrate_from_json(conn: &Connection, config_dir: &std::path::Path) -> Result<(), String> {
     // 1. stats.json → stats_totals + stats_daily.
     let stats_path = config_dir.join("stats.json");
@@ -132,7 +132,12 @@ pub fn migrate_from_json(conn: &Connection, config_dir: &std::path::Path) -> Res
             std::fs::read_to_string(&stats_path).map_err(|e| format!("read stats.json: {e}"))?;
         let stats: serde_json::Value =
             serde_json::from_str(&raw).map_err(|e| format!("parse stats.json: {e}"))?;
-        migrate_stats_json(conn, &stats)?;
+        let tx = conn
+            .unchecked_transaction()
+            .map_err(|e| format!("begin stats import: {e}"))?;
+        migrate_stats_json(&tx, &stats)?;
+        tx.commit()
+            .map_err(|e| format!("commit stats import: {e}"))?;
         log::info!("migrate_from_json: stats.json seeded");
         retire_legacy_file(&stats_path);
     }
@@ -158,7 +163,8 @@ fn import_history_json(
     path: &std::path::Path,
 ) -> Result<(usize, usize), String> {
     let raw = std::fs::read_to_string(path).map_err(|e| format!("read history.json: {e}"))?;
-    let entries: Vec<serde_json::Value> = serde_json::from_str(&raw).unwrap_or_default();
+    let entries: Vec<serde_json::Value> =
+        serde_json::from_str(&raw).map_err(|e| format!("parse history.json: {e}"))?;
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(|e| format!("system time: {e}"))?
@@ -166,6 +172,9 @@ fn import_history_json(
     let cutoff = now - 86_400.0; // MAX_AGE_SECONDS = 24h
     let mut inserted = 0usize;
     let mut skipped_stale = 0usize;
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| format!("begin history import: {e}"))?;
     for entry in entries {
         let ts = entry
             .get("timestamp")
@@ -216,10 +225,11 @@ fn import_history_json(
             .filter(|value| !value.trim().is_empty())
             .map(String::from);
         let length = text.chars().count() as i64;
-        let result = conn.execute(
-            "INSERT OR IGNORE INTO history (id, timestamp, text, raw_text, formatted_text, \
+        inserted += tx.execute(
+            "INSERT INTO history (id, timestamp, text, raw_text, formatted_text, \
              language, session_id, ai_processing_json, processing_stats_json, system_prompt, transcription_model, length) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12) \
+             ON CONFLICT(id) DO NOTHING",
             rusqlite::params![
                 id,
                 ts,
@@ -234,11 +244,10 @@ fn import_history_json(
                 transcription_model,
                 length
             ],
-        );
-        if result.is_ok() {
-            inserted += 1;
-        }
+        ).map_err(|e| format!("insert history[{id}]: {e}"))?;
     }
+    tx.commit()
+        .map_err(|e| format!("commit history import: {e}"))?;
     Ok((inserted, skipped_stale))
 }
 
@@ -530,6 +539,215 @@ mod tests {
     }
 
     #[test]
+    fn upgrades_from_every_schema_version() {
+        let migrations = [
+            SCHEMA_V1,
+            SCHEMA_V2,
+            SCHEMA_V3,
+            SCHEMA_V4,
+            SCHEMA_V5,
+            include_str!("migrations/v6.sql"),
+        ];
+        for version in 0..=SCHEMA_VERSION {
+            let conn = Connection::open_in_memory().unwrap();
+            for sql in migrations.iter().take(version as usize) {
+                conn.execute_batch(sql).unwrap();
+            }
+            conn.pragma_update(None, "user_version", version).unwrap();
+            run_migrations(&conn).unwrap();
+            let actual: i32 = conn
+                .query_row("PRAGMA user_version", [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(actual, SCHEMA_VERSION, "upgrade from v{version}");
+            // Exercise the final schema, including the non-idempotent ALTER.
+            conn.execute(
+                "INSERT INTO history (id, timestamp, text, length, transcription_model) \
+                 VALUES (1, 0, 'preserved', 9, 'test-model')",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO model_performance (model_id, created, profile, payload) \
+                 VALUES ('test-model', 0, 'cpu', '{}')",
+                [],
+            )
+            .unwrap();
+            run_migrations(&conn).unwrap();
+            let text: String = conn
+                .query_row("SELECT text FROM history WHERE id = 1", [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(text, "preserved");
+        }
+    }
+
+    #[test]
+    fn resumes_v3_whose_column_was_committed_without_its_version() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(SCHEMA_V1).unwrap();
+        conn.execute_batch(SCHEMA_V2).unwrap();
+        conn.pragma_update(None, "user_version", 2).unwrap();
+        conn.execute_batch(SCHEMA_V3).unwrap();
+        conn.execute(
+            "INSERT INTO history (id, timestamp, text, length, transcription_model) \
+             VALUES (1, 0, 'kept', 4, 'legacy-model')",
+            [],
+        )
+        .unwrap();
+
+        run_migrations(&conn).unwrap();
+
+        let version: i32 = conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+        let model: String = conn
+            .query_row(
+                "SELECT transcription_model FROM history WHERE id = 1",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(model, "legacy-model");
+    }
+
+    #[test]
+    fn failed_upgrade_rolls_back_schema_data_and_version_and_can_retry() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(SCHEMA_V1).unwrap();
+        conn.execute_batch(SCHEMA_V2).unwrap();
+        conn.pragma_update(None, "user_version", 2).unwrap();
+        conn.execute_batch(
+            "INSERT INTO history (id, timestamp, text, length, ai_processing_json, processing_stats_json) \
+             VALUES (1, 0, 'before', 6, '{\"text\":\"after\"}', '{\"attempted\":true}'); \
+             CREATE TABLE telemetry_outbox (incompatible_column TEXT);",
+        ).unwrap();
+
+        // v5 cannot create its index; v3 ALTER and v4 data repair ran before it.
+        assert!(run_migrations(&conn).is_err());
+        assert!(conn.is_autocommit());
+        let version: i32 = conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, 2);
+        let has_model: bool = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('history') WHERE name = 'transcription_model')",
+            [], |r| r.get(0),
+        ).unwrap();
+        assert!(!has_model, "ALTER TABLE must roll back with the version");
+        let text: String = conn
+            .query_row("SELECT text FROM history WHERE id = 1", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(text, "before", "data repairs must roll back too");
+
+        conn.execute_batch("DROP TABLE telemetry_outbox").unwrap();
+        run_migrations(&conn).unwrap();
+        let text: String = conn
+            .query_row("SELECT text FROM history WHERE id = 1", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(text, "after");
+    }
+
+    #[test]
+    fn malformed_history_is_reported_and_preserved_for_retry() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("history.json");
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn).unwrap();
+        for malformed in ["[{", "{}", "null"] {
+            std::fs::write(&path, malformed).unwrap();
+            let error = migrate_from_json(&conn, tmp.path()).unwrap_err();
+            assert!(error.contains("parse history.json"));
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), malformed);
+            assert!(!tmp.path().join("history.json.migrated").exists());
+        }
+        std::fs::write(&path, "[]").unwrap();
+        migrate_from_json(&conn, tmp.path()).unwrap();
+        assert!(!path.exists());
+        assert!(tmp.path().join("history.json.migrated").exists());
+    }
+
+    #[test]
+    fn history_sql_failure_rolls_back_the_file_and_preserves_it_for_retry() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("history.json");
+        std::fs::write(
+            &path,
+            serde_json::json!([
+                {"id": 1, "timestamp": now_secs(), "text": "first"},
+                {"id": 2, "timestamp": now_secs(), "text": "second"}
+            ])
+            .to_string(),
+        )
+        .unwrap();
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn).unwrap();
+        conn.execute_batch(
+            "CREATE TRIGGER reject_second BEFORE INSERT ON history WHEN NEW.id = 2 \
+             BEGIN SELECT RAISE(ABORT, 'synthetic failure'); END;",
+        )
+        .unwrap();
+
+        let error = migrate_from_json(&conn, tmp.path()).unwrap_err();
+        assert!(error.contains("insert history[2]"));
+        let count: usize = conn
+            .query_row("SELECT COUNT(*) FROM history", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(
+            count, 0,
+            "first row must not survive the failed file import"
+        );
+        assert!(path.exists());
+        assert!(!tmp.path().join("history.json.migrated").exists());
+
+        conn.execute_batch("DROP TRIGGER reject_second").unwrap();
+        migrate_from_json(&conn, tmp.path()).unwrap();
+        let count: usize = conn
+            .query_row("SELECT COUNT(*) FROM history", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 2);
+        assert!(!path.exists());
+        migrate_from_json(&conn, tmp.path()).unwrap();
+        let count: usize = conn
+            .query_row("SELECT COUNT(*) FROM history", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn stats_sql_failure_rolls_back_totals_and_preserves_source() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("stats.json");
+        std::fs::write(
+            &path,
+            serde_json::json!({
+                "total_transcriptions": 7,
+                "daily_history": [{"date": "2026-07-01", "count": 3}]
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn).unwrap();
+        conn.execute_batch(
+            "INSERT INTO stats_totals VALUES ('total_transcriptions', 10); \
+             CREATE TRIGGER reject_daily BEFORE INSERT ON stats_daily \
+             BEGIN SELECT RAISE(ABORT, 'synthetic failure'); END;",
+        )
+        .unwrap();
+        assert!(migrate_from_json(&conn, tmp.path()).is_err());
+        let count: f64 = conn
+            .query_row(
+                "SELECT value FROM stats_totals WHERE key = 'total_transcriptions'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 10.0);
+        assert!(path.exists());
+        assert!(!tmp.path().join("stats.json.migrated").exists());
+    }
+
+    #[test]
     fn run_migrations_skips_steps_at_or_below_current_version() {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch(SCHEMA_V1).unwrap();
@@ -557,10 +775,7 @@ mod tests {
         conn.execute_batch(SCHEMA_V2).unwrap();
         conn.execute_batch(SCHEMA_V3).unwrap();
         conn.execute("PRAGMA user_version = 3", []).unwrap();
-        // Re-applying v3 (ALTER TABLE history ADD COLUMN) fails with a
-        // duplicate column, so a successful run proves `current < 3` is a
-        // strict comparison — the mutation `current <= 3` would re-run v3
-        // and blow up here.
+        // A normal v3 database must upgrade without adding the column again.
         run_migrations(&conn).unwrap();
         let version: i32 = conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))
@@ -625,6 +840,9 @@ mod tests {
             skipped_stale, 1,
             "one stale entry must be counted as skipped"
         );
+        let (inserted, skipped_stale) = import_history_json(&conn, &path).unwrap();
+        assert_eq!(inserted, 0, "existing IDs are not newly inserted rows");
+        assert_eq!(skipped_stale, 1);
     }
 
     #[test]

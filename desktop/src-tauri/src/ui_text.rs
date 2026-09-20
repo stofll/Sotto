@@ -76,16 +76,17 @@ fn system_locale() -> Option<String> {
         })
 }
 
-pub fn is_english() -> bool {
-    LOCALE.load(Ordering::Relaxed) == EN
-}
-
 /// Translate a string. The key is the Russian original.
 pub fn t(key: &str) -> String {
-    if !is_english() {
-        return key.to_string();
+    translate(key, LOCALE.load(Ordering::Relaxed)).to_string()
+}
+
+fn translate(key: &str, locale: u8) -> &str {
+    if locale == EN {
+        en(key).unwrap_or(key)
+    } else {
+        key
     }
-    en(key).unwrap_or(key).to_string()
 }
 
 fn en(key: &str) -> Option<&'static str> {
@@ -152,39 +153,26 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    /// The tests touch a global atomic, so they run under a shared mutex:
-    /// otherwise one test switches the language out from under another.
-    static GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-    fn with_locale<T>(config: Value, body: impl FnOnce() -> T) -> T {
-        let _lock = GUARD.lock().unwrap_or_else(|e| e.into_inner());
-        set_from_config(&config);
-        let out = body();
-        set_from_config(&json!({}));
-        out
-    }
-
     #[test]
     fn russian_is_the_identity() {
-        with_locale(json!({ "ui_language": "ru" }), || {
-            assert_eq!(t("Выход"), "Выход");
-        });
+        // Other modules test localized errors in parallel; never change the
+        // process-wide locale just to exercise translation lookup.
+        assert_eq!(translate("Выход", RU), "Выход");
     }
 
     #[test]
     fn english_translates_known_keys() {
-        with_locale(json!({ "ui_language": "en" }), || {
-            assert_eq!(t("Выход"), "Quit");
-            assert_eq!(t("Не выбран провайдер."), "No provider selected.");
-        });
+        assert_eq!(translate("Выход", EN), "Quit");
+        assert_eq!(
+            translate("Не выбран провайдер.", EN),
+            "No provider selected."
+        );
     }
 
     #[test]
     fn unknown_key_falls_back_to_the_original() {
         // The worst case is mixed language, not an empty string in the UI.
-        with_locale(json!({ "ui_language": "en" }), || {
-            assert_eq!(t("Такого ключа нет"), "Такого ключа нет");
-        });
+        assert_eq!(translate("Такого ключа нет", EN), "Такого ключа нет");
     }
 
     #[test]
