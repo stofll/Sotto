@@ -1,4 +1,12 @@
 fn main() {
+    for name in ["SOTTO_POSTHOG_API_KEY", "POSTHOG_API_KEY"] {
+        println!("cargo:rerun-if-env-changed={name}");
+        if std::env::var_os("CARGO_FEATURE_NATIVE_E2E").is_some()
+            && std::env::var(name).is_ok_and(|value| !value.trim().is_empty())
+        {
+            panic!("native-e2e must be built without a telemetry token ({name})");
+        }
+    }
     // tauri_build only emits rerun-if-changed for tauri.conf.json, not for the
     // icon file *contents*. When an icon is replaced in-place (same filename),
     // Cargo therefore reuses the previously compiled resource and the EXE keeps

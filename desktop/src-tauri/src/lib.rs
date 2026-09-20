@@ -49,6 +49,8 @@ pub mod model;
 pub mod model_download;
 pub mod model_performance;
 pub mod mutex_recover;
+#[cfg(feature = "native-e2e")]
+mod native_webdriver;
 mod output_volume;
 mod overlay;
 mod overlay_preferences;
@@ -1187,13 +1189,15 @@ fn apply_autostart_inner(app: &AppHandle, rewrite_when_unchanged: bool) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(feature = "native-e2e")]
+    let webdriver_port = native_webdriver::port();
     // Phase 4 / Batch 6 / P1: structured file logging. Installs
     // early (before any other setup) so every subsequent log line
     // ends up in `~/.speech_to_text/logs/app.log` with API keys
     // and bearer tokens redacted.
     let _ = crate::structured_log::install();
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         // Must be registered first — the plugin decides whether this process
         // gets to become the app at all, before any other plugin sets up
         // state a second instance would duplicate. Two instances would both
@@ -1206,8 +1210,12 @@ pub fn run() {
                 let _ = window.unminimize();
                 let _ = window.set_focus();
             }
-        }))
-        .plugin(tauri_plugin_autostart::init(
+        }));
+
+    #[cfg(feature = "native-e2e")]
+    let builder = builder.plugin(tauri_plugin_wdio_webdriver::init_with_port(webdriver_port));
+
+    builder.plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             Some(vec![AUTOSTART_ARG]),
         ))

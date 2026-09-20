@@ -34,6 +34,8 @@ CI runs formatting once on Linux and Clippy on Linux, Windows, and macOS so plat
 
 Run the Python/Playwright suite for UI changes. [Browser UI testing](ui-testing.md) documents setup, focused commands, test boundaries and failure artifacts; `.github/workflows/ui-tests.yml` runs Chromium and WebKit on pull requests. Keep the existing frontend checks above: browser tests complement their logic, IPC-contract, i18n and bundle checks.
 
+The opt-in [native feasibility experiment](../tests/native/README.md) packages an instrumented Windows build for Windows Sandbox. It is not a required CI check or a release-package test; partial observations never count as a native E2E pass. Keep the `native-e2e` Cargo feature out of distributed builds.
+
 ## Release automation
 
 Run `node --test scripts/release-version.test.mjs scripts/check-release-source.test.mjs` from the repository root when changing version preparation. These tests use temporary Git repositories and metadata copies; they do not bump the working copy, push tags, or launch the application. PR CI also runs them and checks version consistency with `sh scripts/check-version.sh`.
