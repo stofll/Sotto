@@ -388,10 +388,13 @@ pub struct Reference {
 ///
 /// The catalogue is recorded per language and, so far, on the CPU, while the
 /// application asks for the GPU by default — an exact match alone left every
-/// bar on the page empty. Two fallbacks follow it: the same model measured
-/// with the language left to the engine, and the CPU measurement when the GPU
-/// is in use. The GPU is not slower than the CPU it was measured against, so a
-/// bar filled that way promises less than the machine delivers, never more.
+/// bar on the page empty. Three fallbacks follow it, each giving up one more
+/// piece of the context: the same device with the language left to the engine,
+/// then the CPU with the language asked for, then the CPU with neither. The
+/// GPU is not slower than the CPU it was measured against, so a bar filled
+/// that way promises less than the machine delivers, never more. A CPU profile
+/// reaches the last two only to repeat the lookups above them, which have
+/// already come back empty.
 fn reference(profile: &Profile, language: &str) -> Option<&'static Reference> {
     static REFERENCES: OnceLock<Vec<Reference>> = OnceLock::new();
     let references = REFERENCES.get_or_init(|| {
@@ -655,6 +658,13 @@ mod tests {
             .expect("the CPU measurement stands in");
         assert_eq!(on_gpu.compute, "cpu");
         assert_eq!(on_gpu.language, "ru");
+        // Neither the device nor the language is measured: the default profile
+        // asks for the GPU, so this is what fills the bar for every language
+        // the catalogue does not hold.
+        let neither = reference(&Profile::new("tiny", "gpu_unverified"), "de")
+            .expect("the CPU measurement for any language stands in");
+        assert_eq!(neither.compute, "cpu");
+        assert_eq!(neither.language, GENERIC_LANGUAGE);
         assert!(reference(&Profile::new("large-v3", "cpu"), "ru").is_none());
         // A borrowed measurement is marked as one, so the interface can say
         // which context it came from instead of presenting it as this
@@ -662,6 +672,7 @@ mod tests {
         assert!(!speed(&Profile::new("tiny", "cpu"), &[], "ru", "").approximate);
         assert!(speed(&Profile::new("tiny", "cpu"), &[], "de", "").approximate);
         assert!(speed(&Profile::new("tiny", "gpu_unverified"), &[], "ru", "").approximate);
+        assert!(speed(&Profile::new("tiny", "gpu_unverified"), &[], "de", "").approximate);
     }
     #[test]
     fn measurements_need_matching_context_and_five_runs() {

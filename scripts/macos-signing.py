@@ -83,8 +83,10 @@ def initialize(root):
             "security", "import", str(root / "identity.p12"), "-k", str(keychain),
             "-P", password, "-T", "/usr/bin/codesign",
         ], password)
-        # `codesign:` is what lets /usr/bin/codesign reach the key without a
-        # GUI prompt; `security import -T` alone grants the tool nothing.
+        # Without this call the key stays partitioned to nothing and every
+        # signing run raises a GUI prompt, which a build cannot answer. `apple:`
+        # is the entry `man security` names for /usr/bin/codesign; `codesign:`
+        # is carried only to match the list the release workflow sets.
         run([
             "security", "set-key-partition-list", "-S", "apple-tool:,apple:,codesign:",
             "-s", "-k", password, str(keychain),
