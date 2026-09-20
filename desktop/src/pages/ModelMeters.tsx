@@ -17,7 +17,7 @@ export function ModelMeters({ value }: { value?: ModelAssessment }) {
   useOutsideClose(open, anchor, () => setActive(null), menuRef);
   const text = assessmentText(value);
   const meters = [
-    { id: "speed", label: t("Скорость"), score: value?.speed.score, text: text.speed, warning: false, approximate: value?.speed.approximate === true },
+    { id: "speed", label: t("Скорость"), score: value?.speed.score, text: text.speed, warning: false, approximate: value?.speed.approximate },
     { id: "memory", label: t("Запас памяти"), score: value?.memory.score, text: text.memory, warning: value?.memory.status === "low", approximate: false },
   ];
   return <div className="model-meters" ref={anchor} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => {

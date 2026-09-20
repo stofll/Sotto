@@ -408,16 +408,10 @@ fn reference(profile: &Profile, language: &str) -> Option<&'static Reference> {
                 && value.rtf > 0.0
         })
     };
-    if let Some(exact) = measured(&profile.compute, language) {
-        return Some(exact);
-    }
-    if let Some(any_language) = measured(&profile.compute, GENERIC_LANGUAGE) {
-        return Some(any_language);
-    }
-    if profile.compute == "cpu" {
-        return None;
-    }
-    measured("cpu", language).or_else(|| measured("cpu", GENERIC_LANGUAGE))
+    measured(&profile.compute, language)
+        .or_else(|| measured(&profile.compute, GENERIC_LANGUAGE))
+        .or_else(|| measured("cpu", language))
+        .or_else(|| measured("cpu", GENERIC_LANGUAGE))
 }
 
 fn speed(
