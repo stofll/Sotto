@@ -3,6 +3,32 @@ from pathlib import Path
 import pytest
 from playwright.sync_api import expect
 
+# Bar plus gap in overlay.css, the pitch OverlayWaveform.tsx counts bars by.
+BAR_PITCH = 6
+
+
+def ring_mark(page):
+    """Where the tallest ring bar sits, relative to the ring's centre."""
+    return page.locator(".overlay-waveform--circular").evaluate(
+        "el => { const box = el.getBoundingClientRect();"
+        " const tallest = [...el.children].reduce((a, b) =>"
+        "   (parseFloat(b.style.height) > parseFloat(a.style.height) ? b : a));"
+        " const mark = tallest.getBoundingClientRect();"
+        " return { dx: mark.x + mark.width / 2 - box.x - box.width / 2,"
+        "          dy: mark.y + mark.height / 2 - box.y - box.height / 2 }; }"
+    )
+
+
+def settled_bar_count(page):
+    """Wait for the width-derived bar count and return it."""
+    return page.wait_for_function(
+        "pitch => { const wave = document.querySelector('.overlay-waveform');"
+        " if (!wave) return null;"
+        " const fit = Math.max(12, Math.floor((wave.clientWidth + pitch / 2) / pitch));"
+        " return wave.children.length === fit ? fit : null; }",
+        arg=BAR_PITCH,
+    ).json_value()
+
 
 @pytest.mark.parametrize("locale", ["ru", "en"])
 def test_tray_has_no_recording_controls(app, page, locale):
@@ -174,9 +200,11 @@ def test_overlay_audio_lifetime_and_reduced_motion(app, page):
     ui.emit("recording-started", 1)
     ui.emit("audio-level", {"level": 1})
     bars = page.locator(".overlay-waveform > span")
-    expect(bars).to_have_count(24)
-    expect(bars.last).to_have_css("height", "26px")
+    expect(bars).to_have_count(settled_bar_count(page))
     expect(bars.last).to_have_css("transition-duration", "0s")
+    # The newest reading takes the last place, so the trace fills at the
+    # right edge of the pill and runs left from there.
+    expect(bars.last).to_have_css("height", "26px")
     ui.emit("audio-level", {"level": -1})
     expect(bars.last).to_have_css("height", "5px")
     ui.emit("recording-stopped", 1)
@@ -189,9 +217,24 @@ def test_overlay_audio_lifetime_and_reduced_motion(app, page):
     )
     ui.emit("overlay-reset")
     ui.emit("recording-started", 2)
-    expect(bars).to_have_count(24)
+    expect(bars).to_have_count(settled_bar_count(page))
     ui.emit("audio-level", {"level": 0.25})
     expect(bars.last).to_have_css("height", "16px")
+
+
+def test_bead_traces_the_voice_clockwise_from_the_top(app, page):
+    ui = app("overlay", config={"overlay": {"form": "bead"}})
+    ui.emit("recording-started", 1)
+    ui.emit("audio-level", {"level": 1})
+    # The newest reading is drawn at twelve o'clock.
+    newest = ring_mark(page)
+    assert abs(newest["dx"]) < 2
+    assert newest["dy"] < -8
+    # The next one takes its place, so that reading moves on clockwise.
+    ui.emit("audio-level", {"level": 0})
+    moved = ring_mark(page)
+    assert moved["dx"] > 1
+    assert moved["dy"] < 0
 
 
 def test_overlay_hides_timer_when_disabled(app, page):
@@ -446,6 +489,14 @@ def test_pill_waveform_fills_space_and_makes_room_for_cancel(
     first, last = bars.first.bounding_box(), bars.last.bounding_box()
     assert abs(first["x"] - bounds["x"]) < 1
     assert abs(last["x"] + last["width"] - bounds["x"] - bounds["width"]) < 1
+    # The count follows the width, so the bars keep their spacing instead of
+    # being stretched apart over whatever room the row has.
+    assert bars.count() == settled_bar_count(page)
+    widest_pitch = wave.evaluate(
+        "el => { const xs = [...el.children].map(b => b.getBoundingClientRect().x);"
+        " return Math.max(...xs.slice(1).map((x, i) => x - xs[i])); }"
+    )
+    assert widest_pitch <= BAR_PITCH + 1
     if not timer:
         row = page.locator(".overlay-row").bounding_box()
         assert abs(bounds["width"] - row["width"]) < 1

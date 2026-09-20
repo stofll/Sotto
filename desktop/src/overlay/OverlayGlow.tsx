@@ -21,6 +21,40 @@ const CANVAS_FILTER = (() => {
   return !!ctx && typeof (ctx as { filter?: unknown }).filter === "string";
 })();
 
+// Sotto's own tuning over the library's `default` type. That type was
+// authored for a ~350x52 chat input driven by a Web Audio graph; the
+// overlay is a 400x104 card fed by `audio-level` at ~30 Hz, and the glow
+// this port replaced rose higher and burned brighter than the port did.
+const TUNING = {
+  // Response, the pair everything else multiplies. The library's 0.325 s
+  // attack is slower than a syllable, so the level never approached its
+  // peak and the card read dim and late; short enough to answer one, and
+  // the light starts pumping instead of breathing. These two are the
+  // settled middle — fast enough to follow speech, slow enough to hold a
+  // phrase together.
+  attack: 0.14,
+  release: 0.55,
+  // The rise: how far the light climbs the card, and how far its ceiling
+  // humps up at the centre. Both are multiplied by the level, which now
+  // reaches its peaks, so they carry less than the doubled host height
+  // would suggest on its own.
+  reach: 1.5,
+  bend: 68,
+  // Body and colour. The dark preset's inner light sits at 0.47 opacity,
+  // which disappears against this surface; the brightness and saturation
+  // are the lift the library's own large-host type carries.
+  innerOpacity: 1.3,
+  bloomOpacity: 1.12,
+  brightness: 1.3,
+  saturation: 1.45,
+  // Pauses: a little more presence, breathing a little quicker.
+  idle: 0.22,
+  breatheDuration: 4,
+  // How fast the colours travel under the voice, and the hue drift.
+  flow: 58,
+  hueDuration: 9,
+} as const;
+
 export function OverlayGlow({ mode }: { mode: GlowMode }) {
   const rawId = useId().replace(/:/g, "-");
   const id = `sotto${rawId}`;
@@ -36,12 +70,12 @@ export function OverlayGlow({ mode }: { mode: GlowMode }) {
         borderRadius: RADIUS,
         borderWidth: BORDER_WIDTH,
         strokeOpacity: PRESET.strokeOpacity * DEFAULTS.strokeOpacity,
-        innerOpacity: PRESET.innerOpacity * DEFAULTS.innerOpacity,
-        bloomOpacity: PRESET.bloomOpacity * DEFAULTS.bloomOpacity,
+        innerOpacity: PRESET.innerOpacity * TUNING.innerOpacity,
+        bloomOpacity: PRESET.bloomOpacity * TUNING.bloomOpacity,
         innerShadow: PRESET.innerShadow,
         colorVariant: "colorful",
-        brightness: TYPE_STYLE.brightness ?? PRESET.brightness,
-        saturation: TYPE_STYLE.saturation ?? PRESET.saturation,
+        brightness: TUNING.brightness,
+        saturation: TUNING.saturation,
         theme: THEME,
         hueBase: PRESET.hueBase ?? 0,
         glowSize: DEFAULTS.glowSize * SCALE,
@@ -76,18 +110,21 @@ export function OverlayGlow({ mode }: { mode: GlowMode }) {
   const driverConfig = useMemo<VoiceDriverConfig>(
     () => ({
       id,
-      sensitivity: 3.1,
+      // The level arrives already mapped to 0..1 by `display_level` in
+      // audio.rs, and the driver applies `sensitivity` only on its own
+      // Web Audio path, so this stays at unity.
+      sensitivity: 1,
       threshold: 0.015,
-      attack: 0.325,
-      release: 0.86,
-      idle: DEFAULTS.idle,
-      breatheDuration: 5.2,
-      reach: DEFAULTS.reach,
+      attack: TUNING.attack,
+      release: TUNING.release,
+      idle: TUNING.idle,
+      breatheDuration: TUNING.breatheDuration,
+      reach: TUNING.reach,
       spread: DEFAULTS.spread,
       bands: true,
-      flow: DEFAULTS.flow * SCALE,
+      flow: TUNING.flow * SCALE,
       lobeSpacing: Math.max(0.1, DEFAULTS.lobeSpacing * SCALE),
-      bend: DEFAULTS.bend * SCALE,
+      bend: TUNING.bend * SCALE,
       bandStrength: DEFAULTS.bandStrength,
       bandWidth: DEFAULTS.bandWidth * SCALE,
       bandPosition: DEFAULTS.bandPosition,
@@ -109,16 +146,17 @@ export function OverlayGlow({ mode }: { mode: GlowMode }) {
       scale: SCALE,
       radius: RADIUS,
       processing: mode === "process",
-      // Overlay pacing, deliberately not the geometry defaults: a pass here is
-      // slower than the library's ~350px chat input (1.1 s), and the morph in
-      // and out of the sweep is longer. `processingEase` has no preset value.
-      processingDuration: 2.8,
-      processingLevel: DEFAULTS.processingLevel,
-      processingEase: 1.1,
+      // Overlay pacing, deliberately not the geometry defaults: a pass here
+      // is slower than the library's ~350px chat input (1.1 s) because the
+      // card is wider, and the beam is held brighter so the wait reads as
+      // work rather than a stall. `processingEase` has no preset value.
+      processingDuration: 1.5,
+      processingLevel: 0.72,
+      processingEase: 0.75,
       processingTravel: DEFAULTS.processingTravel,
       cornerFollow: DEFAULTS.cornerFollow,
       hueRange: PRESET.hueRange ?? 24,
-      hueDuration: PRESET.hueDuration ?? 12,
+      hueDuration: TUNING.hueDuration,
       staticColors: false,
       reducedMotion: typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches,
       paused: false,

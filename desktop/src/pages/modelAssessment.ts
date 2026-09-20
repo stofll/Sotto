@@ -17,6 +17,12 @@ export function assessmentText(value?: ModelAssessment): { speed: string; memory
         ? t("Умеренная скорость: после записи придётся немного подождать.")
         : t("Медленная: обработка может длиться дольше самой записи.");
     result.speed += ` ${t("Это ориентир: скорость зависит от компьютера и длины записи.")}`;
+    // The catalogue is measured on a processor, language by language. Saying
+    // which context the number came from is the difference between a hint and
+    // a claim about the machine in front of the user.
+    if (value.speed.source === "reference" && value.speed.approximate) {
+      result.speed += ` ${t("Показан замер в другом режиме — на процессоре или с другим языком. Своя оценка появится после нескольких диктовок.")}`;
+    }
   }
   const memory = value.memory;
   if (memory.status === "loaded") {

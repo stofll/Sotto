@@ -31,7 +31,7 @@ pnpm install --frozen-lockfile
 pnpm tauri dev
 ```
 
-On macOS, `pnpm tauri dev` runs `target/debug/Sotto` directly rather than an application bundle, which matters for anything that needs Accessibility — the hotkey and automatic paste. That binary is a separate TCC client from an installed `/Applications/Sotto.app`, and macOS attributes its request to the process that launched it, so the grant has to go to the terminal you run the build from. Granting it to the installed copy does nothing for a development run. Builds are signed ad hoc, which also means every rebuild changes the code hash and silently invalidates an existing grant while the switch in Settings stays on; `tccutil reset Accessibility com.sotto.app` clears the stale entry for the bundle.
+On macOS, `pnpm tauri dev` runs `target/debug/Sotto` directly rather than an application bundle, which matters for anything that needs Accessibility — the hotkey and automatic paste. That binary is a separate TCC client from an installed `/Applications/Sotto.app`, and macOS attributes its request to the process that launched it, so the grant has to go to the terminal you run the build from. Granting it to the installed copy does nothing for a development run. Builds are signed ad hoc, which also means every rebuild changes the code hash and silently invalidates an existing grant while the switch in Settings stays on; `tccutil reset Accessibility com.sotto.app` clears the stale entry for the bundle, and [a stable identity](#keep-the-macos-permissions-across-builds) stops it from going stale at all.
 
 The frontend-only development server is available with `pnpm dev`, but application commands require Tauri; there is no HTTP backend fallback. Use the isolated [browser UI harness](ui-testing.md) to exercise synthetic states without launching the native application. A full Tauri build also requires the native prerequisites and model/runtime assets described in [Models](models.md).
 
@@ -62,6 +62,25 @@ The `.dmg` step drives Finder through AppleScript to lay out the volume window, 
 ```bash
 pnpm tauri build --bundles app
 ```
+
+### Keep the macOS permissions across builds
+
+An ad-hoc signature identifies an application by its code hash, so every build is a different application to macOS: the microphone and Accessibility grants given to the previous one no longer apply, and the Accessibility switch stays on while the paste silently fails. Signing every build with the same certificate keeps both, because the requirement TCC records then names the certificate instead of the hash.
+
+Create the local identity once, from the repository root, and back up the directory it reports. Regenerating it is the same event as never having had it: every grant tied to the old certificate is lost.
+
+```bash
+python3 scripts/macos-signing.py init
+```
+
+Then sign each build before installing it. The disk image is packed from the ad-hoc application, so build the application on its own and sign that copy:
+
+```bash
+pnpm --dir desktop tauri build --bundles app
+python3 scripts/macos-signing.py sign desktop/src-tauri/target/release/bundle/macos/Sotto.app
+```
+
+The first build signed this way is still a new application to macOS. Remove the stale entry under **Privacy & Security → Accessibility** and add the signed copy once; later builds keep the grant. The certificate is self-signed and trusted by nothing outside the machine, so Gatekeeper treats the build exactly as it treats an ad-hoc one.
 
 ## Content Security Policy
 

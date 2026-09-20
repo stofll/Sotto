@@ -930,6 +930,7 @@ export const en: Record<string, string | string[]> = {
   "Умеренная скорость: после записи придётся немного подождать.": "Moderate speed: expect a little wait after recording.",
   "Медленная: обработка может длиться дольше самой записи.": "Slow: processing may take longer than the recording itself.",
   "Это ориентир: скорость зависит от компьютера и длины записи.": "This is a guide: speed depends on your computer and recording length.",
+  "Показан замер в другом режиме — на процессоре или с другим языком. Своя оценка появится после нескольких диктовок.": "The measurement shown was taken in another context — on the processor, or with another language. Your own estimate appears after a few dictations.",
   "Модель уже загружена. Для длинных записей может понадобиться дополнительная память.": "The model is already loaded. Longer recordings may need additional memory.",
   "Не удалось определить, хватит ли памяти видеокарты для этой модели.": "We could not determine whether there is enough graphics memory for this model.",
   "Свободной памяти может не хватить. Закройте другие приложения или выберите модель поменьше.": "Free memory may be insufficient. Close other apps or choose a smaller model.",

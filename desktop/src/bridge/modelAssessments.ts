@@ -6,6 +6,8 @@ export type ModelAssessment = {
   speed: {
     score: number | null;
     source: "unknown" | "reference" | "personal";
+    /** The reference came from another compute device or another language. */
+    approximate: boolean;
     samples: number;
     median_ms: number | null;
     audio_min: number | null;

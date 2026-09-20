@@ -30,7 +30,7 @@ Sizes S, M and L change the native window and its contents together. Custom colo
 
 ## Position
 
-Position is chosen on a schematic 16:9 screen representing 1920 × 1080 logical pixels, rather than the current monitor. The rectangle is split into nine clickable anchor zones; a dashed outline marks the selected zone.
+Position is chosen on a schematic 16:9 screen representing 1920 × 1080 logical pixels, rather than the current monitor. The rectangle is split into nine clickable anchor zones, each marked by a dot in the overlay's own color; a dashed outline marks the selected zone, whose dot gives way to the preview standing there.
 
 The overlay and its edge offset share one scale that adapts to the preview width, so changes remain proportional throughout the 0–512 range. The preview includes the native window's transparent margins; its dimensions mirror [overlay.css](../desktop/src/overlay/overlay.css) and the window sizes in [overlay_preferences.rs](../desktop/src-tauri/src/overlay_preferences.rs), and must be updated alongside them.
 
