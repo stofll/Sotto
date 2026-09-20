@@ -52,7 +52,7 @@ An App token's tag push triggers Release automatically. Do not also call Release
 
 #### Failures and retries
 
-- If CI is incomplete, finish it before preparing the release. If the source cannot reuse a merged PR's identical checked tree (for example, after a direct commit), run **Rust CI** and **UI tests** manually on `main` first. Preparation does not start those jobs automatically.
+- If CI is incomplete, finish it before preparing the release. If the source cannot reuse a merged PR's identical checked tree (for example, after a direct commit), Rust CI runs on its own for a push to `main` that touches anything outside `site/`, but **UI tests** still has to be started manually. Preparation starts neither.
 - If `main` changes during preparation, start a new Prepare Release run. The push never force-updates refs: the release commit and tag are either both accepted or both rejected.
 - For an invalid version or missing App configuration, fix the reported problem and start again. If the push result was uncertain, inspect `main` and the tag before retrying; an already pushed tag reserves that version.
 - If the release build fails after tagging, rerun its failed jobs or run **Release** manually with the existing tag. The build and SBOM resolve that tag rather than the selected UI branch. Published releases cannot be rebuilt; issue a new version instead.
