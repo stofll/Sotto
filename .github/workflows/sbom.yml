@@ -1,10 +1,13 @@
 name: SBOM
 
-# Inventory Rust and npm dependencies, native sources and archives, and licenses.
-# Run when dependency inputs or this workflow change rather than on every PR.
+# An inventory of what the app is built from: CycloneDX for Rust and npm,
+# native sources and archives, plus a readable license report. Not computed on
+# every pull request — the dependency graph only changes together with the
+# lockfiles, so it hangs off those.
 #
-# release.yml calls this after tauri-action creates the draft release, allowing
-# the SBOM to persist as a release asset beyond the workflow artifact retention.
+# On a release tag it is called from release.yml, after tauri-action has
+# created the draft: the SBOM then goes into it as an asset rather than staying
+# a run artifact that expires.
 on:
   pull_request:
     branches: [main]
@@ -21,7 +24,7 @@ on:
   workflow_call:
     inputs:
       release_tag:
-        description: "Тег релиза: SBOM прикладывается к черновику с этим тегом"
+        description: "Release tag: the SBOM is attached to the draft with this tag"
         required: false
         type: string
 
@@ -34,11 +37,11 @@ permissions:
 
 jobs:
   sbom:
-    name: Собрать SBOM и отчёт по лицензиям
+    name: Build the SBOM and license report
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
-      # Required to upload draft release assets when release_tag is provided.
+      # Uploads an asset to the draft release. Unused without release_tag.
       contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -55,7 +58,7 @@ jobs:
         with:
           version: 11.9.0
 
-      # The repository's rust-toolchain.toml selects the Rust version.
+      # The version comes from rust-toolchain.toml at the repo root.
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87  # stable branch as of 2026-09-03
 
@@ -73,10 +76,12 @@ jobs:
       - name: Install cargo-cyclonedx
         run: cargo install cargo-cyclonedx --version 0.5.9 --locked
 
-      # --target all includes platform-specific dependencies such as windows-sys,
-      # objc2 and ashpd, so the inventory covers more than this Linux runner.
-      # --all-features includes the optional GPU backends shipped in releases;
-      # this inspects metadata and does not build incompatible backends together.
+      # --target all: half the graph arrives through `[target.'cfg(...)']`
+      # (windows-sys, objc2, ashpd). Without this flag the inventory would
+      # describe only the Linux runner, while what we ship is Windows and macOS.
+      # --all-features: gpu-vulkan / gpu-metal are optional but do go into the
+      # release. Both flags only read metadata, so the mutually exclusive GPU
+      # backends are never built together.
       - name: SBOM — Rust
         working-directory: desktop/src-tauri
         run: |
@@ -101,9 +106,10 @@ jobs:
             -o "$GITHUB_WORKSPACE/sbom/sbom-npm.cdx.json" \
             .
 
-      # Produce a readable license report alongside the SBOM. Strip pnpm's
-      # absolute runner paths because they do not belong in published artifacts.
-      - name: Отчёт по лицензиям npm
+      # A readable slice on top of the SBOM: what arrived and under which
+      # license. `paths` is dropped from the pnpm output — those are absolute
+      # runner paths and have no business being in an artifact.
+      - name: npm license report
         working-directory: desktop
         run: |
           for scope in prod dev; do
@@ -119,10 +125,12 @@ jobs:
             ' "/tmp/licenses-$scope.json" "$GITHUB_WORKSPACE/sbom/licenses-npm-$scope.json"
           done
 
-      # Report component and missing-license counts for review without gating.
-      # A missing license can reflect an uninstalled platform-specific package
-      # (for example, an esbuild binary for another OS), not a licensing defect.
-      - name: Сводка
+      # Not a gate but a summary in the log: how many components made it into
+      # the inventory and how many had no license. An empty license is not
+      # always a problem (esbuild's platform binaries for other operating
+      # systems are never installed, so there is no package.json to read), but
+      # it is what a human looks at.
+      - name: Summary
         run: |
           node -e '
             const fs = require("fs");
@@ -130,20 +138,20 @@ jobs:
               const bom = JSON.parse(fs.readFileSync(f, "utf8"));
               const comps = bom.components || [];
               const noLicense = comps.filter((c) => !c.licenses || c.licenses.length === 0);
-              console.log(`${f}: ${comps.length} компонент(ов), без лицензии ${noLicense.length}`);
+              console.log(`${f}: ${comps.length} component(s), without a license ${noLicense.length}`);
               for (const c of noLicense.slice(0, 20)) console.log(`    ${c.name}@${c.version}`);
-              if (noLicense.length > 20) console.log(`    … ещё ${noLicense.length - 20}`);
+              if (noLicense.length > 20) console.log(`    … ${noLicense.length - 20} more`);
             }
           '
 
-      - name: Выложить как артефакт прогона
+      - name: Upload as a run artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: sbom
           path: sbom/
           if-no-files-found: error
 
-      - name: Приложить к черновику релиза
+      - name: Attach to the draft release
         if: inputs.release_tag != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

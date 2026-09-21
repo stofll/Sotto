@@ -158,7 +158,7 @@ For CI comparison, archive the `target/criterion` directory as a build artifact 
 
 Run benchmarks on a local machine or dedicated runner with a consistent CPU. CI should **not** run the benchmarks, but it can archive a baseline from those runs.
 
-CI checks benchmark compilation through `cargo clippy --all-targets`. A separate benchmark build was removed because it took 16 of the lint job's 23 minutes.
+CI checks benchmark compilation through `cargo clippy --all-targets`, which runs in the `build-test` job on every target OS. A separate benchmark build was removed because it took 16 of that lint pass's 23 minutes.
 
 ## Adding new benchmarks
 

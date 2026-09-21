@@ -3,8 +3,8 @@ name: UI tests
 on:
   pull_request:
     branches: [main]
-    # Здесь проверяется UI приложения из desktop/. Лендинг в site/ к нему
-    # отношения не имеет и проверяется своей сборкой.
+    # This checks the application UI from desktop/. The landing page in site/
+    # is unrelated and is covered by its own build.
     paths-ignore:
       - 'site/**'
   workflow_dispatch:
@@ -61,9 +61,9 @@ jobs:
         run: |
           uv run --locked --project tests/ui ruff check tests/ui
           uv run --locked --project tests/ui ruff format --check tests/ui
-      - name: Check harness types
-        working-directory: desktop
-        run: pnpm exec tsc -p ../tests/ui/tsconfig.json
+      # The harness types are checked by the frontend-test job in rust-ci.yml,
+      # once per pull request. Here the same `tsc -p tests/ui/tsconfig.json`
+      # was fanned out by the matrix into four runs giving one answer.
       - name: Test ${{ matrix.mode }} UI in ${{ matrix.browser }}
         run: uv run --locked --project tests/ui pytest tests/ui --browser ${{ matrix.browser }} --ui-mode ${{ matrix.mode }} --ui-build-platform ${{ matrix.platform }} --junitxml=test-results/junit.xml
       - name: Upload failure traces and test report

@@ -260,8 +260,9 @@ export function MicPicker({ microphone, microphones, onConfigChanged }: { microp
     try {
       if (checking) {
         setChecking(false);
-        // Захват остаётся жить ради эха, но индикатор — часть выключенного
-        // режима: без сброса он продолжал бы прыгать под погашенной кнопкой.
+        // The capture stays alive for the echo, but the meter belongs to the
+        // mode being switched off: without a reset it would keep jumping under
+        // a button that is no longer lit.
         if (echo) resetMeter();
         else await stopCapture();
       } else {

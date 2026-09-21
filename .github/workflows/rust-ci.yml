@@ -1,52 +1,76 @@
 name: Rust CI
 
-# Висит на PR в main. Был отключён ради runner-минут (#22), но приложение
-# готовится к раздаче, а собирается оно на трёх ОС из одного дерева: без CI
-# весь `#[cfg(target_os = ...)]` проверяется только на той машине, где
-# случилось разрабатывать, то есть на Windows.
+# Runs on pull requests to main. It was disabled once to save runner minutes
+# (#22), but the app is heading for distribution and it builds for three
+# operating systems from one tree: without CI the whole
+# `#[cfg(target_os = ...)]` surface is only ever compiled on whichever machine
+# the work happened on, which is Windows.
 #
-# На `push: main` сознательно не висит. Работа идёт через PR, так что
-# мерж-коммит проверял бы ровно то содержимое, которое только что проверил
-# `pull_request`, — двойная цена за один и тот же ответ. Если понадобится
-# проверить main отдельно (прямой пуш, откат), есть workflow_dispatch.
+# It also runs on `push: main`, and that run exists for its cargo cache rather
+# than for its answer. A GitHub Actions cache can only be restored by the ref
+# that wrote it or by the default branch, and a `pull_request` run writes to
+# `refs/pull/N/merge` — a scope no other pull request can reach. With pull
+# requests as the only trigger, nothing ever wrote a cache on main: across 48
+# runs, every first run on a branch logged `No cache found` and rebuilt the
+# whole dependency graph, which cost about eight minutes on Windows (12m48 to
+# 14m19 cold against 4m49 to 5m39 warm). Merging to main now leaves a cache
+# every later pull request can restore from, including a partial restore
+# through the prefix key when the lockfile differs.
 #
-# Дорогая релизная сборка сюда не входит — она живёт в release.yml и висит
-# на теге. Здесь только CPU-вариант, см. комментарий ниже.
+# That is also why `save-if` below limits writing to main: pull requests only
+# read. It keeps the repository under the 10 GB cache ceiling, which the
+# per-pull-request caches were already exceeding, and it takes the cache upload
+# off the critical path.
+#
+# The expensive release build is not here; it lives in release.yml and hangs
+# off the tag. This pipeline is CPU-only, see the comment below.
 on:
   pull_request:
     branches: [main]
+  push:
+    branches: [main]
+    # Unlike the jobs below, this filter is safe here: required status checks
+    # apply to pull requests, and a push to main reports to nothing. A landing
+    # page merge has no dependencies to warm.
+    paths-ignore:
+      - 'site/**'
   workflow_dispatch:
 
-# Пуш в ветку отменяет её предыдущий, ещё не досчитанный прогон. Иначе
-# каждая правка по ходу ревью оплачивается дважды: вытесненный прогон
-# считает матрицу из трёх ОС до конца, и его результат уже никому не нужен.
+# A push to a branch cancels that branch's previous, still-running run.
+# Otherwise every edit during review is paid for twice: the superseded run
+# would finish the whole three-OS matrix for an answer nobody needs.
+#
+# Runs on main are not cancelled. Their point is the cache they leave behind,
+# and two merges in quick succession would otherwise kill the first upload and
+# send the next pull request back to a cold build.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
   pull-requests: read
 
-# Все джобы собирают CPU-вариант: GPU-бэкенды whisper.cpp вынесены в
-# опциональные фичи gpu-vulkan / gpu-metal (см. Cargo.toml), и без них
-# Vulkan SDK на раннере не нужен. Не добавляйте сюда установку SDK —
-# ускоритель проверяется релизной сборкой, а не этим пайплайном.
+# Every job builds the CPU variant: the whisper.cpp GPU backends sit behind
+# the optional gpu-vulkan / gpu-metal features (see Cargo.toml), and without
+# them the runner needs no Vulkan SDK. Do not add the SDK install here — the
+# accelerator is covered by the release build, not by this pipeline.
 jobs:
-  # Лендинг живёт в site/ отдельным проектом со своим локфайлом и своей
-  # сборкой. Правка текста на сайте не может сломать Rust, а матрица из трёх
-  # ОС стоит дороже всего остального вместе взятого, поэтому джобы ниже её
-  # пропускают.
+  # The landing page lives in site/ as a separate project with its own
+  # lockfile and its own build. Editing site copy cannot break Rust, and the
+  # three-OS matrix costs more than everything else combined, so the jobs
+  # below skip it.
   #
-  # Фильтр висит на джобах, а не на воркфлоу: `paths-ignore` был ловушкой.
-  # Все обязательные статус-чеки main живут здесь, а незапущенный воркфлоу не
-  # репортит свои контексты вовсе, так что PR, правящий только site/, вис бы
-  # навсегда с семью pending. Пропущенный по `if:` джоб, наоборот, засчитывается
-  # как успешный.
+  # The filter sits on the jobs rather than the workflow: `paths-ignore` was a
+  # trap. Every required status check for main lives here, and a workflow that
+  # never starts reports none of its contexts at all, so a site-only pull
+  # request would hang forever on seven pending checks. A job skipped by `if:`
+  # is counted as successful instead.
   #
-  # Это же и делает условие ниже `!= 'false'` внутри `!cancelled()`: раз пропуск
-  # закрывает обязательный чек, упавший гейт иначе открыл бы мерж вообще без
-  # проверок. Отказ проверять требует явного `false`, молчание — нет.
+  # That is also why the condition below is `!= 'false'` inside `!cancelled()`:
+  # since a skip satisfies a required check, a failed gate would otherwise open
+  # the merge with no checks at all. Refusing to check takes an explicit
+  # `false`; silence does not.
   changes:
     name: Changed paths
     runs-on: ubuntu-24.04
@@ -54,29 +78,30 @@ jobs:
     outputs:
       app: ${{ steps.filter.outputs.app }}
     steps:
-      # Список файлов берётся из API, а не из checkout: гейту не нужно дерево,
-      # а полная история ради `git diff` стоит дороже самого ответа.
+      # The file list comes from the API rather than a checkout: the gate does
+      # not need the tree, and full history just to run `git diff` costs more
+      # than the answer itself.
       - id: filter
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -uo pipefail
           if [ "${{ github.event_name }}" != "pull_request" ]; then
-            echo 'Не pull request — проверяется всё.'
+            echo 'Not a pull request — checking everything.'
             echo 'app=true' >> "$GITHUB_OUTPUT"
             exit 0
           fi
           files=$(gh api --paginate \
             "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
             --jq '.[].filename') || files=''
-          # Пустой ответ означает, что список получить не удалось. Гейт для
-          # экономии минут, а не для проверок: молчание трактуется как «есть
-          # правки в приложении», и обязательные чеки отрабатывают честно.
+          # An empty response means the list could not be fetched. This gate
+          # exists to save minutes, not to gate correctness: silence is read as
+          # "the app was touched", and the required checks run for real.
           if printf '%s\n' "$files" | grep -qvE '^site/'; then
-            echo 'Изменения за пределами site/ — проверяется всё.'
+            echo 'Changes outside site/ — checking everything.'
             echo 'app=true' >> "$GITHUB_OUTPUT"
           else
-            echo 'Правки только в site/ — проверки приложения пропускаются.'
+            echo 'site/-only changes — skipping the application checks.'
             echo 'app=false' >> "$GITHUB_OUTPUT"
           fi
 
@@ -107,18 +132,19 @@ jobs:
         working-directory: desktop
         run: pnpm audit --prod=false --audit-level high
 
-      # Ставим готовый бинарник, а не rustsec/audit-check. Тот экшен внутри
-      # делает `cargo install cargo-audit` без `--locked`, то есть на каждом
-      # прогоне заново резолвит свежие версии всех зависимостей самого
-      # cargo-audit. 2026-09-03 так и вышло: вышедший tinyvec 1.13.0 не
-      # собрался нашим тулчейном, и гейт лёг на всех PR разом, хотя ни один
-      # из них к этому отношения не имел. Плюс та сборка из исходников
-      # занимала почти всю джобу (~5 минут раннера на каждый PR).
+      # Install a prebuilt binary instead of rustsec/audit-check. That action
+      # runs `cargo install cargo-audit` without `--locked`, so every run
+      # re-resolves fresh versions of cargo-audit's own dependencies. On
+      # 2026-09-03 that is exactly what happened: the newly published tinyvec
+      # 1.13.0 did not compile with our toolchain, and the gate went red on
+      # every open pull request at once, none of which had anything to do with
+      # it. That source build also took up most of the job (~5 runner minutes
+      # per pull request).
       #
-      # Версия cargo-audit закреплена намеренно и не устаревает по данным:
-      # база advisory тянется с гита в момент запуска, в бинарник она не
-      # вшита. Бампать её нужно, только если cargo-audit перестанет читать
-      # новый формат Cargo.lock.
+      # The pinned cargo-audit version is deliberate and does not go stale on
+      # data: the advisory database is fetched from git at run time, not baked
+      # into the binary. Bump it only if cargo-audit stops reading the current
+      # Cargo.lock format.
       - name: Install dependency audit tools
         uses: taiki-e/install-action@94c31af3204a9f15ab40b35ad084410b905bbc73 # v2.87.17
         with:
@@ -129,97 +155,42 @@ jobs:
           uv export --locked --project tests/ui --format requirements-txt --no-emit-project --output-file "$RUNNER_TEMP/ui-audit.txt"
           uvx --python 3.12 --from pip-audit==2.10.1 pip-audit --strict --disable-pip --require-hashes -r "$RUNNER_TEMP/ui-audit.txt"
 
-      # Зовём бинарник напрямую, а не через `cargo audit`: шим rustup увидел
-      # бы rust-toolchain.toml и потащил качать весь закреплённый тулчейн,
-      # который аудиту лок-файла не нужен.
+      # Call the binary directly rather than through `cargo audit`: the rustup
+      # shim would read rust-toolchain.toml and download the whole pinned
+      # toolchain, which auditing a lockfile does not need.
       - name: Audit Rust lockfile
         working-directory: desktop/src-tauri
         run: cargo-audit audit
 
   # ---------------------------------------------------------------
-  # Run fmt once. Clippy also runs in the Windows/macOS build jobs
-  # because Linux cannot lint their platform-specific code.
+  # Formatting only. Clippy moved into build-test, where it already ran for
+  # Windows and macOS. Keeping the Linux pass here meant standing up a whole
+  # second environment — apt dependencies, Node, pnpm, a `pnpm build` for
+  # `generate_context!()` and a cargo cache of its own — all of which
+  # build-test builds for ubuntu anyway. Do not move clippy back here.
+  #
+  # rustfmt does not expand macros, so it needs no `desktop/dist`, and the
+  # setup is down to the toolchain: this job should stay seconds long.
   # ---------------------------------------------------------------
   lint:
-    name: Cargo fmt + clippy (Linux)
+    name: Cargo fmt (Linux)
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.app != 'false' }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # Версию задаёт rust-toolchain.toml в корне — rustup читает его для
-      # любого cargo внутри репозитория и всё равно переопределит то, что
-      # поставит экшен. Дублировать её здесь значит завести второе место,
-      # которое при бампе забудут.
+      # The version and components come from rust-toolchain.toml at the repo
+      # root — rustup reads it for any cargo invocation inside the repository
+      # and overrides whatever the action installed. Repeating them here would
+      # create a second place to forget on a bump.
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87  # ветка stable на 2026-09-03
-        with:
-          components: rustfmt, clippy
-
-      - name: Install Linux system dependencies
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq \
-            libglib2.0-dev \
-            libgtk-3-dev \
-            libwebkit2gtk-4.1-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            libsoup-3.0-dev \
-            libjavascriptcoregtk-4.1-dev \
-            pkg-config \
-            build-essential \
-            curl \
-            wget \
-            libasound2-dev \
-            libudev-dev \
-            libxdo-dev \
-            libxkbcommon-dev
-
-      - name: Cache cargo registry & target
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2.9.2
-        with:
-          workspaces: desktop/src-tauri -> target
-          key: ggml-baseline-${{ hashFiles('.cargo/config.toml', 'scripts/ggml-baseline.cmake') }}
-          cache-on-failure: false
-
-      - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .node-version
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-        with:
-          version: 11.9.0
-
-      # Tauri's `generate_context!()` reads `desktop/dist/`, which only
-      # exists after `pnpm build`. Build the frontend before any cargo
-      # step that triggers the macro (clippy included).
-      - name: Install frontend deps
-        working-directory: desktop
-        run: pnpm install --frozen-lockfile
-
-      - name: Build frontend (produces desktop/dist for Tauri macro)
-        working-directory: desktop
-        run: pnpm build
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87  # stable branch as of 2026-09-03
 
       - name: Format check
         working-directory: desktop/src-tauri
         run: cargo fmt --all -- --check
-
-      # --all-targets здесь несущий, а не косметика: он включает бенчмарки,
-      # которые не собираются ни `cargo build`, ни `cargo test`, и потому
-      # гниют молча — однажды уже сгнили (f28dd7b, «бенч снова собирается
-      # после добавления model_id»). Раньше их сторожил отдельный шаг
-      # `cargo bench --no-run`, но он делал полную сборку с opt-level 3 и
-      # стоил 16 минут из 23 в этой джобе, ловя сверх клиппи только отказы
-      # на кодогенерации и линковке. Убирать `--all-targets` нельзя.
-      - name: Clippy (deny warnings)
-        working-directory: desktop/src-tauri
-        run: cargo clippy --locked --all-targets -- -D warnings
 
   # ---------------------------------------------------------------
   # Build + test on every target platform. This is a Windows-first
@@ -233,7 +204,7 @@ jobs:
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.app != 'false' }}
     runs-on: ${{ matrix.os }}
-    # Allow time for the additional platform-specific Clippy pass.
+    # Allow time for the Clippy pass that runs before the build.
     timeout-minutes: 60
     strategy:
       fail-fast: false
@@ -242,9 +213,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # Версию задаёт rust-toolchain.toml — см. комментарий в джобе lint.
+      # The version comes from rust-toolchain.toml — see the lint job.
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87  # ветка stable на 2026-09-03
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87  # stable branch as of 2026-09-03
 
       - name: Install Linux system dependencies
         if: runner.os == 'Linux'
@@ -273,6 +244,11 @@ jobs:
           workspaces: desktop/src-tauri -> target
           key: ggml-baseline-${{ hashFiles('.cargo/config.toml', 'scripts/ggml-baseline.cmake') }}
           cache-on-failure: false
+          # Only main writes; see the note on the triggers above. A pull
+          # request that pushes several times now restores from main each time
+          # instead of from its own previous run, which is a full match unless
+          # it changed the lockfile and a prefix restore when it did.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -296,55 +272,69 @@ jobs:
         if: runner.os == 'Windows'
         run: node --test scripts/build-portable.test.mjs scripts/build-windows-installer.test.mjs
 
-      # `sherpa-onnx-sys` качает нативный архив сам и хеш не проверяет.
-      # Скачиваем и сверяем его здесь, а сборочному скрипту отдаём готовый
-      # каталог через SHERPA_ONNX_LIB_DIR — тогда он в сеть не ходит.
-      - name: Скачать и проверить нативный рантайм sherpa (Windows)
+      # `sherpa-onnx-sys` downloads the native archive itself and does not
+      # verify its hash. Download and check it here, then hand the build script
+      # a ready directory through SHERPA_ONNX_LIB_DIR so it never touches the
+      # network.
+      - name: Download and verify the sherpa native runtime (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: ./scripts/fetch-sherpa-runtime.ps1 -Target win-x64-shared
 
-      - name: Скачать и проверить нативный рантайм sherpa (macOS)
+      - name: Download and verify the sherpa native runtime (macOS)
         if: runner.os == 'macOS'
         run: sh scripts/fetch-sherpa-runtime.sh osx-arm64-static
 
-      # `tauri.windows.conf.json` объявляет ресурсом
-      # `.tauri-native/windows/x64/*.dll`, и build script падает, если glob
-      # ничего не нашёл. Раскладывает эти DLL `prepare-native-libs.ps1`, но
-      # он висит на `beforeBundleCommand`, то есть отрабатывает только при
-      # `tauri build` — при голом `cargo build` каталога нет вовсе. На машине
-      # разработчика он остаётся от прошлой сборки, на чистой — нет.
+      # `tauri.windows.conf.json` declares `.tauri-native/windows/x64/*.dll`
+      # as a resource, and the build script fails when that glob matches
+      # nothing. Those DLLs are staged by `prepare-native-libs.ps1`, but it
+      # hangs off `beforeBundleCommand`, so it only runs under `tauri build` —
+      # under a plain `cargo build` the directory does not exist at all. On a
+      # developer machine it survives from the previous build; on a clean
+      # runner it does not.
       #
-      # Скрипт берёт DLL из `target/[<triple>/]<profile>`, куда их кладёт
-      # сборочный скрипт `sherpa-onnx-sys`, поэтому сначала собираем именно её.
-      # Отдельно, а не весь граф: полный `cargo build` — это как раз тот
-      # шаг, который без разложенных DLL и падает.
-      - name: Разложить нативный рантайм sherpa (Windows)
+      # The script takes the DLLs from `target/[<triple>/]<profile>`, where the
+      # `sherpa-onnx-sys` build script puts them, so build that crate first.
+      # On its own, not the whole graph: a full `cargo build` is precisely the
+      # step that fails when the DLLs are not staged.
+      - name: Stage the sherpa native runtime (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         working-directory: desktop/src-tauri
         env:
-          # Профиль для скрипта: обе следующие команды идут в debug.
+          # Profile for the script: both commands below run in debug.
           TAURI_ENV_DEBUG: "true"
         run: |
           cargo build --locked -p sherpa-onnx-sys
-          # На прогоне с тёплым кэшем этого мало. rust-cache перед сохранением
-          # подчищает корень `target/<profile>` от всего, что не является
-          # артефактом зависимости, и разложенные скриптом DLL туда попадают, а
-          # `.fingerprint` пакета остаётся. Cargo видит build script
-          # отработавшим и не запускает его снова — файлов нет, а собирать,
-          # с точки зрения cargo, нечего. Сбросить нужно именно этот пакет:
-          # тогда build script отрабатывает заново, и это около десяти секунд,
-          # потому что скачивать ему уже нечего.
+          # On a warm-cache run that is not enough. Before saving, rust-cache
+          # prunes everything from the root of `target/<profile>` that is not a
+          # dependency artifact, and the DLLs staged by the script are caught by
+          # that, while the crate's `.fingerprint` survives. Cargo therefore
+          # considers the build script already run and does not rerun it — the
+          # files are gone, yet as far as cargo is concerned there is nothing to
+          # build. Clean exactly that one crate: the build script then runs
+          # again, which takes about ten seconds because there is nothing left
+          # to download.
           if (-not (Test-Path 'target/debug/sherpa-onnx-c-api.dll')) {
             cargo clean -p sherpa-onnx-sys
             cargo build --locked -p sherpa-onnx-sys
           }
           powershell -NoProfile -ExecutionPolicy Bypass -File prepare-native-libs.ps1
 
-      # Linux is already covered by the lint job.
+      # Clippy on all three operating systems, Linux included. The Linux pass
+      # used to live in a separate lint job that stood up its own environment
+      # for it — apt dependencies, Node, pnpm, a frontend build and its own
+      # cargo cache — even though this job builds exactly that for ubuntu
+      # anyway. Here the target directory is already warm from the steps above.
+      #
+      # `--all-targets` is load-bearing, not cosmetic: it pulls in the
+      # benchmarks, which neither `cargo build` nor `cargo test` compiles, so
+      # they rot silently — and once did (f28dd7b, "the bench compiles again
+      # after model_id was added"). They used to be guarded by a separate
+      # `cargo bench --no-run` step, but that did a full opt-level 3 build and
+      # cost 16 minutes out of 23, catching nothing beyond clippy except
+      # codegen and link failures. Do not drop `--all-targets`.
       - name: Clippy (deny warnings)
-        if: runner.os != 'Linux'
         working-directory: desktop/src-tauri
         run: cargo clippy --locked --all-targets -- -D warnings
 
@@ -411,9 +401,10 @@ jobs:
         working-directory: desktop
         run: npx tsc --noEmit
 
-      # У харнесса Playwright свой tsconfig: он живёт вне desktop/src и в
-      # прогон выше не попадает. Без этого шага правка типов моста ломала бы
-      # моки молча — до первого падения UI-тестов, где причина уже не видна.
+      # The Playwright harness has its own tsconfig: it lives outside
+      # desktop/src and the run above does not cover it. Without this step a
+      # change to the bridge types would break the mocks silently, surfacing
+      # only when a UI test fails and the cause is no longer visible.
       - name: Typecheck UI test harness
         working-directory: desktop
         run: npx tsc --noEmit -p ../tests/ui/tsconfig.json
@@ -430,9 +421,9 @@ jobs:
         working-directory: desktop
         run: pnpm build
 
-      # Бюджет стартовой загрузки окна. Предупреждение Vite про 500 KB
-      # сборку не роняет, поэтому вес растёт незаметно; здесь он растёт
-      # только вместе с осознанно поднятым порогом.
+      # Initial window payload budget. Vite's 500 KB warning does not fail the
+      # build, so the weight creeps up unnoticed; here it can only grow
+      # together with a deliberately raised threshold.
       - name: Bundle size budget
         working-directory: desktop
         run: pnpm bundle:check
@@ -469,9 +460,9 @@ jobs:
       # Pin actions to immutable commits so tag moves cannot change CI code.
       - name: Every GitHub Action is pinned to a commit SHA
         run: |
-          # Закреплённым считается либо полный SHA, либо workflow этого же
-          # репозитория (`./…`) — у него нет чужого владельца, чтобы что-то
-          # подменить.
+          # Pinned means either a full SHA or a workflow from this same
+          # repository (`./…`), which has no third-party owner who could swap
+          # anything out.
           ok='uses: *(\./|[A-Za-z0-9._-]+/[A-Za-z0-9._/-]+@[0-9a-f]{40}( |$))'
           floating=$(grep -rnE '^ *-? *uses:' .github/workflows/ | grep -vE "$ok" || true)
           if [ -n "$floating" ]; then

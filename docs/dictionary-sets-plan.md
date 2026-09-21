@@ -1,37 +1,37 @@
-# Словарные наборы: решения и дальнейшее развитие
+# Dictionary sets: decisions and further development
 
-Текущие возможности и правила применения описаны в [руководстве по словарям](dictionaries.md). Здесь сохраняются причины принятых решений и идеи расширения; перечисленные идеи не являются обещанием реализации или сроков.
+What the feature can do today and how it applies is described in the [dictionary guide](dictionaries.md). What is kept here is the reasoning behind the decisions taken, and ideas for extending them; the ideas listed are not a promise of implementation or of a date.
 
-## Границы и причины решений
+## Boundaries and the reasoning behind the decisions
 
-Словари — локальная библиотека терминов без обязательного облака или LLM. Просмотр и подготовка набора отделены от его включения, чтобы пользователь мог изучить содержимое до изменения обработки. Независимая копия встроенного набора позволяет адаптировать его без риска потерять изменения при обновлении приложения.
+Dictionaries are a local library of terms, with no mandatory cloud or LLM. Inspecting and preparing a set is separate from enabling it, so that a user can study the contents before processing changes. An independent copy of a built-in set makes it adaptable without the risk of losing the changes when the app updates.
 
-Выбор конфликтующего написания хранится явно: результат не должен зависеть от порядка включения или открытия наборов. Конфликт регистра и нечёткое сходство — разные задачи; организация библиотеки не является поводом делать корректор агрессивнее. Правила конфликтов, приоритета и ограничения коррекции приведены в [Spelling and limits](dictionaries.md#spelling-and-limits).
+The choice between conflicting spellings is stored explicitly: the result must not depend on the order in which sets are enabled or opened. A case conflict and a fuzzy similarity are different problems; organising the library is no reason to make the corrector more aggressive. The rules for conflicts and priority, and the limits of correction, are given in [Spelling and limits](dictionaries.md#spelling-and-limits).
 
-Переход со старого личного списка сохраняет результат обработки, включая прежний выбор первого написания. Повторное чтение не создаёт копий; пустой старый список не требует набора «Мои слова». Миграция и правила членства проверяются рядом с реализацией в [dictionaries.rs](../desktop/src-tauri/src/dictionaries.rs).
+Migrating from the old personal list preserves the result of processing, including the earlier choice of the first spelling. Reading it again creates no copies; an empty old list needs no «My words» set. The migration and the membership rules are tested next to the implementation, in [dictionaries.rs](../desktop/src-tauri/src/dictionaries.rs).
 
-Коррекция текста и подсказка распознаванию имеют разные ограничения. Короткий термин нельзя удалять из библиотеки только потому, что локальный корректор его не поддерживает: он может быть полезен Whisper. Предпросмотр текста проверяет обработку готовой строки, а качество распознавания требует записи.
+Correcting text and prompting recognition have different limits. A short term must not be dropped from the library merely because the local corrector does not support it: it may still be useful to Whisper. The text preview checks the processing of a finished string, whereas recognition quality needs a recording.
 
-Развитие библиотеки не должно добавлять чтение файлов, сетевые запросы или заметную задержку в путь диктовки. Используются общая сборка действующего словаря и существующий предпросмотр; новые источники данных или алгоритмы сопоставления требуют отдельного обоснования. Расширение каталога оценивается по качеству терминов и риску ложных исправлений, а не по числу слов.
+Growing the library must not add file reads, network requests or noticeable latency to the dictation path. It uses the shared assembly of the effective dictionary and the existing preview; new data sources or matching algorithms need a justification of their own. An extension of the catalogue is judged by the quality of its terms and the risk of false corrections, not by the number of words.
 
-## Возможные расширения
+## Possible extensions
 
-- Импорт и экспорт наборов с предпросмотром содержимого и разбором дублей до применения.
-- Поиск по всем наборам с указанием источника и состояния включения.
-- Объяснение исправлений в существующем предпросмотре: исходный фрагмент, результат и набор-источник. Коррекция текста и влияние подсказки на распознавание должны быть различимы.
-- Добавление термина из истории в выбранный набор.
-- Исключение отдельных слов из встроенного набора, если практика покажет, что копирования недостаточно.
-- Привязка наборов к приложениям или рабочим профилям после оценки потребности в переключении контекста.
+- Importing and exporting sets, with a preview of the contents and duplicates resolved before anything is applied.
+- Search across every set, showing the source and whether it is enabled.
+- An explanation of corrections in the existing preview: the original fragment, the result and the set it came from. Correcting text and a prompt's effect on recognition must stay distinguishable.
+- Adding a term from history to a chosen set.
+- Excluding individual words from a built-in set, should practice show that copying it is not enough.
+- Binding sets to applications or working profiles, once the need for switching context has been assessed.
 
-## Проверка дальнейших изменений
+## Checking further changes
 
-Помимо [общих проверок](testing.md), для библиотеки важны сохранность черновика при отказе записи и успешная повторная попытка, клавиатурные переходы между редактором и подтверждениями, состояние после перезапуска, длинные названия и большие списки. Эти сценарии требуют явной проверки; завершённая реализация редактора сама по себе не подтверждает их работоспособность на каждой платформе.
+Beyond the [general checks](testing.md), what matters for the library is that a draft survives a write failure and that a retry succeeds, the keyboard transitions between the editor and the confirmations, the state after a restart, long names and large lists. These scenarios need checking explicitly; a finished editor implementation does not by itself confirm they work on every platform.
 
-Проверки диктовки, файловой транскрипции, повторной обработки истории и предпросмотра должны сохранять различие между коррекцией и подсказкой Whisper. Для проверки распознавания нужна реальная запись; frontend preview и тесты строк её не заменяют. Нативные проверки выполняются с изолированными данными по [development.md](development.md); поддержку платформ определяет [platforms.md](platforms.md).
+Checks of dictation, file transcription, reprocessing history and the preview must preserve the distinction between correction and the Whisper prompt. Checking recognition needs a real recording; the frontend preview and string tests are no substitute. Native checks are run against isolated data per [development.md](development.md); platform support is defined by [platforms.md](platforms.md).
 
-## Источники
+## Sources
 
-- [DictionaryLibrary.tsx](../desktop/src/pages/DictionaryLibrary.tsx) — библиотека и редактор.
-- [dictionaries.rs](../desktop/src-tauri/src/dictionaries.rs) — членство, конфликты, миграция и их тесты.
-- [formatter.rs](../desktop/src-tauri/src/formatter.rs) — коррекция и обработка текста.
-- [Архитектура](architecture.md) — границы компонентов и пути обработки.
+- [DictionaryLibrary.tsx](../desktop/src/pages/DictionaryLibrary.tsx) — the library and the editor.
+- [dictionaries.rs](../desktop/src-tauri/src/dictionaries.rs) — membership, conflicts, migration and their tests.
+- [formatter.rs](../desktop/src-tauri/src/formatter.rs) — correction and text processing.
+- [Architecture](architecture.md) — component boundaries and the processing paths.

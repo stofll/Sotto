@@ -46,5 +46,5 @@ for (const file of walkFiles("src")) {
 }
 
 for (const h of hits) console.log(`${h.file}:${h.line} ${h.name}`);
-console.log(`\nвсего: ${hits.length}`);
+console.log(`\ntotal: ${hits.length}`);
 process.exit(hits.length ? 1 : 0);
