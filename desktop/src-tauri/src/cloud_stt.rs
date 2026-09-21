@@ -61,6 +61,8 @@ pub struct CloudSttRequest {
 /// Output of a successful cloud STT call.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct CloudSttResult {
+    #[serde(skip)]
+    pub service: crate::telemetry::ProviderService,
     pub text: String,
     pub model: String,
     pub elapsed_ms: u64,
@@ -247,6 +249,7 @@ pub async fn transcribe(req: CloudSttRequest) -> Result<CloudSttResult, String> 
         .to_string();
 
     Ok(CloudSttResult {
+        service: crate::telemetry::provider_service(&req.base_url),
         text,
         model: req.model,
         elapsed_ms: started.elapsed().as_millis() as u64,

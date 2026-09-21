@@ -499,6 +499,7 @@ mod tests {
 
     fn ai_status(attempted: bool, used: bool, fallback: bool) -> crate::ai::step::AiStatus {
         crate::ai::step::AiStatus {
+            telemetry_service: None,
             mode: "hybrid".into(),
             provider: "cerebras".into(),
             model: "test".into(),

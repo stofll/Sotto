@@ -114,6 +114,7 @@ fn channels_accept_all_engine_event_variants() {
                 text: "x".into(),
                 language: None,
                 model_id: Some("medium".into()),
+                stt_service: None,
                 inference_time_ms: 0,
                 audio_seconds: 0.0,
             }),

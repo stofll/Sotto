@@ -1146,6 +1146,7 @@ mod retry_ai_tests {
 
     fn status(used: bool, skipped_reason: &str) -> AiStatus {
         let mut status = AiStatus {
+            telemetry_service: None,
             mode: "hybrid".to_string(),
             provider: "compatible".to_string(),
             model: "some-model".to_string(),

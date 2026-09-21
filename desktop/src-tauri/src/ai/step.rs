@@ -70,6 +70,8 @@ pub fn output_contract() -> &'static str {
 
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct AiStatus {
+    #[serde(skip)]
+    pub telemetry_service: Option<crate::telemetry::ProviderService>,
     pub mode: String,
     pub provider: String,
     pub model: String,
@@ -206,6 +208,22 @@ pub async fn ai_process_text_with_status(
     api_key: Option<&str>,
 ) -> CallOutcome {
     let mut status = AiStatus {
+        telemetry_service: Some(match config.provider.as_str() {
+            "gemini" => crate::telemetry::ProviderService::Gemini,
+            provider => crate::telemetry::provider_service(
+                config
+                    .base_url
+                    .as_deref()
+                    .filter(|url| {
+                        provider != "opencode-go" || !url.trim_end_matches('/').is_empty()
+                    })
+                    .unwrap_or(match provider {
+                        "openai" | "compatible" => super::providers::OPENAI_BASE_URL,
+                        "opencode-go" => super::providers::OPENCODE_GO_BASE_URL,
+                        _ => super::providers::ANTHROPIC_BASE_URL,
+                    }),
+            ),
+        }),
         mode: config.pipeline_mode.clone(),
         provider: config.provider.clone(),
         model: config.model.clone(),
@@ -652,6 +670,43 @@ mod tests {
             audio_duration_seconds: Some(45.0),
             llm_min_duration_seconds: 30.0,
             llm_timeout_seconds: 12,
+        }
+    }
+
+    #[tokio::test]
+    async fn telemetry_service_uses_effective_provider_endpoint() {
+        use crate::telemetry::ProviderService;
+        for (provider, base_url, expected) in [
+            ("openai", None, ProviderService::Openai),
+            ("anthropic", None, ProviderService::Anthropic),
+            (
+                "compatible",
+                Some("https://openrouter.ai/api/v1"),
+                ProviderService::Openrouter,
+            ),
+            (
+                "openai",
+                Some("https://private-proxy.test/v1"),
+                ProviderService::Custom,
+            ),
+            (
+                "gemini",
+                Some("https://ignored.test"),
+                ProviderService::Gemini,
+            ),
+            ("opencode-go", Some(""), ProviderService::Opencode),
+        ] {
+            let mut config = base_config();
+            config.provider = provider.into();
+            config.base_url = base_url.map(str::to_string);
+            // Missing credentials return before any network request.
+            let outcome = ai_process_text_with_status("synthetic text", &config, None).await;
+            assert_eq!(outcome.status.telemetry_service, Some(expected));
+            assert!(!outcome.status.attempted);
+            assert!(serde_json::to_value(&outcome.status)
+                .unwrap()
+                .get("telemetry_service")
+                .is_none());
         }
     }
 

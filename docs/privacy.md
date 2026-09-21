@@ -8,6 +8,8 @@ Telemetry is enabled by default and can be disabled in **Settings â†’ Advanced â
 
 The Rust process sends a small allow-listed set of de-identified usage events directly to PostHog Cloud EU. Events use a random installation ID; they are not derived from an account, username, hostname, MAC address, path, or hardware fingerprint.
 
+Events include the application version and release channel. Known cloud service names are classified locally from the request endpoint; unknown services are reported as `custom`, without transmitting the endpoint.
+
 Telemetry does not send transcript text, formatted output, prompts, clipboard contents, audio, filenames, filesystem paths, usernames, hostnames, API keys, provider responses, microphone names, focused-window details, or raw errors.
 
 Disabling telemetry stops new capture and delivery; it does not retract events already delivered to the service.
