@@ -168,9 +168,13 @@ impl AiConfig {
                 .unwrap_or("")
                 .to_string(),
             language: s("language"),
+            // Blank is absent: the settings UI persists `base_url: ""` for
+            // every provider without a URL field of its own.
             base_url: v
                 .get("base_url")
                 .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
                 .map(str::to_string),
             audio_duration_seconds: None,
             llm_min_duration_seconds: v
@@ -209,20 +213,13 @@ pub async fn ai_process_text_with_status(
 ) -> CallOutcome {
     let mut status = AiStatus {
         telemetry_service: Some(match config.provider.as_str() {
+            // The Gemini adapter ignores `base_url` and always calls the one
+            // Google endpoint.
             "gemini" => crate::telemetry::ProviderService::Gemini,
-            provider => crate::telemetry::provider_service(
-                config
-                    .base_url
-                    .as_deref()
-                    .filter(|url| {
-                        provider != "opencode-go" || !url.trim_end_matches('/').is_empty()
-                    })
-                    .unwrap_or(match provider {
-                        "openai" | "compatible" => super::providers::OPENAI_BASE_URL,
-                        "opencode-go" => super::providers::OPENCODE_GO_BASE_URL,
-                        _ => super::providers::ANTHROPIC_BASE_URL,
-                    }),
-            ),
+            provider => crate::telemetry::provider_service(&super::providers::effective_base_url(
+                provider,
+                config.base_url.as_deref(),
+            )),
         }),
         mode: config.pipeline_mode.clone(),
         provider: config.provider.clone(),
@@ -695,6 +692,11 @@ mod tests {
                 ProviderService::Gemini,
             ),
             ("opencode-go", Some(""), ProviderService::Opencode),
+            // Blank is what the settings UI writes for a provider that has
+            // no Base URL field.
+            ("openai", Some(""), ProviderService::Openai),
+            ("anthropic", Some("   "), ProviderService::Anthropic),
+            ("compatible", Some(""), ProviderService::Openai),
         ] {
             let mut config = base_config();
             config.provider = provider.into();
@@ -708,6 +710,28 @@ mod tests {
                 .get("telemetry_service")
                 .is_none());
         }
+    }
+
+    /// `run_ai_prompt` drops a blank Base URL before it builds the config;
+    /// the live dictation path comes through here instead, so this is where
+    /// the empty string the UI persists has to disappear.
+    #[test]
+    fn config_from_ai_processing_treats_a_blank_base_url_as_absent() {
+        for blank in ["", "   "] {
+            let config = AiConfig::from_ai_processing(&serde_json::json!({
+                "provider": "anthropic",
+                "base_url": blank,
+            }));
+            assert_eq!(config.base_url, None);
+        }
+        let config = AiConfig::from_ai_processing(&serde_json::json!({
+            "provider": "compatible",
+            "base_url": " https://api.groq.com/openai/v1 ",
+        }));
+        assert_eq!(
+            config.base_url.as_deref(),
+            Some("https://api.groq.com/openai/v1")
+        );
     }
 
     #[tokio::test]
