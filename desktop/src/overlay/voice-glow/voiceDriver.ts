@@ -383,8 +383,7 @@ function bandPoints(config: VoiceDriverConfig, f: BandFrame, cw: number, ch: num
       tailLift(Math.abs(x - centre), edge, tail, config.bandTailPosition, config.bandTailCurve);
     // While processing, the line rides the corner arcs instead of running
     // straight into the radius and being clipped.
-    // The band line always rides the corner arc; `cornerFollow` only
-    // governs whether the coloured glow rides it too.
+    // Follow the same corner blend as the coloured glow.
     const arc = f.corner > 0 ? cornerLift(x, cw, paintedRadius(config.radius, cw, ch)) * f.corner : 0;
     pts.push([x, base - apex * y - arc]);
   }
@@ -681,10 +680,8 @@ function frame(ts: number): void {
     const morph = s.scanA * s.scanA * (3 - 2 * s.scanA);
     const cw = el.clientWidth;
     const ch = el.clientHeight;
-    const travel = (span / 2) * config.processingTravel;
     const passes = s.scanT / Math.max(0.05, config.processingDuration);
     const pass = config.reducedMotion ? 0 : processingPosition(passes);
-    const cx = morph * travel * pass;
     // The cluster: lobes pulled to 40% of their resting spread, the
     // visible range narrowed to match, and — as the line type does — the
     // beam a little wider mid-pass than at the turns.
@@ -704,6 +701,10 @@ function frame(ts: number): void {
     const glow = 0.15 + 0.85 * eff;
     const h = 0.5 + config.reach * eff;
     const w = (0.85 + config.spread * eff) * passWidth;
+    // Cover the window, not the fixed lobe span. CSS scales cx by w;
+    // compensate so the centre stays inside the rounded surface at each end.
+    const travel = Math.max(0, cw / 2 - config.radius - 8) * Math.min(1, Math.max(0, config.processingTravel));
+    const cx = morph * travel * pass / w;
 
     // Settle the internal flow as processing gathers the lobes into one beam.
     // Otherwise the colours keep shifting even while the beam pauses at a turn.
@@ -727,7 +728,7 @@ function frame(ts: number): void {
     // to the voice on its own (thickness and chromatic split).
     // The band line is computed even when the band is invisible: the
     // distortion is confined to the glow under it either way.
-    const frame: BandFrame = { cx, w, h, mw: maskWidth, lift, strength: bendA, level: s.level, corner: morph };
+    const frame: BandFrame = { cx, w, h, mw: maskWidth, lift, strength: bendA, level: s.level, corner: morph * config.cornerFollow };
     // The beam's centre and every lobe lift along the corner arcs as they
     // pass through them while processing, so the cluster wraps the corner
     // the way the line type does instead of being cut off by it.

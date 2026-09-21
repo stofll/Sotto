@@ -42,7 +42,9 @@ Unknown IPC commands, uncaught page errors, failed script/style/font/image reque
 
 Lazy entries are fetched by `import()` rather than also being module-preloaded: WebKit can retain a failed modulepreload across document reloads and prevent recovery. Their dependencies and the HTML entry points retain preloading. Keep the failed-history-load/reload test in both browsers when changing Vite's preload configuration.
 
-Production pages receive the Content Security Policy from `tauri.conf.json` as an HTTP response header, and policy violations fail the test. This exercises the configured browser restrictions without relaxing the application policy; it does not reproduce Tauri's custom protocol or native IPC enforcement. Predicate waits use the automation evaluation API because Playwright's animation-frame polling invokes `eval`, which WebKit rejects under this policy. Development pages omit this header because Vite's development runtime has different requirements.
+Production pages receive the Content Security Policy from `tauri.conf.json` as an HTTP response header, and policy violations fail the test. The harness also adds fresh nonces to bundled `<style>` blocks and `style-src`, reproducing Tauri's style authorization during packaging; this catches dynamic stylesheets that work under `'unsafe-inline'` in development but are blocked in the release. It does not reproduce Tauri's script authorization, custom protocol or native IPC enforcement. Predicate waits use the automation evaluation API because Playwright's animation-frame polling invokes `eval`, which WebKit rejects under this policy. Development pages omit this header because Vite's development runtime has different requirements.
+
+Style violation reports include their source sample. The harness ignores only WebKit's blocked `body {}` rule, which Playwright inserts while preparing screenshots to synchronize animations; application style violations still fail the test.
 
 An expected backend failure must be explicitly queued in the test and handled by the actual UI. Processing outputs are supplied fixtures: the harness does not reproduce Rust transcription, formatting or provider algorithms. A UI assertion about a mocked result proves how the frontend presents that result, not whether Rust can produce it.
 
@@ -62,7 +64,7 @@ The executable test modules are the detailed scenario inventory. Extend the rele
 | Providers and keys | `test_profiles.py` | Wizard search, URL validation, unsaved guard, local profile creation, rename/delete, key masking/replacement/deletion, credential-store failures, connection retry |
 | History | `test_history.py` | Empty/loading failure, search including raw text, no results, single deletion/error, clear confirmation, selection/view mode, partial bulk-delete failure, raw details, reprocess preview/apply/retry |
 | Help and statistics | `test_info_stats.py` | Update checks/retry/install failure, log cleanup confirmation, statistics periods and refreshed totals |
-| Lightweight windows | `test_windows.py` | Tray recording/navigation/settings events, overlay lifecycle, stale events, cancellation/silence/error recovery, streaming, initial-state handshake |
+| Lightweight windows | `test_windows.py` | Tray recording/navigation/settings events, overlay lifecycle, stale events, cancellation/silence/error recovery, streaming, initial-state handshake, glow style authorization and full-width processing travel across sizes and reduced motion |
 | Layout | `test_layout.py` | Minimum settings-window size, themes/locales, horizontal overflow, reviewable page and overlay screenshots |
 
 The layout overflow check depends on font metrics, which differ between a developer machine and the CI image. A failure names the page, locale, theme and overflow in pixels: treat it as a layout to widen on the reported page, and reproduce it against the CI browsers rather than only locally.

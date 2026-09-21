@@ -181,12 +181,9 @@
 /* Spread the voice bars across the space actually available to the pill. */
 .overlay[data-layout="compact"][data-state="recording"] .overlay-row {
   --timer-slot: 70px;
-  --close-slot: 0px;
-  grid-template-columns: var(--timer-slot) minmax(0, 1fr) var(--close-slot);
+  grid-template-columns: var(--timer-slot) minmax(0, 1fr) 0;
   column-gap: 0;
 }
 .overlay[data-layout="compact"][data-state="recording"][data-timer="off"] .overlay-row { --timer-slot: 0px; }
-.overlay[data-layout="compact"][data-state="recording"][data-hovered="true"] .overlay-row,
-.overlay[data-layout="compact"][data-state="recording"] .overlay-row:has(.overlay-close:focus-visible) { --close-slot: 38px; }
-.overlay[data-layout="compact"][data-state="recording"] .overlay-close { position: absolute; right: 0; }
+.overlay[data-layout="compact"][data-state="recording"] .overlay-close { position: absolute; right: 0; z-index: 2; }
 .overlay[data-layout="compact"] .overlay-waveform { justify-content: space-between; }

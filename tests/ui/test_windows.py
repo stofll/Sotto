@@ -579,7 +579,7 @@ def test_native_pointer_leave_overrides_stale_css_hover(app, page):
     "size,width,height", [("s", 280, 60), ("m", 308, 64), ("l", 360, 72)]
 )
 @pytest.mark.parametrize("timer", [False, True])
-def test_pill_waveform_fills_space_and_makes_room_for_cancel(
+def test_pill_cancel_overlays_waveform_without_shifting_bars(
     app, page, size, width, height, timer, output_path
 ):
     page.set_viewport_size({"width": width + 80, "height": height + 80})
@@ -588,8 +588,10 @@ def test_pill_waveform_fills_space_and_makes_room_for_cancel(
         "overlay",
         config={"overlay": {"form": "pill", "size": size, "show_timer": timer}},
     )
-    page.add_style_tag(content=f".overlay-shell {{ max-width: {width}px; }}")
     ui.emit("recording-started", 1)
+    page.locator(".overlay-shell").evaluate(
+        "(el, width) => el.style.maxWidth = `${width}px`", width
+    )
     overlay = page.get_by_test_id("overlay")
     expect(overlay).to_have_attribute("data-hovered", "false")
     page.wait_for_timeout(250)
@@ -617,8 +619,73 @@ def test_pill_waveform_fills_space_and_makes_room_for_cancel(
     expect(cancel).to_have_css("opacity", "1")
     page.wait_for_timeout(250)
     hovered, button = wave.bounding_box(), cancel.bounding_box()
-    assert hovered["width"] < bounds["width"] - 30
-    assert hovered["x"] + hovered["width"] <= button["x"]
+    assert hovered == bounds
+    assert bars.first.bounding_box() == first
+    assert bars.last.bounding_box() == last
+    assert button["x"] < hovered["x"] + hovered["width"]
+    page.screenshot(path=str(Path(output_path) / "waveform-hover.png"))
+    page.mouse.move(0, 0)
+    cancel.focus()
+    expect(cancel).to_have_css("opacity", "1")
+    page.wait_for_timeout(250)
+    assert wave.bounding_box() == bounds
     cancel.click()
     expect(overlay).not_to_be_visible()
     assert ui.calls("cancel_recording")[-1]["args"]["sessionId"] == 1
+
+
+@pytest.mark.parametrize(
+    "size,width,height", [("s", 360, 100), ("m", 400, 112), ("l", 440, 124)]
+)
+@pytest.mark.parametrize("reduced", [False, True])
+def test_original_glow_colors_and_full_width_processing(
+    app, page, output_path, size, width, height, reduced
+):
+    page.set_viewport_size({"width": width, "height": height})
+    page.emulate_media(reduced_motion="reduce" if reduced else "no-preference")
+    page.clock.install()
+    ui = app(
+        "overlay",
+        config={
+            "overlay": {
+                "form": "glow",
+                "size": size,
+                "palette": "graphite",
+                "show_timer": False,
+            }
+        },
+    )
+    beam = page.locator(".overlay-beam")
+    shots = Path(output_path)
+    shots.mkdir(parents=True, exist_ok=True)
+    for session in [1, 2]:
+        ui.emit("recording-started", session)
+        expect(beam).to_be_visible()
+        ui.emit("audio-level", {"level": 0.85})
+        page.clock.run_for(800)
+        for pseudo in ["::before", None]:
+            layer = beam if pseudo else beam.locator('[data-voice-beam-warp="inner"]')
+            assert "radial-gradient" in layer.evaluate(
+                "(el, pseudo) => getComputedStyle(el, pseudo).backgroundImage", pseudo
+            )
+        page.screenshot(path=str(shots / f"recording-{session}.png"))
+        ui.emit("recording-stopped", session)
+        expect(beam).to_have_attribute("data-processing", "")
+        page.clock.run_for(3000)
+        centers = []
+        for frame in range(16):
+            page.clock.run_for(200)
+            center = beam.evaluate("""el => {
+                const id = el.dataset.voiceBeam, s = el.style;
+                return .5 + parseFloat(s.getPropertyValue(`--vb-cx-${id}`)) * parseFloat(s.getPropertyValue(`--vb-w-${id}`)) / el.clientWidth;
+            }""")
+            centers.append(center)
+            if frame in [0, 4, 8]:
+                page.screenshot(path=str(shots / f"processing-{session}-{frame}.png"))
+        if reduced:
+            assert max(centers) - min(centers) < 0.001
+        else:
+            assert min(centers) < 0.15 and max(centers) > 0.85, centers
+        assert min(centers) > 0.04 and max(centers) < 0.96, centers
+        ui.emit("overlay-reset")
+        expect(beam).to_have_count(0)
