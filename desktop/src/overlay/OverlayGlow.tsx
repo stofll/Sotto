@@ -3,6 +3,7 @@ import { subscribe } from "../bridge/events";
 import { themePresets, generateVoiceBeamCSS } from "./voice-glow/styles";
 import { resolveVoiceDefaults, resolveVoiceStyle } from "./voice-glow/presets";
 import { registerVoiceInstance, type VoiceDriverConfig } from "./voice-glow/voiceDriver";
+import type { OverlayPreferences } from "./overlayPreferences";
 
 export type GlowMode = "listen" | "process" | "idle";
 
@@ -12,7 +13,6 @@ const DEFAULTS = resolveVoiceDefaults("default", THEME);
 const PRESET = themePresets[THEME];
 const TYPE_STYLE = resolveVoiceStyle("default", THEME);
 const SCALE = DEFAULTS.scale;
-const RADIUS = 24;
 const BORDER_WIDTH = 1;
 const DISTORTION_ON = DEFAULTS.distortion > 0;
 const CANVAS_FILTER = (() => {
@@ -55,7 +55,8 @@ const TUNING = {
   hueDuration: 9,
 } as const;
 
-export function OverlayGlow({ mode }: { mode: GlowMode }) {
+export function OverlayGlow({ mode, size }: { mode: GlowMode; size: OverlayPreferences["size"] }) {
+  const radius = { s: 19, m: 23, l: 27 }[size];
   const rawId = useId().replace(/:/g, "-");
   const id = `sotto${rawId}`;
   const ref = useRef<HTMLDivElement>(null);
@@ -67,7 +68,7 @@ export function OverlayGlow({ mode }: { mode: GlowMode }) {
     () =>
       `${generateVoiceBeamCSS({
         id,
-        borderRadius: RADIUS,
+        borderRadius: radius,
         borderWidth: BORDER_WIDTH,
         strokeOpacity: PRESET.strokeOpacity * DEFAULTS.strokeOpacity,
         innerOpacity: PRESET.innerOpacity * TUNING.innerOpacity,
@@ -104,7 +105,7 @@ export function OverlayGlow({ mode }: { mode: GlowMode }) {
   pointer-events: none;
   z-index: 0;
 }`,
-    [id],
+    [id, radius],
   );
 
   const driverConfig = useMemo<VoiceDriverConfig>(
@@ -144,7 +145,7 @@ export function OverlayGlow({ mode }: { mode: GlowMode }) {
       distortion: DISTORTION_ON ? DEFAULTS.distortion : 0,
       coreLight: DEFAULTS.coreLight,
       scale: SCALE,
-      radius: RADIUS,
+      radius,
       processing: mode === "process",
       // Overlay pacing, deliberately not the geometry defaults: a pass here
       // is slower than the library's ~350px chat input (1.1 s) because the
@@ -153,15 +154,15 @@ export function OverlayGlow({ mode }: { mode: GlowMode }) {
       processingDuration: 1.5,
       processingLevel: 0.72,
       processingEase: 0.75,
-      processingTravel: DEFAULTS.processingTravel,
-      cornerFollow: DEFAULTS.cornerFollow,
+      processingTravel: 1,
+      cornerFollow: 0,
       hueRange: PRESET.hueRange ?? 24,
       hueDuration: TUNING.hueDuration,
       staticColors: false,
       reducedMotion: typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches,
       paused: false,
     }),
-    [id, mode],
+    [id, mode, radius],
   );
 
   useEffect(() => {
@@ -185,9 +186,11 @@ export function OverlayGlow({ mode }: { mode: GlowMode }) {
   }, [driverConfig]);
 
   const filterId = `vb-distort-${id}`;
+  // Packaged Tauri pages authorize dynamic styles with the bundled style nonce.
+  const styleNonce = document.head.querySelector<HTMLStyleElement>("style[nonce]")?.nonce;
   return (
     <>
-      <style>{css}</style>
+      <style nonce={styleNonce}>{css}</style>
       <div
         className="overlay-beam"
         ref={ref}

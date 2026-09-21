@@ -32,7 +32,7 @@ export function OverlayApp() {
         <div className="overlay-surface" ref={surfaceRef}>
           {glow ? <>
             <Suspense fallback={null}>
-              <OverlayGlow key={session.sessionId} mode={glowMode(state)} />
+              <OverlayGlow key={session.sessionId} mode={glowMode(state)} size={preferences.size} />
             </Suspense>
             <div className="overlay-composer-body">
               {state === "recording"

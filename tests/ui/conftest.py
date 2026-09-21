@@ -2,6 +2,8 @@
 
 import json
 import os
+import re
+import secrets
 import socket
 import subprocess
 import time
@@ -188,7 +190,7 @@ class App:
 
 
 @pytest.fixture
-def app(page, ui_server, pytestconfig, monkeypatch):
+def app(page, ui_server, pytestconfig, monkeypatch, browser_name):
     url, harness = ui_server
     page.set_default_timeout(7000)
     page.set_default_navigation_timeout(30000)
@@ -222,12 +224,24 @@ def app(page, ui_server, pytestconfig, monkeypatch):
         "security"
     ]["csp"]
     page.on("pageerror", lambda error: errors.append(str(error)))
-    page.expose_function(
-        "__sottoReportCspViolation", lambda violation: csp_violations.append(violation)
-    )
+
+    def report_csp_violation(violation):
+        # Playwright's WebKit screenshot preparation inserts this empty rule
+        # to synchronize animations. Ignore only that known tooling violation.
+        if (
+            browser_name == "webkit"
+            and violation["directive"] == "style-src-elem"
+            and violation["blocked"] == "inline"
+            and violation["sample"] == "body {}"
+        ):
+            return
+        csp_violations.append(violation)
+
+    page.expose_function("__sottoReportCspViolation", report_csp_violation)
     page.add_init_script("""window.addEventListener('securitypolicyviolation', event => {
         window.__sottoReportCspViolation({
-            directive: event.effectiveDirective, blocked: event.blockedURI
+            directive: event.effectiveDirective, blocked: event.blockedURI,
+            sample: event.sample
         });
     });""")
 
@@ -253,9 +267,28 @@ def app(page, ui_server, pytestconfig, monkeypatch):
         if request_route.request.url.startswith(url + "/"):
             if production and request_route.request.resource_type == "document":
                 response = request_route.fetch()
+                # Tauri authorizes bundled <style> blocks with per-document
+                # nonces. A nonce makes CSP ignore unsafe-inline, including
+                # for styles React creates after the document loads.
+                nonces = []
+
+                def authorize_style(match):
+                    nonce = secrets.token_urlsafe(16)
+                    nonces.append(f"'nonce-{nonce}'")
+                    return f'<style nonce="{nonce}"'
+
+                body = re.sub(r"<style(?=[\s>])", authorize_style, response.text())
+                policy = csp
+                if nonces:
+                    policy = re.sub(
+                        r"(style-src\s+[^;]*)",
+                        lambda match: match[1] + " 'report-sample' " + " ".join(nonces),
+                        policy,
+                    )
                 request_route.fulfill(
                     response=response,
-                    headers={**response.headers, "Content-Security-Policy": csp},
+                    body=body,
+                    headers={**response.headers, "Content-Security-Policy": policy},
                 )
             else:
                 request_route.continue_()
