@@ -187,6 +187,12 @@ pub enum Source {
 }
 
 /// Fixed service labels; endpoints are inspected locally and never retained.
+///
+/// The list tracks the provider presets the app itself ships
+/// (`desktop/src/pages/aiShared.ts`): a preset the allowlist does not know
+/// lands in `Custom` next to genuinely self-hosted endpoints, which is
+/// exactly the distinction these fields exist to make. Add the host here
+/// when adding a preset there.
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ProviderService {
@@ -200,6 +206,10 @@ pub enum ProviderService {
     Together,
     Fireworks,
     Opencode,
+    Cerebras,
+    Moonshot,
+    Minimax,
+    Xai,
     Custom,
 }
 
@@ -222,6 +232,11 @@ pub fn provider_service(base_url: &str) -> ProviderService {
         Some("api.together.xyz" | "api.together.ai") => Together,
         Some("api.fireworks.ai") => Fireworks,
         Some("opencode.ai") => Opencode,
+        Some("api.cerebras.ai") => Cerebras,
+        // Moonshot ships the Kimi models under two regional domains.
+        Some("api.moonshot.cn" | "api.moonshot.ai") => Moonshot,
+        Some("api.minimax.io") => Minimax,
+        Some("api.x.ai") => Xai,
         _ => Custom,
     }
 }
@@ -1880,6 +1895,28 @@ mod tests {
             provider_service("https://API.OPENAI.COM/v1"),
             ProviderService::Openai
         );
+        // Every base URL the shipped provider presets use resolves to a
+        // named service; see `aiShared.ts`. A local server stays `custom`.
+        for (endpoint, expected) in [
+            ("https://openrouter.ai/api/v1", ProviderService::Openrouter),
+            ("https://opencode.ai/zen/v1", ProviderService::Opencode),
+            ("https://opencode.ai/zen/go/v1", ProviderService::Opencode),
+            ("https://api.deepseek.com/v1", ProviderService::Deepseek),
+            ("https://api.cerebras.ai/v1", ProviderService::Cerebras),
+            ("https://api.moonshot.cn/v1", ProviderService::Moonshot),
+            ("https://api.moonshot.ai/v1", ProviderService::Moonshot),
+            ("https://api.minimax.io/v1", ProviderService::Minimax),
+            ("https://api.together.xyz/v1", ProviderService::Together),
+            (
+                "https://api.fireworks.ai/inference/v1",
+                ProviderService::Fireworks,
+            ),
+            ("https://api.mistral.ai/v1", ProviderService::Mistral),
+            ("https://api.x.ai/v1", ProviderService::Xai),
+            ("http://localhost:11434/v1", ProviderService::Custom),
+        ] {
+            assert_eq!(provider_service(endpoint), expected, "{endpoint}");
+        }
         for endpoint in [
             "https://api.openai.com.evil.test/v1",
             "https://api.openai.com@evil.test/v1",

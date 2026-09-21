@@ -109,6 +109,10 @@ An in-flight long transcription prevents the idle watcher from splitting that si
 
 `stt_provider` and `llm_provider` retain their existing adapter meaning. New `stt_service` and `llm_service` fields distinguish a fixed list of known services by parsing the actual request endpoint locally; unmatched endpoints become `custom`. Host matching is exact, not substring-based. Endpoints, credentials and user profile names never enter an event.
 
+The list covers every provider preset the app ships, so `custom` means a self-hosted or hand-entered endpoint rather than a service the allowlist forgot. Adding a preset without adding its host silently merges that traffic into `custom`.
+
+Local servers (LM Studio, Ollama, vLLM) stay `custom` by design: their host is `localhost`, and nothing about it is worth transmitting.
+
 Cloud STT carries the service from the successful request through inference into both microphone and file outcomes. LLM service is reported only for an attempted/used/fallback operation and follows the adapter's effective endpoint, including Gemini's fixed endpoint. These internal fields are skipped in ordinary IPC/history serialization. Earlier events cannot recover service labels, and STT failures that have no request context still omit the service.
 
 ## Data that must never be sent
