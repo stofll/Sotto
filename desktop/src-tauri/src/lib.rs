@@ -1764,6 +1764,7 @@ pub fn run() {
                                         audio_secs,
                                         inf_ms,
                                         ai_status.clone(),
+                                        inference.stt_service,
                                     );
                                     let (stats_tx, stats_rx) =
                                         tokio::sync::oneshot::channel::<Result<(), String>>();
@@ -2198,6 +2199,7 @@ fn llm_should_run(ai: Option<&Value>) -> bool {
 /// takes ownership of the text. Delivery is the only thing still unknown at
 /// that point, so the closure supplies it and calls `record` exactly once.
 struct DictationTelemetry {
+    stt_service: Option<crate::telemetry::ProviderService>,
     pipeline_mode: String,
     stt_model: Option<String>,
     audio_seconds: f64,
@@ -2217,10 +2219,12 @@ impl DictationTelemetry {
         audio_seconds: f64,
         stt_millis: u64,
         ai_status: Option<crate::ai::step::AiStatus>,
+        stt_service: Option<crate::telemetry::ProviderService>,
     ) -> Self {
         let (formatting_enabled, replacement_rules) =
             config.map(telemetry_formatting).unwrap_or((false, 0));
         Self {
+            stt_service,
             pipeline_mode: pipeline_mode.to_string(),
             recording_mode: config
                 .map(telemetry_recording_mode)
@@ -2246,6 +2250,7 @@ impl DictationTelemetry {
             pipeline_mode: &self.pipeline_mode,
             recording_mode: self.recording_mode,
             stt_model: self.stt_model.as_deref(),
+            stt_service: self.stt_service,
             audio_seconds: self.audio_seconds,
             stt_millis: self.stt_millis,
             chars,
@@ -2564,6 +2569,7 @@ mod completion_tests {
             text: text.to_string(),
             language: Some("ru".to_string()),
             model_id: Some("turbo".to_string()),
+            stt_service: None,
             inference_time_ms: 500,
             audio_seconds: 4.0,
         }

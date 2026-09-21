@@ -90,9 +90,12 @@ fn build_api_key() -> Option<&'static str> {
     // This is the public PostHog ingest token, not a user/provider secret. A
     // missing build key is a supported dev/test configuration and makes the
     // entire path a no-op.
-    let key = option_env!("SOTTO_POSTHOG_API_KEY")
-        .or(option_env!("POSTHOG_API_KEY"))
-        .map(str::trim)?;
+    let key = if cfg!(debug_assertions) {
+        option_env!("SOTTO_POSTHOG_DEV_API_KEY")
+    } else {
+        option_env!("SOTTO_POSTHOG_API_KEY").or(option_env!("POSTHOG_API_KEY"))
+    }
+    .map(str::trim)?;
     (!key.is_empty()).then_some(key)
 }
 
@@ -125,7 +128,8 @@ pub enum FailureStage {
     PostProcess,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum FailureReason {
     EngineBusy,
     NoTranscriptionRoute,
@@ -182,6 +186,61 @@ pub enum Source {
     File,
 }
 
+/// Fixed service labels; endpoints are inspected locally and never retained.
+///
+/// The list tracks the provider presets the app itself ships
+/// (`desktop/src/pages/aiShared.ts`): a preset the allowlist does not know
+/// lands in `Custom` next to genuinely self-hosted endpoints, which is
+/// exactly the distinction these fields exist to make. Add the host here
+/// when adding a preset there.
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderService {
+    Openai,
+    Anthropic,
+    Gemini,
+    Groq,
+    Mistral,
+    Openrouter,
+    Deepseek,
+    Together,
+    Fireworks,
+    Opencode,
+    Cerebras,
+    Moonshot,
+    Minimax,
+    Xai,
+    Custom,
+}
+
+pub fn provider_service(base_url: &str) -> ProviderService {
+    use ProviderService::*;
+    let Ok(url) = reqwest::Url::parse(base_url) else {
+        return Custom;
+    };
+    if !matches!(url.scheme(), "http" | "https") {
+        return Custom;
+    }
+    match url.host_str() {
+        Some("api.openai.com") => Openai,
+        Some("api.anthropic.com") => Anthropic,
+        Some("generativelanguage.googleapis.com") => Gemini,
+        Some("api.groq.com") => Groq,
+        Some("api.mistral.ai") => Mistral,
+        Some("openrouter.ai") => Openrouter,
+        Some("api.deepseek.com") => Deepseek,
+        Some("api.together.xyz" | "api.together.ai") => Together,
+        Some("api.fireworks.ai") => Fireworks,
+        Some("opencode.ai") => Opencode,
+        Some("api.cerebras.ai") => Cerebras,
+        // Moonshot ships the Kimi models under two regional domains.
+        Some("api.moonshot.cn" | "api.moonshot.ai") => Moonshot,
+        Some("api.minimax.io") => Minimax,
+        Some("api.x.ai") => Xai,
+        _ => Custom,
+    }
+}
+
 impl Source {
     fn wire(self) -> &'static str {
         match self {
@@ -232,6 +291,7 @@ pub struct Outcome<'a> {
     pub pipeline_mode: &'a str,
     pub recording_mode: RecordingMode,
     pub stt_model: Option<&'a str>,
+    pub stt_service: Option<ProviderService>,
     pub audio_seconds: f64,
     pub stt_millis: u64,
     pub chars: usize,
@@ -252,6 +312,7 @@ impl<'a> Outcome<'a> {
             pipeline_mode,
             recording_mode: RecordingMode::NotApplicable,
             stt_model: None,
+            stt_service: None,
             audio_seconds: 0.0,
             stt_millis: 0,
             chars: 0,
@@ -292,6 +353,8 @@ struct OutcomePayload {
     #[serde(skip_serializing_if = "Option::is_none")]
     stt_provider: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    stt_service: Option<ProviderService>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     stt_model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     stt_model_name: Option<&'static str>,
@@ -306,6 +369,8 @@ struct OutcomePayload {
     #[serde(skip_serializing_if = "Option::is_none")]
     llm_provider: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    llm_service: Option<ProviderService>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     llm_model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     llm_fallback_reason: Option<&'static str>,
@@ -316,6 +381,8 @@ struct OutcomePayload {
     stage: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     reason: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason_detail: Option<FailureReason>,
 }
 
 #[derive(Debug, Clone)]
@@ -364,6 +431,7 @@ struct OutboxRow {
     event_name: String,
     payload_json: String,
     attempts: i64,
+    timestamp: String,
 }
 
 #[derive(Debug, Clone)]
@@ -745,6 +813,22 @@ fn add_common_properties(properties: &mut Map<String, Value>) {
         Value::String(std::env::consts::ARCH.to_string()),
     );
     properties.insert("$process_person_profile".to_string(), Value::Bool(false));
+    properties.insert(
+        "release_channel".to_string(),
+        Value::String(
+            release_channel(env!("CARGO_PKG_VERSION"), cfg!(debug_assertions)).to_string(),
+        ),
+    );
+}
+
+fn release_channel(version: &str, debug: bool) -> &'static str {
+    if debug {
+        "dev"
+    } else if version.split('+').next().unwrap_or(version).contains('-') {
+        "beta"
+    } else {
+        "stable"
+    }
 }
 
 fn language_wire(language: &str) -> &'static str {
@@ -951,6 +1035,7 @@ fn outcome_payload(
         recording_mode: outcome.recording_mode.wire(),
         stt_engine: stt_engine_wire(mode, outcome.stt_model),
         stt_provider: stt_provider_wire(mode, stage.is_none()),
+        stt_service: (mode == "cloud").then_some(outcome.stt_service).flatten(),
         stt_model: stt_model_wire(mode, outcome.stt_model),
         stt_model_name: (mode != "cloud")
             .then(|| outcome.stt_model.and_then(crate::model::catalog_model))
@@ -965,6 +1050,10 @@ fn outcome_payload(
         llm_used,
         llm_fallback,
         llm_provider,
+        llm_service: outcome
+            .ai_status
+            .filter(|status| status.attempted || status.used || status.fallback)
+            .and_then(|status| status.telemetry_service),
         llm_model,
         llm_fallback_reason: if llm_fallback { llm_reason } else { None },
         paste_result: outcome.paste_result.wire(),
@@ -972,6 +1061,7 @@ fn outcome_payload(
         replacements_applied_bucket: replacements_bucket(outcome.replacement_rules),
         stage: stage.map(stage_wire),
         reason: reason.map(FailureReason::wire),
+        reason_detail: reason,
     }
 }
 
@@ -1222,7 +1312,8 @@ fn pending_outbox(
     now: f64,
 ) -> Result<Vec<OutboxRow>, rusqlite::Error> {
     let mut stmt = conn.prepare(
-        "SELECT event_id, event_name, payload_json, attempts
+        "SELECT event_id, event_name, payload_json, attempts,
+                strftime('%Y-%m-%dT%H:%M:%fZ', created_at, 'unixepoch')
          FROM telemetry_outbox
          WHERE next_attempt_at <= ?1
          ORDER BY created_at ASC LIMIT ?2",
@@ -1233,6 +1324,7 @@ fn pending_outbox(
             event_name: row.get(1)?,
             payload_json: row.get(2)?,
             attempts: row.get(3)?,
+            timestamp: row.get(4)?,
         })
     })?;
     rows.collect()
@@ -1258,20 +1350,18 @@ enum Delivery {
 struct CaptureRequest<'a> {
     api_key: &'a str,
     event: &'a str,
+    timestamp: &'a str,
     properties: Map<String, Value>,
 }
 
-async fn send_capture(
-    row: &OutboxRow,
+fn capture_request<'a>(
+    row: &'a OutboxRow,
     installation_id: &str,
-    client: &reqwest::Client,
-) -> Delivery {
-    let Some(api_key) = build_api_key() else {
-        return Delivery::Drop("missing_api_key");
-    };
+    api_key: &'a str,
+) -> Result<CaptureRequest<'a>, Delivery> {
     let mut properties: Map<String, Value> = match serde_json::from_str(&row.payload_json) {
         Ok(value) => value,
-        Err(_) => return Delivery::Drop("invalid_payload"),
+        Err(_) => return Err(Delivery::Drop("invalid_payload")),
     };
     properties.insert(
         "$insert_id".to_string(),
@@ -1283,10 +1373,25 @@ async fn send_capture(
     );
     properties.insert("$process_person_profile".to_string(), Value::Bool(false));
     properties.insert("$geoip_disable".to_string(), Value::Bool(true));
-    let body = CaptureRequest {
+    Ok(CaptureRequest {
         api_key,
         event: &row.event_name,
+        timestamp: &row.timestamp,
         properties,
+    })
+}
+
+async fn send_capture(
+    row: &OutboxRow,
+    installation_id: &str,
+    client: &reqwest::Client,
+) -> Delivery {
+    let Some(api_key) = build_api_key() else {
+        return Delivery::Drop("missing_api_key");
+    };
+    let body = match capture_request(row, installation_id, api_key) {
+        Ok(body) => body,
+        Err(delivery) => return delivery,
     };
     let response = match client.post(POSTHOG_CAPTURE_URL).json(&body).send().await {
         Ok(response) => response,
@@ -1708,6 +1813,160 @@ mod tests {
         usage.current.as_mut().unwrap().active_transcriptions = 0;
         assert!(take_expired(&mut usage, now, timeout).is_some());
         assert!(usage.current.is_none());
+    }
+
+    #[test]
+    fn delivery_preserves_event_time_identity_and_deduplication_after_retry() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("telemetry.sqlite");
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(include_str!("migrations/v5.sql"))
+            .unwrap();
+        let installation = ensure_installation_id(&conn).unwrap();
+        let event = QueuedEvent {
+            event_id: "persisted-event".into(),
+            event_name: "app.started",
+            properties_json: r#"{"app_version":"1.2.3"}"#.into(),
+            created_at: 1_700_000_000.125,
+        };
+        insert_outbox(&conn, &event).unwrap();
+        let first = pending_outbox(&conn, 1, event.created_at + 60.0).unwrap();
+        let first =
+            serde_json::to_value(capture_request(&first[0], &installation, "test-token").unwrap())
+                .unwrap();
+        conn.execute(
+            "UPDATE telemetry_outbox SET attempts = 3, next_attempt_at = ?1",
+            [event.created_at + 3600.0],
+        )
+        .unwrap();
+        drop(conn);
+        let conn = Connection::open(&path).unwrap();
+        assert_eq!(ensure_installation_id(&conn).unwrap(), installation);
+        assert!(pending_outbox(&conn, 1, event.created_at + 300.0)
+            .unwrap()
+            .is_empty());
+        let retried = pending_outbox(&conn, 1, event.created_at + 86400.0).unwrap();
+        let retried = serde_json::to_value(
+            capture_request(&retried[0], &installation, "test-token").unwrap(),
+        )
+        .unwrap();
+        assert_eq!(first, retried);
+        assert_eq!(retried["timestamp"], "2023-11-14T22:13:20.125Z");
+        assert_eq!(retried["properties"]["distinct_id"], installation);
+        assert_eq!(retried["properties"]["$insert_id"], "persisted-event");
+        assert_eq!(retried["properties"]["app_version"], "1.2.3");
+        assert_eq!(retried["properties"]["$process_person_profile"], false);
+    }
+
+    #[test]
+    fn failure_details_distinguish_causes_without_raw_errors() {
+        for (reason, expected) in [
+            (FailureReason::EngineBusy, "engine_busy"),
+            (FailureReason::RecorderStop, "recorder_stop"),
+            (FailureReason::Decode, "decode"),
+        ] {
+            let payload = outcome_payload(
+                "local",
+                &Outcome::bare(Source::File, "local"),
+                Some(FailureStage::Stt),
+                Some(reason),
+            );
+            let properties = serde_json::to_value(payload).unwrap();
+            assert_eq!(properties["reason"], "other");
+            assert_eq!(properties["reason_detail"], expected);
+        }
+    }
+
+    #[test]
+    fn release_channels_keep_debug_and_prerelease_out_of_stable() {
+        assert_eq!(release_channel("1.2.3", true), "dev");
+        assert_eq!(release_channel("1.2.3-rc.1", true), "dev");
+        assert_eq!(release_channel("1.2.3-rc.1", false), "beta");
+        assert_eq!(release_channel("1.2.3+build-with-dash", false), "stable");
+    }
+
+    #[test]
+    fn service_allowlist_does_not_leak_or_trust_lookalike_hosts() {
+        assert_eq!(
+            provider_service("https://api.groq.com/openai/v1"),
+            ProviderService::Groq
+        );
+        assert_eq!(
+            provider_service("https://API.OPENAI.COM/v1"),
+            ProviderService::Openai
+        );
+        // Every base URL the shipped provider presets use resolves to a
+        // named service; see `aiShared.ts`. A local server stays `custom`.
+        for (endpoint, expected) in [
+            ("https://openrouter.ai/api/v1", ProviderService::Openrouter),
+            ("https://opencode.ai/zen/v1", ProviderService::Opencode),
+            ("https://opencode.ai/zen/go/v1", ProviderService::Opencode),
+            ("https://api.deepseek.com/v1", ProviderService::Deepseek),
+            ("https://api.cerebras.ai/v1", ProviderService::Cerebras),
+            ("https://api.moonshot.cn/v1", ProviderService::Moonshot),
+            ("https://api.moonshot.ai/v1", ProviderService::Moonshot),
+            ("https://api.minimax.io/v1", ProviderService::Minimax),
+            ("https://api.together.xyz/v1", ProviderService::Together),
+            (
+                "https://api.fireworks.ai/inference/v1",
+                ProviderService::Fireworks,
+            ),
+            ("https://api.mistral.ai/v1", ProviderService::Mistral),
+            ("https://api.x.ai/v1", ProviderService::Xai),
+            ("http://localhost:11434/v1", ProviderService::Custom),
+        ] {
+            assert_eq!(provider_service(endpoint), expected, "{endpoint}");
+        }
+        for endpoint in [
+            "https://api.openai.com.evil.test/v1",
+            "https://api.openai.com@evil.test/v1",
+            "http://localhost:1234/v1",
+            "file:///api.openai.com",
+            "private-host/key-secret",
+        ] {
+            assert_eq!(provider_service(endpoint), ProviderService::Custom);
+        }
+    }
+
+    #[test]
+    fn service_labels_follow_actual_operations_and_stay_out_of_ipc() {
+        let mut status = crate::ai::step::AiStatus {
+            provider: "compatible".into(),
+            telemetry_service: Some(ProviderService::Openrouter),
+            ..Default::default()
+        };
+        let skipped = outcome_payload(
+            "hybrid",
+            &completed("hybrid", Some("tiny"), Some(&status)),
+            None,
+            None,
+        );
+        assert!(skipped.llm_service.is_none());
+        status.attempted = true;
+        status.fallback = true;
+        let attempted = outcome_payload(
+            "hybrid",
+            &completed("hybrid", Some("tiny"), Some(&status)),
+            None,
+            None,
+        );
+        assert_eq!(attempted.llm_service, Some(ProviderService::Openrouter));
+        assert!(attempted.llm_model.is_none());
+        assert!(serde_json::to_value(&status)
+            .unwrap()
+            .get("telemetry_service")
+            .is_none());
+        for source in [Source::Microphone, Source::File] {
+            let mut outcome = completed("cloud", Some("whisper-1"), None);
+            outcome.source = source;
+            outcome.stt_service = Some(ProviderService::Groq);
+            let payload = outcome_payload("cloud", &outcome, None, None);
+            assert_eq!(payload.stt_service, Some(ProviderService::Groq));
+            assert_eq!(payload.stt_provider.as_deref(), Some("compatible"));
+            assert!(outcome_payload("local", &outcome, None, None)
+                .stt_service
+                .is_none());
+        }
     }
 
     #[test]

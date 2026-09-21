@@ -23,7 +23,9 @@ $env:SOTTO_POSTHOG_API_KEY = "phc_..."
 pnpm tauri build
 ```
 
-`POSTHOG_API_KEY` is accepted as a fallback build variable. This must be a public project ingest token, never a PostHog personal or administrative API key.
+`POSTHOG_API_KEY` is accepted as a fallback build variable for release builds. Debug builds accept only `SOTTO_POSTHOG_DEV_API_KEY`, which must point to a separate development project; they never fall back to the production token. This must be a public project ingest token, never a PostHog personal or administrative API key.
+
+Development telemetry also requires an isolated `SOTTO_CONFIG_DIR` for the manual run. A worktree or debug executable does not isolate SQLite: sharing the production directory would share both the installation ID and pending outbox rows across projects. Never point a development run at the user's live application data.
 
 Because the token is a compile-time input, a build that misses it cannot be repaired at runtime, and nothing about the running app reveals the difference.
 
@@ -43,7 +45,7 @@ In the PostHog project, also disable IP capture and keep autocapture, session re
 
 The application generates a random UUIDv4 installation ID and stores it in SQLite table `telemetry_meta`. It is not derived from an account, username, hostname, MAC address, path, or hardware fingerprint. The ID is used as PostHog `distinct_id` so unique installations and retention can be measured.
 
-Events first enter `telemetry_outbox`. Delivery uses a stable `$insert_id`, a 15-second HTTP timeout, bounded exponential retry for network errors, HTTP 429 and 5xx responses, and drops permanent 4xx payload errors.
+Events first enter `telemetry_outbox`. Delivery preserves the original event time as an ISO 8601 UTC `timestamp`, including after offline delivery, retries and process restarts. Delivery uses a stable `$insert_id`, a 15-second HTTP timeout, bounded exponential retry for network errors, HTTP 429 and 5xx responses, and drops permanent 4xx payload errors.
 
 The outbox retains at most 1,000 rows and seven days, deleting the oldest rows first; that housekeeping runs on the delivery tick rather than on every insert, so recording an event costs one `INSERT`.
 
@@ -53,7 +55,7 @@ Every event also carries `usage_session_id`, the random id of the usage session 
 
 ## Event contract (schema version 1)
 
-All events contain `schema_version`, `app_version`, `os`, `os_major`, and `arch`. `os_major` is currently `unknown`; it is reserved so OS-version collection can be added without changing the event schema.
+All events contain `schema_version`, `app_version`, `release_channel`, `os`, `os_major`, and `arch`. `release_channel` is `dev` for debug builds, `beta` for release builds with a SemVer prerelease suffix, and `stable` otherwise; build metadata alone does not make a prerelease. Older events omit it, so do not classify missing values as stable. `os_major` is currently `unknown`; it is reserved so OS-version collection can be added without changing the event schema.
 
 ### `app.started`
 
@@ -87,7 +89,7 @@ Audio is rounded to 10 seconds; processing time, estimated time saved, and activ
 
 Emitted once for a failed microphone or file operation. `stage` and `reason` are fixed low-cardinality values. Raw errors, HTTP bodies, URLs, or exception messages never enter the event.
 
-A failure carries only `source`, `pipeline_mode`, `stage` and `reason` — it has no model, durations, or delivery result to report, and does not invent them.
+Failures use the same typed outcome envelope, with unavailable model fields omitted and duration counters left at zero. `reason_detail` preserves the specific allow-listed cause (for example, `engine_busy`, `decode` or `empty_transcript`) while the existing coarse `reason` remains compatible with older dashboards. These defaults are not measurements: use completed events for latency and volume, and do not attribute a failed request to the currently selected model.
 
 ### `transcription.cancelled`
 
@@ -102,6 +104,16 @@ A watcher checks inactivity every 15 seconds.
 The event contains active duration through the last action—not the idle timeout—plus transcription, success, failure and cancellation counts, rounded audio/time-saved totals, dominant pipeline mode, and the effective timeout. `dominant_pipeline_mode` is `other` when the session has no observed local, hybrid or cloud transcription, including sessions containing only LLM utility actions.
 
 An in-flight long transcription prevents the idle watcher from splitting that single operation into two sessions.
+
+## Provider services
+
+`stt_provider` and `llm_provider` retain their existing adapter meaning. New `stt_service` and `llm_service` fields distinguish a fixed list of known services by parsing the actual request endpoint locally; unmatched endpoints become `custom`. Host matching is exact, not substring-based. Endpoints, credentials and user profile names never enter an event.
+
+The list covers every provider preset the app ships, so `custom` means a self-hosted or hand-entered endpoint rather than a service the allowlist forgot. Adding a preset without adding its host silently merges that traffic into `custom`.
+
+Local servers (LM Studio, Ollama, vLLM) stay `custom` by design: their host is `localhost`, and nothing about it is worth transmitting.
+
+Cloud STT carries the service from the successful request through inference into both microphone and file outcomes. LLM service is reported only for an attempted/used/fallback operation and follows the adapter's effective endpoint, including Gemini's fixed endpoint. These internal fields are skipped in ordinary IPC/history serialization. Earlier events cannot recover service labels, and STT failures that have no request context still omit the service.
 
 ## Data that must never be sent
 
@@ -121,7 +133,13 @@ Values are normalized to stable allowlists or bounded ASCII labels. Invalid, pat
 
 ## PostHog dashboard
 
-Create a dashboard named `Sotto product usage` with these insights:
+Use three focused views: a product overview (active installations, last observed versions, first successful use and retention), usage (models/adapters, unique installations alongside operation counts), and quality (failure, cancellation, LLM fallback, paste failures and processing percentiles). Link the views and put metric definitions next to the charts. The project timezone determines day boundaries; incomplete days/weeks are not final results.
+
+Count a distinct installation over the complete period; never sum daily unique counts. Version usage by event can count the same installation in several versions. For a non-overlapping adoption snapshot, select installations with a successful transcription in the observation window, take the version from each installation's last Sotto event in that window, then group those rows by version. This is the last observed version, not a live inventory. Explicitly label any fixed SQL window that does not follow dashboard date filters.
+
+Failure rate is `failed / (completed + failed)`; cancellation rate is `cancelled / (completed + failed + cancelled)`. LLM fallback is measured among attempted LLM operations on completed transcriptions, and paste failure among completed microphone transcriptions. An empty denominator is no evidence of reliability, even if the chart renders it as zero. First observed successful use is not installation time; retention starts from that first observed success. Only observed telemetry-enabled installations are counted, and a person using two computers still counts twice.
+
+Use these insight definitions across the three views:
 
 1. DAU/WAU/MAU: unique `distinct_id` on `transcription.completed`.
 2. Retention: return to `transcription.completed` (verify personless retention behavior in a staging project first).

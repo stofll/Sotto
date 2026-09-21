@@ -224,9 +224,7 @@ impl AnthropicProvider {
         Self {
             api_key: api_key.into(),
             model: model.into(),
-            base_url: base_url
-                .map(|value| value.trim_end_matches('/').to_string())
-                .unwrap_or_else(|| ANTHROPIC_BASE_URL.to_string()),
+            base_url: resolve_base_url(base_url.as_deref(), ANTHROPIC_BASE_URL),
             timeout: timeout.unwrap_or(Duration::from_secs(DEFAULT_TIMEOUT_SECS)),
             // Same contract as OpenAI's: `None` sizes the budget to the
             // request. Anthropic requires the field, so it is always sent.
@@ -299,9 +297,7 @@ impl OpenAIProvider {
         Self {
             api_key: api_key.into(),
             model: model.into(),
-            base_url: base_url
-                .map(|value| value.trim_end_matches('/').to_string())
-                .unwrap_or_else(|| OPENAI_BASE_URL.to_string()),
+            base_url: resolve_base_url(base_url.as_deref(), OPENAI_BASE_URL),
             timeout: timeout.unwrap_or(Duration::from_secs(DEFAULT_TIMEOUT_SECS)),
             // `None` means "size it to the request" — see `completion_budget`.
             // An explicit value stays an explicit hard cap.
@@ -436,10 +432,7 @@ impl OpenCodeGoProvider {
         Self {
             api_key: api_key.into(),
             model: normalise_model(model.into()),
-            base_url: base_url
-                .map(|value| value.trim_end_matches('/').to_string())
-                .filter(|value| !value.is_empty())
-                .unwrap_or_else(|| OPENCODE_GO_BASE_URL.to_string()),
+            base_url: resolve_base_url(base_url.as_deref(), OPENCODE_GO_BASE_URL),
             timeout: timeout.unwrap_or(Duration::from_secs(OPENCODE_GO_TIMEOUT_SECS)),
         }
     }
@@ -498,6 +491,36 @@ impl Provider for OpenCodeGoProvider {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/// Resolve a configured base URL against the adapter's own default.
+///
+/// Blank means absent. The settings UI persists `base_url: ""` for every
+/// provider that has no URL field of its own (OpenAI and Anthropic have
+/// none), so an adapter that defaulted only on `None` would keep the empty
+/// string, build the relative URL `/messages`, and fail every request.
+fn resolve_base_url(base_url: Option<&str>, default: &str) -> String {
+    base_url
+        .map(|value| value.trim().trim_end_matches('/'))
+        .filter(|value| !value.is_empty())
+        .unwrap_or(default)
+        .to_string()
+}
+
+/// The endpoint `build_provider` will actually call for this configuration.
+///
+/// Telemetry classifies the service from this, so the reported label always
+/// follows the request that is really made. Gemini is not here: its adapter
+/// ignores `base_url` and always calls the one Google endpoint.
+pub fn effective_base_url(provider: &str, base_url: Option<&str>) -> String {
+    resolve_base_url(
+        base_url,
+        match provider {
+            "openai" | "compatible" => OPENAI_BASE_URL,
+            "opencode-go" => OPENCODE_GO_BASE_URL,
+            _ => ANTHROPIC_BASE_URL,
+        },
+    )
+}
 
 /// Build a `reqwest::RequestBuilder` for the given method / URL / body /
 /// auth headers. Centralised so every provider gets the same User-Agent
@@ -840,6 +863,64 @@ fn urlencoding(input: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The settings UI persists `base_url: ""` for a provider that has no
+    /// Base URL field of its own — see `resolve_base_url`.
+    #[test]
+    fn blank_base_url_falls_back_to_the_adapter_default_for_every_provider() {
+        for blank in [None, Some(""), Some("   "), Some("/"), Some(" / ")] {
+            let blank = blank.map(str::to_string);
+            assert_eq!(
+                AnthropicProvider::new("k", "m", blank.clone(), None, None).base_url,
+                ANTHROPIC_BASE_URL
+            );
+            assert_eq!(
+                OpenAIProvider::new("k", "m", blank.clone(), None, None).base_url,
+                OPENAI_BASE_URL
+            );
+            assert_eq!(
+                OpenCodeGoProvider::new("k", "qwen3.6-plus", blank.clone(), None).base_url,
+                OPENCODE_GO_BASE_URL
+            );
+            // Whatever `build_provider` picks, the call target stays absolute.
+            for provider in [
+                "openai",
+                "compatible",
+                "anthropic",
+                "opencode-go",
+                "cerebras",
+            ] {
+                let url = effective_base_url(provider, blank.as_deref());
+                assert!(
+                    reqwest::Url::parse(&format!("{url}/messages")).is_ok(),
+                    "{provider} with {blank:?} produced a relative URL"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_configured_base_url_still_wins_and_keeps_its_trailing_slash_trimmed() {
+        assert_eq!(
+            OpenAIProvider::new(
+                "k",
+                "m",
+                Some(" https://openrouter.ai/api/v1/ ".to_string()),
+                None,
+                None
+            )
+            .base_url,
+            "https://openrouter.ai/api/v1"
+        );
+        assert_eq!(
+            effective_base_url("compatible", Some("https://api.groq.com/openai/v1")),
+            "https://api.groq.com/openai/v1"
+        );
+        assert_eq!(
+            effective_base_url("opencode-go", Some("https://self.hosted.test/v1/")),
+            "https://self.hosted.test/v1"
+        );
+    }
 
     #[test]
     fn error_type_retryable_matches_python() {

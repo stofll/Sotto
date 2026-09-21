@@ -474,6 +474,7 @@ fn record_file_run(
         pipeline_mode,
         recording_mode: crate::telemetry::RecordingMode::NotApplicable,
         stt_model: run.inference.model_id.as_deref(),
+        stt_service: run.inference.stt_service,
         audio_seconds: run.inference.audio_seconds,
         stt_millis: run.inference.inference_time_ms,
         chars: run.processed.final_text.chars().count(),

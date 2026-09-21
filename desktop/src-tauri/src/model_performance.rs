@@ -790,6 +790,7 @@ mod tests {
             text: "synthetic speech".into(),
             language: Some("en".into()),
             model_id: Some("tiny".into()),
+            stt_service: None,
             inference_time_ms: 200,
             audio_seconds: 4.0,
         };

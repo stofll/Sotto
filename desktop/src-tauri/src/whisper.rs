@@ -144,6 +144,8 @@ pub enum EngineEvent {
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct InferenceResult {
+    #[serde(skip)]
+    pub stt_service: Option<crate::telemetry::ProviderService>,
     pub session_id: u64,
     pub text: String,
     pub language: Option<String>,
@@ -321,6 +323,7 @@ pub fn engine_thread_main(
                             text,
                             language: reported_language.clone(),
                             model_id: model_id.clone(),
+                            stt_service: None,
                             inference_time_ms: started.elapsed().as_millis() as u64,
                             audio_seconds,
                         }),
@@ -475,6 +478,7 @@ pub fn engine_thread_main(
                                     text,
                                     language: None,
                                     model_id: model_id.clone(),
+                                    stt_service: None,
                                     inference_time_ms: elapsed,
                                     audio_seconds,
                                 })
@@ -781,6 +785,7 @@ pub fn engine_thread_main(
                                 text: cloud_result.text,
                                 language: None,
                                 model_id: cloud_model_id.clone(),
+                                stt_service: Some(cloud_result.service),
                                 inference_time_ms: started.elapsed().as_millis() as u64,
                                 audio_seconds,
                             })
@@ -913,6 +918,7 @@ mod tests {
                 text: String::new(),
                 language: None,
                 model_id: Some("tiny".into()),
+                stt_service: None,
                 inference_time_ms: 7,
                 audio_seconds: 0.1,
             }),
@@ -1026,6 +1032,7 @@ mod tests {
             text: String::new(),
             language: None,
             model_id: None,
+            stt_service: None,
             inference_time_ms: 0,
             audio_seconds: 0.0,
         };
