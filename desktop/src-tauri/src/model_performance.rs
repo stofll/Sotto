@@ -621,12 +621,16 @@ mod tests {
             reference("tiny", "de").expect("auto stands in").language,
             GENERIC_LANGUAGE
         );
-        // Sherpa models do not run a detection pass, so their rows agree.
-        let (fixed, auto) = (
-            reference("gigaam-v3", "ru").unwrap().rtf,
-            reference("gigaam-v3", GENERIC_LANGUAGE).unwrap().rtf,
-        );
-        assert!((auto / fixed - 1.0).abs() < 0.2, "{auto} vs {fixed}");
+        // Sherpa models do not run a detection pass, so their rows agree. The
+        // catalogue exposes them only where their runtime is packaged.
+        #[cfg(any(windows, target_os = "macos"))]
+        {
+            let (fixed, auto) = (
+                reference("gigaam-v3", "ru").unwrap().rtf,
+                reference("gigaam-v3", GENERIC_LANGUAGE).unwrap().rtf,
+            );
+            assert!((auto / fixed - 1.0).abs() < 0.2, "{auto} vs {fixed}");
+        }
         assert!(reference("custom-missing", "ru").is_none());
     }
 
