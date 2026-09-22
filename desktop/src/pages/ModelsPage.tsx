@@ -9,6 +9,7 @@ import { useAnchoredMenu } from "../components/anchoredMenu";
 import type { ConfigResult, ModelInfo } from "../bridge/types";
 import { t } from "../i18n";
 import { ModelActionOverlays, useModelActions } from "./modelActions";
+import { downloadSpaceText } from "./modelAssessment";
 import { ModelMeters } from "./ModelMeters";
 import { useModelAssessments } from "./useModelAssessments";
 import type { ModelAssessment } from "../bridge/modelAssessments";
@@ -214,6 +215,7 @@ function ModelCard({ model, assessment, active, busy, onSelect, onDownload, onDe
   onDelete: () => void;
 }) {
   const installed = model.downloaded || model.local;
+  const insufficient = !installed && !busy && assessment?.download?.insufficient;
   // The summary lists the languages itself when there are few of them, and a
   // bubble repeating that list adds nothing; it is worth reading only when
   // the summary is a count.
@@ -245,11 +247,11 @@ function ModelCard({ model, assessment, active, busy, onSelect, onDownload, onDe
       role="button"
       tabIndex={0}
       aria-pressed={active}
-      onClick={onSelect}
+      onClick={() => { if (!insufficient) onSelect(); }}
       onKeyDown={(event) => {
         if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
         event.preventDefault();
-        onSelect();
+        if (!insufficient) onSelect();
       }}
     >
       <div className="model-card2__head">
@@ -300,7 +302,9 @@ function ModelCard({ model, assessment, active, busy, onSelect, onDownload, onDe
             the single action means spending a row on the obvious. */}
         {!installed && (
           <span className="model-card2__actions">
-            <Hint text={t("Скачать модель")}>
+            {insufficient ? <Hint asChild text={downloadSpaceText(assessment)}><button type="button" className="model-meter" data-warning="true" aria-label={t("Не хватает места")} onClick={(event) => event.stopPropagation()}>
+              {t("Не хватает места")}<Icon name="info" size={11}/>
+            </button></Hint> : <Hint text={t("Скачать модель")}>
               <button
                 className="btn btn--primary btn--icon btn--sm"
                 type="button"
@@ -310,7 +314,7 @@ function ModelCard({ model, assessment, active, busy, onSelect, onDownload, onDe
               >
                 {busy ? <span className="mini-spinner"/> : <Icon name="download" size={14}/>}
               </button>
-            </Hint>
+            </Hint>}
           </span>
         )}
       </div>
