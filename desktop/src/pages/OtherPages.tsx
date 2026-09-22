@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { invoke, subscribe } from "../bridge";
 import type { ConfigResult, PreviewFormatResult, PreviewReplacementsResult, ReplacementMatchMode, ReplacementRule, StatsResult, TextFormattingConfig, UpdateDownloadProgress, UpdateInfo } from "../bridge/types";
 import { Card, CardHead, PageHeader, SectionLabel, Segmented, Switch } from "../components/Shell";
@@ -15,6 +15,7 @@ import { Modal } from "../components/Modal";
 import { getParasiteSets, type ParasiteSet } from "../bridge/dictionaries";
 import { FeedbackCard } from "./FeedbackCard";
 import { DEFAULT_HOTKEY } from "../hotkey";
+import { timingChartPath } from "./timingChart";
 
 type StatsRange = "week" | "month" | "year" | "all";
 type DailyStats = {
@@ -23,6 +24,8 @@ type DailyStats = {
   chars: number;
   time_saved_seconds: number;
   audio_seconds: number;
+  excluded_silence_seconds: number;
+  speech_timed_count: number;
   processing_seconds: number;
   whisper_seconds: number;
   format_seconds: number;
@@ -85,7 +88,7 @@ function longDateLabel(iso: string): string {
 }
 
 function emptyDaily(date: string): DailyStats {
-  return { date, count: 0, chars: 0, time_saved_seconds: 0, audio_seconds: 0, processing_seconds: 0, whisper_seconds: 0, format_seconds: 0, llm_seconds: 0, llm_attempts: 0, llm_used: 0, llm_fallbacks: 0, llm_input_tokens: 0, llm_output_tokens: 0, llm_tokens: 0 };
+  return { date, count: 0, chars: 0, time_saved_seconds: 0, audio_seconds: 0, excluded_silence_seconds: 0, speech_timed_count: 0, processing_seconds: 0, whisper_seconds: 0, format_seconds: 0, llm_seconds: 0, llm_attempts: 0, llm_used: 0, llm_fallbacks: 0, llm_input_tokens: 0, llm_output_tokens: 0, llm_tokens: 0 };
 }
 
 function formatDuration(seconds: number): string {
@@ -101,7 +104,7 @@ function formatShortDuration(seconds: number): string {
 }
 
 function formatSignedDuration(seconds: number): string {
-  const prefix = seconds < 0 ? "-" : "";
+  const prefix = seconds < 0 && Math.round(Math.abs(seconds) / 60) > 0 ? "-" : "";
   return `${prefix}${formatDuration(Math.abs(seconds))}`;
 }
 
@@ -114,6 +117,8 @@ function normalizeHistory(stats: StatsResult | null): DailyStats[] {
       chars: Number(item.chars) || 0,
       time_saved_seconds: Number(item.time_saved_seconds) || 0,
       audio_seconds: Number(item.audio_seconds) || 0,
+      excluded_silence_seconds: Number(item.excluded_silence_seconds) || 0,
+      speech_timed_count: Number(item.speech_timed_count) || 0,
       processing_seconds: Number(item.processing_seconds) || 0,
       whisper_seconds: Number(item.whisper_seconds) || 0,
       format_seconds: Number(item.format_seconds) || 0,
@@ -184,24 +189,29 @@ function BreakdownRow({ label, value, tone }: { label: string; value: string; to
 }
 
 function LineChart({ data }: { data: DailyStats[] }) {
+  const gradientId = useId();
   const maxY = Math.max(0.01, ...data.flatMap((d) => [d.whisper_seconds, d.llm_seconds]));
-  const n = Math.max(1, data.length - 1);
-  const mkPath = (key: "whisper_seconds" | "llm_seconds") =>
-    data.map((d, i) => {
-      const x = (i / n) * 100;
-      const y = 100 - (Number(d[key] || 0) / maxY) * 90;
-      return `${i === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
-    }).join(" ");
-  const whisperPath = mkPath("whisper_seconds");
-  const llmPath = mkPath("llm_seconds");
+  const whisperPath = timingChartPath(data.map((d) => d.whisper_seconds), maxY);
+  const llmPath = timingChartPath(data.map((d) => d.llm_seconds), maxY);
   return (
-    <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{ width: "100%", height: 200, overflow: "visible" }}>
+    <svg role="img" aria-label={t("Время этапа по дням")} viewBox="0 0 100 100" preserveAspectRatio="none" style={{ width: "100%", height: 200, overflow: "visible" }}>
+      <defs>
+        <linearGradient id={`${gradientId}-stt`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.18"/>
+          <stop offset="100%" stopColor="var(--accent)" stopOpacity="0"/>
+        </linearGradient>
+        <linearGradient id={`${gradientId}-llm`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="var(--info)" stopOpacity="0.12"/>
+          <stop offset="100%" stopColor="var(--info)" stopOpacity="0"/>
+        </linearGradient>
+      </defs>
       {[0, 25, 50, 75, 100].map((y) => (
-        <line key={y} x1="0" y1={y} x2="100" y2={y} stroke="var(--line-soft)" strokeWidth="0.2" vectorEffect="non-scaling-stroke"/>
+        <line key={y} x1="0" y1={y} x2="100" y2={y} stroke="var(--line-soft)" strokeWidth="0.6" vectorEffect="non-scaling-stroke"/>
       ))}
-      <path d={`${whisperPath} L 100 100 L 0 100 Z`} fill="var(--accent-soft)" opacity="0.6"/>
-      <path d={whisperPath} fill="none" stroke="var(--accent)" strokeWidth="1.6" vectorEffect="non-scaling-stroke"/>
-      <path d={llmPath} fill="none" stroke="var(--info)" strokeWidth="1.6" vectorEffect="non-scaling-stroke" strokeDasharray="3 2"/>
+      {llmPath && <path d={`${llmPath} L 100 100 L 0 100 Z`} fill={`url(#${gradientId}-llm)`}/>}
+      {whisperPath && <path d={`${whisperPath} L 100 100 L 0 100 Z`} fill={`url(#${gradientId}-stt)`}/>}
+      <path d={llmPath} fill="none" stroke="var(--info)" strokeWidth="2" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d={whisperPath} fill="none" stroke="var(--accent)" strokeWidth="2" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round"/>
     </svg>
   );
 }
@@ -246,6 +256,8 @@ export function StatsPage({ stats, typingSpeedCpm = 240, onRefresh }: { stats: S
   const transcriptions = pick(stats?.total_transcriptions, "count");
   const chars = pick(stats?.total_characters, "chars");
   const audioSeconds = pick(stats?.total_audio_seconds, "audio_seconds");
+  const excludedSilenceSeconds = Math.max(0, Math.min(audioSeconds, pick(stats?.total_excluded_silence_seconds, "excluded_silence_seconds")));
+  const speechTimedCount = pick(stats?.total_speech_timed_transcriptions, "speech_timed_count");
   const processingSeconds = pick(stats?.total_processing_seconds, "processing_seconds");
   const whisperSeconds = pick(stats?.total_whisper_seconds, "whisper_seconds");
   const formatSeconds = pick(stats?.total_format_seconds, "format_seconds");
@@ -262,7 +274,8 @@ export function StatsPage({ stats, typingSpeedCpm = 240, onRefresh }: { stats: S
   const fallbackReasons = stats?.llm_fallback_reasons ?? [];
 
   const manualTypingSeconds = chars / speedCpm * 60;
-  const netSavedSeconds = manualTypingSeconds - audioSeconds - processingSeconds;
+  const netSavedSeconds = manualTypingSeconds - (audioSeconds - excludedSilenceSeconds) - processingSeconds;
+  const savingsHint = `${t("Оценка ручного набора минус время речи с короткими паузами и обработка. Длинные паузы исключаются с запасом у границ фраз.")} ${t("Из аудио исключено: {p0}.", { p0: formatShortDuration(excludedSilenceSeconds) })}`;
   const activeDays = rangeHistory.filter((item) => item.count > 0).length;
   const averageChars = transcriptions > 0 ? Math.round(chars / transcriptions) : 0;
   const averageProcessing = transcriptions > 0 ? processingSeconds / transcriptions : 0;
@@ -302,7 +315,7 @@ export function StatsPage({ stats, typingSpeedCpm = 240, onRefresh }: { stats: S
         <Stat label={t("Распознаваний")} value={transcriptions.toLocaleString(localeTag())} sub={periodSub}/>
         <Stat label={t("Символов")} value={chars.toLocaleString(localeTag())} sub={t("в среднем {p0} на запись", { p0: averageChars.toLocaleString(localeTag()) })}/>
         <Stat label={t("Ручной набор")} value={formatDuration(manualTypingSeconds)} sub={t("Символы / {p0} симв/мин.", { p0: speedCpm.toLocaleString(localeTag()) })}/>
-        <Stat label={t("Чистая экономия")} value={formatSignedDuration(netSavedSeconds)} sub={t("минус аудио и обработка")} accent={netSavedSeconds >= 0} hint={t("Оценка ручного набора минус длительность аудио и обработка.")}/>
+        <Stat label={t("Оценка экономии")} value={formatSignedDuration(netSavedSeconds)} sub={speechTimedCount > 0 ? t("без длительных пауз") : t("минус аудио и обработка")} accent={netSavedSeconds >= 0} hint={savingsHint}/>
         <Stat label={t("Активных дней")} value={String(activeDays)} sub={t("{p0} дней сохранено в истории", { p0: history.length })}/>
         <Stat label={t("Аудио")} value={formatDuration(audioSeconds)} sub={periodSub} hint={t("Суммарная длительность записанных фрагментов.")}/>
         <Stat label={t("Обработка")} value={formatShortDuration(processingSeconds)} sub={t("{p0} на запись", { p0: formatShortDuration(averageProcessing) })} hint={t("STT {p0} + форматирование {p1} + LLM {p2}.", { p0: formatShortDuration(whisperSeconds), p1: formatShortDuration(formatSeconds), p2: formatShortDuration(llmSeconds) })}/>

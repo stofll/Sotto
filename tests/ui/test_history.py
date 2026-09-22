@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 from playwright.sync_api import expect
 
@@ -78,17 +80,42 @@ def test_history_delete_error_preserves_entry(app, page):
     expect(page.get_by_test_id("history-entry-1")).to_be_visible()
 
 
-def test_history_view_mode_and_selection(app, page):
-    ui = app(history=ENTRIES)
+@pytest.mark.parametrize("locale", ["ru", "en"])
+@pytest.mark.parametrize("theme", ["dark", "light"])
+def test_history_view_mode_and_selection(app, page, locale, theme, output_path):
+    page.set_viewport_size({"width": 1000, "height": 710})
+    ui = app(history=ENTRIES, config={"ui_language": locale, "theme": theme})
     ui.nav("history")
-    page.get_by_role("button", name="Список", exact=True).click()
+    entry = page.get_by_test_id("history-entry-1")
+    count = "· 26 симв." if locale == "ru" else "· 26 chars"
+    expect(entry.get_by_text(count, exact=True)).to_be_visible()
+    header = entry.get_by_text(count, exact=True).locator("..")
+    assert header.inner_text().index(count) < header.inner_text().index("STT:")
+    entry.get_by_text(ENTRIES[0]["text"], exact=True).hover()
+    expect(page.locator(".hint-bubble")).not_to_be_visible()
+    Path(output_path).mkdir(parents=True, exist_ok=True)
+    entry.screenshot(path=str(Path(output_path) / "history-metadata.png"))
+    page.get_by_role(
+        "button", name="Список" if locale == "ru" else "List", exact=True
+    ).click()
+    expect(entry.get_by_text(count, exact=True)).to_be_visible()
     page.get_by_test_id("history-entry-1").get_by_role("checkbox").check()
     expect(
-        page.get_by_role("region", name="Действия с выбранными записями")
+        page.get_by_role(
+            "region",
+            name="Действия с выбранными записями"
+            if locale == "ru"
+            else "Actions on the selected entries",
+        )
     ).to_be_visible()
     page.get_by_test_id("history-entry-1").get_by_role("checkbox").uncheck()
     expect(
-        page.get_by_role("region", name="Действия с выбранными записями")
+        page.get_by_role(
+            "region",
+            name="Действия с выбранными записями"
+            if locale == "ru"
+            else "Actions on the selected entries",
+        )
     ).not_to_be_visible()
 
 

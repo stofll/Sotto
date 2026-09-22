@@ -107,6 +107,7 @@ fn inference_result_clone(c: &mut Criterion) {
         stt_service: None,
         inference_time_ms: 1234,
         audio_seconds: 12.0,
+        speech_seconds: None,
     };
 
     c.bench_function("inference_result_clone", |b| {

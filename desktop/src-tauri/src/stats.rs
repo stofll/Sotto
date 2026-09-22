@@ -20,6 +20,8 @@ pub struct StatsResult {
     pub total_characters: u64,
     pub total_time_saved_seconds: f64,
     pub total_audio_seconds: f64,
+    pub total_excluded_silence_seconds: f64,
+    pub total_speech_timed_transcriptions: u64,
     pub total_processing_seconds: f64,
     pub total_whisper_seconds: f64,
     pub total_format_seconds: f64,
@@ -57,6 +59,8 @@ pub struct DailyEntry {
     #[serde(rename = "time_saved_seconds")]
     pub time_saved_seconds: f64,
     pub audio_seconds: f64,
+    pub excluded_silence_seconds: f64,
+    pub speech_timed_count: u64,
     pub processing_seconds: f64,
     pub whisper_seconds: f64,
     pub format_seconds: f64,
@@ -87,6 +91,7 @@ pub fn record_transcription(
     inference_time_ms: u64,
     audio_seconds: f64,
     cpm: f64,
+    speech_seconds: Option<f64>,
 ) -> Result<(), rusqlite::Error> {
     let conn = crate::mutex_recover::lock(db);
     let chars = text.chars().count() as i64;
@@ -97,6 +102,11 @@ pub fn record_transcription(
     } else {
         0.0
     };
+    // Missing/invalid detection must not turn an entire recording into savings.
+    let speech_seconds = speech_seconds
+        .filter(|seconds| seconds.is_finite() && *seconds > 0.0 && *seconds <= audio_seconds);
+    let excluded_silence_seconds = speech_seconds.map_or(0.0, |seconds| audio_seconds - seconds);
+    let speech_timed_count = i64::from(speech_seconds.is_some());
 
     // Mirror Python `stats.py:119`: time_saved = char_count / typing_speed_cpm * 60.
     // Caller-supplied cpm wins; we fall back to the constant if zero/invalid.
@@ -117,6 +127,16 @@ pub fn record_transcription(
     upsert_total(&tx, "total_processing_seconds", inference_seconds)?;
     upsert_total(&tx, "total_whisper_seconds", inference_seconds)?;
     upsert_total(&tx, "total_audio_seconds", audio_seconds)?;
+    upsert_total(
+        &tx,
+        "total_excluded_silence_seconds",
+        excluded_silence_seconds,
+    )?;
+    upsert_total(
+        &tx,
+        "total_speech_timed_transcriptions",
+        speech_timed_count as f64,
+    )?;
 
     // Today's daily row — INSERT, then UPDATE if it already existed.
     // Using `INSERT OR IGNORE` then `UPDATE ... WHERE date=?1` keeps the
@@ -132,9 +152,19 @@ pub fn record_transcription(
          time_saved_seconds = time_saved_seconds + ?2, \
          processing_seconds = processing_seconds + ?3, \
          whisper_seconds = whisper_seconds + ?3, \
-         audio_seconds = audio_seconds + ?4 \
+         audio_seconds = audio_seconds + ?4, \
+         excluded_silence_seconds = excluded_silence_seconds + ?6, \
+         speech_timed_count = speech_timed_count + ?7 \
          WHERE date = ?5",
-        rusqlite::params![chars, time_saved, inference_seconds, audio_seconds, today],
+        rusqlite::params![
+            chars,
+            time_saved,
+            inference_seconds,
+            audio_seconds,
+            today,
+            excluded_silence_seconds,
+            speech_timed_count
+        ],
     )?;
 
     // Retention: delete rows older than DAILY_RETENTION_DAYS days.
@@ -265,6 +295,8 @@ const TOTAL_TO_DAILY_COLUMN: &[(&str, &str)] = &[
     ("total_characters", "chars"),
     ("total_time_saved_seconds", "time_saved_seconds"),
     ("total_audio_seconds", "audio_seconds"),
+    ("total_excluded_silence_seconds", "excluded_silence_seconds"),
+    ("total_speech_timed_transcriptions", "speech_timed_count"),
     ("total_processing_seconds", "processing_seconds"),
     ("total_whisper_seconds", "whisper_seconds"),
     ("total_format_seconds", "format_seconds"),
@@ -329,11 +361,12 @@ pub fn get_stats_from(conn: &Connection) -> Result<StatsResult, rusqlite::Error>
         assign_total(&mut result, &key, value);
     }
 
-    // Daily history — 16 columns, newest first, capped at retention window.
+    // Daily history, newest first, capped at retention window.
     let mut stmt = conn.prepare(
         "SELECT date, count, chars, time_saved_seconds, audio_seconds, processing_seconds, \
          whisper_seconds, format_seconds, llm_seconds, llm_attempts, llm_used, llm_fallbacks, \
-         llm_input_tokens, llm_output_tokens, llm_tokens, replacement_applications \
+         llm_input_tokens, llm_output_tokens, llm_tokens, replacement_applications, \
+         excluded_silence_seconds, speech_timed_count \
          FROM stats_daily ORDER BY date DESC LIMIT ?1",
     )?;
     let daily_rows = stmt.query_map([DAILY_RETENTION_DAYS], |r| {
@@ -354,6 +387,8 @@ pub fn get_stats_from(conn: &Connection) -> Result<StatsResult, rusqlite::Error>
             llm_output_tokens: r.get::<_, i64>(13)? as u64,
             llm_tokens: r.get::<_, i64>(14)? as u64,
             replacement_applications: r.get::<_, i64>(15)? as u64,
+            excluded_silence_seconds: r.get(16)?,
+            speech_timed_count: r.get::<_, i64>(17)? as u64,
         })
     })?;
     for row in daily_rows {
@@ -388,6 +423,10 @@ fn assign_total(result: &mut StatsResult, key: &str, value: f64) {
         "total_characters" => result.total_characters = value as u64,
         "total_time_saved_seconds" => result.total_time_saved_seconds = value,
         "total_audio_seconds" => result.total_audio_seconds = value,
+        "total_excluded_silence_seconds" => result.total_excluded_silence_seconds = value,
+        "total_speech_timed_transcriptions" => {
+            result.total_speech_timed_transcriptions = value as u64
+        }
         "total_processing_seconds" => result.total_processing_seconds = value,
         "total_whisper_seconds" => result.total_whisper_seconds = value,
         "total_format_seconds" => result.total_format_seconds = value,
@@ -738,7 +777,7 @@ mod tests {
     #[test]
     fn record_transcription_increments_totals_and_daily() {
         let db = fresh_db();
-        record_transcription(&db, "hello world", Some("en"), 250, 5.0, 240.0).unwrap();
+        record_transcription(&db, "hello world", Some("en"), 250, 5.0, 240.0, None).unwrap();
         let stats = get_stats_from(&db.lock().unwrap()).unwrap();
         assert_eq!(stats.total_transcriptions, 1);
         assert_eq!(stats.total_characters, 11);
@@ -764,13 +803,53 @@ mod tests {
         // This validates the cpm parameter is actually plumbed through
         // (NOT hardcoded to the fallback constant).
         let db = fresh_db();
-        record_transcription(&db, "hello world", None, 100, 0.0, 60.0).unwrap();
+        record_transcription(&db, "hello world", None, 100, 0.0, 60.0, None).unwrap();
         let stats = get_stats_from(&db.lock().unwrap()).unwrap();
         assert!(
             (stats.total_time_saved_seconds - 11.0).abs() < 1e-6,
             "expected ~11.0s, got {}",
             stats.total_time_saved_seconds
         );
+    }
+
+    #[test]
+    fn silence_estimates_accumulate_without_rewriting_legacy_durations() {
+        let db = fresh_db();
+        record_transcription(&db, "old", None, 100, 20.0, 240.0, None).unwrap();
+        record_transcription(&db, "new", None, 200, 30.0, 240.0, Some(10.0)).unwrap();
+        record_transcription(&db, "continuous", None, 300, 5.0, 240.0, Some(5.0)).unwrap();
+        let stats = get_stats_from(&db.lock().unwrap()).unwrap();
+        assert_eq!(stats.total_audio_seconds, 55.0);
+        assert_eq!(stats.total_excluded_silence_seconds, 20.0);
+        assert_eq!(stats.total_speech_timed_transcriptions, 2);
+        let day = &stats.daily_history[0];
+        assert_eq!(day.count, 3);
+        assert_eq!(day.audio_seconds, 55.0);
+        assert_eq!(day.excluded_silence_seconds, 20.0);
+        assert_eq!(day.speech_timed_count, 2);
+        let wire = serde_json::to_value(stats).unwrap();
+        assert_eq!(wire["total_excluded_silence_seconds"], 20.0);
+        assert_eq!(wire["daily_history"][0]["speech_timed_count"], 2);
+    }
+
+    #[test]
+    fn invalid_speech_estimates_fall_back_to_audio_duration() {
+        let db = fresh_db();
+        for estimate in [
+            None,
+            Some(0.0),
+            Some(-1.0),
+            Some(f64::NAN),
+            Some(f64::INFINITY),
+            Some(11.0),
+        ] {
+            record_transcription(&db, "speech", None, 100, 10.0, 240.0, estimate).unwrap();
+        }
+        let stats = get_stats_from(&db.lock().unwrap()).unwrap();
+        assert_eq!(stats.total_audio_seconds, 60.0);
+        assert_eq!(stats.total_excluded_silence_seconds, 0.0);
+        assert_eq!(stats.total_speech_timed_transcriptions, 0);
+        assert_eq!(stats.daily_history[0].speech_timed_count, 0);
     }
 
     #[test]
@@ -784,7 +863,7 @@ mod tests {
                 rusqlite::params![date],
             );
         }
-        record_transcription(&db, "test", None, 100, 1.0, 240.0).unwrap();
+        record_transcription(&db, "test", None, 100, 1.0, 240.0, None).unwrap();
         let count: i64 = db
             .lock()
             .unwrap()
@@ -845,7 +924,7 @@ mod tests {
         assert!(joined.is_err(), "the holder thread should have panicked");
         assert!(db.is_poisoned(), "the connection mutex must be poisoned");
 
-        record_transcription(&db, "hello", None, 1000, 2.0, 240.0)
+        record_transcription(&db, "hello", None, 1000, 2.0, 240.0, None)
             .expect("write after poisoning should succeed");
         record_ai_outcome(&db, &ai_status(true, true, false))
             .expect("AI outcome after poisoning should succeed");

@@ -20,6 +20,16 @@ Sotto превращает речь в текст и вставляет его �
 
 </div>
 
+## Скачать
+
+[Последняя версия — файлы и список изменений](https://github.com/stofll/Sotto/releases/latest). Выберите файл для своей системы; `X.Y.Z` — номер версии релиза.
+
+| Система | Файл в релизе |
+| --- | --- |
+| **Windows x64 · установщик** | `Sotto_X.Y.Z_x64-setup.exe` |
+| **Windows x64 · portable** | `Sotto-vX.Y.Z-windows-x64-portable.zip` — [инструкция](docs/portable.md) |
+| **macOS · Apple Silicon** | `Sotto_X.Y.Z_aarch64.dmg` |
+
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/settings-ru-dark.png" />
   <img src="docs/images/settings-ru-light.png" width="1200" alt="Настройки Sotto: горячая клавиша, режим записи, язык, микрофон и автоматическая вставка текста" />

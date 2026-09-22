@@ -353,7 +353,7 @@ The release itself already exists by this point: `tauri-action` opened it as a d
 3. Write the release description using the [template below](#whats-new-template). Review merged PRs or `git log --oneline <previous tag>..vX.Y.Z` as source material, then describe the changes in user-facing language.
 4. Publish the draft.
 
-Publishing is the release. `latest.json` is served from `releases/latest/download/`, so until the draft stops being a draft no installed copy sees anything; the moment it is published, every 0.x install is offered the update with this body as its "what's new".
+Publishing is the release. `latest.json` is served from `releases/latest/download/`, so until the draft stops being a draft no installed copy sees anything; the moment it is published, eligible installed versions are offered the update. The manifest contains the notes captured during the build; the post-update dialog retrieves the published release description as described below.
 
 ### What's New Template
 
@@ -382,6 +382,12 @@ The description also appears in Sotto's update dialog. Keep it concise, and remo
 Replace the changelog placeholders with the actual previous and current tags. Add a `Security` or `Performance` section only when it helps explain substantive changes; never fill an empty category with "None in this release".
 
 Keep required upgrade actions near the top if they affect whether a user should install. For a major visual feature, a screenshot or short demo can accompany the explanation; essential instructions must also be readable as text.
+
+### Post-update release notes
+
+The GitHub Release description is also the source for the installed version’s “What’s new” dialog. Keep it concise, with headings and bullet lists for features and fixes; the dialog renders text without remote images or HTML. Review the description before publishing. No separate in-app changelog or versioned README links need updating.
+
+Before an in-app update, Sotto fetches and caches the published description for offline display after restart; the manifest notes are a fallback if that request fails. Editing a draft description after CI builds it does not rewrite the already-uploaded `latest.json`, so the post-update dialog prefers the description from the exact GitHub tag. Manual and portable upgrades fetch the description for the exact installed tag when no cache exists. Closing the dialog acknowledges that version locally. Failed downloads, missing notes and offline requests do not mark an upgrade as read; retrieval is retried on the next application launch. First launch with this feature establishes a baseline without showing a dialog, including installations upgraded from older builds that did not track the viewed version. Downgrades do not show the dialog.
 
 ### Draft contents
 
@@ -418,7 +424,7 @@ The endpoint is `releases/latest/download/latest.json`, so "latest" is whichever
 2. Users who have not updated yet see nothing at all.
 3. Users who already updated are **not** downgraded automatically: the plugin compares versions and treats an older manifest as "no update available". They need the previous installer by hand, or a `vX.Y.Z+1` that reverts the change — the second option is usually the honest one.
 
-Never re-tag a version that has been published. Installed builds cache nothing, but a version number that means two different binaries makes every later bug report unanswerable.
+Never re-tag a version that has been published. Installed builds cache release notes by version, and a version number that means two different binaries makes every later bug report unanswerable.
 
 ### Crash-Reporting Dashboard
 

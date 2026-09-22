@@ -14,6 +14,8 @@
 // tPlural picks the right one by the array's length.
 
 export const en: Record<string, string | string[]> = {
+  "Релиз на GitHub": "Release on GitHub",
+  "Не удалось сохранить отметку о просмотре. Попробуйте закрыть окно ещё раз.": "Could not save the read status. Try closing this dialog again.",
   "Бусина": "Bead",
   "В бусине потоковый текст не отображается.": "Live transcription text is hidden in the bead.",
   "Графит": "Graphite",
@@ -749,9 +751,10 @@ export const en: Record<string, string | string[]> = {
   "символов": "characters",
   "Символы / {p0} симв/мин.": "Characters ÷ {p0} cpm.",
   "Ручной набор": "Manual typing",
-  "Чистая экономия": "Net saving",
-  "Оценка ручного набора минус длительность аудио и обработка.":
-    "Estimated manual typing time minus the audio duration and processing.",
+  "Оценка экономии": "Estimated savings",
+  "Из аудио исключено: {p0}.": "Excluded from audio: {p0}.",
+  "без длительных пауз": "excluding long pauses",
+  "Оценка ручного набора минус время речи с короткими паузами и обработка. Длинные паузы исключаются с запасом у границ фраз.": "Estimated typing time minus speech with short pauses and processing. Long pauses are excluded with a margin around phrases.",
   "Скорость": "Speed",
   "аудио / полная обработка": "audio / full processing",
   "Суммарная длительность записанных фрагментов.": "Total length of the recorded audio.",

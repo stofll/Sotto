@@ -109,6 +109,8 @@ pub async fn install(app: &AppHandle) -> Result<(), String> {
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "обновление больше недоступно".to_string())?;
 
+    crate::release_notes::cache_update(app, &update.version, update.body.as_deref()).await;
+
     let app_for_progress = app.clone();
     let mut downloaded: u64 = 0;
     update

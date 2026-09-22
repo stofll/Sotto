@@ -793,6 +793,7 @@ mod tests {
             stt_service: None,
             inference_time_ms: 200,
             audio_seconds: 4.0,
+            speech_seconds: None,
         };
         let observe = |result: &crate::whisper::InferenceResult| {
             Observation::inference(profile(), RunSource::Dictation, "en", "", false, result)

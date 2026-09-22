@@ -20,6 +20,16 @@ English · [Русский](README.ru.md)
 
 </div>
 
+## Download
+
+[Latest version — downloads and release notes](https://github.com/stofll/Sotto/releases/latest). Choose the asset for your system; `X.Y.Z` is the release version.
+
+| System | Release asset |
+| --- | --- |
+| **Windows x64 · installer** | `Sotto_X.Y.Z_x64-setup.exe` |
+| **Windows x64 · portable** | `Sotto-vX.Y.Z-windows-x64-portable.zip` — [portable instructions](docs/portable.md) |
+| **macOS · Apple Silicon** | `Sotto_X.Y.Z_aarch64.dmg` |
+
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/settings-en-dark.png" />
   <img src="docs/images/settings-en-light.png" width="1200" alt="Sotto settings: dictation shortcut, recording mode, language, microphone, and automatic pasting" />

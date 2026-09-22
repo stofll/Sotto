@@ -219,6 +219,8 @@ button, input, textarea, select { font: inherit; }
 .btn--sm { height: 28px; padding: 0 10px; font-size: 12px; }
 .btn--sm.btn--icon { width: 28px; padding: 0; }
 .btn:disabled { opacity: .5; cursor: default; }
+:is(.btn, .modal__close):focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
+:is(.btn, .modal__close):focus:not(:focus-visible) { outline: none; }
 
 /* The model catalog. A tile instead of a row: the card folds the name,
    languages and size into three short rows instead of one long line, and two
@@ -2183,3 +2185,10 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .permission-notice { margin: 14px 32px 0; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 12px 14px; border-radius: var(--radius); background: var(--accent-soft); border: 1px solid var(--accent-soft-2); color: var(--accent-text); font: 500 12.5px/1.4 var(--font-sans); }
 .permission-notice__text { flex: 1 1 400px; min-width: 0; }
 .permission-notice__text p { margin: 8px 0 0; }
+
+.release-notes { font: 400 13px/1.6 var(--font-sans); overflow-wrap: anywhere; }
+.release-notes > * + * { margin-top: var(--pad-3); }
+.release-notes h3 { margin: 0 0 var(--pad-2); font: 600 13px/1.4 var(--font-sans); }
+.release-notes p { margin: 0; white-space: pre-wrap; }
+.release-notes ul { margin-bottom: 0; padding-left: 20px; }
+.release-notes__version { color: var(--accent); font: 500 12px/1.4 var(--font-mono); }
