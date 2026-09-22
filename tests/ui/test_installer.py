@@ -333,7 +333,9 @@ def test_newer_installed_version_is_explained(setup_app, page, locale):
     expect(
         page.get_by_role(
             "heading",
-            name="Could not install Sotto" if locale == "en" else "Не удалось установить Sotto",
+            name="Could not install Sotto"
+            if locale == "en"
+            else "Не удалось установить Sotto",
         )
     ).to_be_visible()
     expect(page.locator(".setup-main .setup-description")).to_have_text(
