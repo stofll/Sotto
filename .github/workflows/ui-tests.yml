@@ -25,7 +25,9 @@ concurrency:
 jobs:
   browser-tests:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    # The serial dev WebKit run reached 15 minutes with every test passing.
+    # This only guards against a hang; #39 tracks running the suite in parallel.
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
