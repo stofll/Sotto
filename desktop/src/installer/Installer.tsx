@@ -138,7 +138,8 @@ export function Installer() {
       return;
     }
     try { await installSotto(options); }
-    catch (error) { setActionError(String(error).includes("payload_missing") ? "payload_missing" : "install_failed"); }
+    // Installation failures arrive through setup-status; a rejected call means it never started.
+    catch { setActionError("install_failed"); }
     finally { setPending(false); actionInFlight.current = false; }
   }
 

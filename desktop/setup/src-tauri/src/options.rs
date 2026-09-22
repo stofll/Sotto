@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tauri::Manager;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -64,15 +64,19 @@ pub fn prevent_downgrade() -> Result<(), &'static str> {
     Err("unsupported_platform")
 }
 
+pub fn default_directory(app: &tauri::AppHandle) -> Result<PathBuf, &'static str> {
+    Ok(app
+        .path()
+        .local_data_dir()
+        .map_err(|_| "options_unavailable")?
+        .join("Sotto"))
+}
+
 pub fn defaults(app: &tauri::AppHandle) -> Result<Defaults, &'static str> {
     let registered = registered_directory();
     let directory = match &registered {
         Some(path) => path.clone(),
-        None => app
-            .path()
-            .local_data_dir()
-            .map_err(|_| "options_unavailable")?
-            .join("Sotto"),
+        None => default_directory(app)?,
     };
     Ok(Defaults {
         options: InstallOptions {
@@ -116,24 +120,28 @@ pub fn parse_directory(input: &str) -> Result<PathBuf, &'static str> {
     Ok(PathBuf::from(path))
 }
 
+fn same_directory(a: &Path, b: &Path) -> bool {
+    a.to_string_lossy()
+        .eq_ignore_ascii_case(&b.to_string_lossy())
+        || a.canonicalize()
+            .ok()
+            .zip(b.canonicalize().ok())
+            .is_some_and(|(a, b)| a == b)
+}
+
 pub fn validate_directory(
     options: &InstallOptions,
-    registered: Option<&std::path::Path>,
+    registered: Option<&Path>,
+    default: &Path,
 ) -> Result<PathBuf, &'static str> {
     let directory = parse_directory(&options.install_dir)?;
+    // The default folder is Sotto's own: leftovers of a removed installation
+    // must not block a fresh one. Only a custom destination has to be empty.
     if let Some(existing) = registered {
-        let same = directory
-            .to_string_lossy()
-            .eq_ignore_ascii_case(&existing.to_string_lossy())
-            || (directory
-                .canonicalize()
-                .ok()
-                .zip(existing.canonicalize().ok())
-                .is_some_and(|(a, b)| a == b));
-        if !same {
+        if !same_directory(&directory, existing) {
             return Err("install_directory_locked");
         }
-    } else if directory.exists() {
+    } else if !same_directory(&directory, default) && directory.exists() {
         let mut entries = directory
             .read_dir()
             .map_err(|_| "invalid_install_directory")?;
@@ -184,7 +192,11 @@ mod tests {
             start_menu_shortcut: false,
         };
         assert_eq!(
-            validate_directory(&options, Some(std::path::Path::new(r"C:\Apps\Sotto"))),
+            validate_directory(
+                &options,
+                Some(Path::new(r"C:\Apps\Sotto")),
+                Path::new(r"D:\Apps\Sotto")
+            ),
             Err("install_directory_locked")
         );
     }
@@ -207,20 +219,23 @@ mod tests {
     }
     #[cfg(windows)]
     #[test]
-    fn fresh_install_requires_empty_directory_but_update_keeps_files() {
+    fn fresh_install_requires_empty_custom_directory_but_update_keeps_files() {
         let temporary = tempfile::tempdir().unwrap();
         let options = InstallOptions {
             install_dir: temporary.path().to_string_lossy().into_owned(),
             desktop_shortcut: true,
             start_menu_shortcut: true,
         };
-        assert!(validate_directory(&options, None).is_ok());
+        let default = Path::new(r"C:\Unused\Sotto");
+        assert!(validate_directory(&options, None, default).is_ok());
         std::fs::write(temporary.path().join("keep.txt"), b"existing content").unwrap();
         assert_eq!(
-            validate_directory(&options, None),
+            validate_directory(&options, None, default),
             Err("install_directory_not_empty")
         );
-        assert!(validate_directory(&options, Some(temporary.path())).is_ok());
+        assert!(validate_directory(&options, Some(temporary.path()), default).is_ok());
+        // Leftovers in Sotto's own default folder do not block a fresh install.
+        assert!(validate_directory(&options, None, temporary.path()).is_ok());
         assert_eq!(
             std::fs::read(temporary.path().join("keep.txt")).unwrap(),
             b"existing content"

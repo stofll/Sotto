@@ -35,10 +35,14 @@ async fn setup_install(
     }
     let worker_app = app.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
-        let destination =
-            options::validate_directory(&options, options::registered_directory().as_deref())?;
-        let (_directory, path) = payload::stage()?;
+        let default = options::default_directory(&worker_app)?;
+        let destination = options::validate_directory(
+            &options,
+            options::registered_directory().as_deref(),
+            &default,
+        )?;
         options::prevent_downgrade()?;
+        let (_directory, path) = payload::stage()?;
         publish(&worker_app, Phase::Installing, None);
         payload::install(&path, Some(&options))?;
         let binary = installed_binary()?;
@@ -161,9 +165,17 @@ fn setup_close(app: tauri::AppHandle, state: tauri::State<'_, Setup>) -> Result<
 
 #[cfg(windows)]
 fn fallback_message() {
+    use windows_sys::Win32::Globalization::GetUserDefaultUILanguage;
     use windows_sys::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONINFORMATION, MB_OK};
+    // Without WebView2 the frontend translations are unavailable; 0x19 is LANG_RUSSIAN.
+    let russian = unsafe { GetUserDefaultUILanguage() } & 0x3ff == 0x19;
+    let message = if russian {
+        "WebView2 недоступен. Sotto откроет стандартный установщик, чтобы установить нужные компоненты.\0"
+    } else {
+        "WebView2 is unavailable. Sotto will open the standard installer to install the required components.\0"
+    };
     let title: Vec<u16> = "Sotto Setup\0".encode_utf16().collect();
-    let message: Vec<u16> = "WebView2 is unavailable. Sotto will open the standard installer to install the required components.\0".encode_utf16().collect();
+    let message: Vec<u16> = message.encode_utf16().collect();
     unsafe {
         MessageBoxW(
             0,
