@@ -600,6 +600,7 @@ async fn transcribe_file_inner(
         crate::whisper::EngineCommand::TranscribeCloud {
             session_id,
             audio,
+            speech_timing: crate::vad::SpeechTiming::Ready(None),
             cancel_flag,
             request,
             reply: reply_tx,
@@ -609,6 +610,7 @@ async fn transcribe_file_inner(
             source: crate::model_performance::RunSource::File,
             session_id,
             audio,
+            speech_timing: crate::vad::SpeechTiming::Ready(None),
             cancel_flag,
             language: config.and_then(|cfg| cfg.get_string("language")),
             initial_prompt: config.and_then(crate::custom_words_prompt),

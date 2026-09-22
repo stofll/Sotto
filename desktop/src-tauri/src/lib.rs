@@ -53,6 +53,7 @@ mod output_volume;
 mod overlay;
 mod overlay_preferences;
 mod portable;
+mod release_notes;
 pub mod secret_store;
 pub mod sherpa;
 mod sounds;
@@ -520,6 +521,7 @@ mod model_restore_tests {
             source: crate::model_performance::RunSource::Dictation,
             session_id: 1,
             audio: std::sync::Arc::new(vec![0.0; 160]),
+            speech_timing: crate::vad::SpeechTiming::Ready(None),
             cancel_flag: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             language: None,
             initial_prompt: None,
@@ -924,16 +926,15 @@ pub(crate) fn build_dictation_command(
     cancel_flag: Arc<AtomicBool>,
     reply: tokio::sync::oneshot::Sender<Result<crate::whisper::InferenceResult, String>>,
 ) -> Result<crate::whisper::EngineCommand, String> {
-    let audio = match config {
-        Some(cfg) => crate::vad::trim_for_transcription(cfg.as_value(), audio),
-        None => audio,
-    };
+    let (audio, speech_timing) =
+        crate::vad::prepare_dictation(config.map(crate::config::Config::as_value), audio);
     let pipeline_mode = telemetry_pipeline_mode(config);
     if pipeline_mode != "cloud" {
         return Ok(crate::whisper::EngineCommand::Transcribe {
             source: crate::model_performance::RunSource::Dictation,
             session_id,
             audio,
+            speech_timing,
             cancel_flag,
             // Configured whisper language (e.g. "ru"); None auto-detects.
             // Without it the engine falls back to whisper.cpp's "en" default
@@ -959,6 +960,7 @@ pub(crate) fn build_dictation_command(
     Ok(crate::whisper::EngineCommand::TranscribeCloud {
         session_id,
         audio,
+        speech_timing,
         cancel_flag,
         request,
         reply,
@@ -1665,6 +1667,7 @@ pub fn run() {
                                     let transcription_model = inference.model_id.clone();
                                     let inf_ms = inference.inference_time_ms;
                                     let audio_secs = inference.audio_seconds;
+                                    let speech_seconds = inference.speech_seconds;
                                     let sess_id = inference.session_id;
                                     // `processed` is not used after this point, so
                                     // move its fields out instead of cloning all
@@ -1789,6 +1792,7 @@ pub fn run() {
                                             inf_ms,
                                             audio_secs,
                                             crate::stats::TIME_SAVED_CPM_FALLBACK,
+                                            speech_seconds,
                                         )
                                         .and_then(|_| {
                                             crate::history::append_entry(
@@ -2039,6 +2043,8 @@ pub fn run() {
             config::save_config,
             // PR-A: boot-blocking commands called from MainWindow.load() via Promise.all.
             app_version,
+            release_notes::get_whats_new,
+            release_notes::dismiss_whats_new,
             updater::check_update,
             updater::install_update,
             audio::list_microphones,
@@ -2409,6 +2415,7 @@ pub(crate) async fn post_process_transcription(
     let llm_seconds = ai_status.as_ref().map(|s| s.elapsed_seconds).unwrap_or(0.0);
     let stats_json = serde_json::json!({
         "audio_seconds": inference.audio_seconds,
+        "speech_seconds": inference.speech_seconds,
         "whisper_seconds": whisper_seconds,
         "llm_seconds": llm_seconds,
         "total_seconds": whisper_seconds + llm_seconds,
@@ -2572,6 +2579,7 @@ mod completion_tests {
             stt_service: None,
             inference_time_ms: 500,
             audio_seconds: 4.0,
+            speech_seconds: None,
         }
     }
 

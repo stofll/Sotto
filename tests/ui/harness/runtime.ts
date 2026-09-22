@@ -49,6 +49,7 @@ export function install(seed: any = {}) {
   const saved = sessionStorage.getItem('sotto-test-state');
   const state = saved ? JSON.parse(saved) : {
     config: { ...config, ...seed.config, text_formatting: { ...config.text_formatting, ...seed.config?.text_formatting }, ai_processing: { ...config.ai_processing, ...seed.config?.ai_processing } },
+    whats_new: seed.whats_new ?? null,
     models: seed.models ?? models, stats: { ...stats, ...seed.stats }, history: seed.history ?? [],
     keys: seed.keys ?? {}, assessments: seed.assessments ?? [], runtime: { model_loaded: true, loaded_model: 'tiny', model: 'tiny', device: 'cpu', engine: 'whisper.cpp', recording: false, state: 'idle', last_error: null, // The tray styles itself for the platform whose popup commands the harness
     // stubs; another platform can be modelled through the `runtime` seed.
@@ -71,6 +72,8 @@ export function install(seed: any = {}) {
       return structuredClone(answer.result);
     }
     switch (command) {
+      case 'get_whats_new': return state.whats_new ?? null;
+      case 'dismiss_whats_new': state.whats_new = null; persist(); return null;
       case 'app_version': return { version: '0.0.5-test' };
       case 'check_accessibility': return true;
       case 'get_config': return structuredClone(state.config);

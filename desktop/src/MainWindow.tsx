@@ -5,6 +5,7 @@ import { getStats } from "./bridge/stats";
 import type { ApiKeyStatus, AppVersionResult, ConfigResult, MicrophoneResult, ModelInfo, RuntimeStatusResult, StatsResult } from "./bridge/types";
 import { Card, Sidebar, TitleBar, type TabId, type DownloadProgress } from "./components/Shell";
 import { Icon } from "./components/Icon";
+import { WhatsNewDialog } from "./components/WhatsNewDialog";
 import { AccessibilityNotice } from "./components/AccessibilityNotice";
 import { applyAccent, resolveAccent, storedAccent } from "./accent";
 
@@ -367,6 +368,7 @@ export function MainWindow() {
 
   return (
     <div className="app-frame" style={{ width: "100%", height: "100%", padding: 0 }}>
+      <WhatsNewDialog ready={!loading && recordingState === "idle"}/>
       <div className={`win${collapsed ? " collapsed" : ""}`}>
         <TitleBar collapsed={collapsed} onToggleCollapse={toggleSidebarCollapse}/>
         <div className={`win__layout${collapsed ? " collapsed" : ""}`}>

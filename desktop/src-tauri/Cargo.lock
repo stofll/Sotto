@@ -4620,6 +4620,7 @@ dependencies = [
  "reqwest 0.12.28",
  "rubato",
  "rusqlite",
+ "semver",
  "serde",
  "serde_json",
  "sha2",

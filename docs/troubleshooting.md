@@ -28,6 +28,14 @@ Change the interval, or switch the behaviour off entirely, under Settings → Ad
 
 While the model is out of memory the sidebar says so and states that it comes back on its own; "No model loaded" means something else — nothing is selected or downloaded.
 
+## Estimated savings are negative
+
+Statistics estimate typing time from the final character count and the typing speed in Settings → Advanced. Estimated savings subtract dictation time and processing from that estimate, so a negative value is possible when dictation takes longer than typing at the configured speed.
+
+New microphone dictations use local speech detection to exclude long pauses from the estimate. Gaps of up to one second remain part of the spoken phrase, and a 250 ms margin is kept around phrases. This affects statistics only; internal pauses are not cut from the audio sent for recognition. The Audio and Speed cards continue to use the duration of audio submitted for recognition, including internal pauses.
+
+Older records have no pause measurements and retain the original duration-based calculation. New records also use audio duration if speech detection finds no speech. Existing totals are not retroactively guessed or reset. The calculation remains an estimate rather than a measurement of time saved at the keyboard.
+
 ## Recording seems to start late
 
 There is no intentional countdown before capture. The hotkey's 500 ms auto-repeat guard ignores repeated key-down events while the key is held; it does not postpone the first press. Start dictation with the global hotkey while the target editor has focus. The tray only provides status and settings navigation.

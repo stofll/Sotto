@@ -1,4 +1,4 @@
-//! Trim leading and trailing silence before transcription.
+//! Detect speech for silence trimming and estimated dictation time.
 //!
 //! whisper decodes in 30-second windows, so the saving is not proportional
 //! to the silence removed — it only materialises when a whole window
@@ -31,6 +31,8 @@ const SPEECH_THRESHOLD: f32 = 0.5;
 /// 200–300 ms; the middle of that range is comfortably more than the attack
 /// of a plosive.
 const PADDING_MS: usize = 250;
+/// Keep pauses up to one second as part of a spoken phrase.
+const MAX_SHORT_PAUSE_SAMPLES: usize = 16_000;
 /// Don't bother unless this much is removed. Shaving 200 ms off a
 /// 16-second recording buys nothing measurable and still carries the risk
 /// of having cut the wrong 200 ms.
@@ -45,52 +47,88 @@ pub fn enabled(config: &Value) -> bool {
         .unwrap_or(true)
 }
 
-/// Apply [`speech_range`] if the setting is on and the result is worth it.
+/// Estimated active speech for dictation statistics.
+#[derive(Debug)]
+pub enum SpeechTiming {
+    Ready(Option<f64>),
+    /// Detector pass running beside inference, so statistics never add to
+    /// the wait for text.
+    Running(std::thread::JoinHandle<Option<f64>>),
+}
+
+impl SpeechTiming {
+    /// Collect the estimate once inference is done. By then a running pass
+    /// has normally finished; a panicked one counts as no detection.
+    pub fn resolve(self) -> Option<f64> {
+        match self {
+            Self::Ready(seconds) => seconds,
+            Self::Running(handle) => handle.join().unwrap_or_else(|_| {
+                log::warn!("speech analysis panicked");
+                None
+            }),
+        }
+    }
+
+    fn start(audio: &Arc<Vec<f32>>) -> Self {
+        let samples = Arc::clone(audio);
+        std::thread::Builder::new()
+            .name("speech-timing".into())
+            .spawn(move || analyze_speech(&samples).map(|analysis| analysis.active_seconds))
+            .map(Self::Running)
+            .unwrap_or_else(|error| {
+                log::warn!("speech analysis thread unavailable: {error}");
+                Self::Ready(analyze_speech(audio).map(|analysis| analysis.active_seconds))
+            })
+    }
+}
+
+/// Analyze speech and optionally trim its outer bounds.
 ///
+/// Without trimming nothing waits for the detector: timing runs on its own
+/// thread while the engine transcribes.
 /// Returns the original `Arc` untouched in every case where nothing is
 /// trimmed, so the common path copies nothing.
-pub fn trim_for_transcription(config: &Value, audio: Arc<Vec<f32>>) -> Arc<Vec<f32>> {
-    let Some((range, removed)) =
-        trim_decision(enabled(config), audio.len(), || speech_range(&audio))
+pub fn prepare_dictation(
+    config: Option<&Value>,
+    audio: Arc<Vec<f32>>,
+) -> (Arc<Vec<f32>>, SpeechTiming) {
+    if !config.is_some_and(enabled) {
+        let timing = SpeechTiming::start(&audio);
+        return (audio, timing);
+    }
+    // One detector pass serves both metrics and trimming. Timing is independent
+    // of the trim preference, and never removes internal pauses from STT audio.
+    let analysis = analyze_speech(&audio);
+    let timing = SpeechTiming::Ready(analysis.as_ref().map(|value| value.active_seconds));
+    let Some((range, removed)) = trim_decision(audio.len(), analysis.map(|value| value.range))
     else {
-        return audio;
+        return (audio, timing);
     };
     log::info!(
         "trimmed {removed:.1}s of silence ({:.1}s → {:.1}s)",
         audio.len() as f32 / SAMPLE_RATE as f32,
         range.len() as f32 / SAMPLE_RATE as f32
     );
-    Arc::new(audio[range].to_vec())
+    (Arc::new(audio[range].to_vec()), timing)
 }
 
-/// The pure half of [`trim_for_transcription`]: decide whether to trim to
-/// `range` and report how many seconds that saves. `None` when the setting
-/// is off, nothing was detected, or the saving is below
-/// [`MIN_SAVING_SECONDS`].
-///
-/// `range` is a closure, not a value: [`speech_range`] runs the detector over
-/// the whole recording, and with the setting off that work must not happen at
-/// all. Passing the result eagerly would have paid for it on every stop.
-fn trim_decision(
-    enabled: bool,
-    audio_len: usize,
-    range: impl FnOnce() -> Option<Range<usize>>,
-) -> Option<(Range<usize>, f32)> {
-    if !enabled {
-        return None;
-    }
-    let range = range()?;
+/// The pure half of [`prepare_dictation`]: decide whether to trim to
+/// `range` and report how many seconds that saves. `None` when nothing was
+/// detected or the saving is below [`MIN_SAVING_SECONDS`].
+fn trim_decision(audio_len: usize, range: Option<Range<usize>>) -> Option<(Range<usize>, f32)> {
+    let range = range?;
     let removed = (audio_len - range.len()) as f32 / SAMPLE_RATE as f32;
     (removed >= MIN_SAVING_SECONDS).then_some((range, removed))
 }
 
-/// The span of `samples` worth transcribing: from the first speech frame to
-/// the last, plus [`PADDING_MS`] on each side, clamped to the input.
-///
-/// `None` when no frame scored as speech — the recording is either silence
-/// or something the detector does not recognise, and in both cases handing
-/// whisper the whole thing is the safe answer.
-pub fn speech_range(samples: &[f32]) -> Option<Range<usize>> {
+/// Outer bounds for STT and duration of phrases with short pauses for statistics.
+struct SpeechAnalysis {
+    range: Range<usize>,
+    active_seconds: f64,
+}
+
+fn analyze_speech(samples: &[f32]) -> Option<SpeechAnalysis> {
+    let started = std::time::Instant::now();
     if samples.len() < FRAME {
         return None;
     }
@@ -98,30 +136,52 @@ pub fn speech_range(samples: &[f32]) -> Option<Range<usize>> {
     // on the heap instead of blowing a few kilobytes of stack.
     let mut detector = earshot::Detector::default_boxed();
 
-    let mut first = None;
-    let mut last = 0usize;
-    for (index, frame) in samples.as_chunks::<FRAME>().0.iter().enumerate() {
-        if detector.predict_f32(frame) > SPEECH_THRESHOLD {
-            first.get_or_insert(index);
-            last = index;
-        }
-    }
-    speech_range_from_frames(samples.len(), first, last)
+    let frames = samples
+        .as_chunks::<FRAME>()
+        .0
+        .iter()
+        .enumerate()
+        .filter_map(|(index, frame)| {
+            (detector.predict_f32(frame) > SPEECH_THRESHOLD).then_some(index)
+        });
+    let analysis = analyze_speech_frames(samples.len(), frames);
+    log::debug!(
+        "speech analysis: audio_seconds={:.3} elapsed_ms={:.3}",
+        samples.len() as f64 / SAMPLE_RATE as f64,
+        started.elapsed().as_secs_f64() * 1000.0
+    );
+    analysis
 }
 
-/// The pure half of [`speech_range`]: turn the first/last speech frame
-/// indices into a padded, input-clamped sample range. `None` when no frame
-/// scored as speech.
-fn speech_range_from_frames(
+fn analyze_speech_frames(
     total_len: usize,
-    first: Option<usize>,
-    last: usize,
-) -> Option<Range<usize>> {
-    let first = first?;
+    mut frames: impl Iterator<Item = usize>,
+) -> Option<SpeechAnalysis> {
+    let first = frames.next()?;
+    let mut last = first;
+    let mut phrase_start = first;
+    let mut active_samples = 0;
+    for frame in frames {
+        if (frame - last - 1) * FRAME > MAX_SHORT_PAUSE_SAMPLES {
+            active_samples += speech_range_from_frames(total_len, phrase_start, last).len();
+            phrase_start = frame;
+        }
+        last = frame;
+    }
+    active_samples += speech_range_from_frames(total_len, phrase_start, last).len();
+    Some(SpeechAnalysis {
+        range: speech_range_from_frames(total_len, first, last),
+        active_seconds: active_samples as f64 / SAMPLE_RATE as f64,
+    })
+}
+
+/// Turn the first/last speech frame indices into a padded, input-clamped
+/// sample range.
+fn speech_range_from_frames(total_len: usize, first: usize, last: usize) -> Range<usize> {
     let padding = PADDING_MS * SAMPLE_RATE / 1000;
     let start = (first * FRAME).saturating_sub(padding);
     let end = ((last + 1) * FRAME + padding).min(total_len);
-    Some(start..end)
+    start..end
 }
 
 #[cfg(test)]
@@ -141,6 +201,14 @@ mod tests {
                     + 0.2 * (2.0 * std::f32::consts::PI * 950.0 * t).sin()
             })
             .collect()
+    }
+
+    fn speech_range(samples: &[f32]) -> Option<Range<usize>> {
+        analyze_speech(samples).map(|value| value.range)
+    }
+
+    fn trim_for_test(config: &Value, audio: Arc<Vec<f32>>) -> Arc<Vec<f32>> {
+        prepare_dictation(Some(config), audio).0
     }
 
     fn silence(seconds: f32) -> Vec<f32> {
@@ -168,14 +236,14 @@ mod tests {
     #[test]
     fn disabled_returns_the_same_allocation() {
         let audio = Arc::new(silence(2.0));
-        let out = trim_for_transcription(&json!({ "trim_silence": false }), Arc::clone(&audio));
+        let out = trim_for_test(&json!({ "trim_silence": false }), Arc::clone(&audio));
         assert!(Arc::ptr_eq(&audio, &out));
     }
 
     #[test]
     fn silence_only_recording_survives_intact() {
         let audio = Arc::new(silence(5.0));
-        let out = trim_for_transcription(&json!({}), Arc::clone(&audio));
+        let out = trim_for_test(&json!({}), Arc::clone(&audio));
         assert!(
             Arc::ptr_eq(&audio, &out),
             "silence must not be trimmed away"
@@ -190,7 +258,7 @@ mod tests {
         audio.extend(tone(4.0));
         audio.extend(silence(0.15));
         let audio = Arc::new(audio);
-        let out = trim_for_transcription(&json!({}), Arc::clone(&audio));
+        let out = trim_for_test(&json!({}), Arc::clone(&audio));
         assert!(Arc::ptr_eq(&audio, &out));
     }
 
@@ -222,7 +290,7 @@ mod tests {
         let mut padded = silence(3.0);
         padded.extend_from_slice(&samples);
         padded.extend(silence(3.0));
-        let trimmed = trim_for_transcription(&json!({}), Arc::new(padded.clone()));
+        let trimmed = trim_for_test(&json!({}), Arc::new(padded.clone()));
         let removed = (padded.len() - trimmed.len()) as f32 / SAMPLE_RATE as f32;
         println!(
             "padded {:.2}s → {:.2}s (removed {removed:.2}s)",
@@ -236,6 +304,19 @@ mod tests {
         assert!(
             trimmed.len() as f32 / SAMPLE_RATE as f32 >= seconds,
             "cut into the speech"
+        );
+
+        let baseline = analyze_speech(&samples).unwrap().active_seconds;
+        let mut spaced = samples.clone();
+        spaced.extend(silence(4.0));
+        spaced.extend_from_slice(&samples);
+        let spaced_timing = analyze_speech(&spaced).unwrap().active_seconds;
+        println!(
+            "speech timing: original {baseline:.2}s, repeated with 4s pause {spaced_timing:.2}s"
+        );
+        assert!(
+            (spaced_timing - baseline * 2.0).abs() < 1.0,
+            "long internal pause must not count as speech"
         );
     }
 
@@ -274,7 +355,7 @@ mod tests {
 
         let Some(range) = speech_range(&audio) else {
             // The synthetic tone did not read as speech; nothing to assert
-            // about padding, and `trim_for_transcription` would no-op.
+            // about padding, and `prepare_dictation` would leave audio intact.
             return;
         };
         let padding = PADDING_MS * SAMPLE_RATE / 1000;
@@ -296,40 +377,27 @@ mod tests {
     fn speech_range_arithmetic_pads_and_clamps() {
         // PADDING_MS(250) * 16000 / 1000 = 4000 samples.
         // A single frame [0,0]: start clamps to 0, end = 1*256 + 4000.
-        assert_eq!(speech_range_from_frames(16_000, Some(0), 0), Some(0..4256));
+        assert_eq!(speech_range_from_frames(16_000, 0, 0), 0..4256);
         // Frames 20..20: start = 5120 - 4000, end = 21*256 + 4000.
-        assert_eq!(
-            speech_range_from_frames(16_000, Some(20), 20),
-            Some(1120..9376)
-        );
+        assert_eq!(speech_range_from_frames(16_000, 20, 20), 1120..9376);
         // The end clamps to the input length.
-        assert_eq!(speech_range_from_frames(3_000, Some(10), 10), Some(0..3000));
-        // No speech frame → None.
-        assert_eq!(speech_range_from_frames(16_000, None, 0), None);
+        assert_eq!(speech_range_from_frames(3_000, 10, 10), 0..3000);
     }
 
     #[test]
-    fn trim_decision_respects_enabled_and_saving_threshold() {
-        // Disabled → never trim, and the detector is not started: a panicking
-        // closure catches any regression to eager argument evaluation.
-        assert_eq!(
-            trim_decision(false, 32_000, || unreachable!(
-                "the detector must not start while the setting is off"
-            )),
-            None
-        );
+    fn trim_decision_respects_saving_threshold() {
         // Found nothing → never trim.
-        assert_eq!(trim_decision(true, 32_000, || None), None);
+        assert_eq!(trim_decision(32_000, None), None);
         // 30000 of 32000 samples = 1.875 s ≥ 1 s → trim.
         assert_eq!(
-            trim_decision(true, 32_000, || Some(1000..3000)),
+            trim_decision(32_000, Some(1000..3000)),
             Some((1000..3000, 1.875))
         );
         // 14000 of 16000 = 0.875 s < 1 s → do not trim.
-        assert_eq!(trim_decision(true, 16_000, || Some(1000..3000)), None);
+        assert_eq!(trim_decision(16_000, Some(1000..3000)), None);
         // Exactly 1.0 s saved — the tolerance boundary: trim.
         assert_eq!(
-            trim_decision(true, 17_000, || Some(1000..2000)),
+            trim_decision(17_000, Some(1000..2000)),
             Some((1000..2000, 1.0))
         );
     }
@@ -340,5 +408,80 @@ mod tests {
     #[test]
     fn synthetic_speech_is_detected() {
         assert!(speech_range(&tone(2.0)).is_some());
+    }
+
+    #[test]
+    fn timing_keeps_short_pauses_and_excludes_long_ones_with_margins() {
+        // 1.024 s speech, 0.992 s pause, 1.024 s speech: one phrase.
+        let short = analyze_speech_frames(48_640, (0..64).chain(126..190)).unwrap();
+        assert_eq!(short.active_seconds, 3.04);
+        // 1.024 s speech, 3.008 s pause, 1.024 s speech: two phrases,
+        // retaining 250 ms on each side of the internal pause.
+        let long = analyze_speech_frames(80_896, (0..64).chain(252..316)).unwrap();
+        assert_eq!(long.range, 0..80_896);
+        assert_eq!(long.active_seconds, 2.548);
+    }
+
+    #[test]
+    fn timing_preserves_boundary_speech_and_requires_detection() {
+        assert!(analyze_speech_frames(16_000, std::iter::empty()).is_none());
+        let full = analyze_speech_frames(16_000, 0..62).unwrap();
+        assert_eq!(full.active_seconds, 1.0);
+        let single = analyze_speech_frames(16_000, std::iter::once(30)).unwrap();
+        assert_eq!(single.active_seconds, 0.516);
+        assert!(analyze_speech(&silence(3.0)).is_none());
+    }
+
+    #[test]
+    fn timing_does_not_cut_internal_audio_or_depend_on_trim_preference() {
+        let mut samples = tone(2.0);
+        samples.extend(silence(3.0));
+        samples.extend(tone(2.0));
+        let audio = Arc::new(samples);
+        let (untrimmed, timing) =
+            prepare_dictation(Some(&json!({"trim_silence": false})), Arc::clone(&audio));
+        assert!(Arc::ptr_eq(&audio, &untrimmed));
+        assert!(matches!(timing, SpeechTiming::Running(_)));
+        let timing = timing.resolve().expect("synthetic speech detected");
+        assert!(
+            timing > 2.0 && timing < 6.0,
+            "unexpected active duration: {timing}"
+        );
+        let (trimmed, trimmed_timing) = prepare_dictation(Some(&json!({})), audio);
+        assert!(matches!(trimmed_timing, SpeechTiming::Ready(Some(value)) if value == timing));
+        assert!(trimmed.len() as f64 / SAMPLE_RATE as f64 >= timing + 1.0);
+    }
+
+    #[test]
+    fn unavailable_config_times_speech_beside_inference_and_file_timing_stays_absent() {
+        let audio = Arc::new(tone(2.0));
+        let (prepared, timing) = prepare_dictation(None, Arc::clone(&audio));
+        assert!(Arc::ptr_eq(&prepared, &audio));
+        assert!(matches!(timing, SpeechTiming::Running(_)));
+        assert!(timing.resolve().is_some());
+        assert_eq!(SpeechTiming::Ready(None).resolve(), None);
+    }
+
+    #[test]
+    #[ignore = "manual VAD latency measurement; run optimized with --release --nocapture"]
+    fn analysis_latency() {
+        for seconds in [60, 600] {
+            for (name, audio) in [
+                ("silence", silence(seconds as f32)),
+                ("tone", tone(seconds as f32)),
+            ] {
+                let mut timings = Vec::new();
+                for _ in 0..5 {
+                    let started = std::time::Instant::now();
+                    std::hint::black_box(analyze_speech(std::hint::black_box(&audio)));
+                    timings.push(started.elapsed());
+                }
+                timings.sort();
+                println!(
+                    "VAD {name} {seconds}s: median {:.3}ms",
+                    timings[2].as_secs_f64() * 1000.0
+                );
+            }
+        }
     }
 }

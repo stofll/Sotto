@@ -943,6 +943,7 @@ function EntryCard(props: {
           /></Hint>
           <span style={{ font: "500 11px/1 var(--font-mono)", color: "var(--ink-mute)", letterSpacing: "0.04em" }}>{formatTime(entry.timestamp)}</span>
           <span style={{ font: "400 11px/1 var(--font-sans)", color: "var(--ink-faint)" }}>· {relativeAge(entry.timestamp)}</span>
+          <span style={{ font: "500 11px/1 var(--font-mono)", color: "var(--ink-mute)" }}>· {t("{p0} симв.", { p0: entry.length.toLocaleString(localeTag()) })}</span>
           <Hint asChild text={t("Модель первичной транскрибации: {p0}", { p0: sttLabel })}><span style={{ font: "500 11px/1 var(--font-mono)", color: "var(--ink-mute)" }}>
             · {t("STT: {p0}", { p0: sttLabel })}
           </span></Hint>
@@ -961,11 +962,11 @@ function EntryCard(props: {
           </Hint>
         ) : (
           <>
-            <Hint asChild text={t("{p0} симв.", { p0: entry.length })}><div
+            <div
               style={{ font: "400 13px/1.5 var(--font-sans)", color: "var(--ink)", whiteSpace: "pre-wrap", overflowWrap: "break-word" }}
             >
               {entry.text}
-            </div></Hint>
+            </div>
             {(hasDetails || canDiff || canReprocess) && (
               <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 6 }}>
                 {hasDetails && (

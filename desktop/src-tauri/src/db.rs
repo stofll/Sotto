@@ -56,6 +56,8 @@ pub fn open() -> Result<Mutex<Connection>, rusqlite::Error> {
 /// v4: repair history rows whose two JSON columns the old retry path swapped.
 /// v5: telemetry installation metadata and durable event outbox.
 /// v6: bounded local model performance observations.
+/// v7: measured silence excluded from estimated dictation time.
+/// v8: acknowledged version and cached release notes.
 pub fn run_migrations(conn: &Connection) -> Result<(), rusqlite::Error> {
     // Schema changes and their version must survive (or roll back) together.
     let tx = rusqlite::Transaction::new_unchecked(conn, rusqlite::TransactionBehavior::Immediate)?;
@@ -89,6 +91,12 @@ pub fn run_migrations(conn: &Connection) -> Result<(), rusqlite::Error> {
     if current < 6 {
         tx.execute_batch(include_str!("migrations/v6.sql"))?;
     }
+    if current < 7 {
+        tx.execute_batch(include_str!("migrations/v7.sql"))?;
+    }
+    if current < 8 {
+        tx.execute_batch(include_str!("migrations/v8.sql"))?;
+    }
     tx.pragma_update(None, "user_version", SCHEMA_VERSION)?;
     tx.commit()?;
     log::info!("db: migrated schema from v{current} to v{SCHEMA_VERSION}");
@@ -99,7 +107,7 @@ pub fn run_migrations(conn: &Connection) -> Result<(), rusqlite::Error> {
 ///
 /// Tests assert against this rather than a literal, so adding a migration
 /// does not break every test that only cares about "ended up current".
-pub const SCHEMA_VERSION: i32 = 6;
+pub const SCHEMA_VERSION: i32 = 8;
 
 const SCHEMA_V1: &str = include_str!("migrations/v1.sql");
 const SCHEMA_V2: &str = include_str!("migrations/v2.sql");
@@ -386,6 +394,25 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs_f64()
+    }
+
+    #[test]
+    fn speech_timing_migration_preserves_existing_statistics() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(SCHEMA_V1).unwrap();
+        conn.execute_batch(SCHEMA_V2).unwrap();
+        conn.execute_batch(SCHEMA_V3).unwrap();
+        conn.execute_batch(SCHEMA_V4).unwrap();
+        conn.execute_batch(SCHEMA_V5).unwrap();
+        conn.execute_batch(include_str!("migrations/v6.sql"))
+            .unwrap();
+        conn.execute_batch("PRAGMA user_version=6; INSERT INTO stats_daily(date, count, chars, audio_seconds) VALUES ('2026-09-22', 2, 100, 50);").unwrap();
+        run_migrations(&conn).unwrap();
+        run_migrations(&conn).unwrap();
+        let row = conn.query_row("SELECT count, chars, audio_seconds, excluded_silence_seconds, speech_timed_count FROM stats_daily", [], |r| {
+            Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, f64>(2)?, r.get::<_, f64>(3)?, r.get::<_, i64>(4)?))
+        }).unwrap();
+        assert_eq!(row, (2, 100, 50.0, 0.0, 0));
     }
 
     #[test]

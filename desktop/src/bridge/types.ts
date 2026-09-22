@@ -1,3 +1,9 @@
+export interface ReleaseNotes {
+  version: string;
+  notes: string;
+  url: string;
+}
+
 export interface AppVersionResult {
   version: string;
 }
@@ -230,6 +236,9 @@ export interface StatsResult {
   total_characters: number;
   total_time_saved_seconds: number;
   total_audio_seconds: number;
+  /** Absent on older backends; their estimates retain the full audio duration. */
+  total_excluded_silence_seconds?: number;
+  total_speech_timed_transcriptions?: number;
   total_processing_seconds: number;
   total_whisper_seconds: number;
   total_format_seconds: number;
@@ -257,6 +266,8 @@ export interface StatsResult {
     chars: number;
     time_saved_seconds?: number;
     audio_seconds?: number;
+    excluded_silence_seconds?: number;
+    speech_timed_count?: number;
     processing_seconds?: number;
     whisper_seconds?: number;
     format_seconds?: number;
