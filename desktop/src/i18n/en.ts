@@ -813,6 +813,7 @@ export const en: Record<string, string | string[]> = {
   "Доступна версия": "Version available",
   "Опубликована": "Published",
   "Что нового": "What's new",
+  "Таблица изменений": "Changes table",
   "Проверить обновления": "Check for updates",
   "Обновить до": "Update to",
   "Установлена последняя версия.": "You are on the latest version.",
