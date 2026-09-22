@@ -71,6 +71,32 @@ def test_whats_new_empty_or_offline_is_quiet(app, page, response):
     assert not ui.calls("dismiss_whats_new")
 
 
+def test_whats_new_renders_a_list_written_under_its_heading(app, page):
+    # GitHub's own generated notes put the bullets directly under the heading,
+    # with no blank line and with CRLF endings. Treating that whole block as
+    # prose printed the leading "* " as text instead of building a list.
+    app(
+        whats_new={
+            **RELEASE,
+            "notes": "## What's Changed\r\n"
+            "* Faster startup by @dev in #1\r\n"
+            "* Fixed pasting\r\n"
+            "\r\n"
+            "See the full changelog.",
+        }
+    )
+    dialog = page.get_by_role("dialog")
+    expect(
+        dialog.get_by_role("heading", name="What's Changed", exact=True)
+    ).to_be_visible()
+    expect(dialog.get_by_role("listitem")).to_have_count(2)
+    expect(dialog.get_by_role("listitem").first).to_have_text(
+        "Faster startup by @dev in #1"
+    )
+    expect(dialog).to_contain_text("See the full changelog.")
+    expect(dialog).not_to_contain_text("* Faster")
+
+
 def test_whats_new_remote_markup_is_inert(app, page):
     app(
         whats_new={

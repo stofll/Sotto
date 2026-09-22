@@ -1,19 +1,39 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { invoke, type ReleaseNotes } from "../bridge";
 import { t } from "../i18n";
 import { Modal } from "./Modal";
 
+/** The lines of one blank-line-separated block, as headings, text and lists.
+ *
+ * A run of bullets is collected wherever it appears rather than only when the
+ * whole block is one: GitHub's own generated notes put the list straight under
+ * its heading, and treating that block as prose printed the leading "- " as
+ * text. Blocks stay the unit of spacing, so `.release-notes > * + *` still
+ * separates sections while the lines inside one keep their tight rhythm. */
+function blockNodes(block: string): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  let bullets: string[] = [];
+  const flushBullets = () => {
+    if (bullets.length === 0) return;
+    nodes.push(<ul key={nodes.length}>{bullets.map((item, i) => <li key={i}>{item}</li>)}</ul>);
+    bullets = [];
+  };
+  for (const line of block.split("\n")) {
+    if (/^[-*] /.test(line)) { bullets.push(line.slice(2)); continue; }
+    flushBullets();
+    if (line) nodes.push(/^#{1,6} /.test(line)
+      ? <h3 key={nodes.length}>{line.replace(/^#{1,6} /, "")}</h3>
+      : <p key={nodes.length}>{line}</p>);
+  }
+  flushBullets();
+  return nodes;
+}
+
 /** Release text stays inert: no remote HTML, images or automatic link requests. */
 function Notes({ text }: { text: string }) {
-  return <div className="release-notes">{text.split(/\n\s*\n/).map((block, index) => {
-    const lines = block.trim().split("\n");
-    if (lines.every((line) => /^[-*] /.test(line))) {
-      return <ul key={index}>{lines.map((line, i) => <li key={i}>{line.slice(2)}</li>)}</ul>;
-    }
-    return <div key={index}>{lines.map((line, i) => /^#{1,6} /.test(line)
-      ? <h3 key={i}>{line.replace(/^#{1,6} /, "")}</h3>
-      : <p key={i}>{line}</p>)}</div>;
-  })}</div>;
+  // GitHub sends CRLF; a stray carriage return would otherwise reach the DOM.
+  return <div className="release-notes">{text.replace(/\r\n?/g, "\n").split(/\n\s*\n/)
+    .map((block, index) => <div key={index}>{blockNodes(block.trim())}</div>)}</div>;
 }
 
 export function WhatsNewDialog({ ready }: { ready: boolean }) {

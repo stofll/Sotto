@@ -2,11 +2,19 @@
 
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 use tauri::{AppHandle, Manager, State};
 
 use crate::state::AppState;
 
 const MAX_NOTES_BYTES: usize = 128 * 1024;
+/// The launch request has the dialog waiting on it and nothing else to show.
+const LAUNCH_TIMEOUT: Duration = Duration::from_secs(10);
+/// The pre-install request sits in front of the download, so a slow or blocked
+/// GitHub is paid for by a progress bar that has not started moving. The
+/// manifest body already covers this case; a short budget is enough to prefer
+/// the published description when it is actually reachable.
+const PRE_INSTALL_TIMEOUT: Duration = Duration::from_secs(3);
 
 #[derive(Debug, Serialize)]
 pub struct ReleaseNotes {
@@ -67,12 +75,17 @@ fn acknowledge(conn: &Connection, version: &str) -> rusqlite::Result<()> {
 }
 
 pub async fn cache_update(app: &AppHandle, version: &str, notes: Option<&str>) {
-    // The draft description may be edited after CI generated latest.json.
-    let notes = fetch_notes(version).await.unwrap_or(None).or_else(|| {
-        notes
-            .filter(|s| !s.trim().is_empty() && s.len() <= MAX_NOTES_BYTES)
-            .map(str::to_owned)
-    });
+    // The draft description may be edited after CI generated latest.json, so the
+    // published one wins — but only for as long as PRE_INSTALL_TIMEOUT allows,
+    // because the download is queued behind this request.
+    let notes = fetch_notes(version, PRE_INSTALL_TIMEOUT)
+        .await
+        .unwrap_or(None)
+        .or_else(|| {
+            notes
+                .filter(|s| !s.trim().is_empty() && s.len() <= MAX_NOTES_BYTES)
+                .map(str::to_owned)
+        });
     let Some(notes) = notes else {
         return;
     };
@@ -106,9 +119,9 @@ fn release_body(release: GithubRelease, version: &str) -> Option<String> {
         .filter(|s| !s.trim().is_empty() && s.len() <= MAX_NOTES_BYTES)
 }
 
-async fn fetch_notes(version: &str) -> Result<Option<String>, String> {
+async fn fetch_notes(version: &str, timeout: Duration) -> Result<Option<String>, String> {
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
+        .timeout(timeout)
         .user_agent(concat!("Sotto/", env!("CARGO_PKG_VERSION")))
         .build()
         .map_err(|e| e.to_string())?;
@@ -153,7 +166,7 @@ pub async fn get_whats_new(
         Some(notes) => notes,
         None => {
             // Offline or unpublished notes are retried on the next launch, never acknowledged.
-            let Some(notes) = fetch_notes(&version).await? else {
+            let Some(notes) = fetch_notes(&version, LAUNCH_TIMEOUT).await? else {
                 return Ok(None);
             };
             let current = version.clone();
