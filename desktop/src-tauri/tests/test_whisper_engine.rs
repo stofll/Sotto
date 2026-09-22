@@ -22,7 +22,7 @@ fn transcribe_cloud_variant_compiles() {
     let _cmd = EngineCommand::TranscribeCloud {
         session_id: 1,
         audio: Arc::new(vec![0.0_f32; 1600]),
-        speech_seconds: None,
+        speech_timing: sotto_lib::whisper::SpeechTiming::Ready(None),
         cancel_flag: Arc::new(AtomicBool::new(false)),
         request: CloudSttRequest {
             provider: CloudSttProvider::Compatible,
@@ -71,7 +71,7 @@ fn channels_accept_all_engine_command_variants() {
             source: sotto_lib::model_performance::RunSource::Dictation,
             session_id: 1,
             audio: Arc::new(vec![0.0_f32; 16000]),
-            speech_seconds: None,
+            speech_timing: sotto_lib::whisper::SpeechTiming::Ready(None),
             cancel_flag: Arc::new(AtomicBool::new(false)),
             language: None,
             initial_prompt: None,

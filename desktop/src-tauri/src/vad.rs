@@ -47,22 +47,61 @@ pub fn enabled(config: &Value) -> bool {
         .unwrap_or(true)
 }
 
+/// Estimated active speech for dictation statistics.
+#[derive(Debug)]
+pub enum SpeechTiming {
+    Ready(Option<f64>),
+    /// Detector pass running beside inference, so statistics never add to
+    /// the wait for text.
+    Running(std::thread::JoinHandle<Option<f64>>),
+}
+
+impl SpeechTiming {
+    /// Collect the estimate once inference is done. By then a running pass
+    /// has normally finished; a panicked one counts as no detection.
+    pub fn resolve(self) -> Option<f64> {
+        match self {
+            Self::Ready(seconds) => seconds,
+            Self::Running(handle) => handle.join().unwrap_or_else(|_| {
+                log::warn!("speech analysis panicked");
+                None
+            }),
+        }
+    }
+
+    fn start(audio: &Arc<Vec<f32>>) -> Self {
+        let samples = Arc::clone(audio);
+        std::thread::Builder::new()
+            .name("speech-timing".into())
+            .spawn(move || analyze_speech(&samples).map(|analysis| analysis.active_seconds))
+            .map(Self::Running)
+            .unwrap_or_else(|error| {
+                log::warn!("speech analysis thread unavailable: {error}");
+                Self::Ready(analyze_speech(audio).map(|analysis| analysis.active_seconds))
+            })
+    }
+}
+
 /// Analyze speech and optionally trim its outer bounds.
 ///
-/// Returns audio and estimated active speech seconds, or `None` on no detection.
+/// Without trimming nothing waits for the detector: timing runs on its own
+/// thread while the engine transcribes.
 /// Returns the original `Arc` untouched in every case where nothing is
 /// trimmed, so the common path copies nothing.
 pub fn prepare_dictation(
     config: Option<&Value>,
     audio: Arc<Vec<f32>>,
-) -> (Arc<Vec<f32>>, Option<f64>) {
+) -> (Arc<Vec<f32>>, SpeechTiming) {
+    if !config.is_some_and(enabled) {
+        let timing = SpeechTiming::start(&audio);
+        return (audio, timing);
+    }
     // One detector pass serves both metrics and trimming. Timing is independent
     // of the trim preference, and never removes internal pauses from STT audio.
     let analysis = analyze_speech(&audio);
-    let speech_seconds = analysis.as_ref().map(|value| value.active_seconds);
-    let Some((range, removed)) = trim_decision(config.is_some_and(enabled), audio.len(), || {
-        analysis.map(|value| value.range)
-    }) else {
+    let speech_seconds = SpeechTiming::Ready(analysis.as_ref().map(|value| value.active_seconds));
+    let Some((range, removed)) = trim_decision(audio.len(), analysis.map(|value| value.range))
+    else {
         return (audio, speech_seconds);
     };
     log::info!(
@@ -74,18 +113,10 @@ pub fn prepare_dictation(
 }
 
 /// The pure half of [`prepare_dictation`]: decide whether to trim to
-/// `range` and report how many seconds that saves. `None` when the setting
-/// is off, nothing was detected, or the saving is below
-/// [`MIN_SAVING_SECONDS`].
-fn trim_decision(
-    enabled: bool,
-    audio_len: usize,
-    range: impl FnOnce() -> Option<Range<usize>>,
-) -> Option<(Range<usize>, f32)> {
-    if !enabled {
-        return None;
-    }
-    let range = range()?;
+/// `range` and report how many seconds that saves. `None` when nothing was
+/// detected or the saving is below [`MIN_SAVING_SECONDS`].
+fn trim_decision(audio_len: usize, range: Option<Range<usize>>) -> Option<(Range<usize>, f32)> {
+    let range = range?;
     let removed = (audio_len - range.len()) as f32 / SAMPLE_RATE as f32;
     (removed >= MIN_SAVING_SECONDS).then_some((range, removed))
 }
@@ -97,6 +128,7 @@ struct SpeechAnalysis {
 }
 
 fn analyze_speech(samples: &[f32]) -> Option<SpeechAnalysis> {
+    let started = std::time::Instant::now();
     if samples.len() < FRAME {
         return None;
     }
@@ -112,7 +144,13 @@ fn analyze_speech(samples: &[f32]) -> Option<SpeechAnalysis> {
         .filter_map(|(index, frame)| {
             (detector.predict_f32(frame) > SPEECH_THRESHOLD).then_some(index)
         });
-    analyze_speech_frames(samples.len(), frames)
+    let analysis = analyze_speech_frames(samples.len(), frames);
+    log::debug!(
+        "speech analysis: audio_seconds={:.3} elapsed_ms={:.3}",
+        samples.len() as f64 / SAMPLE_RATE as f64,
+        started.elapsed().as_secs_f64() * 1000.0
+    );
+    analysis
 }
 
 fn analyze_speech_frames(
@@ -358,26 +396,19 @@ mod tests {
     }
 
     #[test]
-    fn trim_decision_respects_enabled_and_saving_threshold() {
-        // Disabled → never use the detected range to trim audio.
-        assert_eq!(
-            trim_decision(false, 32_000, || unreachable!(
-                "the trim range must not be used while the setting is off"
-            )),
-            None
-        );
+    fn trim_decision_respects_saving_threshold() {
         // Found nothing → never trim.
-        assert_eq!(trim_decision(true, 32_000, || None), None);
+        assert_eq!(trim_decision(32_000, None), None);
         // 30000 of 32000 samples = 1.875 s ≥ 1 s → trim.
         assert_eq!(
-            trim_decision(true, 32_000, || Some(1000..3000)),
+            trim_decision(32_000, Some(1000..3000)),
             Some((1000..3000, 1.875))
         );
         // 14000 of 16000 = 0.875 s < 1 s → do not trim.
-        assert_eq!(trim_decision(true, 16_000, || Some(1000..3000)), None);
+        assert_eq!(trim_decision(16_000, Some(1000..3000)), None);
         // Exactly 1.0 s saved — the tolerance boundary: trim.
         assert_eq!(
-            trim_decision(true, 17_000, || Some(1000..2000)),
+            trim_decision(17_000, Some(1000..2000)),
             Some((1000..2000, 1.0))
         );
     }
@@ -421,13 +452,47 @@ mod tests {
         let (untrimmed, timing) =
             prepare_dictation(Some(&json!({"trim_silence": false})), Arc::clone(&audio));
         assert!(Arc::ptr_eq(&audio, &untrimmed));
-        let timing = timing.expect("synthetic speech detected");
+        assert!(matches!(timing, SpeechTiming::Running(_)));
+        let timing = timing.resolve().expect("synthetic speech detected");
         assert!(
             timing > 2.0 && timing < 6.0,
             "unexpected active duration: {timing}"
         );
         let (trimmed, trimmed_timing) = prepare_dictation(Some(&json!({})), audio);
-        assert_eq!(trimmed_timing, Some(timing));
+        assert!(matches!(trimmed_timing, SpeechTiming::Ready(Some(value)) if value == timing));
         assert!(trimmed.len() as f64 / SAMPLE_RATE as f64 >= timing + 1.0);
+    }
+
+    #[test]
+    fn unavailable_config_times_speech_beside_inference_and_file_timing_stays_absent() {
+        let audio = Arc::new(tone(2.0));
+        let (prepared, timing) = prepare_dictation(None, Arc::clone(&audio));
+        assert!(Arc::ptr_eq(&prepared, &audio));
+        assert!(matches!(timing, SpeechTiming::Running(_)));
+        assert!(timing.resolve().is_some());
+        assert_eq!(SpeechTiming::Ready(None).resolve(), None);
+    }
+
+    #[test]
+    #[ignore = "manual VAD latency measurement; run optimized with --release --nocapture"]
+    fn analysis_latency() {
+        for seconds in [60, 600] {
+            for (name, audio) in [
+                ("silence", silence(seconds as f32)),
+                ("tone", tone(seconds as f32)),
+            ] {
+                let mut timings = Vec::new();
+                for _ in 0..5 {
+                    let started = std::time::Instant::now();
+                    std::hint::black_box(analyze_speech(std::hint::black_box(&audio)));
+                    timings.push(started.elapsed());
+                }
+                timings.sort();
+                println!(
+                    "VAD {name} {seconds}s: median {:.3}ms",
+                    timings[2].as_secs_f64() * 1000.0
+                );
+            }
+        }
     }
 }

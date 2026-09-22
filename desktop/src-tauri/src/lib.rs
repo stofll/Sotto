@@ -521,7 +521,7 @@ mod model_restore_tests {
             source: crate::model_performance::RunSource::Dictation,
             session_id: 1,
             audio: std::sync::Arc::new(vec![0.0; 160]),
-            speech_seconds: None,
+            speech_timing: crate::vad::SpeechTiming::Ready(None),
             cancel_flag: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             language: None,
             initial_prompt: None,
@@ -926,7 +926,7 @@ pub(crate) fn build_dictation_command(
     cancel_flag: Arc<AtomicBool>,
     reply: tokio::sync::oneshot::Sender<Result<crate::whisper::InferenceResult, String>>,
 ) -> Result<crate::whisper::EngineCommand, String> {
-    let (audio, speech_seconds) =
+    let (audio, speech_timing) =
         crate::vad::prepare_dictation(config.map(crate::config::Config::as_value), audio);
     let pipeline_mode = telemetry_pipeline_mode(config);
     if pipeline_mode != "cloud" {
@@ -934,7 +934,7 @@ pub(crate) fn build_dictation_command(
             source: crate::model_performance::RunSource::Dictation,
             session_id,
             audio,
-            speech_seconds,
+            speech_timing,
             cancel_flag,
             // Configured whisper language (e.g. "ru"); None auto-detects.
             // Without it the engine falls back to whisper.cpp's "en" default
@@ -960,7 +960,7 @@ pub(crate) fn build_dictation_command(
     Ok(crate::whisper::EngineCommand::TranscribeCloud {
         session_id,
         audio,
-        speech_seconds,
+        speech_timing,
         cancel_flag,
         request,
         reply,
