@@ -35,7 +35,7 @@ const frontendSources = import.meta.glob("../**/*.{ts,tsx}", {
 
 // Discover new command modules automatically; a hand-maintained list silently
 // skipped argument validation when a registered command moved to another file.
-const rustSources = Object.values(import.meta.glob<string>("../../src-tauri/src/**/*.rs", {
+const rustSources = Object.values(import.meta.glob<string>(["../../src-tauri/src/**/*.rs", "../../setup/src-tauri/src/**/*.rs"], {
   query: "?raw",
   import: "default",
   eager: true,

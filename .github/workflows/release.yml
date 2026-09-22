@@ -306,6 +306,27 @@ jobs:
           updaterJsonPreferNsis: true
           args: ${{ matrix.args }}
 
+      # The disk image comes from dmgbuild rather than the bundler: Tauri lays
+      # out the Finder window through AppleScript, which a headless runner
+      # cannot drive and current macOS does not persist. The bundler still
+      # produces the signed Sotto.app and the updater archive; scripts/build-dmg.sh
+      # signs the image with the same identity. See docs/installer-design.md.
+      - name: Build and upload the macOS disk image
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -eu
+          python3 -m venv "$RUNNER_TEMP/dmg-bootstrap"
+          "$RUNNER_TEMP/dmg-bootstrap/bin/pip" install uv==0.12.17
+          export PATH="$RUNNER_TEMP/dmg-bootstrap/bin:$PATH"
+          version=$(node -p "require('./desktop/package.json').version")
+          image="$RUNNER_TEMP/Sotto_${version}_aarch64.dmg"
+          sh scripts/build-dmg.sh "$CARGO_TARGET_DIR/$CARGO_BUILD_TARGET/release/bundle/macos/Sotto.app" "$image"
+          gh release upload "$RELEASE_TAG" "$image" --clobber
+
       - name: Verify compiled Whisper CPU baseline
         shell: bash
         run: node scripts/check-ggml-baseline.mjs "$CARGO_TARGET_DIR"

@@ -15,6 +15,7 @@ This is the public documentation index for Sotto. Start with the guides below; d
 ## Contributing
 
 - [Development](development.md) — prerequisites and a local development loop.
+- [Windows setup](windows-setup.md) — custom installer preview, packaging and verification.
 - [Browser UI testing](ui-testing.md) — Python/Playwright setup, isolation, coverage boundaries, and artifacts.
 - [Testing](testing.md) — checks expected before opening a pull request.
 - [Releasing](releasing.md) — contributor-facing release overview.

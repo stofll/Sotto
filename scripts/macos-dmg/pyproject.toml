@@ -1,0 +1,6 @@
+[project]
+name = "sotto-dmg"
+version = "0.1.0"
+description = "Disk image layout for the macOS release; run through scripts/build-dmg.sh"
+requires-python = ">=3.12"
+dependencies = ["dmgbuild==1.6.7"]

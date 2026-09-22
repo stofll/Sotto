@@ -32,6 +32,7 @@ const frontendSources = import.meta.glob("../**/*.{ts,tsx}", {
 }) as Record<string, string>;
 // The Rust command registry.
 import libRs from "../../src-tauri/src/lib.rs?raw";
+import setupRs from "../../setup/src-tauri/src/main.rs?raw";
 
 /** Command names passed as the first arg to invoke()/rustInvoke()/tauriInvoke(). */
 const INVOKE_CALL =
@@ -50,10 +51,10 @@ interface Registry {
 }
 
 /** The command names registered in the generate_handler![…] block. */
-function commandRegistry(): Registry {
-  const start = libRs.indexOf("generate_handler![");
+function commandRegistry(source = libRs): Registry {
+  const start = source.indexOf("generate_handler![");
   expect(start, "generate_handler! not found in lib.rs").toBeGreaterThan(-1);
-  const block = libRs.slice(start, libRs.indexOf("])", start));
+  const block = source.slice(start, source.indexOf("])", start));
   const all = new Set<string>();
   const restricted = new Map<string, string>();
   let pendingCfg: string[] = [];
@@ -80,10 +81,14 @@ function commandRegistry(): Registry {
 }
 
 /** Command names the frontend invokes. */
-function invokedCommands(): Set<string> {
+function isSetupSource(path: string): boolean {
+  return path.endsWith("/installer.ts") || path.startsWith("../installer/");
+}
+
+function invokedCommands(setup = false): Set<string> {
   const names = new Set<string>();
   for (const [path, text] of Object.entries(frontendSources)) {
-    if (isTestSource(path)) continue;
+    if (isTestSource(path) || isSetupSource(path) !== setup) continue;
     for (const match of text.matchAll(INVOKE_CALL)) names.add(match[1]);
   }
   return names;
@@ -106,7 +111,7 @@ interface FrontendSource {
 function frontendCode(): FrontendSource[] {
   const sources: FrontendSource[] = [];
   for (const [file, text] of Object.entries(frontendSources)) {
-    if (isTestSource(file)) continue;
+    if (isTestSource(file) || isSetupSource(file)) continue;
     sources.push({ file, text });
   }
   return sources;
@@ -302,6 +307,14 @@ function callIsGuarded(source: FrontendSource, at: number, cfg: string): boolean
 
 describe("Tauri command surface", () => {
   const { all, restricted } = commandRegistry();
+
+  it("keeps installer commands in the separate setup runtime", () => {
+    const setupCommands = commandRegistry(setupRs).all;
+    const invoked = invokedCommands(true);
+    expect(invoked.size).toBe(6);
+    expect([...invoked].filter((name) => !setupCommands.has(name))).toEqual([]);
+    expect([...invoked].filter((name) => all.has(name))).toEqual([]);
+  });
 
   it("registers every command the frontend invokes", () => {
     const invoked = invokedCommands();

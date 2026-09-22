@@ -141,11 +141,11 @@ Two conditions worth knowing before shopping, because neither is obvious from a 
 - [ ] **Windows Authenticode certificate** loaded in CI secrets (`WINDOWS_CERT_BASE64`, `WINDOWS_CERT_PASSWORD`).
 - [ ] **Apple Developer Program** certificate in the existing `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD` and `APPLE_SIGNING_IDENTITY` secrets, plus notarization credentials (`APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`).
 - [ ] `tauri.conf.json` has `bundle.windows.signing` configured (or a CI override); on macOS the `APPLE_SIGNING_IDENTITY` variable already overrides the ad-hoc identity in `tauri.macos.conf.json`.
-- [ ] Test signing locally before tagging: `pnpm tauri build --bundles nsis` (Windows) / `pnpm tauri build --bundles dmg` (macOS).
+- [ ] Test signing locally before tagging: `pnpm tauri build --bundles nsis` (Windows) / `pnpm tauri build --bundles app` followed by `sh scripts/build-dmg.sh` (macOS).
 
 ### 6. Bundle Target List
 
-These are the two targets the release workflow builds, and the bundle formats `tauri.conf.json` declares (`"targets": ["dmg", "nsis"]`). There is no MSI and no Intel-Mac build; see [Platform support](platforms.md) for what is promised on each target.
+These are the two targets the release workflow builds. On Windows the bundler produces the NSIS installer; on macOS it produces `Sotto.app` and the updater archive, and `scripts/build-dmg.sh` wraps the application into the disk image. There is no MSI and no Intel-Mac build; see [Platform support](platforms.md) for what is promised on each target.
 
 | Platform | Bundle format | Target triple |
 |----------|---------------|---------------|
@@ -306,12 +306,16 @@ bash scripts/build-installer.sh
 ```bash
 # macOS arm64
 cd desktop
-pnpm tauri build --bundles dmg --target aarch64-apple-darwin
+pnpm tauri build --bundles app --target aarch64-apple-darwin
+cd ..
+sh scripts/build-dmg.sh desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Sotto.app Sotto_X.Y.Z_aarch64.dmg
 
 # Windows x64
 cd desktop
 pnpm tauri build --bundles nsis --target x86_64-pc-windows-msvc
 ```
+
+The disk image script applies the [DMG artwork and icon arrangement](installer-design.md#macos-dmg) without Finder automation, so it behaves the same locally and on the release runner. It needs `uv`. Open the produced DMG on a Mac to verify the background, icon alignment and installation before publishing.
 
 ### Checksum Generation
 

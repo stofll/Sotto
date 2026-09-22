@@ -22,6 +22,8 @@ dist/
 # --- Rust / Tauri ---
 desktop/src-tauri/target/
 desktop/src-tauri/gen/
+desktop/setup/src-tauri/target/
+desktop/setup/src-tauri/gen/
 desktop/src-tauri/.tauri-native/
 
 # --- Local data and uploads ---

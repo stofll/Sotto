@@ -12,6 +12,11 @@
   "packageManager": "pnpm@11.9.0",
   "type": "module",
   "scripts": {
+    "setup:dev": "vite --config vite.setup.config.ts",
+    "setup:build": "tsc && vite build --config vite.setup.config.ts",
+    "setup:native": "cd setup && tauri dev",
+    "setup:package": "node ../scripts/build-setup.mjs",
+    "setup:check": "node check-bundle-size.mjs --setup",
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
