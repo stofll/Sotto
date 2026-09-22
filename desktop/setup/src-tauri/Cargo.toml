@@ -1,0 +1,26 @@
+[package]
+name = "sotto-setup"
+version = "0.0.0"
+edition = "2021"
+license = "MIT"
+description = "Windows installation interface for Sotto"
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }
+serde_json = "1"
+sha2 = "0.10"
+
+[dependencies]
+tauri = { version = "2.11.6", features = [] }
+tauri-plugin-single-instance = "2"
+tauri-plugin-dialog = "2.7.3"
+serde = { version = "1", features = ["derive"] }
+sha2 = "0.10"
+tempfile = "3"
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.55"
+windows-sys = { version = "0.52", features = ["Win32_UI_WindowsAndMessaging", "Win32_Foundation"] }

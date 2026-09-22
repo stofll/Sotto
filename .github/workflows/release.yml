@@ -279,6 +279,8 @@ jobs:
         uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5  # v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Run Finder layout so CI preserves the custom DMG background and icon positions.
+          TAURI_BUNDLER_DMG_IGNORE_CI: ${{ runner.os == 'macOS' && 'true' || '' }}
           # The private minisign key. Its public half lives in
           # tauri.conf.json → plugins.updater.pubkey; if the pair does not
           # match, an installed app refuses to apply the update.

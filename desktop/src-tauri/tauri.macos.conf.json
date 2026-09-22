@@ -3,7 +3,13 @@
   "bundle": {
     "targets": ["app", "dmg"],
     "macOS": {
-      "signingIdentity": "-"
+      "signingIdentity": "-",
+      "dmg": {
+        "background": "installer/macos/background.png",
+        "windowSize": { "width": 660, "height": 400 },
+        "appPosition": { "x": 180, "y": 210 },
+        "applicationFolderPosition": { "x": 480, "y": 210 }
+      }
     }
   }
 }

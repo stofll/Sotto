@@ -1,0 +1,178 @@
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
+use tauri::Manager;
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct InstallOptions {
+    pub install_dir: String,
+    pub desktop_shortcut: bool,
+    pub start_menu_shortcut: bool,
+}
+
+#[derive(Serialize)]
+pub struct Defaults {
+    pub options: InstallOptions,
+    pub directory_locked: bool,
+}
+
+#[cfg(windows)]
+pub fn registered_directory() -> Option<PathBuf> {
+    use winreg::{enums::HKEY_CURRENT_USER, RegKey};
+    let key = RegKey::predef(HKEY_CURRENT_USER)
+        .open_subkey(r"Software\Microsoft\Windows\CurrentVersion\Uninstall\Sotto")
+        .ok()?;
+    let directory: String = key.get_value("InstallLocation").ok()?;
+    parse_directory(directory.trim_matches('"')).ok()
+}
+
+#[cfg(not(windows))]
+pub fn registered_directory() -> Option<PathBuf> {
+    None
+}
+
+pub fn defaults(app: &tauri::AppHandle) -> Result<Defaults, &'static str> {
+    let registered = registered_directory();
+    let directory = match &registered {
+        Some(path) => path.clone(),
+        None => app
+            .path()
+            .local_data_dir()
+            .map_err(|_| "options_unavailable")?
+            .join("Sotto"),
+    };
+    Ok(Defaults {
+        options: InstallOptions {
+            install_dir: directory.to_string_lossy().into_owned(),
+            desktop_shortcut: true,
+            start_menu_shortcut: true,
+        },
+        directory_locked: registered.is_some(),
+    })
+}
+
+pub fn parse_directory(input: &str) -> Result<PathBuf, &'static str> {
+    // Restrict /D= to a local absolute directory. It is passed unquoted at the
+    // end of the NSIS command line, so control characters and quotes are invalid.
+    let path = input.replace('/', "\\");
+    let bytes = path.as_bytes();
+    if bytes.len() < 4
+        || !bytes[0].is_ascii_alphabetic()
+        || bytes[1..3] != *b":\\"
+        || path
+            .chars()
+            .any(|c| c.is_control() || matches!(c, '"' | '<' | '>' | '|' | '?' | '*'))
+        || path[3..].contains(':')
+    {
+        return Err("invalid_install_directory");
+    }
+    for part in path[3..].split('\\') {
+        let stem = part.split('.').next().unwrap_or("").to_ascii_uppercase();
+        if part.is_empty()
+            || part == "."
+            || part == ".."
+            || part.ends_with([' ', '.'])
+            || matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+            || (stem.len() == 4
+                && (stem.starts_with("COM") || stem.starts_with("LPT"))
+                && matches!(stem.as_bytes()[3], b'1'..=b'9'))
+        {
+            return Err("invalid_install_directory");
+        }
+    }
+    Ok(PathBuf::from(path))
+}
+
+pub fn validate_directory(
+    options: &InstallOptions,
+    registered: Option<&std::path::Path>,
+) -> Result<PathBuf, &'static str> {
+    let directory = parse_directory(&options.install_dir)?;
+    if let Some(existing) = registered {
+        let same = directory
+            .to_string_lossy()
+            .eq_ignore_ascii_case(&existing.to_string_lossy())
+            || (directory
+                .canonicalize()
+                .ok()
+                .zip(existing.canonicalize().ok())
+                .is_some_and(|(a, b)| a == b));
+        if !same {
+            return Err("install_directory_locked");
+        }
+    } else if directory.exists() {
+        let mut entries = directory
+            .read_dir()
+            .map_err(|_| "invalid_install_directory")?;
+        if entries.next().is_some() {
+            return Err("install_directory_not_empty");
+        }
+    }
+    Ok(directory)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn allows_spaces_and_unicode_in_full_paths() {
+        assert_eq!(
+            parse_directory(r"D:\Мои программы\Sotto").unwrap(),
+            PathBuf::from(r"D:\Мои программы\Sotto")
+        );
+        assert_eq!(
+            parse_directory("C:/Apps/Sotto").unwrap(),
+            PathBuf::from(r"C:\Apps\Sotto")
+        );
+    }
+    #[test]
+    fn rejects_roots_relative_paths_and_command_line_injection() {
+        for path in [
+            "",
+            r"%LOCALAPPDATA%\Sotto",
+            r"C:\",
+            r"C:Apps\Sotto",
+            r"\\server\Sotto",
+            r"C:\Apps\..\Sotto",
+            "C:\\Apps\\Sotto\" /S",
+            "C:\\Apps\n",
+            r"C:\Apps\CON",
+            r"C:\Apps\Sotto.",
+            r"C:\Apps\Sotto:stream",
+        ] {
+            assert!(parse_directory(path).is_err(), "{path:?}");
+        }
+    }
+    #[test]
+    fn does_not_relocate_an_existing_install() {
+        let options = InstallOptions {
+            install_dir: r"D:\Apps\Sotto".into(),
+            desktop_shortcut: true,
+            start_menu_shortcut: false,
+        };
+        assert_eq!(
+            validate_directory(&options, Some(std::path::Path::new(r"C:\Apps\Sotto"))),
+            Err("install_directory_locked")
+        );
+    }
+    #[cfg(windows)]
+    #[test]
+    fn fresh_install_requires_empty_directory_but_update_keeps_files() {
+        let temporary = tempfile::tempdir().unwrap();
+        let options = InstallOptions {
+            install_dir: temporary.path().to_string_lossy().into_owned(),
+            desktop_shortcut: true,
+            start_menu_shortcut: true,
+        };
+        assert!(validate_directory(&options, None).is_ok());
+        std::fs::write(temporary.path().join("keep.txt"), b"existing content").unwrap();
+        assert_eq!(
+            validate_directory(&options, None),
+            Err("install_directory_not_empty")
+        );
+        assert!(validate_directory(&options, Some(temporary.path())).is_ok());
+        assert_eq!(
+            std::fs::read(temporary.path().join("keep.txt")).unwrap(),
+            b"existing content"
+        );
+    }
+}

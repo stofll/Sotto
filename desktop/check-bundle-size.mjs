@@ -14,7 +14,8 @@ import { fileURLToPath } from "node:url";
 
 // The kilobytes here are decimal — the way Vite prints them itself, so that the
 // number from the build log and the number from here can be compared by eye.
-const BUDGETS_KB = {
+const setup = process.argv.includes("--setup");
+const BUDGETS_KB = setup ? { "index.html": 330 } : {
   // 560 → 570. What grew: the settings window took the GitHub feedback card and
   // then the verbal-tic dialog, about 4 kB each, and the second one landed with
   // 3.8 kB of headroom left. Neither is a heavy dependency — it is the screen
@@ -30,7 +31,7 @@ const BUDGETS_KB = {
   "tray.html": 330,
 };
 
-const distUrl = new URL("dist/", import.meta.url);
+const distUrl = new URL(setup ? "setup/dist/" : "dist/", import.meta.url);
 
 function assetsOf(html) {
   const refs = new Set();

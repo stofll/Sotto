@@ -123,6 +123,8 @@ VIAddVersionKey "FileDescription" "${PRODUCTNAME}"
 VIAddVersionKey "LegalCopyright" "${COPYRIGHT}"
 VIAddVersionKey "FileVersion" "${VERSION}"
 VIAddVersionKey "ProductVersion" "${VERSION}"
+; Sotto: the setup shell checks this capability before embedding the package.
+VIAddVersionKey "SottoSetupOptions" "SottoSetupOptionsV1"
 
 # additional plugins
 !addplugindir "${ADDITIONALPLUGINSPATH}"
@@ -559,6 +561,7 @@ LangString sottoMigrationFailed ${LANG_ENGLISH} "Could not remove the previous v
 ; ─────────────────────────────────────────────────────────────────────────────
 
 Function .onInit
+  !insertmacro SottoReadSetupOptions
   ${GetOptions} $CMDLINE "/P" $PassiveMode
   ${IfNot} ${Errors}
     StrCpy $PassiveMode 1
@@ -996,6 +999,12 @@ Function un.SkipIfPassive
 FunctionEnd
 
 Function CreateOrUpdateStartMenuShortcut
+  ; Sotto: an explicit opt-out also removes our existing shortcut on reinstall.
+  ${If} $SottoStartMenuShortcut == "0"
+    !insertmacro SottoRemoveOwnedShortcut "$SMPROGRAMS\$AppStartMenuFolder\${PRODUCTNAME}.lnk"
+    !insertmacro SottoRemoveOwnedShortcut "$SMPROGRAMS\${PRODUCTNAME}.lnk"
+    Return
+  ${EndIf}
   ; We used to use product name as MAINBINARYNAME
   ; migrate old shortcuts to target the new MAINBINARYNAME
   StrCpy $R0 0
@@ -1038,6 +1047,11 @@ Function CreateOrUpdateStartMenuShortcut
 FunctionEnd
 
 Function CreateOrUpdateDesktopShortcut
+  ; Sotto: never remove a same-named shortcut pointing to another application.
+  ${If} $SottoDesktopShortcut == "0"
+    !insertmacro SottoRemoveOwnedShortcut "$DESKTOP\${PRODUCTNAME}.lnk"
+    Return
+  ${EndIf}
   ; We used to use product name as MAINBINARYNAME
   ; migrate old shortcuts to target the new MAINBINARYNAME
   !insertmacro IsShortcutTarget "$DESKTOP\${PRODUCTNAME}.lnk" "$INSTDIR\$OldMainBinaryName"

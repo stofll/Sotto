@@ -162,6 +162,10 @@ jobs:
         working-directory: desktop/src-tauri
         run: cargo-audit audit
 
+      - name: Audit Windows setup lockfile
+        working-directory: desktop/setup/src-tauri
+        run: cargo-audit audit
+
   # ---------------------------------------------------------------
   # Formatting only. Clippy moved into build-test, where it already ran for
   # Windows and macOS. Keeping the Linux pass here meant standing up a whole
@@ -268,9 +272,23 @@ jobs:
         working-directory: desktop
         run: pnpm build
 
+      - name: Build Windows setup frontend
+        if: runner.os == 'Windows'
+        working-directory: desktop
+        run: pnpm setup:build
+
+      - name: Check Windows setup
+        if: runner.os == 'Windows'
+        working-directory: desktop/setup/src-tauri
+        shell: bash
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo test --locked
+
       - name: Windows packaging regressions
         if: runner.os == 'Windows'
-        run: node --test scripts/build-portable.test.mjs scripts/build-windows-installer.test.mjs
+        run: node --test scripts/build-portable.test.mjs scripts/build-windows-installer.test.mjs scripts/build-setup.test.mjs
 
       # `sherpa-onnx-sys` downloads the native archive itself and does not
       # verify its hash. Download and check it here, then hand the build script
@@ -420,6 +438,12 @@ jobs:
       - name: Build
         working-directory: desktop
         run: pnpm build
+
+      - name: Build and check setup frontend
+        working-directory: desktop
+        run: |
+          pnpm setup:build
+          pnpm setup:check
 
       # Initial window payload budget. Vite's 500 KB warning does not fail the
       # build, so the weight creeps up unnoticed; here it can only grow

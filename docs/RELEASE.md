@@ -313,6 +313,8 @@ cd desktop
 pnpm tauri build --bundles nsis --target x86_64-pc-windows-msvc
 ```
 
+The macOS override applies the [DMG artwork and icon arrangement](installer-design.md#macos-dmg). Release CI enables Finder layout with TAURI_BUNDLER_DMG_IGNORE_CI=true; open the produced DMG on a Mac to verify the background, icon alignment and installation before publishing. The background deliberately contains no localized installation sentence.
+
 ### Checksum Generation
 
 The `checksums` job in `release.yml` does this: after both builds and the SBOM land in the draft, it downloads the draft's own assets, hashes them and uploads `SHA256SUMS.txt`.

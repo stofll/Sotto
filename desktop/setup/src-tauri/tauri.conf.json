@@ -1,0 +1,45 @@
+{
+  "$schema": "../../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "Sotto Setup",
+  "version": "../../package.json",
+  "identifier": "com.sotto.setup",
+  "build": {
+    "beforeDevCommand": "pnpm --dir .. setup:dev",
+    "devUrl": "http://127.0.0.1:1421",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Sotto Setup",
+        "width": 760,
+        "height": 580,
+        "minWidth": 540,
+        "minHeight": 520,
+        "resizable": true,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:",
+      "capabilities": [
+        {
+          "identifier": "setup",
+          "windows": [
+            "main"
+          ],
+          "permissions": [
+            "core:event:default"
+          ]
+        }
+      ]
+    }
+  },
+  "bundle": {
+    "active": false,
+    "icon": [
+      "../../src-tauri/icons/icon.ico"
+    ]
+  }
+}

@@ -13,6 +13,8 @@
 ; passes it), so the encoding is UTF-8. The code itself is deliberately
 ; ASCII-only: non-ASCII appears in comments alone and never reaches the binary.
 
+!include "${__FILEDIR__}\setup-options.nsh"
+
 ; The publisher the application was released under before the rename: before the
 ; identifier changed to com.sotto.app it was derived from com.shepot.app.
 !define LEGACYPUBLISHER "shepot"
