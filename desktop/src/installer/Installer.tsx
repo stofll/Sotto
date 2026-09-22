@@ -13,6 +13,8 @@ function errorText(code: string | null): string {
     case "payload_invalid": return t("Установочный пакет повреждён. Скачайте установщик заново.");
     case "prepare_failed": return t("Не удалось подготовить файлы. Проверьте свободное место и повторите попытку.");
     case "install_failed": return t("Установка не завершена. Закройте Sotto и повторите попытку.");
+    case "installed_version_newer": return t("Уже установлена более новая версия Sotto. Скачайте актуальный установщик.");
+    case "installed_version_unavailable": return t("Не удалось определить версию установленной Sotto. Установка остановлена, чтобы сохранить данные.");
     case "launch_failed": return t("Не удалось запустить Sotto. Откройте приложение через меню «Пуск».");
     case "preview_only": return t("Это демонстрация интерфейса. Файлы приложения не изменяются.");
     case "invalid_install_directory": return t("Укажите полный путь к папке, например D:\\Apps\\Sotto.");

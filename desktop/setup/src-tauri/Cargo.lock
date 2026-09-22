@@ -3178,6 +3178,7 @@ dependencies = [
 name = "sotto-setup"
 version = "0.0.0"
 dependencies = [
+ "semver",
  "serde",
  "serde_json",
  "sha2",

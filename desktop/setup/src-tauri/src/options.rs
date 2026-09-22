@@ -30,6 +30,40 @@ pub fn registered_directory() -> Option<PathBuf> {
     None
 }
 
+fn check_candidate_version(installed: &str, candidate: &str) -> Result<(), &'static str> {
+    let installed =
+        semver::Version::parse(installed).map_err(|_| "installed_version_unavailable")?;
+    let candidate =
+        semver::Version::parse(candidate).map_err(|_| "installed_version_unavailable")?;
+    if candidate < installed {
+        Err("installed_version_newer")
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(windows)]
+pub fn prevent_downgrade() -> Result<(), &'static str> {
+    use std::io::ErrorKind;
+    use winreg::{enums::HKEY_CURRENT_USER, RegKey};
+    let key = match RegKey::predef(HKEY_CURRENT_USER)
+        .open_subkey(r"Software\Microsoft\Windows\CurrentVersion\Uninstall\Sotto")
+    {
+        Ok(key) => key,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(()),
+        Err(_) => return Err("installed_version_unavailable"),
+    };
+    let installed: String = key
+        .get_value("DisplayVersion")
+        .map_err(|_| "installed_version_unavailable")?;
+    check_candidate_version(&installed, env!("SOTTO_APP_VERSION"))
+}
+
+#[cfg(not(windows))]
+pub fn prevent_downgrade() -> Result<(), &'static str> {
+    Err("unsupported_platform")
+}
+
 pub fn defaults(app: &tauri::AppHandle) -> Result<Defaults, &'static str> {
     let registered = registered_directory();
     let directory = match &registered {
@@ -152,6 +186,23 @@ mod tests {
         assert_eq!(
             validate_directory(&options, Some(std::path::Path::new(r"C:\Apps\Sotto"))),
             Err("install_directory_locked")
+        );
+    }
+    #[test]
+    fn refuses_older_installer_and_unreadable_registered_version() {
+        assert_eq!(
+            check_candidate_version("0.1.4", "0.1.3"),
+            Err("installed_version_newer")
+        );
+        assert_eq!(
+            check_candidate_version("0.1.4", "0.1.4-beta.1"),
+            Err("installed_version_newer")
+        );
+        assert_eq!(check_candidate_version("0.1.3", "0.1.3"), Ok(()));
+        assert_eq!(check_candidate_version("0.1.3", "0.1.4"), Ok(()));
+        assert_eq!(
+            check_candidate_version("invalid", "0.1.4"),
+            Err("installed_version_unavailable")
         );
     }
     #[cfg(windows)]

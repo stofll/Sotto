@@ -6,7 +6,7 @@ This is a separate Tauri executable. It embeds the existing NSIS package and del
 
 Installation options below Install open a separate view with the full application path, a native folder picker and independent Desktop and Start menu shortcut choices. Back keeps those choices. Both directions use a short fade and movement, disabled when reduced motion is requested.
 
-On a fresh installation the default is the current user's Local AppData folder followed by Sotto, resolved by Windows and displayed as a full path. A custom destination must be an empty local folder. When Sotto is already registered, setup shows its existing directory read-only; moving an installed application is not supported. Explicitly disabling a shortcut removes an existing Sotto shortcut at the installer-managed location, but preserves a same-named shortcut targeting another application.
+On a fresh installation the default is the current user's Local AppData folder followed by Sotto, resolved by Windows and displayed as a full path. A custom destination must be an empty local folder. When Sotto is already registered, setup shows its existing directory read-only; moving an installed application is not supported. Setup refuses to replace a newer installed version with an older package, and stops if the registered version cannot be read. Explicitly disabling a shortcut removes an existing Sotto shortcut at the installer-managed location, but preserves a same-named shortcut targeting another application.
 
 ## Development and preview
 

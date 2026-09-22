@@ -321,6 +321,28 @@ def test_install_failure_retry_and_launch_error(setup_app, page):
     )
 
 
+@pytest.mark.parametrize("locale", ["ru", "en"])
+def test_newer_installed_version_is_explained(setup_app, page, locale):
+    setup_app()
+    if locale == "en":
+        page.get_by_role("button", name="Сменить язык").click()
+    page.get_by_role(
+        "button", name="Install" if locale == "en" else "Установить", exact=True
+    ).click()
+    page.evaluate("window.__setupTest.finish('installed_version_newer')")
+    expect(
+        page.get_by_role(
+            "heading",
+            name="Could not install Sotto" if locale == "en" else "Не удалось установить Sotto",
+        )
+    ).to_be_visible()
+    expect(page.locator(".setup-main .setup-description")).to_have_text(
+        "A newer version of Sotto is already installed. Download the latest installer."
+        if locale == "en"
+        else "Уже установлена более новая версия Sotto. Скачайте актуальный установщик."
+    )
+
+
 def test_browser_preview_cannot_install(page, setup_server):
     page.goto(setup_server)
     expect(page.get_by_text("Демонстрация · установка не выполняется")).to_be_visible()

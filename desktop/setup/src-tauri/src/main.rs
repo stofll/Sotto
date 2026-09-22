@@ -38,6 +38,7 @@ async fn setup_install(
         let destination =
             options::validate_directory(&options, options::registered_directory().as_deref())?;
         let (_directory, path) = payload::stage()?;
+        options::prevent_downgrade()?;
         publish(&worker_app, Phase::Installing, None);
         payload::install(&path, Some(&options))?;
         let binary = installed_binary()?;

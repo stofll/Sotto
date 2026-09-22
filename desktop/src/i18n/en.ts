@@ -33,6 +33,8 @@ export const en: Record<string, string | string[]> = {
   "Установочный пакет повреждён. Скачайте установщик заново.": "The installation package is damaged. Download the installer again.",
   "Не удалось подготовить файлы. Проверьте свободное место и повторите попытку.": "Could not prepare the files. Check available disk space and try again.",
   "Установка не завершена. Закройте Sotto и повторите попытку.": "Installation did not finish. Close Sotto and try again.",
+  "Уже установлена более новая версия Sotto. Скачайте актуальный установщик.": "A newer version of Sotto is already installed. Download the latest installer.",
+  "Не удалось определить версию установленной Sotto. Установка остановлена, чтобы сохранить данные.": "Could not determine the installed Sotto version. Installation was stopped to protect your data.",
   "Не удалось запустить Sotto. Откройте приложение через меню «Пуск».": "Could not launch Sotto. Open it from the Start menu.",
   "Это демонстрация интерфейса. Файлы приложения не изменяются.": "This is an interface preview. Application files are not changed.",
   "Не удалось связаться с установщиком. Закройте это окно и откройте установщик снова.": "Could not connect to the installer. Close this window and open the installer again.",

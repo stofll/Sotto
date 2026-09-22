@@ -20,6 +20,7 @@ tauri-plugin-dialog = "2.7.3"
 serde = { version = "1", features = ["derive"] }
 sha2 = "0.10"
 tempfile = "3"
+semver = "1"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"
