@@ -330,17 +330,6 @@ pub struct DownloadAssessment {
     pub insufficient: bool,
 }
 
-/// Free space on the filesystem that will hold `dir`.
-///
-/// The models directory is created by the first download, which is exactly the
-/// moment this check matters most. `statvfs` fails on a path that does not
-/// exist yet, so walk up to the nearest existing ancestor — the same
-/// filesystem, and the same answer. Windows tolerates the missing leaf and
-/// never reaches the second step, which is why the gap stayed invisible there.
-fn available_space(dir: PathBuf) -> Option<u64> {
-    crate::model_download::available_bytes(&dir)
-}
-
 fn download_assessment(id: &str, available_bytes: Option<u64>) -> DownloadAssessment {
     let expected = model::manifest_entry(id)
         .ok()
@@ -354,11 +343,13 @@ fn download_assessment(id: &str, available_bytes: Option<u64>) -> DownloadAssess
                     .sum::<u64>()
             })
         });
-    let required_bytes = expected.map(|bytes| bytes.saturating_add(1024 * 1024));
+    let required_bytes = expected.map(crate::model_download::required_free_space);
     DownloadAssessment {
         required_bytes,
         available_bytes,
-        insufficient: matches!((required_bytes, available_bytes), (Some(required), Some(available)) if available < required),
+        insufficient: required_bytes
+            .zip(available_bytes)
+            .is_some_and(|(required, available)| available < required),
     }
 }
 
@@ -483,7 +474,9 @@ pub fn assess(
     language: &str,
 ) -> Vec<Assessment> {
     let hardware = hardware_profile::snapshot();
-    let disk_available = model::models_dir().ok().and_then(available_space);
+    let disk_available = model::models_dir()
+        .ok()
+        .and_then(|dir| crate::model_download::available_bytes(&dir));
 
     models
         .iter()
@@ -764,20 +757,6 @@ mod tests {
         let detected = catalog_speed("base", GENERIC_LANGUAGE).score.unwrap();
         assert!(detected < 0.5, "auto should fall below the middle level");
         assert!(configured >= 0.5, "a chosen language should reach it");
-    }
-
-    #[test]
-    fn free_space_is_known_before_the_models_directory_exists() {
-        // The first download creates the directory, so the check has to answer
-        // before it is there or it never warns the user who needs it most.
-        let dir = tempfile::tempdir().unwrap();
-        let missing = dir.path().join("models").join("whisper");
-        assert!(!missing.exists());
-        assert_eq!(
-            available_space(missing).is_some(),
-            available_space(dir.path().to_path_buf()).is_some()
-        );
-        assert!(available_space(dir.path().to_path_buf()).is_some());
     }
 
     #[test]

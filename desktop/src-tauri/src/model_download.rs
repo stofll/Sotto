@@ -227,23 +227,34 @@ pub async fn verify_file(path: &Path, spec: &DownloadSpec) -> Result<(), ModelDo
     Ok(())
 }
 
-/// Query the nearest existing ancestor when the download directory is new.
-/// `None` means unknown; `Some(0)` means the disk is full.
+/// Free space on the filesystem that will hold `dir`. `None` means unknown;
+/// `Some(0)` means the disk is full.
+///
+/// The models directory is created by the first download, which is exactly the
+/// moment this check matters most. `statvfs` fails on a path that does not
+/// exist yet, so walk up to the nearest existing ancestor — the same
+/// filesystem, and the same answer. Windows tolerates the missing leaf and
+/// never reaches the second step, which is why the gap stayed invisible there.
 pub fn available_bytes(dir: &Path) -> Option<u64> {
     dir.ancestors()
         .find_map(|path| fs2::available_space(path).ok())
 }
 
-/// Check free space for the upcoming download. We require
-/// `expected_bytes + 1 MiB` of slack (final write + atomic rename
-/// bookkeeping). An unavailable measurement does not prevent downloading.
+/// Free space a download of `expected_bytes` needs: 1 MiB of slack on top for
+/// the final write and atomic rename bookkeeping.
+pub fn required_free_space(expected_bytes: u64) -> u64 {
+    expected_bytes.saturating_add(1024 * 1024)
+}
+
+/// Check free space for the upcoming download against
+/// [`required_free_space`]. An unavailable measurement does not prevent
+/// downloading.
 pub fn ensure_free_space(dir: &Path, expected_bytes: u64) -> Result<(), ModelDownloadError> {
     free_space_verdict(available_bytes(dir), expected_bytes)
 }
 
 /// Pure verdict for the pre-flight free-space check, split out so the
 /// boundary arithmetic is testable without a real filesystem.
-///
 fn free_space_verdict(
     available: Option<u64>,
     expected_bytes: u64,
@@ -251,8 +262,7 @@ fn free_space_verdict(
     let Some(available) = available else {
         return Ok(());
     };
-    let slack: u64 = 1024 * 1024;
-    let required = expected_bytes.saturating_add(slack);
+    let required = required_free_space(expected_bytes);
     if available >= required {
         return Ok(());
     }
@@ -1530,6 +1540,17 @@ mod tests {
                 available_bytes: 0,
             })
         );
+    }
+
+    #[test]
+    fn free_space_is_known_before_the_models_directory_exists() {
+        // The first download creates the directory, so the check has to answer
+        // before it is there or it never warns the user who needs it most.
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("models").join("whisper");
+        assert!(!missing.exists());
+        assert!(available_bytes(dir.path()).is_some());
+        assert!(available_bytes(&missing).is_some());
     }
 
     #[test]

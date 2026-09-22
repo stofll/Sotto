@@ -31,7 +31,7 @@ pub enum EngineCommand {
         source: crate::model_performance::RunSource,
         session_id: u64,
         audio: Arc<Vec<f32>>,
-        speech_timing: crate::vad::SpeechTiming,
+        speech_timing: SpeechTiming,
         cancel_flag: Arc<AtomicBool>,
         /// Target language (e.g. `"ru"`). `None` or `"auto"` auto-detects.
         /// whisper.cpp defaults to `"en"` when unset, which mis-decodes
@@ -52,7 +52,7 @@ pub enum EngineCommand {
     TranscribeCloud {
         session_id: u64,
         audio: Arc<Vec<f32>>,
-        speech_timing: crate::vad::SpeechTiming,
+        speech_timing: SpeechTiming,
         cancel_flag: Arc<AtomicBool>,
         request: crate::cloud_stt::CloudSttRequest,
         reply: oneshot::Sender<Result<InferenceResult, String>>,

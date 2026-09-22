@@ -108,6 +108,24 @@ function formatSignedDuration(seconds: number): string {
   return `${prefix}${formatDuration(Math.abs(seconds))}`;
 }
 
+/** Explain the savings estimate by how many recordings had their pauses measured. */
+function savingsText(timedCount: number, transcriptions: number, excludedSilenceSeconds: number): { sub: string; hint: string } {
+  if (timedCount === 0) {
+    return {
+      sub: t("минус аудио и обработка"),
+      hint: t("Оценка ручного набора минус полная длительность аудио и обработка. Замеров речи за этот период нет."),
+    };
+  }
+  const method = `${t("Оценка ручного набора минус время речи с короткими паузами и обработка. Длинные паузы исключаются с запасом у границ фраз.")} ${t("Из аудио исключено: {p0}.", { p0: formatShortDuration(excludedSilenceSeconds) })}`;
+  if (transcriptions > 0 && timedCount === transcriptions) {
+    return { sub: t("без длительных пауз"), hint: method };
+  }
+  return {
+    sub: t("паузы учтены частично"),
+    hint: `${t("Паузы оценены в {p0} из {p1} записей. Остальные учтены по полной длительности аудио.", { p0: timedCount, p1: transcriptions })} ${method}`,
+  };
+}
+
 function normalizeHistory(stats: StatsResult | null): DailyStats[] {
   return [...(stats?.daily_history ?? [])]
     .filter((item) => /^\d{4}-\d{2}-\d{2}$/.test(item.date))
@@ -275,15 +293,7 @@ export function StatsPage({ stats, typingSpeedCpm = 240, onRefresh }: { stats: S
 
   const manualTypingSeconds = chars / speedCpm * 60;
   const netSavedSeconds = manualTypingSeconds - (audioSeconds - excludedSilenceSeconds) - processingSeconds;
-  const completeSpeechTiming = transcriptions > 0 && speechTimedCount === transcriptions;
-  const savingsSub = completeSpeechTiming ? t("без длительных пауз") : speechTimedCount > 0 ? t("паузы учтены частично") : t("минус аудио и обработка");
-  const savingsHint = speechTimedCount === 0
-    ? t("Оценка ручного набора минус полная длительность аудио и обработка. Замеров речи за этот период нет.")
-    : [
-      completeSpeechTiming ? "" : t("Паузы оценены в {p0} из {p1} записей. Остальные учтены по полной длительности аудио.", { p0: speechTimedCount, p1: transcriptions }),
-      t("Оценка ручного набора минус время речи с короткими паузами и обработка. Длинные паузы исключаются с запасом у границ фраз."),
-      t("Из аудио исключено: {p0}.", { p0: formatShortDuration(excludedSilenceSeconds) }),
-    ].filter(Boolean).join(" ");
+  const savings = savingsText(speechTimedCount, transcriptions, excludedSilenceSeconds);
   const activeDays = rangeHistory.filter((item) => item.count > 0).length;
   const averageChars = transcriptions > 0 ? Math.round(chars / transcriptions) : 0;
   const averageProcessing = transcriptions > 0 ? processingSeconds / transcriptions : 0;
@@ -323,7 +333,7 @@ export function StatsPage({ stats, typingSpeedCpm = 240, onRefresh }: { stats: S
         <Stat label={t("Распознаваний")} value={transcriptions.toLocaleString(localeTag())} sub={periodSub}/>
         <Stat label={t("Символов")} value={chars.toLocaleString(localeTag())} sub={t("в среднем {p0} на запись", { p0: averageChars.toLocaleString(localeTag()) })}/>
         <Stat label={t("Ручной набор")} value={formatDuration(manualTypingSeconds)} sub={t("Символы / {p0} симв/мин.", { p0: speedCpm.toLocaleString(localeTag()) })}/>
-        <Stat label={t("Оценка экономии")} value={formatSignedDuration(netSavedSeconds)} sub={savingsSub} accent={netSavedSeconds >= 0} hint={savingsHint}/>
+        <Stat label={t("Оценка экономии")} value={formatSignedDuration(netSavedSeconds)} sub={savings.sub} accent={netSavedSeconds >= 0} hint={savings.hint}/>
         <Stat label={t("Активных дней")} value={String(activeDays)} sub={t("{p0} дней сохранено в истории", { p0: history.length })}/>
         <Stat label={t("Аудио")} value={formatDuration(audioSeconds)} sub={periodSub} hint={t("Суммарная длительность записанных фрагментов.")}/>
         <Stat label={t("Обработка")} value={formatShortDuration(processingSeconds)} sub={t("{p0} на запись", { p0: formatShortDuration(averageProcessing) })} hint={t("STT {p0} + форматирование {p1} + LLM {p2}.", { p0: formatShortDuration(whisperSeconds), p1: formatShortDuration(formatSeconds), p2: formatShortDuration(llmSeconds) })}/>

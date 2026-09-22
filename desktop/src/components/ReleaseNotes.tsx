@@ -9,20 +9,23 @@ function webUrl(value: string): string | null {
   } catch { return null; }
 }
 
+function childTokens(token: Token): Token[] {
+  return "tokens" in token ? token.tokens ?? [] : [];
+}
+
 /** Render tokens as React elements; remote HTML and images stay inert text. */
 export default function ReleaseNotes({ text, onOpenUrl }: { text: string; onOpenUrl: (url: string) => void }) {
   const tokens = useMemo(() => lexer(text), [text]);
   function render(items: Token[]): ReactNode {
     return items.map((token, index) => {
-      const children = () => render("tokens" in token ? token.tokens ?? [] : []);
+      const children = () => render(childTokens(token));
       let node: ReactNode;
       switch (token.type) {
         case "space": case "def": return null;
         case "heading": node = <h3>{children()}</h3>; break;
         case "paragraph": node = <p>{children()}</p>; break;
         case "text": node = token.tokens ? children() : token.text; break;
-        case "escape": node = token.text; break;
-        case "image": node = token.text; break;
+        case "escape": case "image": node = token.text; break;
         case "strong": node = <strong>{children()}</strong>; break;
         case "em": node = <em>{children()}</em>; break;
         case "del": node = <del>{children()}</del>; break;
@@ -46,7 +49,7 @@ export default function ReleaseNotes({ text, onOpenUrl }: { text: string; onOpen
           break;
         }
         case "list": {
-          const items = (token.items as Token[]).map((item, i) => <li key={i}>{render("tokens" in item ? item.tokens ?? [] : [])}</li>);
+          const items = (token.items as Token[]).map((item, i) => <li key={i}>{render(childTokens(item))}</li>);
           node = token.ordered ? <ol start={token.start}>{items}</ol> : <ul>{items}</ul>;
           break;
         }

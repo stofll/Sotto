@@ -99,17 +99,17 @@ pub fn prepare_dictation(
     // One detector pass serves both metrics and trimming. Timing is independent
     // of the trim preference, and never removes internal pauses from STT audio.
     let analysis = analyze_speech(&audio);
-    let speech_seconds = SpeechTiming::Ready(analysis.as_ref().map(|value| value.active_seconds));
+    let timing = SpeechTiming::Ready(analysis.as_ref().map(|value| value.active_seconds));
     let Some((range, removed)) = trim_decision(audio.len(), analysis.map(|value| value.range))
     else {
-        return (audio, speech_seconds);
+        return (audio, timing);
     };
     log::info!(
         "trimmed {removed:.1}s of silence ({:.1}s → {:.1}s)",
         audio.len() as f32 / SAMPLE_RATE as f32,
         range.len() as f32 / SAMPLE_RATE as f32
     );
-    (Arc::new(audio[range].to_vec()), speech_seconds)
+    (Arc::new(audio[range].to_vec()), timing)
 }
 
 /// The pure half of [`prepare_dictation`]: decide whether to trim to
@@ -163,31 +163,25 @@ fn analyze_speech_frames(
     let mut active_samples = 0;
     for frame in frames {
         if (frame - last - 1) * FRAME > MAX_SHORT_PAUSE_SAMPLES {
-            active_samples += speech_range_from_frames(total_len, Some(phrase_start), last)?.len();
+            active_samples += speech_range_from_frames(total_len, phrase_start, last).len();
             phrase_start = frame;
         }
         last = frame;
     }
-    active_samples += speech_range_from_frames(total_len, Some(phrase_start), last)?.len();
+    active_samples += speech_range_from_frames(total_len, phrase_start, last).len();
     Some(SpeechAnalysis {
-        range: speech_range_from_frames(total_len, Some(first), last)?,
+        range: speech_range_from_frames(total_len, first, last),
         active_seconds: active_samples as f64 / SAMPLE_RATE as f64,
     })
 }
 
-/// Turn the first/last speech frame
-/// indices into a padded, input-clamped sample range. `None` when no frame
-/// scored as speech.
-fn speech_range_from_frames(
-    total_len: usize,
-    first: Option<usize>,
-    last: usize,
-) -> Option<Range<usize>> {
-    let first = first?;
+/// Turn the first/last speech frame indices into a padded, input-clamped
+/// sample range.
+fn speech_range_from_frames(total_len: usize, first: usize, last: usize) -> Range<usize> {
     let padding = PADDING_MS * SAMPLE_RATE / 1000;
     let start = (first * FRAME).saturating_sub(padding);
     let end = ((last + 1) * FRAME + padding).min(total_len);
-    Some(start..end)
+    start..end
 }
 
 #[cfg(test)]
@@ -383,16 +377,11 @@ mod tests {
     fn speech_range_arithmetic_pads_and_clamps() {
         // PADDING_MS(250) * 16000 / 1000 = 4000 samples.
         // A single frame [0,0]: start clamps to 0, end = 1*256 + 4000.
-        assert_eq!(speech_range_from_frames(16_000, Some(0), 0), Some(0..4256));
+        assert_eq!(speech_range_from_frames(16_000, 0, 0), 0..4256);
         // Frames 20..20: start = 5120 - 4000, end = 21*256 + 4000.
-        assert_eq!(
-            speech_range_from_frames(16_000, Some(20), 20),
-            Some(1120..9376)
-        );
+        assert_eq!(speech_range_from_frames(16_000, 20, 20), 1120..9376);
         // The end clamps to the input length.
-        assert_eq!(speech_range_from_frames(3_000, Some(10), 10), Some(0..3000));
-        // No speech frame → None.
-        assert_eq!(speech_range_from_frames(16_000, None, 0), None);
+        assert_eq!(speech_range_from_frames(3_000, 10, 10), 0..3000);
     }
 
     #[test]

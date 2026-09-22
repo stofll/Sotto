@@ -23,6 +23,10 @@ pub struct ReleaseNotes {
     url: String,
 }
 
+fn usable_notes(notes: &str) -> bool {
+    !notes.trim().is_empty() && notes.len() <= MAX_NOTES_BYTES
+}
+
 fn is_upgrade(current: &str, seen: &str) -> bool {
     match (
         semver::Version::parse(current),
@@ -81,11 +85,7 @@ pub async fn cache_update(app: &AppHandle, version: &str, notes: Option<&str>) {
     let notes = fetch_notes(version, PRE_INSTALL_TIMEOUT)
         .await
         .unwrap_or(None)
-        .or_else(|| {
-            notes
-                .filter(|s| !s.trim().is_empty() && s.len() <= MAX_NOTES_BYTES)
-                .map(str::to_owned)
-        });
+        .or_else(|| notes.filter(|s| usable_notes(s)).map(str::to_owned));
     let Some(notes) = notes else {
         return;
     };
@@ -113,9 +113,7 @@ fn release_body(release: GithubRelease, version: &str) -> Option<String> {
     if release.draft || release.tag_name != format!("v{version}") {
         return None;
     }
-    release
-        .body
-        .filter(|s| !s.trim().is_empty() && s.len() <= MAX_NOTES_BYTES)
+    release.body.filter(|s| usable_notes(s))
 }
 
 async fn fetch_notes(version: &str, timeout: Duration) -> Result<Option<String>, String> {

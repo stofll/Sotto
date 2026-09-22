@@ -1,14 +1,16 @@
 import type { ModelAssessment } from "../bridge/modelAssessments";
 import { t } from "../i18n";
 
-export function speedPresentation(score: number | null | undefined) {
+type SpeedPresentation = { fill: number | null; label: string; hint: string };
+
+export function speedPresentation(score: number | null | undefined): SpeedPresentation {
   if (typeof score !== "number" || !Number.isFinite(score)) {
     return { fill: null, label: t("Нет замера"), hint: t("Пока нет сравнительного замера для этой модели.") };
   }
-  const fill = score >= 0.8 ? 100 : score >= 0.5 ? 200 / 3 : 100 / 3;
-  const label = score >= 0.8 ? t("Высокая") : score >= 0.5 ? t("Средняя") : t("Низкая");
-  const description = score >= 0.8 ? t("Высокая относительная скорость.") : score >= 0.5 ? t("Средняя относительная скорость.") : t("Низкая относительная скорость.");
-  return { fill, label, hint: `${description} ${t("Оценка по сравнительным тестам; на вашем компьютере скорость может отличаться.")}` };
+  const caveat = t("Оценка по сравнительным тестам; на вашем компьютере скорость может отличаться.");
+  if (score >= 0.8) return { fill: 100, label: t("Высокая"), hint: `${t("Высокая относительная скорость.")} ${caveat}` };
+  if (score >= 0.5) return { fill: 200 / 3, label: t("Средняя"), hint: `${t("Средняя относительная скорость.")} ${caveat}` };
+  return { fill: 100 / 3, label: t("Низкая"), hint: `${t("Низкая относительная скорость.")} ${caveat}` };
 }
 
 export function downloadSpaceText(value?: ModelAssessment): string {
