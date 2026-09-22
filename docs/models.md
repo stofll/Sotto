@@ -77,6 +77,8 @@ The language is not cosmetic. Whisper runs a detection pass for `auto`, which co
 
 The download button remains available when disk space is sufficient or unknown. When known free space is below the full model download size plus the downloader's 1 MiB reserve, the card instead shows “Not enough space”, with required and available disk space on hover or keyboard focus. Free space is checked on the filesystem that will hold the models directory — the nearest existing ancestor answers before the first download creates the directory itself. RAM is not download capacity. Return focus to the app after freeing space to refresh the hint. Already installed models remain selectable. The downloader also performs its own preflight checks because free space may change.
 
+The downloader checks the remaining size of a whole bundle before requesting its first file, and checks again before downloading each file. Verified files and resumable partial downloads reduce the remaining size; zero free bytes means a full disk, while an unavailable measurement permits an attempt. This check does not reserve space against other downloads or applications.
+
 CPU observations survive restarts while the matching profile remains valid. Unverified GPU observations apply only within the current application session because adapter/driver changes cannot currently be identified reliably.
 
 ## Models directory

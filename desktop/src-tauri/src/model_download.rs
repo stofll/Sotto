@@ -227,18 +227,16 @@ pub async fn verify_file(path: &Path, spec: &DownloadSpec) -> Result<(), ModelDo
     Ok(())
 }
 
-/// Best-effort pre-flight check for free space. Returns the number of
-/// bytes available on the filesystem that contains `dir`. `0` means
-/// "the OS does not report free space" — the caller should treat that
-/// as "skip the check" rather than fail the download.
-pub fn available_bytes(dir: &Path) -> u64 {
-    fs2::available_space(dir).unwrap_or(0)
+/// Query the nearest existing ancestor when the download directory is new.
+/// `None` means unknown; `Some(0)` means the disk is full.
+pub fn available_bytes(dir: &Path) -> Option<u64> {
+    dir.ancestors()
+        .find_map(|path| fs2::available_space(path).ok())
 }
 
 /// Check free space for the upcoming download. We require
 /// `expected_bytes + 1 MiB` of slack (final write + atomic rename
-/// bookkeeping); if the platform does not expose `available_space`
-/// (returns 0) we treat it as unknown and let the download proceed.
+/// bookkeeping). An unavailable measurement does not prevent downloading.
 pub fn ensure_free_space(dir: &Path, expected_bytes: u64) -> Result<(), ModelDownloadError> {
     free_space_verdict(available_bytes(dir), expected_bytes)
 }
@@ -246,12 +244,16 @@ pub fn ensure_free_space(dir: &Path, expected_bytes: u64) -> Result<(), ModelDow
 /// Pure verdict for the pre-flight free-space check, split out so the
 /// boundary arithmetic is testable without a real filesystem.
 ///
-/// `available == 0` means "the OS does not report free space" and is
-/// treated as unknown, not as an empty disk.
-fn free_space_verdict(available: u64, expected_bytes: u64) -> Result<(), ModelDownloadError> {
+fn free_space_verdict(
+    available: Option<u64>,
+    expected_bytes: u64,
+) -> Result<(), ModelDownloadError> {
+    let Some(available) = available else {
+        return Ok(());
+    };
     let slack: u64 = 1024 * 1024;
     let required = expected_bytes.saturating_add(slack);
-    if available == 0 || available >= required {
+    if available >= required {
         return Ok(());
     }
     Err(ModelDownloadError::InsufficientFreeSpace {
@@ -396,8 +398,6 @@ pub async fn download_spec_to_dir(
     if cancel_flag.load(Ordering::Relaxed) {
         return Err(ModelDownloadError::Cancelled);
     }
-    ensure_free_space(dir, spec.expected_bytes)?;
-
     let final_path = dir.join(&spec.file_name);
     let part_path = part_path_for(&final_path);
     if let Some(parent) = part_path.parent() {
@@ -423,6 +423,7 @@ pub async fn download_spec_to_dir(
     }
 
     let mut offset = resume_offset(&part_path, spec.expected_bytes);
+    ensure_free_space(dir, spec.expected_bytes - offset)?;
     // The loop exists for exactly one retry: on 416 we erase the leftover, zero
     // the offset and ask for the whole file. The `continue` branch requires
     // `offset > 0`, and we come back into it already at zero, so it cannot be
@@ -637,6 +638,17 @@ pub async fn download_bundle_to_dir(
         .iter()
         .map(|artifact| artifact.expected_bytes)
         .sum();
+    if cancel_flag.load(Ordering::Relaxed) {
+        return Err(ModelDownloadError::Cancelled);
+    }
+    let remaining_bytes = spec
+        .artifacts
+        .iter()
+        .map(|artifact| remaining_download_bytes(&stage_dir, artifact))
+        .fold(0_u64, u64::saturating_add);
+    if remaining_bytes > 0 {
+        ensure_free_space(&stage_dir, remaining_bytes)?;
+    }
     let completed = Arc::new(std::sync::atomic::AtomicU64::new(0));
     for artifact in &spec.artifacts {
         let completed_for_progress = Arc::clone(&completed);
@@ -681,6 +693,22 @@ pub async fn download_bundle_to_dir(
         path: final_dir,
         bytes: total_bytes,
     })
+}
+
+/// Bytes still to fetch for one artifact, for the bundle's pre-flight check.
+///
+/// A finished file counts by size alone: hashing it here would read every
+/// completed artifact twice, since `download_spec_to_dir` verifies it again.
+/// A same-sized but corrupt file is still re-downloaded there, behind that
+/// function's own free-space check.
+fn remaining_download_bytes(dir: &Path, spec: &DownloadSpec) -> u64 {
+    let final_path = dir.join(&spec.file_name);
+    let finished = std::fs::metadata(&final_path)
+        .is_ok_and(|meta| meta.is_file() && meta.len() == spec.expected_bytes);
+    if finished {
+        return 0;
+    }
+    spec.expected_bytes - resume_offset(&part_path_for(&final_path), spec.expected_bytes)
 }
 
 /// Download a model by id ("tiny", "base", "small", "medium", "large-v3", "turbo").
@@ -1493,16 +1521,78 @@ mod tests {
 
     #[test]
     fn free_space_verdict_treats_unknown_as_ok() {
-        // `available == 0` means the OS didn't report free space, not
-        // that the disk is empty.
-        assert_eq!(free_space_verdict(0, 1000), Ok(()));
+        // An unavailable measurement must not be confused with a full disk.
+        assert_eq!(free_space_verdict(None, 1000), Ok(()));
+        assert_eq!(
+            free_space_verdict(Some(0), 1000),
+            Err(ModelDownloadError::InsufficientFreeSpace {
+                required_bytes: 1000 + 1024 * 1024,
+                available_bytes: 0,
+            })
+        );
+    }
+
+    #[test]
+    fn remaining_space_accounts_for_finished_and_partial_artifacts() {
+        let dir = tempfile::tempdir().unwrap();
+        let spec = tiny_spec("http://127.0.0.1:1".into(), b"abcde");
+        assert_eq!(remaining_download_bytes(dir.path(), &spec), 5);
+        let final_path = dir.path().join(&spec.file_name);
+        let partial = part_path_for(&final_path);
+        std::fs::write(&partial, b"ab").unwrap();
+        assert_eq!(remaining_download_bytes(dir.path(), &spec), 3);
+        std::fs::write(&partial, b"too long").unwrap();
+        assert_eq!(remaining_download_bytes(dir.path(), &spec), 5);
+        assert!(!partial.exists());
+        std::fs::write(&final_path, b"abc").unwrap();
+        assert_eq!(remaining_download_bytes(dir.path(), &spec), 5);
+        // Size alone decides here; the download itself still verifies the
+        // hash and re-fetches a corrupt file behind its own space check.
+        std::fs::write(&final_path, b"wrong").unwrap();
+        assert_eq!(remaining_download_bytes(dir.path(), &spec), 0);
+    }
+
+    #[tokio::test]
+    async fn bundle_checks_combined_size_before_any_request() {
+        let dir = tempfile::tempdir().unwrap();
+        let Some(available) = available_bytes(dir.path()) else {
+            return;
+        };
+        let mut first = tiny_spec("http://127.0.0.1:1".into(), b"a");
+        first.expected_bytes = available / 2 + 1;
+        let mut second = first.clone();
+        second.file_name = "second.bin".into();
+        let spec = BundleDownloadSpec {
+            model_id: "synthetic".into(),
+            directory_name: "synthetic".into(),
+            artifacts: vec![first, second],
+        };
+        let result = download_bundle_to_dir(
+            &reqwest::Client::new(),
+            &spec,
+            dir.path(),
+            &Arc::new(AtomicBool::new(false)),
+            None,
+            None,
+        )
+        .await;
+        assert!(matches!(
+            result,
+            Err(ModelDownloadError::InsufficientFreeSpace { .. })
+        ));
+        assert_eq!(
+            std::fs::read_dir(stage_dir_for(dir.path(), "synthetic"))
+                .unwrap()
+                .count(),
+            0
+        );
     }
 
     #[test]
     fn free_space_verdict_requires_a_mib_of_slack() {
         // Exactly `expected` bytes is NOT enough: we reserve 1 MiB on top.
         assert!(matches!(
-            free_space_verdict(1000, 1000),
+            free_space_verdict(Some(1000), 1000),
             Err(ModelDownloadError::InsufficientFreeSpace { .. })
         ));
     }
@@ -1510,7 +1600,7 @@ mod tests {
     #[test]
     fn free_space_verdict_accepts_exactly_one_mib_of_slack() {
         // `available == expected + 1 MiB` is the acceptance boundary.
-        assert_eq!(free_space_verdict(1000 + 1024 * 1024, 1000), Ok(()));
+        assert_eq!(free_space_verdict(Some(1000 + 1024 * 1024), 1000), Ok(()));
     }
 
     #[test]
@@ -1519,7 +1609,7 @@ mod tests {
         // catches `1024 * 1024` being mutated to `+` or `/`: either would
         // shrink the slack and let this case through.
         assert!(matches!(
-            free_space_verdict(1000 + 1024 * 1024 - 1, 1000),
+            free_space_verdict(Some(1000 + 1024 * 1024 - 1), 1000),
             Err(ModelDownloadError::InsufficientFreeSpace { .. })
         ));
     }

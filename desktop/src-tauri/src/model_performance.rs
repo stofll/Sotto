@@ -338,8 +338,7 @@ pub struct DownloadAssessment {
 /// filesystem, and the same answer. Windows tolerates the missing leaf and
 /// never reaches the second step, which is why the gap stayed invisible there.
 fn available_space(dir: PathBuf) -> Option<u64> {
-    dir.ancestors()
-        .find_map(|path| fs2::available_space(path).ok())
+    crate::model_download::available_bytes(&dir)
 }
 
 fn download_assessment(id: &str, available_bytes: Option<u64>) -> DownloadAssessment {
