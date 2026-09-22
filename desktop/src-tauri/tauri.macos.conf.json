@@ -1,15 +1,9 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "bundle": {
-    "targets": ["app", "dmg"],
+    "targets": ["app"],
     "macOS": {
-      "signingIdentity": "-",
-      "dmg": {
-        "background": "installer/macos/background.png",
-        "windowSize": { "width": 660, "height": 400 },
-        "appPosition": { "x": 180, "y": 210 },
-        "applicationFolderPosition": { "x": 480, "y": 210 }
-      }
+      "signingIdentity": "-"
     }
   }
 }

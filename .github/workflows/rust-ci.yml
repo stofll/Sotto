@@ -141,6 +141,11 @@ jobs:
           uv export --locked --project tests/ui --format requirements-txt --no-emit-project --output-file "$RUNNER_TEMP/ui-audit.txt"
           uvx --python 3.12 --from pip-audit==2.10.1 pip-audit --strict --disable-pip --require-hashes -r "$RUNNER_TEMP/ui-audit.txt"
 
+      - name: Audit exact macOS disk image dependencies
+        run: |
+          uv export --locked --project scripts/macos-dmg --format requirements-txt --no-emit-project --output-file "$RUNNER_TEMP/dmg-audit.txt"
+          uvx --python 3.12 --from pip-audit==2.10.1 pip-audit --strict --disable-pip --require-hashes -r "$RUNNER_TEMP/dmg-audit.txt"
+
       # Call the binary directly rather than through `cargo audit`: the rustup
       # shim would read rust-toolchain.toml and download the whole pinned
       # toolchain, which auditing a lockfile does not need.
@@ -275,6 +280,19 @@ jobs:
       - name: Windows packaging regressions
         if: github.event_name != 'push' && runner.os == 'Windows'
         run: node --test scripts/build-portable.test.mjs scripts/build-windows-installer.test.mjs scripts/build-setup.test.mjs
+
+      # The release builds its disk image with dmgbuild only on a tag, so
+      # exercise the same script headlessly here with a stub bundle.
+      - name: macOS disk image layout
+        if: github.event_name != 'push' && runner.os == 'macOS'
+        run: |
+          set -eu
+          python3 -m venv "$RUNNER_TEMP/dmg-bootstrap"
+          "$RUNNER_TEMP/dmg-bootstrap/bin/pip" install uv==0.12.17
+          export PATH="$RUNNER_TEMP/dmg-bootstrap/bin:$PATH"
+          mkdir -p "$RUNNER_TEMP/stub/Sotto.app/Contents/MacOS"
+          sh scripts/build-dmg.sh "$RUNNER_TEMP/stub/Sotto.app" "$RUNNER_TEMP/layout-check.dmg"
+          hdiutil imageinfo "$RUNNER_TEMP/layout-check.dmg" > /dev/null
 
       # `sherpa-onnx-sys` downloads the native archive itself and does not
       # verify its hash. Download and check it here, then hand the build script

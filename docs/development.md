@@ -81,12 +81,10 @@ That wrapper uses a build directory outside the checkout by default and prints t
 
 The wrapper verifies the pinned Sherpa archive, builds its release runtime and stages the DLLs before compiling the application. It also repairs a warm Cargo cache whose runtime DLLs were removed. Install the desktop dependencies with `pnpm install --frozen-lockfile` first: the wrapper uses the repository's locked Tauri CLI.
 
-macOS artifacts land in `desktop/src-tauri/target/release/bundle/`: the application in `macos/Sotto.app` and the disk image in `dmg/`. Restricting the run to one target removes the other's output, so a `--bundles dmg` build leaves `macos/` empty and ships the application inside the disk image.
-
-The `.dmg` step drives Finder through AppleScript to lay out the volume window, so it needs Automation permission for whatever launched the build — the terminal, or the editor running the command. The first build raises the one-time macOS prompt for it, and that build still fails: the AppleScript call already in flight does not wait for the answer, so the step exits and the bundler reports the opaque `error running bundle_dmg.sh` after the `.app` has already been produced. It can also leave a `dmg.*` volume mounted, which `hdiutil detach` ejects. Allow the prompt and run the build again; later builds pass without asking. Build only the application when the disk image is not the point, or when granting that permission is not an option:
+On macOS `pnpm tauri build` produces the application in `desktop/src-tauri/target/release/bundle/macos/Sotto.app`, together with the updater archive. The disk image is a separate step that needs `uv` and no Finder automation permission:
 
 ```bash
-pnpm tauri build --bundles app
+sh scripts/build-dmg.sh desktop/src-tauri/target/release/bundle/macos/Sotto.app Sotto.dmg
 ```
 
 ### Keep the macOS permissions across builds

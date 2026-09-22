@@ -1,20 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="660" height="400" viewBox="0 0 660 400">
   <title>Sotto DMG background</title>
-  <rect width="660" height="400" fill="#121217"/>
-  <path d="M0 309 C155 309 192 234 358 250 S553 329 660 278 V400 H0Z" fill="#23232b" opacity=".64"/>
-  <path d="M0 340 C177 267 278 274 429 304 S581 359 660 330 V400 H0Z" fill="#23232b" opacity=".55"/>
-  <path d="M0 376 C148 309 240 378 397 344 S576 357 660 380 V400 H0Z" fill="#1c1c24" opacity=".9"/>
-  <text x="330" y="98" text-anchor="middle" font-family="Arial, sans-serif" font-size="40" font-weight="700" letter-spacing="-1.5" fill="#ececf0">Sotto</text>
-  <defs>
-    <path id="arrow" d="M0 0 H9 M5 -4 L9 0 L5 4" fill="none" stroke="#ec903b" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-  </defs>
-  <g aria-label="Drag Sotto to Applications">
-    <use href="#arrow" x="328" y="168"/>
-    <use href="#arrow" x="328" y="182"/><use href="#arrow" x="342" y="182"/>
-    <use href="#arrow" x="272" y="196"/><use href="#arrow" x="286" y="196"/><use href="#arrow" x="300" y="196"/><use href="#arrow" x="314" y="196"/><use href="#arrow" x="328" y="196"/><use href="#arrow" x="342" y="196"/><use href="#arrow" x="356" y="196"/>
-    <use href="#arrow" x="272" y="210"/><use href="#arrow" x="286" y="210"/><use href="#arrow" x="300" y="210"/><use href="#arrow" x="314" y="210"/><use href="#arrow" x="328" y="210"/><use href="#arrow" x="342" y="210"/><use href="#arrow" x="356" y="210"/><use href="#arrow" x="370" y="210"/>
-    <use href="#arrow" x="272" y="224"/><use href="#arrow" x="286" y="224"/><use href="#arrow" x="300" y="224"/><use href="#arrow" x="314" y="224"/><use href="#arrow" x="328" y="224"/><use href="#arrow" x="342" y="224"/><use href="#arrow" x="356" y="224"/>
-    <use href="#arrow" x="328" y="238"/><use href="#arrow" x="342" y="238"/>
-    <use href="#arrow" x="328" y="252"/>
+  <rect width="660" height="400" fill="#f5f2ea"/>
+  <path d="M0 309 C155 309 192 234 358 250 S553 329 660 278 V400 H0Z" fill="#e6e1d4" opacity=".64"/>
+  <path d="M0 340 C177 267 278 274 429 304 S581 359 660 330 V400 H0Z" fill="#e6e1d4" opacity=".55"/>
+  <path d="M0 376 C148 309 240 378 397 344 S576 357 660 380 V400 H0Z" fill="#ebe8e0" opacity=".9"/>
+  <text x="330" y="80" text-anchor="middle" font-family="Arial, sans-serif" font-size="34" font-weight="700" letter-spacing="-1.3" fill="#0e0c14">Sotto</text>
+  <g aria-label="Drag Sotto to Applications" fill="none" stroke="#ec903b" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M298 173 L309 185 L298 197" opacity=".3"/>
+    <path d="M316 173 L327 185 L316 197" opacity=".55"/>
+    <path d="M334 173 L345 185 L334 197" opacity=".8"/>
+    <path d="M352 173 L363 185 L352 197"/>
   </g>
 </svg>
