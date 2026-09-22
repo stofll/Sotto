@@ -3,7 +3,7 @@ use crate::{hardware_profile, model};
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{
     mpsc::{sync_channel, SyncSender},
     OnceLock,
@@ -15,12 +15,15 @@ const METHOD: &str = "sotto-stt-v1-whisper-0.14.4-sherpa-1.13.7";
 /// The language setting that leaves the choice to the engine. Its measurement
 /// is the one that fits any other language the model is asked for.
 const GENERIC_LANGUAGE: &str = "auto";
+/// Every catalogue reference is a processor measurement, and the cards are
+/// meant to stay comparable between machines rather than to predict the
+/// graphics card in front of the user.
+const CATALOG_COMPUTE: &str = "cpu";
 /// Apple Silicon keeps one memory pool for the processor and the graphics,
 /// so free system memory is the budget whichever of them runs the model.
 /// Elsewhere a graphics card has memory of its own that nothing here reads.
 const UNIFIED_MEMORY: bool = cfg!(all(target_os = "macos", target_arch = "aarch64"));
 const RETENTION: u64 = 30 * 24 * 60 * 60;
-const MIN_SAMPLES: usize = 5;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -289,22 +292,17 @@ fn clear(db: &Connection, id: &str) -> rusqlite::Result<()> {
     Ok(())
 }
 
+/// What a model card says about speed: one bounded score, or nothing.
+///
+/// The card draws three fixed levels from `score` and explains them in a
+/// sentence, so anything finer — sample counts, medians, the machine the
+/// catalogue was measured on — would be carried across the bridge for no
+/// reader. `source` stays because "not measured" is a state the interface
+/// distinguishes.
 #[derive(Clone, Debug, Serialize)]
 pub struct SpeedAssessment {
     pub score: Option<f64>,
     pub source: &'static str,
-    /// The reference shown was measured in another context — another compute
-    /// device or another language setting — because this one has none. The
-    /// interface says so rather than passing it off as a measurement of the
-    /// machine in front of the user.
-    pub approximate: bool,
-    pub samples: usize,
-    pub median_ms: Option<f64>,
-    pub audio_min: Option<f64>,
-    pub audio_max: Option<f64>,
-    pub unstable: bool,
-    pub cold: bool,
-    pub reference: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -321,7 +319,38 @@ pub struct Assessment {
     pub compute: String,
     pub speed: SpeedAssessment,
     pub memory: MemoryAssessment,
+    pub download: DownloadAssessment,
     pub load_failed: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct DownloadAssessment {
+    pub required_bytes: Option<u64>,
+    pub available_bytes: Option<u64>,
+    pub insufficient: bool,
+}
+
+fn download_assessment(id: &str, available_bytes: Option<u64>) -> DownloadAssessment {
+    let expected = model::manifest_entry(id)
+        .ok()
+        .map(|entry| entry.expected_bytes)
+        .or_else(|| {
+            model::bundle_manifest_entry(id).ok().map(|entry| {
+                entry
+                    .artifacts
+                    .iter()
+                    .map(|artifact| artifact.expected_bytes)
+                    .sum::<u64>()
+            })
+        });
+    let required_bytes = expected.map(crate::model_download::required_free_space);
+    DownloadAssessment {
+        required_bytes,
+        available_bytes,
+        insufficient: required_bytes
+            .zip(available_bytes)
+            .is_some_and(|(required, available)| available < required),
+    }
 }
 
 /// A bounded monotonic display scale, not a benchmark percentile or accuracy.
@@ -380,131 +409,62 @@ pub struct Reference {
     pub compute: String,
     pub language: String,
     pub rtf: f64,
+    pub median_ms: f64,
+    pub audio_seconds: f64,
+    pub fixture_language: String,
     pub machine: String,
     pub method: String,
 }
 
-/// The measurement to show before the machine has produced one of its own.
+/// The catalogue measurement for `model_id` under the configured `language`,
+/// falling back to the automatic-detection one.
 ///
-/// The catalogue is recorded per language and, so far, on the CPU, while the
-/// application asks for the GPU by default — an exact match alone left every
-/// bar on the page empty. Three fallbacks follow it, each giving up one more
-/// piece of the context: the same device with the language left to the engine,
-/// then the CPU with the language asked for, then the CPU with neither. The
-/// GPU is not slower than the CPU it was measured against, so a bar filled
-/// that way promises less than the machine delivers, never more. A CPU profile
-/// reaches the last two only to repeat the lookups above them, which have
-/// already come back empty.
-fn reference(profile: &Profile, language: &str) -> Option<&'static Reference> {
+/// The language is not decoration. Whisper pays for a detection pass, so its
+/// `auto` rows run about twice its explicit-language rows — enough to move
+/// `base` and `base.en` a whole level down the card. Sherpa models are
+/// indifferent, and their two rows agree within a few percent. Showing the
+/// `auto` number to someone who has chosen a language therefore understates
+/// Whisper against Sherpa on one shared scale.
+fn reference(model_id: &str, language: &str) -> Option<&'static Reference> {
     static REFERENCES: OnceLock<Vec<Reference>> = OnceLock::new();
     let references = REFERENCES.get_or_init(|| {
         serde_json::from_str(include_str!("model_reference.json")).unwrap_or_default()
     });
-    let measured = |compute: &str, language: &str| {
+    let revision = revision(model_id);
+    let measured = |language: &str| {
         references.iter().find(|value| {
-            value.model_id == profile.model_id
-                && value.revision == profile.revision
-                && value.compute == compute
+            value.model_id == model_id
+                && value.revision == revision
+                && value.compute == CATALOG_COMPUTE
                 && value.method == METHOD
                 && value.language == language
                 && value.rtf.is_finite()
                 && value.rtf > 0.0
         })
     };
-    measured(&profile.compute, language)
-        .or_else(|| measured(&profile.compute, GENERIC_LANGUAGE))
-        .or_else(|| measured("cpu", language))
-        .or_else(|| measured("cpu", GENERIC_LANGUAGE))
+    measured(language).or_else(|| measured(GENERIC_LANGUAGE))
 }
 
-fn speed(
-    profile: &Profile,
-    observations: &[Observation],
-    language: &str,
-    prompt: &str,
-) -> SpeedAssessment {
-    let mut result = SpeedAssessment {
-        score: None,
-        source: "unknown",
-        approximate: false,
-        samples: 0,
-        median_ms: None,
-        audio_min: None,
-        audio_max: None,
-        unstable: false,
-        cold: false,
-        reference: None,
-    };
-    if let Some(reference) = reference(profile, language) {
-        result.score = Some(speed_score(reference.rtf));
-        result.source = "reference";
-        result.approximate = reference.compute != profile.compute || reference.language != language;
-        result.reference = Some(reference.machine.clone());
+/// The catalogue number a model card shows.
+///
+/// One fixed processor context keeps the cards comparable between machines,
+/// while the language follows the configured one because it changes Whisper's
+/// cost by about a factor of two. Dictation observations are still recorded —
+/// `assess` reads them for `load_failed`, and the reset command clears them —
+/// but they never reach the card: five samples from one machine, gathered
+/// while the user was doing something else, are not a scale anyone can compare
+/// models on.
+fn catalog_speed(id: &str, language: &str) -> SpeedAssessment {
+    match reference(id, language) {
+        Some(reference) => SpeedAssessment {
+            score: Some(speed_score(reference.rtf)),
+            source: "reference",
+        },
+        None => SpeedAssessment {
+            score: None,
+            source: "unknown",
+        },
     }
-    let candidates: Vec<_> = observations
-        .iter()
-        .filter(|value| {
-            value.profile == *profile
-                && value.kind == "inference"
-                && value.source == RunSource::Dictation
-                && value.language == language
-                && value.custom_prompt == prompt
-                && value.audio_seconds.is_finite()
-                && value.audio_seconds >= 3.0
-                && value.inference_ms.is_finite()
-                && value.inference_ms > 0.0
-        })
-        .collect();
-    // Prefer a representative 10–30s warm group, then the most populated group.
-    let mut groups = Vec::new();
-    for cold in [false, true] {
-        for band in [1, 0, 2] {
-            let group: Vec<_> = candidates
-                .iter()
-                .copied()
-                .filter(|value| value.cold == cold && duration_band(value.audio_seconds) == band)
-                .take(30)
-                .collect();
-            groups.push(group);
-        }
-    }
-    let group = groups
-        .iter()
-        .find(|group| group.len() >= MIN_SAMPLES)
-        .or_else(|| groups.iter().max_by_key(|group| group.len()));
-    let Some(group) = group.filter(|group| !group.is_empty()) else {
-        return result;
-    };
-    result.samples = group.len();
-    if group.len() < MIN_SAMPLES {
-        return result;
-    }
-    let mut ratios: Vec<_> = group
-        .iter()
-        .map(|value| value.inference_ms / 1000.0 / value.audio_seconds)
-        .collect();
-    ratios.sort_by(f64::total_cmp);
-    let mut times: Vec<_> = group.iter().map(|value| value.inference_ms).collect();
-    times.sort_by(f64::total_cmp);
-    let median = |values: &[f64]| (values[(values.len() - 1) / 2] + values[values.len() / 2]) / 2.0;
-    result.unstable = ratios[(ratios.len() - 1) * 3 / 4] > ratios[(ratios.len() - 1) / 4] * 3.0;
-    if result.unstable && result.source == "reference" {
-        return result;
-    }
-    result.score = (!result.unstable).then(|| speed_score(median(&ratios)));
-    result.source = "personal";
-    result.approximate = false;
-    result.median_ms = Some(median(&times));
-    result.audio_min = group
-        .iter()
-        .map(|value| value.audio_seconds)
-        .reduce(f64::min);
-    result.audio_max = group
-        .iter()
-        .map(|value| value.audio_seconds)
-        .reduce(f64::max);
-    result.cold = group[0].cold;
-    result
 }
 
 pub fn assess(
@@ -512,9 +472,11 @@ pub fn assess(
     models: &[model::ModelInfo],
     gpu: bool,
     language: &str,
-    prompt: &str,
 ) -> Vec<Assessment> {
     let hardware = hardware_profile::snapshot();
+    let disk_available = model::models_dir()
+        .ok()
+        .and_then(|dir| crate::model_download::available_bytes(&dir));
 
     models
         .iter()
@@ -529,7 +491,8 @@ pub fn assess(
             Assessment {
                 id: model.id.clone(),
                 compute: compute.to_owned(),
-                speed: speed(&profile, observations, language, prompt),
+                speed: catalog_speed(&model.id, language),
+                download: download_assessment(&model.id, disk_available),
                 memory: memory_assessment(
                     model.ram_bytes,
                     hardware.available_bytes,
@@ -556,12 +519,11 @@ pub async fn model_assessments(
             .get_string("language")
             .unwrap_or_else(|| "auto".into());
         let gpu = crate::config::resolve_device(config.as_value()) != "cpu";
-        let prompt = prompt_fingerprint(crate::custom_words_prompt(&config).as_deref());
         let models = model::list_model_infos(&selected, current.as_deref());
         let payloads = read_payloads(&crate::mutex_recover::lock(&db))
             .map_err(|_| "PERFORMANCE_UNAVAILABLE".to_owned())?;
         let observations = decode_observations(payloads);
-        Ok(assess(&observations, &models, gpu, &language, &prompt))
+        Ok(assess(&observations, &models, gpu, &language))
     })
     .await
     .map_err(|_| "PERFORMANCE_UNAVAILABLE".to_owned())?
@@ -573,11 +535,6 @@ pub async fn reset_model_assessment(
     state: tauri::State<'_, Recorder>,
 ) -> Result<(), String> {
     state.reset(id).await
-}
-
-/// Developer benchmark output uses the same scale and revision contract.
-pub fn write_references(path: &Path, values: &[serde_json::Value]) -> std::io::Result<()> {
-    std::fs::write(path, serde_json::to_vec_pretty(values)?)
 }
 
 #[cfg(test)]
@@ -646,88 +603,35 @@ mod tests {
     }
 
     #[test]
-    fn a_measurement_of_the_same_model_stands_in_for_the_missing_context() {
-        // The catalogue holds tiny on the CPU, for Russian and for the engine's
-        // own choice. Every other context falls back to one of those two
-        // instead of leaving the card blank.
-        let exact = reference(&Profile::new("tiny", "cpu"), "ru").expect("ru is measured");
-        assert_eq!(exact.language, "ru");
-        let other_language = reference(&Profile::new("tiny", "cpu"), "de").expect("auto stands in");
-        assert_eq!(other_language.language, GENERIC_LANGUAGE);
-        let on_gpu = reference(&Profile::new("tiny", "gpu_unverified"), "ru")
-            .expect("the CPU measurement stands in");
-        assert_eq!(on_gpu.compute, "cpu");
-        assert_eq!(on_gpu.language, "ru");
-        // Neither the device nor the language is measured: the default profile
-        // asks for the GPU, so this is what fills the bar for every language
-        // the catalogue does not hold.
-        let neither = reference(&Profile::new("tiny", "gpu_unverified"), "de")
-            .expect("the CPU measurement for any language stands in");
-        assert_eq!(neither.compute, "cpu");
-        assert_eq!(neither.language, GENERIC_LANGUAGE);
-        assert!(reference(&Profile::new("large-v3", "cpu"), "ru").is_none());
-        // A borrowed measurement is marked as one, so the interface can say
-        // which context it came from instead of presenting it as this
-        // machine's own.
-        assert!(!speed(&Profile::new("tiny", "cpu"), &[], "ru", "").approximate);
-        assert!(speed(&Profile::new("tiny", "cpu"), &[], "de", "").approximate);
-        assert!(speed(&Profile::new("tiny", "gpu_unverified"), &[], "ru", "").approximate);
-        assert!(speed(&Profile::new("tiny", "gpu_unverified"), &[], "de", "").approximate);
-    }
-    #[test]
-    fn measurements_need_matching_context_and_five_runs() {
-        let mut values = vec![sample(); 4];
-        assert_eq!(speed(&profile(), &values, "en", "").source, "unknown");
-        values.push(sample());
-        let result = speed(&profile(), &values, "en", "");
-        assert_eq!(result.source, "personal");
-        assert_eq!(result.median_ms, Some(2000.0));
-        assert_eq!(result.audio_min, Some(20.0));
-        assert_eq!(speed(&profile(), &values, "ru", "").score, None);
-        assert_eq!(speed(&profile(), &values, "en", "different").score, None);
-        let mut changed = profile();
-        changed.compute = "gpu_unverified".into();
-        assert_eq!(speed(&changed, &values, "en", "").score, None);
-        for value in &mut values {
-            value.source = RunSource::File;
+    fn the_configured_language_selects_the_reference_measured_with_it() {
+        // Whisper pays for a detection pass, so the `auto` row must not stand
+        // in while the language the user chose has a row of its own.
+        let explicit = reference("tiny", "ru").expect("ru is measured");
+        assert_eq!(explicit.language, "ru");
+        let detected = reference("tiny", GENERIC_LANGUAGE).expect("auto is measured");
+        assert!(
+            detected.rtf > explicit.rtf * 1.5,
+            "detection should cost Whisper real time: {} vs {}",
+            detected.rtf,
+            explicit.rtf
+        );
+        // A language the catalogue does not hold falls back to detection
+        // rather than leaving the card blank.
+        assert_eq!(
+            reference("tiny", "de").expect("auto stands in").language,
+            GENERIC_LANGUAGE
+        );
+        // Sherpa models do not run a detection pass, so their rows agree. The
+        // catalogue exposes them only where their runtime is packaged.
+        #[cfg(any(windows, target_os = "macos"))]
+        {
+            let (fixed, auto) = (
+                reference("gigaam-v3", "ru").unwrap().rtf,
+                reference("gigaam-v3", GENERIC_LANGUAGE).unwrap().rtf,
+            );
+            assert!((auto / fixed - 1.0).abs() < 0.2, "{auto} vs {fixed}");
         }
-        assert_eq!(speed(&profile(), &values, "en", "").score, None);
-    }
-    #[test]
-    fn durations_cold_runs_and_outliers_do_not_create_false_confidence() {
-        let mut values = vec![sample(); 5];
-        values[0].cold = true;
-        values[1].audio_seconds = 50.0;
-        assert_ne!(speed(&profile(), &values, "en", "").source, "personal");
-        let mut values = vec![sample(); 8];
-        for value in &mut values[4..] {
-            value.inference_ms *= 10.0;
-        }
-        let result = speed(&profile(), &values, "en", "");
-        assert!(result.unstable);
-        assert_eq!(result.score, None);
-    }
-
-    #[test]
-    fn unstable_personal_runs_keep_an_available_reference() {
-        let mut context = profile();
-        context.revision = revision("tiny");
-        let expected = speed(&context, &[], "ru", "");
-        assert_eq!(expected.source, "reference");
-        let mut values = vec![sample(); 8];
-        for (index, value) in values.iter_mut().enumerate() {
-            value.profile = context.clone();
-            value.language = "ru".into();
-            if index >= 4 {
-                value.inference_ms *= 10.0;
-            }
-        }
-        let result = speed(&context, &values, "ru", "");
-        assert!(result.unstable);
-        assert_eq!(result.samples, 8);
-        assert_eq!(result.source, "reference");
-        assert_eq!(result.score, expected.score);
-        assert_eq!(result.median_ms, None);
+        assert!(reference("custom-missing", "ru").is_none());
     }
 
     #[test]
@@ -827,15 +731,46 @@ mod tests {
             insert(&db, &other).unwrap();
         }
         let db = Connection::open(path).unwrap();
-        assert_eq!(
-            speed(&profile(), &read(&db).unwrap(), "en", "").source,
-            "personal"
-        );
+        assert_eq!(read(&db).unwrap().len(), 6);
         clear(&db, "tiny").unwrap();
         let remaining = read(&db).unwrap();
         assert_eq!(remaining.len(), 1);
         assert_eq!(remaining[0].profile.model_id, "base");
-        assert_eq!(speed(&profile(), &remaining, "en", "").source, "unknown");
+    }
+
+    #[test]
+    fn catalog_speed_follows_the_configured_language() {
+        let configured = catalog_speed("tiny", "ru");
+        assert_eq!(configured.source, "reference");
+        assert_eq!(
+            configured.score,
+            Some(speed_score(reference("tiny", "ru").unwrap().rtf))
+        );
+        assert!(configured.score > catalog_speed("tiny", GENERIC_LANGUAGE).score);
+        let missing = catalog_speed("custom-missing", "ru");
+        assert_eq!(missing.score, None);
+        assert_eq!(missing.source, "unknown");
+    }
+
+    #[test]
+    fn detection_overhead_does_not_demote_a_model_whose_language_is_set() {
+        // `base` reads as the lowest level at `auto` and the middle one with a
+        // language chosen. Showing the detection number to someone who will
+        // never pay for detection understates Whisper against Sherpa.
+        let configured = catalog_speed("base", "ru").score.unwrap();
+        let detected = catalog_speed("base", GENERIC_LANGUAGE).score.unwrap();
+        assert!(detected < 0.5, "auto should fall below the middle level");
+        assert!(configured >= 0.5, "a chosen language should reach it");
+    }
+
+    #[test]
+    fn download_capacity_distinguishes_full_and_unknown_disk() {
+        assert!(download_assessment("tiny", Some(0)).insufficient);
+        assert!(!download_assessment("tiny", None).insufficient);
+        let required = download_assessment("tiny", None).required_bytes.unwrap();
+        assert!(!download_assessment("tiny", Some(required)).insufficient);
+        assert!(download_assessment("tiny", Some(required - 1)).insufficient);
+        assert!(!download_assessment("custom-missing", Some(0)).insufficient);
     }
 
     #[test]
@@ -848,7 +783,11 @@ mod tests {
             assert!(value.revision.bytes().all(|byte| byte.is_ascii_hexdigit()));
             assert_eq!(value.method, METHOD);
             assert!(value.rtf.is_finite() && value.rtf > 0.0);
+            assert!(value.audio_seconds.is_finite() && value.audio_seconds > 0.0);
+            assert!(value.median_ms.is_finite() && value.median_ms > 0.0);
+            assert!((value.rtf - value.median_ms / 1000.0 / value.audio_seconds).abs() < 1e-9);
             assert!(!value.machine.is_empty());
+            assert!(matches!(value.fixture_language.as_str(), "ru" | "en"));
             assert!(seen.insert((value.model_id, value.compute, value.language)));
         }
     }

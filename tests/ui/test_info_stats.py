@@ -142,7 +142,7 @@ def test_stats_silence_estimate_and_legacy_fallback(
         "1 м" if locale == "ru" else "1 m"
     )
     expect(card.locator(".stat__sub")).to_have_text(
-        "без длительных пауз" if locale == "ru" else "excluding long pauses"
+        "паузы учтены частично" if locale == "ru" else "pauses partially accounted for"
     )
     page.mouse.move(0, 0)
     card.locator(".hint").focus()
@@ -199,12 +199,62 @@ def test_stats_no_detection_and_empty_period(app, page):
     expect(
         page.get_by_text("Записей без оценки пауз:", exact=False)
     ).not_to_be_visible()
+
     page.get_by_role("button", name="Всё время", exact=True).click()
     # A small negative estimate should round to 0, never '-0'.
     expect(card.locator(".stat__value")).to_have_text("0 м")
     expect(
         page.get_by_text("Записей без оценки пауз:", exact=False)
     ).not_to_be_visible()
+
+
+@pytest.mark.parametrize("locale", ["ru", "en"])
+@pytest.mark.parametrize("timed", [0, 1, 501])
+def test_stats_hint_explains_measurement_coverage(app, page, locale, timed):
+    ui = app(
+        config={"ui_language": locale},
+        stats={
+            "total_transcriptions": 501,
+            "total_speech_timed_transcriptions": timed,
+            "total_audio_seconds": 1000,
+            "total_excluded_silence_seconds": 10 if timed else 0,
+            "daily_history": [],
+        },
+    )
+    ui.nav("stats")
+    page.get_by_role(
+        "button", name="Всё время" if locale == "ru" else "All time", exact=True
+    ).click()
+    card = page.locator(".stat").filter(
+        has=page.get_by_text(
+            "Оценка экономии" if locale == "ru" else "Estimated savings", exact=True
+        )
+    )
+    expected = {
+        0: ("минус аудио и обработка", "minus audio and processing"),
+        1: ("паузы учтены частично", "pauses partially accounted for"),
+        501: ("без длительных пауз", "excluding long pauses"),
+    }[timed][locale == "en"]
+    expect(card.locator(".stat__sub")).to_have_text(expected)
+    card.locator(".hint").focus()
+    hint = page.locator(".hint-bubble")
+    if timed == 0:
+        expect(hint).to_contain_text(
+            "Замеров речи за этот период нет"
+            if locale == "ru"
+            else "No speech measurements for this period"
+        )
+        expect(hint).not_to_contain_text(
+            "Из аудио исключено" if locale == "ru" else "Excluded from audio"
+        )
+    elif timed == 1:
+        expect(hint).to_contain_text("1 из 501" if locale == "ru" else "1 of 501")
+    else:
+        expect(hint).to_contain_text(
+            "Длинные паузы исключаются"
+            if locale == "ru"
+            else "Long pauses are excluded"
+        )
 
 
 @pytest.mark.parametrize("locale", ["ru", "en"])

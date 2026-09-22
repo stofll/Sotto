@@ -1,26 +1,12 @@
 name: Rust CI
 
-# Runs on pull requests to main. It was disabled once to save runner minutes
-# (#22), but the app is heading for distribution and it builds for three
-# operating systems from one tree: without CI the whole
-# `#[cfg(target_os = ...)]` surface is only ever compiled on whichever machine
-# the work happened on, which is Windows.
+# All changes enter main through pull requests. PRs and manual runs execute
+# the full checks; pushes to main only build the app and test dependencies to
+# warm the shared Cargo cache on all three operating systems.
 #
-# It also runs on `push: main`, and that run exists for its cargo cache rather
-# than for its answer. A GitHub Actions cache can only be restored by the ref
-# that wrote it or by the default branch, and a `pull_request` run writes to
-# `refs/pull/N/merge` — a scope no other pull request can reach. With pull
-# requests as the only trigger, nothing ever wrote a cache on main: across 48
-# runs, every first run on a branch logged `No cache found` and rebuilt the
-# whole dependency graph, which cost about eight minutes on Windows (12m48 to
-# 14m19 cold against 4m49 to 5m39 warm). Merging to main now leaves a cache
-# every later pull request can restore from, including a partial restore
-# through the prefix key when the lockfile differs.
-#
-# That is also why `save-if` below limits writing to main: pull requests only
-# read. It keeps the repository under the 10 GB cache ceiling, which the
-# per-pull-request caches were already exceeding, and it takes the cache upload
-# off the critical path.
+# A PR cache belongs to refs/pull/N/merge and cannot serve other PRs. Only main
+# writes the Cargo cache so later PRs can restore it without filling storage
+# with per-PR copies. Keep preparation and cache keys shared between events.
 #
 # The expensive release build is not here; it lives in release.yml and hangs
 # off the tag. This pipeline is CPU-only, see the comment below.
@@ -87,7 +73,7 @@ jobs:
         run: |
           set -uo pipefail
           if [ "${{ github.event_name }}" != "pull_request" ]; then
-            echo 'Not a pull request — checking everything.'
+            echo 'Not a pull request — enabling application jobs for this event.'
             echo 'app=true' >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -108,7 +94,7 @@ jobs:
   security-audit:
     name: Dependency security audit
     needs: changes
-    if: ${{ !cancelled() && needs.changes.outputs.app != 'false' }}
+    if: ${{ !cancelled() && github.event_name != 'push' && needs.changes.outputs.app != 'false' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -179,7 +165,7 @@ jobs:
   lint:
     name: Cargo fmt (Linux)
     needs: changes
-    if: ${{ !cancelled() && needs.changes.outputs.app != 'false' }}
+    if: ${{ !cancelled() && github.event_name != 'push' && needs.changes.outputs.app != 'false' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -287,7 +273,7 @@ jobs:
           cargo test --locked
 
       - name: Windows packaging regressions
-        if: runner.os == 'Windows'
+        if: github.event_name != 'push' && runner.os == 'Windows'
         run: node --test scripts/build-portable.test.mjs scripts/build-windows-installer.test.mjs scripts/build-setup.test.mjs
 
       # `sherpa-onnx-sys` downloads the native archive itself and does not
@@ -353,6 +339,7 @@ jobs:
       # cost 16 minutes out of 23, catching nothing beyond clippy except
       # codegen and link failures. Do not drop `--all-targets`.
       - name: Clippy (deny warnings)
+        if: github.event_name != 'push'
         working-directory: desktop/src-tauri
         run: cargo clippy --locked --all-targets -- -D warnings
 
@@ -361,33 +348,44 @@ jobs:
         run: cargo build --locked --verbose
 
       - name: Verify compiled Whisper CPU baseline
+        if: github.event_name != 'push'
         run: node scripts/check-ggml-baseline.mjs desktop/src-tauri/target
 
       - name: Test model benchmark arguments
+        if: github.event_name != 'push'
         working-directory: desktop/src-tauri
         run: cargo test --locked --example model_benchmark
 
       - name: Test
+        if: github.event_name != 'push'
         working-directory: desktop/src-tauri
         run: cargo test --locked --verbose
 
+      # Include dev-dependencies in the shared cache without running tests or
+      # downloading speech models again after the PR has passed.
+      - name: Build test dependencies for shared cache
+        if: github.event_name == 'push'
+        working-directory: desktop/src-tauri
+        run: cargo test --locked --no-run
+
       - name: Check embedded macOS native runtime
-        if: runner.os == 'macOS'
+        if: github.event_name != 'push' && runner.os == 'macOS'
         run: sh scripts/check-macos-native-libs.sh desktop/src-tauri/target/debug/Sotto
 
       - name: Whisper download and speech inference smoke test
+        if: github.event_name != 'push'
         working-directory: desktop/src-tauri
         run: cargo test --locked --test test_whisper_engine -- --ignored --nocapture
 
       - name: Sherpa download and inference smoke test
-        if: runner.os == 'macOS' || runner.os == 'Windows'
+        if: github.event_name != 'push' && (runner.os == 'macOS' || runner.os == 'Windows')
         working-directory: desktop/src-tauri
         run: cargo test --locked --test test_sherpa_runtime -- --ignored --nocapture
 
   frontend-test:
     name: TypeScript typecheck + build
     needs: changes
-    if: ${{ !cancelled() && needs.changes.outputs.app != 'false' }}
+    if: ${{ !cancelled() && github.event_name != 'push' && needs.changes.outputs.app != 'false' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -458,7 +456,7 @@ jobs:
   static-gate:
     name: Static gate — no sidecar_invoke / Python runtime
     needs: changes
-    if: ${{ !cancelled() && needs.changes.outputs.app != 'false' }}
+    if: ${{ !cancelled() && github.event_name != 'push' && needs.changes.outputs.app != 'false' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

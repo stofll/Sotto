@@ -301,24 +301,10 @@ button, input, textarea, select { font: inherit; }
 .model-meter:hover { color: var(--ink); }
 .model-meter:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
 .model-meter[data-warning] { color: var(--warn); }
-.model-meter__track { display: inline-flex; align-items: center; width: 48px; height: 5px; border-radius: var(--radius-sm); background: var(--bg-4); }
-.model-meter__fill { height: 100%; border-radius: inherit; background: var(--ink-mute); }
-/* A measurement borrowed from another device or language reads fainter
-   than one of this machine's own; the panel says which it is. */
-.model-meter__fill[data-approximate] { opacity: 0.55; }
-.model-meter[data-warning] .model-meter__fill { background: var(--warn); }
-.model-meter__unknown {
-  width: 100%;
-  height: 100%;
-  border-radius: inherit;
-  background: repeating-linear-gradient(
-    -45deg,
-    color-mix(in srgb, var(--ink-mute) 55%, transparent) 0 1.5px,
-    transparent 1.5px 4px
-  );
-}
-.custom-select__menu.model-meter-detail { width: 320px; padding: 12px; max-width: calc(100vw - 24px); white-space: normal; }
-.model-meter-detail p { margin: 0 0 10px; font: 400 12px/1.5 var(--font-sans); }
+.model-meter--speed { cursor: help; }
+.model-meter__track { display: inline-flex; width: 48px; height: 4px; border-radius: var(--radius-sm); background: var(--bg-4); overflow: hidden; }
+.model-meter__fill { height: 100%; border-radius: inherit; background: var(--accent-text); }
+.model-meter__unknown { width: 100%; height: 100%; background: repeating-linear-gradient(-45deg, var(--ink-mute) 0 1px, transparent 1px 4px); }
 .model-card2__param { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; font: 500 12px/1.35 var(--font-sans); color: var(--ink-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* What shrinks is the list of languages — it is the long one; the short
    properties beside it must not be the first to disappear. */
@@ -2187,8 +2173,18 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .permission-notice__text p { margin: 8px 0 0; }
 
 .release-notes { font: 400 13px/1.6 var(--font-sans); overflow-wrap: anywhere; }
-.release-notes > * + * { margin-top: var(--pad-3); }
+.release-notes > :not(:first-child) { margin-top: var(--pad-3); }
 .release-notes h3 { margin: 0 0 var(--pad-2); font: 600 13px/1.4 var(--font-sans); }
 .release-notes p { margin: 0; white-space: pre-wrap; }
-.release-notes ul { margin-bottom: 0; padding-left: 20px; }
+.release-notes ul, .release-notes ol { margin-bottom: 0; padding-left: 20px; }
+.release-notes pre { white-space: pre-wrap; }
+.release-notes a { color: var(--accent-text); }
+.release-notes a:focus-visible, .release-notes__table:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
+.release-notes__table { max-width: 100%; overflow-x: auto; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); }
+.release-notes table { width: 100%; border-collapse: collapse; }
+.release-notes :is(th, td) { min-width: calc(12ch + 2 * var(--pad-3)); padding: var(--pad-2) var(--pad-3); border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+.release-notes th { background: var(--bg-4); color: var(--ink-dim); font-weight: 500; }
+.release-notes tbody tr:last-child td { border-bottom: 0; }
+.release-notes [data-align="center"] { text-align: center; }
+.release-notes [data-align="right"] { text-align: right; }
 .release-notes__version { color: var(--accent); font: 500 12px/1.4 var(--font-mono); }

@@ -16,5 +16,3 @@ describe("installer state delivery", () => {
     expect(newestSetupStatus(failed, retry)).toBe(retry);
   });
 });
-
-\n

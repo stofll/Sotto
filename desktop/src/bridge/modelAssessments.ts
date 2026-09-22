@@ -3,18 +3,11 @@ import { invoke } from "./invoke";
 export type ModelAssessment = {
   id: string;
   compute: "cpu" | "gpu_unverified";
+  /** A comparative CPU benchmark under the configured language, not a
+   * prediction for this machine. The card draws three levels from `score`. */
   speed: {
     score: number | null;
-    source: "unknown" | "reference" | "personal";
-    /** The reference came from another compute device or another language. */
-    approximate: boolean;
-    samples: number;
-    median_ms: number | null;
-    audio_min: number | null;
-    audio_max: number | null;
-    unstable: boolean;
-    cold: boolean;
-    reference: string | null;
+    source: "unknown" | "reference";
   };
   memory: {
     score: number | null;
@@ -22,6 +15,7 @@ export type ModelAssessment = {
     required_bytes: number | null;
     available_bytes: number | null;
   };
+  download?: { required_bytes: number | null; available_bytes: number | null; insufficient: boolean };
   load_failed: boolean;
 };
 

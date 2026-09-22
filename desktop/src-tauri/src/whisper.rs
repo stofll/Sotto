@@ -5,6 +5,7 @@
 //! thread, NOT in `tauri::State`. Commands come in via `mpsc::Receiver`,
 //! results go out via `mpsc::Sender`.
 
+pub use crate::vad::SpeechTiming;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tauri::{AppHandle, Manager};
@@ -30,7 +31,7 @@ pub enum EngineCommand {
         source: crate::model_performance::RunSource,
         session_id: u64,
         audio: Arc<Vec<f32>>,
-        speech_seconds: Option<f64>,
+        speech_timing: SpeechTiming,
         cancel_flag: Arc<AtomicBool>,
         /// Target language (e.g. `"ru"`). `None` or `"auto"` auto-detects.
         /// whisper.cpp defaults to `"en"` when unset, which mis-decodes
@@ -51,7 +52,7 @@ pub enum EngineCommand {
     TranscribeCloud {
         session_id: u64,
         audio: Arc<Vec<f32>>,
-        speech_seconds: Option<f64>,
+        speech_timing: SpeechTiming,
         cancel_flag: Arc<AtomicBool>,
         request: crate::cloud_stt::CloudSttRequest,
         reply: oneshot::Sender<Result<InferenceResult, String>>,
@@ -247,7 +248,7 @@ pub fn engine_thread_main(
                 source,
                 session_id,
                 audio,
-                speech_seconds,
+                speech_timing,
                 cancel_flag,
                 language,
                 initial_prompt,
@@ -332,7 +333,7 @@ pub fn engine_thread_main(
                             stt_service: None,
                             inference_time_ms: started.elapsed().as_millis() as u64,
                             audio_seconds,
-                            speech_seconds,
+                            speech_seconds: speech_timing.resolve(),
                         }),
                         Ok(Err(error)) => Err(error),
                         Err(_) => Err("sherpa panicked".to_string()),
@@ -488,7 +489,7 @@ pub fn engine_thread_main(
                                     stt_service: None,
                                     inference_time_ms: elapsed,
                                     audio_seconds,
-                                    speech_seconds,
+                                    speech_seconds: speech_timing.resolve(),
                                 })
                             }
                             Err(e) => Err(format!("n_segments: {e}")),
@@ -730,7 +731,7 @@ pub fn engine_thread_main(
             EngineCommand::TranscribeCloud {
                 session_id,
                 audio,
-                speech_seconds,
+                speech_timing,
                 cancel_flag,
                 request,
                 reply,
@@ -797,7 +798,7 @@ pub fn engine_thread_main(
                                 stt_service: Some(cloud_result.service),
                                 inference_time_ms: started.elapsed().as_millis() as u64,
                                 audio_seconds,
-                                speech_seconds,
+                                speech_seconds: speech_timing.resolve(),
                             })
                         }
                     }
