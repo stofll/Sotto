@@ -30,6 +30,10 @@ Build the frontend before Cargo checks: Tauri reads `desktop/dist`. On Windows, 
 
 CI runs formatting once on Linux and Clippy on Linux, Windows, and macOS so platform-specific code is also linted. The CI workflow is authoritative for the operating-system matrix. Run relevant checks locally before a pull request; CI repeats them on clean runners. Local success does not replace CI, and CI does not replace native verification.
 
+All changes to `main` go through pull requests. Rust CI runs its full checks on PRs and manual dispatches; after a merge, it only prepares native dependencies and builds the frontend, Rust application and test targets to warm the shared Cargo cache on all three operating systems. Push runs do not execute tests, download speech models, or repeat lint and audit checks.
+
+PRs read the Cargo cache; only runs on `main` save it. Pushes and PRs confined to `site/` skip the application checks.
+
 ## Browser UI tests
 
 Run the Python/Playwright suite for UI changes. [Browser UI testing](ui-testing.md) documents setup, focused commands, test boundaries and failure artifacts; `.github/workflows/ui-tests.yml` runs Chromium and WebKit on pull requests. Keep the existing frontend checks above: browser tests complement their logic, IPC-contract, i18n and bundle checks.
