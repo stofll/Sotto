@@ -1,8 +1,8 @@
-//! Structured file logging (Phase 4 / Batch 6 / P1).
+//! Structured file logging.
 //!
-//! Writes JSONL log records to `~/.speech-to-text/logs/app.log` (same
-//! directory the legacy Python sidecar used; the path is overridable
-//! via `SPEECH_TO_TEXT_LOG_DIR`). The redaction pass scrubs API keys
+//! Writes JSONL log records to `<data dir>/logs/app.log` (see
+//! [`crate::user_data::data_dir`]; the directory is overridable via
+//! `SOTTO_LOG_DIR`). The redaction pass scrubs API keys
 //! and bearer tokens out of every record so a leaked log file
 //! doesn't expose credentials.
 //!
@@ -108,7 +108,7 @@ pub fn install() -> Result<(), String> {
     // lock `guard` is holding, and it is not a reentrant one. Release it
     // first, then sweep — the sweep reports what it deleted.
     drop(guard);
-    sweep_legacy_logs(&crate::db::db_path(), &path);
+    sweep_legacy_logs(&crate::user_data::data_dir(), &path);
     Ok(())
 }
 
@@ -141,7 +141,7 @@ pub fn logs_total_bytes() -> u64 {
 /// Resolved by [`crate::debug::diagnostics_dir`] so the "open logs folder"
 /// button cannot point somewhere other than where the log is written. The
 /// two used to resolve the home directory independently and would diverge
-/// as soon as `SOTTO_CONFIG_DIR` was set.
+/// as soon as `SOTTO_DATA_DIR` was set.
 fn log_dir() -> PathBuf {
     crate::debug::diagnostics_dir()
 }
@@ -297,7 +297,7 @@ fn total_bytes(path: &Path, keep: usize) -> u64 {
 /// Matched by exact name, never by glob, and guarded against `active`: the
 /// legacy `app.log` sits in `<config dir>` while the live one sits in
 /// `<config dir>/logs`, so the two differ only by directory. If
-/// `SPEECH_TO_TEXT_LOG_DIR` ever points the live log at the config
+/// `SOTTO_LOG_DIR` ever points the live log at the config
 /// directory itself, that guard is the only thing standing between this
 /// sweep and the file we are writing to.
 fn sweep_legacy_logs(legacy_dir: &Path, active: &Path) {
@@ -662,7 +662,7 @@ mod tests {
 
     #[test]
     fn legacy_sweep_spares_the_active_log_when_the_paths_collide() {
-        // SPEECH_TO_TEXT_LOG_DIR can point the live log at the config
+        // SOTTO_LOG_DIR can point the live log at the config
         // directory itself, where it shares a name with the legacy file.
         let config_dir = tempfile::tempdir().unwrap();
         let active = write_log(config_dir.path(), "app.log", "live\n");

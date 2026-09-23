@@ -83,7 +83,7 @@ CPU observations survive restarts while the matching profile remains valid. Unve
 
 ## Models directory
 
-The default location is `%LOCALAPPDATA%/sotto/models` (Linux/macOS use the system cache directory). The path can be overridden with the `SPEECH_TO_TEXT_MODELS_DIR` environment variable.
+The default location is `%LOCALAPPDATA%/sotto/models` (Linux/macOS use the system cache directory). The path can be overridden with the `SOTTO_MODELS_DIR` environment variable.
 
 Before the app was renamed, the directory was called `whisper-desktop`. If it is left over from earlier builds, the app migrates it on the first access to models: nothing downloaded is lost.
 

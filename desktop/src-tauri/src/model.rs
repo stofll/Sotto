@@ -1090,7 +1090,7 @@ pub fn models_dir() -> Result<PathBuf, String> {
     if let Some(dir) = crate::portable::data_dir() {
         return Ok(dir.join("models"));
     }
-    if let Ok(override_dir) = std::env::var("SPEECH_TO_TEXT_MODELS_DIR") {
+    if let Ok(override_dir) = std::env::var("SOTTO_MODELS_DIR") {
         if !override_dir.trim().is_empty() {
             return Ok(PathBuf::from(override_dir));
         }
@@ -1098,6 +1098,20 @@ pub fn models_dir() -> Result<PathBuf, String> {
     let cache =
         dirs::cache_dir().ok_or_else(|| "MODEL_CACHE_UNAVAILABLE: no cache dir".to_string())?;
     Ok(migrate_legacy_cache(&cache).join("models"))
+}
+
+/// The model directories this app creates when neither the portable folder
+/// nor `SOTTO_MODELS_DIR` is in use, including the pre-rename one. The
+/// uninstaller's data removal deletes them.
+#[cfg(windows)]
+pub(crate) fn default_models_dirs() -> Vec<PathBuf> {
+    let Some(cache) = dirs::cache_dir() else {
+        return Vec::new();
+    };
+    [CACHE_DIR, LEGACY_CACHE_DIR]
+        .iter()
+        .map(|name| cache.join(name).join("models"))
+        .collect()
 }
 
 /// Return the cache directory, migrating the old one along the way if it has
@@ -2435,12 +2449,12 @@ mod tests {
         assert_eq!(ui_ids, manifest_ids);
     }
 
-    // `models_dir()` honours `SPEECH_TO_TEXT_MODELS_DIR`, so tests exercising
+    // `models_dir()` honours `SOTTO_MODELS_DIR`, so tests exercising
     // `models_dir`-bound functions point it at a temp dir. `EnvGuard` restores
     // the previous value and serializes against every other env-var test.
     use crate::test_support::EnvGuard;
 
-    const MODELS_DIR_ENV: &str = "SPEECH_TO_TEXT_MODELS_DIR";
+    const MODELS_DIR_ENV: &str = "SOTTO_MODELS_DIR";
 
     // ------------------------------------------------------------------
     // Bundle readiness / recovery / discovery / deletion via paths

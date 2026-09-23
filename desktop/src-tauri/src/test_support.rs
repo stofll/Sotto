@@ -22,7 +22,7 @@ pub fn env_lock() -> std::sync::MutexGuard<'static, ()> {
     ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner())
 }
 
-/// Sets or removes an environment variable for the duration of a test and
+/// Sets an environment variable for the duration of a test and
 /// restores the previous value on drop (removing the variable again if it
 /// was unset before).
 pub struct EnvGuard {
@@ -37,17 +37,6 @@ impl EnvGuard {
         let lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let prev = std::env::var(key).ok();
         std::env::set_var(key, value);
-        Self {
-            key,
-            prev,
-            _lock: lock,
-        }
-    }
-
-    pub fn remove(key: &'static str) -> Self {
-        let lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-        let prev = std::env::var(key).ok();
-        std::env::remove_var(key);
         Self {
             key,
             prev,

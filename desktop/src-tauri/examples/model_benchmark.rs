@@ -175,8 +175,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target/model-benchmark");
     std::fs::create_dir_all(&root)?;
     // Set before model APIs run; this process never loads the application config.
-    std::env::set_var("SPEECH_TO_TEXT_MODELS_DIR", root.join("models"));
-    std::env::set_var("SOTTO_CONFIG_DIR", root.join("config"));
+    std::env::set_var("SOTTO_MODELS_DIR", root.join("models"));
+    std::env::set_var("SOTTO_DATA_DIR", root.join("data"));
     let models_dir = root.join("models");
     std::fs::create_dir_all(&models_dir)?;
     let threads = std::thread::available_parallelism()

@@ -3,39 +3,16 @@
 //! `Connection` is Send but not Sync. A mutex serializes access to the shared
 //! connection; blocking workers acquire their guards inside the worker closure.
 
-use std::path::PathBuf;
 use std::sync::Mutex;
 
 use rusqlite::Connection;
-
-/// Directory containing `sotto.db` and legacy history/statistics files.
-///
-/// Priority:
-/// 1. Portable data directory, when enabled on Windows
-/// 2. Env `SOTTO_CONFIG_DIR` (if set, even to empty)
-/// 3. `~/.speech_to_text` (via `dirs` crate)
-///
-/// NOT `app.path().app_config_dir()` — that resolves to a different path on macOS
-/// (`~/Library/Application Support/<bundle>/`). Keeping the legacy directory
-/// preserves access to existing history and statistics.
-pub fn db_path() -> PathBuf {
-    if let Some(dir) = crate::portable::data_dir() {
-        return dir;
-    }
-    if let Ok(dir) = std::env::var("SOTTO_CONFIG_DIR") {
-        return PathBuf::from(dir);
-    }
-    dirs::home_dir()
-        .expect("user home directory must be available")
-        .join(".speech_to_text")
-}
 
 /// Opens (or creates) `sotto.db` with WAL mode and applies schema migrations.
 ///
 /// Returns `std::sync::Mutex<Connection>` for use with `tokio::task::spawn_blocking`:
 /// `move || { let g = arc.lock().unwrap(); g.execute(...) }`.
 pub fn open() -> Result<Mutex<Connection>, rusqlite::Error> {
-    let dir = db_path();
+    let dir = crate::user_data::data_dir();
     std::fs::create_dir_all(&dir).map_err(|e| {
         rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::other(format!(
             "create_dir_all({:?}): {}",
@@ -128,7 +105,7 @@ const SCHEMA_V5: &str = include_str!("migrations/v5.sql");
 /// stale entries are dropped (mirror Python `transcription_history._prune`).
 ///
 /// `config_dir` is the directory holding the legacy `.json` files
-/// (typically `db_path()`). Returns Err with a human-readable message on
+/// (typically `user_data::data_dir()`). Returns Err with a human-readable message on
 /// read, parse or database failure. Each file is imported atomically before
 /// it is retired; a failed rename is logged separately. Callers treat import
 /// failures as non-fatal warnings so a broken JSON file cannot prevent startup.
@@ -416,27 +393,16 @@ mod tests {
     }
 
     #[test]
-    fn db_path_uses_home_dir_by_default() {
-        let _g = EnvGuard::remove("SOTTO_CONFIG_DIR");
-        let path = db_path();
-        assert!(
-            path.to_string_lossy().contains(".speech_to_text"),
-            "expected default path to contain .speech_to_text, got {:?}",
-            path,
-        );
-    }
-
-    #[test]
-    fn db_path_respects_env_override() {
-        let _g = EnvGuard::set("SOTTO_CONFIG_DIR", "/tmp/sotto-test-env");
-        let path = db_path();
+    fn data_dir_respects_env_override() {
+        let _g = EnvGuard::set("SOTTO_DATA_DIR", "/tmp/sotto-test-env");
+        let path = crate::user_data::data_dir();
         assert_eq!(path, std::path::PathBuf::from("/tmp/sotto-test-env"));
     }
 
     #[test]
     fn open_creates_db_file() {
         let tmp = tempfile::tempdir().unwrap();
-        let _g = EnvGuard::set("SOTTO_CONFIG_DIR", tmp.path().to_str().unwrap());
+        let _g = EnvGuard::set("SOTTO_DATA_DIR", tmp.path().to_str().unwrap());
         let conn_mutex = open().expect("open should succeed");
         let conn = conn_mutex.lock().unwrap();
         // Verify table exists after migration

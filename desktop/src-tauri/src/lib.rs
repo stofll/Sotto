@@ -68,6 +68,7 @@ mod text_protection;
 mod tray;
 mod ui_text;
 mod updater;
+mod user_data;
 mod vad;
 mod wav;
 pub mod whisper;
@@ -1189,13 +1190,24 @@ fn apply_autostart_inner(app: &AppHandle, rewrite_when_unchanged: bool) {
     }
 }
 
+/// Delete the current user's data from its default locations, for the
+/// uninstaller. Returns the process exit code: 0 when everything went.
+#[cfg(windows)]
+pub fn purge_user_data() -> i32 {
+    i32::from(!crate::user_data::purge().is_empty())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Phase 4 / Batch 6 / P1: structured file logging. Installs
-    // early (before any other setup) so every subsequent log line
-    // ends up in `~/.speech_to_text/logs/app.log` with API keys
-    // and bearer tokens redacted.
+    // Before the logger opens its file: the log directory moves with the
+    // data. The outcome is logged once the logger exists.
+    let data_migration = crate::user_data::migrate_legacy();
+    // Installs before any other setup so every later log line reaches
+    // `<data dir>/logs/app.log`, with API keys and bearer tokens redacted.
     let _ = crate::structured_log::install();
+    if let Some(migration) = &data_migration {
+        migration.log();
+    }
 
     tauri::Builder::default()
         // Must be registered first — the plugin decides whether this process
@@ -1332,12 +1344,12 @@ pub fn run() {
             let db = crate::db::open().map_err(|e| format!("db open: {e}"))?;
             let db_arc = std::sync::Arc::new(db);
             app.manage(crate::model_performance::Recorder::start(
-                crate::db::db_path().join("sotto.db"),
+                crate::user_data::data_dir().join("sotto.db"),
                 app.handle().clone(),
             ));
             {
                 let conn = crate::mutex_recover::lock(&db_arc);
-                let config_dir = crate::db::db_path();
+                let config_dir = crate::user_data::data_dir();
                 if let Err(e) = crate::db::migrate_from_json(&conn, &config_dir) {
                     log::warn!("migration from JSON failed (non-fatal): {e}");
                 }
