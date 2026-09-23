@@ -338,10 +338,13 @@ export function HistoryPage() {
   useEffect(() => {
     void refresh();
     const unlisten = subscribe<unknown>("history-updated", () => { void refresh(); });
-    const tick = window.setInterval(() => { void refresh(); }, 30_000);
+    // No polling: entries that aged out while the window sat hidden in the
+    // tray drop off when it is shown again.
+    const onVisible = () => { if (document.visibilityState === "visible") void refresh(); };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       unlisten();
-      window.clearInterval(tick);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, [refresh]);
 

@@ -1308,6 +1308,13 @@ pub fn run() {
                     }
                     Err(e) => log::warn!("stats reconcile failed (non-fatal): {e}"),
                 }
+                // Entries that aged out while the app was closed.
+                let retention = crate::config::Config::load(app.handle())
+                    .map(|cfg| crate::history::RetentionPolicy::from_config(cfg.as_value()))
+                    .unwrap_or_default();
+                if let Err(e) = crate::history::prune(&conn, retention) {
+                    log::warn!("history prune failed (non-fatal): {e}");
+                }
             }
 
             // Product telemetry is independent from stats/history and is
@@ -1727,6 +1734,13 @@ pub fn run() {
                                         ai_status.clone(),
                                         inference.stt_service,
                                     );
+                                    let retention = crate::config::Config::load(&app_for_dispatch)
+                                        .map(|cfg| {
+                                            crate::history::RetentionPolicy::from_config(
+                                                cfg.as_value(),
+                                            )
+                                        })
+                                        .unwrap_or_default();
                                     let (stats_tx, stats_rx) =
                                         tokio::sync::oneshot::channel::<Result<(), String>>();
                                     tokio::task::spawn_blocking(move || {
@@ -1769,7 +1783,12 @@ pub fn run() {
                                                         .as_deref(),
                                                 },
                                             )
-                                            .map(|_| ())
+                                        })
+                                        .and_then(|_| {
+                                            crate::history::prune(
+                                                &crate::mutex_recover::lock(&db),
+                                                retention,
+                                            )
                                         })
                                         .map_err(|e| e.to_string());
                                         let _ = stats_tx.send(result);

@@ -28,6 +28,24 @@ def test_empty_history(app, page):
     expect(page.get_by_role("button", name="Очистить всё", exact=True)).to_be_disabled()
 
 
+def test_history_refreshes_when_shown_instead_of_polling(app, page):
+    page.clock.install()
+    ui = app()
+    ui.nav("history")
+    expect(page.get_by_text("История пуста", exact=True)).to_be_visible()
+    loaded = len(ui.calls("list_history"))
+    page.clock.run_for(120_000)
+    assert len(ui.calls("list_history")) == loaded
+    page.evaluate("""() => {
+        Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
+        document.dispatchEvent(new Event('visibilitychange'));
+    }""")
+    page.wait_for_function(
+        "n => window.__sottoTest.calls.filter(x => x.command === 'list_history').length > n",
+        arg=loaded,
+    )
+
+
 @pytest.mark.parametrize("query,visible", [("first", 1), ("исходный", 2)])
 def test_history_search_including_raw(app, page, query, visible):
     ui = app(history=ENTRIES)

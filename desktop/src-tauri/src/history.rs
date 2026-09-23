@@ -196,14 +196,7 @@ pub fn append(
 /// `APPEND_COLLISION_MAX_ITER` iterations as a safety bound.
 pub fn append_entry(db: &Mutex<Connection>, entry: &NewEntry) -> Result<u64, rusqlite::Error> {
     let conn = crate::mutex_recover::lock(db);
-    let timestamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_err(|e| {
-            rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::other(format!(
-                "system time: {e}"
-            ))))
-        })?
-        .as_secs_f64();
+    let timestamp = unix_now()?;
     let length = entry.text.chars().count() as i64;
 
     // Base id: ms-since-epoch. On collision, increment by 1.
@@ -262,39 +255,47 @@ fn insert_entry_with_collision_retry(
     )))
 }
 
-/// Prune to `policy`, then list what is left. Caller holds &Connection.
-///
-/// Rows outside the policy are physically deleted (NOT just filtered out of
-/// the response), so the table stays bounded. This is the only place pruning
-/// happens, which means a lowered retention setting takes effect the next
-/// time the History page is opened rather than immediately.
-pub fn list_history_from(
-    conn: &Connection,
-    policy: RetentionPolicy,
-) -> Result<HistoryListResult, rusqlite::Error> {
-    let now = std::time::SystemTime::now()
+fn unix_now() -> Result<f64, rusqlite::Error> {
+    std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_secs_f64())
         .map_err(|e| {
             rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::other(format!(
                 "system time: {e}"
             ))))
-        })?
-        .as_secs_f64();
+        })
+}
 
-    // 1. DELETE rows past the age limit.
+/// Physically delete the rows outside `policy`.
+///
+/// Runs after each new entry and at startup, so reading the history never
+/// writes. Between those points a lowered setting already shows, because
+/// the listing applies the same policy.
+pub fn prune(conn: &Connection, policy: RetentionPolicy) -> Result<(), rusqlite::Error> {
     if policy.max_age_seconds > 0 {
-        let cutoff = now - policy.max_age_seconds as f64;
+        let cutoff = unix_now()? - policy.max_age_seconds as f64;
         conn.execute("DELETE FROM history WHERE timestamp <= ?1", [cutoff])?;
     }
-    // 2. Cap to the newest `max_entries`.
     if policy.max_entries > 0 {
         conn.execute(
             "DELETE FROM history WHERE id NOT IN (SELECT id FROM history ORDER BY timestamp DESC LIMIT ?1)",
             [policy.max_entries],
         )?;
     }
+    Ok(())
+}
 
-    // 3. SELECT remaining. `-1` is SQLite's "no limit".
+/// The entries `policy` keeps, newest first. Read-only; see [`prune`].
+pub fn list_history_from(
+    conn: &Connection,
+    policy: RetentionPolicy,
+) -> Result<HistoryListResult, rusqlite::Error> {
+    let cutoff = if policy.max_age_seconds > 0 {
+        unix_now()? - policy.max_age_seconds as f64
+    } else {
+        f64::MIN
+    };
+    // `-1` is SQLite's "no limit".
     let select_limit = if policy.max_entries > 0 {
         policy.max_entries
     } else {
@@ -303,10 +304,10 @@ pub fn list_history_from(
     let mut stmt = conn.prepare(
         "SELECT id, timestamp, text, raw_text, formatted_text, language, inference_time_ms, \
          ai_processing_json, processing_stats_json, system_prompt, transcription_model, length \
-         FROM history ORDER BY timestamp DESC LIMIT ?1",
+         FROM history WHERE timestamp > ?1 ORDER BY timestamp DESC LIMIT ?2",
     )?;
     let entries = stmt
-        .query_map([select_limit], |r| {
+        .query_map(rusqlite::params![cutoff, select_limit], |r| {
             Ok(HistoryEntry {
                 id: r.get::<_, i64>(0)? as u64,
                 timestamp: r.get(1)?,
@@ -835,10 +836,15 @@ mod tests {
         let list = list_history_from(&db.lock().unwrap(), policy).unwrap();
         assert_eq!(list.entries.len(), 2);
         assert_eq!(list.entries[0].text, "entry 4");
-        // Pruning is physical: a later listing with a looser policy must not
-        // bring the deleted rows back.
+        // Listing only filters: a looser policy still sees every row.
+        let all = list_history_from(&db.lock().unwrap(), RetentionPolicy::default()).unwrap();
+        assert_eq!(all.entries.len(), 5);
+        // Pruning is physical: afterwards the looser policy cannot bring
+        // the deleted rows back.
+        prune(&db.lock().unwrap(), policy).unwrap();
         let all = list_history_from(&db.lock().unwrap(), RetentionPolicy::default()).unwrap();
         assert_eq!(all.entries.len(), 2);
+        assert_eq!(all.entries[1].text, "entry 3");
     }
 
     #[test]
@@ -867,6 +873,13 @@ mod tests {
         let list = list_history_from(&db.lock().unwrap(), policy).unwrap();
         assert_eq!(list.entries.len(), 1);
         assert_eq!(list.entries[0].id, id);
+        prune(&db.lock().unwrap(), policy).unwrap();
+        let count: i64 = db
+            .lock()
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM history", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 1);
     }
 
     #[test]
@@ -944,7 +957,7 @@ mod tests {
     }
 
     #[test]
-    fn list_prunes_entries_older_than_max_age() {
+    fn entries_older_than_max_age_are_hidden_then_pruned() {
         let db = fresh_db();
         let stale_id = 1_000_000_i64; // year 1970
         db.lock()
@@ -956,9 +969,20 @@ mod tests {
             .unwrap();
         let id = append(&db, "fresh", Some(1), None, 100, 2.0).unwrap();
         let list = list_history_from(&db.lock().unwrap(), RetentionPolicy::default()).unwrap();
-        assert_eq!(list.entries.len(), 1, "stale entry should be pruned");
+        assert_eq!(list.entries.len(), 1, "stale entry should be hidden");
         assert_eq!(list.entries[0].id, id);
-        // Stale entry physically deleted.
+        let stored = |db: &Mutex<Connection>| -> i64 {
+            db.lock()
+                .unwrap()
+                .query_row(
+                    "SELECT COUNT(*) FROM history WHERE id = ?1",
+                    rusqlite::params![stale_id],
+                    |r| r.get(0),
+                )
+                .unwrap()
+        };
+        assert_eq!(stored(&db), 1, "listing must not delete");
+        prune(&db.lock().unwrap(), RetentionPolicy::default()).unwrap();
         let count: i64 = db
             .lock()
             .unwrap()
