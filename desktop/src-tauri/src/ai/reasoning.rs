@@ -36,6 +36,7 @@ static UNCLOSED_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// to the dispatcher.
 static META_NOOP_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
+        // Speech language: phrases the model answers with.
         r"(?i)\b(текст\s+не\s+содержит|ошиб(ок|ки)\s+нет|изменени[яй]\s+не\s+требу|исправлени[яй]\s+не\s+требу|не\s+требует\s+исправлен|no\s+changes?|nothing\s+to\s+fix)\b",
     )
     .expect("valid meta noop regex")

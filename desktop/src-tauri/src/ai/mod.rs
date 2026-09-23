@@ -135,6 +135,7 @@ pub(crate) async fn test_ai_prompt(
     let sample = text
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| {
+            // Speech language: a sample dictation.
             "ну в общем нужно сегодня встретиться с командой и обсудить следующие шаги".to_string()
         });
     run_ai_prompt(

@@ -592,7 +592,7 @@ impl Engine {
                         error: err_msg.clone(),
                     });
                 } else {
-                    log::warn!("возврат модели {name} в память не удался: {err_msg}");
+                    log::warn!("restoring model {name} into memory failed: {err_msg}");
                 }
                 let _ = reply.send(Err(err_msg));
             }
@@ -661,7 +661,7 @@ impl Engine {
             return;
         }
         log::info!(
-            "выгружаю модель {name}: простой {} c при пороге {} c",
+            "unloading model {name}: idle {} s, threshold {} s",
             idle.as_secs(),
             after.as_secs()
         );

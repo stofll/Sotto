@@ -565,7 +565,7 @@ fn wait_for_clipboard_write(expected: &str, timeout_ms: u64) -> bool {
 /// the same path a dictation takes.
 #[tauri::command]
 pub(crate) async fn test_paste(app: AppHandle) -> Result<String, String> {
-    let test_text = "Тест вставки Sotto — ".to_owned()
+    let test_text = crate::ui_text::t("Тест вставки Sotto — ")
         + &std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis().to_string())
@@ -581,8 +581,11 @@ pub(crate) async fn test_paste(app: AppHandle) -> Result<String, String> {
         .await
         .map_err(|_| "paste test worker dropped reply".to_string())?
     {
-        Ok(()) => Ok(format!("Paste OK. Text на буфере: {test_text}")),
-        Err(e) => Err(format!("Paste FAILED: {e}")),
+        Ok(()) => Ok(
+            crate::ui_text::t("Вставка сработала, текст в буфере обмена: {p0}")
+                .replace("{p0}", &test_text),
+        ),
+        Err(e) => Err(crate::ui_text::t("Вставка не удалась: {p0}").replace("{p0}", &e)),
     }
 }
 
