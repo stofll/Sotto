@@ -1,9 +1,11 @@
 //! JSON configuration, migrations, merge patches and live settings updates.
 
 use serde_json::{Map, Value};
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
+use std::time::SystemTime;
 use tauri::{AppHandle, Manager};
 
 const DEFAULT_HOTKEY: &str = "ctrl+shift+space";
@@ -19,6 +21,33 @@ fn with_locked_config<T>(
     let _writer = crate::mutex_recover::lock(&CONFIG_WRITES);
     let mut config = Config::load_at(path)?;
     update(&mut config, path)
+}
+
+/// The last contents read or written for each config file, with the stamp
+/// of the file they match.
+///
+/// A single dictation asks for the config several times, and most of those
+/// reads sit between the transcript and the paste. A changed stamp — a hand
+/// edit or another tool writing the file — sends the next load to disk.
+static LOADED: LazyLock<Mutex<HashMap<PathBuf, (FileStamp, Value)>>> =
+    LazyLock::new(Default::default);
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct FileStamp {
+    modified: SystemTime,
+    len: u64,
+}
+
+fn file_stamp(path: &Path) -> Option<FileStamp> {
+    let meta = fs::metadata(path).ok()?;
+    Some(FileStamp {
+        modified: meta.modified().ok()?,
+        len: meta.len(),
+    })
+}
+
+fn remember(path: &Path, stamp: FileStamp, data: &Value) {
+    crate::mutex_recover::lock(&LOADED).insert(path.to_owned(), (stamp, data.clone()));
 }
 
 /// Value of the `device` config key meaning "run inference on the GPU".
@@ -85,6 +114,17 @@ impl Config {
     /// Load a config from an explicit path. Returns an empty config (`{}`)
     /// if the file does not exist — first-run case.
     fn load_at(path: &Path) -> Result<Self, String> {
+        // Stamped before reading: a write that lands in between leaves an
+        // older stamp next to newer contents, which costs one more read
+        // rather than serving stale settings.
+        let stamp = file_stamp(path);
+        if let Some(stamp) = stamp {
+            if let Some((cached, data)) = crate::mutex_recover::lock(&LOADED).get(path) {
+                if *cached == stamp {
+                    return Ok(Self { data: data.clone() });
+                }
+            }
+        }
         if !path.exists() {
             return Ok(Self {
                 data: Value::Object(Map::new()),
@@ -95,6 +135,9 @@ impl Config {
             serde_json::from_str(&raw).map_err(|e| format!("parse config.json: {e}"))?;
         crate::dictionaries::migrate(&mut data);
         crate::overlay_preferences::migrate(&mut data);
+        if let Some(stamp) = stamp {
+            remember(path, stamp, &data);
+        }
         Ok(Self { data })
     }
 
@@ -115,8 +158,7 @@ impl Config {
 
     /// Read a string value, or `None` if the key is absent or has another type.
     pub fn get_string(&self, key: &str) -> Option<String> {
-        self.get(key)
-            .and_then(|v| v.as_str().map(|s| s.to_string()))
+        self.data.get(key)?.as_str().map(str::to_owned)
     }
 
     /// Borrow the underlying `serde_json::Value`. Used by callers that
@@ -138,6 +180,9 @@ impl Config {
         let tmp = path.with_extension("json.tmp");
         fs::write(&tmp, &pretty).map_err(|e| format!("write config tmp: {e}"))?;
         fs::rename(&tmp, path).map_err(|e| format!("rename config tmp: {e}"))?;
+        if let Some(stamp) = file_stamp(path) {
+            remember(path, stamp, &self.data);
+        }
         Ok(())
     }
 
@@ -988,6 +1033,54 @@ mod tests {
         assert_eq!(
             crate::custom_words_prompt(&cfg).as_deref(),
             Some("Claude Code, Tauri")
+        );
+    }
+
+    #[test]
+    fn repeated_loads_are_served_from_memory_until_the_file_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        fs::write(&path, r#"{"theme":"dark"}"#).unwrap();
+        assert_eq!(
+            Config::load_at(&path).unwrap().get_string("theme").unwrap(),
+            "dark"
+        );
+        let modified = fs::metadata(&path).unwrap().modified().unwrap();
+        let rewrite = |contents: &str, modified: SystemTime| {
+            fs::write(&path, contents).unwrap();
+            fs::File::options()
+                .write(true)
+                .open(&path)
+                .unwrap()
+                .set_modified(modified)
+                .unwrap();
+        };
+
+        // Same stamp: the file is not read again.
+        rewrite(r#"{"theme":"lite"}"#, modified);
+        assert_eq!(
+            Config::load_at(&path).unwrap().get_string("theme").unwrap(),
+            "dark"
+        );
+
+        // A hand edit moves the stamp and is picked up.
+        let edited = modified + std::time::Duration::from_secs(2);
+        rewrite(r#"{"theme":"lite"}"#, edited);
+        assert_eq!(
+            Config::load_at(&path).unwrap().get_string("theme").unwrap(),
+            "lite"
+        );
+
+        // A save updates memory along with the file.
+        save_with_merge_patch_at(&path, json!({"theme": "light"})).unwrap();
+        let saved = fs::metadata(&path).unwrap().modified().unwrap();
+        rewrite(
+            &fs::read_to_string(&path).unwrap().replace("light", "LIGHT"),
+            saved,
+        );
+        assert_eq!(
+            Config::load_at(&path).unwrap().get_string("theme").unwrap(),
+            "light"
         );
     }
 
