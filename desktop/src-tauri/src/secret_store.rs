@@ -16,6 +16,7 @@
 //! Builds up to 0.1.3 stored keys under the pre-rename service
 //! `"speech-to-text"`. A key found only there is moved to the current service
 //! the first time it is read, so no one has to enter their keys again.
+//! stofll/Sotto#40 tracks removing the move.
 //!
 //! Labels are not persisted by this module; save commands echo the label
 //! supplied by the caller, while metadata reads return an empty label.

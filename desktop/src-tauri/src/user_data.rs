@@ -4,7 +4,8 @@
 //! The history database, logs and diagnostic recordings live in the platform's
 //! local data directory under the bundle identifier — what Tauri resolves as
 //! `app_local_data_dir`. Builds up to 0.1.3 kept them in `~/.speech_to_text`;
-//! [`migrate_legacy`] moves them on the first launch of a newer build.
+//! [`migrate_legacy`] moves them on the first launch of a newer build;
+//! stofll/Sotto#40 tracks removing the move once no such installs remain.
 
 use std::fs;
 use std::path::{Path, PathBuf};
