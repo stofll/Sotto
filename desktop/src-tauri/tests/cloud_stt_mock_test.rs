@@ -18,7 +18,8 @@ use std::thread;
 use std::time::Duration;
 
 use sotto_lib::cloud_stt::{
-    audio_to_wav_bytes, transcribe, transcribe_cancellable, CloudSttProvider, CloudSttRequest,
+    audio_to_wav_bytes, transcribe, transcribe_blocking, transcribe_cancellable, CloudSttProvider,
+    CloudSttRequest,
 };
 
 struct DelayedServer {
@@ -397,4 +398,79 @@ async fn transcribe_does_not_follow_a_redirect_to_another_host() {
         other_captured.lock().unwrap().body.is_empty(),
         "the audio reached another host"
     );
+}
+
+/// A server that keeps each connection open and answers every request on it,
+/// counting the connections it accepted.
+fn spawn_keep_alive_mock() -> (String, Arc<AtomicUsize>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let connections = Arc::new(AtomicUsize::new(0));
+    let accepted = connections.clone();
+    thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { return };
+            accepted.fetch_add(1, Ordering::SeqCst);
+            thread::spawn(move || {
+                let mut pending = Vec::new();
+                loop {
+                    let Some(end) = find_double_crlf(&pending).map(|end| end + 4) else {
+                        let mut chunk = [0; 4096];
+                        match stream.read(&mut chunk) {
+                            Ok(0) | Err(_) => return,
+                            Ok(size) => pending.extend_from_slice(&chunk[..size]),
+                        }
+                        continue;
+                    };
+                    let length = String::from_utf8_lossy(&pending[..end])
+                        .lines()
+                        .find_map(|line| {
+                            let (key, value) = line.split_once(':')?;
+                            key.eq_ignore_ascii_case("content-length")
+                                .then(|| value.trim().parse::<usize>().unwrap())
+                        })
+                        .unwrap_or(0);
+                    while pending.len() < end + length {
+                        let mut chunk = [0; 4096];
+                        match stream.read(&mut chunk) {
+                            Ok(0) | Err(_) => return,
+                            Ok(size) => pending.extend_from_slice(&chunk[..size]),
+                        }
+                    }
+                    pending.drain(..end + length);
+                    let body = r#"{"text":"kept alive"}"#;
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\n\r\n{body}",
+                        body.len()
+                    );
+                    if stream.write_all(response.as_bytes()).is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+    (url, connections)
+}
+
+#[tokio::test]
+async fn consecutive_transcriptions_reuse_one_connection() {
+    let (url, connections) = spawn_keep_alive_mock();
+    for _ in 0..3 {
+        let result = transcribe(sample_request(url.clone())).await.unwrap();
+        assert_eq!(result.text, "kept alive");
+    }
+    assert_eq!(connections.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn dictations_from_the_engine_thread_reuse_one_connection() {
+    // The engine thread is outside any runtime and calls once per dictation.
+    let (url, connections) = spawn_keep_alive_mock();
+    for _ in 0..3 {
+        let cancel = Arc::new(AtomicBool::new(false));
+        let result = transcribe_blocking(sample_request(url.clone()), cancel).unwrap();
+        assert_eq!(result.text, "kept alive");
+    }
+    assert_eq!(connections.load(Ordering::SeqCst), 1);
 }

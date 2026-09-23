@@ -633,7 +633,7 @@ async fn send_request(
 
 /// Process-wide shared `reqwest::Client`. We re-use one client
 /// across all provider calls so connection pooling kicks in.
-fn shared_client() -> &'static reqwest::Client {
+pub(crate) fn shared_client() -> &'static reqwest::Client {
     use once_cell::sync::Lazy;
     static CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
         reqwest::Client::builder()

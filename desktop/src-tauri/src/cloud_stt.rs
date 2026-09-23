@@ -20,7 +20,7 @@
 //! (Deepgram, Together, etc.) is a config change, not a code change.
 //!
 //! Errors are classified:
-//! - `transport: ...`     — reqwest build/connect/read failures
+//! - `transport: ...`     — reqwest connect/read failures
 //! - `timeout after Ns`   — server did not respond within the budget
 //! - `http 4xx/5xx`       — server rejected the request
 //! - `malformed: ...`     — non-JSON body, missing `text` field, etc.
@@ -91,6 +91,23 @@ pub async fn transcribe_cancellable(
             }
         }
     }
+}
+
+/// [`transcribe_cancellable`] for a thread outside any async runtime, such
+/// as the engine thread.
+///
+/// The request runs on the application runtime rather than on one built for
+/// the call: pooled connections live on the runtime that opened them, and a
+/// per-call runtime would close the connection the next dictation is meant
+/// to reuse.
+pub fn transcribe_blocking(
+    request: CloudSttRequest,
+    cancelled: Arc<AtomicBool>,
+) -> Result<CloudSttResult, String> {
+    tauri::async_runtime::block_on(tauri::async_runtime::spawn(async move {
+        transcribe_cancellable(request, &cancelled).await
+    }))
+    .map_err(|_| "cloud STT task panicked".to_string())?
 }
 
 /// Encode mono 16 kHz f32 samples as 16-bit PCM WAV bytes.
@@ -194,14 +211,11 @@ pub async fn transcribe(req: CloudSttRequest) -> Result<CloudSttResult, String> 
         "{}/audio/transcriptions",
         req.base_url.trim_end_matches('/')
     );
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(req.timeout_seconds.max(1)))
-        .redirect(crate::ai::providers::credential_redirect_policy())
-        .build()
-        .map_err(|error| format!("transport: build client: {error}"))?;
-
-    let response = client
+    // The shared client keeps the connection to the provider open between
+    // dictations, so only the first one pays for DNS, TCP and TLS.
+    let response = crate::ai::providers::shared_client()
         .post(&url)
+        .timeout(Duration::from_secs(req.timeout_seconds.max(1)))
         .header("Authorization", format!("Bearer {}", req.api_key))
         .header("Content-Type", content_type)
         .body(body)

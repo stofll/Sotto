@@ -698,34 +698,8 @@ pub fn engine_thread_main(
                     continue;
                 }
 
-                // The HTTP call is async (reqwest). The engine
-                // thread is a `std::thread`, so we drive it via a
-                // short-lived current-thread tokio runtime.
-                let request_for_call = request.clone();
-                let cancel_flag_for_call = Arc::clone(&cancel_flag);
-                let join_outcome: Result<
-                    std::thread::JoinHandle<Result<crate::cloud_stt::CloudSttResult, String>>,
-                    String,
-                > = std::thread::Builder::new()
-                    .name("cloud-stt-call".to_string())
-                    .spawn(move || {
-                        let rt = tokio::runtime::Builder::new_current_thread()
-                            .enable_all()
-                            .build()
-                            .map_err(|error| format!("runtime: {error}"))?;
-                        rt.block_on(crate::cloud_stt::transcribe_cancellable(
-                            request_for_call,
-                            &cancel_flag_for_call,
-                        ))
-                    })
-                    .map_err(|error| format!("spawn cloud-stt thread: {error}"));
-                let outcome: Result<crate::cloud_stt::CloudSttResult, String> = match join_outcome {
-                    Ok(handle) => handle
-                        .join()
-                        .map_err(|_| "cloud-stt thread panicked".to_string())
-                        .and_then(|value| value),
-                    Err(error) => Err(error),
-                };
+                let outcome =
+                    crate::cloud_stt::transcribe_blocking(request, Arc::clone(&cancel_flag));
 
                 let result: Result<InferenceResult, String> = match outcome {
                     Ok(cloud_result) => {
