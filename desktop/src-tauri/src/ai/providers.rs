@@ -646,20 +646,29 @@ pub(crate) fn shared_client() -> &'static reqwest::Client {
 }
 
 /// Redirects for requests that carry a provider key: followed only to the
-/// same host and never from HTTPS down to HTTP.
+/// same server — host and port — and never from HTTPS down to HTTP.
 ///
 /// reqwest drops `Authorization` on a cross-host redirect but forwards other
 /// headers, and Anthropic and Gemini keys travel in `x-api-key` and
-/// `x-goog-api-key`. A refused redirect comes back as the 3xx response itself,
-/// which the callers report as an HTTP error.
+/// `x-goog-api-key`. Another port on the same host can be another service.
+/// A refused redirect comes back as the 3xx response itself, which the
+/// callers report as an HTTP error.
 pub(crate) fn credential_redirect_policy() -> reqwest::redirect::Policy {
     reqwest::redirect::Policy::custom(|attempt| {
         let Some(previous) = attempt.previous().last() else {
             return attempt.stop();
         };
-        let same_host = previous.host_str() == attempt.url().host_str();
-        let downgrade = previous.scheme() == "https" && attempt.url().scheme() != "https";
-        if !same_host || downgrade {
+        let next = attempt.url();
+        // The usual upgrade moves from the default HTTP port to the default
+        // HTTPS one, so it changes the port without changing the server.
+        let upgrade = previous.scheme() == "http"
+            && next.scheme() == "https"
+            && previous.port().is_none()
+            && next.port().is_none();
+        let same_server = previous.host_str() == next.host_str()
+            && (previous.port_or_known_default() == next.port_or_known_default() || upgrade);
+        let downgrade = previous.scheme() == "https" && next.scheme() != "https";
+        if !same_server || downgrade {
             attempt.stop()
         } else if attempt.previous().len() > 10 {
             attempt.error("too many redirects")
