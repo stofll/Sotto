@@ -398,21 +398,28 @@ fn save_with_merge_patch_at(path: &Path, patch: Value) -> Result<Value, String> 
     })
 }
 
-/// The hotkey half of `save_config`, without an `AppHandle`: rebind, persist
-/// under the writer lock, and restore the previous binding if the write
-/// fails.
-#[cfg(test)]
-fn change_hotkey_at(
+/// The part of `save_config` that needs no `AppHandle`: merge `patch` into a
+/// copy of `current`, let `check` refuse the result, validate and write it.
+/// A patch with a hotkey rebinds it first and restores the previous binding
+/// if the write fails. `current` is left as it was; the saved copy is
+/// returned.
+fn persist_patch(
+    current: &Config,
     path: &Path,
-    hotkey: &str,
+    patch: &Value,
+    check: impl FnOnce(&Config) -> Result<(), String>,
     replace_binding: impl FnOnce(&str, &str) -> Result<crate::hotkey::BindingRollback, String>,
-) -> Result<(), String> {
-    with_locked_config(path, |config, path| {
-        let old = hotkey_from(config);
-        config.set("hotkey", Value::String(hotkey.into()))?;
-        validate(config.as_value())?;
-        persist_with_hotkey(config, path, &old, replace_binding)
-    })
+) -> Result<Config, String> {
+    let mut candidate = current.clone();
+    candidate.apply_merge_patch(patch)?;
+    check(&candidate)?;
+    validate(candidate.as_value())?;
+    if patch.get("hotkey").is_some() {
+        persist_with_hotkey(&candidate, path, &hotkey_from(current), replace_binding)?;
+    } else {
+        candidate.save_at(path)?;
+    }
+    Ok(candidate)
 }
 
 fn persist_with_hotkey(
@@ -478,35 +485,34 @@ fn save_config_locked(
     patch: Value,
 ) -> Result<Value, String> {
     let device_before = resolve_device(current_config.as_value());
-    let mut candidate_config = current_config.clone();
-    candidate_config.apply_merge_patch(&patch)?;
     // The configured-model half of the GigaAM language rule lives in
     // `config::validate`, which every writer goes through. This half cannot:
     // it asks what the engine has loaded right now, which no `Value` knows.
-    if patch.get("language").is_some() || patch.get("model").is_some() {
-        let language = candidate_config
+    let check_loaded_model = |candidate: &Config| {
+        if patch.get("language").is_none() && patch.get("model").is_none() {
+            return Ok(());
+        }
+        let language = candidate
             .get_string("language")
             .unwrap_or_else(|| "ru".to_string());
         let loaded_model = crate::mutex_recover::lock(&state.engine_current_model).clone();
-        if let Some(model) = loaded_model.as_deref() {
-            if !crate::model::model_supports_language(model, &language) {
+        match loaded_model.as_deref() {
+            Some(model) if !crate::model::model_supports_language(model, &language) => {
                 let languages = crate::model::model_languages(model).unwrap_or_default();
-                return Err(crate::model::language_unsupported_message(languages));
+                Err(crate::model::language_unsupported_message(languages))
             }
+            _ => Ok(()),
         }
-    }
-    validate(candidate_config.as_value())?;
-    if patch.get("hotkey").is_some() {
-        persist_with_hotkey(
-            &candidate_config,
-            path,
-            &hotkey_from(current_config),
-            |old, new| crate::hotkey::re_register_with_rollback(app, state, old, new),
-        )?;
-    } else {
-        candidate_config.save_at(path)?;
-    }
-    let saved = candidate_config.as_value().clone();
+    };
+    let saved = persist_patch(
+        current_config,
+        path,
+        &patch,
+        check_loaded_model,
+        |old, new| crate::hotkey::re_register_with_rollback(app, state, old, new),
+    )?
+    .as_value()
+    .clone();
     let device_after = resolve_device(&saved);
     apply_runtime_config(app, &saved, &patch);
 
@@ -590,6 +596,25 @@ fn apply_runtime_config(app: &AppHandle, saved: &Value, patch: &Value) {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// `save_config` with a hotkey patch, minus the `AppHandle`: the same
+    /// writer lock and [`persist_patch`], with the native rebind stubbed.
+    fn change_hotkey_at(
+        path: &Path,
+        hotkey: &str,
+        replace_binding: impl FnOnce(&str, &str) -> Result<crate::hotkey::BindingRollback, String>,
+    ) -> Result<(), String> {
+        with_locked_config(path, |config, path| {
+            persist_patch(
+                config,
+                path,
+                &json!({ "hotkey": hotkey }),
+                |_| Ok(()),
+                replace_binding,
+            )
+            .map(|_| ())
+        })
+    }
 
     #[test]
     fn concurrent_settings_and_hotkey_writers_preserve_independent_changes() {
@@ -704,6 +729,34 @@ mod tests {
             );
             assert_eq!(Config::load_at(&path).unwrap().as_value(), &original);
         }
+    }
+
+    #[test]
+    fn a_refused_patch_neither_rebinds_nor_writes() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        let original = json!({"hotkey": "ctrl+space", "language": "ru"});
+        fs::write(&path, original.to_string()).unwrap();
+        let save = |patch: Value, check: fn(&Config) -> Result<(), String>| {
+            with_locked_config(&path, |config, path| {
+                persist_patch(config, path, &patch, check, |_, _| {
+                    panic!("must not rebind")
+                })
+                .map(|saved| saved.as_value().clone())
+            })
+        };
+
+        let error = save(json!({"hotkey": "ctrl+shift+a", "language": "en"}), |_| {
+            Err("the loaded model is Russian-only".into())
+        })
+        .unwrap_err();
+        assert_eq!(error, "the loaded model is Russian-only");
+        assert_eq!(Config::load_at(&path).unwrap().as_value(), &original);
+
+        // Without a hotkey in the patch the binding is not touched at all.
+        let saved = save(json!({"theme": "light"}), |_| Ok(())).unwrap();
+        assert_eq!(saved["theme"], "light");
+        assert_eq!(saved["hotkey"], "ctrl+space");
     }
 
     #[test]
