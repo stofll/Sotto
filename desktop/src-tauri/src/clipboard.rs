@@ -17,8 +17,8 @@
 //!
 //! The paste pipeline is cross-platform with a Windows-only 3-strategy
 //! fallback that mitigates UIPI blocks. macOS falls back to AppleScript.
-//! All paste operations run on the main/UI thread; enigo and the clipboard
-//! plugin are sensitive to thread context.
+//! Deliveries go through [`run_delivery`], which picks the thread each
+//! platform needs.
 
 #[cfg(any(not(windows), test))]
 use enigo::{
@@ -104,9 +104,49 @@ pub fn apply_delivery_text(text: &str, options: DeliveryOptions) -> String {
     }
 }
 
+/// Run a delivery job on the thread the platform needs, one at a time.
+///
+/// On Windows the clipboard, focus restore and `SendInput` work from any
+/// thread, and a paste waits up to a quarter of a second on the clipboard
+/// and the target window; on the main thread every window of the app froze
+/// for that long. macOS keeps the main thread, where enigo's keyboard
+/// lookups have to run.
+pub fn run_delivery<R: Runtime>(
+    app: &AppHandle<R>,
+    job: impl FnOnce() + Send + 'static,
+) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        let _ = app;
+        spawn_serialized(job)
+    }
+    #[cfg(not(windows))]
+    {
+        app.run_on_main_thread(job)
+            .map_err(|error| error.to_string())
+    }
+}
+
+/// Start `job` on its own thread once every earlier job has finished.
+///
+/// The main thread used to serialize deliveries; two pastes racing for the
+/// clipboard and the focus would interleave their text.
+#[cfg(windows)]
+fn spawn_serialized(job: impl FnOnce() + Send + 'static) -> Result<(), String> {
+    static DELIVERY: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    std::thread::Builder::new()
+        .name("delivery".into())
+        .spawn(move || {
+            let _serial = crate::mutex_recover::lock(&DELIVERY);
+            job();
+        })
+        .map(|_| ())
+        .map_err(|error| format!("spawn delivery thread: {error}"))
+}
+
 /// Hand the finished text to the user according to `options`.
 ///
-/// Must run on the main/UI thread, like [`paste_text`].
+/// Runs inside [`run_delivery`], like [`paste_text`].
 pub fn deliver(app: AppHandle, text: String, options: DeliveryOptions) -> Result<(), String> {
     let text = apply_delivery_text(&text, options);
     if !options.auto_paste {
@@ -168,8 +208,7 @@ pub fn copy_to_clipboard<R: Runtime>(app: &AppHandle<R>, text: &str) -> Result<(
 /// On macOS the modifier is `Key::Meta` (Cmd); elsewhere it is `Key::Control`.
 /// macOS uses physical keycode 9 so the shortcut also works in Cyrillic layouts.
 ///
-/// Always runs on the main/UI thread (the caller schedules it via
-/// `app.run_on_main_thread`).
+/// Runs on the main thread, scheduled by [`run_delivery`].
 ///
 /// Success/failure is decided by the paste TRIGGER — the modifier+V
 /// key-DOWN. Once those land, the target application has received the
@@ -373,8 +412,7 @@ pub fn paste_strategy_2_osascript() -> Result<(), String> {
 /// (Strategy 2).
 /// On Linux: copy + Strategy 1 alone.
 ///
-/// The caller is responsible for invoking this on the main thread (via
-/// `app.run_on_main_thread`).
+/// The caller runs this inside [`run_delivery`].
 pub fn paste_text(app: AppHandle, text: String) -> Result<(), String> {
     copy_to_clipboard(&app, &text)?;
 
@@ -536,10 +574,9 @@ pub(crate) async fn test_paste(app: AppHandle) -> Result<String, String> {
     let (reply, result) = tokio::sync::oneshot::channel();
     let paste_app = app.clone();
     let paste_text = test_text.clone();
-    app.run_on_main_thread(move || {
+    run_delivery(&app, move || {
         let _ = reply.send(crate::clipboard::paste_text(paste_app, paste_text));
-    })
-    .map_err(|error| error.to_string())?;
+    })?;
     match result
         .await
         .map_err(|_| "paste test worker dropped reply".to_string())?
@@ -717,5 +754,36 @@ mod delivery_tests {
         assert!(send_paste_shortcut(&mut keyboard, Key::Meta, Some(MAC_V_KEYCODE)).is_err());
         assert_eq!(keyboard.pasted, 0);
         assert!(!keyboard.command);
+    }
+}
+
+#[cfg(all(test, windows))]
+mod delivery_thread_tests {
+    use super::spawn_serialized;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{mpsc, Arc};
+    use std::time::Duration;
+
+    #[test]
+    fn deliveries_run_one_at_a_time_off_the_calling_thread() {
+        let caller = std::thread::current().id();
+        let running = Arc::new(AtomicUsize::new(0));
+        let (done, finished) = mpsc::channel();
+        for _ in 0..3 {
+            let (running, done) = (running.clone(), done.clone());
+            spawn_serialized(move || {
+                let overlapping = running.fetch_add(1, Ordering::SeqCst);
+                std::thread::sleep(Duration::from_millis(30));
+                running.fetch_sub(1, Ordering::SeqCst);
+                done.send((overlapping, std::thread::current().id()))
+                    .unwrap();
+            })
+            .unwrap();
+        }
+        for _ in 0..3 {
+            let (overlapping, thread) = finished.recv_timeout(Duration::from_secs(5)).unwrap();
+            assert_eq!(overlapping, 0, "another delivery was still running");
+            assert_ne!(thread, caller);
+        }
     }
 }

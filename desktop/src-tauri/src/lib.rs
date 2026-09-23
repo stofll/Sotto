@@ -1804,8 +1804,8 @@ pub fn run() {
                                     let app3 = app2.clone();
                                     // auto-paste / trailing space / auto-submit.
                                     // Read here rather than inside the delivery
-                                    // call so the main thread does not touch the
-                                    // disk.
+                                    // call, which on macOS runs on the main
+                                    // thread.
                                     let delivery = crate::config::Config::load(&app_for_dispatch)
                                         .map(|cfg| {
                                             crate::clipboard::DeliveryOptions::from_config(
@@ -1820,7 +1820,7 @@ pub fn run() {
                                     };
                                     let dispatch_state_for_paste = dispatch_state.clone();
                                     let paste_queued = std::time::Instant::now();
-                                    let paste_result = app2.run_on_main_thread(move || {
+                                    let paste_result = crate::clipboard::run_delivery(&app2, move || {
                                         let paste_started = std::time::Instant::now();
                                         let queue_ms = paste_queued.elapsed().as_millis();
                                         // Cue and `paste-done` after the paste
@@ -1893,7 +1893,7 @@ pub fn run() {
                                                 );
                                             }
                                         }
-                                        log::info!("delivery timing: session={session_id} main_queue_ms={queue_ms} paste_ms={}", paste_started.elapsed().as_millis());
+                                        log::info!("delivery timing: session={session_id} queue_ms={queue_ms} paste_ms={}", paste_started.elapsed().as_millis());
                                         dictation::finish(&dispatch_state_for_paste, session_id);
                                     });
                                     if paste_result.is_err() {

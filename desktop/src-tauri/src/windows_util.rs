@@ -3,8 +3,8 @@
 //!
 //! All public items are `cfg(windows)`; the module is empty on macOS/Linux.
 //! Hotkey handler and paste pipeline run in different threads (hotkey-handler
-//! thread vs. main-thread via `run_on_main_thread`), so the captured HWND
-//! lives in a process-wide `Mutex` — NOT a `thread_local`.
+//! thread vs. the delivery thread), so the captured HWND lives in a
+//! process-wide `Mutex` — NOT a `thread_local`.
 
 #![cfg(windows)]
 
@@ -31,8 +31,8 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 const CF_UNICODETEXT: u32 = 13;
 
 /// Process-wide storage for the captured target HWND. Hotkey handler and
-/// paste pipeline run in different threads (hotkey-handler thread vs.
-/// main-thread via `run_on_main_thread`), so a `thread_local` would not
+/// paste pipeline run in different threads (hotkey-handler thread vs. the
+/// delivery thread), so a `thread_local` would not
 /// work — capture writes from one thread, paste reads from another.
 static CAPTURED: Mutex<Option<HWND>> = Mutex::new(None);
 

@@ -114,7 +114,7 @@ It is opt-in because ordinary CI runners do not guarantee a microphone or permis
 
 Record the OS, application build, cases actually run and limitations. A compile/test pass on Windows is not evidence that macOS focus, Accessibility or key injection works.
 
-Local logs include capture queue/stream-ready/first-callback durations and delivery database/main-thread-queue/paste durations. These timing records contain no audio or transcript. Compare the same device, model and cold/warm state when investigating latency; the first-callback timer starts around stream construction, while stream-ready is measured from the start request.
+Local logs include capture queue/stream-ready/first-callback durations and delivery database/queue/paste durations. These timing records contain no audio or transcript. Compare the same device, model and cold/warm state when investigating latency; the first-callback timer starts around stream construction, while stream-ready is measured from the start request.
 
 Speech analysis logs `audio_seconds` and `elapsed_ms` at debug level. With silence trimming disabled, dictation measures speech on a separate thread started when recording stops, in parallel with recognition, and the engine only collects the result; with trimming enabled, one pass supplies both the trim bounds and speech timing before recognition. File transcription does not request speech timing. To measure VAD independently of capture and model inference, run `cargo test --locked --release --lib vad::tests::analysis_latency -- --ignored --nocapture`; it reports the median of five passes over one- and ten-minute synthetic tone and silence buffers. These measurements do not establish detection accuracy or native stop-to-processing latency.
 
