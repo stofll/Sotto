@@ -291,7 +291,7 @@ pub async fn verify_file(path: &Path, spec: &DownloadSpec) -> Result<(), ModelDo
 /// never reaches the second step, which is why the gap stayed invisible there.
 pub fn available_bytes(dir: &Path) -> Option<u64> {
     dir.ancestors()
-        .find_map(|path| fs2::available_space(path).ok())
+        .find_map(|path| fs4::available_space(path).ok())
 }
 
 /// Free space a download of `expected_bytes` needs: 1 MiB of slack on top for
@@ -867,7 +867,7 @@ pub(crate) async fn download_model(
         expected_bytes: entry.expected_bytes,
         sha256: entry.sha256.to_string(),
     };
-    let dir = crate::model::models_dir().map_err(|e| e.to_string())?;
+    let dir = crate::model::models_dir()?;
     let client = reqwest::Client::new();
 
     // Wire progress events so the frontend can show a download bar.
@@ -1547,7 +1547,7 @@ mod tests {
 
     #[test]
     fn free_space_check_rejects_when_available_below_required() {
-        // We can't easily fake fs2::available_space, but we can sanity
+        // We can't easily fake fs4::available_space, but we can sanity
         // check the slack math: required = expected + 1 MiB.
         // Direct test of the bound by passing a known huge expected.
         let dir = tempfile::tempdir().unwrap();

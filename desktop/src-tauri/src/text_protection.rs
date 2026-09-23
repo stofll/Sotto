@@ -2,11 +2,11 @@
 
 use std::ops::Range;
 
-use once_cell::sync::Lazy;
 use regex::Regex;
+use std::sync::LazyLock;
 
 // Protect ordinary email addresses, excluding surrounding prose punctuation.
-static EMAIL: Lazy<Regex> = Lazy::new(|| {
+static EMAIL: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"[\p{L}\p{N}_%+\-]+(?:\.[\p{L}\p{N}_%+\-]+)*@[\p{L}\p{N}](?:[\p{L}\p{N}\-]*[\p{L}\p{N}])?(?:\.[\p{L}\p{N}](?:[\p{L}\p{N}\-]*[\p{L}\p{N}])?)*")
         .expect("valid email pattern")
 });

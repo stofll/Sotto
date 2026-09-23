@@ -2,12 +2,12 @@
 
 use std::collections::{HashMap, HashSet};
 
-use once_cell::sync::Lazy;
 use spellbook::Dictionary;
+use std::sync::LazyLock;
 
 use crate::formatter::FormatStep;
 
-static RUSSIAN: Lazy<Dictionary> = Lazy::new(|| {
+static RUSSIAN: LazyLock<Dictionary> = LazyLock::new(|| {
     Dictionary::new(
         include_str!("../resources/spelling/ru_RU.aff"),
         include_str!("../resources/spelling/ru_RU.dic"),
@@ -20,7 +20,7 @@ const MAX_WORD_CHARS: usize = 24;
 const MAX_UNKNOWN_WORDS: usize = 128;
 
 pub(crate) fn prepare() {
-    Lazy::force(&RUSSIAN);
+    LazyLock::force(&RUSSIAN);
 }
 
 fn russian_letter(c: char) -> bool {

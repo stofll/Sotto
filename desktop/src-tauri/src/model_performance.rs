@@ -6,6 +6,11 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::sync::OnceLock;
 
+/// The measurement method the bundled references were taken with, engine
+/// versions included. It is a label, not a lookup of `Cargo.toml`: after an
+/// engine upgrade the old references no longer describe the new code, and a
+/// stale label is what keeps them off the cards until they are measured again
+/// (`reference_catalog_has_valid_metrics_and_unique_contexts` checks it).
 const METHOD: &str = "sotto-stt-v1-whisper-0.14.4-sherpa-1.13.7";
 /// The language setting that leaves the choice to the engine. Its measurement
 /// is the one that fits any other language the model is asked for.

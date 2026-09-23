@@ -106,10 +106,10 @@ fn post(op: OverlayOp) {
     match OP_TX.get() {
         Some(tx) => {
             if tx.send(op).is_err() {
-                eprintln!("[overlay] worker thread is gone, dropping op");
+                log::warn!("worker thread is gone, dropping op");
             }
         }
-        None => eprintln!("[overlay] worker thread not started yet, dropping op"),
+        None => log::warn!("worker thread not started yet, dropping op"),
     }
 }
 
@@ -175,7 +175,7 @@ pub fn start_worker(app: AppHandle) {
                 }
             };
             if let Err(e) = result {
-                eprintln!("[overlay] worker op failed: {e}");
+                log::warn!("worker op failed: {e}");
             }
         }
     });
@@ -205,7 +205,7 @@ fn conceal(window: &tauri::WebviewWindow) -> Result<(), String> {
         // Cloak first: DWM stops presenting the HWND before ShowWindow
         // gets a chance to expose any intermediate native frame.
         if let Err(e) = set_window_cloaked(hwnd, true) {
-            eprintln!("[overlay] cloak before hide failed (falling back to SW_HIDE): {e}");
+            log::warn!("cloak before hide failed (falling back to SW_HIDE): {e}");
         }
         crate::windows::overlay_diag::snapshot(hwnd, "conceal:after-cloak");
         hide_window(hwnd);
@@ -234,7 +234,7 @@ fn reveal(window: &tauri::WebviewWindow) -> Result<(), String> {
         // the first ShowWindow/HideWindow cycle, where USER32 otherwise
         // briefly presents the native caption before settling.
         if let Err(e) = set_window_cloaked(hwnd, true) {
-            eprintln!("[overlay] cloak before show failed (continuing): {e}");
+            log::warn!("cloak before show failed (continuing): {e}");
         }
         // Before the restyle, so a caption present here proves something
         // between window creation and this point put it back — which is
@@ -250,7 +250,7 @@ fn reveal(window: &tauri::WebviewWindow) -> Result<(), String> {
         // allowed to present it.
         thread::sleep(Duration::from_millis(16));
         if let Err(e) = set_window_cloaked(hwnd, false) {
-            eprintln!("[overlay] uncloak after show failed: {e}");
+            log::warn!("uncloak after show failed: {e}");
         }
         crate::windows::overlay_diag::snapshot(hwnd, "reveal:after-uncloak");
         crate::windows::overlay_diag::enumerate_top_level(hwnd, "reveal:after-uncloak");
@@ -276,11 +276,8 @@ pub fn current_state() -> Option<String> {
 }
 
 #[command]
-pub fn overlay_ready() -> Result<(), String> {
-    if let Ok(mut guard) = OVERLAY_READY.lock() {
-        *guard = true;
-    }
-    Ok(())
+pub fn overlay_ready() {
+    *crate::mutex_recover::lock(&OVERLAY_READY) = true;
 }
 
 fn wait_until_ready(timeout: Duration) -> bool {
@@ -372,7 +369,7 @@ pub fn ensure_window(app: &AppHandle) -> Result<(), String> {
         // of the event loop, so it is a deliberate change and not a
         // drive-by one.
         if let Err(e) = unsafe { install_nc_guard(hwnd) } {
-            eprintln!("[overlay] non-client guard not installed: {e}");
+            log::warn!("non-client guard not installed: {e}");
         }
         apply_noactivate_styles(hwnd);
         // The baseline. Every later snapshot is read as a diff against this
@@ -515,7 +512,7 @@ fn cursor_inside_overlay_ns(ns_window: *mut objc2::runtime::AnyObject) -> bool {
 /// Worker-thread body of `OverlayOp::Show`.
 fn apply_show(app: &AppHandle, state: String) -> Result<(), String> {
     let prev_state = current_state();
-    eprintln!("[overlay] apply_show({state}); current_state={prev_state:?}");
+    log::debug!("apply_show({state}); current_state={prev_state:?}");
     if state == "recording" && matches!(prev_state.as_deref(), Some("pasted" | "error")) {
         *crate::mutex_recover::lock(&PRESENTATION) = (false, false);
     }
@@ -691,7 +688,7 @@ fn position_overlay(window: &tauri::WebviewWindow) -> Result<(), String> {
         target_monitor(window)
     };
     let Some(monitor) = monitor else {
-        eprintln!("[overlay] position_overlay: no monitor detected; window stays off-screen");
+        log::warn!("position_overlay: no monitor detected; window stays off-screen");
         return Ok(());
     };
     // Keep clear of the taskbar; it may rise above other topmost windows.
@@ -762,7 +759,7 @@ fn apply_geometry(
     }
     let resized = window.size()? != size;
     if moved || resized {
-        eprintln!("[overlay] apply_geometry: window={size:?} -> {position:?}");
+        log::debug!("apply_geometry: window={size:?} -> {position:?}");
     }
     if resized {
         window.resize(size)?;
@@ -777,12 +774,11 @@ fn apply_geometry(
 
 /// Serialize presentation changes with show/hide so native operations cannot race.
 #[tauri::command]
-pub fn set_overlay_presentation(streaming: bool, needs_text: bool) -> Result<(), String> {
+pub fn set_overlay_presentation(streaming: bool, needs_text: bool) {
     post(OverlayOp::Presentation {
         streaming,
         needs_text,
     });
-    Ok(())
 }
 
 /// Enqueue a hide. Returns as soon as the op is posted — see the
@@ -791,14 +787,13 @@ pub fn set_overlay_presentation(streaming: bool, needs_text: bool) -> Result<(),
 /// the backend's `whisper-cancelled` listener calls it from a tokio thread;
 /// doing the work here is what deadlocked the app.
 #[command]
-pub fn hide(_app: AppHandle) -> Result<(), String> {
+pub fn hide() {
     post(OverlayOp::Hide);
-    Ok(())
 }
 
 /// Worker-thread body of `OverlayOp::Hide`.
 fn apply_hide(app: &AppHandle) -> Result<(), String> {
-    eprintln!("[overlay] apply_hide()");
+    log::debug!("apply_hide()");
     set_last_state(None);
     *crate::mutex_recover::lock(&PRESENTATION) = (false, false);
     // Issue #24: the cancel path is where the flash is reported. If Windows
@@ -816,15 +811,15 @@ fn apply_hide(app: &AppHandle) -> Result<(), String> {
                 #[cfg(target_os = "macos")]
                 stop_macos_pointer_watch(&window);
                 *crate::mutex_recover::lock(&POINTER_INSIDE) = None;
-                eprintln!("[overlay] hide: window concealed successfully");
+                log::debug!("hide: window concealed successfully");
             }
             Err(e) => {
-                eprintln!("[overlay] hide: conceal failed: {e}");
+                log::warn!("hide: conceal failed: {e}");
                 return Err(e);
             }
         }
     } else {
-        eprintln!("[overlay] hide: overlay window not found");
+        log::warn!("hide: overlay window not found");
     }
     Ok(())
 }
@@ -967,7 +962,7 @@ pub fn subscribe_engine_events(app: &AppHandle) {
             Some("processing") => {
                 post(OverlayOp::Show("loading".to_string()));
             }
-            _ => eprintln!("[overlay] whisper-loading ignored: no session in flight"),
+            _ => log::debug!("whisper-loading ignored: no session in flight"),
         }
     });
 

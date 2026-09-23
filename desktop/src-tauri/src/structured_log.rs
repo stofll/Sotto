@@ -340,10 +340,10 @@ pub fn redact(input: &str) -> String {
     output
 }
 
-use once_cell::sync::Lazy;
 use regex::Regex;
+use std::sync::LazyLock;
 
-static REDACT_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
+static REDACT_PATTERNS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
     [
         // OpenAI / Anthropic API keys.
         r"sk-[A-Za-z0-9_-]{16,}",

@@ -227,13 +227,6 @@ impl AppState {
         }
     }
 
-    /// Cheap clone of the cancelled-sessions set for moving into an async
-    /// dispatcher task. Returns an `Arc<Mutex<HashSet<u64>>>` which can
-    /// check / drop / insert from any thread.
-    pub fn cancelled_sessions_arc(&self) -> Arc<Mutex<HashSet<u64>>> {
-        Arc::clone(&self.cancelled_sessions)
-    }
-
     /// Register a session the dispatcher must ignore. Call this BEFORE
     /// queueing the engine command: the engine can finish and emit before
     /// a later insert lands, and a completion that slips past the check is

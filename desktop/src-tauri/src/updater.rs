@@ -86,7 +86,7 @@ pub async fn check(app: &AppHandle) -> Result<UpdateInfo, String> {
             current_version: current,
             version: Some(update.version.clone()),
             date: update.date.map(|d| d.to_string()),
-            notes: update.body.clone().filter(|s| !s.trim().is_empty()),
+            notes: update.body.filter(|s| !s.trim().is_empty()),
         }),
         Ok(None) => Ok(UpdateInfo::none(current)),
         Err(e) => Err(e.to_string()),

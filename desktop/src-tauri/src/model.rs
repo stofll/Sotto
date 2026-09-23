@@ -1718,7 +1718,7 @@ pub(crate) async fn delete_model(
             .map_err(|e| format!("engine reply dropped: {e}"))?;
         let _ = app.emit("model-unloaded", normalized.clone());
     }
-    delete_cached_model(&model).map_err(|e| e.to_string())
+    delete_cached_model(&model)
 }
 
 #[cfg(test)]
