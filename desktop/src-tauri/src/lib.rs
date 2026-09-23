@@ -5,7 +5,7 @@
 //! [`run`] names them by path. What stays here is what has no single domain:
 //!
 //! - `run()` and `setup()`: window, tray, hotkey, engine and worker wiring.
-//! - The app-level commands (`app_version`, `focus_main_window`, `open_url`,
+//! - The app-level commands (`app_version`, `focus_main_window`,
 //!   `get_runtime_status`, `get_output_contract`) — they answer for the
 //!   application, not for one of its parts.
 //! - The dictation pipeline, from `on_recording_started` to
@@ -38,6 +38,7 @@ mod db;
 mod debug;
 mod dictation;
 mod dictionaries;
+mod external_link;
 mod feedback;
 mod format_commands;
 pub mod formatter;
@@ -628,55 +629,6 @@ fn focus_main_window(app: AppHandle, tab: String) -> Result<(), String> {
         window.unminimize().map_err(|e| e.to_string())?;
         window.set_focus().map_err(|e| e.to_string())?;
         let _ = window.emit("navigate-tab", tab);
-    }
-    Ok(())
-}
-
-/// Open an arbitrary URL/scheme in the system handler. Used by the
-/// permission banners to deep-link into macOS Privacy & Security panes
-/// (e.g. `x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone`).
-/// Windows uses ShellExecuteW; Linux uses `xdg-open`.
-#[tauri::command]
-fn open_url(url: String) -> Result<(), String> {
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("open")
-            .arg(&url)
-            .spawn()
-            .map_err(|e| format!("open failed: {e}"))?;
-    }
-    #[cfg(all(unix, not(target_os = "macos")))]
-    {
-        std::process::Command::new("xdg-open")
-            .arg(&url)
-            .spawn()
-            .map_err(|e| format!("xdg-open failed: {e}"))?;
-    }
-    #[cfg(windows)]
-    {
-        use windows_sys::Win32::UI::{Shell::ShellExecuteW, WindowsAndMessaging::SW_SHOWNORMAL};
-        if url.contains('\0') {
-            return Err("Invalid URL".into());
-        }
-        let url: Vec<u16> = url.encode_utf16().chain(Some(0)).collect();
-        // Launch directly: cmd.exe interprets query-string ampersands as commands.
-        //
-        // SAFETY: `url` is NUL-terminated above (and rejected if it already
-        // contained an interior NUL) and outlives the call; every other
-        // pointer argument is the null the API accepts for "unused".
-        let result = unsafe {
-            ShellExecuteW(
-                0,
-                std::ptr::null(),
-                url.as_ptr(),
-                std::ptr::null(),
-                std::ptr::null(),
-                SW_SHOWNORMAL,
-            )
-        };
-        if result as isize <= 32 {
-            return Err("Could not open URL".into());
-        }
     }
     Ok(())
 }
@@ -2026,7 +1978,7 @@ pub fn run() {
             #[cfg(windows)]
             windows::tray_popup::hide_tray_popup,
             focus_main_window,
-            open_url,
+            external_link::open_url,
             hotkey::validate_hotkey,
             hotkey::set_hotkey,
             ai::fetch_provider_models,
@@ -2409,7 +2361,8 @@ pub(crate) async fn post_process_transcription(
             let api_key = if ai_cfg.api_key_ref.is_empty() {
                 None
             } else {
-                crate::secret_store::get_key(&ai_cfg.api_key_ref)
+                crate::secret_store::load_key(&ai_cfg.api_key_ref)
+                    .await
                     .ok()
                     .flatten()
             };
