@@ -159,8 +159,18 @@ fn migrate_between(legacy: &Path, target: &Path) -> Outcome {
             return Outcome::Postponed(format!("move {DATABASE}: {error}"));
         }
     }
+    // A database that stays keeps its journal and shared memory: beside the
+    // other database, SQLite would replay the old writes into it.
+    let companions: Vec<String> = if database.exists() {
+        ["-wal", "-shm", "-journal"]
+            .iter()
+            .map(|suffix| format!("{DATABASE}{suffix}"))
+            .collect()
+    } else {
+        Vec::new()
+    };
     let mut left = Vec::new();
-    move_entries(legacy, target, &mut left);
+    move_entries(legacy, target, &companions, &mut left);
     if left.is_empty() {
         if let Err(error) = fs::remove_dir(legacy) {
             left.push(format!("{}: {error}", legacy.display()));
@@ -201,8 +211,9 @@ fn release_database(database: &Path) -> Result<(), String> {
 /// Move every entry of `from` into `to`, merging directories that exist on
 /// both sides. A file that exists on both sides is never overwritten: it stays
 /// behind and is reported, which keeps a second database or anything else
-/// unexpected rather than guessing which copy matters.
-fn move_entries(from: &Path, to: &Path, left: &mut Vec<String>) {
+/// unexpected rather than guessing which copy matters. Entries named in
+/// `keep` stay where they are.
+fn move_entries(from: &Path, to: &Path, keep: &[String], left: &mut Vec<String>) {
     let entries = match fs::read_dir(from) {
         Ok(entries) => entries,
         Err(error) => {
@@ -211,6 +222,9 @@ fn move_entries(from: &Path, to: &Path, left: &mut Vec<String>) {
         }
     };
     for entry in entries.flatten() {
+        if keep.iter().any(|name| entry.file_name() == name.as_str()) {
+            continue;
+        }
         let source = entry.path();
         let destination = to.join(entry.file_name());
         if !destination.exists() {
@@ -218,7 +232,7 @@ fn move_entries(from: &Path, to: &Path, left: &mut Vec<String>) {
                 left.push(format!("{}: {error}", source.display()));
             }
         } else if source.is_dir() && destination.is_dir() {
-            move_entries(&source, &destination, left);
+            move_entries(&source, &destination, &[], left);
             let _ = fs::remove_dir(&source);
         } else {
             left.push(format!(
@@ -441,6 +455,41 @@ mod tests {
         );
         assert!(target.join("logs/app.log.1").is_file());
         assert_eq!(resolve(&target, &legacy), target);
+    }
+
+    #[test]
+    fn a_database_that_stays_behind_keeps_its_journal() {
+        let root = tempfile::tempdir().unwrap();
+        let legacy = root.path().join("legacy");
+        let target = root.path().join("target");
+        database_with_history(&target.join(DATABASE), "новая база");
+
+        // A legacy database whose last write is still in its WAL, as after a
+        // crash: copied while the connection that wrote it is open.
+        let writer = root.path().join("writer");
+        database_with_history(&writer.join(DATABASE), "старая база");
+        let connection = rusqlite::Connection::open(writer.join(DATABASE)).unwrap();
+        connection
+            .execute_batch("PRAGMA wal_autocheckpoint=0; DELETE FROM history;")
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO history (timestamp, text, length) VALUES (2.0, 'из журнала', 1)",
+                [],
+            )
+            .unwrap();
+        fs::create_dir_all(&legacy).unwrap();
+        for name in [DATABASE, "sotto.db-wal", "sotto.db-shm"] {
+            fs::copy(writer.join(name), legacy.join(name)).unwrap();
+        }
+        drop(connection);
+
+        assert!(matches!(
+            migrate_between(&legacy, &target),
+            Outcome::Incomplete(_)
+        ));
+        assert_eq!(history_texts(&target.join(DATABASE)), ["новая база"]);
+        assert_eq!(history_texts(&legacy.join(DATABASE)), ["из журнала"]);
     }
 
     #[test]
