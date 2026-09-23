@@ -118,7 +118,7 @@ pub fn run_delivery<R: Runtime>(
     #[cfg(windows)]
     {
         let _ = app;
-        spawn_serialized(job)
+        queue_delivery(Box::new(job))
     }
     #[cfg(not(windows))]
     {
@@ -127,21 +127,41 @@ pub fn run_delivery<R: Runtime>(
     }
 }
 
-/// Start `job` on its own thread once every earlier job has finished.
-///
-/// The main thread used to serialize deliveries; two pastes racing for the
-/// clipboard and the focus would interleave their text.
 #[cfg(windows)]
-fn spawn_serialized(job: impl FnOnce() + Send + 'static) -> Result<(), String> {
-    static DELIVERY: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    std::thread::Builder::new()
-        .name("delivery".into())
-        .spawn(move || {
-            let _serial = crate::mutex_recover::lock(&DELIVERY);
-            job();
-        })
-        .map(|_| ())
-        .map_err(|error| format!("spawn delivery thread: {error}"))
+type DeliveryJob = Box<dyn FnOnce() + Send>;
+
+/// Run `job` on the delivery thread after every job queued before it.
+///
+/// One long-lived thread in queue order, as the main thread used to run
+/// them: two pastes racing for the clipboard and the focus would interleave
+/// their text, and a later dictation must not land before an earlier one.
+#[cfg(windows)]
+fn queue_delivery(job: DeliveryJob) -> Result<(), String> {
+    use std::sync::mpsc::{channel, Sender};
+    use std::sync::OnceLock;
+
+    static QUEUE: OnceLock<Result<Sender<DeliveryJob>, String>> = OnceLock::new();
+    let queue = QUEUE.get_or_init(|| {
+        let (queue, jobs) = channel::<DeliveryJob>();
+        std::thread::Builder::new()
+            .name("delivery".into())
+            .spawn(move || {
+                for job in jobs {
+                    // A panicking paste must not take every later one down
+                    // with the thread.
+                    if std::panic::catch_unwind(std::panic::AssertUnwindSafe(job)).is_err() {
+                        log::error!("delivery job panicked");
+                    }
+                }
+            })
+            .map(|_| queue)
+            .map_err(|error| format!("spawn delivery thread: {error}"))
+    });
+    queue
+        .as_ref()
+        .map_err(Clone::clone)?
+        .send(job)
+        .map_err(|_| "delivery thread has stopped".to_string())
 }
 
 /// Hand the finished text to the user according to `options`.
@@ -762,31 +782,44 @@ mod delivery_tests {
 
 #[cfg(all(test, windows))]
 mod delivery_thread_tests {
-    use super::spawn_serialized;
+    use super::queue_delivery;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{mpsc, Arc};
     use std::time::Duration;
 
+    /// The delivery thread is shared by the whole test binary, so every test
+    /// that queues on it waits for its own jobs only.
     #[test]
-    fn deliveries_run_one_at_a_time_off_the_calling_thread() {
+    fn deliveries_run_one_at_a_time_in_queue_order_off_the_calling_thread() {
         let caller = std::thread::current().id();
         let running = Arc::new(AtomicUsize::new(0));
         let (done, finished) = mpsc::channel();
-        for _ in 0..3 {
+        for index in 0..6_u64 {
             let (running, done) = (running.clone(), done.clone());
-            spawn_serialized(move || {
+            queue_delivery(Box::new(move || {
                 let overlapping = running.fetch_add(1, Ordering::SeqCst);
-                std::thread::sleep(Duration::from_millis(30));
+                // Earlier jobs take longer, so any reordering would show.
+                std::thread::sleep(Duration::from_millis((6 - index) * 10));
                 running.fetch_sub(1, Ordering::SeqCst);
-                done.send((overlapping, std::thread::current().id()))
+                done.send((index, overlapping, std::thread::current().id()))
                     .unwrap();
-            })
+            }))
             .unwrap();
         }
-        for _ in 0..3 {
-            let (overlapping, thread) = finished.recv_timeout(Duration::from_secs(5)).unwrap();
+        for expected in 0..6 {
+            let (index, overlapping, thread) =
+                finished.recv_timeout(Duration::from_secs(5)).unwrap();
+            assert_eq!(index, expected, "deliveries ran out of order");
             assert_eq!(overlapping, 0, "another delivery was still running");
             assert_ne!(thread, caller);
         }
+    }
+
+    #[test]
+    fn a_panicking_delivery_does_not_stop_the_next_one() {
+        let (done, finished) = mpsc::channel();
+        queue_delivery(Box::new(|| panic!("paste blew up"))).unwrap();
+        queue_delivery(Box::new(move || done.send(()).unwrap())).unwrap();
+        finished.recv_timeout(Duration::from_secs(5)).unwrap();
     }
 }
