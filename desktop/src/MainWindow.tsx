@@ -15,7 +15,9 @@ import { SettingsPage } from "./pages/SettingsPage";
 import { ModelsPage } from "./pages/ModelsPage";
 import { AiPage } from "./pages/AiPage";
 import { IntegrationsPage } from "./pages/IntegrationsPage";
-import { InfoPage, StatsPage, TextPage } from "./pages/OtherPages";
+import { InfoPage } from "./pages/InfoPage";
+import { StatsPage } from "./pages/StatsPage";
+import { TextPage } from "./pages/TextPage";
 import { actualModelLabel } from "./pages/runtimePresentation";
 import { applyLocaleFromConfig, t, useLocale } from "./i18n";
 
