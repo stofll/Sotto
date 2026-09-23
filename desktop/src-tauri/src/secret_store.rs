@@ -259,6 +259,23 @@ fn windows_credentials() -> Result<Vec<(String, String, String)>, String> {
     Ok(credentials)
 }
 
+/// Run a credential-store call on a blocking worker. The platform store is
+/// synchronous and Keychain can wait on the user, so neither the main thread
+/// (where synchronous commands run) nor an async runtime worker may make it.
+async fn off_thread<T: Send + 'static>(
+    call: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(call)
+        .await
+        .map_err(|error| format!("SECRET_STORE_WORKER: {error}"))?
+}
+
+/// [`get_key`] for async code.
+pub async fn load_key(slot: &str) -> Result<Option<String>, String> {
+    let slot = slot.to_owned();
+    off_thread(move || get_key(&slot)).await
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct KeyMeta {
     pub available: bool,
@@ -279,15 +296,18 @@ pub struct KeyMeta {
 /// the OS credential store, so the caller-supplied `label` is echoed back
 /// for the in-memory UI state (it does not survive a restart).
 #[tauri::command(rename_all = "snake_case")]
-pub(crate) fn save_api_key(
+pub(crate) async fn save_api_key(
     key_id: String,
     key: String,
     label: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    save_key(&key_id, &key)?;
-    let masked = get_key_meta(&key_id)?
-        .map(|meta| meta.masked)
-        .unwrap_or_default();
+    let masked = off_thread(move || {
+        save_key(&key_id, &key)?;
+        Ok(get_key_meta(&key_id)?
+            .map(|meta| meta.masked)
+            .unwrap_or_default())
+    })
+    .await?;
     Ok(serde_json::json!({
         "saved": true,
         "label": label.unwrap_or_default(),
@@ -298,8 +318,8 @@ pub(crate) fn save_api_key(
 /// Report whether a key exists for the given slot ref, with its mask.
 /// Called at boot for every known slot and after edits.
 #[tauri::command(rename_all = "snake_case")]
-pub(crate) fn has_api_key(key_id: String) -> Result<serde_json::Value, String> {
-    match get_key_meta(&key_id)? {
+pub(crate) async fn has_api_key(key_id: String) -> Result<serde_json::Value, String> {
+    match off_thread(move || get_key_meta(&key_id)).await? {
         Some(meta) => Ok(serde_json::json!({
             "available": meta.available,
             "label": meta.label,
@@ -312,8 +332,8 @@ pub(crate) fn has_api_key(key_id: String) -> Result<serde_json::Value, String> {
 /// Delete a stored API key. Returns `{ deleted }` (false if there was
 /// no key in that slot — not an error).
 #[tauri::command(rename_all = "snake_case")]
-pub(crate) fn delete_api_key(key_id: String) -> Result<serde_json::Value, String> {
-    let deleted = delete_key(&key_id)?;
+pub(crate) async fn delete_api_key(key_id: String) -> Result<serde_json::Value, String> {
+    let deleted = off_thread(move || delete_key(&key_id)).await?;
     Ok(serde_json::json!({ "deleted": deleted }))
 }
 

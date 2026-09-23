@@ -353,6 +353,11 @@ static REDACT_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
         r"sk-live-[A-Za-z0-9_-]{16,}",
         r"AIzaSy[A-Za-z0-9_-]{20,}",
         r"ghp_[A-Za-z0-9]{20,}",
+        // Groq, xAI and Hugging Face tokens, reachable through the
+        // OpenAI-compatible provider.
+        r"gsk_[A-Za-z0-9]{20,}",
+        r"xai-[A-Za-z0-9]{20,}",
+        r"hf_[A-Za-z0-9]{20,}",
         // Bearer / Basic auth headers.
         r"(?i)Bearer\s+[A-Za-z0-9._~+/=-]{8,}",
         r"(?i)Basic\s+[A-Za-z0-9+/=]{8,}",
@@ -452,6 +457,19 @@ static MAX_LEVEL: std::sync::atomic::AtomicUsize =
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn redact_masks_openai_compatible_provider_tokens() {
+        for token in [
+            "gsk_abcdefghijklmnopqrstuvwxyz0123",
+            "xai-abcdefghijklmnopqrstuvwxyz0123",
+            "hf_abcdefghijklmnopqrstuvwxyz0123",
+        ] {
+            let output = redact(&format!("provider rejected {token} (401)"));
+            assert!(!output.contains("abcdefghijklmnop"), "got: {output}");
+            assert!(output.ends_with("(401)"), "got: {output}");
+        }
+    }
 
     #[test]
     fn redact_masks_openai_keys() {

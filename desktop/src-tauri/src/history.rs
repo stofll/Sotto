@@ -471,7 +471,8 @@ async fn run_history_entry_ai(
     let api_key = if ai_cfg.api_key_ref.is_empty() {
         None
     } else {
-        crate::secret_store::get_key(&ai_cfg.api_key_ref)
+        crate::secret_store::load_key(&ai_cfg.api_key_ref)
+            .await
             .map_err(|e| format!("secret_store get_key({}): {e}", ai_cfg.api_key_ref))?
     };
 

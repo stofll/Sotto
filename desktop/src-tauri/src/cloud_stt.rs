@@ -196,6 +196,7 @@ pub async fn transcribe(req: CloudSttRequest) -> Result<CloudSttResult, String> 
     );
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(req.timeout_seconds.max(1)))
+        .redirect(crate::ai::providers::credential_redirect_policy())
         .build()
         .map_err(|error| format!("transport: build client: {error}"))?;
 
@@ -218,15 +219,21 @@ pub async fn transcribe(req: CloudSttRequest) -> Result<CloudSttResult, String> 
 
     let status = response.status();
     if !status.is_success() {
-        let body = response
-            .text()
-            .await
-            .unwrap_or_else(|error| format!("<unreadable: {error}>"));
-        return Err(format!(
-            "http {}: {}",
+        // The message reaches the overlay and the history entry, so it names
+        // only the status; the provider's own wording goes to the debug log.
+        let body = response.text().await.unwrap_or_default();
+        log::debug!(
+            "cloud STT http {}: {}",
             status.as_u16(),
             truncate(&body, 240)
-        ));
+        );
+        return Err(format!(
+            "http {} {}",
+            status.as_u16(),
+            status.canonical_reason().unwrap_or("")
+        )
+        .trim_end()
+        .to_string());
     }
 
     let parsed: serde_json::Value = response.json().await.map_err(|error| {
@@ -240,12 +247,9 @@ pub async fn transcribe(req: CloudSttRequest) -> Result<CloudSttResult, String> 
     let text = parsed
         .get("text")
         .and_then(|value| value.as_str())
-        .ok_or_else(|| {
-            format!(
-                "malformed: missing 'text' field in response: {}",
-                truncate(&parsed.to_string(), 200)
-            )
-        })?
+        // Not the response itself: whatever it holds instead of `text` may be
+        // the transcript.
+        .ok_or_else(|| "malformed: missing 'text' field in response".to_string())?
         .to_string();
 
     Ok(CloudSttResult {

@@ -638,10 +638,35 @@ fn shared_client() -> &'static reqwest::Client {
     static CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
         reqwest::Client::builder()
             .timeout(Duration::from_secs(120))
+            .redirect(credential_redirect_policy())
             .build()
             .expect("build reqwest client")
     });
     &CLIENT
+}
+
+/// Redirects for requests that carry a provider key: followed only to the
+/// same host and never from HTTPS down to HTTP.
+///
+/// reqwest drops `Authorization` on a cross-host redirect but forwards other
+/// headers, and Anthropic and Gemini keys travel in `x-api-key` and
+/// `x-goog-api-key`. A refused redirect comes back as the 3xx response itself,
+/// which the callers report as an HTTP error.
+pub(crate) fn credential_redirect_policy() -> reqwest::redirect::Policy {
+    reqwest::redirect::Policy::custom(|attempt| {
+        let Some(previous) = attempt.previous().last() else {
+            return attempt.stop();
+        };
+        let same_host = previous.host_str() == attempt.url().host_str();
+        let downgrade = previous.scheme() == "https" && attempt.url().scheme() != "https";
+        if !same_host || downgrade {
+            attempt.stop()
+        } else if attempt.previous().len() > 10 {
+            attempt.error("too many redirects")
+        } else {
+            attempt.follow()
+        }
+    })
 }
 
 fn classify_http_status(status: u16) -> ProviderErrorType {

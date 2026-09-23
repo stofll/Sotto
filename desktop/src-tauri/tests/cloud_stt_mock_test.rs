@@ -322,7 +322,8 @@ async fn transcribe_propagates_4xx_as_http_error() {
     );
     let err = transcribe(sample_request(base_url)).await.unwrap_err();
     assert!(err.contains("http 401"), "got: {err}");
-    assert!(err.contains("missing api key"));
+    // The error reaches the overlay and history; the provider's body does not.
+    assert!(!err.contains("missing api key"), "got: {err}");
 }
 
 #[tokio::test]
@@ -345,6 +346,10 @@ async fn transcribe_propagates_missing_text_field() {
     let err = transcribe(sample_request(base_url)).await.unwrap_err();
     assert!(err.starts_with("malformed:"), "got: {err}");
     assert!(err.contains("missing 'text'"));
+    assert!(
+        !err.contains("hi\""),
+        "the response leaked into the error: {err}"
+    );
 }
 
 #[tokio::test]
@@ -371,4 +376,25 @@ fn audio_to_wav_bytes_round_trips_silence() {
     let wav = audio_to_wav_bytes(&[0.0_f32; 1600]);
     // 44-byte header + 1600 * 2 bytes of zero PCM
     assert_eq!(wav.len(), 44 + 3200);
+}
+
+/// The bearer token is safe with reqwest's defaults; the policy is asserted
+/// here so a later change to the shared client cannot quietly relax it.
+#[tokio::test]
+async fn transcribe_does_not_follow_a_redirect_to_another_host() {
+    let (other_host, other_captured) = spawn_mock("HTTP/1.1 200 OK", r#"{"text": "stolen"}"#);
+    let other_port = other_host.rsplit(':').next().unwrap();
+    let redirect: &'static str = Box::leak(
+        format!("HTTP/1.1 307 Temporary Redirect\r\nLocation: http://localhost:{other_port}/audio/transcriptions")
+            .into_boxed_str(),
+    );
+    let (base_url, _) = spawn_mock(redirect, "");
+
+    let err = transcribe(sample_request(base_url)).await.unwrap_err();
+
+    assert!(err.contains("http 307"), "got: {err}");
+    assert!(
+        other_captured.lock().unwrap().body.is_empty(),
+        "the audio reached another host"
+    );
 }
