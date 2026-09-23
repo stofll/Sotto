@@ -398,16 +398,10 @@ fn save_with_merge_patch_at(path: &Path, patch: Value) -> Result<Value, String> 
     })
 }
 
-/// Register a new shortcut and persist it under the same writer lock as settings.
-/// A failed write restores the previous binding before another writer can enter.
-pub(crate) fn change_hotkey(
-    app: &AppHandle,
-    hotkey: &str,
-    replace_binding: impl FnOnce(&str, &str) -> Result<crate::hotkey::BindingRollback, String>,
-) -> Result<(), String> {
-    change_hotkey_at(&config_path(app)?, hotkey, replace_binding)
-}
-
+/// The hotkey half of `save_config`, without an `AppHandle`: rebind, persist
+/// under the writer lock, and restore the previous binding if the write
+/// fails.
+#[cfg(test)]
 fn change_hotkey_at(
     path: &Path,
     hotkey: &str,

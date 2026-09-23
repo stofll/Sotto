@@ -512,14 +512,6 @@ fn cursor_inside_overlay_ns(ns_window: *mut objc2::runtime::AnyObject) -> bool {
     )
 }
 
-/// Enqueue a state change. Returns as soon as the op is posted — see the
-/// worker-thread comment for why this must never do the work inline.
-#[command]
-pub fn show_state(state: String, _app: AppHandle) -> Result<(), String> {
-    post(OverlayOp::Show(state));
-    Ok(())
-}
-
 /// Worker-thread body of `OverlayOp::Show`.
 fn apply_show(app: &AppHandle, state: String) -> Result<(), String> {
     let prev_state = current_state();

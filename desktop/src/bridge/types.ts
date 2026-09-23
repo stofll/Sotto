@@ -229,9 +229,6 @@ export interface RuntimeStatusResult {
   cpu_only?: boolean;
   recording: boolean;
   state: string;
-  idle_time?: number;
-  idle_time_seconds?: number;
-  last_error: string | null;
 }
 
 export interface StatsResult {

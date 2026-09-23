@@ -207,8 +207,7 @@ fn app_version(app: AppHandle) -> Result<serde_json::Value, String> {
 ///   model unloaded on idle apart from a missing one: there is something to
 ///   transcribe with, the memory is simply free right now
 /// - `recording`: whether the audio recorder is active
-/// - `state`: app FSM state string (idle/recording/processing/done/error)
-/// - `last_error`: null (error tracking is not wired yet)
+/// - `state`: app FSM state string (idle/recording/processing)
 #[tauri::command]
 fn get_runtime_status(
     app: AppHandle,
@@ -227,8 +226,6 @@ fn get_runtime_status(
         AppFsm::Idle => "idle",
         AppFsm::Recording => "recording",
         AppFsm::Processing => "processing",
-        AppFsm::Done => "done",
-        AppFsm::Error => "error",
     };
 
     let loaded_model = crate::mutex_recover::lock(&state.engine_current_model).clone();
@@ -285,7 +282,6 @@ fn get_runtime_status(
         "cpu_only": loaded_engine.is_some_and(|engine| engine.is_sherpa()),
         "recording": state.recorder.is_recording(),
         "state": state_str,
-        "last_error": null,
     }))
 }
 
@@ -1361,7 +1357,9 @@ pub fn run() {
             let (engine_event_tx, engine_event_rx) =
                 tokio::sync::mpsc::channel::<crate::whisper::EngineEvent>(64);
             let engine_app_handle = app.handle().clone();
-            let engine_handle = std::thread::spawn(move || {
+            // Detached: the engine exits on `EngineCommand::Shutdown` or with
+            // the process.
+            std::thread::spawn(move || {
                 crate::whisper::engine_thread_main(
                     engine_cmd_rx,
                     engine_event_tx,
@@ -1448,7 +1446,6 @@ pub fn run() {
 
             let engine_state = crate::state::AppState::new(
                 engine_cmd_tx,
-                engine_handle,
                 recorder,
                 db_arc,
                 microphone_test,
@@ -2085,7 +2082,6 @@ pub fn run() {
             audio_file::pick_audio_file,
             audio_file::transcribe_audio_file,
             audio_file::cancel_audio_file,
-            overlay::show_state,
             overlay::hide,
             overlay::current_state,
             overlay::overlay_ready,
@@ -2096,7 +2092,6 @@ pub fn run() {
             focus_main_window,
             external_link::open_url,
             hotkey::validate_hotkey,
-            hotkey::set_hotkey,
             ai::fetch_provider_models,
             model_download::cancel_model_download,
             crate::overlay::set_overlay_presentation,
@@ -2135,7 +2130,6 @@ pub fn run() {
             model_download::download_model,
             model::set_model,
             model::delete_model,
-            model::get_model_status,
             // API-key storage (native secret store). The frontend's
             // API-keys / providers pages depend on these three.
             secret_store::save_api_key,

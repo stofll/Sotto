@@ -428,31 +428,6 @@ pub(crate) fn validate_hotkey(hotkey: String) -> Result<(), String> {
     parse(&hotkey).map(|_| ())
 }
 
-/// Change the binding and config together, restoring the previous binding if
-/// persistence fails. The latest saved binding is authoritative across windows.
-#[tauri::command]
-pub(crate) async fn set_hotkey(
-    app: AppHandle,
-    state: tauri::State<'_, AppState>,
-    hotkey: String,
-    old_hotkey: Option<String>,
-) -> Result<(), String> {
-    // Retain the IPC argument for existing callers, but a webview's snapshot
-    // can be stale after another window changed the shortcut.
-    let _ = old_hotkey;
-    let state = state.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        crate::config::change_hotkey(&app, &hotkey, |old, new| {
-            re_register_with_rollback(&app, &state, old, new)
-        })
-        .inspect_err(|error| {
-            let _ = app.emit("hotkey-error", error.clone());
-        })
-    })
-    .await
-    .map_err(|error| format!("hotkey worker: {error}"))?
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -504,7 +479,6 @@ mod tests {
         crate::db::run_migrations(&db).unwrap();
         let state = AppState::new(
             tokio::sync::mpsc::channel(1).0,
-            std::thread::spawn(|| {}),
             Arc::new(
                 crate::audio::AudioRecorder::new(crate::audio::AudioConfig::default()).unwrap(),
             ),

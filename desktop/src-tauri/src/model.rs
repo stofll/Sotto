@@ -1721,30 +1721,6 @@ pub(crate) async fn delete_model(
     delete_cached_model(&model).map_err(|e| e.to_string())
 }
 
-/// Return both configured and actually loaded model state. The two values can
-/// differ briefly during startup or after a failed switch; `engine` always
-/// describes the engine thread rather than merely echoing config.
-#[tauri::command]
-pub(crate) fn get_model_status(
-    app: AppHandle,
-    state: tauri::State<'_, crate::state::AppState>,
-) -> Result<serde_json::Value, String> {
-    let selected = crate::config::Config::load(&app)
-        .ok()
-        .and_then(|c| c.get_string("model"));
-    let loaded = crate::mutex_recover::lock(&state.engine_current_model).clone();
-    let engine = loaded
-        .as_deref()
-        .and_then(|id| model_engine(id).ok())
-        .map(|engine| engine.wire_name());
-    Ok(serde_json::json!({
-        "selected": selected,
-        "loaded": loaded,
-        "model_loaded": engine.is_some(),
-        "engine": engine,
-    }))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -253,7 +253,6 @@ export function MainWindow() {
         cpu_only: false,
         recording: current?.recording ?? false,
         state: "loading",
-        last_error: null,
       }));
     }));
     unlisteners.push(subscribe<string>("whisper-ready", () => {
