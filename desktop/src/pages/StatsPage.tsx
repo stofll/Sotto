@@ -163,7 +163,7 @@ function buildDailySeries(history: DailyStats[], range: StatsRange): DailyStats[
 }
 
 function Heatmap({ history }: { history: DailyStats[] }) {
-  const colors = ["var(--bg-2)", "rgba(246,169,59,0.18)", "rgba(246,169,59,0.40)", "rgba(246,169,59,0.65)", "var(--accent)"];
+  const colors = ["var(--bg-2)", ...[18, 40, 65].map((share) => `color-mix(in srgb, var(--accent) ${share}%, transparent)`), "var(--accent)"];
   const cells = buildDailySeries(history, "year");
   const max = Math.max(1, ...cells.map((item) => item.count));
   const monthLabels = [0, 4, 8].map((week) => {

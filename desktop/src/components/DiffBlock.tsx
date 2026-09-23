@@ -21,8 +21,8 @@ export function DiffBlock({ before, after, title = t("Diff: до LLM → фин�
       <div style={{ font: "400 13px/1.5 var(--font-sans)", color: unchanged ? "var(--ink-mute)" : "var(--ink)", whiteSpace: "pre-wrap", overflowWrap: "break-word" }}>
         {segments.map((seg, idx) => {
           if (seg.change === "keep") return <span key={idx}>{seg.text}</span>;
-          if (seg.change === "add") return <span key={idx} style={{ background: "rgba(56,205,127,0.18)", color: "var(--ok)", borderRadius: 2 }}>{seg.text}</span>;
-          return <span key={idx} style={{ background: "rgba(239,94,107,0.18)", color: "var(--err)", textDecoration: "line-through", borderRadius: 2 }}>{seg.text}</span>;
+          if (seg.change === "add") return <span key={idx} style={{ background: "color-mix(in srgb, var(--ok) 18%, transparent)", color: "var(--ok)", borderRadius: 2 }}>{seg.text}</span>;
+          return <span key={idx} style={{ background: "color-mix(in srgb, var(--err) 18%, transparent)", color: "var(--err)", textDecoration: "line-through", borderRadius: 2 }}>{seg.text}</span>;
         })}
       </div>
     </div>

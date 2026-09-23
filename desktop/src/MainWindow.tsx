@@ -390,9 +390,9 @@ export function MainWindow() {
                 </button>
               </div>
             ))}
-            {error && <div role="alert" style={{ margin: "14px 32px 0", padding: "10px 12px", borderRadius: 8, background: "rgba(239,94,107,0.12)", border: "1px solid rgba(239,94,107,0.35)", color: "var(--err)", font: "500 12px/1.35 var(--font-sans)" }}>{error}</div>}
+            {error && <div role="alert" style={{ margin: "14px 32px 0", padding: "10px 12px", borderRadius: 8, background: "var(--err-soft)", border: "1px solid color-mix(in srgb, var(--err) 35%, transparent)", color: "var(--err)", font: "500 12px/1.35 var(--font-sans)" }}>{error}</div>}
             {sttUnavailable && (
-              <div role="status" style={{ margin: "14px 32px 0", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", padding: "12px 14px", borderRadius: 8, background: "var(--warn-soft)", border: "1px solid rgba(251,191,36,0.30)", color: "var(--warn)", font: "500 12.5px/1.4 var(--font-sans)" }}>
+              <div role="status" style={{ margin: "14px 32px 0", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", padding: "12px 14px", borderRadius: 8, background: "var(--warn-soft)", border: "1px solid color-mix(in srgb, var(--warn) 30%, transparent)", color: "var(--warn)", font: "500 12.5px/1.4 var(--font-sans)" }}>
                 <Icon name="info" size={14}/>
                 <span style={{ flex: "1 1 240px", minWidth: 240 }}>
                   <strong>{t("Модель распознавания не скачана.")}</strong>  {t("Для записи скачайте модель распознавания в разделе «Модели».")} </span>
@@ -429,7 +429,7 @@ function PageWithMvpGate({ tab, children }: { tab: TabId; children: React.ReactN
             display: "grid",
             placeItems: "center",
             cursor: "not-allowed",
-            background: "rgba(128, 128, 128, 0.34)",
+            background: "color-mix(in srgb, var(--ink-faint) 34%, transparent)",
             backdropFilter: "blur(1.5px) saturate(80%)",
             WebkitBackdropFilter: "blur(1.5px) saturate(80%)",
           }}

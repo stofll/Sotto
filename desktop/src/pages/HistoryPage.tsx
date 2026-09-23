@@ -648,7 +648,7 @@ export function HistoryPage() {
       />
       <div style={{ display: "grid", gap: 12 }}>
         {error && (
-          <div role="alert" style={{ padding: "10px 12px", borderRadius: 8, background: "rgba(239,94,107,0.12)", border: "1px solid rgba(239,94,107,0.35)", color: "var(--err)", font: "500 12px/1.35 var(--font-sans)" }}>
+          <div role="alert" style={{ padding: "10px 12px", borderRadius: 8, background: "var(--err-soft)", border: "1px solid color-mix(in srgb, var(--err) 35%, transparent)", color: "var(--err)", font: "500 12px/1.35 var(--font-sans)" }}>
             {error}
             <button className="btn btn--ghost" style={{ marginLeft: 8, height: 22 }} onClick={() => setError(null)}><Icon name="x" size={10}/>{t("Скрыть")}</button>
           </div>
@@ -837,7 +837,7 @@ function BulkBar({ count, totalVisible, allVisibleSelected, onSelectAllVisible, 
         display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center",
         padding: "8px 12px", borderRadius: "var(--radius-sm)",
         background: "var(--accent-soft-2)", border: "1px solid var(--accent-soft-2)",
-        boxShadow: "0 2px 12px rgba(0,0,0,0.12)",
+        boxShadow: "var(--shadow-card)",
       }}
     >
       <span style={{ font: "600 12px/1 var(--font-sans)", color: "var(--ink)" }}>{t("Выбрано:")} {count}</span>
@@ -1106,7 +1106,7 @@ function ActionsMenu({ open, onToggle, actions }: {
             background: "var(--bg-3)",
             border: "1px solid var(--line-strong)",
             borderRadius: "var(--radius-sm)",
-            boxShadow: "0 8px 24px rgba(0,0,0,0.25)",
+            boxShadow: "var(--shadow-pop)",
             zIndex: 10,
             display: "grid",
             gap: 2,

@@ -175,8 +175,8 @@ export function TrayApp() {
 
   return (
     <div className="app-frame" style={{ width: "100%", height: "100%", background: "transparent", position: "relative", paddingBottom: 7, overflow: "hidden" }}>
-      <div style={{ position: "relative", background: "var(--bg-3)", borderRadius: 12, border: "1px solid var(--line-strong)", boxShadow: "0 24px 64px rgba(0,0,0,0.5), 0 1px 0 rgba(255,255,255,0.04) inset", overflow: "hidden", fontFamily: "var(--font-sans)" }}>
-        <div style={{ padding: "14px 16px 12px", background: "linear-gradient(160deg, rgba(246,169,59,0.10), rgba(246,169,59,0.02))", borderBottom: "1px solid var(--line)" }}>
+      <div style={{ position: "relative", background: "var(--bg-3)", borderRadius: 12, border: "1px solid var(--line-strong)", boxShadow: "var(--shadow-modal)", overflow: "hidden", fontFamily: "var(--font-sans)" }}>
+        <div style={{ padding: "14px 16px 12px", background: "linear-gradient(160deg, color-mix(in srgb, var(--accent) 10%, transparent), color-mix(in srgb, var(--accent) 2%, transparent))", borderBottom: "1px solid var(--line)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ font: "600 13px/1 var(--font-sans)" }}>Sotto</div>

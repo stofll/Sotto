@@ -1265,7 +1265,7 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .set-warn {
   margin-top: 8px; padding: 7px 10px;
   border-radius: var(--radius-sm);
-  background: var(--warn-soft); border: 1px solid rgba(251,191,36,0.30);
+  background: var(--warn-soft); border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent);
   font: 500 11.5px/1.4 var(--font-sans); color: var(--ink);
 }
 
