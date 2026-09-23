@@ -202,18 +202,23 @@ const ENGLISH_FILLER_PATTERNS: &[&str] = &[
     r"(?i)\bah+\b",
 ];
 
-/// The filler patterns in force for a dictation in `language`.
-///
-/// Each formatter instance compiles the patterns selected for its language.
-fn default_filler_patterns(language: Option<&str>) -> Vec<Regex> {
-    let mut patterns: Vec<&str> = RUSSIAN_FILLER_PATTERNS.to_vec();
-    if language == Some("en") {
-        patterns.extend_from_slice(ENGLISH_FILLER_PATTERNS);
+/// The filler patterns in force for a dictation in `language`, compiled
+/// once per set rather than on every dictation.
+fn default_filler_patterns(language: Option<&str>) -> &'static [Regex] {
+    fn compile(sets: &[&[&str]]) -> Vec<Regex> {
+        sets.iter()
+            .flat_map(|set| set.iter())
+            .map(|pattern| Regex::new(pattern).expect("valid filler pattern"))
+            .collect()
     }
-    patterns
-        .iter()
-        .map(|pattern| Regex::new(pattern).expect("valid filler pattern"))
-        .collect()
+    static RUSSIAN: Lazy<Vec<Regex>> = Lazy::new(|| compile(&[RUSSIAN_FILLER_PATTERNS]));
+    static WITH_ENGLISH: Lazy<Vec<Regex>> =
+        Lazy::new(|| compile(&[RUSSIAN_FILLER_PATTERNS, ENGLISH_FILLER_PATTERNS]));
+    if language == Some("en") {
+        &WITH_ENGLISH
+    } else {
+        &RUSSIAN
+    }
 }
 
 /// Tier 1 — strong hallucination signatures. Drop a segment that merely
@@ -983,7 +988,7 @@ impl FormatStep for HallucinationCleaner {
 
 pub struct FillerWordsRemover {
     enabled: bool,
-    patterns: Vec<Regex>,
+    patterns: &'static [Regex],
 }
 
 impl FillerWordsRemover {
@@ -1009,7 +1014,7 @@ impl FormatStep for FillerWordsRemover {
             return text.to_string();
         }
         let mut out = text.to_string();
-        for pattern in &self.patterns {
+        for pattern in self.patterns {
             out = pattern
                 .replace_all(&out, |caps: &regex::Captures| {
                     let matched = caps.get(0).unwrap();
