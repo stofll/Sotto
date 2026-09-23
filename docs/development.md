@@ -118,6 +118,14 @@ The configured `script-src` stays closed at `'self'`, with no `'unsafe-inline'`,
 
 All three windows load this one policy, so a directive relaxed for one of them is relaxed for the settings window as well.
 
+## Window capabilities
+
+Every application command is declared in `APP_COMMANDS` in `desktop/src-tauri/build.rs`, so Tauri checks each call against the calling window's capability in `desktop/src-tauri/capabilities/`. A window can call only the commands its file grants as `allow-<command-name>`; any other call fails with "not allowed by ACL". The settings window, the overlay and the tray popup each have their own file.
+
+When you add a command, register it in `generate_handler!`, declare it in `APP_COMMANDS`, and grant it in the capability of every window that calls it. `desktop/src/bridge/window-capabilities.test.ts` follows each window's imports from its entry point and fails when a grant is missing or no longer used.
+
+Links leave the app only through the `open_url` command, which accepts web pages and, on macOS, the Privacy & Security panes. The check runs in Rust, whatever the calling window sends.
+
 ## Repository layout
 
 ```text

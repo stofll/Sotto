@@ -1,0 +1,17 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "overlay",
+  "description": "The recording overlay: session state and cancellation.",
+  "windows": [
+    "overlay"
+  ],
+  "permissions": [
+    "core:default",
+    "allow-cancel-recording",
+    "allow-current-state",
+    "allow-get-config",
+    "allow-hide",
+    "allow-overlay-ready",
+    "allow-set-overlay-presentation"
+  ]
+}

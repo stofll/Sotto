@@ -1,3 +1,77 @@
+/// Every command in `generate_handler!`. Declaring them makes Tauri check each
+/// call against the window's capability, so a window reaches only the
+/// commands `capabilities/<window>.json` grants it; the frontend test
+/// `bridge/window-capabilities.test.ts` keeps this list, the handler and the
+/// grants in step.
+const APP_COMMANDS: &[&str] = &[
+    "pick_audio_file",
+    "transcribe_audio_file",
+    "cancel_audio_file",
+    "show_state",
+    "hide",
+    "current_state",
+    "overlay_ready",
+    "show_tray_popup",
+    "hide_tray_popup",
+    "focus_main_window",
+    "open_url",
+    "validate_hotkey",
+    "set_hotkey",
+    "fetch_provider_models",
+    "cancel_model_download",
+    "set_overlay_presentation",
+    "start_recording",
+    "stop_recording",
+    "cancel_recording",
+    "start_microphone_test",
+    "stop_microphone_test",
+    "set_microphone_test_monitor",
+    "get_stats",
+    "list_history",
+    "delete_history_entry",
+    "clear_history",
+    "preview_history_ai_processing",
+    "apply_history_ai_processing",
+    "get_config",
+    "save_config",
+    "app_version",
+    "get_whats_new",
+    "dismiss_whats_new",
+    "check_update",
+    "install_update",
+    "list_microphones",
+    "list_models",
+    "model_assessments",
+    "reset_model_assessment",
+    "get_runtime_status",
+    "download_model",
+    "set_model",
+    "delete_model",
+    "get_model_status",
+    "save_api_key",
+    "has_api_key",
+    "delete_api_key",
+    "test_ai_prompt",
+    "process_text_ai",
+    "preview_format",
+    "preview_replacements",
+    "check_accessibility",
+    "test_paste",
+    "preview_sound_cue",
+    "preview_output_duck",
+    "get_output_contract",
+    "get_diagnostics",
+    "get_public_diagnostics",
+    "get_public_logs",
+    "save_public_logs",
+    "open_diagnostics_folder",
+    "logs_size",
+    "clear_logs",
+    "dictionary_presets",
+    "parasite_sets",
+    "analyze_dictionary",
+];
+
 fn main() {
     // tauri_build only emits rerun-if-changed for tauri.conf.json, not for the
     // icon file *contents*. When an icon is replaced in-place (same filename),
@@ -37,5 +111,9 @@ fn main() {
         println!("cargo:rustc-link-lib=framework=ApplicationServices");
     }
 
-    tauri_build::build()
+    tauri_build::try_build(
+        tauri_build::Attributes::new()
+            .app_manifest(tauri_build::AppManifest::new().commands(APP_COMMANDS)),
+    )
+    .expect("failed to run tauri-build");
 }
