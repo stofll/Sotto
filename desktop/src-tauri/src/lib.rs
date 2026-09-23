@@ -40,6 +40,7 @@ mod dictation;
 mod dictionaries;
 mod engine_events;
 mod external_link;
+pub mod http_client;
 mod feedback;
 mod format_commands;
 pub mod formatter;

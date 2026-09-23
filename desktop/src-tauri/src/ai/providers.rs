@@ -636,7 +636,7 @@ async fn send_request(
 pub(crate) fn shared_client() -> &'static reqwest::Client {
     use std::sync::LazyLock;
     static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
-        reqwest::Client::builder()
+        crate::http_client::builder()
             .timeout(Duration::from_secs(120))
             .redirect(credential_redirect_policy())
             .build()

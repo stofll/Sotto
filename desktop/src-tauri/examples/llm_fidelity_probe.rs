@@ -83,7 +83,7 @@ fn main() {
     if text_path == "--list" {
         let url = format!("{}/models", base.base_url.clone().unwrap_or_default());
         let body = runtime.block_on(async {
-            reqwest::Client::new()
+            sotto_lib::http_client::client()
                 .get(&url)
                 .bearer_auth(&key)
                 .send()

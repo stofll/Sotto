@@ -18,7 +18,9 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 raw-window-handle = "0.6"
 tokio = { version = "1", features = ["sync", "time", "fs", "io-util", "macros", "rt"] }
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "json"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "stream", "json"] }
+# The crypto provider reqwest is built without; see src/http_client.rs.
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
 futures-util = "0.3"
 sha2 = "0.10"
 fs4 = { version = "1.1", default-features = false }
@@ -68,7 +70,7 @@ dirs = "6"
 cpal = "0.16"
 # WS 4b: rusqlite + bundled SQLite for the data layer (stats, history).
 # `bundled` compiles SQLite from source so we don't depend on the system libsqlite3.
-rusqlite = { version = "0.31", features = ["bundled"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
 earshot = "1.2.1"
 symphonia = { version = "0.6.1", features = ["mp3", "isomp4", "aac", "alac"] }
 rubato = "5.0.0"

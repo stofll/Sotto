@@ -131,7 +131,7 @@ async fn whisper_download_load_and_recognize_speech() {
     use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
     let models = tempfile::tempdir().unwrap();
-    let client = reqwest::Client::builder()
+    let client = sotto_lib::http_client::builder()
         .timeout(std::time::Duration::from_secs(180))
         .build()
         .unwrap();

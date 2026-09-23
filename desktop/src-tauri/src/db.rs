@@ -713,7 +713,7 @@ mod tests {
 
         let error = migrate_from_json(&conn, tmp.path()).unwrap_err();
         assert!(error.contains("insert history[2]"));
-        let count: usize = conn
+        let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM history", [], |r| r.get(0))
             .unwrap();
         assert_eq!(
@@ -725,13 +725,13 @@ mod tests {
 
         conn.execute_batch("DROP TRIGGER reject_second").unwrap();
         migrate_from_json(&conn, tmp.path()).unwrap();
-        let count: usize = conn
+        let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM history", [], |r| r.get(0))
             .unwrap();
         assert_eq!(count, 2);
         assert!(!path.exists());
         migrate_from_json(&conn, tmp.path()).unwrap();
-        let count: usize = conn
+        let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM history", [], |r| r.get(0))
             .unwrap();
         assert_eq!(count, 2);

@@ -534,10 +534,10 @@ impl Telemetry {
         // forever to take the shared DB mutex and find nothing. Dev and test
         // builds are exactly that case.
         if build_api_key().is_some() {
-            let client = reqwest::Client::builder()
+            let client = crate::http_client::builder()
                 .timeout(HTTP_TIMEOUT)
                 .build()
-                .unwrap_or_else(|_| reqwest::Client::new());
+                .unwrap_or_else(|_| crate::http_client::client());
             let worker = Worker {
                 db,
                 enabled: Arc::clone(&telemetry.enabled),

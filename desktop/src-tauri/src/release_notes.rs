@@ -131,7 +131,7 @@ async fn fetch_notes_from(
     version: &str,
     timeout: Duration,
 ) -> Result<Option<String>, String> {
-    let client = reqwest::Client::builder()
+    let client = crate::http_client::builder()
         .timeout(timeout)
         .user_agent(concat!("Sotto/", env!("CARGO_PKG_VERSION")))
         .build()

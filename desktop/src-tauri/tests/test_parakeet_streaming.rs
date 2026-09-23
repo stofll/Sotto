@@ -13,7 +13,7 @@ async fn parakeet_buffered_streaming_preserves_tail_and_resets() {
     std::env::set_var("SOTTO_MODELS_DIR", models.path());
     let id = "parakeet-streaming-en";
     let entry = model::bundle_manifest_entry(id).unwrap();
-    let client = reqwest::Client::new();
+    let client = sotto_lib::http_client::client();
     if let Some(cache) = std::env::var_os("SOTTO_TEST_PARAKEET_DIR") {
         let dest = models.path().join(entry.directory_name);
         std::fs::create_dir_all(&dest).unwrap();

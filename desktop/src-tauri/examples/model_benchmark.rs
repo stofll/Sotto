@@ -202,7 +202,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let context = model_performance::Profile::new(&options.ids[0], "cpu");
     validate_resume(&output, &machine, &context.hardware, &context.method)?;
     eprintln!("{machine}\nResults: {}", output_path.display());
-    let client = reqwest::Client::builder()
+    let client = sotto_lib::http_client::builder()
         .timeout(std::time::Duration::from_secs(600))
         .build()?;
     let cancel = Arc::new(AtomicBool::new(false));

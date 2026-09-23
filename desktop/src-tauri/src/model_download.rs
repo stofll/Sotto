@@ -840,7 +840,7 @@ pub(crate) async fn download_model(
                 })
                 .collect(),
         };
-        let client = reqwest::Client::new();
+        let client = crate::http_client::client();
         let progress_cb = progress_emitter(&app, entry.public_id.to_string());
         let outcome =
             match download_bundle_to_dir(&client, &spec, &dir, &cancel, Some(&progress_cb), None)
@@ -868,7 +868,7 @@ pub(crate) async fn download_model(
         sha256: entry.sha256.to_string(),
     };
     let dir = crate::model::models_dir()?;
-    let client = reqwest::Client::new();
+    let client = crate::http_client::client();
 
     // Wire progress events so the frontend can show a download bar.
     let progress_cb = progress_emitter(&app, model.clone());
@@ -1081,7 +1081,7 @@ mod tests {
             let spec = tiny_spec(format!("http://{addr}/model"), b"abcdef");
             let dir = tempfile::tempdir().unwrap();
             let cancel = Arc::new(AtomicBool::new(false));
-            let client = reqwest::Client::new();
+            let client = crate::http_client::client();
             let received = AtomicU64::new(0);
             let progress = |event: DownloadProgress| {
                 received.store(event.downloaded, Ordering::Relaxed);
@@ -1194,7 +1194,7 @@ mod tests {
         let spec = tiny_spec(url, &body);
         let dir = tempfile::tempdir().unwrap();
         let cancel = Arc::new(AtomicBool::new(false));
-        let client = reqwest::Client::new();
+        let client = crate::http_client::client();
 
         let outcome = block_on(download_spec_to_dir(
             &client,
@@ -1222,7 +1222,7 @@ mod tests {
         let final_path = dir.path().join("ggml-tiny.bin");
         std::fs::write(&final_path, b"existing working model").unwrap();
         let cancel = Arc::new(AtomicBool::new(false));
-        let client = reqwest::Client::new();
+        let client = crate::http_client::client();
 
         assert!(matches!(
             block_on(download_spec_to_dir(
@@ -1255,7 +1255,7 @@ mod tests {
         let part_path = part_path_for(&final_path);
         std::fs::write(&part_path, b"stale partial bytes that must be replaced").unwrap();
         let cancel = Arc::new(AtomicBool::new(false));
-        let client = reqwest::Client::new();
+        let client = crate::http_client::client();
 
         block_on(download_spec_to_dir(
             &client,
@@ -1305,7 +1305,7 @@ mod tests {
         let part_path = part_path_for(&final_path);
         std::fs::write(&part_path, &body[..9]).unwrap();
         let cancel = Arc::new(AtomicBool::new(false));
-        let client = reqwest::Client::new();
+        let client = crate::http_client::client();
 
         let outcome = block_on(download_spec_to_dir(
             &client,
@@ -1337,7 +1337,7 @@ mod tests {
         let final_path = dir.path().join("ggml-tiny.bin");
         std::fs::write(part_path_for(&final_path), b"XXXXXXXXX").unwrap();
         let cancel = Arc::new(AtomicBool::new(false));
-        let client = reqwest::Client::new();
+        let client = crate::http_client::client();
 
         let result = block_on(download_spec_to_dir(
             &client,
@@ -1364,7 +1364,7 @@ mod tests {
         let final_path = dir.path().join("ggml-tiny.bin");
         std::fs::write(part_path_for(&final_path), &body[..9]).unwrap();
         let cancel = Arc::new(AtomicBool::new(false));
-        let client = reqwest::Client::new();
+        let client = crate::http_client::client();
 
         block_on(download_spec_to_dir(
             &client,
@@ -1392,7 +1392,7 @@ mod tests {
         let final_path = dir.path().join("ggml-tiny.bin");
         std::fs::write(part_path_for(&final_path), &body[..9]).unwrap();
         let cancel = Arc::new(AtomicBool::new(false));
-        let client = reqwest::Client::new();
+        let client = crate::http_client::client();
 
         block_on(download_spec_to_dir(
             &client,
@@ -1444,7 +1444,7 @@ mod tests {
         std::fs::write(stage.join("encoder.onnx"), &encoder).unwrap();
         std::fs::write(stage.join("old-encoder.onnx.part"), b"leftover junk").unwrap();
         let cancel = Arc::new(AtomicBool::new(false));
-        let client = reqwest::Client::new();
+        let client = crate::http_client::client();
 
         block_on(download_bundle_to_dir(
             &client,
@@ -1492,7 +1492,7 @@ mod tests {
         let cancel = Arc::new(AtomicBool::new(true));
 
         let result = block_on(download_spec_to_dir(
-            &reqwest::Client::new(),
+            &crate::http_client::client(),
             &spec,
             dir.path(),
             &cancel,
@@ -1521,7 +1521,7 @@ mod tests {
         let progress = move |_event: DownloadProgress| {
             cancel_for_progress.store(true, Ordering::Relaxed);
         };
-        let client = reqwest::Client::new();
+        let client = crate::http_client::client();
 
         let result = block_on(download_spec_to_dir(
             &client,
@@ -1621,7 +1621,7 @@ mod tests {
             artifacts: vec![first, second],
         };
         let result = download_bundle_to_dir(
-            &reqwest::Client::new(),
+            &crate::http_client::client(),
             &spec,
             dir.path(),
             &Arc::new(AtomicBool::new(false)),
@@ -1721,7 +1721,7 @@ mod tests {
         let cancel = Arc::new(AtomicBool::new(false));
         let on_verifying = || cancel.store(true, Ordering::Release);
         let result = block_on(download_spec_to_dir(
-            &reqwest::Client::new(),
+            &crate::http_client::client(),
             &spec,
             dir.path(),
             &cancel,
@@ -1752,7 +1752,7 @@ mod tests {
         let on_verifying = move || {
             verifying_count_for_cb.fetch_add(1, Ordering::Relaxed);
         };
-        let client = reqwest::Client::new();
+        let client = crate::http_client::client();
 
         block_on(download_spec_to_dir(
             &client,
@@ -1795,7 +1795,7 @@ mod tests {
         let on_verifying = move || {
             verifying_count_for_cb.fetch_add(1, Ordering::Relaxed);
         };
-        let client = reqwest::Client::new();
+        let client = crate::http_client::client();
 
         let _ = block_on(download_spec_to_dir(
             &client,
@@ -1893,7 +1893,7 @@ mod tests {
             }],
         };
         let dir = tempfile::tempdir().unwrap();
-        let client = reqwest::Client::new();
+        let client = crate::http_client::client();
         let cancel = Arc::new(AtomicBool::new(false));
         let result = block_on(download_bundle_to_dir(
             &client,
