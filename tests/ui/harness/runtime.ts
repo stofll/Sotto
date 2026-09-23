@@ -86,6 +86,8 @@ export function install(seed: any = {}) {
         };
         state.models.forEach((m: ModelInfo) => { m.selected = m.id === state.config.model; });
         persist(); return structuredClone(state.config);
+      case 'set_replacements_paused':
+        state.config.replacements_paused = args.paused; persist(); return structuredClone(state.config);
       case 'list_models': return structuredClone(state.models);
       case 'list_microphones': return [{ id: 'test-mic', name: 'Synthetic microphone' }];
       case 'get_runtime_status': return structuredClone(state.runtime);

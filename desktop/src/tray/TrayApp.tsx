@@ -156,10 +156,10 @@ export function TrayApp() {
     await tauriInvoke("focus_main_window", { tab }).catch((e) => setError(e instanceof Error ? e.message : String(e)));
   }
 
-  async function saveConfig(patch: Partial<ConfigResult>) {
+  async function setReplacementsPaused(paused: boolean) {
     setError(null);
     try {
-      const result = await invoke<ConfigResult>("save_config", { patch });
+      const result = await invoke<ConfigResult>("set_replacements_paused", { paused });
       setConfig(result);
       await emit("config-updated", result).catch(() => {});
     } catch (e) {
@@ -198,7 +198,7 @@ export function TrayApp() {
           {[
             { icon: "sliders", label: t("Настройки"), right: "Ctrl+Win+,", action: () => openMain("settings") },
             { icon: "chart", label: t("Статистика"), action: () => openMain("stats") },
-            { icon: "replace", label: config?.replacements_paused ? t("Возобновить замены") : t("Пауза замен"), action: () => saveConfig({ replacements_paused: !(config?.replacements_paused ?? false) }) },
+            { icon: "replace", label: config?.replacements_paused ? t("Возобновить замены") : t("Пауза замен"), action: () => setReplacementsPaused(!(config?.replacements_paused ?? false)) },
             { icon: "info", label: t("Справка"), action: () => openMain("info") },
           ].map((item) => <button role="menuitem" key={item.label} style={rowButtonStyle({ padding: "8px 10px" })} onClick={() => void item.action()}><span style={{ color: "var(--ink-dim)", display: "flex" }}><Icon name={item.icon} size={14}/></span><span style={{ font: "500 12px/1 var(--font-sans)", color: "var(--ink)", flex: 1 }}>{item.label}</span>{item.right && <span className="mono" style={{ font: "500 10px/1 var(--font-mono)", color: "var(--ink-mute)" }}>{item.right}</span>}</button>)}
         </div>

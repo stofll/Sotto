@@ -32,6 +32,7 @@ const APP_COMMANDS: &[&str] = &[
     "apply_history_ai_processing",
     "get_config",
     "save_config",
+    "set_replacements_paused",
     "app_version",
     "get_whats_new",
     "dismiss_whats_new",

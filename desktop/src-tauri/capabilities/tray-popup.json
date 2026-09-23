@@ -12,7 +12,7 @@
     "allow-get-runtime-status",
     "allow-hide-tray-popup",
     "allow-list-microphones",
-    "allow-save-config",
+    "allow-set-replacements-paused",
     "allow-start-recording",
     "allow-stop-recording"
   ]
