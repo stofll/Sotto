@@ -520,7 +520,6 @@ mod model_restore_tests {
         .unwrap();
         let (reply, _reply_rx) = tokio::sync::oneshot::channel();
         tx.try_send(EngineCommand::Transcribe {
-            source: crate::model_performance::RunSource::Dictation,
             session_id: 1,
             audio: std::sync::Arc::new(vec![0.0; 160]),
             speech_timing: crate::vad::SpeechTiming::Ready(None),
@@ -884,7 +883,6 @@ pub(crate) fn build_dictation_command(
     let pipeline_mode = telemetry_pipeline_mode(config);
     if pipeline_mode != "cloud" {
         return Ok(crate::whisper::EngineCommand::Transcribe {
-            source: crate::model_performance::RunSource::Dictation,
             session_id,
             audio,
             speech_timing,
@@ -1295,10 +1293,6 @@ pub fn run() {
             // itself IS fatal (we can't run without it).
             let db = crate::db::open().map_err(|e| format!("db open: {e}"))?;
             let db_arc = std::sync::Arc::new(db);
-            app.manage(crate::model_performance::Recorder::start(
-                crate::user_data::data_dir().join("sotto.db"),
-                app.handle().clone(),
-            ));
             {
                 let conn = crate::mutex_recover::lock(&db_arc);
                 let config_dir = crate::user_data::data_dir();
@@ -2014,7 +2008,6 @@ pub fn run() {
             audio::list_microphones,
             model::list_models,
             model_performance::model_assessments,
-            model_performance::reset_model_assessment,
             get_runtime_status,
             // PR-B0: model lifecycle commands.
             model_download::download_model,

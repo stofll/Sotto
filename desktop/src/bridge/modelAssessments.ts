@@ -16,7 +16,6 @@ export type ModelAssessment = {
     available_bytes: number | null;
   };
   download?: { required_bytes: number | null; available_bytes: number | null; insufficient: boolean };
-  load_failed: boolean;
 };
 
 export function getModelAssessments(): Promise<ModelAssessment[]> {

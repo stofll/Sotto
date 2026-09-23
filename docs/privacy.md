@@ -33,6 +33,8 @@ Review provider settings before enabling a cloud workflow. Do not put secrets, t
 
 History, settings, telemetry outbox data, and optional diagnostic recordings are stored locally by the application. Diagnostic recording is a separate opt-in setting. To request help, share only the minimum redacted logs needed to reproduce a problem.
 
+Model cards take their speed from measurements bundled with the application and record nothing about your own dictations or model loads. Builds up to 0.1.3 kept such timings in the local database; a newer build deletes them on its first launch.
+
 ### Where data is stored
 
 | Data | Windows | macOS |
@@ -51,10 +53,6 @@ Builds up to 0.1.3 kept the database, logs and recordings in `~/.speech_to_text`
 On Windows, uninstall Sotto and select the option to delete application data. The uninstaller then removes everything in the table above, including API keys and the folders left by builds up to 0.1.3. Without that option, and during updates, all data is kept.
 
 On macOS, move Sotto to the Trash, then delete the folders in the table above, `~/.speech_to_text` if it still exists, and the `sotto` and `speech-to-text` items in Keychain Access.
-
-Model speed hints keep a separate bounded table in the local database: model revision, language setting, processing duration, audio duration, cold/warm state, dictation/file source and generic load success/failure. A local hash of CPU/OS/memory/backend characteristics separates hardware profiles; a hash of the custom vocabulary separates changed recognition settings. These hashes, timings and memory snapshots are never added to telemetry or sent over the network. No audio, transcript, vocabulary text or raw error is stored in this table.
-
-Only the last 30 observations per comparable group are retained, with at most 2,000 observations overall. Observations older than 30 days are excluded from assessments and removed when the measurement store starts or next records a result. Click a model's speed or memory bar and choose **Reset measurements** to erase its observations. This works independently of network telemetry and does not delete dictation history or models.
 
 For a security vulnerability, use the repository's private vulnerability reporting flow described in [SECURITY.md](../SECURITY.md), not a public issue.
 

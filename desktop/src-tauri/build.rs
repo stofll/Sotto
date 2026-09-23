@@ -42,7 +42,6 @@ const APP_COMMANDS: &[&str] = &[
     "list_microphones",
     "list_models",
     "model_assessments",
-    "reset_model_assessment",
     "get_runtime_status",
     "download_model",
     "set_model",

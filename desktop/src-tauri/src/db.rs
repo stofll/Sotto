@@ -35,6 +35,7 @@ pub fn open() -> Result<Mutex<Connection>, rusqlite::Error> {
 /// v6: bounded local model performance observations.
 /// v7: measured silence excluded from estimated dictation time.
 /// v8: acknowledged version and cached release notes.
+/// v9: drop the v6 observations; model cards no longer record anything.
 pub fn run_migrations(conn: &Connection) -> Result<(), rusqlite::Error> {
     // Schema changes and their version must survive (or roll back) together.
     let tx = rusqlite::Transaction::new_unchecked(conn, rusqlite::TransactionBehavior::Immediate)?;
@@ -74,6 +75,9 @@ pub fn run_migrations(conn: &Connection) -> Result<(), rusqlite::Error> {
     if current < 8 {
         tx.execute_batch(include_str!("migrations/v8.sql"))?;
     }
+    if current < 9 {
+        tx.execute_batch(include_str!("migrations/v9.sql"))?;
+    }
     tx.pragma_update(None, "user_version", SCHEMA_VERSION)?;
     tx.commit()?;
     log::info!("db: migrated schema from v{current} to v{SCHEMA_VERSION}");
@@ -84,7 +88,7 @@ pub fn run_migrations(conn: &Connection) -> Result<(), rusqlite::Error> {
 ///
 /// Tests assert against this rather than a literal, so adding a migration
 /// does not break every test that only cares about "ended up current".
-pub const SCHEMA_VERSION: i32 = 8;
+pub const SCHEMA_VERSION: i32 = 9;
 
 const SCHEMA_V1: &str = include_str!("migrations/v1.sql");
 const SCHEMA_V2: &str = include_str!("migrations/v2.sql");
@@ -559,18 +563,45 @@ mod tests {
                 [],
             )
             .unwrap();
-            conn.execute(
-                "INSERT INTO model_performance (model_id, created, profile, payload) \
-                 VALUES ('test-model', 0, 'cpu', '{}')",
-                [],
-            )
-            .unwrap();
             run_migrations(&conn).unwrap();
             let text: String = conn
                 .query_row("SELECT text FROM history WHERE id = 1", [], |r| r.get(0))
                 .unwrap();
             assert_eq!(text, "preserved");
         }
+    }
+
+    #[test]
+    fn upgrading_from_v8_drops_the_recorded_timings() {
+        let conn = Connection::open_in_memory().unwrap();
+        for sql in [SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5] {
+            conn.execute_batch(sql).unwrap();
+        }
+        for sql in [
+            include_str!("migrations/v6.sql"),
+            include_str!("migrations/v7.sql"),
+            include_str!("migrations/v8.sql"),
+        ] {
+            conn.execute_batch(sql).unwrap();
+        }
+        conn.pragma_update(None, "user_version", 8).unwrap();
+        conn.execute(
+            "INSERT INTO model_performance (model_id, created, profile, payload) \
+             VALUES ('tiny', 0, 'cpu', '{\"inference_ms\":1200.0}')",
+            [],
+        )
+        .unwrap();
+
+        run_migrations(&conn).unwrap();
+
+        let tables: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE name LIKE 'model_performance%'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(tables, 0);
     }
 
     #[test]

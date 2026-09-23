@@ -607,7 +607,6 @@ async fn transcribe_file_inner(
         }
     } else {
         crate::whisper::EngineCommand::Transcribe {
-            source: crate::model_performance::RunSource::File,
             session_id,
             audio,
             speech_timing: crate::vad::SpeechTiming::Ready(None),

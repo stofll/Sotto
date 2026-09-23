@@ -3,7 +3,7 @@ import { speedPresentation, downloadSpaceText } from "./modelAssessment";
 import type { ModelAssessment } from "../bridge/modelAssessments";
 
 const assessment: ModelAssessment = {
-  id: "tiny", compute: "cpu", load_failed: false,
+  id: "tiny", compute: "cpu",
   memory: { status: "low", score: 0, required_bytes: 1024 ** 3, available_bytes: 0 },
   speed: { score: null, source: "unknown" },
 };

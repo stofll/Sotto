@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getModelAssessments, type ModelAssessment } from "../bridge/modelAssessments";
-import { subscribe } from "../bridge/events";
 
 export function useModelAssessments(context: unknown) {
   const [values, setValues] = useState<Record<string, ModelAssessment>>({});
@@ -17,9 +16,8 @@ export function useModelAssessments(context: unknown) {
     return () => { generation.current++; };
   }, [context, refresh]);
   useEffect(() => {
-    const unlisten = subscribe("model-performance-changed", refresh);
     window.addEventListener("focus", refresh);
-    return () => { unlisten(); window.removeEventListener("focus", refresh); generation.current++; };
+    return () => { window.removeEventListener("focus", refresh); generation.current++; };
   }, [refresh]);
   return { values };
 }

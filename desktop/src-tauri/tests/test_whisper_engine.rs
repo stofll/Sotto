@@ -68,7 +68,6 @@ fn channels_accept_all_engine_command_variants() {
         .is_ok());
     assert!(tx
         .try_send(EngineCommand::Transcribe {
-            source: sotto_lib::model_performance::RunSource::Dictation,
             session_id: 1,
             audio: Arc::new(vec![0.0_f32; 16000]),
             speech_timing: sotto_lib::whisper::SpeechTiming::Ready(None),
