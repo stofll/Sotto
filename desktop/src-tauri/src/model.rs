@@ -1090,7 +1090,7 @@ pub fn models_dir() -> Result<PathBuf, String> {
     if let Some(dir) = crate::portable::data_dir() {
         return Ok(dir.join("models"));
     }
-    if let Ok(override_dir) = std::env::var("SOTTO_MODELS_DIR") {
+    if let Some(override_dir) = crate::user_data::env_override("SOTTO_MODELS_DIR") {
         if !override_dir.trim().is_empty() {
             return Ok(PathBuf::from(override_dir));
         }

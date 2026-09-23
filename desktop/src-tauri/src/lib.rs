@@ -1326,6 +1326,7 @@ pub fn run() {
     if let Some(migration) = &data_migration {
         migration.log();
     }
+    crate::user_data::log_renamed_env();
 
     tauri::Builder::default()
         // Must be registered first — the plugin decides whether this process
@@ -1611,6 +1612,7 @@ pub fn run() {
             // Settings.
             config::get_config,
             config::save_config,
+            config::set_replacements_paused,
             // Boot-blocking commands called from MainWindow.load() via Promise.all.
             app_version,
             release_notes::get_whats_new,

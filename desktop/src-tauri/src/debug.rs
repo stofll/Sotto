@@ -66,7 +66,7 @@ fn max_recordings(config: &serde_json::Value) -> usize {
 /// Where diagnostics artefacts live: `<data dir>/logs`, alongside
 /// `app.log`, so "send me your logs folder" covers everything.
 pub fn diagnostics_dir() -> PathBuf {
-    if let Ok(value) = std::env::var("SOTTO_LOG_DIR") {
+    if let Some(value) = crate::user_data::env_override("SOTTO_LOG_DIR") {
         if !value.trim().is_empty() {
             return PathBuf::from(value);
         }

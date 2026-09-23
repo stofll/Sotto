@@ -17,6 +17,46 @@ const LEGACY_DIR_NAME: &str = ".speech_to_text";
 const DATA_DIR_ENV: &str = "SOTTO_DATA_DIR";
 const DATABASE: &str = "sotto.db";
 
+/// Directory overrides renamed after 0.1.3, as (current, pre-rename) names.
+/// A shell that still sets an old name keeps pointing a development run at
+/// its own directory instead of the live data; stofll/Sotto#40 tracks
+/// removing the fallback with the other pre-rename compatibility code.
+const RENAMED_ENV: [(&str, &str); 3] = [
+    (DATA_DIR_ENV, "SOTTO_CONFIG_DIR"),
+    ("SOTTO_LOG_DIR", "SPEECH_TO_TEXT_LOG_DIR"),
+    ("SOTTO_MODELS_DIR", "SPEECH_TO_TEXT_MODELS_DIR"),
+];
+
+/// The value of a `SOTTO_*_DIR` override, or of its pre-rename name when the
+/// current one is not set.
+pub fn env_override(name: &str) -> Option<String> {
+    override_from(name, |key| std::env::var(key).ok())
+}
+
+fn override_from(name: &str, get: impl Fn(&str) -> Option<String>) -> Option<String> {
+    get(name).or_else(|| {
+        RENAMED_ENV
+            .iter()
+            .find(|(current, _)| *current == name)
+            .and_then(|(_, old)| get(old))
+    })
+}
+
+/// Warn about every pre-rename override still set, naming its replacement.
+/// Called once the logger exists, like [`Migration::log`].
+pub fn log_renamed_env() {
+    for (current, old) in RENAMED_ENV {
+        if std::env::var_os(old).is_none() {
+            continue;
+        }
+        if std::env::var_os(current).is_some() {
+            log::warn!("{old} is ignored because {current} is set; remove {old}");
+        } else {
+            log::warn!("{old} is deprecated and will stop working; rename it to {current}");
+        }
+    }
+}
+
 /// The directory holding `sotto.db`, `logs/` and diagnostic recordings.
 ///
 /// Priority: the portable folder, then `SOTTO_DATA_DIR` (used as given, even
@@ -27,7 +67,7 @@ pub fn data_dir() -> PathBuf {
     if let Some(dir) = crate::portable::data_dir() {
         return dir;
     }
-    if let Ok(dir) = std::env::var(DATA_DIR_ENV) {
+    if let Some(dir) = env_override(DATA_DIR_ENV) {
         return PathBuf::from(dir);
     }
     resolve(&default_dir(), &legacy_dir())
@@ -92,7 +132,7 @@ impl Migration {
 /// explicit `SOTTO_DATA_DIR`, which never read the legacy directory. Safe to
 /// run on every launch: once the legacy directory is gone this is one `stat`.
 pub fn migrate_legacy() -> Option<Migration> {
-    if crate::portable::data_dir().is_some() || std::env::var_os(DATA_DIR_ENV).is_some() {
+    if crate::portable::data_dir().is_some() || env_override(DATA_DIR_ENV).is_some() {
         return None;
     }
     let from = legacy_dir();
@@ -276,6 +316,30 @@ mod tests {
         let config: serde_json::Value =
             serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
         assert_eq!(config["identifier"], IDENTIFIER);
+    }
+
+    #[test]
+    fn a_pre_rename_override_applies_only_while_the_current_one_is_unset() {
+        let lookup = |name: &str, set: &[(&str, &str)]| {
+            override_from(name, |key| {
+                set.iter()
+                    .find(|(k, _)| *k == key)
+                    .map(|(_, v)| v.to_string())
+            })
+        };
+        let old = [
+            ("SOTTO_CONFIG_DIR", "old"),
+            ("SPEECH_TO_TEXT_LOG_DIR", "old"),
+        ];
+        assert_eq!(lookup(DATA_DIR_ENV, &old).as_deref(), Some("old"));
+        assert_eq!(lookup("SOTTO_LOG_DIR", &old).as_deref(), Some("old"));
+        assert_eq!(lookup("SOTTO_MODELS_DIR", &old), None);
+
+        let both = [
+            ("SOTTO_MODELS_DIR", "new"),
+            ("SPEECH_TO_TEXT_MODELS_DIR", "old"),
+        ];
+        assert_eq!(lookup("SOTTO_MODELS_DIR", &both).as_deref(), Some("new"));
     }
 
     #[test]
