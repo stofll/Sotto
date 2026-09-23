@@ -81,6 +81,11 @@ impl RetentionPolicy {
             max_entries,
         }
     }
+
+    /// Whether a settings patch sets anything [`Self::from_config`] reads.
+    pub fn is_changed_by(patch: &Value) -> bool {
+        patch.get(CONFIG_RETENTION_DAYS).is_some() || patch.get(CONFIG_MAX_ENTRIES).is_some()
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -265,8 +270,8 @@ fn unix_now() -> Result<f64, rusqlite::Error> {
 
 /// Physically delete the rows outside `policy`.
 ///
-/// Runs after each new entry and at startup, so reading the history never
-/// writes. Between those points a lowered setting already shows, because
+/// Runs after each new entry, at startup and when the retention settings
+/// change, so reading the history never writes. Between those points a lowered setting already shows, because
 /// the listing applies the same policy.
 pub fn prune(conn: &Connection, policy: RetentionPolicy) -> Result<(), rusqlite::Error> {
     if policy.max_age_seconds > 0 {

@@ -477,6 +477,23 @@ pub(crate) async fn save_config(
     .map_err(|error| format!("config worker: {error}"))?
 }
 
+/// The tray's switch for pausing replacements. A command of its own so the
+/// tray window is not granted `save_config`, which can change any setting,
+/// including the provider address API keys are sent to.
+#[tauri::command]
+pub(crate) async fn set_replacements_paused(
+    app: AppHandle,
+    state: tauri::State<'_, crate::state::AppState>,
+    paused: bool,
+) -> Result<Value, String> {
+    save_config(
+        app,
+        state,
+        serde_json::json!({ "replacements_paused": paused }),
+    )
+    .await
+}
+
 fn save_config_locked(
     app: &AppHandle,
     state: &crate::state::AppState,
@@ -572,6 +589,17 @@ fn apply_runtime_config(app: &AppHandle, saved: &Value, patch: &Value) {
     }
     if patch.get("auto_start").is_some() {
         crate::apply_autostart(app);
+    }
+    // Deleted now rather than at the next dictation: a shorter retention is
+    // usually a request to get rid of the old entries. Still under the config
+    // lock, so a prune never runs with a policy a later save has replaced.
+    if crate::history::RetentionPolicy::is_changed_by(patch) {
+        let retention = crate::history::RetentionPolicy::from_config(saved);
+        let state = app.state::<crate::state::AppState>();
+        let pruned = crate::history::prune(&crate::mutex_recover::lock(&state.db), retention);
+        if let Err(error) = pruned {
+            log::warn!("history prune failed (non-fatal): {error}");
+        }
     }
     if patch.get(crate::ui_text::CONFIG_KEY).is_some() {
         crate::ui_text::set_from_config(saved);
