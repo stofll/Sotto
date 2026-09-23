@@ -141,7 +141,7 @@ tests/ui/         browser UI tests against the Vite entry points
 
 ## Pinned GitHub Actions
 
-Every `uses:` in `.github/workflows/` is pinned to a full commit SHA, with the version it corresponds to in a trailing comment.
+Every `uses:` in `.github/workflows/` and `.github/actions/` is pinned to a full commit SHA, with the version it corresponds to in a trailing comment.
 
 A tag such as `v4` is a mutable reference: the action's owner can move it to a different commit, and that commit runs with our workflow token. A SHA cannot be moved.
 
@@ -157,6 +157,12 @@ gh api repos/<owner>/<repo>/commits/<tag> --jq .sha
 Replace the SHA in the workflow and update the trailing comment to the tag you just resolved. Read the action's changelog between the old and new version before you do — a pin exists so that a new version is a decision, not an event.
 
 `dtolnay/rust-toolchain` publishes no releases, so its pin tracks the `stable` branch head and its comment records the date it was taken.
+
+## Dependency updates and audit
+
+Dependabot (`.github/dependabot.yml`) opens weekly pull requests for Cargo, pnpm, uv and GitHub Actions, with minor and patch releases grouped per ecosystem. Majors arrive one by one; `whisper-rs` and `cpal` also need the benchmark and native microphone checks from [Testing](testing.md). The Sherpa bindings are excluded because they move together with `scripts/sherpa-runtime.lock`, and React minor releases are held while 19.3 would add about 30 kB to every window's startup chunk.
+
+The lockfile audit lives in `.github/actions/dependency-audit`. The required `Dependency security audit` check runs it on application pull requests, and `security-audit.yml` runs it every Monday, which is what catches an advisory published against an unchanged `main` or the landing page's lockfile.
 
 ## Dependency inventory
 

@@ -100,62 +100,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .node-version
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-        with:
-          version: 11.9.0
-
-      # --audit-level high: this job gates every pull request, and a low or
-      # moderate advisory somewhere in the dev graph is not a reason to block
-      # a change that has nothing to do with it. The full list stays visible
-      # in the job log.
-      - name: Audit frontend lockfile
-        working-directory: desktop
-        run: pnpm audit --prod=false --audit-level high
-
-      # Install a prebuilt binary instead of rustsec/audit-check. That action
-      # runs `cargo install cargo-audit` without `--locked`, so every run
-      # re-resolves fresh versions of cargo-audit's own dependencies. On
-      # 2026-09-03 that is exactly what happened: the newly published tinyvec
-      # 1.13.0 did not compile with our toolchain, and the gate went red on
-      # every open pull request at once, none of which had anything to do with
-      # it. That source build also took up most of the job (~5 runner minutes
-      # per pull request).
-      #
-      # The pinned cargo-audit version is deliberate and does not go stale on
-      # data: the advisory database is fetched from git at run time, not baked
-      # into the binary. Bump it only if cargo-audit stops reading the current
-      # Cargo.lock format.
-      - name: Install dependency audit tools
-        uses: taiki-e/install-action@94c31af3204a9f15ab40b35ad084410b905bbc73 # v2.87.17
-        with:
-          tool: cargo-audit@0.22.2,uv@0.12.17
-
-      - name: Audit exact Python test dependencies
-        run: |
-          uv export --locked --project tests/ui --format requirements-txt --no-emit-project --output-file "$RUNNER_TEMP/ui-audit.txt"
-          uvx --python 3.12 --from pip-audit==2.10.1 pip-audit --strict --disable-pip --require-hashes -r "$RUNNER_TEMP/ui-audit.txt"
-
-      - name: Audit exact macOS disk image dependencies
-        run: |
-          uv export --locked --project scripts/macos-dmg --format requirements-txt --no-emit-project --output-file "$RUNNER_TEMP/dmg-audit.txt"
-          uvx --python 3.12 --from pip-audit==2.10.1 pip-audit --strict --disable-pip --require-hashes -r "$RUNNER_TEMP/dmg-audit.txt"
-
-      # Call the binary directly rather than through `cargo audit`: the rustup
-      # shim would read rust-toolchain.toml and download the whole pinned
-      # toolchain, which auditing a lockfile does not need.
-      - name: Audit Rust lockfile
-        working-directory: desktop/src-tauri
-        run: cargo-audit audit
-
-      - name: Audit Windows setup lockfile
-        working-directory: desktop/setup/src-tauri
-        run: cargo-audit audit
+      # The steps live in a local action so the weekly run in
+      # security-audit.yml audits exactly what this required check audits.
+      - uses: ./.github/actions/dependency-audit
 
   # ---------------------------------------------------------------
   # Formatting only. Clippy moved into build-test, where it already ran for
@@ -504,7 +451,7 @@ jobs:
           # repository (`./…`), which has no third-party owner who could swap
           # anything out.
           ok='uses: *(\./|[A-Za-z0-9._-]+/[A-Za-z0-9._/-]+@[0-9a-f]{40}( |$))'
-          floating=$(grep -rnE '^ *-? *uses:' .github/workflows/ | grep -vE "$ok" || true)
+          floating=$(grep -rnE '^ *-? *uses:' .github/workflows/ .github/actions/ | grep -vE "$ok" || true)
           if [ -n "$floating" ]; then
             echo "::error::These actions are not pinned to a full commit SHA:"
             echo "$floating"
