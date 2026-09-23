@@ -234,13 +234,6 @@ impl AppState {
         Arc::clone(&self.cancelled_sessions)
     }
 
-    /// Cheap clone of the dispatch-skip set, for the same reason as
-    /// `cancelled_sessions_arc`: the dispatcher task owns a bare `Arc`,
-    /// not an `AppState`.
-    pub fn dispatch_skipped_arc(&self) -> Arc<Mutex<HashSet<u64>>> {
-        Arc::clone(&self.dispatch_skipped)
-    }
-
     /// Register a session the dispatcher must ignore. Call this BEFORE
     /// queueing the engine command: the engine can finish and emit before
     /// a later insert lands, and a completion that slips past the check is
