@@ -1281,8 +1281,6 @@ mod tests {
         assert_eq!(Config::load_at(&path).unwrap().as_value(), &before);
     }
 
-    /// No key still means unloading is on: otherwise the update would quietly
-    /// leave everyone already using the app without it.
     #[test]
     fn recording_limit_defaults_caps_and_turns_off() {
         assert_eq!(
@@ -1307,6 +1305,8 @@ mod tests {
         );
     }
 
+    /// No key still means unloading is on: otherwise the update would quietly
+    /// leave everyone already using the app without it.
     #[test]
     fn a_config_without_the_key_still_unloads_after_five_minutes() {
         assert_eq!(

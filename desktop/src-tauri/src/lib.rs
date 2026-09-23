@@ -628,12 +628,6 @@ fn focus_main_window(app: AppHandle, tab: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Emit `audio-level` events (~30 Hz) while a recording session is live so
-/// the overlay waveform reacts to the user's voice. Reads the shared
-/// recorder's EMA level and exits automatically when the recorder stops. A
-/// static guard prevents overlapping pollers (only one session is ever
-/// active at a time). Without this nothing emitted `audio-level`, so the
-/// overlay waveform sat flat — see `OverlayApp.tsx` `listen("audio-level")`.
 /// How long before the limit the overlay starts counting down: five minutes,
 /// or a third of a shorter limit.
 const RECORDING_WARNING_LEAD_SECONDS: f64 = 5.0 * 60.0;
@@ -704,6 +698,13 @@ mod recording_limit_tests {
     }
 }
 
+/// Emit `audio-level` events (~30 Hz) while a recording session is live so
+/// the overlay waveform reacts to the user's voice. Reads the shared
+/// recorder's EMA level and exits automatically when the recorder stops. A
+/// static guard prevents overlapping pollers (only one session is ever
+/// active at a time). Without this nothing emitted `audio-level`, so the
+/// overlay waveform sat flat — see `OverlayApp.tsx` `listen("audio-level")`.
+/// Once a second it also checks the recording against [`recording_limit`].
 pub(crate) fn spawn_level_emitter(app: &AppHandle, recorder: Arc<crate::audio::AudioRecorder>) {
     use std::sync::atomic::{AtomicBool, Ordering};
     static EMITTING: AtomicBool = AtomicBool::new(false);
@@ -1246,7 +1247,6 @@ pub fn purge_user_data() -> i32 {
     i32::from(!crate::user_data::purge().is_empty())
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
 /// Load the configured model on startup, so the overlay does not show
 /// "Модель не загружена" on the first hotkey press.
 fn spawn_model_autoload(app: AppHandle) {
@@ -1315,6 +1315,7 @@ fn spawn_idle_watchdog(app: AppHandle) {
     });
 }
 
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Before the logger opens its file: the log directory moves with the
     // data. The outcome is logged once the logger exists.
