@@ -271,8 +271,8 @@ fn unix_now() -> Result<f64, rusqlite::Error> {
 /// Physically delete the rows outside `policy`.
 ///
 /// Runs after each new entry, at startup and when the retention settings
-/// change, so reading the history never writes. Between those points a lowered setting already shows, because
-/// the listing applies the same policy.
+/// change, so reading the history never writes. Between those points a
+/// lowered setting already shows, because the listing applies the same policy.
 pub fn prune(conn: &Connection, policy: RetentionPolicy) -> Result<(), rusqlite::Error> {
     if policy.max_age_seconds > 0 {
         let cutoff = unix_now()? - policy.max_age_seconds as f64;
