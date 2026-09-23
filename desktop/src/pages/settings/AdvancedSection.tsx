@@ -8,6 +8,7 @@ import { t } from "../../i18n";
 import type { ConfigResult } from "../../bridge/types";
 import { ACCENT_PRESETS, applyAccent, resolveAccent } from "../../accent";
 import { modelUnloadMinutes, modelUnloadOptions } from "../modelUnloadSettings";
+import { recordingLimitMinutes, recordingLimitOptions } from "../recordingLimitSettings";
 import { isTelemetryEnabled } from "../telemetrySettings";
 import { HintIcon, SetLabel, type ConfigChanged } from "./controls";
 
@@ -133,6 +134,22 @@ function ModelUnloadControl({ value, onConfigChanged }: { value?: number; onConf
   );
 }
 
+function RecordingLimitControl({ value, onConfigChanged }: { value?: number; onConfigChanged: ConfigChanged }) {
+  const current = recordingLimitMinutes(value);
+  const options = recordingLimitOptions(current).map((minutes) => ({
+    value: minutes,
+    label: minutes === 0 ? t("Без ограничения") : t("{p0} мин", { p0: minutes }),
+  }));
+  return (
+    <CustomSelect
+      className="custom-select--recording-limit"
+      value={current}
+      options={options}
+      onChange={(next) => void onConfigChanged({ recording_limit_minutes: next })}
+    />
+  );
+}
+
 // The interface colour. It used to be a fourth overlay setting named «Акцент
 // приложения» and the overlay could follow it; both were confusing — one
 // control coloured two unrelated things. Here it colours the app, and the
@@ -231,7 +248,7 @@ export function AdvancedSection({ config, portable, cpuOnly, onConfigChanged }: 
         </div>
         <div className="vrule"/>
         <div className="set-cell advanced__history-cell">
-          <SetLabel title={t("Хранить историю")} hint={t("Записи старше указанного срока и всё, что не влезло в лимит, удаляются при открытии страницы истории. 0 — без ограничения.")}/>
+          <SetLabel title={t("Хранить историю")} hint={t("Записи старше указанного срока и всё, что не влезло в лимит, удаляются после каждой новой записи и при запуске приложения. 0 — без ограничения.")}/>
           <HistoryRetentionControl
             days={config?.history_retention_days ?? DEFAULT_HISTORY_RETENTION_DAYS}
             maxEntries={config?.history_max_entries ?? DEFAULT_HISTORY_MAX_ENTRIES}
@@ -251,6 +268,11 @@ export function AdvancedSection({ config, portable, cpuOnly, onConfigChanged }: 
         <div className="set-cell advanced__unload-cell">
           <SetLabel title={t("Выгружать модель")} hint={t("Через сколько минут без диктовки освобождать оперативную память. Модель вернётся в неё сама — в начале следующей записи, пока вы говорите.")}/>
           <ModelUnloadControl value={config?.model_unload_after_minutes} onConfigChanged={onConfigChanged}/>
+        </div>
+        <div className="vrule"/>
+        <div className="set-cell advanced__limit-cell">
+          <SetLabel title={t("Лимит записи")} hint={t("Забытая запись растёт без конца и потом долго распознаётся. На лимите запись останавливается и распознаётся как обычно. Незадолго до этого таймер оверлея начинает обратный отсчёт; в форме «Бусина» таймера нет, и отсчёта не будет.")}/>
+          <RecordingLimitControl value={config?.recording_limit_minutes} onConfigChanged={onConfigChanged}/>
         </div>
       </div>
 

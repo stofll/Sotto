@@ -1,3 +1,5 @@
+import { minuteChoices } from "./minuteChoices";
+
 /**
  * How long the model stays idle before leaving RAM.
  *
@@ -29,17 +31,7 @@ export function modelUnloadMinutes(value: number | undefined | null): number {
   return Math.min(value, MAX_MODEL_UNLOAD_MINUTES);
 }
 
-/**
- * Values for the settings dropdown.
- *
- * The config is also edited by hand, and a number from there may match no item
- * at all. In that case the item is added rather than replaced by the nearest
- * one: the setting works exactly as written, and the list has to show that —
- * otherwise merely opening settings would silently rewrite it.
- */
+/** Values for the settings dropdown; see {@link minuteChoices}. */
 export function modelUnloadOptions(current: number): number[] {
-  const minutes = [...new Set([...MODEL_UNLOAD_CHOICES, current])].filter((value) => value > 0);
-  minutes.sort((a, b) => a - b);
-  // «Никогда» goes last: it is not the longest interval but the refusal of one.
-  return [...minutes, 0];
+  return minuteChoices(MODEL_UNLOAD_CHOICES, current);
 }

@@ -638,11 +638,9 @@ fn focus_main_window(app: AppHandle, tab: String) -> Result<(), String> {
 /// static guard prevents overlapping pollers (only one session is ever
 /// active at a time). Without this nothing emitted `audio-level`, so the
 /// overlay waveform sat flat — see `OverlayApp.tsx` `listen("audio-level")`.
-/// A recording forgotten in toggle mode grows by about 230 MB an hour and
-/// then goes to the engine whole. The overlay counts down from the warning,
-/// and at the limit the recording stops and is transcribed like any other.
-const RECORDING_WARNING_SECONDS: f64 = 10.0 * 60.0;
-const RECORDING_LIMIT_SECONDS: f64 = 15.0 * 60.0;
+/// How long before the limit the overlay starts counting down: five minutes,
+/// or a third of a shorter limit.
+const RECORDING_WARNING_LEAD_SECONDS: f64 = 5.0 * 60.0;
 
 #[derive(Debug, PartialEq)]
 enum RecordingLimit {
@@ -651,12 +649,20 @@ enum RecordingLimit {
     Stop,
 }
 
-fn recording_limit(recorded_seconds: f64, warned: bool) -> RecordingLimit {
-    if recorded_seconds >= RECORDING_LIMIT_SECONDS {
+/// Where a recording stands against the configured limit
+/// ([`crate::config::recording_limit_minutes`], `0` — none). At the limit it
+/// stops and is transcribed like any other.
+fn recording_limit(recorded_seconds: f64, warned: bool, limit_minutes: u64) -> RecordingLimit {
+    if limit_minutes == 0 {
+        return RecordingLimit::Within;
+    }
+    let limit = limit_minutes as f64 * 60.0;
+    let warning = limit - RECORDING_WARNING_LEAD_SECONDS.min(limit / 3.0);
+    if recorded_seconds >= limit {
         RecordingLimit::Stop
-    } else if !warned && recorded_seconds >= RECORDING_WARNING_SECONDS {
+    } else if !warned && recorded_seconds >= warning {
         RecordingLimit::Warn {
-            remaining_seconds: (RECORDING_LIMIT_SECONDS - recorded_seconds).ceil() as u64,
+            remaining_seconds: (limit - recorded_seconds).ceil() as u64,
         }
     } else {
         RecordingLimit::Within
@@ -669,23 +675,36 @@ mod recording_limit_tests {
 
     #[test]
     fn warns_once_then_stops_at_the_limit() {
-        assert_eq!(recording_limit(599.0, false), RecordingLimit::Within);
+        assert_eq!(recording_limit(599.0, false, 15), RecordingLimit::Within);
         assert_eq!(
-            recording_limit(600.0, false),
+            recording_limit(600.0, false, 15),
             RecordingLimit::Warn {
                 remaining_seconds: 300
             }
         );
         assert_eq!(
-            recording_limit(612.4, false),
+            recording_limit(612.4, false, 15),
             RecordingLimit::Warn {
                 remaining_seconds: 288
             }
         );
-        assert_eq!(recording_limit(612.4, true), RecordingLimit::Within);
-        assert_eq!(recording_limit(900.0, true), RecordingLimit::Stop);
+        assert_eq!(recording_limit(612.4, true, 15), RecordingLimit::Within);
+        assert_eq!(recording_limit(900.0, true, 15), RecordingLimit::Stop);
         // A late first check past the limit stops rather than warns.
-        assert_eq!(recording_limit(905.0, false), RecordingLimit::Stop);
+        assert_eq!(recording_limit(905.0, false, 15), RecordingLimit::Stop);
+    }
+
+    #[test]
+    fn a_short_limit_warns_a_third_ahead_and_zero_means_none() {
+        assert_eq!(recording_limit(199.0, false, 5), RecordingLimit::Within);
+        assert_eq!(
+            recording_limit(200.0, false, 5),
+            RecordingLimit::Warn {
+                remaining_seconds: 100
+            }
+        );
+        assert_eq!(recording_limit(300.0, true, 5), RecordingLimit::Stop);
+        assert_eq!(recording_limit(86_400.0, false, 0), RecordingLimit::Within);
     }
 }
 
@@ -701,6 +720,9 @@ pub(crate) fn spawn_level_emitter(app: &AppHandle, recorder: Arc<crate::audio::A
         let mut logged_first_frame = false;
         loop {
             let (mut warned, mut limited) = (false, false);
+            let limit_minutes = crate::config::Config::load(&app)
+                .map(|config| crate::config::recording_limit_minutes(config.as_value()))
+                .unwrap_or(crate::config::DEFAULT_RECORDING_LIMIT_MINUTES);
             while recorder.is_recording() {
                 if !logged_first_frame {
                     if let Some(first_frame_ms) = recorder.first_frame_ms() {
@@ -718,7 +740,7 @@ pub(crate) fn spawn_level_emitter(app: &AppHandle, recorder: Arc<crate::audio::A
                     log::debug!("audio-level poll: raw={raw:.4} mapped={level:.4}");
                     if !limited {
                         let recorded = recorder.recorded_seconds();
-                        match recording_limit(recorded, warned) {
+                        match recording_limit(recorded, warned, limit_minutes) {
                             RecordingLimit::Within => {}
                             RecordingLimit::Warn { remaining_seconds } => {
                                 warned = true;

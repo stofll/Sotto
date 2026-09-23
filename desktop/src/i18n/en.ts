@@ -331,8 +331,12 @@ export const en: Record<string, string | string[]> = {
   "Собираются обезличенные события использования и технические сведения: режим обработки, длительность аудио и обработки, оценка сэкономленного времени, ОС, версия приложения, архитектура и сведения о сессии.":
     "De-identified usage events and technical data are collected: processing mode, audio and processing duration, estimated time saved, operating system, app version, architecture, and session data.",
   "Хранить историю": "Keep history",
-  "Записи старше указанного срока и всё, что не влезло в лимит, удаляются при открытии страницы истории. 0 — без ограничения.":
-    "Entries older than this, and anything over the limit, are removed when the history page opens. 0 means no limit.",
+  "Записи старше указанного срока и всё, что не влезло в лимит, удаляются после каждой новой записи и при запуске приложения. 0 — без ограничения.":
+    "Entries older than this, and anything over the limit, are removed after each new entry and when the app starts. 0 means no limit.",
+  "Лимит записи": "Recording limit",
+  "Без ограничения": "No limit",
+  "Забытая запись растёт без конца и потом долго распознаётся. На лимите запись останавливается и распознаётся как обычно. Незадолго до этого таймер оверлея начинает обратный отсчёт; в форме «Бусина» таймера нет, и отсчёта не будет.":
+    "A forgotten recording keeps growing and then takes long to transcribe. At the limit, recording stops and is transcribed as usual. Shortly before that, the overlay timer starts counting down; the bead has no timer, so there is no countdown.",
   "дн": "d",
   "записей": "entries",
   "Хранится {p0}": "Keeping {p0}",

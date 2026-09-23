@@ -282,6 +282,26 @@ pub fn model_unload_after_minutes(config: &Value) -> u64 {
     minutes.min(MAX_MODEL_UNLOAD_MINUTES)
 }
 
+/// Key: after how many minutes a recording stops by itself.
+pub const RECORDING_LIMIT_KEY: &str = "recording_limit_minutes";
+
+/// A recording left running in toggle mode grows by about 230 MB an hour and
+/// then goes to the engine whole. The values are duplicated in
+/// `src/pages/recordingLimitSettings.ts`.
+pub const DEFAULT_RECORDING_LIMIT_MINUTES: u64 = 15;
+
+/// Longer than any dictation, and still a bound on memory.
+const MAX_RECORDING_LIMIT_MINUTES: u64 = 24 * 60;
+
+/// After how many minutes of recording to stop and transcribe. `0` — never.
+pub fn recording_limit_minutes(config: &Value) -> u64 {
+    config
+        .get(RECORDING_LIMIT_KEY)
+        .and_then(Value::as_u64)
+        .unwrap_or(DEFAULT_RECORDING_LIMIT_MINUTES)
+        .min(MAX_RECORDING_LIMIT_MINUTES)
+}
+
 /// One-shot startup migration of the compute-device settings.
 ///
 /// - `device: "cuda"` → `"gpu"` (see [`resolve_device`]).
@@ -1216,6 +1236,30 @@ mod tests {
 
     /// No key still means unloading is on: otherwise the update would quietly
     /// leave everyone already using the app without it.
+    #[test]
+    fn recording_limit_defaults_caps_and_turns_off() {
+        assert_eq!(
+            recording_limit_minutes(&json!({})),
+            DEFAULT_RECORDING_LIMIT_MINUTES
+        );
+        assert_eq!(
+            recording_limit_minutes(&json!({ RECORDING_LIMIT_KEY: 0 })),
+            0
+        );
+        assert_eq!(
+            recording_limit_minutes(&json!({ RECORDING_LIMIT_KEY: 30 })),
+            30
+        );
+        assert_eq!(
+            recording_limit_minutes(&json!({ RECORDING_LIMIT_KEY: 100_000 })),
+            24 * 60
+        );
+        assert_eq!(
+            recording_limit_minutes(&json!({ RECORDING_LIMIT_KEY: "5" })),
+            DEFAULT_RECORDING_LIMIT_MINUTES
+        );
+    }
+
     #[test]
     fn a_config_without_the_key_still_unloads_after_five_minutes() {
         assert_eq!(

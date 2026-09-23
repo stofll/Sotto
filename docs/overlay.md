@@ -14,7 +14,7 @@ Every shape hides the cancel control until the pointer is over the overlay or th
 
 The timer on the pill and the glow can be hidden from Overlay settings. The bead has no timer. Hiding it does not change the native window size; the waveform uses the space the timer occupied.
 
-A recording stops by itself after 15 minutes and is transcribed like any other, so one left running in toggle mode does not grow without bound. From the tenth minute the timer counts down to that stop in the warning color, even when it is hidden in settings. The bead has no timer and shows no countdown.
+A recording stops by itself at the **Recording limit** from Advanced settings (15 minutes by default, or no limit) and is transcribed like any other, so one left running in toggle mode does not grow without bound. Five minutes before the stop, or a third of a shorter limit, the timer starts counting down in the warning color, even when it is hidden in settings. The bead has no timer and shows no countdown.
 
 ## Color and size
 
