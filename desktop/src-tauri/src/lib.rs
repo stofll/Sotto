@@ -659,10 +659,11 @@ pub(crate) fn spawn_level_emitter(app: &AppHandle, recorder: Arc<crate::audio::A
                 let raw = recorder.level();
                 let level = crate::audio::display_level(raw);
                 let _ = app.emit("audio-level", serde_json::json!({ "level": level }));
-                // Throttled (~1 Hz) diagnostic so app.log reveals the real level
-                // if the meter ever looks dead again (log both raw + mapped).
+                // Throttled (~1 Hz) diagnostic for a meter that looks dead
+                // (raw + mapped). Debug level: at info it filled app.log with
+                // a line for every second of every dictation.
                 if tick.is_multiple_of(30) {
-                    log::info!("audio-level poll: raw={raw:.4} mapped={level:.4}");
+                    log::debug!("audio-level poll: raw={raw:.4} mapped={level:.4}");
                 }
                 tick = tick.wrapping_add(1);
                 std::thread::sleep(std::time::Duration::from_millis(33));
