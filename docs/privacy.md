@@ -33,6 +33,8 @@ Review provider settings before enabling a cloud workflow. Do not put secrets, t
 
 History, settings, telemetry outbox data, and optional diagnostic recordings are stored locally by the application. Diagnostic recording is a separate opt-in setting. To request help, share only the minimum redacted logs needed to reproduce a problem.
 
+Pasting goes through the system clipboard, so the last dictated text stays there until something else is copied, and a clipboard history such as Windows' Win+V may keep it longer.
+
 Model cards take their speed from measurements bundled with the application and record nothing about your own dictations or model loads. Builds up to 0.1.3 kept such timings in the local database; a newer build deletes them on its first launch.
 
 ### Where data is stored

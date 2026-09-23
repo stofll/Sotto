@@ -6,6 +6,7 @@ This is the public documentation index for Sotto. Start with the guides below; d
 
 - [Platform support](platforms.md) — supported, experimental, and CI-only targets.
 - [Models](models.md) — local model families, storage, and platform limits.
+- [Portable version](portable.md) — the Windows ZIP that keeps its data next to the executable.
 - [Overlay appearance](overlay.md) — shape, colors, size, placement and cancellation.
 - [Dictionaries](dictionaries.md) — inspect, create and enable term sets, and manage the verbal tics the cleanup removes.
 - [Privacy](privacy.md) — telemetry, optional cloud providers, and network data flow.
@@ -16,6 +17,7 @@ This is the public documentation index for Sotto. Start with the guides below; d
 
 - [Development](development.md) — prerequisites and a local development loop.
 - [Windows setup](windows-setup.md) — custom installer preview, packaging and verification.
+- [Installer design](installer-design.md) — the Windows setup application and the macOS disk image layout.
 - [Browser UI testing](ui-testing.md) — Python/Playwright setup, isolation, coverage boundaries, and artifacts.
 - [Testing](testing.md) — checks expected before opening a pull request.
 - [Releasing](releasing.md) — contributor-facing release overview.
@@ -25,6 +27,7 @@ This is the public documentation index for Sotto. Start with the guides below; d
 ## Project context
 
 - [Architecture](architecture.md) — stable high-level boundaries and data flow.
-- [Dictionary design](dictionary-sets-plan.md) — decision rationale, limits, and possible extensions; current behavior is in the dictionaries guide.
+- [Telemetry](telemetry.md) — the event contract, the disable switch and deployment controls; the user-facing summary is in Privacy.
+- [Dictionary design](dictionary-design.md) — decision rationale, limits, and possible extensions; current behavior is in the dictionaries guide.
 
 If a document here disagrees with the executable CI configuration or the application UI, open an issue with the discrepancy and include the relevant platform and version.
