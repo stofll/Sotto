@@ -420,7 +420,7 @@ fn hotkey_do_stop(app: &AppHandle, state: &AppState) {
 
 /// Validate a hotkey string at the UI layer — used by `SettingsPage` to
 /// show an inline error as the user types. Pure parser call; no side
-/// effects, no sidecar round-trip, hence `sync`. Returns `Err(msg)` for
+/// effects, hence `sync`. Returns `Err(msg)` for
 /// any parse failure (unknown modifier, empty, modifier-only, etc.) and
 /// `Ok(())` for a valid string.
 #[tauri::command]

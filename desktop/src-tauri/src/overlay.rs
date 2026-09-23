@@ -825,28 +825,19 @@ fn apply_hide(app: &AppHandle) -> Result<(), String> {
 }
 
 // ---------------------------------------------------------------------------
-// Engine-event subscriptions (WS 4a1 Task 15).
+// Engine-event subscriptions.
 //
-// Before Task 14, the Python sidecar's `reader_loop` called `sync_overlay`
-// synchronously to translate `recording_started` / `transcription_done` /
-// `recording_cancelled` etc. into overlay state changes. With the engine
-// in charge, those sidecar events no longer fire — the dispatcher in
-// `lib.rs::setup` emits `whisper-*` (and `recording-started`) Tauri events
-// instead. This module now subscribes to those events and drives the
-// overlay via `show_state` / `hide`, matching the Phase 1 mapping
-// (recording → processing → done/error) one-to-one.
+// The dispatcher (`engine_events`) emits `whisper-*` and the paste events;
+// this module turns them into overlay states:
 //
-// Event → overlay state mapping (matches the original `sync_overlay`
-// table in sidecar.rs):
-//
-//   `recording-started`       → show_state("recording")   (from `start_recording` Tauri command)
-//   `whisper-started`         → show_state("processing")  (InferenceStarted)
-//   `whisper-done`            → show_state("done"), no auto-hide (paste pending)
-//   `paste-done`              → show_state("pasted") + auto-hide after 1800ms
-//   `whisper-failed`          → show_state("error") + auto-hide after 1800ms
-//   `whisper-cancelled`       → hide()
-//   `whisper-loading`         → show_state("loading")
-//   `whisper-load-failed`     → show_state("error") only if currently visible
+//   `recording-started`       → Show("recording")   (from `start_recording`)
+//   `whisper-started`         → Show("processing")  (InferenceStarted)
+//   `whisper-done`            → Show("done"), no auto-hide (paste pending)
+//   `paste-done`              → Show("pasted") + auto-hide after 1800ms
+//   `whisper-failed`          → Show("error") + auto-hide after 1800ms
+//   `whisper-cancelled`       → Hide
+//   `whisper-loading`         → Show("loading")
+//   `whisper-load-failed`     → Show("error") only if currently visible
 //
 // Auto-hide belongs to the current presentation in the worker. A subsequent
 // show/hide replaces that deadline, including a new session with the same state.

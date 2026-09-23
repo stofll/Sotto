@@ -30,14 +30,10 @@ runs:
       working-directory: site
       run: pnpm audit --prod=false --audit-level high
 
-    # Install a prebuilt binary instead of rustsec/audit-check. That action
-    # runs `cargo install cargo-audit` without `--locked`, so every run
-    # re-resolves fresh versions of cargo-audit's own dependencies. On
-    # 2026-09-03 that is exactly what happened: the newly published tinyvec
-    # 1.13.0 did not compile with our toolchain, and the gate went red on
-    # every open pull request at once, none of which had anything to do with
-    # it. That source build also took up most of the job (~5 runner minutes
-    # per pull request).
+    # A prebuilt binary rather than rustsec/audit-check: that action runs
+    # `cargo install cargo-audit` without `--locked`, so a newly published
+    # dependency of cargo-audit itself can turn every open pull request red,
+    # and the source build costs minutes per run.
     #
     # The pinned cargo-audit version is deliberate and does not go stale on
     # data: the advisory database is fetched from git at run time, not baked

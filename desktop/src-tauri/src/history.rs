@@ -189,11 +189,8 @@ pub fn append(
 
 /// Append a fully-populated entry (all text stages + AI/processing JSON).
 ///
-/// Collision handling (IMPORTANT-5): two transcriptions in the same
-/// millisecond → the second `INSERT OR IGNORE` returns `Ok(0)` (NOT an
-/// Err — IGNORE swallows the conflict). We detect this via
-/// `affected_rows == 0` and retry with `id + 1` until success, up to
-/// `APPEND_COLLISION_MAX_ITER` iterations as a safety bound.
+/// Two transcriptions in the same millisecond collide on the id; see
+/// [`insert_entry_with_collision_retry`].
 pub fn append_entry(db: &Mutex<Connection>, entry: &NewEntry) -> Result<u64, rusqlite::Error> {
     let conn = crate::mutex_recover::lock(db);
     let timestamp = unix_now()?;
@@ -206,7 +203,7 @@ pub fn append_entry(db: &Mutex<Connection>, entry: &NewEntry) -> Result<u64, rus
 
 /// Insert a row, retrying with `id + 1` on primary-key collision.
 ///
-/// Collision handling (IMPORTANT-5): two transcriptions in the same
+/// Collision handling: two transcriptions in the same
 /// millisecond → the second `INSERT OR IGNORE` returns `Ok(0)` (NOT an
 /// Err — IGNORE swallows the conflict). We detect this via
 /// `affected_rows == 0` and retry with `id + 1` until success, up to
@@ -414,7 +411,7 @@ fn manual_llm_mode(configured: &str) -> &str {
 
 /// Run the LLM over an existing history entry without writing anything.
 ///
-/// Phase 4 / PR-B — fully native Rust: reads the entry from the DB and calls
+/// Reads the entry from the DB and calls
 /// `crate::ai::ai_process_text_with_status` (the same orchestrator the
 /// dispatcher uses for live transcriptions). Nothing is persisted here: the
 /// history panel shows the result next to the current text, and only
@@ -1032,7 +1029,7 @@ mod tests {
 
     #[test]
     fn append_collision_in_same_ms_yields_unique_ids() {
-        // IMPORTANT-5: two appends in the same millisecond must NOT collide.
+        // Two appends in the same millisecond must not collide.
         // We force the collision by pre-seeding two rows with the same id
         // we expect (timestamp*1000) to fall back to.
         let db = fresh_db();

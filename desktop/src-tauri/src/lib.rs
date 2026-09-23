@@ -40,13 +40,13 @@ mod dictation;
 mod dictionaries;
 mod engine_events;
 mod external_link;
-pub mod http_client;
 mod feedback;
 mod format_commands;
 pub mod formatter;
 mod hardware_profile;
 mod history;
 mod hotkey;
+pub mod http_client;
 pub mod mic_test;
 pub mod model;
 pub mod model_download;
@@ -604,8 +604,6 @@ fn idle_unload_after(app: &AppHandle) -> Option<std::time::Duration> {
     (minutes > 0).then(|| std::time::Duration::from_secs(minutes * 60))
 }
 
-/// Delete a cached model file from disk.
-///
 /// The speech language substituted for `{{language}}` in the system prompt.
 ///
 /// It sits at the top level of the config, next to the model and the device,
@@ -1438,7 +1436,7 @@ pub fn run() {
                 );
             });
 
-            // Init AudioRecorder (WS 4a2 Task 8). The recorder is lazy
+            // The recorder is lazy
             // about device acquisition — `new()` only probes the default
             // input device to pre-size the buffer; the actual cpal Stream
             // is built on first `start()` call. Failure here is fatal
@@ -1452,7 +1450,7 @@ pub fn run() {
             // the test can start/stop audio capture and poll levels.
             let microphone_test = crate::mic_test::MicrophoneTest::new();
 
-            // WS 4b Task 7: open the SQLite data layer (stats + history)
+            // Open the SQLite data layer (stats + history)
             // and seed it from legacy `stats.json` / `history.json` if those
             // exist. Migration is idempotent (INSERT OR IGNORE / INSERT OR
             // REPLACE) and runs synchronously in setup() so the dispatcher
@@ -1526,10 +1524,8 @@ pub fn run() {
             crate::engine_events::spawn(app.handle().clone(), engine_event_rx);
 
             // Startup: register the saved hotkey from config.json.
-            // WS 4a1 Task 13b: fetch the AppState we just `manage()`-ed
-            // and hand it to `register`. The handler closure captures a
-            // clone so the global-shortcut handler can dispatch into the
-            // engine thread without going through the sidecar.
+            // The shortcut handler captures an AppState clone so it can
+            // dispatch into the engine thread.
             let state: tauri::State<AppState> = app.state();
             match config::load_hotkey(app.handle()) {
                 Ok(hotkey) => {
@@ -1539,7 +1535,7 @@ pub fn run() {
                 }
                 Err(e) => log::warn!("could not load hotkey from config: {e}"),
             }
-            // WS 4a1 Task 15: wire the overlay to engine lifecycle events
+            // Wire the overlay to engine lifecycle events
             // (whisper-started/done/failed/cancelled/loading/load-failed +
             // recording-started from the start_recording command). The
             // listener closure captures `app.handle()` and lives for the
@@ -1596,10 +1592,8 @@ pub fn run() {
             mic_test::start_microphone_test,
             mic_test::stop_microphone_test,
             mic_test::set_microphone_test_monitor,
-            // WS 4b Task 9: stats + history Tauri commands. Frontend calls
-            // these via `rustInvoke` from `desktop/src/bridge/stats.ts`.
-            // All 5 are `async fn` so the DB op runs through `spawn_blocking`
-            // via the `run_db_op` helper above.
+            // Stats and history: `async fn`s whose DB work runs through
+            // `spawn_blocking` via `run_db_op`.
             stats::get_stats,
             history::list_history,
             history::delete_history_entry,
@@ -1608,10 +1602,10 @@ pub fn run() {
             // and the write are separate so the result can be reviewed first.
             history::preview_history_ai_processing,
             history::apply_history_ai_processing,
-            // Phase 4 / PR-B: native Tauri commands (replaced Python sidecar).
+            // Settings.
             config::get_config,
             config::save_config,
-            // PR-A: boot-blocking commands called from MainWindow.load() via Promise.all.
+            // Boot-blocking commands called from MainWindow.load() via Promise.all.
             app_version,
             release_notes::get_whats_new,
             release_notes::dismiss_whats_new,
@@ -1621,7 +1615,7 @@ pub fn run() {
             model::list_models,
             model_performance::model_assessments,
             get_runtime_status,
-            // PR-B0: model lifecycle commands.
+            // Model lifecycle.
             model_download::download_model,
             model::set_model,
             model::delete_model,
@@ -1667,10 +1661,6 @@ pub fn run() {
         });
 }
 
-/// Borrow the `ai_processing` sub-object from a loaded config, or a
-/// stable error string. Centralizes the lookup shared by the retry
-/// and cloud-STT paths (both need the same object and the same
-/// "missing ai_processing config" error message).
 /// Result of the post-Whisper pipeline: local formatting + optional LLM.
 ///
 /// `raw_text` is the untouched whisper output, `formatted_text` is the
@@ -1977,6 +1967,10 @@ fn text_formatting_config(
         .unwrap_or_default()
 }
 
+/// Borrow the `ai_processing` sub-object from a loaded config, or a
+/// stable error string. Centralizes the lookup shared by the retry
+/// and cloud-STT paths (both need the same object and the same
+/// "missing ai_processing config" error message).
 pub(crate) fn ai_processing_config(config: &crate::config::Config) -> Result<&Value, String> {
     config
         .as_value()

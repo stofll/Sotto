@@ -44,7 +44,7 @@ const MAX_LOG_BYTES: u64 = 5 * 1024 * 1024;
 const KEEP_ROTATED: usize = 3;
 
 /// Log files the removed Python sidecar left behind in the config
-/// directory. Nothing has read or trimmed them since Phase 4; one was
+/// directory. Nothing has read or trimmed them since; one was
 /// 6 MB. Swept once per launch, by exact name.
 const LEGACY_LOG_NAMES: [&str; 2] = ["sidecar.log", "app.log"];
 

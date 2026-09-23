@@ -11,7 +11,7 @@ use sotto_lib::whisper::{
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-/// Phase 4 / Batch 4 / PR 4.5: TranscribeCloud is constructible
+/// TranscribeCloud is constructible
 /// from outside the engine crate (frontend bridge or other
 /// crates can dispatch cloud STT without depending on private
 /// types). Pins the public surface.

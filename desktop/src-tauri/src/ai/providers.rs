@@ -1,4 +1,4 @@
-//! AI provider implementations (Phase 4 / Batch 3 / PR 3.2).
+//! AI provider implementations.
 //!
 //! 1:1 Rust port of `ai_processor/_providers.py`. The provider contract
 //! is the same — every provider implements `Provider::complete` and
@@ -6,7 +6,7 @@
 //!
 //! The HTTP client is `reqwest` (already a dep) with rustls-tls. The
 //! secret store (`crate::secret_store`) holds API keys, so the API
-//! here is a plain `&str` — the dispatcher (PR 3.2) looks up the key
+//! here is a plain `&str` — the dispatcher looks up the key
 //! before calling.
 //!
 //! Error classification mirrors the Python `(_classify_provider_exception,

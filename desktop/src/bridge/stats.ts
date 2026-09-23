@@ -8,7 +8,6 @@ import type {
 } from "./types";
 
 // Re-export types from types.ts — single source of truth (do not duplicate).
-// WS 4b Task 13.
 export type {
     StatsResult,
     HistoryAiPreview,

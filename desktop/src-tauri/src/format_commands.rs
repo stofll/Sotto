@@ -1,9 +1,8 @@
 //! Tauri command wrappers around the formatting pipeline.
 //!
-//! Phase 4 / PR-B: native Tauri commands for the formatting pipeline.
-//! The frontend calls these via direct `invoke("preview_format", ...)` /
-//! `invoke("preview_replacements", ...)` from the Settings UI
-//! (OtherPages.tsx).
+//! The frontend calls these via `invoke("preview_format", ...)` /
+//! `invoke("preview_replacements", ...)` from the text settings page
+//! (`TextPage.tsx`).
 //!
 //! Both commands accept a `patch` payload — a JSON Merge Patch fragment
 //! that is merged into the saved config before running the formatter.

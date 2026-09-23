@@ -1,6 +1,6 @@
 //! Native Whisper model catalogue and on-disk cache helpers.
 //!
-//! Phase 4 stores whisper.cpp/GGML files in one platform-native cache directory.
+//! whisper.cpp/GGML files live in one platform-native cache directory.
 //! The public model id remains compatible with the existing frontend (`turbo`),
 //! while the corresponding GGML filename uses the upstream name
 //! `ggml-large-v3-turbo-q8_0.bin`.
@@ -58,7 +58,7 @@ const PARAKEET_V3_LANGUAGES: &[&str] = &[
 ];
 
 /// Authoritative manifest entry for one GGML model. The Rust
-/// downloader (PR 1.1) treats this struct as the only source of truth
+/// downloader treats this struct as the only source of truth
 /// for `url`, `expected_bytes`, and `sha256`. The public `id` is
 /// the value used by config / UI; `file_name` is the upstream
 /// `ggml-*.bin` filename on the Hugging Face mirror.
@@ -769,7 +769,7 @@ pub fn model_manifest() -> &'static [ModelManifestEntry] {
 
 /// Look up a single manifest entry by its public id (the same
 /// string the rest of the app uses for config + UI). Returns
-/// `Err(UNKNOWN_MODEL: …)` so the Tauri command layer (PR 1.2)
+/// `Err(UNKNOWN_MODEL: …)` so the Tauri command layer
 /// can return the same error string as the engine side.
 pub fn manifest_entry(model_id: &str) -> Result<&'static ModelManifestEntry, String> {
     let id = normalize_model_id(model_id)?;

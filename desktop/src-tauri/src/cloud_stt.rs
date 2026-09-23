@@ -1,10 +1,6 @@
-//! Phase 4 / Batch 4 — Cloud STT providers (Rust port).
-//!
-//! The legacy Python implementation supported one provider shape:
-//! OpenAI-compatible transcription at `{base_url}/audio/transcriptions`
-//! (Groq, Mistral, OpenAI itself, and any local server that mimics the
-//! shape). The port mirrors that contract exactly so existing
-//! user-saved configs and the front-end UI keep working:
+//! Cloud STT over one provider shape: OpenAI-compatible transcription at
+//! `{base_url}/audio/transcriptions` (Groq, Mistral, OpenAI itself, and any
+//! local server that mimics the shape):
 //!
 //!   1. Encode the 16 kHz mono f32 audio as 16-bit PCM WAV in-memory.
 //!   2. POST `{base_url}/audio/transcriptions` with multipart/form-data:

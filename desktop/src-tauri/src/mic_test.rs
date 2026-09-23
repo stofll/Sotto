@@ -1,8 +1,6 @@
-//! Microphone test (Phase 4 / Batch 4 / PR 4.1).
+//! Microphone test.
 //!
-//! 1:1 port of `sidecar.py::handle_start_microphone_test` /
-//! `handle_stop_microphone_test`. The Rust implementation owns a
-//! dedicated `MicrophoneTest` value behind `Arc<Mutex<_>>` so the
+//! Owns a dedicated `MicrophoneTest` value behind `Arc<Mutex<_>>` so the
 //! poller thread and the Tauri command body can both reach the
 //! recorder + the saw-signal flag without moving the recorder.
 //!

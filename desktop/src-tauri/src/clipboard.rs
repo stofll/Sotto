@@ -475,14 +475,14 @@ pub fn paste_text(app: AppHandle, text: String) -> Result<(), String> {
             return Ok(());
         }
 
-        // Strategy 2: keybd_event legacy fallback (added in Task 7).
+        // Strategy 2: keybd_event legacy fallback.
         if crate::windows_util::send_ctrl_v_keybd_event().is_ok() {
             let _ = release_stuck_modifiers();
             clear_captured_hwnd();
             return Ok(());
         }
 
-        // Strategy 3: WM_PASTE directly into captured HWND (added in Task 8).
+        // Strategy 3: WM_PASTE directly into the captured HWND.
         if crate::windows_util::send_wm_paste(h).is_ok() {
             let _ = release_stuck_modifiers();
             clear_captured_hwnd();
@@ -561,8 +561,8 @@ fn wait_for_clipboard_write(expected: &str, timeout_ms: u64) -> bool {
 }
 
 /// Test the paste pipeline from the frontend.
-/// Copies test text to clipboard and attempts to paste it via the
-/// standard pipeline (enigo → osascript).
+/// Copies test text to the clipboard and pastes it through `paste_text`,
+/// the same path a dictation takes.
 #[tauri::command]
 pub(crate) async fn test_paste(app: AppHandle) -> Result<String, String> {
     let test_text = "Тест вставки Sotto — ".to_owned()

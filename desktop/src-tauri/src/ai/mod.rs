@@ -1,4 +1,4 @@
-//! AI provider subsystem (Phase 4 / Batch 3 / PR 3.2).
+//! AI provider subsystem.
 //!
 //! Composes the provider implementations (Anthropic, OpenAI, Gemini,
 //! OpenCode Go, OpenAI-compatible), the orchestrator

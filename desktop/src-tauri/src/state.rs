@@ -42,7 +42,7 @@ impl Drop for EngineBusyGuard {
 /// by setup()-scope then moved into the dispatcher task) and session-id
 /// tracking.
 ///
-/// `AppState` is `Clone` (WS 4a1 Task 13b) so the hotkey handler can
+/// `AppState` is `Clone` so the hotkey handler can
 /// capture it into a `'static + Send` closure. Every non-Clone field is
 /// wrapped in `Arc`, so the clone is just a handful of refcount bumps.
 /// All clones share the same underlying state — `next_session_id` and
@@ -66,7 +66,7 @@ pub struct AppState {
     /// claim is the linearization point between a user cancel and success.
     pub committing_sessions: Arc<Mutex<HashSet<u64>>>,
     pub cancelled_sessions: Arc<Mutex<HashSet<u64>>>,
-    /// Phase 4 / Batch 6 / P0: session → cancel-flag registry.
+    /// Session → cancel-flag registry.
     /// When a session's `Transcribe` command is queued, the engine
     /// registers its `Arc<AtomicBool>` here. `cancel_recording`
     /// flips the flag on lookup; the engine thread checks the
@@ -97,7 +97,7 @@ pub struct AppState {
     /// is set — the engine runs one job at a time, and a dictation queued
     /// behind an hour-long file would look frozen rather than rejected.
     pub engine_busy: Arc<AtomicBool>,
-    /// WS 4a2 — cpal audio capture. Lives in AppState symmetric to the
+    /// cpal audio capture. Lives in AppState symmetric to the
     /// whisper engine. Held by `Arc` so Tauri commands (`start_recording`,
     /// `stop_recording`, `get_audio_level`) can borrow it cheaply, and so
     /// the engine-dispatcher task could in future subscribe to audio-level
@@ -401,7 +401,7 @@ impl AppState {
     }
 
     fn flip_cancel_flag(&self, session_id: u64) {
-        // Phase 4 / Batch 6 / P0: also flip the registered cancel
+        // Also flip the registered cancel
         // flag so the engine thread sees the cancel even if it is
         // currently inside the (non-interruptible) `state.full()`
         // C call. The flag is checked between segments and (with
@@ -529,7 +529,7 @@ mod tests {
 
     /// Helper: in-memory rusqlite Connection with the v1 schema applied.
     /// Used by every AppState test that needs to satisfy the `db` argument
-    /// added in WS 4b. Schema is applied so callers can immediately use
+    /// of `AppState::new`. Schema is applied so callers can immediately use
     /// `stats_*` / `history_*` helpers against it.
     fn test_db() -> Arc<Mutex<rusqlite::Connection>> {
         let conn = rusqlite::Connection::open_in_memory()
@@ -608,7 +608,7 @@ mod tests {
 
     #[test]
     fn app_state_clone_shares_session_counter() {
-        // WS 4a1 Task 13b: the hotkey closure captures an AppState clone.
+        // The hotkey closure captures an AppState clone.
         // session_id allocations MUST be coordinated across clones — a
         // hotkey-pressed session (allocated by the cloned state) and a
         // start_recording Tauri command session (allocated by the original

@@ -286,8 +286,8 @@ impl AudioRecorder {
         // per-sample `T -> f32` conversion. This macro keeps those two knobs
         // visible while removing the ~13-line closure boilerplate that was
         // copy-pasted once per format. The F32 arm stays separate because it
-        // is allocation-free: it forwards `&[f32]` straight to
-        // `process_samples` with no per-callback `Vec<f32>`.
+        // needs no conversion: it forwards `&[f32]` straight to
+        // `process_samples`, which still allocates to downmix and resample.
         macro_rules! build_converting_stream {
             ($sample:ty, $to_f32:expr) => {{
                 let cb_is_recording = Arc::clone(&is_recording_cb);

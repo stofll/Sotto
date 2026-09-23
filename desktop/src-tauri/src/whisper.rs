@@ -452,7 +452,7 @@ impl Engine {
 
         // catch_unwind protects against Rust panics. C++ ggml SIGSEGV from
         // malformed input would still abort the process — that is mitigated
-        // by the SHA-256 model check + PCM finite-32 guard elsewhere (R3).
+        // by the SHA-256 model check + PCM finite-32 guard elsewhere.
         log::info!("session {session_id}: calling whisper .full() on {n_threads} threads");
         let state = self.whisper_state.as_mut().expect("state created above");
         let panic_result = std::panic::catch_unwind(AssertUnwindSafe(|| state.full(params, audio)));
