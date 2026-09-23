@@ -618,6 +618,7 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
   useEffect(() => {
     setRules(configRules);
     setSaved(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reset the draft when the saved rules change in content, not on every new array.
   }, [JSON.stringify(config?.replacement_rules ?? []), JSON.stringify(config?.replacements ?? {})]);
 
   // Two calls for one preview: `preview_format` gives the full local result
@@ -648,6 +649,7 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
       cancelled = true;
       window.clearTimeout(timer);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- content-keyed; the formatting and pause settings are read by the backend preview, so they re-run it too.
   }, [previewText, JSON.stringify(rules), JSON.stringify(formatting), paused]);
 
   // The cleanup settings save themselves, with no button and no indicator: the

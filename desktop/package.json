@@ -21,6 +21,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "lint": "eslint .",
     "test:watch": "vitest",
     "tauri": "tauri",
     "i18n:check": "node check-i18n.mjs && node find-eager-t.mjs",
@@ -40,7 +41,10 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.1.1",
     "esbuild": "^0.28.2",
+    "eslint": "^10.11.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "typescript": "^6.0.3",
+    "typescript-eslint": "^8.70.1",
     "vite": "^8.3.0",
     "vitest": "^4.1.11"
   }

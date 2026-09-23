@@ -44,6 +44,7 @@ export function DictionaryLibrary({ open, onToggle, formatting, onSave }: { open
       setAnalysis(next);
     }).catch(() => { if (!cancelled) setError(true); });
     return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by the settings' signature; the object is new on every render.
   }, [configKey, revision]);
 
   const entries: Entry[] = [...(formatting.dictionary_sets ?? []), ...presets.map((set) => ({ ...set,
@@ -136,6 +137,7 @@ function DictionaryDialog({ session, formatting, onSave, onClose }: { session: S
         .catch(() => { if (!cancelled) setError(t("Не удалось проверить набор. Повторите попытку.")); });
     }, 180);
     return () => { cancelled = true; window.clearTimeout(timer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by the candidate's signature; the object is new on every render.
   }, [candidateKey, revision]);
 
   function close() { if (discarding) { setDiscarding(false); return; } if (dirty) setDiscarding(true); else onClose(); }

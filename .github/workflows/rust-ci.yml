@@ -382,6 +382,10 @@ jobs:
         working-directory: desktop
         run: npx tsc --noEmit
 
+      - name: Lint (rules of hooks)
+        working-directory: desktop
+        run: pnpm lint
+
       # The Playwright harness has its own tsconfig: it lives outside
       # desktop/src and the run above does not cover it. Without this step a
       # change to the bridge types would break the mocks silently, surfacing

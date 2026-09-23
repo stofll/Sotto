@@ -13,10 +13,12 @@ export function useModelAssessments(context: unknown) {
   useEffect(() => {
     setValues({});
     refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a request generation counter, not a DOM node: cleanup must bump the current value.
     return () => { generation.current++; };
   }, [context, refresh]);
   useEffect(() => {
     window.addEventListener("focus", refresh);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a request generation counter, as above.
     return () => { window.removeEventListener("focus", refresh); generation.current++; };
   }, [refresh]);
   return { values };

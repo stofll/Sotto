@@ -205,6 +205,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
 
   useEffect(() => {
     setPromptDraft(effectiveSystemPrompt(activeProfile));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by the fields the prompt comes from; the profile object is new on every render.
   }, [activeProfile.id, activeProfile.system_prompt, activeProfile.prompt_preset]);
 
   useEffect(() => {

@@ -7,6 +7,7 @@ cd desktop
 pnpm install --frozen-lockfile
 pnpm exec tsc --noEmit
 pnpm exec tsc --noEmit -p ../tests/ui/tsconfig.json
+pnpm lint
 pnpm test
 pnpm i18n:check
 pnpm build
