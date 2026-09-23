@@ -23,6 +23,11 @@ fn with_locked_config<T>(
     update(&mut config, path)
 }
 
+/// Run `read` on the settings saved at `path` while no writer can change them.
+pub fn read_locked<T>(path: &Path, read: impl FnOnce(&Config) -> T) -> Result<T, String> {
+    with_locked_config(path, |config, _| Ok(read(config)))
+}
+
 /// The last contents read or written for each config file, with the stamp
 /// of the file they match.
 ///

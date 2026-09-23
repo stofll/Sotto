@@ -1479,19 +1479,11 @@ pub fn run() {
                     }
                     Err(e) => log::warn!("stats reconcile failed (non-fatal): {e}"),
                 }
-                // Entries that aged out while the app was closed. Only with
-                // the user's own settings: the defaults may keep less.
-                match crate::config::Config::load(app.handle()) {
-                    Ok(config) => {
-                        let retention =
-                            crate::history::RetentionPolicy::from_config(config.as_value());
-                        if let Err(e) = crate::history::prune(&conn, retention) {
-                            log::warn!("history prune failed (non-fatal): {e}");
-                        }
-                    }
-                    Err(e) => log::warn!("history prune skipped, config unreadable: {e}"),
-                }
             }
+            // Entries that aged out while the app was closed. After the block
+            // above: the prune takes the connection itself, after the config
+            // lock.
+            crate::history::prune_to_settings(app.handle(), &db_arc);
 
             // Product telemetry is independent from stats/history and is
             // deliberately non-fatal. The installation ID is random and

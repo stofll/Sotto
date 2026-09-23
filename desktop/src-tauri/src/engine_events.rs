@@ -251,25 +251,17 @@ impl Dispatcher {
             serde_json::json!({ "session_id": session_id }),
         );
         self.paste(paste, config.as_ref());
-        self.prune_history(config.as_ref());
+        self.prune_history();
     }
 
     /// Delete the entries the retention settings no longer keep. Scheduled
     /// after the paste: it is housekeeping, and the listing already hides
-    /// those entries. Without a readable config nothing is deleted — the
-    /// defaults may keep less than the user chose.
-    fn prune_history(&self, config: Option<&crate::config::Config>) {
-        let Some(retention) =
-            config.map(|cfg| crate::history::RetentionPolicy::from_config(cfg.as_value()))
-        else {
-            return;
-        };
+    /// those entries. The settings are read when the prune runs, not now: a
+    /// save in between would otherwise be overruled by the older policy.
+    fn prune_history(&self) {
+        let app = self.app.clone();
         let db = self.state.db.clone();
-        tauri::async_runtime::spawn_blocking(move || {
-            if let Err(e) = crate::history::prune(&crate::mutex_recover::lock(&db), retention) {
-                log::warn!("history prune failed (non-fatal): {e}");
-            }
-        });
+        tauri::async_runtime::spawn_blocking(move || crate::history::prune_to_settings(&app, &db));
     }
 
     /// Stats and history on a blocking worker: the connection guard must not

@@ -287,6 +287,29 @@ pub fn prune(conn: &Connection, policy: RetentionPolicy) -> Result<(), rusqlite:
     Ok(())
 }
 
+/// [`prune`] to the saved retention settings, read under the config write lock
+/// so a save cannot replace them between the read and the delete. Nothing is
+/// deleted when the config does not read: the defaults may keep less than
+/// the user chose.
+pub fn prune_to_settings(app: &AppHandle, db: &Mutex<Connection>) {
+    match crate::config::config_path(app) {
+        Ok(path) => prune_to_settings_at(&path, db),
+        Err(e) => log::warn!("history prune skipped, config unreadable: {e}"),
+    }
+}
+
+fn prune_to_settings_at(config_path: &std::path::Path, db: &Mutex<Connection>) {
+    let pruned = crate::config::read_locked(config_path, |config| {
+        let policy = RetentionPolicy::from_config(config.as_value());
+        prune(&crate::mutex_recover::lock(db), policy)
+    });
+    match pruned {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => log::warn!("history prune failed (non-fatal): {e}"),
+        Err(e) => log::warn!("history prune skipped, config unreadable: {e}"),
+    }
+}
+
 /// The entries `policy` keeps, newest first. Read-only; see [`prune`].
 pub fn list_history_from(
     conn: &Connection,
@@ -847,6 +870,36 @@ mod tests {
         let all = list_history_from(&db.lock().unwrap(), RetentionPolicy::default()).unwrap();
         assert_eq!(all.entries.len(), 2);
         assert_eq!(all.entries[1].text, "entry 3");
+    }
+
+    #[test]
+    fn a_prune_follows_the_settings_saved_before_it_runs() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("config.json");
+        let db = fresh_db();
+        for i in 0..3 {
+            append(&db, &format!("entry {i}"), Some(i), None, 10, 1.0).unwrap();
+        }
+        let count = || -> i64 {
+            db.lock()
+                .unwrap()
+                .query_row("SELECT COUNT(*) FROM history", [], |row| row.get(0))
+                .unwrap()
+        };
+
+        // The limit was 2 when the dictation finished, then the user removed it.
+        std::fs::write(&config, r#"{"history_max_entries": 0}"#).unwrap();
+        prune_to_settings_at(&config, &db);
+        assert_eq!(count(), 3);
+
+        std::fs::write(&config, "{ not json").unwrap();
+        prune_to_settings_at(&config, &db);
+        assert_eq!(count(), 3, "an unreadable config deletes nothing");
+
+        // A different length: the config cache keys on size and mtime.
+        std::fs::write(&config, r#"{"history_max_entries":2}"#).unwrap();
+        prune_to_settings_at(&config, &db);
+        assert_eq!(count(), 2);
     }
 
     #[test]
