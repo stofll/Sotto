@@ -344,6 +344,7 @@ export const en: Record<string, string | string[]> = {
 
   // ── Common actions ─────────────────────────────────────────────────────
   "Сохранить": "Save",
+  "Запись скоро остановится автоматически и будет распознана": "Recording will stop soon and be transcribed",
   "Применить": "Apply",
   "Сбросить": "Reset",
   "Сбросить фильтры": "Clear filters",

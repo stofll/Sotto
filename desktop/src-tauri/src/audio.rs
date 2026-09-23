@@ -447,6 +447,12 @@ impl AudioRecorder {
         crate::mutex_recover::lock(&self.audio_buffer).clear();
     }
 
+    /// Seconds of audio captured so far in this recording.
+    pub fn recorded_seconds(&self) -> f64 {
+        crate::mutex_recover::lock(&self.audio_buffer).len() as f64
+            / self.config.sample_rate_target as f64
+    }
+
     pub fn has_capture_error(&self) -> bool {
         crate::mutex_recover::lock(&self.capture_error).is_some()
     }

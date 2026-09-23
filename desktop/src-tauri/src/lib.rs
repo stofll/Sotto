@@ -638,6 +638,57 @@ fn focus_main_window(app: AppHandle, tab: String) -> Result<(), String> {
 /// static guard prevents overlapping pollers (only one session is ever
 /// active at a time). Without this nothing emitted `audio-level`, so the
 /// overlay waveform sat flat — see `OverlayApp.tsx` `listen("audio-level")`.
+/// A recording forgotten in toggle mode grows by about 230 MB an hour and
+/// then goes to the engine whole. The overlay counts down from the warning,
+/// and at the limit the recording stops and is transcribed like any other.
+const RECORDING_WARNING_SECONDS: f64 = 10.0 * 60.0;
+const RECORDING_LIMIT_SECONDS: f64 = 15.0 * 60.0;
+
+#[derive(Debug, PartialEq)]
+enum RecordingLimit {
+    Within,
+    Warn { remaining_seconds: u64 },
+    Stop,
+}
+
+fn recording_limit(recorded_seconds: f64, warned: bool) -> RecordingLimit {
+    if recorded_seconds >= RECORDING_LIMIT_SECONDS {
+        RecordingLimit::Stop
+    } else if !warned && recorded_seconds >= RECORDING_WARNING_SECONDS {
+        RecordingLimit::Warn {
+            remaining_seconds: (RECORDING_LIMIT_SECONDS - recorded_seconds).ceil() as u64,
+        }
+    } else {
+        RecordingLimit::Within
+    }
+}
+
+#[cfg(test)]
+mod recording_limit_tests {
+    use super::*;
+
+    #[test]
+    fn warns_once_then_stops_at_the_limit() {
+        assert_eq!(recording_limit(599.0, false), RecordingLimit::Within);
+        assert_eq!(
+            recording_limit(600.0, false),
+            RecordingLimit::Warn {
+                remaining_seconds: 300
+            }
+        );
+        assert_eq!(
+            recording_limit(612.4, false),
+            RecordingLimit::Warn {
+                remaining_seconds: 288
+            }
+        );
+        assert_eq!(recording_limit(612.4, true), RecordingLimit::Within);
+        assert_eq!(recording_limit(900.0, true), RecordingLimit::Stop);
+        // A late first check past the limit stops rather than warns.
+        assert_eq!(recording_limit(905.0, false), RecordingLimit::Stop);
+    }
+}
+
 pub(crate) fn spawn_level_emitter(app: &AppHandle, recorder: Arc<crate::audio::AudioRecorder>) {
     use std::sync::atomic::{AtomicBool, Ordering};
     static EMITTING: AtomicBool = AtomicBool::new(false);
@@ -649,6 +700,7 @@ pub(crate) fn spawn_level_emitter(app: &AppHandle, recorder: Arc<crate::audio::A
         let mut tick: u32 = 0;
         let mut logged_first_frame = false;
         loop {
+            let (mut warned, mut limited) = (false, false);
             while recorder.is_recording() {
                 if !logged_first_frame {
                     if let Some(first_frame_ms) = recorder.first_frame_ms() {
@@ -664,6 +716,34 @@ pub(crate) fn spawn_level_emitter(app: &AppHandle, recorder: Arc<crate::audio::A
                 // a line for every second of every dictation.
                 if tick.is_multiple_of(30) {
                     log::debug!("audio-level poll: raw={raw:.4} mapped={level:.4}");
+                    if !limited {
+                        let recorded = recorder.recorded_seconds();
+                        match recording_limit(recorded, warned) {
+                            RecordingLimit::Within => {}
+                            RecordingLimit::Warn { remaining_seconds } => {
+                                warned = true;
+                                let session_id = app
+                                    .state::<AppState>()
+                                    .current_session_id
+                                    .load(Ordering::Acquire);
+                                let _ = app.emit(
+                                    "recording-limit",
+                                    serde_json::json!({
+                                        "session_id": session_id,
+                                        "remaining_seconds": remaining_seconds,
+                                    }),
+                                );
+                            }
+                            RecordingLimit::Stop => {
+                                limited = true;
+                                log::info!(
+                                    "recording limit reached after {recorded:.0}s, stopping"
+                                );
+                                let state = app.state::<AppState>();
+                                let _ = dictation::stop(&app, &state);
+                            }
+                        }
+                    }
                 }
                 tick = tick.wrapping_add(1);
                 std::thread::sleep(std::time::Duration::from_millis(33));
