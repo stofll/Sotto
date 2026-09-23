@@ -244,14 +244,32 @@ impl Dispatcher {
                 inference.stt_service,
             ),
         };
-        self.record(session_id, &inference, processed, config.as_ref())
-            .await;
+        self.record(session_id, &inference, processed).await;
         // HistoryPage re-fetches on this.
         let _ = self.app.emit(
             "history-updated",
             serde_json::json!({ "session_id": session_id }),
         );
         self.paste(paste, config.as_ref());
+        self.prune_history(config.as_ref());
+    }
+
+    /// Delete the entries the retention settings no longer keep. Scheduled
+    /// after the paste: it is housekeeping, and the listing already hides
+    /// those entries. Without a readable config nothing is deleted — the
+    /// defaults may keep less than the user chose.
+    fn prune_history(&self, config: Option<&crate::config::Config>) {
+        let Some(retention) =
+            config.map(|cfg| crate::history::RetentionPolicy::from_config(cfg.as_value()))
+        else {
+            return;
+        };
+        let db = self.state.db.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            if let Err(e) = crate::history::prune(&crate::mutex_recover::lock(&db), retention) {
+                log::warn!("history prune failed (non-fatal): {e}");
+            }
+        });
     }
 
     /// Stats and history on a blocking worker: the connection guard must not
@@ -262,13 +280,9 @@ impl Dispatcher {
         session_id: u64,
         inference: &InferenceResult,
         processed: ProcessedTranscription,
-        config: Option<&crate::config::Config>,
     ) {
         let started = std::time::Instant::now();
         let db = self.state.db.clone();
-        let retention = config
-            .map(|cfg| crate::history::RetentionPolicy::from_config(cfg.as_value()))
-            .unwrap_or_default();
         let language = inference.language.clone();
         let transcription_model = inference.model_id.clone();
         let inference_ms = inference.inference_time_ms;
@@ -318,7 +332,7 @@ impl Dispatcher {
                     },
                 )
             })
-            .and_then(|_| crate::history::prune(&crate::mutex_recover::lock(&db), retention))
+            .map(|_| ())
             .map_err(|e| e.to_string())
         })
         .await;
