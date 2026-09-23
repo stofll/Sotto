@@ -119,6 +119,60 @@ impl DownloadProgress {
     }
 }
 
+/// Lets through at most one progress event per interval, plus the one that
+/// completes the download.
+///
+/// The downloader reports every network chunk. For a model of several
+/// gigabytes that is thousands of events a second, each delivered to every
+/// window and re-rendering the catalog; the bar needs about ten.
+struct ProgressThrottle {
+    interval: std::time::Duration,
+    last: std::sync::Mutex<Option<std::time::Instant>>,
+}
+
+impl ProgressThrottle {
+    fn new(interval: std::time::Duration) -> Self {
+        Self {
+            interval,
+            last: std::sync::Mutex::new(None),
+        }
+    }
+
+    fn admit(&self, progress: DownloadProgress, now: std::time::Instant) -> bool {
+        let complete = progress
+            .total
+            .is_some_and(|total| progress.downloaded >= total);
+        let mut last = crate::mutex_recover::lock(&self.last);
+        let due = last.is_none_or(|at| now.saturating_duration_since(at) >= self.interval);
+        if complete || due {
+            *last = Some(now);
+        }
+        complete || due
+    }
+}
+
+/// The `model-download-progress` emitter for one download.
+fn progress_emitter(
+    app: &AppHandle,
+    model: String,
+) -> impl Fn(DownloadProgress) + Send + Sync + 'static {
+    let app = app.clone();
+    let throttle = ProgressThrottle::new(std::time::Duration::from_millis(100));
+    move |progress: DownloadProgress| {
+        if !throttle.admit(progress, std::time::Instant::now()) {
+            return;
+        }
+        let _ = app.emit(
+            "model-download-progress",
+            serde_json::json!({
+                "model": model,
+                "downloaded": progress.downloaded,
+                "total": progress.total,
+            }),
+        );
+    }
+}
+
 /// Result of a successful download — the on-disk path to the verified
 /// model and the byte count the verifier confirmed.
 #[derive(Debug, Clone)]
@@ -787,18 +841,7 @@ pub(crate) async fn download_model(
                 .collect(),
         };
         let client = reqwest::Client::new();
-        let app_for_progress = app.clone();
-        let model_for_progress = entry.public_id.to_string();
-        let progress_cb = move |p: DownloadProgress| {
-            let _ = app_for_progress.emit(
-                "model-download-progress",
-                serde_json::json!({
-                    "model": model_for_progress,
-                    "downloaded": p.downloaded,
-                    "total": p.total,
-                }),
-            );
-        };
+        let progress_cb = progress_emitter(&app, entry.public_id.to_string());
         let outcome =
             match download_bundle_to_dir(&client, &spec, &dir, &cancel, Some(&progress_cb), None)
                 .await
@@ -828,18 +871,7 @@ pub(crate) async fn download_model(
     let client = reqwest::Client::new();
 
     // Wire progress events so the frontend can show a download bar.
-    let app_for_progress = app.clone();
-    let mid_for_progress = model.clone();
-    let progress_cb = move |p: DownloadProgress| {
-        let _ = app_for_progress.emit(
-            "model-download-progress",
-            serde_json::json!({
-                "model": mid_for_progress,
-                "downloaded": p.downloaded,
-                "total": p.total,
-            }),
-        );
-    };
+    let progress_cb = progress_emitter(&app, model.clone());
 
     let outcome =
         match download_spec_to_dir(&client, &spec, &dir, &cancel, Some(&progress_cb), None).await {
@@ -1633,6 +1665,30 @@ mod tests {
             free_space_verdict(Some(1000 + 1024 * 1024 - 1), 1000),
             Err(ModelDownloadError::InsufficientFreeSpace { .. })
         ));
+    }
+
+    #[test]
+    fn progress_is_throttled_but_completion_always_passes() {
+        let throttle = ProgressThrottle::new(Duration::from_millis(100));
+        let start = std::time::Instant::now();
+        let at = |ms| start + Duration::from_millis(ms);
+        let part = |downloaded| DownloadProgress {
+            downloaded,
+            total: Some(1000),
+        };
+        assert!(throttle.admit(part(10), at(0)));
+        assert!(!throttle.admit(part(20), at(40)));
+        assert!(!throttle.admit(part(30), at(99)));
+        assert!(throttle.admit(part(40), at(100)));
+        assert!(!throttle.admit(part(50), at(150)));
+        assert!(throttle.admit(part(1000), at(160)));
+        // An unknown size never counts as complete.
+        let unknown = DownloadProgress {
+            downloaded: 5000,
+            total: None,
+        };
+        assert!(!throttle.admit(unknown, at(170)));
+        assert!(throttle.admit(unknown, at(260)));
     }
 
     #[test]
