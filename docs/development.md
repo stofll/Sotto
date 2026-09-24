@@ -160,7 +160,7 @@ Replace the SHA in the workflow and update the trailing comment to the tag you j
 
 ## Dependency updates and audit
 
-Dependabot (`.github/dependabot.yml`) opens weekly pull requests for Cargo, pnpm, uv and GitHub Actions, with minor and patch releases grouped per ecosystem. Majors arrive one by one; `whisper-rs` and `cpal` also need the benchmark and native microphone checks from [Testing](testing.md). The Sherpa bindings are excluded because they move together with `scripts/sherpa-runtime.lock`, and React minor releases are held while 19.3 would add about 30 kB to every window's startup chunk.
+Dependabot (`.github/dependabot.yml`) proposes monthly Cargo, pnpm, uv and GitHub Actions version updates, grouping minor and patch releases per ecosystem and limiting each to two open pull requests. Major upgrades are chosen and reviewed manually; changes to `whisper-rs` and `cpal` also need the benchmark and native microphone checks from [Testing](testing.md). The Sherpa bindings are excluded because they move together with `scripts/sherpa-runtime.lock`, and React minor releases are held while 19.3 would add about 30 kB to every window's startup chunk. The separate weekly security audit continues to check all lockfiles for known advisories.
 
 The lockfile audit lives in `.github/actions/dependency-audit`. The required `Dependency security audit` check runs it on application pull requests, and `security-audit.yml` runs it every Monday, which is what catches an advisory published against an unchanged `main` or the landing page's lockfile.
 

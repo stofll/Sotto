@@ -1,6 +1,6 @@
-# Version updates, weekly and grouped so minor and patch releases arrive as
-# one pull request per ecosystem. Majors come one by one: each needs its own
-# review, and for whisper-rs and cpal a native check (docs/testing.md).
+# Propose compatible version updates monthly, grouped by ecosystem and capped
+# at two open pull requests each. Review major upgrades separately when there
+# is a concrete need and time for native verification (docs/testing.md).
 version: 2
 
 updates:
@@ -9,7 +9,11 @@ updates:
       - /desktop/src-tauri
       - /desktop/setup/src-tauri
     schedule:
-      interval: weekly
+      interval: monthly
+    open-pull-requests-limit: 2
+    allow:
+      - dependency-name: "*"
+        update-types: [version-update:semver-minor, version-update:semver-patch]
     groups:
       rust-minor:
         update-types: [minor, patch]
@@ -24,7 +28,11 @@ updates:
       - /desktop
       - /site
     schedule:
-      interval: weekly
+      interval: monthly
+    open-pull-requests-limit: 2
+    allow:
+      - dependency-name: "*"
+        update-types: [version-update:semver-minor, version-update:semver-patch]
     groups:
       js-minor:
         update-types: [minor, patch]
@@ -45,7 +53,11 @@ updates:
       - /tests/ui
       - /scripts/macos-dmg
     schedule:
-      interval: weekly
+      interval: monthly
+    open-pull-requests-limit: 2
+    allow:
+      - dependency-name: "*"
+        update-types: [version-update:semver-minor, version-update:semver-patch]
     groups:
       python:
         update-types: [minor, patch]
@@ -57,7 +69,11 @@ updates:
       - /
       - /.github/actions/*
     schedule:
-      interval: weekly
+      interval: monthly
+    open-pull-requests-limit: 2
+    allow:
+      - dependency-name: "*"
+        update-types: [version-update:semver-minor, version-update:semver-patch]
     groups:
       actions:
         update-types: [minor, patch]
