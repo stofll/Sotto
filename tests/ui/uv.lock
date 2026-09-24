@@ -161,6 +161,15 @@ wheels = [
 ]
 
 [[package]]
+name = "filelock"
+version = "3.32.7"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/0f/59/e19834834cb01a32febfbb0f8a23a9088088f5d45991824ff2bc3b5e8acb/filelock-3.32.7.tar.gz", hash = "sha256:37b8a3d9811b0f9aef7e5ec5c71bb320de52df51e6ca9bcd6f5ad81187660da7", size = 225154, upload-time = "2026-09-16T00:24:20.907Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/15/df/31098c5aeb4d966b553641472bd55fcf5fdfac953549894b8a765ba44e91/filelock-3.32.7-py3-none-any.whl", hash = "sha256:65ff0d0190ea42038b32bda4b77834fb05be2cad4c5b9b01aa4dfb3614536e52", size = 100157, upload-time = "2026-09-16T00:24:19.543Z" },
+]
+
+[[package]]
 name = "greenlet"
 version = "3.5.5"
 source = { registry = "https://pypi.org/simple" }
@@ -417,6 +426,7 @@ name = "sotto-ui-tests"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "filelock" },
     { name = "pytest" },
     { name = "pytest-playwright" },
     { name = "pytest-xdist" },
@@ -429,6 +439,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "filelock", specifier = ">=3,<4" },
     { name = "pytest", specifier = ">=8,<10" },
     { name = "pytest-playwright", specifier = ">=0.7,<1" },
     { name = "pytest-xdist", specifier = ">=3,<4" },
