@@ -1,6 +1,6 @@
-# Propose compatible version updates monthly, grouped by ecosystem and capped
-# at two open pull requests each. Review major upgrades separately when there
-# is a concrete need and time for native verification (docs/testing.md).
+# Propose major and minor version updates monthly, grouping minor releases
+# by ecosystem and capping open version PRs at two each. Review major
+# upgrades individually and run native checks where needed (docs/testing.md).
 version: 2
 
 updates:
@@ -13,10 +13,10 @@ updates:
     open-pull-requests-limit: 2
     allow:
       - dependency-name: "*"
-        update-types: [version-update:semver-minor, version-update:semver-patch]
+        update-types: [version-update:semver-major, version-update:semver-minor]
     groups:
       rust-minor:
-        update-types: [minor, patch]
+        update-types: [minor]
     ignore:
       # Pinned together with scripts/sherpa-runtime.lock; the runtime and the
       # bindings move in one change.
@@ -32,10 +32,10 @@ updates:
     open-pull-requests-limit: 2
     allow:
       - dependency-name: "*"
-        update-types: [version-update:semver-minor, version-update:semver-patch]
+        update-types: [version-update:semver-major, version-update:semver-minor]
     groups:
       js-minor:
-        update-types: [minor, patch]
+        update-types: [minor]
     ignore:
       # React 19.3 adds about 30 kB to the startup chunk of every window and
       # nothing the app uses; update it when a feature needs it.
@@ -57,10 +57,10 @@ updates:
     open-pull-requests-limit: 2
     allow:
       - dependency-name: "*"
-        update-types: [version-update:semver-minor, version-update:semver-patch]
+        update-types: [version-update:semver-major, version-update:semver-minor]
     groups:
       python:
-        update-types: [minor, patch]
+        update-types: [minor]
 
   # Keeps the SHA pins current; the trailing version comments are updated
   # with them.
@@ -73,7 +73,7 @@ updates:
     open-pull-requests-limit: 2
     allow:
       - dependency-name: "*"
-        update-types: [version-update:semver-minor, version-update:semver-patch]
+        update-types: [version-update:semver-major, version-update:semver-minor]
     groups:
       actions:
-        update-types: [minor, patch]
+        update-types: [minor]
