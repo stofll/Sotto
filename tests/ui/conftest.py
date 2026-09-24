@@ -4,14 +4,17 @@ import json
 import os
 import re
 import secrets
+import shutil
 import socket
 import subprocess
 import time
+from contextlib import contextmanager
 from fnmatch import fnmatch
 from pathlib import Path
 from urllib.request import urlopen
 
 import pytest
+from filelock import FileLock
 from playwright.sync_api import Page, expect
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
@@ -31,6 +34,16 @@ def pytest_addoption(parser):
         default="windows",
         help="Tauri frontend build target; does not emulate native OS behavior.",
     )
+
+
+def pytest_configure(config):
+    worker = getattr(config, "workerinput", None)
+    if worker is not None:
+        # pytest-playwright clears --output at session start; each worker needs
+        # its own directory so one cannot erase another's traces or screenshots.
+        config.option.output = str(
+            Path(config.getoption("--output")) / worker["workerid"]
+        )
 
 
 # The sidebar group each tab lives in; a collapsed group hides its tabs.
@@ -75,41 +88,66 @@ def _stop(process):
         process.wait(timeout=5)
 
 
-@pytest.fixture(scope="session")
-def ui_server(tmp_path_factory, pytestconfig):
-    work = tmp_path_factory.mktemp("sotto-ui")
-    harness = work / "harness.js"
+def shared_build(tmp_path_factory, name, build):
+    """Run `build(out_dir)` once per test run and return `out_dir`.
+
+    xdist workers share the parent of their base temp directories, so the first
+    worker builds there and the others wait for its result instead of repeating
+    the same minified build.
+    """
+    if "PYTEST_XDIST_WORKER" not in os.environ:
+        out = tmp_path_factory.mktemp(name) / "dist"
+        build(out)
+        return out
+    root = tmp_path_factory.getbasetemp().parent / name
+    out = root / "dist"
+    with FileLock(f"{root}.lock"):
+        if not (root / "complete").exists():
+            # A failed attempt by another worker is rebuilt, not reused.
+            shutil.rmtree(root, ignore_errors=True)
+            build(out)
+            (root / "complete").touch()
+    return out
+
+
+def vite_build(out, args=(), env=None):
     subprocess.run(
-        ["node", str(ROOT / "tests/ui/harness/build.mjs"), str(harness)], check=True
+        ["node", "node_modules/vite/bin/vite.js", "build", *args, "--outDir", str(out)],
+        cwd=ROOT / "desktop",
+        env=env,
+        check=True,
     )
-    production = pytestconfig.getoption("--ui-mode") == "production"
-    server_args = []
-    if production:
-        dist = work / "dist"
-        env = dict(os.environ)
-        # A developer's debug environment must not silently disable minification.
-        env.pop("TAURI_DEBUG", None)
-        env["TAURI_PLATFORM"] = pytestconfig.getoption("--ui-build-platform")
-        subprocess.run(
-            ["node", "node_modules/vite/bin/vite.js", "build", "--outDir", str(dist)],
-            cwd=ROOT / "desktop",
-            env=env,
-            check=True,
-        )
-        server_args = ["preview", "--outDir", str(dist)]
-    # Something else can take the probed port before Vite binds it, and
-    # --strictPort turns that race into an immediate exit. Retry on a fresh
-    # port rather than failing the whole session on a lost race.
+
+
+def build_env(pytestconfig=None):
+    env = dict(os.environ)
+    # A developer's debug environment must not silently disable minification.
+    env.pop("TAURI_ENV_DEBUG", None)
+    if pytestconfig is not None:
+        env["TAURI_ENV_PLATFORM"] = pytestconfig.getoption("--ui-build-platform")
+    return env
+
+
+@contextmanager
+def _vite_server(work, args, *, env=None, log_prefix="vite"):
+    env = dict(os.environ if env is None else env)
+    # Dev servers sharing a dependency cache, with each other or with a running
+    # `pnpm dev`, swap optimized dependencies under one another (504s). Keep one
+    # per worker between runs: a cold cache can outlast the first page load.
+    worker = os.environ.get("PYTEST_XDIST_WORKER", "main")
+    env["SOTTO_VITE_CACHE_DIR"] = str(
+        ROOT / "desktop/node_modules" / f".vite-tests-{log_prefix}-{worker}"
+    )
     failures = []
     for _ in range(3):
         port = _free_port()
         url = f"http://127.0.0.1:{port}"
-        with (work / f"vite-{port}.log").open("w+") as log:
+        with (work / f"{log_prefix}-{port}.log").open("w+") as log:
             process = subprocess.Popen(
                 [
                     "node",
                     "node_modules/vite/bin/vite.js",
-                    *server_args,
+                    *args,
                     "--host",
                     "127.0.0.1",
                     "--port",
@@ -119,16 +157,63 @@ def ui_server(tmp_path_factory, pytestconfig):
                 cwd=ROOT / "desktop",
                 stdout=log,
                 stderr=subprocess.STDOUT,
+                env=env,
             )
             try:
                 if _serving(process, url):
-                    yield url, harness.read_text()
+                    yield url
                     return
                 log.seek(0)
                 failures.append(f"port {port}:\n{log.read()}")
             finally:
                 _stop(process)
     pytest.fail("Vite failed to start:\n" + "\n".join(failures))
+
+
+def warm_dev_server(browser, url, entries, init_script=None):
+    """Load each entry once before the tests use a fresh dev server.
+
+    Vite transforms modules on first request. With one server per worker, the
+    first page of each can outlast a test's navigation timeout.
+    """
+    context = browser.new_context()
+    try:
+        if init_script:
+            context.add_init_script(init_script)
+        page = context.new_page()
+        for entry in entries:
+            page.goto(url + entry, timeout=180_000)
+            page.wait_for_load_state("networkidle", timeout=180_000)
+    finally:
+        context.close()
+
+
+@pytest.fixture(scope="session")
+def ui_server(tmp_path_factory, pytestconfig, browser):
+    work = tmp_path_factory.mktemp("sotto-ui")
+    harness = work / "harness.js"
+    subprocess.run(
+        ["node", str(ROOT / "tests/ui/harness/build.mjs"), str(harness)], check=True
+    )
+    server_args = []
+    dev = pytestconfig.getoption("--ui-mode") == "dev"
+    if not dev:
+        env = build_env(pytestconfig)
+        dist = shared_build(
+            tmp_path_factory, "sotto-ui-dist", lambda out: vite_build(out, env=env)
+        )
+        server_args = ["preview", "--outDir", str(dist)]
+    # A probed port can be taken before Vite binds it; the shared server
+    # helper retries both application and setup previews on a fresh port.
+    with _vite_server(work, server_args) as url:
+        if dev:
+            warm_dev_server(
+                browser,
+                url,
+                ["/", "/overlay.html", "/tray.html"],
+                harness.read_text() + "\nSottoHarness.install({});",
+            )
+        yield url, harness.read_text()
 
 
 @pytest.fixture(scope="session")
@@ -310,6 +395,10 @@ def app(page, ui_server, pytestconfig, monkeypatch, browser_name):
             harness + "\nSottoHarness.install(" + json.dumps(seed) + ");"
         )
         page.goto(url + ("/" if window == "main" else f"/{window}.html"))
+        # English strings load asynchronously after the window first renders
+        # in Russian; clicking before they arrive can hit a shifting layout.
+        locale = seed.get("config", {}).get("ui_language", "ru")
+        expect(page.locator("html")).to_have_attribute("lang", locale)
         if window == "main":
             expect(page.get_by_test_id("startup-loading")).not_to_be_visible()
             expect(page.get_by_test_id("page-settings")).to_be_visible()

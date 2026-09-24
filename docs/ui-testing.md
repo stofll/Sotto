@@ -14,7 +14,9 @@ uv run --locked --project tests/ui pytest tests/ui --browser chromium --browser 
 
 Python 3.12 or newer is required. `tests/ui/uv.lock` pins Python dependencies; CI installs uv 0.12.17 and uses Python 3.12 on Ubuntu 24.04. On a fresh Linux machine, use `playwright install --with-deps chromium webkit` to install browser system dependencies too.
 
-The session fixture creates a fresh minified build and a separate test harness in a temporary directory, then serves the build through `vite preview` on an available loopback port. It clears `TAURI_DEBUG` for the build and uses the Windows frontend target by default; select `--ui-build-platform macos` for the macOS target. It neither reuses nor overwrites `desktop/dist`, and stops its own server at teardown.
+The session fixture creates a fresh minified build and a separate test harness in a temporary directory, then serves the build through `vite preview` on an available loopback port. It clears `TAURI_ENV_DEBUG` for the build and uses the Windows frontend target by default; select `--ui-build-platform macos` for the macOS target. It neither reuses nor overwrites `desktop/dist`, and stops its own server at teardown.
+
+CI runs each browser and mode with two pytest-xdist workers using `-n 2 --dist loadfile`. Each worker gets its own temporary harness directory, server port, Vite dependency cache, browser process and `test-results/gwN/` artifact directory. In production mode the first worker builds the frontend and the others serve that same build. Dev servers keep their per-worker dependency caches in `desktop/node_modules/.vite-tests-*`, apart from `pnpm dev`, and load each entry once before the first test so Vite's cold transforms do not count against a test's navigation timeout. Local commands remain serial unless you pass the same flags; `--headed` runs are easiest to inspect without them.
 
 Use `--ui-mode dev` to exercise Vite's development server and React StrictMode's extra effect setup/cleanup cycle. Production tests catch failures caused by minification, chunk loading and the absence of development-only behavior. Both modes are required in CI. Do not launch `pnpm tauri dev` for this suite; no Rust build, microphone, model download, credentials or existing Sotto installation is needed.
 
@@ -73,7 +75,7 @@ The layout overflow check depends on font metrics, which differ between a develo
 
 The suite saves failure traces and screenshots under `test-results/`. The layout suite also saves screenshots on success for visual review; these are not approved pixel-diff baselines. Open an individual trace with `uv run --locked --project tests/ui playwright show-trace <path-to-trace.zip>`. Keep generated reports and screenshots out of commits.
 
-`.github/workflows/ui-tests.yml` runs Chromium and WebKit against both production and development servers on pull requests and supports manual dispatch. Production Chromium uses the Windows build target; production WebKit uses the macOS target. Each browser/mode job has a 15-minute limit and uploads its JUnit report and screenshots/traces in `ui-test-results-<browser>-<mode>` for seven days. The aggregate `browser-ui` check passes only when all four jobs succeed.
+`.github/workflows/ui-tests.yml` runs Chromium and WebKit against both production and development servers on pull requests and supports manual dispatch. Production Chromium uses the Windows build target; production WebKit uses the macOS target. Each browser/mode job has a 25-minute limit and uploads its JUnit report and screenshots/traces in `ui-test-results-<browser>-<mode>` for seven days. The aggregate `browser-ui` check passes only when all four jobs succeed.
 
 The release workflow also calls this suite on the resolved release-tag commit before packaging. A successful compilation alone cannot pass this gate, and a manual release retry cannot substitute tests of a different branch.
 

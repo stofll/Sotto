@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url";
 
 export default defineConfig(async () => ({
   plugins: [react()],
+  // Browser tests give each dev server its own dependency cache.
+  cacheDir: process.env.SOTTO_VITE_CACHE_DIR,
   clearScreen: false,
   server: {
     host: "127.0.0.1",

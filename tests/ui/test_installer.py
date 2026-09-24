@@ -1,62 +1,37 @@
 """Setup UI only: synthetic IPC, isolated browsers, no native installer execution."""
 
 import json
-import os
-import subprocess
 from pathlib import Path
 
 import pytest
-from conftest import ROOT, _free_port, _serving, _stop
+from conftest import (
+    ROOT,
+    _vite_server,
+    build_env,
+    shared_build,
+    vite_build,
+    warm_dev_server,
+)
 from playwright.sync_api import expect
 
 
 @pytest.fixture(scope="session")
-def setup_server(tmp_path_factory, pytestconfig):
+def setup_server(tmp_path_factory, pytestconfig, browser):
     work = tmp_path_factory.mktemp("sotto-setup-ui")
-    dist = work / "dist"
-    production = pytestconfig.getoption("--ui-mode") == "production"
     args = ["--config", "vite.setup.config.ts"]
-    env = {**os.environ}
-    env.pop("TAURI_DEBUG", None)
-    if production:
-        subprocess.run(
-            [
-                "node",
-                "node_modules/vite/bin/vite.js",
-                "build",
-                *args,
-                "--outDir",
-                str(dist),
-            ],
-            cwd=ROOT / "desktop",
-            env=env,
-            check=True,
+    env = build_env()
+    dev = pytestconfig.getoption("--ui-mode") == "dev"
+    if not dev:
+        dist = shared_build(
+            tmp_path_factory,
+            "sotto-setup-dist",
+            lambda out: vite_build(out, args, env=env),
         )
         args = ["preview", *args, "--outDir", str(dist)]
-    port = _free_port()
-    url = f"http://127.0.0.1:{port}"
-    with (work / "server.log").open("w") as log:
-        process = subprocess.Popen(
-            [
-                "node",
-                "node_modules/vite/bin/vite.js",
-                *args,
-                "--host",
-                "127.0.0.1",
-                "--port",
-                str(port),
-                "--strictPort",
-            ],
-            cwd=ROOT / "desktop",
-            stdout=log,
-            stderr=subprocess.STDOUT,
-            env=env,
-        )
-        try:
-            assert _serving(process, url), "Setup preview server did not start"
-            yield url
-        finally:
-            _stop(process)
+    with _vite_server(work, args, env=env, log_prefix="setup-vite") as url:
+        if dev:
+            warm_dev_server(browser, url, ["/"])
+        yield url
 
 
 MOCK = r"""

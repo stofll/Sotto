@@ -36,6 +36,7 @@ pub fn open() -> Result<Mutex<Connection>, rusqlite::Error> {
 /// v7: measured silence excluded from estimated dictation time.
 /// v8: acknowledged version and cached release notes.
 /// v9: drop the v6 observations; model cards no longer record anything.
+/// v10: durable legacy-file import markers.
 pub fn run_migrations(conn: &Connection) -> Result<(), rusqlite::Error> {
     // Schema changes and their version must survive (or roll back) together.
     let tx = rusqlite::Transaction::new_unchecked(conn, rusqlite::TransactionBehavior::Immediate)?;
@@ -78,6 +79,9 @@ pub fn run_migrations(conn: &Connection) -> Result<(), rusqlite::Error> {
     if current < 9 {
         tx.execute_batch(include_str!("migrations/v9.sql"))?;
     }
+    if current < 10 {
+        tx.execute_batch(include_str!("migrations/v10.sql"))?;
+    }
     tx.pragma_update(None, "user_version", SCHEMA_VERSION)?;
     tx.commit()?;
     log::info!("db: migrated schema from v{current} to v{SCHEMA_VERSION}");
@@ -88,7 +92,7 @@ pub fn run_migrations(conn: &Connection) -> Result<(), rusqlite::Error> {
 ///
 /// Tests assert against this rather than a literal, so adding a migration
 /// does not break every test that only cares about "ended up current".
-pub const SCHEMA_VERSION: i32 = 9;
+pub const SCHEMA_VERSION: i32 = 10;
 
 const SCHEMA_V1: &str = include_str!("migrations/v1.sql");
 const SCHEMA_V2: &str = include_str!("migrations/v2.sql");
@@ -98,62 +102,82 @@ const SCHEMA_V5: &str = include_str!("migrations/v5.sql");
 
 /// Migrate `stats.json` + `history.json` into the DB, once.
 ///
-/// A consumed file is renamed to `*.migrated` — this is not cosmetic cleanup.
-/// The stats import uses `INSERT OR REPLACE`, so leaving the file in place made
-/// every single app start overwrite `stats_totals` with the Python-era
-/// snapshot: lifetime counters silently rolled back to their migration-day
-/// values on each launch while `stats_daily` kept accumulating. The two then
-/// disagreed on the statistics page, which is exactly how this was found.
-///
 /// Only processes `history.json` entries younger than 24h (MAX_AGE_SECONDS) —
 /// stale entries are dropped (mirror Python `transcription_history._prune`).
 ///
 /// `config_dir` is the directory holding the legacy `.json` files
 /// (typically `user_data::data_dir()`). Returns Err with a human-readable message on
-/// read, parse or database failure. Each file is imported atomically before
-/// it is retired; a failed rename is logged separately. Callers treat import
-/// failures as non-fatal warnings so a broken JSON file cannot prevent startup.
+/// read, parse or database failure. Callers treat import failures as non-fatal
+/// warnings so a broken JSON file cannot prevent startup.
 pub fn migrate_from_json(conn: &Connection, config_dir: &std::path::Path) -> Result<(), String> {
-    // 1. stats.json → stats_totals + stats_daily.
-    let stats_path = config_dir.join("stats.json");
-    if stats_path.exists() {
-        let raw =
-            std::fs::read_to_string(&stats_path).map_err(|e| format!("read stats.json: {e}"))?;
+    import_legacy_file(conn, &config_dir.join("stats.json"), |tx, raw| {
         let stats: serde_json::Value =
-            serde_json::from_str(&raw).map_err(|e| format!("parse stats.json: {e}"))?;
-        let tx = conn
-            .unchecked_transaction()
-            .map_err(|e| format!("begin stats import: {e}"))?;
-        migrate_stats_json(&tx, &stats)?;
-        tx.commit()
-            .map_err(|e| format!("commit stats import: {e}"))?;
+            serde_json::from_str(raw).map_err(|e| format!("parse stats.json: {e}"))?;
+        migrate_stats_json(tx, &stats)?;
         log::info!("migrate_from_json: stats.json seeded");
-        retire_legacy_file(&stats_path);
-    }
-
-    // 2. history.json → history (only fresh entries).
-    let history_path = config_dir.join("history.json");
-    if history_path.exists() {
-        let (inserted, skipped_stale) = import_history_json(conn, &history_path)?;
+        Ok(())
+    })?;
+    import_legacy_file(conn, &config_dir.join("history.json"), |tx, raw| {
+        let (inserted, skipped_stale) = import_history_json(tx, raw)?;
         log::info!(
             "migrate_from_json: history.json — {inserted} fresh entries seeded, {skipped_stale} stale skipped"
         );
-        retire_legacy_file(&history_path);
+        Ok(())
+    })
+}
+
+/// Import one legacy file at most once, then retire it.
+///
+/// The rows and the file's `legacy_imports` marker commit together. A file the
+/// rename could not retire is therefore never imported again: that would roll
+/// live stats back or bring back history the user has deleted since.
+fn import_legacy_file(
+    conn: &Connection,
+    path: &std::path::Path,
+    import: impl FnOnce(&Connection, &str) -> Result<(), String>,
+) -> Result<(), String> {
+    if !path.exists() {
+        return Ok(());
     }
+    let name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or_default();
+    let imported = |conn: &Connection| -> Result<bool, String> {
+        conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM legacy_imports WHERE file_name = ?1)",
+            [name],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("check {name} import: {e}"))
+    };
+    // A leftover file needs no write lock, only another rename attempt.
+    if imported(conn)? {
+        retire_legacy_file(path);
+        return Ok(());
+    }
+    let raw = std::fs::read_to_string(path).map_err(|e| format!("read {name}: {e}"))?;
+    let tx = rusqlite::Transaction::new_unchecked(conn, rusqlite::TransactionBehavior::Immediate)
+        .map_err(|e| format!("begin {name} import: {e}"))?;
+    // Another app instance may have imported the file since the check above.
+    if !imported(&tx)? {
+        import(&tx, &raw)?;
+        tx.execute("INSERT INTO legacy_imports (file_name) VALUES (?1)", [name])
+            .map_err(|e| format!("mark {name} import: {e}"))?;
+    }
+    tx.commit()
+        .map_err(|e| format!("commit {name} import: {e}"))?;
+    retire_legacy_file(path);
     Ok(())
 }
 
-/// Import `history.json` into `history`, keeping only fresh rows.
+/// Import `history.json` rows into `history`, keeping only fresh rows.
 ///
 /// Returns `(inserted, skipped_stale)` so the caller can log what happened
 /// and tests can assert the counters without scraping a log line.
-fn import_history_json(
-    conn: &Connection,
-    path: &std::path::Path,
-) -> Result<(usize, usize), String> {
-    let raw = std::fs::read_to_string(path).map_err(|e| format!("read history.json: {e}"))?;
+fn import_history_json(conn: &Connection, raw: &str) -> Result<(usize, usize), String> {
     let entries: Vec<serde_json::Value> =
-        serde_json::from_str(&raw).map_err(|e| format!("parse history.json: {e}"))?;
+        serde_json::from_str(raw).map_err(|e| format!("parse history.json: {e}"))?;
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(|e| format!("system time: {e}"))?
@@ -161,9 +185,6 @@ fn import_history_json(
     let cutoff = now - 86_400.0; // MAX_AGE_SECONDS = 24h
     let mut inserted = 0usize;
     let mut skipped_stale = 0usize;
-    let tx = conn
-        .unchecked_transaction()
-        .map_err(|e| format!("begin history import: {e}"))?;
     for entry in entries {
         let ts = entry
             .get("timestamp")
@@ -214,7 +235,7 @@ fn import_history_json(
             .filter(|value| !value.trim().is_empty())
             .map(String::from);
         let length = text.chars().count() as i64;
-        inserted += tx.execute(
+        inserted += conn.execute(
             "INSERT INTO history (id, timestamp, text, raw_text, formatted_text, \
              language, session_id, ai_processing_json, processing_stats_json, system_prompt, transcription_model, length) \
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12) \
@@ -235,8 +256,6 @@ fn import_history_json(
             ],
         ).map_err(|e| format!("insert history[{id}]: {e}"))?;
     }
-    tx.commit()
-        .map_err(|e| format!("commit history import: {e}"))?;
     Ok((inserted, skipped_stale))
 }
 
@@ -250,9 +269,8 @@ fn is_stale(ts: f64, cutoff: f64) -> bool {
 /// Mark a legacy JSON file as consumed by renaming it to `*.migrated`.
 ///
 /// Renamed rather than deleted: the import is one-way, and a user who needs to
-/// look at the original should still be able to. A failure here is logged and
-/// tolerated — a stale file is a bug, not a reason to refuse to start — but it
-/// is logged at warn level because the import will then run again.
+/// look at the original should still be able to. A failure is logged and
+/// tolerated; the file's import marker prevents another import.
 fn retire_legacy_file(path: &std::path::Path) {
     let retired = path.with_extension(match path.extension().and_then(|e| e.to_str()) {
         Some(ext) => format!("{ext}.migrated"),
@@ -261,7 +279,7 @@ fn retire_legacy_file(path: &std::path::Path) {
     match std::fs::rename(path, &retired) {
         Ok(()) => log::info!("migrate_from_json: {} retired", path.display()),
         Err(error) => log::warn!(
-            "migrate_from_json: could not retire {} ({error}); it will be imported again on the next start",
+            "migrate_from_json: could not retire {} ({error}); retirement will be retried on the next start",
             path.display()
         ),
     }
@@ -280,14 +298,14 @@ fn migrate_stats_json(conn: &Connection, stats: &serde_json::Value) -> Result<()
         }
         if let Some(n) = value.as_f64() {
             conn.execute(
-                "INSERT OR REPLACE INTO stats_totals (key, value) VALUES (?1, ?2)",
+                "INSERT INTO stats_totals (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO NOTHING",
                 rusqlite::params![key, n],
             )
             .map_err(|e| format!("insert stats_totals[{key}]: {e}"))?;
         }
     }
 
-    // Daily history — 16-column INSERT OR REPLACE per row.
+    // Preserve rows that already contain activity from an earlier import.
     if let Some(daily) = obj.get("daily_history").and_then(|v| v.as_array()) {
         for entry in daily {
             let date = match entry.get("date").and_then(|v| v.as_str()) {
@@ -295,12 +313,13 @@ fn migrate_stats_json(conn: &Connection, stats: &serde_json::Value) -> Result<()
                 None => continue,
             };
             conn.execute(
-                "INSERT OR REPLACE INTO stats_daily \
+                "INSERT INTO stats_daily \
                  (date, count, chars, time_saved_seconds, audio_seconds, processing_seconds, \
                   whisper_seconds, format_seconds, llm_seconds, llm_attempts, llm_used, \
                   llm_fallbacks, llm_input_tokens, llm_output_tokens, llm_tokens, \
                   replacement_applications) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16) \
+                 ON CONFLICT(date) DO NOTHING",
                 rusqlite::params![
                     date,
                     entry.get("count").and_then(|v| v.as_i64()).unwrap_or(0),
@@ -544,6 +563,10 @@ mod tests {
             SCHEMA_V4,
             SCHEMA_V5,
             include_str!("migrations/v6.sql"),
+            include_str!("migrations/v7.sql"),
+            include_str!("migrations/v8.sql"),
+            include_str!("migrations/v9.sql"),
+            include_str!("migrations/v10.sql"),
         ];
         for version in 0..=SCHEMA_VERSION {
             let conn = Connection::open_in_memory().unwrap();
@@ -858,13 +881,14 @@ mod tests {
 
         let conn = Connection::open_in_memory().unwrap();
         run_migrations(&conn).unwrap();
-        let (inserted, skipped_stale) = import_history_json(&conn, &path).unwrap();
+        let raw = std::fs::read_to_string(&path).unwrap();
+        let (inserted, skipped_stale) = import_history_json(&conn, &raw).unwrap();
         assert_eq!(inserted, 2, "two fresh entries must be counted as inserted");
         assert_eq!(
             skipped_stale, 1,
             "one stale entry must be counted as skipped"
         );
-        let (inserted, skipped_stale) = import_history_json(&conn, &path).unwrap();
+        let (inserted, skipped_stale) = import_history_json(&conn, &raw).unwrap();
         assert_eq!(inserted, 0, "existing IDs are not newly inserted rows");
         assert_eq!(skipped_stale, 1);
     }
@@ -923,15 +947,19 @@ mod tests {
         assert!(tmp.path().join("history.json.migrated").exists());
     }
 
-    /// The bug this guards: the stats import uses INSERT OR REPLACE, so a
-    /// stats.json left in place rolled the lifetime counters back to their
-    /// migration-day values on every single app start.
+    /// A failed retirement leaves stats.json behind. The import marker must
+    /// keep activity recorded after the first import on the next start.
     #[test]
-    fn a_second_start_does_not_roll_lifetime_totals_back() {
+    fn repeated_stats_file_does_not_roll_live_activity_back() {
         let tmp = tempfile::tempdir().unwrap();
+        let stats_path = tmp.path().join("stats.json");
         std::fs::write(
-            tmp.path().join("stats.json"),
-            serde_json::json!({"total_transcriptions": 997}).to_string(),
+            &stats_path,
+            serde_json::json!({
+                "total_transcriptions": 7,
+                "daily_history": [{"date": "2026-07-01", "count": 3}]
+            })
+            .to_string(),
         )
         .unwrap();
 
@@ -939,14 +967,18 @@ mod tests {
         run_migrations(&conn).unwrap();
         migrate_from_json(&conn, tmp.path()).unwrap();
 
-        // Five transcriptions recorded while the app was running.
         conn.execute(
             "UPDATE stats_totals SET value = value + 5 WHERE key = 'total_transcriptions'",
             [],
         )
         .unwrap();
+        conn.execute(
+            "UPDATE stats_daily SET count = count + 5 WHERE date = '2026-07-01'",
+            [],
+        )
+        .unwrap();
+        std::fs::copy(tmp.path().join("stats.json.migrated"), &stats_path).unwrap();
 
-        // Restart.
         migrate_from_json(&conn, tmp.path()).unwrap();
 
         let total: f64 = conn
@@ -956,7 +988,134 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(total, 1002.0, "restart must not undo what was recorded");
+        let count: i64 = conn
+            .query_row(
+                "SELECT count FROM stats_daily WHERE date = '2026-07-01'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(total, 12.0, "restart must preserve the live total");
+        assert_eq!(count, 8, "restart must preserve the live daily row");
+    }
+
+    /// A failed retirement leaves history.json behind. Entries the user has
+    /// deleted since the import must not come back on the next start.
+    #[test]
+    fn repeated_history_file_does_not_restore_deleted_entries() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("history.json");
+        std::fs::write(
+            &path,
+            serde_json::json!([{"id": 1, "timestamp": now_secs(), "text": "deleted"}]).to_string(),
+        )
+        .unwrap();
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn).unwrap();
+        migrate_from_json(&conn, tmp.path()).unwrap();
+
+        conn.execute("DELETE FROM history", []).unwrap();
+        std::fs::copy(tmp.path().join("history.json.migrated"), &path).unwrap();
+        migrate_from_json(&conn, tmp.path()).unwrap();
+
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM history", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 0);
+        assert!(!path.exists(), "the leftover file is retired again");
+    }
+
+    #[test]
+    fn upgrade_preserves_live_stats_when_an_old_import_left_its_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            tmp.path().join("stats.json"),
+            serde_json::json!({
+                "total_transcriptions": 7,
+                "total_characters": 80,
+                "daily_history": [{"date": "2026-07-01", "count": 3}]
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn).unwrap();
+        conn.execute(
+            "INSERT INTO stats_totals (key, value) VALUES ('total_transcriptions', 12)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO stats_daily (date, count) VALUES ('2026-07-01', 8)",
+            [],
+        )
+        .unwrap();
+
+        migrate_from_json(&conn, tmp.path()).unwrap();
+
+        let total: f64 = conn
+            .query_row(
+                "SELECT value FROM stats_totals WHERE key = 'total_transcriptions'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let characters: f64 = conn
+            .query_row(
+                "SELECT value FROM stats_totals WHERE key = 'total_characters'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let count: i64 = conn
+            .query_row(
+                "SELECT count FROM stats_daily WHERE date = '2026-07-01'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(total, 12.0);
+        assert_eq!(characters, 80.0, "missing keys should still be imported");
+        assert_eq!(count, 8);
+    }
+
+    #[test]
+    fn failed_stats_marker_rolls_back_import_for_retry() {
+        let tmp = tempfile::tempdir().unwrap();
+        let stats_path = tmp.path().join("stats.json");
+        std::fs::write(
+            &stats_path,
+            serde_json::json!({
+                "total_transcriptions": 7
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn).unwrap();
+        conn.execute_batch(
+            "CREATE TRIGGER reject_marker BEFORE INSERT ON legacy_imports \
+             BEGIN SELECT RAISE(ABORT, 'synthetic marker failure'); END;",
+        )
+        .unwrap();
+
+        assert!(migrate_from_json(&conn, tmp.path()).is_err());
+        let imported: i64 = conn
+            .query_row("SELECT COUNT(*) FROM stats_totals", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(imported, 0);
+        assert!(stats_path.exists());
+
+        conn.execute_batch("DROP TRIGGER reject_marker").unwrap();
+        migrate_from_json(&conn, tmp.path()).unwrap();
+        let imported: f64 = conn
+            .query_row(
+                "SELECT value FROM stats_totals WHERE key = 'total_transcriptions'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(imported, 7.0);
     }
 }
 

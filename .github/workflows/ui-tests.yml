@@ -26,7 +26,7 @@ jobs:
   browser-tests:
     runs-on: ubuntu-24.04
     # The serial dev WebKit run reached 15 minutes with every test passing.
-    # This only guards against a hang; #39 tracks running the suite in parallel.
+    # Two workers keep each browser/mode job comfortably inside the limit.
     timeout-minutes: 25
     strategy:
       fail-fast: false
@@ -67,7 +67,7 @@ jobs:
       # once per pull request. Here the same `tsc -p tests/ui/tsconfig.json`
       # was fanned out by the matrix into four runs giving one answer.
       - name: Test ${{ matrix.mode }} UI in ${{ matrix.browser }}
-        run: uv run --locked --project tests/ui pytest tests/ui --browser ${{ matrix.browser }} --ui-mode ${{ matrix.mode }} --ui-build-platform ${{ matrix.platform }} --junitxml=test-results/junit.xml
+        run: uv run --locked --project tests/ui pytest tests/ui -n 2 --dist loadfile --browser ${{ matrix.browser }} --ui-mode ${{ matrix.mode }} --ui-build-platform ${{ matrix.platform }} --junitxml=test-results/junit.xml
       - name: Upload failure traces and test report
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

@@ -1457,8 +1457,8 @@ pub fn run() {
 
             // Open the SQLite data layer (stats + history)
             // and seed it from legacy `stats.json` / `history.json` if those
-            // exist. Migration is idempotent (INSERT OR IGNORE / INSERT OR
-            // REPLACE) and runs synchronously in setup() so the dispatcher
+            // exist. Each file is imported once, guarded by a DB marker, and
+            // this runs synchronously in setup() so the dispatcher
             // can rely on a fully-migrated DB by the time the first
             // transcription completes.
             //

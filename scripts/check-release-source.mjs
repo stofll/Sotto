@@ -4,9 +4,12 @@ import { fileURLToPath } from 'node:url';
 
 export const releaseWorkflows = ['rust-ci.yml', 'ui-tests.yml'];
 
+// A push to main runs Rust CI only as a build that warms the cache; its lint and
+// test jobs are skipped, so it neither proves nor blocks a release.
+const checkedRuns = (runs, sha) => runs.filter((run) => run.head_sha === sha && ['pull_request', 'workflow_dispatch'].includes(run.event));
+
 export function latestRunPassed(runs, sha) {
-  const latest = runs.filter((run) => run.head_sha === sha && ['pull_request', 'workflow_dispatch', 'push'].includes(run.event))
-    .sort((a, b) => b.id - a.id)[0];
+  const latest = checkedRuns(runs, sha).sort((a, b) => b.id - a.id)[0];
   return latest?.status === 'completed' && latest.conclusion === 'success';
 }
 
@@ -17,7 +20,7 @@ export function checkReleaseSource({ repo, source, api, git }) {
   });
   const sourceRuns = runsFor(source);
   if (sourceRuns.every((runs) => latestRunPassed(runs, source))) return source;
-  if (sourceRuns.some((runs) => runs.length > 0)) {
+  if (sourceRuns.some((runs) => checkedRuns(runs, source).length > 0 && !latestRunPassed(runs, source))) {
     throw new Error('Source CI is incomplete or unsuccessful. Finish successful Rust CI and UI tests on main before releasing.');
   }
 
