@@ -30,6 +30,11 @@ const HEAD: usize = 6;
 const TAIL: usize = 4;
 const SHORT_HEAD: usize = 2;
 
+/// Held for the whole of every save, read and delete. Moving a legacy key
+/// writes a value read a step earlier, so a save or delete landing in between
+/// would be overwritten or undone.
+static STORE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// The operations this module needs from a credential store, so the move from
 /// the legacy service can be tested without touching the real one.
 trait Vault {
@@ -101,6 +106,7 @@ fn save_key_in(vault: &impl Vault, slot: &str, key: &str) -> Result<bool, String
     if key.trim().is_empty() {
         return Err("SECRET_STORE_EMPTY_KEY: refusing to save an empty key".to_string());
     }
+    let _store = crate::mutex_recover::lock(&STORE);
     vault.set(SERVICE, slot, key)?;
     // A replaced key must not survive under the old name.
     if let Err(error) = vault.delete(LEGACY_SERVICE, slot) {
@@ -114,6 +120,7 @@ pub fn get_key(provider: &str) -> Result<Option<String>, String> {
 }
 
 fn get_key_in(vault: &impl Vault, slot: &str) -> Result<Option<String>, String> {
+    let _store = crate::mutex_recover::lock(&STORE);
     if let Some(key) = vault.get(SERVICE, slot)? {
         return Ok(Some(key));
     }
@@ -161,6 +168,7 @@ pub fn delete_key(provider: &str) -> Result<bool, String> {
 }
 
 fn delete_key_in(vault: &impl Vault, slot: &str) -> Result<bool, String> {
+    let _store = crate::mutex_recover::lock(&STORE);
     let current = vault.delete(SERVICE, slot)?;
     let legacy = vault.delete(LEGACY_SERVICE, slot)?;
     Ok(current || legacy)
@@ -384,7 +392,7 @@ mod tests {
     /// An in-memory credential store; `failing_set` makes every write fail.
     #[derive(Default)]
     struct MemoryVault {
-        entries: std::cell::RefCell<std::collections::HashMap<(String, String), String>>,
+        entries: std::sync::Mutex<std::collections::HashMap<(String, String), String>>,
         failing_set: bool,
     }
 
@@ -397,13 +405,15 @@ mod tests {
 
         fn put(&self, service: &str, slot: &str, secret: &str) {
             self.entries
-                .borrow_mut()
+                .lock()
+                .unwrap()
                 .insert((service.into(), slot.into()), secret.into());
         }
 
         fn has(&self, service: &str, slot: &str) -> bool {
             self.entries
-                .borrow()
+                .lock()
+                .unwrap()
                 .contains_key(&(service.into(), slot.into()))
         }
     }
@@ -412,7 +422,8 @@ mod tests {
         fn get(&self, service: &str, slot: &str) -> Result<Option<String>, String> {
             Ok(self
                 .entries
-                .borrow()
+                .lock()
+                .unwrap()
                 .get(&(service.into(), slot.into()))
                 .cloned())
         }
@@ -428,7 +439,8 @@ mod tests {
         fn delete(&self, service: &str, slot: &str) -> Result<bool, String> {
             Ok(self
                 .entries
-                .borrow_mut()
+                .lock()
+                .unwrap()
                 .remove(&(service.into(), slot.into()))
                 .is_some())
         }
@@ -491,6 +503,80 @@ mod tests {
         assert!(!vault.has(SERVICE, "openai"));
         assert!(!vault.has(LEGACY_SERVICE, "openai"));
         assert!(!delete_key_in(&vault, "openai").unwrap());
+    }
+
+    /// Pauses a read right after it finds the legacy key, the step before the
+    /// move writes it, and runs `interleave` there.
+    struct PausedMove<'a, F> {
+        vault: &'a MemoryVault,
+        interleave: F,
+    }
+
+    impl<F: Fn()> Vault for PausedMove<'_, F> {
+        fn get(&self, service: &str, slot: &str) -> Result<Option<String>, String> {
+            let value = self.vault.get(service, slot)?;
+            if service == LEGACY_SERVICE {
+                (self.interleave)();
+            }
+            Ok(value)
+        }
+
+        fn set(&self, service: &str, slot: &str, secret: &str) -> Result<(), String> {
+            self.vault.set(service, slot, secret)
+        }
+
+        fn delete(&self, service: &str, slot: &str) -> Result<bool, String> {
+            self.vault.delete(service, slot)
+        }
+    }
+
+    /// Start `command` on another thread while a read is moving a legacy key,
+    /// and give it time to finish before the move goes on. Unserialized, the
+    /// command completes inside the move; serialized, it waits the move out.
+    fn move_racing_with(command: impl Fn(&MemoryVault) + Sync) -> MemoryVault {
+        let vault = MemoryVault::with(LEGACY_SERVICE, "openai", "sk-old");
+        let (vault_ref, command) = (&vault, &command);
+        std::thread::scope(|scope| {
+            let paused = PausedMove {
+                vault: vault_ref,
+                interleave: || {
+                    let (done, finished) = std::sync::mpsc::channel();
+                    scope.spawn(move || {
+                        command(vault_ref);
+                        let _ = done.send(());
+                    });
+                    let _ = finished.recv_timeout(std::time::Duration::from_millis(200));
+                },
+            };
+            assert_eq!(
+                get_key_in(&paused, "openai").unwrap().as_deref(),
+                Some("sk-old")
+            );
+        });
+        vault
+    }
+
+    #[test]
+    fn a_key_saved_during_a_move_is_not_overwritten() {
+        let vault = move_racing_with(|vault| {
+            save_key_in(vault, "openai", "sk-new").unwrap();
+        });
+
+        assert_eq!(
+            get_key_in(&vault, "openai").unwrap().as_deref(),
+            Some("sk-new")
+        );
+        assert!(!vault.has(LEGACY_SERVICE, "openai"));
+    }
+
+    #[test]
+    fn a_key_deleted_during_a_move_stays_deleted() {
+        let vault = move_racing_with(|vault| {
+            assert!(delete_key_in(vault, "openai").unwrap());
+        });
+
+        assert!(!vault.has(SERVICE, "openai"));
+        assert!(!vault.has(LEGACY_SERVICE, "openai"));
     }
 
     #[test]
