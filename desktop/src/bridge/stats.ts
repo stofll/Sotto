@@ -8,7 +8,6 @@ import type {
 } from "./types";
 
 // Re-export types from types.ts — single source of truth (do not duplicate).
-// WS 4b Task 13.
 export type {
     StatsResult,
     HistoryAiPreview,
@@ -21,8 +20,8 @@ export type {
  * Stats + history bridge using rustInvoke (Tauri commands, no Python round-trip).
  *
  * Backend implementation lives in `desktop/src-tauri/src/{stats,history}.rs`
- * and `lib.rs` Tauri commands. The DB is a single SQLite file at
- * `~/.speech_to_text/sotto.db` — see `db.rs`.
+ * and `lib.rs` Tauri commands. The DB is a single SQLite file,
+ * `sotto.db` in the data directory — see `user_data.rs`.
  */
 
 export async function getStats(): Promise<StatsResult> {

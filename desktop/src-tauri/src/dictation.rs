@@ -116,6 +116,27 @@ pub fn stop(app: &AppHandle, state: &AppState) -> Result<Reply, String> {
     let _commands = crate::mutex_recover::lock(&state.capture_commands);
     let session_id = state.current_session_id.swap(0, Ordering::AcqRel);
     state.toggle_armed.store(false, Ordering::Release);
+    submit_stop(app, state, session_id)
+}
+
+/// Stop `session_id` only while it is still the live recording, so a decision
+/// made about one recording cannot stop the one started after it.
+pub fn stop_if_current(
+    app: &AppHandle,
+    state: &AppState,
+    session_id: u64,
+) -> Result<Reply, String> {
+    let _commands = crate::mutex_recover::lock(&state.capture_commands);
+    let claimed = state.claim_live_session(session_id);
+    if claimed {
+        state.toggle_armed.store(false, Ordering::Release);
+    }
+    submit_stop(app, state, if claimed { session_id } else { 0 })
+}
+
+/// Queue the stop of a session already taken from `current_session_id`; 0
+/// replies at once. The caller holds `capture_commands`.
+fn submit_stop(app: &AppHandle, state: &AppState, session_id: u64) -> Result<Reply, String> {
     let (tx, rx) = oneshot::channel();
     if session_id == 0 {
         let _ = tx.send(Ok(0));

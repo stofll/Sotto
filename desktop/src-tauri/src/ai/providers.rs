@@ -1,4 +1,4 @@
-//! AI provider implementations (Phase 4 / Batch 3 / PR 3.2).
+//! AI provider implementations.
 //!
 //! 1:1 Rust port of `ai_processor/_providers.py`. The provider contract
 //! is the same — every provider implements `Provider::complete` and
@@ -6,7 +6,7 @@
 //!
 //! The HTTP client is `reqwest` (already a dep) with rustls-tls. The
 //! secret store (`crate::secret_store`) holds API keys, so the API
-//! here is a plain `&str` — the dispatcher (PR 3.2) looks up the key
+//! here is a plain `&str` — the dispatcher looks up the key
 //! before calling.
 //!
 //! Error classification mirrors the Python `(_classify_provider_exception,
@@ -633,15 +633,49 @@ async fn send_request(
 
 /// Process-wide shared `reqwest::Client`. We re-use one client
 /// across all provider calls so connection pooling kicks in.
-fn shared_client() -> &'static reqwest::Client {
-    use once_cell::sync::Lazy;
-    static CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
-        reqwest::Client::builder()
+pub(crate) fn shared_client() -> &'static reqwest::Client {
+    use std::sync::LazyLock;
+    static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
+        crate::http_client::builder()
             .timeout(Duration::from_secs(120))
+            .redirect(credential_redirect_policy())
             .build()
             .expect("build reqwest client")
     });
     &CLIENT
+}
+
+/// Redirects for requests that carry a provider key: followed only to the
+/// same server — host and port — and never from HTTPS down to HTTP.
+///
+/// reqwest drops `Authorization` on a cross-host redirect but forwards other
+/// headers, and Anthropic and Gemini keys travel in `x-api-key` and
+/// `x-goog-api-key`. Another port on the same host can be another service.
+/// A refused redirect comes back as the 3xx response itself, which the
+/// callers report as an HTTP error.
+pub(crate) fn credential_redirect_policy() -> reqwest::redirect::Policy {
+    reqwest::redirect::Policy::custom(|attempt| {
+        let Some(previous) = attempt.previous().last() else {
+            return attempt.stop();
+        };
+        let next = attempt.url();
+        // The usual upgrade moves from the default HTTP port to the default
+        // HTTPS one, so it changes the port without changing the server.
+        let upgrade = previous.scheme() == "http"
+            && next.scheme() == "https"
+            && previous.port().is_none()
+            && next.port().is_none();
+        let same_server = previous.host_str() == next.host_str()
+            && (previous.port_or_known_default() == next.port_or_known_default() || upgrade);
+        let downgrade = previous.scheme() == "https" && next.scheme() != "https";
+        if !same_server || downgrade {
+            attempt.stop()
+        } else if attempt.previous().len() > 10 {
+            attempt.error("too many redirects")
+        } else {
+            attempt.follow()
+        }
+    })
 }
 
 fn classify_http_status(status: u16) -> ProviderErrorType {

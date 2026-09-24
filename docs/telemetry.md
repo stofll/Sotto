@@ -25,7 +25,7 @@ pnpm tauri build
 
 `POSTHOG_API_KEY` is accepted as a fallback build variable for release builds. Debug builds accept only `SOTTO_POSTHOG_DEV_API_KEY`, which must point to a separate development project; they never fall back to the production token. This must be a public project ingest token, never a PostHog personal or administrative API key.
 
-Development telemetry also requires an isolated `SOTTO_CONFIG_DIR` for the manual run. A worktree or debug executable does not isolate SQLite: sharing the production directory would share both the installation ID and pending outbox rows across projects. Never point a development run at the user's live application data.
+Development telemetry also requires an isolated `SOTTO_DATA_DIR` for the manual run. A worktree or debug executable does not isolate SQLite: sharing the production directory would share both the installation ID and pending outbox rows across projects. The variable moves the database and logs only; settings are still read from the configuration directory listed in [Privacy](privacy.md#where-data-is-stored). Never point a development run at the user's live application data.
 
 Because the token is a compile-time input, a build that misses it cannot be repaired at runtime, and nothing about the running app reveals the difference.
 

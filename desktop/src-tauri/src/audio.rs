@@ -252,10 +252,7 @@ impl AudioRecorder {
 
         // Clear stale samples from a previous session so that `stop()`
         // either returns None (empty) or returns ONLY this session's audio.
-        self.audio_buffer
-            .lock()
-            .expect("audio_buffer lock in start()")
-            .clear();
+        crate::mutex_recover::lock(&self.audio_buffer).clear();
 
         // Arc references for the callback closure. The callback MUST be
         // `'static + Send` for cpal's real-time thread. Each branch of
@@ -289,8 +286,8 @@ impl AudioRecorder {
         // per-sample `T -> f32` conversion. This macro keeps those two knobs
         // visible while removing the ~13-line closure boilerplate that was
         // copy-pasted once per format. The F32 arm stays separate because it
-        // is allocation-free: it forwards `&[f32]` straight to
-        // `process_samples` with no per-callback `Vec<f32>`.
+        // needs no conversion: it forwards `&[f32]` straight to
+        // `process_samples`, which still allocates to downmix and resample.
         macro_rules! build_converting_stream {
             ($sample:ty, $to_f32:expr) => {{
                 let cb_is_recording = Arc::clone(&is_recording_cb);
@@ -324,7 +321,7 @@ impl AudioRecorder {
                         &cb_sinks,
                     );
                 };
-                device.build_input_stream::<f32, _, _>(&stream_config, cb, err_cb.clone(), None)
+                device.build_input_stream::<f32, _, _>(&stream_config, cb, err_cb, None)
             }
             SampleFormat::I16 => build_converting_stream!(i16, |&s| i16_to_f32(s)),
             SampleFormat::I32 => build_converting_stream!(i32, |&s| s as f32 / 2147483648.0),
@@ -356,8 +353,8 @@ impl AudioRecorder {
         // in AppState (which requires Send + Sync). See SendStream doc.
         let send_stream = SendStream(stream);
 
-        *self.stream.lock().expect("stream lock in start()") = Some(send_stream);
-        *self.state.lock().expect("state lock in start()") = RecorderState::Recording;
+        *crate::mutex_recover::lock(&self.stream) = Some(send_stream);
+        *crate::mutex_recover::lock(&self.state) = RecorderState::Recording;
         Ok(())
     }
 
@@ -373,7 +370,7 @@ impl AudioRecorder {
         // 1. Flip is_recording so the next callback early-exits.
         self.is_recording.store(false, Ordering::Release);
         // 2. Release the native stream before touching its final buffered PCM.
-        let stream_opt = self.stream.lock().expect("stream lock in stop()").take();
+        let stream_opt = crate::mutex_recover::lock(&self.stream).take();
         if let Some(stream) = stream_opt {
             drop(stream);
         }
@@ -387,13 +384,13 @@ impl AudioRecorder {
         // 3. Lock the buffer (safe now — no callback is running) and
         //    take the samples.
         let buf_arc = Arc::clone(&self.audio_buffer);
-        let mut buf = buf_arc.lock().expect("audio_buffer lock in stop()");
+        let mut buf = crate::mutex_recover::lock(&buf_arc);
         if buf.is_empty() {
-            *self.state.lock().expect("state lock in stop()/Idle") = RecorderState::Idle;
+            *crate::mutex_recover::lock(&self.state) = RecorderState::Idle;
             return Ok(None);
         }
         let taken = std::mem::take(&mut *buf);
-        *self.state.lock().expect("state lock in stop()/Stopped") = RecorderState::Stopped;
+        *crate::mutex_recover::lock(&self.state) = RecorderState::Stopped;
         Ok(Some(Arc::new(taken)))
     }
 
@@ -418,18 +415,14 @@ impl AudioRecorder {
     /// order of a second of audio at a typical cpal buffer size.
     pub fn attach_live_tap(&self, capacity_chunks: usize) -> std::sync::mpsc::Receiver<Vec<f32>> {
         let (tx, rx) = std::sync::mpsc::sync_channel(capacity_chunks.max(1));
-        if let Ok(mut guard) = self.live_tap.lock() {
-            *guard = Some(tx);
-        }
+        *crate::mutex_recover::lock(&self.live_tap) = Some(tx);
         rx
     }
 
     /// Detach the tap. The receiver on the other end will see the channel break
     /// and end its own loop.
     pub fn detach_live_tap(&self) {
-        if let Ok(mut guard) = self.live_tap.lock() {
-            *guard = None;
-        }
+        *crate::mutex_recover::lock(&self.live_tap) = None;
     }
 
     /// Rate of the samples coming out of [`Self::attach_live_tap`], or the
@@ -445,6 +438,12 @@ impl AudioRecorder {
     /// Self-tests stream audio without retaining an ever-growing recording.
     pub fn discard_buffer(&self) {
         crate::mutex_recover::lock(&self.audio_buffer).clear();
+    }
+
+    /// Seconds of audio captured so far in this recording.
+    pub fn recorded_seconds(&self) -> f64 {
+        crate::mutex_recover::lock(&self.audio_buffer).len() as f64
+            / self.config.sample_rate_target as f64
     }
 
     pub fn has_capture_error(&self) -> bool {
@@ -467,7 +466,7 @@ impl AudioRecorder {
     }
 
     pub fn state(&self) -> RecorderState {
-        *self.state.lock().expect("state lock in state()")
+        *crate::mutex_recover::lock(&self.state)
     }
 
     /// Enumerate all available input devices on the default host.

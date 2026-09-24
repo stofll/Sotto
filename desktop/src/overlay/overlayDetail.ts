@@ -39,6 +39,18 @@ export interface OverlayDetailInput {
     aiProblem: string;
 }
 
+/**
+ * The recording timer: time elapsed, or — once the length limit has warned —
+ * the time left before the recording stops by itself.
+ */
+export function recordingClock(startedAt: number, stoppedAt: number | null, limitAt: number | null, now: number) {
+    const end = stoppedAt ?? now;
+    const limited = limitAt !== null && stoppedAt === null;
+    const seconds = Math.max(0, limited ? Math.ceil((limitAt - end) / 1000) : Math.floor((end - startedAt) / 1000));
+    const text = `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
+    return { text, limited };
+}
+
 export function overlayDetail(input: OverlayDetailInput): OverlayDetail {
     const { state, pastedLength, polishingMs, errorText, aiProblem } = input;
 

@@ -37,6 +37,7 @@ export function AccessibilityNotice() {
       setFailed(false);
     });
     return () => {
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- a request generation counter, not a DOM node: cleanup must bump the current value.
       ++request.current;
       unsubscribe();
       window.removeEventListener("focus", onFocus);

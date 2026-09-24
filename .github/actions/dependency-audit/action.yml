@@ -1,0 +1,70 @@
+name: Dependency audit
+description: >-
+  Audits every lockfile in the repository against published advisories. Used
+  by the required pull request check in rust-ci.yml and by the weekly run in
+  security-audit.yml, so both audit the same set. Expects a checkout.
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      with:
+        node-version-file: .node-version
+
+    - name: Setup pnpm
+      uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      with:
+        version: 11.9.0
+
+    # --audit-level high: this gates every pull request, and a low or moderate
+    # advisory somewhere in the dev graph is not a reason to block a change
+    # that has nothing to do with it. The full list stays visible in the log.
+    - name: Audit frontend lockfile
+      shell: bash
+      working-directory: desktop
+      run: pnpm audit --prod=false --audit-level high
+
+    - name: Audit landing page lockfile
+      shell: bash
+      working-directory: site
+      run: pnpm audit --prod=false --audit-level high
+
+    # A prebuilt binary rather than rustsec/audit-check: that action runs
+    # `cargo install cargo-audit` without `--locked`, so a newly published
+    # dependency of cargo-audit itself can turn every open pull request red,
+    # and the source build costs minutes per run.
+    #
+    # The pinned cargo-audit version is deliberate and does not go stale on
+    # data: the advisory database is fetched from git at run time, not baked
+    # into the binary. Bump it only if cargo-audit stops reading the current
+    # Cargo.lock format.
+    - name: Install dependency audit tools
+      uses: taiki-e/install-action@94c31af3204a9f15ab40b35ad084410b905bbc73 # v2.87.17
+      with:
+        tool: cargo-audit@0.22.2,uv@0.12.17
+
+    - name: Audit exact Python test dependencies
+      shell: bash
+      run: |
+        uv export --locked --project tests/ui --format requirements-txt --no-emit-project --output-file "$RUNNER_TEMP/ui-audit.txt"
+        uvx --python 3.12 --from pip-audit==2.10.1 pip-audit --strict --disable-pip --require-hashes -r "$RUNNER_TEMP/ui-audit.txt"
+
+    - name: Audit exact macOS disk image dependencies
+      shell: bash
+      run: |
+        uv export --locked --project scripts/macos-dmg --format requirements-txt --no-emit-project --output-file "$RUNNER_TEMP/dmg-audit.txt"
+        uvx --python 3.12 --from pip-audit==2.10.1 pip-audit --strict --disable-pip --require-hashes -r "$RUNNER_TEMP/dmg-audit.txt"
+
+    # Call the binary directly rather than through `cargo audit`: the rustup
+    # shim would read rust-toolchain.toml and download the whole pinned
+    # toolchain, which auditing a lockfile does not need.
+    - name: Audit Rust lockfile
+      shell: bash
+      working-directory: desktop/src-tauri
+      run: cargo-audit audit
+
+    - name: Audit Windows setup lockfile
+      shell: bash
+      working-directory: desktop/setup/src-tauri
+      run: cargo-audit audit

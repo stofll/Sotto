@@ -70,6 +70,8 @@ export function useOverlaySession() {
   const [state, setState] = useState<OverlayState | null>(null);
   const [recordingStartedAt, setRecordingStartedAt] = useState(Date.now());
   const [recordingStoppedAt, setRecordingStoppedAt] = useState<number | null>(null);
+  // When the recording will stop by itself, once the length limit has warned.
+  const [limitAt, setLimitAt] = useState<number | null>(null);
   // Length of the text that actually went into the window, reported by
   // `paste-done`. Deliberately NOT derived from the `whisper-done` payload:
   // that text is the pre-LLM draft, so counting it announced a number for
@@ -132,6 +134,7 @@ export function useOverlaySession() {
     setIsClosing(false);
     setRecordingStartedAt(startedAt);
     setRecordingStoppedAt(null);
+    setLimitAt(null);
     setPastedLength(null);
     setDecodedAt(null);
     setErrorText("");
@@ -233,6 +236,10 @@ export function useOverlaySession() {
         setState("recording");
         resetDetails();
       }),
+      subscribe<{ session_id?: number; remaining_seconds?: number }>("recording-limit", (payload) => {
+        if (!belongsToCurrentSession(payload)) return;
+        setLimitAt(Date.now() + (payload?.remaining_seconds ?? 0) * 1000);
+      }),
       subscribe<number>("recording-stopped", (payload) => {
         if (!belongsToCurrentSession(payload)) return;
         setPreviewText("");
@@ -316,7 +323,7 @@ export function useOverlaySession() {
   }, [handleClose]);
 
   return {
-    state, config, preferences, layout, sessionId: sessionId.current, streaming, recordingStartedAt, recordingStoppedAt,
+    state, config, preferences, layout, sessionId: sessionId.current, streaming, recordingStartedAt, recordingStoppedAt, limitAt,
     pastedLength, decodedAt, previewText, errorText, aiProblem, isClosing, hovered, setHovered, handleClose,
   };
 }

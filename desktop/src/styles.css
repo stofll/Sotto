@@ -1265,7 +1265,7 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .set-warn {
   margin-top: 8px; padding: 7px 10px;
   border-radius: var(--radius-sm);
-  background: var(--warn-soft); border: 1px solid rgba(251,191,36,0.30);
+  background: var(--warn-soft); border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent);
   font: 500 11.5px/1.4 var(--font-sans); color: var(--ink);
 }
 
@@ -1421,7 +1421,7 @@ button.card { appearance: none; font: inherit; color: inherit; }
      on each side of it read not as "between the settings" but as "something got
      lost here". Both checkbox rows below are built the same way — tight on the
      left, free space on the right. */
-  grid-template-columns: auto 1px auto 1px auto 1px auto;
+  grid-template-columns: auto 1px auto 1px auto 1px auto 1px auto;
   justify-content: start;
   column-gap: 16px;
   row-gap: 14px;
@@ -1429,12 +1429,12 @@ button.card { appearance: none; font: inherit; color: inherit; }
   margin-top: 14px;
 }
 .advanced__history-cell { width: max-content; max-width: 100%; justify-self: center; }
-/* A narrow card: four settings do not fit on one row (≈717 px including the
-   gaps). Three columns remain and the last setting moves to a second row. The
-   separator before it is taken out of the flow rather than hidden by
-   visibility: otherwise it would occupy the first column of the second row and
-   the setting the second. */
-@container (max-width: 760px) {
+/* A narrow card: five settings do not fit on one row. Three columns remain
+   and the last two settings move to a second row. The separator before the
+   first of them is taken out of the flow rather than hidden by visibility:
+   otherwise it would occupy the first column of the second row and the
+   setting the second. */
+@container (max-width: 920px) {
   .advanced__main-row { grid-template-columns: auto 1px auto 1px auto; }
   .advanced__unload-rule { display: none; }
 }
@@ -1489,6 +1489,8 @@ button.card { appearance: none; font: inherit; color: inherit; }
    sits here rather than next to the cell itself: above it `.set-cell
    .custom-select` with the same specificity restores the column width. */
 .advanced__unload-cell .custom-select { width: 104px; max-width: 104px; }
+/* «Без ограничения» / «No limit» is the longest item here. */
+.advanced__limit-cell .custom-select { width: 150px; max-width: 150px; }
 
 @media (max-width: 900px) {
   .vrule { display: none; }

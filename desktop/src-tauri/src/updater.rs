@@ -65,18 +65,21 @@ pub struct DownloadProgress {
 /// Only an installed build can be updated: `cargo tauri dev` has no installer
 /// for the updater to replace — the plugin answers such a request with an error,
 /// and showing it to the user is pointless.
-pub fn unsupported_reason() -> Option<&'static str> {
+pub fn unsupported_reason() -> Option<String> {
     if crate::portable::data_dir().is_some() {
-        return Some("Портативная версия: скачайте новый ZIP и замените файлы приложения, сохранив папку data.");
+        return Some(crate::ui_text::t(
+            "Портативная версия: скачайте новый ZIP и замените файлы приложения, сохранив папку data.",
+        ));
     }
-    cfg!(debug_assertions).then_some("обновления работают только в собранном приложении")
+    cfg!(debug_assertions)
+        .then(|| crate::ui_text::t("обновления работают только в собранном приложении"))
 }
 
 /// Ask the server about an update.
 pub async fn check(app: &AppHandle) -> Result<UpdateInfo, String> {
     let current = app.package_info().version.to_string();
     if let Some(reason) = unsupported_reason() {
-        log::debug!("проверка обновлений пропущена: {reason}");
+        log::debug!("update check skipped: {reason}");
         return Ok(UpdateInfo::none(current));
     }
     let updater = app.updater().map_err(|e| e.to_string())?;
@@ -86,7 +89,7 @@ pub async fn check(app: &AppHandle) -> Result<UpdateInfo, String> {
             current_version: current,
             version: Some(update.version.clone()),
             date: update.date.map(|d| d.to_string()),
-            notes: update.body.clone().filter(|s| !s.trim().is_empty()),
+            notes: update.body.filter(|s| !s.trim().is_empty()),
         }),
         Ok(None) => Ok(UpdateInfo::none(current)),
         Err(e) => Err(e.to_string()),
@@ -100,14 +103,14 @@ pub async fn check(app: &AppHandle) -> Result<UpdateInfo, String> {
 /// request is still cheaper than holding it in state between two commands.
 pub async fn install(app: &AppHandle) -> Result<(), String> {
     if let Some(reason) = unsupported_reason() {
-        return Err(reason.to_string());
+        return Err(reason);
     }
     let updater = app.updater().map_err(|e| e.to_string())?;
     let update = updater
         .check()
         .await
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| "обновление больше недоступно".to_string())?;
+        .ok_or_else(|| crate::ui_text::t("обновление больше недоступно"))?;
 
     crate::release_notes::cache_update(app, &update.version, update.body.as_deref()).await;
 
@@ -120,7 +123,7 @@ pub async fn install(app: &AppHandle) -> Result<(), String> {
                 let _ =
                     app_for_progress.emit(PROGRESS_EVENT, DownloadProgress { downloaded, total });
             },
-            || log::info!("обновление скачано, ставим"),
+            || log::info!("update downloaded, installing"),
         )
         .await
         .map_err(|e| e.to_string())?;
@@ -175,7 +178,7 @@ mod tests {
     fn dev_builds_never_check() {
         // A debug build must never contact the update server.
         assert_eq!(
-            unsupported_reason(),
+            unsupported_reason().as_deref(),
             Some("обновления работают только в собранном приложении")
         );
     }

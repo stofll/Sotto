@@ -1,10 +1,6 @@
-//! Phase 4 / Batch 4 — Cloud STT providers (Rust port).
-//!
-//! The legacy Python implementation supported one provider shape:
-//! OpenAI-compatible transcription at `{base_url}/audio/transcriptions`
-//! (Groq, Mistral, OpenAI itself, and any local server that mimics the
-//! shape). The port mirrors that contract exactly so existing
-//! user-saved configs and the front-end UI keep working:
+//! Cloud STT over one provider shape: OpenAI-compatible transcription at
+//! `{base_url}/audio/transcriptions` (Groq, Mistral, OpenAI itself, and any
+//! local server that mimics the shape):
 //!
 //!   1. Encode the 16 kHz mono f32 audio as 16-bit PCM WAV in-memory.
 //!   2. POST `{base_url}/audio/transcriptions` with multipart/form-data:
@@ -20,7 +16,7 @@
 //! (Deepgram, Together, etc.) is a config change, not a code change.
 //!
 //! Errors are classified:
-//! - `transport: ...`     — reqwest build/connect/read failures
+//! - `transport: ...`     — reqwest connect/read failures
 //! - `timeout after Ns`   — server did not respond within the budget
 //! - `http 4xx/5xx`       — server rejected the request
 //! - `malformed: ...`     — non-JSON body, missing `text` field, etc.
@@ -91,6 +87,23 @@ pub async fn transcribe_cancellable(
             }
         }
     }
+}
+
+/// [`transcribe_cancellable`] for a thread outside any async runtime, such
+/// as the engine thread.
+///
+/// The request runs on the application runtime rather than on one built for
+/// the call: pooled connections live on the runtime that opened them, and a
+/// per-call runtime would close the connection the next dictation is meant
+/// to reuse.
+pub fn transcribe_blocking(
+    request: CloudSttRequest,
+    cancelled: Arc<AtomicBool>,
+) -> Result<CloudSttResult, String> {
+    tauri::async_runtime::block_on(tauri::async_runtime::spawn(async move {
+        transcribe_cancellable(request, &cancelled).await
+    }))
+    .map_err(|_| "cloud STT task panicked".to_string())?
 }
 
 /// Encode mono 16 kHz f32 samples as 16-bit PCM WAV bytes.
@@ -194,13 +207,11 @@ pub async fn transcribe(req: CloudSttRequest) -> Result<CloudSttResult, String> 
         "{}/audio/transcriptions",
         req.base_url.trim_end_matches('/')
     );
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(req.timeout_seconds.max(1)))
-        .build()
-        .map_err(|error| format!("transport: build client: {error}"))?;
-
-    let response = client
+    // The shared client keeps the connection to the provider open between
+    // dictations, so only the first one pays for DNS, TCP and TLS.
+    let response = crate::ai::providers::shared_client()
         .post(&url)
+        .timeout(Duration::from_secs(req.timeout_seconds.max(1)))
         .header("Authorization", format!("Bearer {}", req.api_key))
         .header("Content-Type", content_type)
         .body(body)
@@ -218,15 +229,21 @@ pub async fn transcribe(req: CloudSttRequest) -> Result<CloudSttResult, String> 
 
     let status = response.status();
     if !status.is_success() {
-        let body = response
-            .text()
-            .await
-            .unwrap_or_else(|error| format!("<unreadable: {error}>"));
-        return Err(format!(
-            "http {}: {}",
+        // The message reaches the overlay and the history entry, so it names
+        // only the status; the provider's own wording goes to the debug log.
+        let body = response.text().await.unwrap_or_default();
+        log::debug!(
+            "cloud STT http {}: {}",
             status.as_u16(),
             truncate(&body, 240)
-        ));
+        );
+        return Err(format!(
+            "http {} {}",
+            status.as_u16(),
+            status.canonical_reason().unwrap_or("")
+        )
+        .trim_end()
+        .to_string());
     }
 
     let parsed: serde_json::Value = response.json().await.map_err(|error| {
@@ -240,12 +257,9 @@ pub async fn transcribe(req: CloudSttRequest) -> Result<CloudSttResult, String> 
     let text = parsed
         .get("text")
         .and_then(|value| value.as_str())
-        .ok_or_else(|| {
-            format!(
-                "malformed: missing 'text' field in response: {}",
-                truncate(&parsed.to_string(), 200)
-            )
-        })?
+        // Not the response itself: whatever it holds instead of `text` may be
+        // the transcript.
+        .ok_or_else(|| "malformed: missing 'text' field in response".to_string())?
         .to_string();
 
     Ok(CloudSttResult {

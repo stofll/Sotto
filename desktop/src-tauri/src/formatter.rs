@@ -29,10 +29,10 @@
 //! `preview_replacements` command remains synchronous and does not use
 //! the spelling lexicon.
 
-use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::sync::LazyLock;
 
 // ---------------------------------------------------------------------------
 // Defaults
@@ -202,18 +202,23 @@ const ENGLISH_FILLER_PATTERNS: &[&str] = &[
     r"(?i)\bah+\b",
 ];
 
-/// The filler patterns in force for a dictation in `language`.
-///
-/// Each formatter instance compiles the patterns selected for its language.
-fn default_filler_patterns(language: Option<&str>) -> Vec<Regex> {
-    let mut patterns: Vec<&str> = RUSSIAN_FILLER_PATTERNS.to_vec();
-    if language == Some("en") {
-        patterns.extend_from_slice(ENGLISH_FILLER_PATTERNS);
+/// The filler patterns in force for a dictation in `language`, compiled
+/// once per set rather than on every dictation.
+fn default_filler_patterns(language: Option<&str>) -> &'static [Regex] {
+    fn compile(sets: &[&[&str]]) -> Vec<Regex> {
+        sets.iter()
+            .flat_map(|set| set.iter())
+            .map(|pattern| Regex::new(pattern).expect("valid filler pattern"))
+            .collect()
     }
-    patterns
-        .iter()
-        .map(|pattern| Regex::new(pattern).expect("valid filler pattern"))
-        .collect()
+    static RUSSIAN: LazyLock<Vec<Regex>> = LazyLock::new(|| compile(&[RUSSIAN_FILLER_PATTERNS]));
+    static WITH_ENGLISH: LazyLock<Vec<Regex>> =
+        LazyLock::new(|| compile(&[RUSSIAN_FILLER_PATTERNS, ENGLISH_FILLER_PATTERNS]));
+    if language == Some("en") {
+        &WITH_ENGLISH
+    } else {
+        &RUSSIAN
+    }
 }
 
 /// Tier 1 — strong hallucination signatures. Drop a segment that merely
@@ -310,7 +315,7 @@ fn hallucination_whole_text() -> Vec<Regex> {
 ///
 /// The keyword list is deliberately required — stripping every
 /// bracketed run would eat legitimately dictated parentheses.
-static SOUND_TAG: Lazy<Regex> = Lazy::new(|| {
+static SOUND_TAG: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r"(?i)[\[(][^\[\]()\n]{0,40}?(?:music|silence|blank[_\s]*audio|applause|laughter|inaudible|no\s+audio|музык\w*|аплодисмент\w*|смех|тишина|неразборчиво)[^\[\]()\n]{0,40}?[\])]",
     )
@@ -318,23 +323,24 @@ static SOUND_TAG: Lazy<Regex> = Lazy::new(|| {
 });
 
 /// A run of musical notes, paired (`♪ la la ♪`) or bare (`♪♪♪`).
-static MUSIC_NOTES: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"[♪♫]+(?:[^♪♫\n]*[♪♫]+)?").expect("valid music-note pattern"));
+static MUSIC_NOTES: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"[♪♫]+(?:[^♪♫\n]*[♪♫]+)?").expect("valid music-note pattern"));
 
-static DOUBLE_COMMA: Lazy<Regex> = Lazy::new(|| Regex::new(r",\s*,").expect("valid double comma"));
+static DOUBLE_COMMA: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r",\s*,").expect("valid double comma"));
 
-static LEADING_COMMA: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"^\s*,\s*").expect("valid leading comma"));
+static LEADING_COMMA: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^\s*,\s*").expect("valid leading comma"));
 
-static MULTI_SPACE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r" {2,}").expect("valid multi-space pattern"));
+static MULTI_SPACE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r" {2,}").expect("valid multi-space pattern"));
 
-static SPACE_BEFORE_PUNCT: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"\s+([,.;:!?\)])").expect("valid space-before-punct pattern"));
+static SPACE_BEFORE_PUNCT: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\s+([,.;:!?\)])").expect("valid space-before-punct pattern"));
 
-static SPLIT_KEYWORDS: Lazy<Regex> = Lazy::new(|| {
+static SPLIT_KEYWORDS: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r"\s+(и\s+(я|мы|он|она|оно|они|это|мне|нам|ему|ей|им|их|меня|нас|его|её|нас|вас)\s+|потом\s+|далее\s+|во-первых\s*[,;:]?\s*|во-вторых\s*[,;:]?\s*|в-третьих\s*[,;:]?\s*)",
+        r"\s+(и\s+(я|мы|он|она|оно|они|это|мне|нам|ему|ей|им|их|меня|нас|его|её|вас)\s+|потом\s+|далее\s+|во-первых\s*[,;:]?\s*|во-вторых\s*[,;:]?\s*|в-третьих\s*[,;:]?\s*)",
     )
     .expect("valid split keyword pattern")
 });
@@ -342,8 +348,8 @@ static SPLIT_KEYWORDS: Lazy<Regex> = Lazy::new(|| {
 /// `\b(\w+)\s+\1\b` from Python — the Rust `regex` crate does not
 /// support backreferences, so `DuplicateWordsRemover` uses the
 /// `dedupe_adjacent_words` helper (whitespace-token scan) instead.
-static TOKEN_BOUNDARY: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"\s+").expect("valid token boundary"));
+static TOKEN_BOUNDARY: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\s+").expect("valid token boundary"));
 
 // ---------------------------------------------------------------------------
 // Replacement rule model
@@ -830,10 +836,10 @@ fn split_sentences(text: &str) -> Vec<&str> {
     segments
 }
 
-// Use OnceCell / Lazy so we don't recompile the patterns on every step instantiation.
-static HALLUCINATION_STRONG: Lazy<Vec<Regex>> = Lazy::new(hallucination_strong);
-static HALLUCINATION_GENERIC: Lazy<Vec<Regex>> = Lazy::new(hallucination_generic);
-static HALLUCINATION_WHOLE_TEXT: Lazy<Vec<Regex>> = Lazy::new(hallucination_whole_text);
+// LazyLock so the patterns are not recompiled on every step instantiation.
+static HALLUCINATION_STRONG: LazyLock<Vec<Regex>> = LazyLock::new(hallucination_strong);
+static HALLUCINATION_GENERIC: LazyLock<Vec<Regex>> = LazyLock::new(hallucination_generic);
+static HALLUCINATION_WHOLE_TEXT: LazyLock<Vec<Regex>> = LazyLock::new(hallucination_whole_text);
 
 /// Strip non-speech annotations (`[Music]`, `♪♪♪`, `(applause)`) from
 /// anywhere in the text. Runs before segmentation so a segment that is
@@ -983,7 +989,7 @@ impl FormatStep for HallucinationCleaner {
 
 pub struct FillerWordsRemover {
     enabled: bool,
-    patterns: Vec<Regex>,
+    patterns: &'static [Regex],
 }
 
 impl FillerWordsRemover {
@@ -1009,7 +1015,7 @@ impl FormatStep for FillerWordsRemover {
             return text.to_string();
         }
         let mut out = text.to_string();
-        for pattern in &self.patterns {
+        for pattern in self.patterns {
             out = pattern
                 .replace_all(&out, |caps: &regex::Captures| {
                     let matched = caps.get(0).unwrap();

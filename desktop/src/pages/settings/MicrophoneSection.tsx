@@ -63,7 +63,7 @@ function nextActive(prev: boolean, level: number): boolean {
   return prev;
 }
 
-type SidecarErrorPayload = { kind?: string; permission?: string; hint?: string; message?: string };
+type AppErrorPayload = { kind?: string; permission?: string; hint?: string; message?: string };
 
 export function MicPicker({ microphone, microphones, onConfigChanged }: { microphone?: string | number | null; microphones: MicrophoneResult[]; onConfigChanged: ConfigChanged }) {
   // The level check and echo are two different modes on one capture stream.
@@ -208,7 +208,7 @@ export function MicPicker({ microphone, microphones, onConfigChanged }: { microp
     // ends both modes go out.
     subscribe<unknown>("microphone-test-started", () => { setError(null); });
     subscribe<unknown>("microphone-test-stopped", () => { closePlayback(); setChecking(false); setEcho(false); resetMeter(); setStatus(null); });
-    subscribe<SidecarErrorPayload>("app-error", (payload) => {
+    subscribe<AppErrorPayload>("app-error", (payload) => {
       // Permission events are shown by the banner in MainWindow — it has text
       // for the specific permission and a link into the right system settings
       // pane. There must be no such branch here: it labelled every one of them

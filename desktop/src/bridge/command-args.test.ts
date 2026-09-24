@@ -10,8 +10,8 @@
 // Two real defects this found on its first run:
 //   • three call sites passed `provider:` to `save_api_key`, which stopped
 //     accepting it at some point and never told anyone;
-//   • the casing rule is not decorative — Tauri maps a Rust `old_hotkey`
-//     to `oldHotkey` in JS unless the command opts into
+//   • the casing rule is not decorative — Tauri maps a Rust `session_id`
+//     to `sessionId` in JS unless the command opts into
 //     `rename_all = "snake_case"`, so a command and its sibling can expect
 //     different spellings of the same argument.
 //
@@ -19,10 +19,9 @@
 // therefore nothing that can agree with a bug.
 //
 // Known blind spot: a call whose command name is a variable rather than a
-// literal (tauriInvoke(command, …) in HotkeyDisplay, which serves both
-// hotkey commands from one component) cannot be resolved statically and is
-// skipped. Same for an argument object that is spread or passed by
-// reference. Guessing there would produce failures nobody can act on.
+// literal cannot be resolved statically and is skipped. Same for an argument
+// object that is spread or passed by reference. Guessing there would produce
+// failures nobody can act on.
 
 import { describe, it, expect } from "vitest";
 import ts from "typescript";
@@ -151,8 +150,8 @@ describe("Tauri command arguments", () => {
     expect(commands.get("save_api_key")?.accepted).toEqual(
       new Set(["key_id", "key", "label"]),
     );
-    expect(commands.get("set_hotkey")?.accepted).toEqual(
-      new Set(["hotkey", "oldHotkey"]),
+    expect(commands.get("cancel_recording")?.accepted).toEqual(
+      new Set(["sessionId"]),
     );
   });
 
@@ -161,7 +160,7 @@ describe("Tauri command arguments", () => {
     expect(commands.get("test_ai_prompt")?.accepted.has("profile_id")).toBe(true);
     expect(commands.get("hide")?.required).toEqual(new Set());
     expect(commands.get("hide_tray_popup")?.required).toEqual(new Set());
-    expect(commands.get("show_state")?.required).toEqual(new Set(["state"]));
+    expect(commands.get("validate_hotkey")?.required).toEqual(new Set(["hotkey"]));
   });
 
   it("includes calls without args and preserves keys after comments", () => {

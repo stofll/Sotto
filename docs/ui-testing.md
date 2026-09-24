@@ -62,7 +62,7 @@ The executable test modules are the detailed scenario inventory. Extend the rele
 | Text | `test_text.py` | Preview draft and error, replacement persistence, import/export and failed-save retry, dictionary creation/search/deletion and unsaved changes |
 | LLM and files | `test_ai.py` | Keyboard route selection, missing-key gate, manual result/fallback/error, file selection/loading/result/error/retry/cancellation |
 | Providers and keys | `test_profiles.py` | Wizard search, URL validation, unsaved guard, local profile creation, rename/delete, key masking/replacement/deletion, credential-store failures, connection retry |
-| History | `test_history.py` | Empty/loading failure, search including raw text, no results, single deletion/error, clear confirmation, selection/view mode, partial bulk-delete failure, raw details, reprocess preview/apply/retry |
+| History | `test_history.py` | Empty/loading failure, refresh on show without polling, search including raw text, no results, single deletion/error, clear confirmation, selection/view mode, partial bulk-delete failure, raw details, reprocess preview/apply/retry |
 | Help and statistics | `test_info_stats.py` | Update checks/retry/install failure, log cleanup confirmation, statistics periods and refreshed totals |
 | Lightweight windows | `test_windows.py` | Tray recording/navigation/settings events, overlay lifecycle, stale events, cancellation/silence/error recovery, streaming, initial-state handshake, glow style authorization and full-width processing travel across sizes and reduced motion |
 | Layout | `test_layout.py` | Minimum settings-window size, themes/locales, horizontal overflow, reviewable page and overlay screenshots |

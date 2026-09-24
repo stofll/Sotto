@@ -205,6 +205,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
 
   useEffect(() => {
     setPromptDraft(effectiveSystemPrompt(activeProfile));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by the fields the prompt comes from; the profile object is new on every render.
   }, [activeProfile.id, activeProfile.system_prompt, activeProfile.prompt_preset]);
 
   useEffect(() => {
@@ -658,7 +659,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
                   April went around without the rule "do not replace words with
                   synonyms". */}
               {promptCustom && (
-                <div className="flex-row" style={{ gap: 8, flexWrap: "wrap", padding: "7px 10px", borderRadius: "var(--radius-sm)", background: "var(--warn-soft)", border: "1px solid rgba(251,191,36,0.30)" }}>
+                <div className="flex-row" style={{ gap: 8, flexWrap: "wrap", padding: "7px 10px", borderRadius: "var(--radius-sm)", background: "var(--warn-soft)", border: "1px solid color-mix(in srgb, var(--warn) 30%, transparent)" }}>
                   <Icon name="info" size={13} style={{ color: "var(--warn)", flex: "0 0 auto" }}/>
                   <span style={{ font: "500 11.5px/1.4 var(--font-sans)", color: "var(--ink)" }}>
                     {t("У профиля свой промпт — правки встроенного до него не доходят.")}

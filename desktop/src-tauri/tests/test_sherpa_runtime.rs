@@ -16,8 +16,8 @@ async fn sherpa_download_load_infer_and_reload() {
     let models = tempfile::tempdir().unwrap();
     // This integration-test executable has only one test, so its environment
     // cannot race with the application/unit tests or touch the user's cache.
-    std::env::set_var("SPEECH_TO_TEXT_MODELS_DIR", models.path());
-    let client = reqwest::Client::builder()
+    std::env::set_var("SOTTO_MODELS_DIR", models.path());
+    let client = sotto_lib::http_client::builder()
         .timeout(std::time::Duration::from_secs(180))
         .build()
         .unwrap();
@@ -74,5 +74,5 @@ async fn sherpa_download_load_infer_and_reload() {
             );
         }
     }
-    std::env::remove_var("SPEECH_TO_TEXT_MODELS_DIR");
+    std::env::remove_var("SOTTO_MODELS_DIR");
 }

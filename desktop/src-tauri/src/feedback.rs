@@ -85,18 +85,18 @@ fn project_logs(input: &str) -> String {
 pub async fn get_public_logs() -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(|| {
         let mut file = std::fs::File::open(crate::debug::diagnostics_dir().join("app.log"))
-            .map_err(|_| "Не удалось прочитать логи".to_string())?;
+            .map_err(|_| crate::ui_text::t("Не удалось прочитать логи"))?;
         let len = file
             .metadata()
-            .map_err(|_| "Не удалось прочитать логи".to_string())?
+            .map_err(|_| crate::ui_text::t("Не удалось прочитать логи"))?
             .len();
         let start = len.saturating_sub(LIMIT);
         file.seek(SeekFrom::Start(start))
-            .map_err(|_| "Не удалось прочитать логи".to_string())?;
+            .map_err(|_| crate::ui_text::t("Не удалось прочитать логи"))?;
         let mut bytes = Vec::new();
         file.take(LIMIT)
             .read_to_end(&mut bytes)
-            .map_err(|_| "Не удалось прочитать логи".to_string())?;
+            .map_err(|_| crate::ui_text::t("Не удалось прочитать логи"))?;
         let input = String::from_utf8_lossy(&bytes);
         let input = if start > 0 {
             input.split_once('\n').map(|(_, rest)| rest).unwrap_or("")
@@ -106,14 +106,14 @@ pub async fn get_public_logs() -> Result<String, String> {
         Ok(project_logs(input))
     })
     .await
-    .map_err(|_| "Не удалось прочитать логи".to_string())?
+    .map_err(|_| crate::ui_text::t("Не удалось прочитать логи"))?
 }
 
 #[tauri::command]
 pub async fn save_public_logs(app: AppHandle, content: String) -> Result<bool, String> {
     use tauri_plugin_dialog::DialogExt;
     if content.len() > 1024 * 1024 {
-        return Err("Отчёт слишком большой".into());
+        return Err(crate::ui_text::t("Отчёт слишком большой"));
     }
     tauri::async_runtime::spawn_blocking(move || {
         let Some(path) = app
@@ -127,12 +127,13 @@ pub async fn save_public_logs(app: AppHandle, content: String) -> Result<bool, S
         };
         let path = path
             .into_path()
-            .map_err(|_| "Не удалось сохранить отчёт".to_string())?;
-        std::fs::write(path, content).map_err(|_| "Не удалось сохранить отчёт".to_string())?;
+            .map_err(|_| crate::ui_text::t("Не удалось сохранить отчёт"))?;
+        std::fs::write(path, content)
+            .map_err(|_| crate::ui_text::t("Не удалось сохранить отчёт"))?;
         Ok(true)
     })
     .await
-    .map_err(|_| "Не удалось сохранить отчёт".to_string())?
+    .map_err(|_| crate::ui_text::t("Не удалось сохранить отчёт"))?
 }
 
 #[cfg(test)]

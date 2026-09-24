@@ -11,7 +11,7 @@ use sotto_lib::whisper::{
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-/// Phase 4 / Batch 4 / PR 4.5: TranscribeCloud is constructible
+/// TranscribeCloud is constructible
 /// from outside the engine crate (frontend bridge or other
 /// crates can dispatch cloud STT without depending on private
 /// types). Pins the public surface.
@@ -68,7 +68,6 @@ fn channels_accept_all_engine_command_variants() {
         .is_ok());
     assert!(tx
         .try_send(EngineCommand::Transcribe {
-            source: sotto_lib::model_performance::RunSource::Dictation,
             session_id: 1,
             audio: Arc::new(vec![0.0_f32; 16000]),
             speech_timing: sotto_lib::whisper::SpeechTiming::Ready(None),
@@ -132,7 +131,7 @@ async fn whisper_download_load_and_recognize_speech() {
     use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
     let models = tempfile::tempdir().unwrap();
-    let client = reqwest::Client::builder()
+    let client = sotto_lib::http_client::builder()
         .timeout(std::time::Duration::from_secs(180))
         .build()
         .unwrap();

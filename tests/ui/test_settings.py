@@ -142,7 +142,6 @@ def test_hotkey_validation(app, page, failure):
         ui.saved("hotkey", "ctrl+alt+k")
         expect(field).not_to_be_visible()
         assert len(ui.calls("save_config")) == 1
-        assert not ui.calls("set_hotkey")
 
 
 @pytest.mark.parametrize("capture", [False, True])
@@ -171,13 +170,11 @@ def test_hotkey_failed_save_keeps_draft_and_retries_one_transaction(app, page, c
     expect(field).to_be_enabled()
     expect(field).to_have_value("ctrl+alt+k")
     assert len(ui.calls("save_config")) == 1
-    assert not ui.calls("set_hotkey")
     assert ui.state()["config"]["hotkey"] == "Ctrl+Shift+Space"
     apply.click()
     ui.saved("hotkey", "ctrl+alt+k")
     expect(field).not_to_be_visible()
     assert len(ui.calls("save_config")) == 2
-    assert not ui.calls("set_hotkey")
 
 
 def test_hotkey_escape_leaves_config_unchanged(app, page):

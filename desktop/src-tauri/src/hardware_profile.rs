@@ -32,7 +32,8 @@ pub fn snapshot() -> HardwareSnapshot {
     }
 }
 
-/// No serials, hostnames or network identifiers. Kept only in the local DB.
+/// No serials, hostnames or network identifiers. Written only into local
+/// benchmark results.
 pub fn fingerprint() -> &'static str {
     static VALUE: OnceLock<String> = OnceLock::new();
     VALUE.get_or_init(|| {

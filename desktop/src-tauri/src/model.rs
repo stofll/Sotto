@@ -1,6 +1,6 @@
 //! Native Whisper model catalogue and on-disk cache helpers.
 //!
-//! Phase 4 stores whisper.cpp/GGML files in one platform-native cache directory.
+//! whisper.cpp/GGML files live in one platform-native cache directory.
 //! The public model id remains compatible with the existing frontend (`turbo`),
 //! while the corresponding GGML filename uses the upstream name
 //! `ggml-large-v3-turbo-q8_0.bin`.
@@ -58,7 +58,7 @@ const PARAKEET_V3_LANGUAGES: &[&str] = &[
 ];
 
 /// Authoritative manifest entry for one GGML model. The Rust
-/// downloader (PR 1.1) treats this struct as the only source of truth
+/// downloader treats this struct as the only source of truth
 /// for `url`, `expected_bytes`, and `sha256`. The public `id` is
 /// the value used by config / UI; `file_name` is the upstream
 /// `ggml-*.bin` filename on the Hugging Face mirror.
@@ -769,7 +769,7 @@ pub fn model_manifest() -> &'static [ModelManifestEntry] {
 
 /// Look up a single manifest entry by its public id (the same
 /// string the rest of the app uses for config + UI). Returns
-/// `Err(UNKNOWN_MODEL: …)` so the Tauri command layer (PR 1.2)
+/// `Err(UNKNOWN_MODEL: …)` so the Tauri command layer
 /// can return the same error string as the engine side.
 pub fn manifest_entry(model_id: &str) -> Result<&'static ModelManifestEntry, String> {
     let id = normalize_model_id(model_id)?;
@@ -1090,7 +1090,7 @@ pub fn models_dir() -> Result<PathBuf, String> {
     if let Some(dir) = crate::portable::data_dir() {
         return Ok(dir.join("models"));
     }
-    if let Ok(override_dir) = std::env::var("SPEECH_TO_TEXT_MODELS_DIR") {
+    if let Some(override_dir) = crate::user_data::env_override("SOTTO_MODELS_DIR") {
         if !override_dir.trim().is_empty() {
             return Ok(PathBuf::from(override_dir));
         }
@@ -1098,6 +1098,20 @@ pub fn models_dir() -> Result<PathBuf, String> {
     let cache =
         dirs::cache_dir().ok_or_else(|| "MODEL_CACHE_UNAVAILABLE: no cache dir".to_string())?;
     Ok(migrate_legacy_cache(&cache).join("models"))
+}
+
+/// The model directories this app creates when neither the portable folder
+/// nor `SOTTO_MODELS_DIR` is in use, including the pre-rename one. The
+/// uninstaller's data removal deletes them.
+#[cfg(windows)]
+pub(crate) fn default_models_dirs() -> Vec<PathBuf> {
+    let Some(cache) = dirs::cache_dir() else {
+        return Vec::new();
+    };
+    [CACHE_DIR, LEGACY_CACHE_DIR]
+        .iter()
+        .map(|name| cache.join(name).join("models"))
+        .collect()
 }
 
 /// Return the cache directory, migrating the old one along the way if it has
@@ -1704,31 +1718,7 @@ pub(crate) async fn delete_model(
             .map_err(|e| format!("engine reply dropped: {e}"))?;
         let _ = app.emit("model-unloaded", normalized.clone());
     }
-    delete_cached_model(&model).map_err(|e| e.to_string())
-}
-
-/// Return both configured and actually loaded model state. The two values can
-/// differ briefly during startup or after a failed switch; `engine` always
-/// describes the engine thread rather than merely echoing config.
-#[tauri::command]
-pub(crate) fn get_model_status(
-    app: AppHandle,
-    state: tauri::State<'_, crate::state::AppState>,
-) -> Result<serde_json::Value, String> {
-    let selected = crate::config::Config::load(&app)
-        .ok()
-        .and_then(|c| c.get_string("model"));
-    let loaded = crate::mutex_recover::lock(&state.engine_current_model).clone();
-    let engine = loaded
-        .as_deref()
-        .and_then(|id| model_engine(id).ok())
-        .map(|engine| engine.wire_name());
-    Ok(serde_json::json!({
-        "selected": selected,
-        "loaded": loaded,
-        "model_loaded": engine.is_some(),
-        "engine": engine,
-    }))
+    delete_cached_model(&model)
 }
 
 #[cfg(test)]
@@ -2435,12 +2425,12 @@ mod tests {
         assert_eq!(ui_ids, manifest_ids);
     }
 
-    // `models_dir()` honours `SPEECH_TO_TEXT_MODELS_DIR`, so tests exercising
+    // `models_dir()` honours `SOTTO_MODELS_DIR`, so tests exercising
     // `models_dir`-bound functions point it at a temp dir. `EnvGuard` restores
     // the previous value and serializes against every other env-var test.
     use crate::test_support::EnvGuard;
 
-    const MODELS_DIR_ENV: &str = "SPEECH_TO_TEXT_MODELS_DIR";
+    const MODELS_DIR_ENV: &str = "SOTTO_MODELS_DIR";
 
     // ------------------------------------------------------------------
     // Bundle readiness / recovery / discovery / deletion via paths

@@ -64,7 +64,6 @@ export function checkApiKey(provider: string, presetId: string | null, raw: stri
   if (/\s/.test(value)) {
     return { level: "error", code: "whitespace", message: t("В ключе есть пробел — похоже, он скопирован не целиком.") };
   }
-  // eslint-disable-next-line no-control-regex
   if (/[^\x21-\x7e]/.test(value)) {
     return { level: "error", code: "charset", message: t("В ключе есть символы, которых в токенах не бывает — проверьте, что скопирован именно ключ.") };
   }

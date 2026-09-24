@@ -141,6 +141,7 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
     });
   }, [slots, query]);
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- reset the draft when the saved profiles change in content, not on every new array.
   useEffect(() => setDraftProfiles(profiles), [JSON.stringify(profiles)]);
 
   function showMessage(text: string) {

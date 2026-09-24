@@ -1,4 +1,4 @@
-//! Mutex-poison recovery (Phase 4 / Batch 6 / P0).
+//! Mutex-poison recovery.
 //!
 //! Wrapper around `std::sync::Mutex::lock()` that recovers from a
 //! poisoned mutex instead of panicking. A poisoned mutex means a

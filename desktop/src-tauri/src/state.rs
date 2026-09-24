@@ -1,9 +1,8 @@
-//! Recording state machine + Whisper engine state machine + AppState container.
+//! Recording state machine and the AppState container.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::thread::JoinHandle;
 
 /// Application-level state machine (visible to UI via events).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -11,17 +10,6 @@ pub enum AppFsm {
     Idle,
     Recording,
     Processing,
-    Done,
-    Error,
-}
-
-/// Whisper engine state (internal).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EngineFsm {
-    Unloaded,
-    Loading,
-    Ready,
-    Inferring,
 }
 
 /// Set the application FSM state, recovering from a poisoned lock.
@@ -51,10 +39,10 @@ impl Drop for EngineBusyGuard {
 /// AppState — passed to Tauri commands via `tauri::State<AppState>`.
 ///
 /// Holds channel sender (NOT receiver — receiver is single-consumer, owned
-/// by setup()-scope then moved into the dispatcher task), session-id
-/// tracking, and the engine thread JoinHandle for graceful shutdown.
+/// by setup()-scope then moved into the dispatcher task) and session-id
+/// tracking.
 ///
-/// `AppState` is `Clone` (WS 4a1 Task 13b) so the hotkey handler can
+/// `AppState` is `Clone` so the hotkey handler can
 /// capture it into a `'static + Send` closure. Every non-Clone field is
 /// wrapped in `Arc`, so the clone is just a handful of refcount bumps.
 /// All clones share the same underlying state — `next_session_id` and
@@ -62,7 +50,6 @@ impl Drop for EngineBusyGuard {
 #[derive(Clone)]
 pub struct AppState {
     pub app_fsm: Arc<Mutex<AppFsm>>,
-    pub engine_fsm: Arc<Mutex<EngineFsm>>,
     pub engine_cmd_tx: tokio::sync::mpsc::Sender<crate::whisper::EngineCommand>,
     pub current_session_id: Arc<AtomicU64>,
     session_counter: Arc<AtomicU64>,
@@ -79,7 +66,7 @@ pub struct AppState {
     /// claim is the linearization point between a user cancel and success.
     pub committing_sessions: Arc<Mutex<HashSet<u64>>>,
     pub cancelled_sessions: Arc<Mutex<HashSet<u64>>>,
-    /// Phase 4 / Batch 6 / P0: session → cancel-flag registry.
+    /// Session → cancel-flag registry.
     /// When a session's `Transcribe` command is queued, the engine
     /// registers its `Arc<AtomicBool>` here. `cancel_recording`
     /// flips the flag on lookup; the engine thread checks the
@@ -110,10 +97,7 @@ pub struct AppState {
     /// is set — the engine runs one job at a time, and a dictation queued
     /// behind an hour-long file would look frozen rather than rejected.
     pub engine_busy: Arc<AtomicBool>,
-    pub engine_thread: Arc<Mutex<Option<JoinHandle<()>>>>,
-    pub pending_recording: Arc<Mutex<bool>>,
-    pub model_warming: Arc<Mutex<bool>>,
-    /// WS 4a2 — cpal audio capture. Lives in AppState symmetric to the
+    /// cpal audio capture. Lives in AppState symmetric to the
     /// whisper engine. Held by `Arc` so Tauri commands (`start_recording`,
     /// `stop_recording`, `get_audio_level`) can borrow it cheaply, and so
     /// the engine-dispatcher task could in future subscribe to audio-level
@@ -174,7 +158,6 @@ pub struct AppState {
 impl AppState {
     pub fn new(
         cmd_tx: tokio::sync::mpsc::Sender<crate::whisper::EngineCommand>,
-        engine_thread_handle: JoinHandle<()>,
         recorder: Arc<crate::audio::AudioRecorder>,
         db: Arc<Mutex<rusqlite::Connection>>,
         microphone_test: crate::mic_test::MicrophoneTest,
@@ -182,10 +165,7 @@ impl AppState {
     ) -> Self {
         Self {
             app_fsm: Arc::new(Mutex::new(AppFsm::Idle)),
-            engine_fsm: Arc::new(Mutex::new(EngineFsm::Unloaded)),
             engine_cmd_tx: cmd_tx,
-            // JoinHandle stored for graceful shutdown.
-            engine_thread: Arc::new(Mutex::new(Some(engine_thread_handle))),
             current_session_id: Arc::new(AtomicU64::new(0)),
             session_counter: Arc::new(AtomicU64::new(0)),
             dictation_session_id: Arc::new(AtomicU64::new(0)),
@@ -197,8 +177,6 @@ impl AppState {
             cancel_flags: Arc::new(Mutex::new(HashMap::new())),
             dispatch_skipped: Arc::new(Mutex::new(HashSet::new())),
             engine_busy: Arc::new(AtomicBool::new(false)),
-            pending_recording: Arc::new(Mutex::new(false)),
-            model_warming: Arc::new(Mutex::new(false)),
             toggle_armed: Arc::new(AtomicBool::new(false)),
             key_held: Arc::new(AtomicBool::new(false)),
             recorder,
@@ -247,20 +225,6 @@ impl AppState {
             }
             None => false,
         }
-    }
-
-    /// Cheap clone of the cancelled-sessions set for moving into an async
-    /// dispatcher task. Returns an `Arc<Mutex<HashSet<u64>>>` which can
-    /// check / drop / insert from any thread.
-    pub fn cancelled_sessions_arc(&self) -> Arc<Mutex<HashSet<u64>>> {
-        Arc::clone(&self.cancelled_sessions)
-    }
-
-    /// Cheap clone of the dispatch-skip set, for the same reason as
-    /// `cancelled_sessions_arc`: the dispatcher task owns a bare `Arc`,
-    /// not an `AppState`.
-    pub fn dispatch_skipped_arc(&self) -> Arc<Mutex<HashSet<u64>>> {
-        Arc::clone(&self.dispatch_skipped)
     }
 
     /// Register a session the dispatcher must ignore. Call this BEFORE
@@ -437,7 +401,7 @@ impl AppState {
     }
 
     fn flip_cancel_flag(&self, session_id: u64) {
-        // Phase 4 / Batch 6 / P0: also flip the registered cancel
+        // Also flip the registered cancel
         // flag so the engine thread sees the cancel even if it is
         // currently inside the (non-interruptible) `state.full()`
         // C call. The flag is checked between segments and (with
@@ -565,7 +529,7 @@ mod tests {
 
     /// Helper: in-memory rusqlite Connection with the v1 schema applied.
     /// Used by every AppState test that needs to satisfy the `db` argument
-    /// added in WS 4b. Schema is applied so callers can immediately use
+    /// of `AppState::new`. Schema is applied so callers can immediately use
     /// `stats_*` / `history_*` helpers against it.
     fn test_db() -> Arc<Mutex<rusqlite::Connection>> {
         let conn = rusqlite::Connection::open_in_memory()
@@ -576,10 +540,8 @@ mod tests {
 
     #[test]
     fn session_ids_are_unique() {
-        let handle = std::thread::spawn(|| {});
         let state = AppState::new(
             tokio::sync::mpsc::channel(1).0,
-            handle,
             test_recorder(),
             test_db(),
             test_microphone_test(),
@@ -594,10 +556,8 @@ mod tests {
     #[test]
     fn cancel_session_round_trip() {
         let (cmd_tx, _cmd_rx) = tokio::sync::mpsc::channel::<crate::whisper::EngineCommand>(1);
-        let handle = std::thread::spawn(|| {});
         let state = AppState::new(
             cmd_tx,
-            handle,
             test_recorder(),
             test_db(),
             test_microphone_test(),
@@ -616,10 +576,8 @@ mod tests {
         // Verifies the public AppFsm field is writable: Tauri commands
         // mutate `*state.app_fsm.lock().unwrap()` to drive UI state.
         let (cmd_tx, _cmd_rx) = tokio::sync::mpsc::channel::<crate::whisper::EngineCommand>(1);
-        let handle = std::thread::spawn(|| {});
         let state = AppState::new(
             cmd_tx,
-            handle,
             test_recorder(),
             test_db(),
             test_microphone_test(),
@@ -636,10 +594,8 @@ mod tests {
         // borrowed view), but the dispatcher holds a clone. Writes via
         // the original must be visible to the clone.
         let (cmd_tx, _cmd_rx) = tokio::sync::mpsc::channel::<crate::whisper::EngineCommand>(1);
-        let handle = std::thread::spawn(|| {});
         let state = AppState::new(
             cmd_tx,
-            handle,
             test_recorder(),
             test_db(),
             test_microphone_test(),
@@ -651,47 +607,14 @@ mod tests {
     }
 
     #[test]
-    fn join_handle_stored_then_taken() {
-        // Verifies the Task 10 plumbing: engine_thread field starts as
-        // Some(handle) after construction, and can be taken via .take() for
-        // graceful shutdown. We use a thread that returns immediately so the
-        // JoinHandle resolves successfully when joined.
-        let handle = std::thread::spawn(|| {});
-        let state = AppState::new(
-            tokio::sync::mpsc::channel(1).0,
-            handle,
-            test_recorder(),
-            test_db(),
-            test_microphone_test(),
-            Arc::new(Mutex::new(None)),
-        );
-        let taken = state.engine_thread.lock().unwrap().take();
-        assert!(
-            taken.is_some(),
-            "engine_thread should be Some right after AppState::new"
-        );
-        let taken_again = state.engine_thread.lock().unwrap().take();
-        assert!(
-            taken_again.is_none(),
-            "engine_thread should be None after take()"
-        );
-        taken
-            .unwrap()
-            .join()
-            .expect("spawned thread should exit cleanly");
-    }
-
-    #[test]
     fn app_state_clone_shares_session_counter() {
-        // WS 4a1 Task 13b: the hotkey closure captures an AppState clone.
+        // The hotkey closure captures an AppState clone.
         // session_id allocations MUST be coordinated across clones — a
         // hotkey-pressed session (allocated by the cloned state) and a
         // start_recording Tauri command session (allocated by the original
         // state) must not collide on the same id.
-        let handle = std::thread::spawn(|| {});
         let state = AppState::new(
             tokio::sync::mpsc::channel(1).0,
-            handle,
             test_recorder(),
             test_db(),
             test_microphone_test(),
@@ -711,10 +634,8 @@ mod tests {
         // Mirrored cancel_session on the clone must be visible to the
         // original (and vice versa) — cancellation is what the dispatcher
         // checks, and it's populated from one clone and read from another.
-        let handle = std::thread::spawn(|| {});
         let state = AppState::new(
             tokio::sync::mpsc::channel(1).0,
-            handle,
             test_recorder(),
             test_db(),
             test_microphone_test(),
@@ -807,12 +728,10 @@ mod tests {
         // The recorder must be the SAME instance across clones (cloning the
         // Arc, not the recorder). Verifies that `AppState::new`'s third
         // arg propagates correctly through `derive(Clone)`.
-        let handle = std::thread::spawn(|| {});
         let recorder = test_recorder();
         let recorder_ptr = Arc::as_ptr(&recorder);
         let state = AppState::new(
             tokio::sync::mpsc::channel(1).0,
-            handle,
             recorder,
             test_db(),
             test_microphone_test(),
@@ -918,7 +837,6 @@ mod tests {
     fn test_state() -> AppState {
         AppState::new(
             tokio::sync::mpsc::channel(1).0,
-            std::thread::spawn(|| {}),
             test_recorder(),
             test_db(),
             test_microphone_test(),

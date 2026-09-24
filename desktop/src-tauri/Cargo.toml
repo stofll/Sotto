@@ -18,12 +18,13 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 raw-window-handle = "0.6"
 tokio = { version = "1", features = ["sync", "time", "fs", "io-util", "macros", "rt"] }
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "json"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "stream", "json"] }
+# The crypto provider reqwest is built without; see src/http_client.rs.
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
 futures-util = "0.3"
 sha2 = "0.10"
-fs2 = "0.4"
+fs4 = { version = "1.1", default-features = false }
 regex = "1"
-once_cell = "1"
 uuid = { version = "1", features = ["v4"] }
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "linux-native"] }
 tauri-plugin-global-shortcut = "2"
@@ -35,7 +36,7 @@ tauri-plugin-single-instance = "2"
 # Self-update. The plugin downloads and installs the artifact from latest.json
 # on GitHub Releases, verifying the minisign signature with the public key from
 # tauri.conf.json. Integrity — yes, publisher — no: SmartScreen's "unknown
-# publisher" is only cured by Authenticode (see 4.1 in the plan).
+# publisher" is only cured by Authenticode.
 tauri-plugin-updater = "2"
 # Synthesizes the paste keystroke on macOS and Linux. Windows does not use it
 # for the keystroke — `windows_util::send_ctrl_v_sendinput` sends the raw VK
@@ -67,9 +68,9 @@ dirs = "6"
 # 0.16 fixes the CoreAudio disconnect-listener cycle that kept explicitly
 # selected microphones recording after their stream was dropped.
 cpal = "0.16"
-# WS 4b: rusqlite + bundled SQLite for the data layer (stats, history).
+# Bundled SQLite for the data layer (stats, history).
 # `bundled` compiles SQLite from source so we don't depend on the system libsqlite3.
-rusqlite = { version = "0.31", features = ["bundled"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
 earshot = "1.2.1"
 symphonia = { version = "0.6.1", features = ["mp3", "isomp4", "aac", "alac"] }
 rubato = "5.0.0"
@@ -97,6 +98,8 @@ windows-sys = { version = "0.52", features = [
     "Win32_Foundation",
     "Win32_Graphics_Dwm",
     "Win32_Security",
+    # CredEnumerateW: the uninstaller's data removal finds stored API keys.
+    "Win32_Security_Credentials",
     "Win32_System_JobObjects",
     "Win32_System_Threading",
     "Win32_System_DataExchange",
@@ -186,7 +189,7 @@ custom-protocol = ["tauri/custom-protocol"]
 gpu-vulkan = ["whisper-rs/vulkan"]
 gpu-metal = ["whisper-rs/metal"]
 
-# WS 4a2b Task 8: opt-in feature that exposes the
+# Opt-in feature that exposes the
 # `start_recording_test` Tauri command to production builds. Default
 # OFF — only `cargo build`, debug runs, and tests enable it (via
 # `#[cfg(any(test, debug_assertions, feature = "test-commands"))]`).
@@ -204,4 +207,4 @@ lto = "thin"
 [profile.release]
 opt-level = 3
 lto = true
-panic = "unwind"  # Required for catch_unwind around whisper-rs state.full() (R1)
+panic = "unwind"  # Required for catch_unwind around whisper-rs state.full()

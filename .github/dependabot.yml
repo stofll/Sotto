@@ -1,0 +1,63 @@
+# Version updates, weekly and grouped so minor and patch releases arrive as
+# one pull request per ecosystem. Majors come one by one: each needs its own
+# review, and for whisper-rs and cpal a native check (docs/testing.md).
+version: 2
+
+updates:
+  - package-ecosystem: cargo
+    directories:
+      - /desktop/src-tauri
+      - /desktop/setup/src-tauri
+    schedule:
+      interval: weekly
+    groups:
+      rust-minor:
+        update-types: [minor, patch]
+    ignore:
+      # Pinned together with scripts/sherpa-runtime.lock; the runtime and the
+      # bindings move in one change.
+      - dependency-name: sherpa-onnx
+      - dependency-name: sherpa-onnx-sys
+
+  - package-ecosystem: npm
+    directories:
+      - /desktop
+      - /site
+    schedule:
+      interval: weekly
+    groups:
+      js-minor:
+        update-types: [minor, patch]
+    ignore:
+      # React 19.3 adds about 30 kB to the startup chunk of every window and
+      # nothing the app uses; update it when a feature needs it.
+      - dependency-name: react
+        update-types: [version-update:semver-minor]
+      - dependency-name: react-dom
+        update-types: [version-update:semver-minor]
+      - dependency-name: "@types/react"
+        update-types: [version-update:semver-minor]
+      - dependency-name: "@types/react-dom"
+        update-types: [version-update:semver-minor]
+
+  - package-ecosystem: uv
+    directories:
+      - /tests/ui
+      - /scripts/macos-dmg
+    schedule:
+      interval: weekly
+    groups:
+      python:
+        update-types: [minor, patch]
+
+  # Keeps the SHA pins current; the trailing version comments are updated
+  # with them.
+  - package-ecosystem: github-actions
+    directories:
+      - /
+      - /.github/actions/*
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        update-types: [minor, patch]

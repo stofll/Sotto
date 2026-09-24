@@ -119,6 +119,60 @@ impl DownloadProgress {
     }
 }
 
+/// Lets through at most one progress event per interval, plus the one that
+/// completes the download.
+///
+/// The downloader reports every network chunk. For a model of several
+/// gigabytes that is thousands of events a second, each delivered to every
+/// window and re-rendering the catalog; the bar needs about ten.
+struct ProgressThrottle {
+    interval: std::time::Duration,
+    last: std::sync::Mutex<Option<std::time::Instant>>,
+}
+
+impl ProgressThrottle {
+    fn new(interval: std::time::Duration) -> Self {
+        Self {
+            interval,
+            last: std::sync::Mutex::new(None),
+        }
+    }
+
+    fn admit(&self, progress: DownloadProgress, now: std::time::Instant) -> bool {
+        let complete = progress
+            .total
+            .is_some_and(|total| progress.downloaded >= total);
+        let mut last = crate::mutex_recover::lock(&self.last);
+        let due = last.is_none_or(|at| now.saturating_duration_since(at) >= self.interval);
+        if complete || due {
+            *last = Some(now);
+        }
+        complete || due
+    }
+}
+
+/// The `model-download-progress` emitter for one download.
+fn progress_emitter(
+    app: &AppHandle,
+    model: String,
+) -> impl Fn(DownloadProgress) + Send + Sync + 'static {
+    let app = app.clone();
+    let throttle = ProgressThrottle::new(std::time::Duration::from_millis(100));
+    move |progress: DownloadProgress| {
+        if !throttle.admit(progress, std::time::Instant::now()) {
+            return;
+        }
+        let _ = app.emit(
+            "model-download-progress",
+            serde_json::json!({
+                "model": model,
+                "downloaded": progress.downloaded,
+                "total": progress.total,
+            }),
+        );
+    }
+}
+
 /// Result of a successful download — the on-disk path to the verified
 /// model and the byte count the verifier confirmed.
 #[derive(Debug, Clone)]
@@ -237,7 +291,7 @@ pub async fn verify_file(path: &Path, spec: &DownloadSpec) -> Result<(), ModelDo
 /// never reaches the second step, which is why the gap stayed invisible there.
 pub fn available_bytes(dir: &Path) -> Option<u64> {
     dir.ancestors()
-        .find_map(|path| fs2::available_space(path).ok())
+        .find_map(|path| fs4::available_space(path).ok())
 }
 
 /// Free space a download of `expected_bytes` needs: 1 MiB of slack on top for
@@ -786,19 +840,8 @@ pub(crate) async fn download_model(
                 })
                 .collect(),
         };
-        let client = reqwest::Client::new();
-        let app_for_progress = app.clone();
-        let model_for_progress = entry.public_id.to_string();
-        let progress_cb = move |p: DownloadProgress| {
-            let _ = app_for_progress.emit(
-                "model-download-progress",
-                serde_json::json!({
-                    "model": model_for_progress,
-                    "downloaded": p.downloaded,
-                    "total": p.total,
-                }),
-            );
-        };
+        let client = crate::http_client::client();
+        let progress_cb = progress_emitter(&app, entry.public_id.to_string());
         let outcome =
             match download_bundle_to_dir(&client, &spec, &dir, &cancel, Some(&progress_cb), None)
                 .await
@@ -824,22 +867,11 @@ pub(crate) async fn download_model(
         expected_bytes: entry.expected_bytes,
         sha256: entry.sha256.to_string(),
     };
-    let dir = crate::model::models_dir().map_err(|e| e.to_string())?;
-    let client = reqwest::Client::new();
+    let dir = crate::model::models_dir()?;
+    let client = crate::http_client::client();
 
     // Wire progress events so the frontend can show a download bar.
-    let app_for_progress = app.clone();
-    let mid_for_progress = model.clone();
-    let progress_cb = move |p: DownloadProgress| {
-        let _ = app_for_progress.emit(
-            "model-download-progress",
-            serde_json::json!({
-                "model": mid_for_progress,
-                "downloaded": p.downloaded,
-                "total": p.total,
-            }),
-        );
-    };
+    let progress_cb = progress_emitter(&app, model.clone());
 
     let outcome =
         match download_spec_to_dir(&client, &spec, &dir, &cancel, Some(&progress_cb), None).await {
@@ -1049,7 +1081,7 @@ mod tests {
             let spec = tiny_spec(format!("http://{addr}/model"), b"abcdef");
             let dir = tempfile::tempdir().unwrap();
             let cancel = Arc::new(AtomicBool::new(false));
-            let client = reqwest::Client::new();
+            let client = crate::http_client::client();
             let received = AtomicU64::new(0);
             let progress = |event: DownloadProgress| {
                 received.store(event.downloaded, Ordering::Relaxed);
@@ -1162,7 +1194,7 @@ mod tests {
         let spec = tiny_spec(url, &body);
         let dir = tempfile::tempdir().unwrap();
         let cancel = Arc::new(AtomicBool::new(false));
-        let client = reqwest::Client::new();
+        let client = crate::http_client::client();
 
         let outcome = block_on(download_spec_to_dir(
             &client,
@@ -1190,7 +1222,7 @@ mod tests {
         let final_path = dir.path().join("ggml-tiny.bin");
         std::fs::write(&final_path, b"existing working model").unwrap();
         let cancel = Arc::new(AtomicBool::new(false));
-        let client = reqwest::Client::new();
+        let client = crate::http_client::client();
 
         assert!(matches!(
             block_on(download_spec_to_dir(
@@ -1223,7 +1255,7 @@ mod tests {
         let part_path = part_path_for(&final_path);
         std::fs::write(&part_path, b"stale partial bytes that must be replaced").unwrap();
         let cancel = Arc::new(AtomicBool::new(false));
-        let client = reqwest::Client::new();
+        let client = crate::http_client::client();
 
         block_on(download_spec_to_dir(
             &client,
@@ -1273,7 +1305,7 @@ mod tests {
         let part_path = part_path_for(&final_path);
         std::fs::write(&part_path, &body[..9]).unwrap();
         let cancel = Arc::new(AtomicBool::new(false));
-        let client = reqwest::Client::new();
+        let client = crate::http_client::client();
 
         let outcome = block_on(download_spec_to_dir(
             &client,
@@ -1305,7 +1337,7 @@ mod tests {
         let final_path = dir.path().join("ggml-tiny.bin");
         std::fs::write(part_path_for(&final_path), b"XXXXXXXXX").unwrap();
         let cancel = Arc::new(AtomicBool::new(false));
-        let client = reqwest::Client::new();
+        let client = crate::http_client::client();
 
         let result = block_on(download_spec_to_dir(
             &client,
@@ -1332,7 +1364,7 @@ mod tests {
         let final_path = dir.path().join("ggml-tiny.bin");
         std::fs::write(part_path_for(&final_path), &body[..9]).unwrap();
         let cancel = Arc::new(AtomicBool::new(false));
-        let client = reqwest::Client::new();
+        let client = crate::http_client::client();
 
         block_on(download_spec_to_dir(
             &client,
@@ -1360,7 +1392,7 @@ mod tests {
         let final_path = dir.path().join("ggml-tiny.bin");
         std::fs::write(part_path_for(&final_path), &body[..9]).unwrap();
         let cancel = Arc::new(AtomicBool::new(false));
-        let client = reqwest::Client::new();
+        let client = crate::http_client::client();
 
         block_on(download_spec_to_dir(
             &client,
@@ -1412,7 +1444,7 @@ mod tests {
         std::fs::write(stage.join("encoder.onnx"), &encoder).unwrap();
         std::fs::write(stage.join("old-encoder.onnx.part"), b"leftover junk").unwrap();
         let cancel = Arc::new(AtomicBool::new(false));
-        let client = reqwest::Client::new();
+        let client = crate::http_client::client();
 
         block_on(download_bundle_to_dir(
             &client,
@@ -1460,7 +1492,7 @@ mod tests {
         let cancel = Arc::new(AtomicBool::new(true));
 
         let result = block_on(download_spec_to_dir(
-            &reqwest::Client::new(),
+            &crate::http_client::client(),
             &spec,
             dir.path(),
             &cancel,
@@ -1489,7 +1521,7 @@ mod tests {
         let progress = move |_event: DownloadProgress| {
             cancel_for_progress.store(true, Ordering::Relaxed);
         };
-        let client = reqwest::Client::new();
+        let client = crate::http_client::client();
 
         let result = block_on(download_spec_to_dir(
             &client,
@@ -1515,7 +1547,7 @@ mod tests {
 
     #[test]
     fn free_space_check_rejects_when_available_below_required() {
-        // We can't easily fake fs2::available_space, but we can sanity
+        // We can't easily fake fs4::available_space, but we can sanity
         // check the slack math: required = expected + 1 MiB.
         // Direct test of the bound by passing a known huge expected.
         let dir = tempfile::tempdir().unwrap();
@@ -1589,7 +1621,7 @@ mod tests {
             artifacts: vec![first, second],
         };
         let result = download_bundle_to_dir(
-            &reqwest::Client::new(),
+            &crate::http_client::client(),
             &spec,
             dir.path(),
             &Arc::new(AtomicBool::new(false)),
@@ -1636,6 +1668,30 @@ mod tests {
     }
 
     #[test]
+    fn progress_is_throttled_but_completion_always_passes() {
+        let throttle = ProgressThrottle::new(Duration::from_millis(100));
+        let start = std::time::Instant::now();
+        let at = |ms| start + Duration::from_millis(ms);
+        let part = |downloaded| DownloadProgress {
+            downloaded,
+            total: Some(1000),
+        };
+        assert!(throttle.admit(part(10), at(0)));
+        assert!(!throttle.admit(part(20), at(40)));
+        assert!(!throttle.admit(part(30), at(99)));
+        assert!(throttle.admit(part(40), at(100)));
+        assert!(!throttle.admit(part(50), at(150)));
+        assert!(throttle.admit(part(1000), at(160)));
+        // An unknown size never counts as complete.
+        let unknown = DownloadProgress {
+            downloaded: 5000,
+            total: None,
+        };
+        assert!(!throttle.admit(unknown, at(170)));
+        assert!(throttle.admit(unknown, at(260)));
+    }
+
+    #[test]
     fn download_progress_reports_fraction() {
         let progress = DownloadProgress {
             downloaded: 50,
@@ -1665,7 +1721,7 @@ mod tests {
         let cancel = Arc::new(AtomicBool::new(false));
         let on_verifying = || cancel.store(true, Ordering::Release);
         let result = block_on(download_spec_to_dir(
-            &reqwest::Client::new(),
+            &crate::http_client::client(),
             &spec,
             dir.path(),
             &cancel,
@@ -1696,7 +1752,7 @@ mod tests {
         let on_verifying = move || {
             verifying_count_for_cb.fetch_add(1, Ordering::Relaxed);
         };
-        let client = reqwest::Client::new();
+        let client = crate::http_client::client();
 
         block_on(download_spec_to_dir(
             &client,
@@ -1739,7 +1795,7 @@ mod tests {
         let on_verifying = move || {
             verifying_count_for_cb.fetch_add(1, Ordering::Relaxed);
         };
-        let client = reqwest::Client::new();
+        let client = crate::http_client::client();
 
         let _ = block_on(download_spec_to_dir(
             &client,
@@ -1837,7 +1893,7 @@ mod tests {
             }],
         };
         let dir = tempfile::tempdir().unwrap();
-        let client = reqwest::Client::new();
+        let client = crate::http_client::client();
         let cancel = Arc::new(AtomicBool::new(false));
         let result = block_on(download_bundle_to_dir(
             &client,

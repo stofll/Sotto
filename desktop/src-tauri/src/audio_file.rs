@@ -589,8 +589,16 @@ async fn transcribe_file_inner(
     // загружена» for a reason that has nothing to do with their setup.
     let command = if pipeline_mode == "cloud" {
         // Built before the move: the request borrows the samples that the
-        // command is about to take ownership of.
-        let request = crate::build_cloud_stt_request(app, &audio).map_err(|error| {
+        // command is about to take ownership of. The API key comes from the
+        // system credential store, which may block.
+        let (request_app, request_audio) = (app.clone(), Arc::clone(&audio));
+        let request = tokio::task::spawn_blocking(move || {
+            crate::build_cloud_stt_request(&request_app, &request_audio)
+        })
+        .await
+        .map_err(|error| format!("cloud STT request: {error}"))
+        .and_then(|result| result)
+        .map_err(|error| {
             FileFailure::new(
                 crate::telemetry::FailureStage::Queue,
                 crate::telemetry::FailureReason::CloudConfiguration,
@@ -607,7 +615,6 @@ async fn transcribe_file_inner(
         }
     } else {
         crate::whisper::EngineCommand::Transcribe {
-            source: crate::model_performance::RunSource::File,
             session_id,
             audio,
             speech_timing: crate::vad::SpeechTiming::Ready(None),

@@ -1,4 +1,4 @@
-//! AI provider subsystem (Phase 4 / Batch 3 / PR 3.2).
+//! AI provider subsystem.
 //!
 //! Composes the provider implementations (Anthropic, OpenAI, Gemini,
 //! OpenCode Go, OpenAI-compatible), the orchestrator
@@ -72,7 +72,8 @@ async fn run_ai_prompt(
     let api_key = if api_key_ref.is_empty() {
         None
     } else {
-        crate::secret_store::get_key(&api_key_ref)
+        crate::secret_store::load_key(&api_key_ref)
+            .await
             .map_err(|e| format!("secret_store get_key({api_key_ref}): {e}"))?
     };
     let outcome = ai_process_text_with_status(text, &cfg, api_key.as_deref()).await;
@@ -134,6 +135,7 @@ pub(crate) async fn test_ai_prompt(
     let sample = text
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| {
+            // Speech language: a sample dictation.
             "ну в общем нужно сегодня встретиться с командой и обсудить следующие шаги".to_string()
         });
     run_ai_prompt(
@@ -223,7 +225,8 @@ pub(crate) async fn fetch_provider_models(
     api_key: Option<String>,
 ) -> Result<Vec<String>, String> {
     let stored = match api_key_ref.filter(|value| !value.trim().is_empty()) {
-        Some(reference) => crate::secret_store::get_key(&reference)
+        Some(reference) => crate::secret_store::load_key(&reference)
+            .await
             .map_err(|e| format!("secret_store get_key({reference}): {e}"))?
             .unwrap_or_default(),
         None => String::new(),

@@ -10,10 +10,10 @@ use std::sync::{atomic::AtomicBool, Arc};
 async fn parakeet_buffered_streaming_preserves_tail_and_resets() {
     let models = tempfile::tempdir().unwrap();
     // A separate integration-test process isolates this environment override.
-    std::env::set_var("SPEECH_TO_TEXT_MODELS_DIR", models.path());
+    std::env::set_var("SOTTO_MODELS_DIR", models.path());
     let id = "parakeet-streaming-en";
     let entry = model::bundle_manifest_entry(id).unwrap();
-    let client = reqwest::Client::new();
+    let client = sotto_lib::http_client::client();
     if let Some(cache) = std::env::var_os("SOTTO_TEST_PARAKEET_DIR") {
         let dest = models.path().join(entry.directory_name);
         std::fs::create_dir_all(&dest).unwrap();

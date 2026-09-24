@@ -106,6 +106,9 @@ export interface ConfigResult {
    *  0 — never unload. No field — five minutes: unloading is on by default,
    *  and old configs get it along with the update. */
   model_unload_after_minutes?: number;
+  /** After how many minutes a recording stops by itself and is transcribed.
+   *  0 — no limit. No field — 15 minutes. */
+  recording_limit_minutes?: number;
   /** Log verbosity. Default "info". */
   log_level: "error" | "warn" | "info" | "debug" | "trace";
   /** Allow collecting and sending product telemetry. Absent means true. */
@@ -226,9 +229,6 @@ export interface RuntimeStatusResult {
   cpu_only?: boolean;
   recording: boolean;
   state: string;
-  idle_time?: number;
-  idle_time_seconds?: number;
-  last_error: string | null;
 }
 
 export interface StatsResult {

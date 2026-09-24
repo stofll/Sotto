@@ -33,7 +33,7 @@ export const initHeader = ({ query, all, signal, strings }: Runtime): Behaviour 
     { passive: true, signal },
   );
 
-  menuToggle?.addEventListener('click', () => setMenu(menu?.hidden ?? true), { signal });
+  menuToggle?.addEventListener('click', () => setMenu(menu?.hidden !== false), { signal });
   all('#mobile-nav a').forEach((link) => link.addEventListener('click', () => setMenu(false), { signal }));
 
   document.addEventListener(

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getModelAssessments, type ModelAssessment } from "../bridge/modelAssessments";
-import { subscribe } from "../bridge/events";
 
 export function useModelAssessments(context: unknown) {
   const [values, setValues] = useState<Record<string, ModelAssessment>>({});
@@ -14,12 +13,13 @@ export function useModelAssessments(context: unknown) {
   useEffect(() => {
     setValues({});
     refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a request generation counter, not a DOM node: cleanup must bump the current value.
     return () => { generation.current++; };
   }, [context, refresh]);
   useEffect(() => {
-    const unlisten = subscribe("model-performance-changed", refresh);
     window.addEventListener("focus", refresh);
-    return () => { unlisten(); window.removeEventListener("focus", refresh); generation.current++; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a request generation counter, as above.
+    return () => { window.removeEventListener("focus", refresh); generation.current++; };
   }, [refresh]);
   return { values };
 }

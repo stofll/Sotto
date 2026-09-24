@@ -81,6 +81,11 @@ impl RetentionPolicy {
             max_entries,
         }
     }
+
+    /// Whether a settings patch sets anything [`Self::from_config`] reads.
+    pub fn is_changed_by(patch: &Value) -> bool {
+        patch.get(CONFIG_RETENTION_DAYS).is_some() || patch.get(CONFIG_MAX_ENTRIES).is_some()
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -189,21 +194,11 @@ pub fn append(
 
 /// Append a fully-populated entry (all text stages + AI/processing JSON).
 ///
-/// Collision handling (IMPORTANT-5): two transcriptions in the same
-/// millisecond → the second `INSERT OR IGNORE` returns `Ok(0)` (NOT an
-/// Err — IGNORE swallows the conflict). We detect this via
-/// `affected_rows == 0` and retry with `id + 1` until success, up to
-/// `APPEND_COLLISION_MAX_ITER` iterations as a safety bound.
+/// Two transcriptions in the same millisecond collide on the id; see
+/// [`insert_entry_with_collision_retry`].
 pub fn append_entry(db: &Mutex<Connection>, entry: &NewEntry) -> Result<u64, rusqlite::Error> {
     let conn = crate::mutex_recover::lock(db);
-    let timestamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_err(|e| {
-            rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::other(format!(
-                "system time: {e}"
-            ))))
-        })?
-        .as_secs_f64();
+    let timestamp = unix_now()?;
     let length = entry.text.chars().count() as i64;
 
     // Base id: ms-since-epoch. On collision, increment by 1.
@@ -213,7 +208,7 @@ pub fn append_entry(db: &Mutex<Connection>, entry: &NewEntry) -> Result<u64, rus
 
 /// Insert a row, retrying with `id + 1` on primary-key collision.
 ///
-/// Collision handling (IMPORTANT-5): two transcriptions in the same
+/// Collision handling: two transcriptions in the same
 /// millisecond → the second `INSERT OR IGNORE` returns `Ok(0)` (NOT an
 /// Err — IGNORE swallows the conflict). We detect this via
 /// `affected_rows == 0` and retry with `id + 1` until success, up to
@@ -262,39 +257,70 @@ fn insert_entry_with_collision_retry(
     )))
 }
 
-/// Prune to `policy`, then list what is left. Caller holds &Connection.
-///
-/// Rows outside the policy are physically deleted (NOT just filtered out of
-/// the response), so the table stays bounded. This is the only place pruning
-/// happens, which means a lowered retention setting takes effect the next
-/// time the History page is opened rather than immediately.
-pub fn list_history_from(
-    conn: &Connection,
-    policy: RetentionPolicy,
-) -> Result<HistoryListResult, rusqlite::Error> {
-    let now = std::time::SystemTime::now()
+fn unix_now() -> Result<f64, rusqlite::Error> {
+    std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_secs_f64())
         .map_err(|e| {
             rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::other(format!(
                 "system time: {e}"
             ))))
-        })?
-        .as_secs_f64();
+        })
+}
 
-    // 1. DELETE rows past the age limit.
+/// Physically delete the rows outside `policy`.
+///
+/// Runs after each new entry, at startup and when the retention settings
+/// change, so reading the history never writes. Between those points a
+/// lowered setting already shows, because the listing applies the same policy.
+pub fn prune(conn: &Connection, policy: RetentionPolicy) -> Result<(), rusqlite::Error> {
     if policy.max_age_seconds > 0 {
-        let cutoff = now - policy.max_age_seconds as f64;
+        let cutoff = unix_now()? - policy.max_age_seconds as f64;
         conn.execute("DELETE FROM history WHERE timestamp <= ?1", [cutoff])?;
     }
-    // 2. Cap to the newest `max_entries`.
     if policy.max_entries > 0 {
         conn.execute(
             "DELETE FROM history WHERE id NOT IN (SELECT id FROM history ORDER BY timestamp DESC LIMIT ?1)",
             [policy.max_entries],
         )?;
     }
+    Ok(())
+}
 
-    // 3. SELECT remaining. `-1` is SQLite's "no limit".
+/// [`prune`] to the saved retention settings, read under the config write lock
+/// so a save cannot replace them between the read and the delete. Nothing is
+/// deleted when the config does not read: the defaults may keep less than
+/// the user chose.
+pub fn prune_to_settings(app: &AppHandle, db: &Mutex<Connection>) {
+    match crate::config::config_path(app) {
+        Ok(path) => prune_to_settings_at(&path, db),
+        Err(e) => log::warn!("history prune skipped, config unreadable: {e}"),
+    }
+}
+
+fn prune_to_settings_at(config_path: &std::path::Path, db: &Mutex<Connection>) {
+    let pruned = crate::config::read_locked(config_path, |config| {
+        let policy = RetentionPolicy::from_config(config.as_value());
+        prune(&crate::mutex_recover::lock(db), policy)
+    });
+    match pruned {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => log::warn!("history prune failed (non-fatal): {e}"),
+        Err(e) => log::warn!("history prune skipped, config unreadable: {e}"),
+    }
+}
+
+/// The entries `policy` keeps, newest first. Read-only; see [`prune`].
+pub fn list_history_from(
+    conn: &Connection,
+    policy: RetentionPolicy,
+) -> Result<HistoryListResult, rusqlite::Error> {
+    let cutoff = if policy.max_age_seconds > 0 {
+        unix_now()? - policy.max_age_seconds as f64
+    } else {
+        f64::MIN
+    };
+    // `-1` is SQLite's "no limit".
     let select_limit = if policy.max_entries > 0 {
         policy.max_entries
     } else {
@@ -303,10 +329,10 @@ pub fn list_history_from(
     let mut stmt = conn.prepare(
         "SELECT id, timestamp, text, raw_text, formatted_text, language, inference_time_ms, \
          ai_processing_json, processing_stats_json, system_prompt, transcription_model, length \
-         FROM history ORDER BY timestamp DESC LIMIT ?1",
+         FROM history WHERE timestamp > ?1 ORDER BY timestamp DESC LIMIT ?2",
     )?;
     let entries = stmt
-        .query_map([select_limit], |r| {
+        .query_map(rusqlite::params![cutoff, select_limit], |r| {
             Ok(HistoryEntry {
                 id: r.get::<_, i64>(0)? as u64,
                 timestamp: r.get(1)?,
@@ -413,7 +439,7 @@ fn manual_llm_mode(configured: &str) -> &str {
 
 /// Run the LLM over an existing history entry without writing anything.
 ///
-/// Phase 4 / PR-B — fully native Rust: reads the entry from the DB and calls
+/// Reads the entry from the DB and calls
 /// `crate::ai::ai_process_text_with_status` (the same orchestrator the
 /// dispatcher uses for live transcriptions). Nothing is persisted here: the
 /// history panel shows the result next to the current text, and only
@@ -471,7 +497,8 @@ async fn run_history_entry_ai(
     let api_key = if ai_cfg.api_key_ref.is_empty() {
         None
     } else {
-        crate::secret_store::get_key(&ai_cfg.api_key_ref)
+        crate::secret_store::load_key(&ai_cfg.api_key_ref)
+            .await
             .map_err(|e| format!("secret_store get_key({}): {e}", ai_cfg.api_key_ref))?
     };
 
@@ -834,10 +861,45 @@ mod tests {
         let list = list_history_from(&db.lock().unwrap(), policy).unwrap();
         assert_eq!(list.entries.len(), 2);
         assert_eq!(list.entries[0].text, "entry 4");
-        // Pruning is physical: a later listing with a looser policy must not
-        // bring the deleted rows back.
+        // Listing only filters: a looser policy still sees every row.
+        let all = list_history_from(&db.lock().unwrap(), RetentionPolicy::default()).unwrap();
+        assert_eq!(all.entries.len(), 5);
+        // Pruning is physical: afterwards the looser policy cannot bring
+        // the deleted rows back.
+        prune(&db.lock().unwrap(), policy).unwrap();
         let all = list_history_from(&db.lock().unwrap(), RetentionPolicy::default()).unwrap();
         assert_eq!(all.entries.len(), 2);
+        assert_eq!(all.entries[1].text, "entry 3");
+    }
+
+    #[test]
+    fn a_prune_follows_the_settings_saved_before_it_runs() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("config.json");
+        let db = fresh_db();
+        for i in 0..3 {
+            append(&db, &format!("entry {i}"), Some(i), None, 10, 1.0).unwrap();
+        }
+        let count = || -> i64 {
+            db.lock()
+                .unwrap()
+                .query_row("SELECT COUNT(*) FROM history", [], |row| row.get(0))
+                .unwrap()
+        };
+
+        // The limit was 2 when the dictation finished, then the user removed it.
+        std::fs::write(&config, r#"{"history_max_entries": 0}"#).unwrap();
+        prune_to_settings_at(&config, &db);
+        assert_eq!(count(), 3);
+
+        std::fs::write(&config, "{ not json").unwrap();
+        prune_to_settings_at(&config, &db);
+        assert_eq!(count(), 3, "an unreadable config deletes nothing");
+
+        // A different length: the config cache keys on size and mtime.
+        std::fs::write(&config, r#"{"history_max_entries":2}"#).unwrap();
+        prune_to_settings_at(&config, &db);
+        assert_eq!(count(), 2);
     }
 
     #[test]
@@ -866,6 +928,13 @@ mod tests {
         let list = list_history_from(&db.lock().unwrap(), policy).unwrap();
         assert_eq!(list.entries.len(), 1);
         assert_eq!(list.entries[0].id, id);
+        prune(&db.lock().unwrap(), policy).unwrap();
+        let count: i64 = db
+            .lock()
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM history", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 1);
     }
 
     #[test]
@@ -943,7 +1012,7 @@ mod tests {
     }
 
     #[test]
-    fn list_prunes_entries_older_than_max_age() {
+    fn entries_older_than_max_age_are_hidden_then_pruned() {
         let db = fresh_db();
         let stale_id = 1_000_000_i64; // year 1970
         db.lock()
@@ -955,9 +1024,20 @@ mod tests {
             .unwrap();
         let id = append(&db, "fresh", Some(1), None, 100, 2.0).unwrap();
         let list = list_history_from(&db.lock().unwrap(), RetentionPolicy::default()).unwrap();
-        assert_eq!(list.entries.len(), 1, "stale entry should be pruned");
+        assert_eq!(list.entries.len(), 1, "stale entry should be hidden");
         assert_eq!(list.entries[0].id, id);
-        // Stale entry physically deleted.
+        let stored = |db: &Mutex<Connection>| -> i64 {
+            db.lock()
+                .unwrap()
+                .query_row(
+                    "SELECT COUNT(*) FROM history WHERE id = ?1",
+                    rusqlite::params![stale_id],
+                    |r| r.get(0),
+                )
+                .unwrap()
+        };
+        assert_eq!(stored(&db), 1, "listing must not delete");
+        prune(&db.lock().unwrap(), RetentionPolicy::default()).unwrap();
         let count: i64 = db
             .lock()
             .unwrap()
@@ -1007,7 +1087,7 @@ mod tests {
 
     #[test]
     fn append_collision_in_same_ms_yields_unique_ids() {
-        // IMPORTANT-5: two appends in the same millisecond must NOT collide.
+        // Two appends in the same millisecond must not collide.
         // We force the collision by pre-seeding two rows with the same id
         // we expect (timestamp*1000) to fall back to.
         let db = fresh_db();

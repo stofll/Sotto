@@ -271,3 +271,41 @@ fn missing_api_key_short_circuits_before_http() {
     assert!(!outcome.status.attempted);
     assert_eq!(captured.lock().unwrap().len(), 0);
 }
+
+/// Anthropic's key travels in `x-api-key`, which reqwest forwards on a
+/// redirect to another host or port; the client must not follow one.
+#[test]
+fn provider_keys_are_not_forwarded_to_another_server() {
+    // `localhost` is another host for the policy; the mock servers listen on
+    // 127.0.0.1, so the second case is the same host on another port.
+    for host in ["localhost", "127.0.0.1"] {
+        let (other_server, other_requests) = mock_server(
+            "HTTP/1.1 200 OK",
+            r#"{"content":[{"text":"stolen"}],"usage":{"input_tokens":1,"output_tokens":1}}"#,
+        );
+        let other_port = other_server.rsplit(':').next().unwrap();
+        let (url, _) = mock_server(
+            &format!(
+                "HTTP/1.1 307 Temporary Redirect\r\nLocation: http://{host}:{other_port}/messages"
+            ),
+            "",
+        );
+        let provider = AnthropicProvider::new(
+            "sk-test-key",
+            "claude-haiku-4-5",
+            Some(url),
+            Some(Duration::from_secs(5)),
+            None,
+        );
+
+        let error =
+            block_on(provider.complete("system", "user")).expect_err("redirect must not succeed");
+
+        assert_eq!(error.http_status, Some(307), "{host}");
+        assert_eq!(
+            other_requests.lock().unwrap().len(),
+            0,
+            "the key reached {host}:{other_port}"
+        );
+    }
+}

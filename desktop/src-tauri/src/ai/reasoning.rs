@@ -6,14 +6,14 @@
 //! before the user-visible answer. We strip them so only the
 //! final answer makes it to the clipboard.
 
-use once_cell::sync::Lazy;
 use regex::Regex;
+use std::sync::LazyLock;
 
 const THINKING_TAGS: &[&str] = &["think", "thinking", "reasoning", "reflection", "scratchpad"];
 
 /// Compiled regex: paired `<think>…</think>` blocks. `\b` + case
 /// insensitive. `\s` is a Rust regex shorthand for whitespace.
-static PAIRED_RE: Lazy<Regex> = Lazy::new(|| {
+static PAIRED_RE: LazyLock<Regex> = LazyLock::new(|| {
     let alternation = THINKING_TAGS.join("|");
     Regex::new(&format!(
         r"(?is)<(?:{alternation})\b[^>]*>.*?</(?:{alternation})>"
@@ -23,7 +23,7 @@ static PAIRED_RE: Lazy<Regex> = Lazy::new(|| {
 
 /// Unclosed opener-to-EOF: drop everything from the opener to the
 /// end of the string. Used when a model crashes mid-stream.
-static UNCLOSED_RE: Lazy<Regex> = Lazy::new(|| {
+static UNCLOSED_RE: LazyLock<Regex> = LazyLock::new(|| {
     let alternation = THINKING_TAGS.join("|");
     Regex::new(&format!(r"(?is)<(?:{alternation})\b[^>]*>.*\z"))
         .expect("valid unclosed reasoning tag regex")
@@ -34,8 +34,9 @@ static UNCLOSED_RE: Lazy<Regex> = Lazy::new(|| {
 /// orchestrator (`step::ai_process_text_with_status`) drops the
 /// answer in this case and surfaces `model_returned_meta_response`
 /// to the dispatcher.
-static META_NOOP_RE: Lazy<Regex> = Lazy::new(|| {
+static META_NOOP_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
+        // Speech language: phrases the model answers with.
         r"(?i)\b(текст\s+не\s+содержит|ошиб(ок|ки)\s+нет|изменени[яй]\s+не\s+требу|исправлени[яй]\s+не\s+требу|не\s+требует\s+исправлен|no\s+changes?|nothing\s+to\s+fix)\b",
     )
     .expect("valid meta noop regex")

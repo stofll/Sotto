@@ -29,7 +29,7 @@ function setState(next: RecordingState) {
   _state = next;
   // Overlay visibility is driven by Rust. The bridge
   // only tracks state for React consumers (status bar, tray badge, etc.) —
-  // don't invoke show_state/hide from here, that would duplicate native
+  // don't show or hide the overlay from here, that would duplicate native
   // calls and spawn the overlay window for non-recording events.
   for (const cb of _stateListeners) cb(next);
 

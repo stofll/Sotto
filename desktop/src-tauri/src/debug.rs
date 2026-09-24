@@ -63,15 +63,15 @@ fn max_recordings(config: &serde_json::Value) -> usize {
         .unwrap_or(DEFAULT_MAX_RECORDINGS)
 }
 
-/// Where diagnostics artefacts live: `<config dir>/logs`, alongside
+/// Where diagnostics artefacts live: `<data dir>/logs`, alongside
 /// `app.log`, so "send me your logs folder" covers everything.
 pub fn diagnostics_dir() -> PathBuf {
-    if let Ok(value) = std::env::var("SPEECH_TO_TEXT_LOG_DIR") {
+    if let Some(value) = crate::user_data::env_override("SOTTO_LOG_DIR") {
         if !value.trim().is_empty() {
             return PathBuf::from(value);
         }
     }
-    crate::db::db_path().join("logs")
+    crate::user_data::data_dir().join("logs")
 }
 
 fn recordings_dir() -> PathBuf {

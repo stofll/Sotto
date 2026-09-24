@@ -78,9 +78,9 @@ fn endpoint(provider: &str, base_url: Option<&str>, api_key: &str) -> Result<End
                 url: format!("{base}/models"),
                 headers: bearer(),
             }),
-            None => Err("не задан base_url".to_string()),
+            None => Err(crate::ui_text::t("не задан base_url")),
         },
-        other => Err(format!("неизвестный провайдер: {other}")),
+        other => Err(crate::ui_text::t("неизвестный провайдер: {p0}").replace("{p0}", other)),
     }
 }
 
@@ -142,26 +142,25 @@ pub async fn fetch_models(
         .timeout(Duration::from_secs(FETCH_TIMEOUT_SECS))
         .send()
         .await
-        .map_err(|e| format!("запрос не прошёл: {e}"))?;
+        .map_err(|e| crate::ui_text::t("запрос не прошёл: {p0}").replace("{p0}", &e.to_string()))?;
 
     let status = response.status();
     if !status.is_success() {
         // The response body is not repeated in full: for some providers it
         // echoes the request along with its headers.
         return Err(match status.as_u16() {
-            401 | 403 => "ключ не подошёл".to_string(),
-            404 => "провайдер не отдаёт список моделей".to_string(),
-            code => format!("провайдер ответил {code}"),
+            401 | 403 => crate::ui_text::t("ключ не подошёл"),
+            404 => crate::ui_text::t("провайдер не отдаёт список моделей"),
+            code => crate::ui_text::t("провайдер ответил {p0}").replace("{p0}", &code.to_string()),
         });
     }
 
-    let parsed: Value = response
-        .json()
-        .await
-        .map_err(|e| format!("ответ не разобрался: {e}"))?;
+    let parsed: Value = response.json().await.map_err(|e| {
+        crate::ui_text::t("ответ не разобрался: {p0}").replace("{p0}", &e.to_string())
+    })?;
     let models = parse_models(&parsed);
     if models.is_empty() {
-        return Err("провайдер вернул пустой список".to_string());
+        return Err(crate::ui_text::t("провайдер вернул пустой список"));
     }
     Ok(models)
 }

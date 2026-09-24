@@ -868,6 +868,21 @@ Section Uninstall
 
   !insertmacro CheckIfAppIsRunning "${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
 
+  ; Data removal starts while the executable still exists: the application
+  ; resolves its own data, model and pre-rename directories and deletes the API
+  ; keys it stored in Credential Manager, which this script cannot enumerate.
+  ; The directory removal further down repeats the known defaults in case the
+  ; application could not start.
+  ${If} $DeleteAppDataCheckboxState = 1
+  ${AndIf} $UpdateMode <> 1
+    ClearErrors
+    ExecWait '"$INSTDIR\${MAINBINARYNAME}.exe" --purge-user-data' $0
+    ${If} ${Errors}
+    ${OrIf} $0 <> 0
+      DetailPrint "Some application data or API keys could not be removed."
+    ${EndIf}
+  ${EndIf}
+
   ; Delete the app directory and its content from disk
   ; Copy main executable
   Delete "$INSTDIR\${MAINBINARYNAME}.exe"
@@ -968,6 +983,14 @@ Section Uninstall
     SetShellVarContext current
     RmDir /r "$APPDATA\${BUNDLEID}"
     RmDir /r "$LOCALAPPDATA\${BUNDLEID}"
+    ; History, logs and recordings of builds up to 0.1.3, and downloaded
+    ; models. The model cache shares its parent with the default install
+    ; directory, so the parents are removed only when empty.
+    RmDir /r "$PROFILE\.speech_to_text"
+    RmDir /r "$LOCALAPPDATA\sotto\models"
+    RmDir "$LOCALAPPDATA\sotto"
+    RmDir /r "$LOCALAPPDATA\whisper-desktop\models"
+    RmDir "$LOCALAPPDATA\whisper-desktop"
   ${EndIf}
 
   !ifmacrodef NSIS_HOOK_POSTUNINSTALL

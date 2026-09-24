@@ -6,7 +6,7 @@
 // arrived some twenty seconds later — into nothing.
 
 import { describe, expect, it } from "vitest";
-import { overlayDetail } from "./overlayDetail";
+import { overlayDetail, recordingClock } from "./overlayDetail";
 
 const base = {
     pastedLength: null as number | null,
@@ -92,4 +92,17 @@ describe("overlayDetail", () => {
         expect(overlayDetail({ ...base, state: "recording" })).toEqual({ kind: "waveform" });
         expect(overlayDetail({ ...base, state: "processing" })).toEqual({ kind: "progress", label: "Обрабатываю" });
     });
+});
+
+describe("recording clock", () => {
+  it("counts up until the limit warns, then down to the stop", () => {
+    expect(recordingClock(0, null, null, 65_400)).toEqual({ text: "01:05", limited: false });
+    expect(recordingClock(0, null, 900_000, 600_000)).toEqual({ text: "05:00", limited: true });
+    expect(recordingClock(0, null, 900_000, 899_100)).toEqual({ text: "00:01", limited: true });
+    expect(recordingClock(0, null, 900_000, 905_000)).toEqual({ text: "00:00", limited: true });
+  });
+
+  it("shows the recorded length once the recording has stopped", () => {
+    expect(recordingClock(0, 900_000, 900_000, 950_000)).toEqual({ text: "15:00", limited: false });
+  });
 });

@@ -17,8 +17,6 @@
 
 import { useSyncExternalStore } from "react";
 
-import { en } from "./en";
-
 export const LOCALES = ["ru", "en"] as const;
 export type Locale = (typeof LOCALES)[number];
 
@@ -30,19 +28,43 @@ export const LOCALE_LABELS: Record<Locale, string> = {
 /** Dictionary: key (Russian) → translation. An array holds plural forms. */
 export type Dictionary = Record<string, string | string[]>;
 
-const DICTIONARIES: Record<Locale, Dictionary | null> = {
-  ru: null, // Russian is the keys themselves, no dictionary needed
-  en,
-};
+// Russian is the keys themselves and needs no dictionary. The English one is
+// fetched the first time English is chosen, so a Russian interface never
+// downloads it — the overlay and tray windows included.
+let english: Dictionary | null = null;
+let englishLoading: Promise<Dictionary> | null = null;
 
 let current: Locale = "ru";
+let requested: Locale = "ru";
 const listeners = new Set<() => void>();
 
 export function getLocale(): Locale {
   return current;
 }
 
-export function setLocale(locale: Locale) {
+/**
+ * Switch the interface language. Resolves once the language is in force;
+ * until the English strings arrive the previous language stays, which is
+ * what the windows already show while their config is loading.
+ */
+export function setLocale(locale: Locale): Promise<void> {
+  requested = locale;
+  if (locale === "en" && !english) {
+    englishLoading ??= import("./en").then((module) => (english = module.en));
+    return englishLoading.then(
+      () => { if (requested === locale) apply(locale); },
+      (error: unknown) => {
+        // Retried on the next switch; meanwhile keys fall back to Russian.
+        englishLoading = null;
+        console.warn("English interface strings failed to load:", error);
+      },
+    );
+  }
+  apply(locale);
+  return Promise.resolve();
+}
+
+function apply(locale: Locale) {
   if (locale === current) return;
   current = locale;
   document.documentElement.lang = locale;
@@ -83,8 +105,8 @@ export function isLocale(value: unknown): value is Locale {
  * old configs have no such field at all, and forcing Russian on them merely
  * because the app was written in Russian would be wrong.
  */
-export function applyLocaleFromConfig(value: unknown) {
-  setLocale(isLocale(value) ? value : detectLocale());
+export function applyLocaleFromConfig(value: unknown): Promise<void> {
+  return setLocale(isLocale(value) ? value : detectLocale());
 }
 
 /**
@@ -108,7 +130,7 @@ function interpolate(template: string, params?: Record<string, string | number>)
 }
 
 function lookup(key: string): string | string[] | undefined {
-  return DICTIONARIES[current]?.[key];
+  return current === "en" ? english?.[key] : undefined;
 }
 
 /** Translate a string. The key is the Russian original. */

@@ -28,7 +28,6 @@ pub enum ModelLoadReason {
 #[derive(Debug)]
 pub enum EngineCommand {
     Transcribe {
-        source: crate::model_performance::RunSource,
         session_id: u64,
         audio: Arc<Vec<f32>>,
         speech_timing: SpeechTiming,
@@ -216,36 +215,29 @@ pub fn engine_thread_main(
     app_handle: AppHandle,
     engine_current_model: std::sync::Arc<std::sync::Mutex<Option<String>>>,
 ) {
-    let mut current_ctx: Option<whisper_rs::WhisperContext> = None;
-    let mut performance_profile: Option<crate::model_performance::Profile> = None;
-    let mut first_inference = true;
-    let mut current_state: Option<whisper_rs::WhisperState> = None;
-    // Sherpa's C recognizer is !Send/!Sync and stays on this engine thread.
-    let mut current_sherpa: Option<crate::sherpa::SherpaRecognizer> = None;
-    // The last hypothesis sent. Chunks arrive several dozen times a second
-    // while the text changes far more rarely: without this memory the overlay
-    // would receive fifty identical events per second.
-    let mut last_preview = String::new();
-    let mut preview_session: Option<u64> = None;
-    // When the engine last did work. Idleness is measured from here, and it is
-    // what takes the model out of memory (`UnloadIdle`).
-    let mut last_activity = std::time::Instant::now();
-
+    let mut engine = Engine {
+        whisper_state: None,
+        whisper_ctx: None,
+        sherpa: None,
+        last_preview: String::new(),
+        preview_session: None,
+        last_activity: std::time::Instant::now(),
+        events: event_tx,
+        app: app_handle,
+        current_model: engine_current_model,
+    };
     while let Some(cmd) = cmd_rx.blocking_recv() {
-        // The mark is set when a command arrives, not when it completes: long
-        // branches have short exits via `continue`, and the tail of the loop
-        // never reaches them. Transcriptions that themselves run longer than the
-        // idle timeout set the mark again at the end — by the next check their
-        // start is already too old.
+        // The mark is set when a command arrives; transcriptions that run
+        // longer than the idle timeout set it again when they finish — by the
+        // next check their start is already too old.
         //
         // The idle check itself does not count as work: otherwise the engine
         // would push its own timer forward on every tick and never reach it.
         if !matches!(cmd, EngineCommand::UnloadIdle { .. }) {
-            last_activity = std::time::Instant::now();
+            engine.last_activity = std::time::Instant::now();
         }
         match cmd {
             EngineCommand::Transcribe {
-                source,
                 session_id,
                 audio,
                 speech_timing,
@@ -253,481 +245,17 @@ pub fn engine_thread_main(
                 language,
                 initial_prompt,
                 reply,
-            } => {
-                use std::panic::AssertUnwindSafe;
-                let _ = event_tx.blocking_send(EngineEvent::InferenceStarted { session_id });
-                let started = std::time::Instant::now();
-                let audio_seconds = audio.len() as f64 / 16000.0;
-                let model_id = crate::mutex_recover::lock(&engine_current_model).clone();
-                log::info!(
-                    "session {session_id}: transcribe start — {} samples ({:.2}s @16k), lang={:?}",
-                    audio.len(),
-                    audio_seconds,
-                    language
-                );
-
-                // Phase 4 / Batch 6 / P0: pre-`full()` cancel check.
-                // If `cancel_recording(session_id)` was invoked AFTER
-                // the Tauri command queued this `Transcribe`, the
-                // flag has already been flipped. Bail BEFORE
-                // consuming the expensive `.full()` C call — the
-                // engine still emits `InferenceCompleted` so the
-                // dispatcher unblocks and clears the registry.
-                if cancel_flag.load(std::sync::atomic::Ordering::Relaxed) {
-                    short_circuit_error(
-                        session_id,
-                        "transcribe cancelled before .full()".to_string(),
-                        &event_tx,
-                        reply,
-                    );
-                    continue;
-                }
-
-                // Sherpa has no segment-level cancellation. Honour a flag
-                // before and after the blocking call; an in-flight call is
-                // intentionally best-effort and cannot be interrupted safely.
-                if let Some(recognizer) = current_sherpa.as_mut() {
-                    // A monolingual bundle asked for another language does
-                    // not fail, it mis-decodes — so refuse the pair here.
-                    // Multilingual bundles impose no rule and detect the
-                    // language themselves.
-                    let languages = model_id.as_deref().and_then(crate::model::model_languages);
-                    let requested = language
-                        .as_deref()
-                        .filter(|value| !value.is_empty() && *value != "auto");
-                    let supported = match (model_id.as_deref(), requested) {
-                        (Some(id), Some(asked)) => crate::model::model_supports_language(id, asked),
-                        _ => true,
-                    };
-                    if !supported {
-                        short_circuit_error(
-                            session_id,
-                            crate::model::language_unsupported_message(
-                                languages.unwrap_or_default(),
-                            ),
-                            &event_tx,
-                            reply,
-                        );
-                        continue;
-                    }
-                    // A monolingual model knows its language better than the
-                    // request does; for the rest we report what was asked for.
-                    let reported_language = match languages {
-                        Some([single]) => Some((*single).to_string()),
-                        _ => requested.map(str::to_string),
-                    };
-                    let cold = std::mem::replace(&mut first_inference, false);
-                    let panic_result =
-                        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            recognizer.transcribe(16_000, &audio)
-                        }));
-                    let result: Result<InferenceResult, String> = match panic_result {
-                        Ok(Ok(_text)) if cancel_flag.load(std::sync::atomic::Ordering::Relaxed) => {
-                            Err("sherpa transcribe cancelled after inference".to_string())
-                        }
-                        Ok(Ok(text)) => Ok(InferenceResult {
-                            session_id,
-                            text,
-                            language: reported_language.clone(),
-                            model_id: model_id.clone(),
-                            stt_service: None,
-                            inference_time_ms: started.elapsed().as_millis() as u64,
-                            audio_seconds,
-                            speech_seconds: speech_timing.resolve(),
-                        }),
-                        Ok(Err(error)) => Err(error),
-                        Err(_) => Err("sherpa panicked".to_string()),
-                    };
-                    if !cancel_flag.load(std::sync::atomic::Ordering::Relaxed) {
-                        if let (Some(profile), Ok(inference)) = (&performance_profile, &result) {
-                            if let Some(observation) =
-                                crate::model_performance::Observation::inference(
-                                    profile.clone(),
-                                    source,
-                                    language.as_deref().unwrap_or("auto"),
-                                    &crate::model_performance::prompt_fingerprint(
-                                        initial_prompt.as_deref(),
-                                    ),
-                                    cold,
-                                    inference,
-                                )
-                            {
-                                crate::model_performance::record(&app_handle, observation);
-                            }
-                        }
-                    }
-                    complete_inference(session_id, result, &event_tx, reply);
-                    continue;
-                }
-
-                // Lazy create_state on first Transcribe after SetModel.
-                // WhisperState is a thin handle into WhisperContext; creating
-                // it on demand avoids paying the cost upfront in SetModel.
-                if current_state.is_none() {
-                    if let Some(ctx) = current_ctx.as_ref() {
-                        match ctx.create_state() {
-                            Ok(s) => current_state = Some(s),
-                            Err(e) => {
-                                let err = format!("create_state: {e}");
-                                short_circuit_error(session_id, err, &event_tx, reply);
-                                continue;
-                            }
-                        }
-                    } else {
-                        // Translators: keep this message self-contained —
-                        // it surfaces in the recording overlay verbatim
-                        // when the user presses the hotkey before
-                        // downloading a model. Tell them WHAT is missing,
-                        // WHERE to get it, and HOW (click Загрузить).
-                        let err = crate::ui_text::t(
-                            "Модель не загружена. Откройте «Настройки → Модели» и выберите модель.",
-                        );
-                        short_circuit_error(session_id, err, &event_tx, reply);
-                        continue;
-                    }
-                }
-
-                let mut params =
-                    whisper_rs::FullParams::new(whisper_rs::SamplingStrategy::Greedy {
-                        best_of: 1,
-                    });
-                // Set the decode language explicitly. whisper.cpp's default is
-                // "en", which produces garbage (or empty) output for other
-                // languages; an empty/absent/"auto" value means auto-detect.
-                match language.as_deref() {
-                    Some(lang) if !lang.is_empty() && lang != "auto" => {
-                        params.set_language(Some(lang));
-                    }
-                    _ => params.set_language(Some("auto")),
-                }
-                // Thread count for the CPU parts of the graph — which is all
-                // of it when the context was built with `use_gpu = false`.
-                // whisper.cpp's default is min(4, hw) — bump to available
-                // parallelism so turbo isn't needlessly slow on many-core CPUs.
-                let n_threads = std::thread::available_parallelism()
-                    .map(|n| n.get().min(8) as i32)
-                    .unwrap_or(4);
-                params.set_n_threads(n_threads);
-                // Custom vocabulary, if any. `set_initial_prompt` panics on
-                // an interior null byte (it builds a CString), and config
-                // JSON can carry one, so the string is sanitised first.
-                if let Some(prompt) = initial_prompt.as_deref() {
-                    let sanitized: String = prompt.chars().filter(|c| *c != '\0').collect();
-                    if !sanitized.trim().is_empty() {
-                        params.set_initial_prompt(&sanitized);
-                    }
-                }
-                // Silence whisper.cpp's own stdout/stderr chatter — in a
-                // windowed app there is no console and it only adds noise.
-                params.set_print_special(false);
-                params.set_print_progress(false);
-                params.set_print_realtime(false);
-                params.set_print_timestamps(false);
-
-                // catch_unwind protects against Rust panics. C++ ggml
-                // SIGSEGV from malformed input would still abort the
-                // process — that is mitigated by the SHA-256 model
-                // check + PCM finite-32 guard elsewhere (R3).
-                // After a panic, the FFI state may be half-broken, so
-                // we drop it; the next Transcribe recreates via
-                // ctx.create_state() above.
-                log::info!(
-                    "session {session_id}: calling whisper .full() on {} threads",
-                    n_threads
-                );
-                let cold = std::mem::replace(&mut first_inference, false);
-                let panic_result = std::panic::catch_unwind(AssertUnwindSafe(|| {
-                    // Re-borrow inside the closure so the borrow is released
-                    // before we touch `current_state` directly below.
-                    current_state
-                        .as_mut()
-                        .expect("state set above; lazy-create branch")
-                        .full(params, &audio)
-                }));
-                log::info!(
-                    "session {session_id}: whisper .full() returned in {}ms (ok={})",
-                    started.elapsed().as_millis(),
-                    panic_result.is_ok()
-                );
-                let result: Result<InferenceResult, String> = match panic_result {
-                    Ok(Ok(_rc)) => {
-                        let elapsed = started.elapsed().as_millis() as u64;
-                        // Text extraction: iterate segments. After a
-                        // successful .full(), current_state is intact.
-                        // NOTE: whisper-rs 0.14 returns
-                        // `Result<c_int, WhisperError>` from full_n_segments
-                        // (not a bare usize), so we unwrap cautiously.
-                        let state = current_state
-                            .as_mut()
-                            .expect("state preserved across successful .full()");
-                        match state.full_n_segments() {
-                            Ok(n_segments) => {
-                                let mut text = String::new();
-                                for i in 0..n_segments {
-                                    // Per-interval cancellation: between
-                                    // segments, bail out if cancel_flag has
-                                    // been set. The caller sets this before
-                                    // the next paste to skip noisy tails.
-                                    // This is best-effort — a long .full()
-                                    // call cannot be interrupted mid-C++
-                                    // execution without engine redesign.
-                                    if cancel_flag.load(std::sync::atomic::Ordering::Relaxed) {
-                                        break;
-                                    }
-                                    match state.full_get_segment_text(i) {
-                                        Ok(seg) => push_segment(&mut text, &seg),
-                                        Err(e) => {
-                                            log::warn!("segment {i} read failed: {e}");
-                                        }
-                                    }
-                                }
-                                Ok(InferenceResult {
-                                    session_id,
-                                    text,
-                                    language: None,
-                                    model_id: model_id.clone(),
-                                    stt_service: None,
-                                    inference_time_ms: elapsed,
-                                    audio_seconds,
-                                    speech_seconds: speech_timing.resolve(),
-                                })
-                            }
-                            Err(e) => Err(format!("n_segments: {e}")),
-                        }
-                    }
-                    Ok(Err(e)) => Err(format!("whisper error: {e}")),
-                    Err(_) => {
-                        // After a panic the FFI state is half-broken — drop it
-                        // so the next Transcribe recreates via
-                        // ctx.create_state() above.
-                        current_state = None;
-                        Err("whisper panicked".to_string())
-                    }
-                };
-
-                // Both completion channels retain errors: file callers consume
-                // the reply while dictation uses the event dispatcher.
-                if !cancel_flag.load(std::sync::atomic::Ordering::Relaxed) {
-                    if let (Some(profile), Ok(inference)) = (&performance_profile, &result) {
-                        if let Some(observation) = crate::model_performance::Observation::inference(
-                            profile.clone(),
-                            source,
-                            language.as_deref().unwrap_or("auto"),
-                            &crate::model_performance::prompt_fingerprint(
-                                initial_prompt.as_deref(),
-                            ),
-                            cold,
-                            inference,
-                        ) {
-                            crate::model_performance::record(&app_handle, observation);
-                        }
-                    }
-                }
-                complete_inference(session_id, result, &event_tx, reply);
-                last_activity = std::time::Instant::now();
-            }
-            EngineCommand::SetModel {
-                name,
-                spec,
-                reason,
-                reply,
-            } => {
-                // A restore of what is already in memory is a restore that
-                // arrived too late. Capture queues one whenever nothing is
-                // loaded, and "loaded" only becomes true when the load
-                // finishes — so a second dictation started while the first
-                // restore was still reading gigabytes off disk queues its own.
-                // Honouring it would drop a working model and rebuild it from
-                // scratch, re-hashing the bundle on the way, while the
-                // transcription it was meant to serve waits behind that in the
-                // queue. The queue is ordered, so by the time a duplicate is
-                // read the original has either succeeded — and this is it — or
-                // failed, leaving the slot empty for a genuine retry.
-                if reason == ModelLoadReason::Restore
-                    && crate::mutex_recover::lock(&engine_current_model).as_deref()
-                        == Some(name.as_str())
-                {
-                    log::debug!("model {name} is already back in memory, skipping restore");
-                    let _ = reply.send(Ok(()));
-                    continue;
-                }
-                if reason == ModelLoadReason::Requested {
-                    let _ =
-                        event_tx.blocking_send(EngineEvent::ModelLoading { name: name.clone() });
-                }
-                log::info!("loading model {name} ({spec:?}, {reason:?})");
-                let compute = match &spec {
-                    crate::model::ModelLoadSpec::Whisper { use_gpu, .. } => {
-                        crate::hardware_profile::compute(false, *use_gpu)
-                    }
-                    crate::model::ModelLoadSpec::Sherpa { .. } => "cpu",
-                };
-                let next_profile = crate::model_performance::Profile::new(&name, compute);
-                let load_started = std::time::Instant::now();
-                let result: Result<(), String> = (|| {
-                    // CRITICAL drop order: state FIRST (state holds raw
-                    // pointers into ctx internals; dropping ctx first
-                    // creates dangling pointers → use-after-free on next
-                    // state.full()). Reverse order matters here.
-                    current_state = None; // drop old state first
-                    current_sherpa = None;
-                    // Do not leave a failed load pointing at the previous
-                    // Whisper context: the shared model slot is cleared on
-                    // error below, so retaining it would transcribe with a
-                    // model the UI no longer considers loaded.
-                    current_ctx = None;
-                    match spec {
-                        crate::model::ModelLoadSpec::Whisper { path, use_gpu } => {
-                            let path_str = path
-                                .to_str()
-                                .ok_or_else(|| "invalid model path encoding".to_string())?;
-                            let ctx_params = whisper_rs::WhisperContextParameters {
-                                use_gpu,
-                                ..Default::default()
-                            };
-                            let new_ctx =
-                                whisper_rs::WhisperContext::new_with_params(path_str, ctx_params)
-                                    .map_err(|e| format!("model load: {e}"))?;
-                            current_ctx = Some(new_ctx);
-                        }
-                        crate::model::ModelLoadSpec::Sherpa { engine, files } => {
-                            // Restores are queued synchronously at capture start.
-                            // Hashing here keeps slow disk I/O ahead of all audio
-                            // commands without blocking capture or the UI.
-                            if reason == ModelLoadReason::Restore {
-                                crate::model::verify_bundle_files(&name)?;
-                            }
-                            let recognizer = crate::sherpa::SherpaRecognizer::open(
-                                engine,
-                                &files,
-                                sherpa_threads(),
-                            )?;
-                            current_ctx = None;
-                            current_sherpa = Some(recognizer);
-                        }
-                    }
-                    Ok(())
-                })();
-                crate::model_performance::record(
-                    &app_handle,
-                    crate::model_performance::Observation::load(
-                        next_profile.clone(),
-                        load_started.elapsed().as_secs_f64() * 1000.0,
-                        result.is_ok(),
-                    ),
-                );
-                performance_profile = result.as_ref().ok().map(|_| next_profile);
-                first_inference = true;
-                match &result {
-                    Ok(()) => {
-                        *crate::mutex_recover::lock(&engine_current_model) = Some(name.clone());
-                    }
-                    Err(_) => {
-                        *crate::mutex_recover::lock(&engine_current_model) = None;
-                    }
-                }
-                match result {
-                    Ok(()) => {
-                        let _ = reply.send(Ok(()));
-                        let _ = event_tx.blocking_send(match reason {
-                            ModelLoadReason::Requested => EngineEvent::ModelReady { name },
-                            ModelLoadReason::Restore => EngineEvent::ModelRestored { name },
-                        });
-                    }
-                    Err(err_msg) => {
-                        // A failed restore stays silent here not because it
-                        // does not matter, but because the transcription that
-                        // follows will report it: it will hit an empty engine
-                        // and show exactly the same trouble in words about the
-                        // model. A "failed to load" pill in the middle of a
-                        // recording would explain it too early and to the wrong
-                        // person.
-                        if reason == ModelLoadReason::Requested {
-                            let _ = event_tx.blocking_send(EngineEvent::ModelLoadFailed {
-                                name,
-                                error: err_msg.clone(),
-                            });
-                        } else {
-                            log::warn!("возврат модели {name} в память не удался: {err_msg}");
-                        }
-                        let _ = reply.send(Err(err_msg));
-                    }
-                }
-            }
-            EngineCommand::PreviewChunk {
-                session_id,
-                samples,
-            } => {
-                let Some(recognizer) = current_sherpa.as_mut() else {
-                    continue;
-                };
-                match preview_action(preview_session, session_id) {
-                    PreviewAction::Skip => continue,
-                    PreviewAction::Restart => {
-                        preview_session = Some(session_id);
-                        last_preview.clear();
-                        recognizer.reset_preview();
-                    }
-                    PreviewAction::Continue => {}
-                }
-                match recognizer.feed_preview(16_000, &samples) {
-                    // A non-streaming model returns no hypothesis — we stay
-                    // silent rather than send empty text: an empty string would
-                    // wipe what the overlay already shows.
-                    Ok(None) => {}
-                    Ok(Some(text)) => {
-                        if text != last_preview {
-                            last_preview.clone_from(&text);
-                            let _ = event_tx
-                                .blocking_send(EngineEvent::PreviewText { session_id, text });
-                        }
-                    }
-                    Err(error) => {
-                        log::warn!("session {session_id}: live preview failed: {error}");
-                    }
-                }
-            }
-            EngineCommand::PreviewReset { session_id } => {
-                // The session is remembered even without a recognizer: it
-                // decides the fate of late chunks, not just state cleanup.
-                preview_session = Some(session_id);
-                last_preview.clear();
-                if let Some(recognizer) = current_sherpa.as_mut() {
-                    recognizer.reset_preview();
-                }
-            }
-            EngineCommand::UnloadModel { reply } => {
-                *crate::mutex_recover::lock(&engine_current_model) = None;
-                current_state = None;
-                current_sherpa = None;
-                current_ctx = None;
-                let _ = reply.send(());
-            }
-            EngineCommand::UnloadIdle { after } => {
-                let loaded = crate::mutex_recover::lock(&engine_current_model).clone();
-                let Some(name) = loaded else {
-                    continue;
-                };
-                let idle = last_activity.elapsed();
-                if idle < after {
-                    continue;
-                }
-                if app_is_busy(&app_handle) {
-                    continue;
-                }
-                log::info!(
-                    "выгружаю модель {name}: простой {} c при пороге {} c",
-                    idle.as_secs(),
-                    after.as_secs()
-                );
-                // Same order as in `UnloadModel`: the state holds raw pointers
-                // into the context and must die first.
-                *crate::mutex_recover::lock(&engine_current_model) = None;
-                current_state = None;
-                current_sherpa = None;
-                current_ctx = None;
-                let _ = event_tx.blocking_send(EngineEvent::ModelUnloaded { name });
-            }
+            } => engine.transcribe(
+                Job {
+                    session_id,
+                    speech_timing,
+                    cancel_flag,
+                    reply,
+                },
+                &audio,
+                language.as_deref(),
+                initial_prompt.as_deref(),
+            ),
             EngineCommand::TranscribeCloud {
                 session_id,
                 audio,
@@ -735,83 +263,492 @@ pub fn engine_thread_main(
                 cancel_flag,
                 request,
                 reply,
-            } => {
-                let audio_seconds = audio.len() as f64 / 16000.0;
-                // Phase 4 / Batch 4 / PR 4.5: cloud STT path.
-                // Bypasses whisper entirely. The engine thread
-                // still owns the lifecycle (InferenceStarted /
-                // InferenceCompleted) so the dispatcher does not
-                // need a new branch.
-                let _ = event_tx.blocking_send(EngineEvent::InferenceStarted { session_id });
-                let started = std::time::Instant::now();
-                let cloud_model_id = Some(request.model.clone());
-
-                if cancel_flag.load(std::sync::atomic::Ordering::Relaxed) {
-                    short_circuit_error(
-                        session_id,
-                        "cloud transcribe cancelled before request".to_string(),
-                        &event_tx,
-                        reply,
-                    );
-                    continue;
-                }
-
-                // The HTTP call is async (reqwest). The engine
-                // thread is a `std::thread`, so we drive it via a
-                // short-lived current-thread tokio runtime.
-                let request_for_call = request.clone();
-                let cancel_flag_for_call = Arc::clone(&cancel_flag);
-                let join_outcome: Result<
-                    std::thread::JoinHandle<Result<crate::cloud_stt::CloudSttResult, String>>,
-                    String,
-                > = std::thread::Builder::new()
-                    .name("cloud-stt-call".to_string())
-                    .spawn(move || {
-                        let rt = tokio::runtime::Builder::new_current_thread()
-                            .enable_all()
-                            .build()
-                            .map_err(|error| format!("runtime: {error}"))?;
-                        rt.block_on(crate::cloud_stt::transcribe_cancellable(
-                            request_for_call,
-                            &cancel_flag_for_call,
-                        ))
-                    })
-                    .map_err(|error| format!("spawn cloud-stt thread: {error}"));
-                let outcome: Result<crate::cloud_stt::CloudSttResult, String> = match join_outcome {
-                    Ok(handle) => handle
-                        .join()
-                        .map_err(|_| "cloud-stt thread panicked".to_string())
-                        .and_then(|value| value),
-                    Err(error) => Err(error),
-                };
-
-                let result: Result<InferenceResult, String> = match outcome {
-                    Ok(cloud_result) => {
-                        if cancel_flag.load(std::sync::atomic::Ordering::Relaxed) {
-                            Err("cloud transcribe cancelled after response".to_string())
-                        } else {
-                            Ok(InferenceResult {
-                                session_id,
-                                text: cloud_result.text,
-                                language: None,
-                                model_id: cloud_model_id.clone(),
-                                stt_service: Some(cloud_result.service),
-                                inference_time_ms: started.elapsed().as_millis() as u64,
-                                audio_seconds,
-                                speech_seconds: speech_timing.resolve(),
-                            })
-                        }
-                    }
-                    Err(error) => Err(error),
-                };
-
-                complete_inference(session_id, result, &event_tx, reply);
-                last_activity = std::time::Instant::now();
+            } => engine.transcribe_cloud(
+                Job {
+                    session_id,
+                    speech_timing,
+                    cancel_flag,
+                    reply,
+                },
+                audio.len(),
+                request,
+            ),
+            EngineCommand::SetModel {
+                name,
+                spec,
+                reason,
+                reply,
+            } => engine.set_model(name, spec, reason, reply),
+            EngineCommand::PreviewChunk {
+                session_id,
+                samples,
+            } => engine.preview_chunk(session_id, &samples),
+            EngineCommand::PreviewReset { session_id } => engine.preview_reset(session_id),
+            EngineCommand::UnloadModel { reply } => {
+                engine.unload();
+                let _ = reply.send(());
             }
+            EngineCommand::UnloadIdle { after } => engine.unload_idle(after),
             EngineCommand::Shutdown => break,
         }
     }
     log::info!("whisper engine thread exiting");
+}
+
+/// What both transcription commands carry besides their input.
+struct Job {
+    session_id: u64,
+    speech_timing: SpeechTiming,
+    cancel_flag: Arc<AtomicBool>,
+    reply: oneshot::Sender<Result<InferenceResult, String>>,
+}
+
+impl Job {
+    fn cancelled(&self) -> bool {
+        self.cancel_flag.load(std::sync::atomic::Ordering::Relaxed)
+    }
+}
+
+/// Text and reported language of a finished local transcription.
+type Decoded = Result<(String, Option<String>), String>;
+
+/// Everything the engine thread owns.
+///
+/// Field order is drop order, and it matters: the Whisper state holds raw
+/// pointers into the context, so dropping the context first would leave them
+/// dangling. Every explicit unload drops them in the same order.
+struct Engine {
+    whisper_state: Option<whisper_rs::WhisperState>,
+    whisper_ctx: Option<whisper_rs::WhisperContext>,
+    /// Sherpa's C recognizer is !Send/!Sync and stays on this engine thread.
+    sherpa: Option<crate::sherpa::SherpaRecognizer>,
+    /// The last hypothesis sent. Chunks arrive several dozen times a second
+    /// while the text changes far more rarely: without this memory the overlay
+    /// would receive fifty identical events per second.
+    last_preview: String,
+    preview_session: Option<u64>,
+    /// When the engine last did work. Idleness is measured from here, and it
+    /// is what takes the model out of memory (`UnloadIdle`).
+    last_activity: std::time::Instant,
+    events: EngineEventTx,
+    app: AppHandle,
+    current_model: Arc<std::sync::Mutex<Option<String>>>,
+}
+
+impl Engine {
+    fn transcribe(
+        &mut self,
+        job: Job,
+        audio: &[f32],
+        language: Option<&str>,
+        initial_prompt: Option<&str>,
+    ) {
+        let session_id = job.session_id;
+        let _ = self
+            .events
+            .blocking_send(EngineEvent::InferenceStarted { session_id });
+        let started = std::time::Instant::now();
+        let audio_seconds = audio.len() as f64 / 16000.0;
+        let model_id = crate::mutex_recover::lock(&self.current_model).clone();
+        log::info!(
+            "session {session_id}: transcribe start — {} samples ({:.2}s @16k), lang={:?}",
+            audio.len(),
+            audio_seconds,
+            language
+        );
+
+        // A `cancel_recording` that arrived after this command was queued has
+        // already flipped the flag. Bail before the expensive decode; the
+        // dispatcher still gets `InferenceCompleted` and clears the registry.
+        let decoded = if job.cancelled() {
+            Err("transcribe cancelled before .full()".to_string())
+        } else if let Some(recognizer) = self.sherpa.as_mut() {
+            decode_sherpa(recognizer, &job, audio, language, model_id.as_deref())
+        } else {
+            self.decode_whisper(&job, audio, language, initial_prompt, started)
+        };
+        let Job {
+            speech_timing,
+            reply,
+            ..
+        } = job;
+        let result = decoded.map(|(text, language)| InferenceResult {
+            session_id,
+            text,
+            language,
+            model_id,
+            stt_service: None,
+            inference_time_ms: started.elapsed().as_millis() as u64,
+            audio_seconds,
+            speech_seconds: speech_timing.resolve(),
+        });
+        // Both completion channels retain errors: file callers consume the
+        // reply while dictation uses the event dispatcher.
+        complete_inference(session_id, result, &self.events, reply);
+        self.last_activity = std::time::Instant::now();
+    }
+
+    fn decode_whisper(
+        &mut self,
+        job: &Job,
+        audio: &[f32],
+        language: Option<&str>,
+        initial_prompt: Option<&str>,
+        started: std::time::Instant,
+    ) -> Decoded {
+        use std::panic::AssertUnwindSafe;
+        let session_id = job.session_id;
+        // Lazy create_state on first Transcribe after SetModel. WhisperState
+        // is a thin handle into WhisperContext; creating it on demand avoids
+        // paying the cost upfront in SetModel.
+        if self.whisper_state.is_none() {
+            let Some(ctx) = self.whisper_ctx.as_ref() else {
+                // Translators: keep this message self-contained — it surfaces
+                // in the recording overlay verbatim when the user presses the
+                // hotkey before downloading a model. Tell them WHAT is
+                // missing, WHERE to get it, and HOW.
+                return Err(crate::ui_text::t(
+                    "Модель не загружена. Откройте «Настройки → Модели» и выберите модель.",
+                ));
+            };
+            self.whisper_state = Some(
+                ctx.create_state()
+                    .map_err(|e| format!("create_state: {e}"))?,
+            );
+        }
+
+        let mut params =
+            whisper_rs::FullParams::new(whisper_rs::SamplingStrategy::Greedy { best_of: 1 });
+        // Set the decode language explicitly. whisper.cpp's default is "en",
+        // which produces garbage (or empty) output for other languages; an
+        // empty/absent/"auto" value means auto-detect.
+        match language {
+            Some(lang) if !lang.is_empty() && lang != "auto" => params.set_language(Some(lang)),
+            _ => params.set_language(Some("auto")),
+        }
+        // Thread count for the CPU parts of the graph — which is all of it
+        // when the context was built with `use_gpu = false`. whisper.cpp's
+        // default is min(4, hw) — bump to available parallelism so turbo
+        // isn't needlessly slow on many-core CPUs.
+        let n_threads = std::thread::available_parallelism()
+            .map(|n| n.get().min(8) as i32)
+            .unwrap_or(4);
+        params.set_n_threads(n_threads);
+        // Custom vocabulary, if any. `set_initial_prompt` panics on an
+        // interior null byte (it builds a CString), and config JSON can carry
+        // one, so the string is sanitised first.
+        if let Some(prompt) = initial_prompt {
+            let sanitized: String = prompt.chars().filter(|c| *c != '\0').collect();
+            if !sanitized.trim().is_empty() {
+                params.set_initial_prompt(&sanitized);
+            }
+        }
+        // Silence whisper.cpp's own stdout/stderr chatter — in a windowed app
+        // there is no console and it only adds noise.
+        params.set_print_special(false);
+        params.set_print_progress(false);
+        params.set_print_realtime(false);
+        params.set_print_timestamps(false);
+
+        // catch_unwind protects against Rust panics. C++ ggml SIGSEGV from
+        // malformed input would still abort the process — that is mitigated
+        // by the SHA-256 model check + PCM finite-32 guard elsewhere.
+        log::info!("session {session_id}: calling whisper .full() on {n_threads} threads");
+        let state = self.whisper_state.as_mut().expect("state created above");
+        let panic_result = std::panic::catch_unwind(AssertUnwindSafe(|| state.full(params, audio)));
+        log::info!(
+            "session {session_id}: whisper .full() returned in {}ms (ok={})",
+            started.elapsed().as_millis(),
+            panic_result.is_ok()
+        );
+        match panic_result {
+            Ok(Ok(_rc)) => {
+                // NOTE: whisper-rs 0.14 returns `Result<c_int, WhisperError>`
+                // from full_n_segments (not a bare usize).
+                let n_segments = state
+                    .full_n_segments()
+                    .map_err(|e| format!("n_segments: {e}"))?;
+                let mut text = String::new();
+                for i in 0..n_segments {
+                    // Per-interval cancellation, best-effort: a long .full()
+                    // call cannot be interrupted mid-C++ execution without
+                    // engine redesign, but the tail can be skipped.
+                    if job.cancelled() {
+                        break;
+                    }
+                    match state.full_get_segment_text(i) {
+                        Ok(seg) => push_segment(&mut text, &seg),
+                        Err(e) => log::warn!("segment {i} read failed: {e}"),
+                    }
+                }
+                Ok((text, None))
+            }
+            Ok(Err(e)) => Err(format!("whisper error: {e}")),
+            Err(_) => {
+                // After a panic the FFI state is half-broken — drop it so the
+                // next Transcribe recreates it via ctx.create_state().
+                self.whisper_state = None;
+                Err("whisper panicked".to_string())
+            }
+        }
+    }
+
+    fn transcribe_cloud(
+        &mut self,
+        job: Job,
+        samples: usize,
+        request: crate::cloud_stt::CloudSttRequest,
+    ) {
+        // Bypasses the local engine entirely, but the engine thread still owns
+        // the lifecycle (InferenceStarted / InferenceCompleted), so the
+        // dispatcher needs no separate branch.
+        let session_id = job.session_id;
+        let _ = self
+            .events
+            .blocking_send(EngineEvent::InferenceStarted { session_id });
+        let started = std::time::Instant::now();
+        let audio_seconds = samples as f64 / 16000.0;
+        let model_id = Some(request.model.clone());
+        let outcome = if job.cancelled() {
+            Err("cloud transcribe cancelled before request".to_string())
+        } else {
+            match crate::cloud_stt::transcribe_blocking(request, Arc::clone(&job.cancel_flag)) {
+                Ok(_) if job.cancelled() => {
+                    Err("cloud transcribe cancelled after response".to_string())
+                }
+                outcome => outcome,
+            }
+        };
+        let Job {
+            speech_timing,
+            reply,
+            ..
+        } = job;
+        let result = outcome.map(|cloud| InferenceResult {
+            session_id,
+            text: cloud.text,
+            language: None,
+            model_id,
+            stt_service: Some(cloud.service),
+            inference_time_ms: started.elapsed().as_millis() as u64,
+            audio_seconds,
+            speech_seconds: speech_timing.resolve(),
+        });
+        complete_inference(session_id, result, &self.events, reply);
+        self.last_activity = std::time::Instant::now();
+    }
+
+    fn set_model(
+        &mut self,
+        name: String,
+        spec: crate::model::ModelLoadSpec,
+        reason: ModelLoadReason,
+        reply: oneshot::Sender<Result<(), String>>,
+    ) {
+        // A restore of what is already in memory is a restore that arrived
+        // too late. Capture queues one whenever nothing is loaded, and
+        // "loaded" only becomes true when the load finishes — so a second
+        // dictation started while the first restore was still reading
+        // gigabytes off disk queues its own. Honouring it would drop a
+        // working model and rebuild it from scratch, re-hashing the bundle on
+        // the way, while the transcription it was meant to serve waits behind
+        // that in the queue. The queue is ordered, so by the time a duplicate
+        // is read the original has either succeeded — and this is it — or
+        // failed, leaving the slot empty for a genuine retry.
+        if reason == ModelLoadReason::Restore
+            && crate::mutex_recover::lock(&self.current_model).as_deref() == Some(name.as_str())
+        {
+            log::debug!("model {name} is already back in memory, skipping restore");
+            let _ = reply.send(Ok(()));
+            return;
+        }
+        if reason == ModelLoadReason::Requested {
+            let _ = self
+                .events
+                .blocking_send(EngineEvent::ModelLoading { name: name.clone() });
+        }
+        log::info!("loading model {name} ({spec:?}, {reason:?})");
+        let result = self.load(&name, spec, reason);
+        *crate::mutex_recover::lock(&self.current_model) =
+            result.as_ref().ok().map(|()| name.clone());
+        match result {
+            Ok(()) => {
+                let _ = reply.send(Ok(()));
+                let _ = self.events.blocking_send(match reason {
+                    ModelLoadReason::Requested => EngineEvent::ModelReady { name },
+                    ModelLoadReason::Restore => EngineEvent::ModelRestored { name },
+                });
+            }
+            Err(err_msg) => {
+                // A failed restore stays silent here not because it does not
+                // matter, but because the transcription that follows will
+                // report it: it will hit an empty engine and show exactly the
+                // same trouble in words about the model. A "failed to load"
+                // pill in the middle of a recording would explain it too early
+                // and to the wrong person.
+                if reason == ModelLoadReason::Requested {
+                    let _ = self.events.blocking_send(EngineEvent::ModelLoadFailed {
+                        name,
+                        error: err_msg.clone(),
+                    });
+                } else {
+                    log::warn!("restoring model {name} into memory failed: {err_msg}");
+                }
+                let _ = reply.send(Err(err_msg));
+            }
+        }
+    }
+
+    /// Replace whatever is loaded. A failed load leaves nothing loaded: the
+    /// shared model slot is cleared on error, so keeping the previous Whisper
+    /// context would transcribe with a model the UI no longer considers
+    /// loaded.
+    fn load(
+        &mut self,
+        name: &str,
+        spec: crate::model::ModelLoadSpec,
+        reason: ModelLoadReason,
+    ) -> Result<(), String> {
+        self.drop_models();
+        match spec {
+            crate::model::ModelLoadSpec::Whisper { path, use_gpu } => {
+                let path_str = path
+                    .to_str()
+                    .ok_or_else(|| "invalid model path encoding".to_string())?;
+                let ctx_params = whisper_rs::WhisperContextParameters {
+                    use_gpu,
+                    ..Default::default()
+                };
+                let ctx = whisper_rs::WhisperContext::new_with_params(path_str, ctx_params)
+                    .map_err(|e| format!("model load: {e}"))?;
+                self.whisper_ctx = Some(ctx);
+            }
+            crate::model::ModelLoadSpec::Sherpa { engine, files } => {
+                // Restores are queued synchronously at capture start. Hashing
+                // here keeps slow disk I/O ahead of all audio commands without
+                // blocking capture or the UI.
+                if reason == ModelLoadReason::Restore {
+                    crate::model::verify_bundle_files(name)?;
+                }
+                let recognizer =
+                    crate::sherpa::SherpaRecognizer::open(engine, &files, sherpa_threads())?;
+                self.sherpa = Some(recognizer);
+            }
+        }
+        Ok(())
+    }
+
+    /// CRITICAL drop order: the Whisper state holds raw pointers into the
+    /// context and must go first; dropping the context first leaves a
+    /// use-after-free for the next `state.full()`.
+    fn drop_models(&mut self) {
+        self.whisper_state = None;
+        self.sherpa = None;
+        self.whisper_ctx = None;
+    }
+
+    fn unload(&mut self) {
+        *crate::mutex_recover::lock(&self.current_model) = None;
+        self.drop_models();
+    }
+
+    fn unload_idle(&mut self, after: std::time::Duration) {
+        let Some(name) = crate::mutex_recover::lock(&self.current_model).clone() else {
+            return;
+        };
+        let idle = self.last_activity.elapsed();
+        if idle < after || app_is_busy(&self.app) {
+            return;
+        }
+        log::info!(
+            "unloading model {name}: idle {} s, threshold {} s",
+            idle.as_secs(),
+            after.as_secs()
+        );
+        self.unload();
+        let _ = self
+            .events
+            .blocking_send(EngineEvent::ModelUnloaded { name });
+    }
+
+    fn preview_chunk(&mut self, session_id: u64, samples: &[f32]) {
+        let Some(recognizer) = self.sherpa.as_mut() else {
+            return;
+        };
+        match preview_action(self.preview_session, session_id) {
+            PreviewAction::Skip => return,
+            PreviewAction::Restart => {
+                self.preview_session = Some(session_id);
+                self.last_preview.clear();
+                recognizer.reset_preview();
+            }
+            PreviewAction::Continue => {}
+        }
+        match recognizer.feed_preview(16_000, samples) {
+            // A non-streaming model returns no hypothesis — we stay silent
+            // rather than send empty text: an empty string would wipe what the
+            // overlay already shows.
+            Ok(None) => {}
+            Ok(Some(text)) => {
+                if text != self.last_preview {
+                    self.last_preview.clone_from(&text);
+                    let _ = self
+                        .events
+                        .blocking_send(EngineEvent::PreviewText { session_id, text });
+                }
+            }
+            Err(error) => log::warn!("session {session_id}: live preview failed: {error}"),
+        }
+    }
+
+    fn preview_reset(&mut self, session_id: u64) {
+        // The session is remembered even without a recognizer: it decides the
+        // fate of late chunks, not just state cleanup.
+        self.preview_session = Some(session_id);
+        self.last_preview.clear();
+        if let Some(recognizer) = self.sherpa.as_mut() {
+            recognizer.reset_preview();
+        }
+    }
+}
+
+/// Sherpa has no segment-level cancellation. The flag is honoured before and
+/// after the blocking call; an in-flight call cannot be interrupted safely.
+fn decode_sherpa(
+    recognizer: &mut crate::sherpa::SherpaRecognizer,
+    job: &Job,
+    audio: &[f32],
+    language: Option<&str>,
+    model_id: Option<&str>,
+) -> Decoded {
+    // A monolingual bundle asked for another language does not fail, it
+    // mis-decodes — so refuse the pair here. Multilingual bundles impose no
+    // rule and detect the language themselves.
+    let languages = model_id.and_then(crate::model::model_languages);
+    let requested = language.filter(|value| !value.is_empty() && *value != "auto");
+    if let (Some(id), Some(asked)) = (model_id, requested) {
+        if !crate::model::model_supports_language(id, asked) {
+            return Err(crate::model::language_unsupported_message(
+                languages.unwrap_or_default(),
+            ));
+        }
+    }
+    // A monolingual model knows its language better than the request does;
+    // for the rest we report what was asked for.
+    let reported_language = match languages {
+        Some([single]) => Some((*single).to_string()),
+        _ => requested.map(str::to_string),
+    };
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        recognizer.transcribe(16_000, audio)
+    })) {
+        Ok(Ok(_)) if job.cancelled() => {
+            Err("sherpa transcribe cancelled after inference".to_string())
+        }
+        Ok(Ok(text)) => Ok((text, reported_language)),
+        Ok(Err(error)) => Err(error),
+        Err(_) => Err("sherpa panicked".to_string()),
+    }
 }
 
 /// Whether the app is busy right now — by human measure, not by its own.
@@ -830,16 +767,6 @@ fn app_is_busy(app: &AppHandle) -> bool {
         return false;
     };
     state.recorder.is_recording() || state.is_engine_busy()
-}
-
-/// Complete both callers with the same failure, including pre-inference errors.
-fn short_circuit_error(
-    session_id: u64,
-    message: String,
-    event_tx: &tokio::sync::mpsc::Sender<EngineEvent>,
-    reply: oneshot::Sender<Result<InferenceResult, String>>,
-) {
-    complete_inference(session_id, Err(message), event_tx, reply);
 }
 
 fn complete_inference(
@@ -903,7 +830,7 @@ mod tests {
         ] {
             let (events, mut received_events) = tmpsc::channel(1);
             let (reply, received_reply) = oneshot::channel();
-            short_circuit_error(42, message.into(), &events, reply);
+            complete_inference(42, Err(message.into()), &events, reply);
             assert_eq!(
                 received_reply.blocking_recv().unwrap().unwrap_err(),
                 message
@@ -989,7 +916,7 @@ mod tests {
     #[test]
     fn resolve_model_path_uses_the_models_directory_override() {
         let dir = tempfile::tempdir().unwrap();
-        let _guard = crate::test_support::EnvGuard::set("SPEECH_TO_TEXT_MODELS_DIR", dir.path());
+        let _guard = crate::test_support::EnvGuard::set("SOTTO_MODELS_DIR", dir.path());
         assert_eq!(
             resolve_model_path("large-v3-turbo").unwrap(),
             dir.path().join("ggml-large-v3-turbo.bin")
@@ -1000,7 +927,7 @@ mod tests {
     fn resolve_model_path_creates_dir() {
         let dir = tempfile::tempdir().unwrap();
         let models = dir.path().join("models");
-        let _guard = crate::test_support::EnvGuard::set("SPEECH_TO_TEXT_MODELS_DIR", &models);
+        let _guard = crate::test_support::EnvGuard::set("SOTTO_MODELS_DIR", &models);
         assert!(!models.exists());
         let path = resolve_model_path("test-model-temp").unwrap();
         assert_eq!(path.parent(), Some(models.as_path()));

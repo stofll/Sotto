@@ -3,7 +3,7 @@ import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "re
 import { Icon } from "../components/Icon";
 import { t, useLocale } from "../i18n";
 import { overlayPalette } from "./overlayPalette";
-import { overlayDetail } from "./overlayDetail";
+import { overlayDetail, recordingClock } from "./overlayDetail";
 import { OverlayWaveform } from "./OverlayWaveform";
 import { useOverlaySession, type OverlaySession } from "./useOverlaySession";
 
@@ -24,10 +24,13 @@ export function OverlayApp() {
   if (state === null) return null;
   const bead = layout === "bead";
   const glow = layout === "glow";
-  const showTimer = preferences.show_timer && state === "recording";
+  // The limit countdown shows even with the timer turned off: it is the only
+  // warning before the recording stops by itself.
+  const timerOn = preferences.show_timer || session.limitAt !== null;
+  const showTimer = timerOn && state === "recording";
   const closeLabel = state === "pasted" || state === "error" ? t("Закрыть") : t("Отменить запись");
   return (
-    <div data-testid="overlay" data-state={state} data-layout={layout === "pill" ? "compact" : layout} data-size={preferences.size} data-timer={preferences.show_timer ? "on" : "off"} data-hovered={hovered ? "true" : "false"} className="overlay" style={config ? overlayPalette(preferences) : undefined}>
+    <div data-testid="overlay" data-state={state} data-layout={layout === "pill" ? "compact" : layout} data-size={preferences.size} data-timer={timerOn ? "on" : "off"} data-hovered={hovered ? "true" : "false"} className="overlay" style={config ? overlayPalette(preferences) : undefined}>
       <div className="overlay-shell" onPointerEnter={() => setHovered(true)} onPointerLeave={() => setHovered(false)}>
         <div className="overlay-surface" ref={surfaceRef}>
           {glow ? <>
@@ -91,10 +94,12 @@ function useNow(active: boolean) {
 
 function TimerBadge({ session }: { session: OverlaySession }) {
   const now = useNow(session.state === "recording");
-  const total = Math.max(0, Math.floor(((session.recordingStoppedAt ?? now) - session.recordingStartedAt) / 1000));
-  const duration = session.state === "loading" ? "--:--"
-    : `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
-  return <div className="overlay-timer"><span className="overlay-dot" /><span>{duration}</span></div>;
+  const clock = recordingClock(session.recordingStartedAt, session.recordingStoppedAt, session.limitAt, now);
+  const duration = session.state === "loading" ? "--:--" : clock.text;
+  const badge = <div className="overlay-timer" data-limit={clock.limited ? "true" : undefined}><span className="overlay-dot" /><span>{duration}</span></div>;
+  return clock.limited
+    ? <Hint asChild text={t("Запись скоро остановится автоматически и будет распознана")}>{badge}</Hint>
+    : badge;
 }
 
 function StateDetail({ session }: { session: OverlaySession }) {

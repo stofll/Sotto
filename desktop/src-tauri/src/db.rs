@@ -3,39 +3,16 @@
 //! `Connection` is Send but not Sync. A mutex serializes access to the shared
 //! connection; blocking workers acquire their guards inside the worker closure.
 
-use std::path::PathBuf;
 use std::sync::Mutex;
 
 use rusqlite::Connection;
-
-/// Directory containing `sotto.db` and legacy history/statistics files.
-///
-/// Priority:
-/// 1. Portable data directory, when enabled on Windows
-/// 2. Env `SOTTO_CONFIG_DIR` (if set, even to empty)
-/// 3. `~/.speech_to_text` (via `dirs` crate)
-///
-/// NOT `app.path().app_config_dir()` — that resolves to a different path on macOS
-/// (`~/Library/Application Support/<bundle>/`). Keeping the legacy directory
-/// preserves access to existing history and statistics.
-pub fn db_path() -> PathBuf {
-    if let Some(dir) = crate::portable::data_dir() {
-        return dir;
-    }
-    if let Ok(dir) = std::env::var("SOTTO_CONFIG_DIR") {
-        return PathBuf::from(dir);
-    }
-    dirs::home_dir()
-        .expect("user home directory must be available")
-        .join(".speech_to_text")
-}
 
 /// Opens (or creates) `sotto.db` with WAL mode and applies schema migrations.
 ///
 /// Returns `std::sync::Mutex<Connection>` for use with `tokio::task::spawn_blocking`:
 /// `move || { let g = arc.lock().unwrap(); g.execute(...) }`.
 pub fn open() -> Result<Mutex<Connection>, rusqlite::Error> {
-    let dir = db_path();
+    let dir = crate::user_data::data_dir();
     std::fs::create_dir_all(&dir).map_err(|e| {
         rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::other(format!(
             "create_dir_all({:?}): {}",
@@ -58,6 +35,7 @@ pub fn open() -> Result<Mutex<Connection>, rusqlite::Error> {
 /// v6: bounded local model performance observations.
 /// v7: measured silence excluded from estimated dictation time.
 /// v8: acknowledged version and cached release notes.
+/// v9: drop the v6 observations; model cards no longer record anything.
 pub fn run_migrations(conn: &Connection) -> Result<(), rusqlite::Error> {
     // Schema changes and their version must survive (or roll back) together.
     let tx = rusqlite::Transaction::new_unchecked(conn, rusqlite::TransactionBehavior::Immediate)?;
@@ -97,6 +75,9 @@ pub fn run_migrations(conn: &Connection) -> Result<(), rusqlite::Error> {
     if current < 8 {
         tx.execute_batch(include_str!("migrations/v8.sql"))?;
     }
+    if current < 9 {
+        tx.execute_batch(include_str!("migrations/v9.sql"))?;
+    }
     tx.pragma_update(None, "user_version", SCHEMA_VERSION)?;
     tx.commit()?;
     log::info!("db: migrated schema from v{current} to v{SCHEMA_VERSION}");
@@ -107,7 +88,7 @@ pub fn run_migrations(conn: &Connection) -> Result<(), rusqlite::Error> {
 ///
 /// Tests assert against this rather than a literal, so adding a migration
 /// does not break every test that only cares about "ended up current".
-pub const SCHEMA_VERSION: i32 = 8;
+pub const SCHEMA_VERSION: i32 = 9;
 
 const SCHEMA_V1: &str = include_str!("migrations/v1.sql");
 const SCHEMA_V2: &str = include_str!("migrations/v2.sql");
@@ -128,7 +109,7 @@ const SCHEMA_V5: &str = include_str!("migrations/v5.sql");
 /// stale entries are dropped (mirror Python `transcription_history._prune`).
 ///
 /// `config_dir` is the directory holding the legacy `.json` files
-/// (typically `db_path()`). Returns Err with a human-readable message on
+/// (typically `user_data::data_dir()`). Returns Err with a human-readable message on
 /// read, parse or database failure. Each file is imported atomically before
 /// it is retired; a failed rename is logged separately. Callers treat import
 /// failures as non-fatal warnings so a broken JSON file cannot prevent startup.
@@ -416,27 +397,16 @@ mod tests {
     }
 
     #[test]
-    fn db_path_uses_home_dir_by_default() {
-        let _g = EnvGuard::remove("SOTTO_CONFIG_DIR");
-        let path = db_path();
-        assert!(
-            path.to_string_lossy().contains(".speech_to_text"),
-            "expected default path to contain .speech_to_text, got {:?}",
-            path,
-        );
-    }
-
-    #[test]
-    fn db_path_respects_env_override() {
-        let _g = EnvGuard::set("SOTTO_CONFIG_DIR", "/tmp/sotto-test-env");
-        let path = db_path();
+    fn data_dir_respects_env_override() {
+        let _g = EnvGuard::set("SOTTO_DATA_DIR", "/tmp/sotto-test-env");
+        let path = crate::user_data::data_dir();
         assert_eq!(path, std::path::PathBuf::from("/tmp/sotto-test-env"));
     }
 
     #[test]
     fn open_creates_db_file() {
         let tmp = tempfile::tempdir().unwrap();
-        let _g = EnvGuard::set("SOTTO_CONFIG_DIR", tmp.path().to_str().unwrap());
+        let _g = EnvGuard::set("SOTTO_DATA_DIR", tmp.path().to_str().unwrap());
         let conn_mutex = open().expect("open should succeed");
         let conn = conn_mutex.lock().unwrap();
         // Verify table exists after migration
@@ -593,18 +563,45 @@ mod tests {
                 [],
             )
             .unwrap();
-            conn.execute(
-                "INSERT INTO model_performance (model_id, created, profile, payload) \
-                 VALUES ('test-model', 0, 'cpu', '{}')",
-                [],
-            )
-            .unwrap();
             run_migrations(&conn).unwrap();
             let text: String = conn
                 .query_row("SELECT text FROM history WHERE id = 1", [], |r| r.get(0))
                 .unwrap();
             assert_eq!(text, "preserved");
         }
+    }
+
+    #[test]
+    fn upgrading_from_v8_drops_the_recorded_timings() {
+        let conn = Connection::open_in_memory().unwrap();
+        for sql in [SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5] {
+            conn.execute_batch(sql).unwrap();
+        }
+        for sql in [
+            include_str!("migrations/v6.sql"),
+            include_str!("migrations/v7.sql"),
+            include_str!("migrations/v8.sql"),
+        ] {
+            conn.execute_batch(sql).unwrap();
+        }
+        conn.pragma_update(None, "user_version", 8).unwrap();
+        conn.execute(
+            "INSERT INTO model_performance (model_id, created, profile, payload) \
+             VALUES ('tiny', 0, 'cpu', '{\"inference_ms\":1200.0}')",
+            [],
+        )
+        .unwrap();
+
+        run_migrations(&conn).unwrap();
+
+        let tables: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE name LIKE 'model_performance%'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(tables, 0);
     }
 
     #[test]
@@ -716,7 +713,7 @@ mod tests {
 
         let error = migrate_from_json(&conn, tmp.path()).unwrap_err();
         assert!(error.contains("insert history[2]"));
-        let count: usize = conn
+        let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM history", [], |r| r.get(0))
             .unwrap();
         assert_eq!(
@@ -728,13 +725,13 @@ mod tests {
 
         conn.execute_batch("DROP TRIGGER reject_second").unwrap();
         migrate_from_json(&conn, tmp.path()).unwrap();
-        let count: usize = conn
+        let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM history", [], |r| r.get(0))
             .unwrap();
         assert_eq!(count, 2);
         assert!(!path.exists());
         migrate_from_json(&conn, tmp.path()).unwrap();
-        let count: usize = conn
+        let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM history", [], |r| r.get(0))
             .unwrap();
         assert_eq!(count, 2);

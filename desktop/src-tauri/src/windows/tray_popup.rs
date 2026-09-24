@@ -67,7 +67,7 @@ pub fn show_tray_popup(app: AppHandle) -> Result<(), String> {
         position_tray_popup(&window, &app)?;
         if !window.is_visible().map_err(|e| e.to_string())? {
             window.show().map_err(|e| e.to_string())?;
-            watch_outside_click(window.clone());
+            watch_outside_click(window);
         }
         return Ok(());
     }
@@ -91,7 +91,7 @@ pub fn show_tray_popup(app: AppHandle) -> Result<(), String> {
 
     position_tray_popup(&window, &app)?;
     window.show().map_err(|e| e.to_string())?;
-    watch_outside_click(window.clone());
+    watch_outside_click(window);
 
     Ok(())
 }

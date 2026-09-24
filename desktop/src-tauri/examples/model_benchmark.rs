@@ -175,8 +175,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target/model-benchmark");
     std::fs::create_dir_all(&root)?;
     // Set before model APIs run; this process never loads the application config.
-    std::env::set_var("SPEECH_TO_TEXT_MODELS_DIR", root.join("models"));
-    std::env::set_var("SOTTO_CONFIG_DIR", root.join("config"));
+    std::env::set_var("SOTTO_MODELS_DIR", root.join("models"));
+    std::env::set_var("SOTTO_DATA_DIR", root.join("data"));
     let models_dir = root.join("models");
     std::fs::create_dir_all(&models_dir)?;
     let threads = std::thread::available_parallelism()
@@ -202,7 +202,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let context = model_performance::Profile::new(&options.ids[0], "cpu");
     validate_resume(&output, &machine, &context.hardware, &context.method)?;
     eprintln!("{machine}\nResults: {}", output_path.display());
-    let client = reqwest::Client::builder()
+    let client = sotto_lib::http_client::builder()
         .timeout(std::time::Duration::from_secs(600))
         .build()?;
     let cancel = Arc::new(AtomicBool::new(false));

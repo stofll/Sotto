@@ -154,7 +154,6 @@ def test_compact_speed_reads_without_a_detail_panel(
             {
                 "id": "tiny",
                 "compute": "cpu",
-                "load_failed": False,
                 "speed": {"score": 0.9, "source": "reference"},
                 "memory": {
                     "score": 0.7,
@@ -200,7 +199,6 @@ def test_disk_capacity_controls_download_without_blocking_unknown(app, page, ava
             {
                 "id": "base",
                 "compute": "cpu",
-                "load_failed": False,
                 "speed": {"score": None, "source": "unknown"},
                 "memory": {
                     "status": "unknown",
@@ -239,7 +237,6 @@ def test_disk_warning_recovers_on_focus_and_spares_installed_models(
         {
             "id": model,
             "compute": "cpu",
-            "load_failed": False,
             "speed": {"score": None, "source": "unknown"},
             "memory": {
                 "status": "unknown",

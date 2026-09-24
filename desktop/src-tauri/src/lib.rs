@@ -5,7 +5,7 @@
 //! [`run`] names them by path. What stays here is what has no single domain:
 //!
 //! - `run()` and `setup()`: window, tray, hotkey, engine and worker wiring.
-//! - The app-level commands (`app_version`, `focus_main_window`, `open_url`,
+//! - The app-level commands (`app_version`, `focus_main_window`,
 //!   `get_runtime_status`, `get_output_contract`) — they answer for the
 //!   application, not for one of its parts.
 //! - The dictation pipeline, from `on_recording_started` to
@@ -38,12 +38,15 @@ mod db;
 mod debug;
 mod dictation;
 mod dictionaries;
+mod engine_events;
+mod external_link;
 mod feedback;
 mod format_commands;
 pub mod formatter;
 mod hardware_profile;
 mod history;
 mod hotkey;
+pub mod http_client;
 pub mod mic_test;
 pub mod model;
 pub mod model_download;
@@ -68,6 +71,7 @@ mod text_protection;
 mod tray;
 mod ui_text;
 mod updater;
+mod user_data;
 mod vad;
 mod wav;
 pub mod whisper;
@@ -84,7 +88,7 @@ mod windows {
 use crate::state::{AppFsm, AppState};
 use rusqlite::Connection;
 use serde_json::Value;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -205,8 +209,7 @@ fn app_version(app: AppHandle) -> Result<serde_json::Value, String> {
 ///   model unloaded on idle apart from a missing one: there is something to
 ///   transcribe with, the memory is simply free right now
 /// - `recording`: whether the audio recorder is active
-/// - `state`: app FSM state string (idle/recording/processing/done/error)
-/// - `last_error`: null (error tracking is not wired yet)
+/// - `state`: app FSM state string (idle/recording/processing)
 #[tauri::command]
 fn get_runtime_status(
     app: AppHandle,
@@ -225,8 +228,6 @@ fn get_runtime_status(
         AppFsm::Idle => "idle",
         AppFsm::Recording => "recording",
         AppFsm::Processing => "processing",
-        AppFsm::Done => "done",
-        AppFsm::Error => "error",
     };
 
     let loaded_model = crate::mutex_recover::lock(&state.engine_current_model).clone();
@@ -283,7 +284,6 @@ fn get_runtime_status(
         "cpu_only": loaded_engine.is_some_and(|engine| engine.is_sherpa()),
         "recording": state.recorder.is_recording(),
         "state": state_str,
-        "last_error": null,
     }))
 }
 
@@ -518,7 +518,6 @@ mod model_restore_tests {
         .unwrap();
         let (reply, _reply_rx) = tokio::sync::oneshot::channel();
         tx.try_send(EngineCommand::Transcribe {
-            source: crate::model_performance::RunSource::Dictation,
             session_id: 1,
             audio: std::sync::Arc::new(vec![0.0; 160]),
             speech_timing: crate::vad::SpeechTiming::Ready(None),
@@ -605,8 +604,6 @@ fn idle_unload_after(app: &AppHandle) -> Option<std::time::Duration> {
     (minutes > 0).then(|| std::time::Duration::from_secs(minutes * 60))
 }
 
-/// Delete a cached model file from disk.
-///
 /// The speech language substituted for `{{language}}` in the system prompt.
 ///
 /// It sits at the top level of the config, next to the model and the device,
@@ -631,53 +628,74 @@ fn focus_main_window(app: AppHandle, tab: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Open an arbitrary URL/scheme in the system handler. Used by the
-/// permission banners to deep-link into macOS Privacy & Security panes
-/// (e.g. `x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone`).
-/// Windows uses ShellExecuteW; Linux uses `xdg-open`.
-#[tauri::command]
-fn open_url(url: String) -> Result<(), String> {
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("open")
-            .arg(&url)
-            .spawn()
-            .map_err(|e| format!("open failed: {e}"))?;
+/// How long before the limit the overlay starts counting down: five minutes,
+/// or a third of a shorter limit.
+const RECORDING_WARNING_LEAD_SECONDS: f64 = 5.0 * 60.0;
+
+#[derive(Debug, PartialEq)]
+enum RecordingLimit {
+    Within,
+    Warn { remaining_seconds: u64 },
+    Stop,
+}
+
+/// Where a recording stands against the configured limit
+/// ([`crate::config::recording_limit_minutes`], `0` — none). At the limit it
+/// stops and is transcribed like any other.
+fn recording_limit(recorded_seconds: f64, warned: bool, limit_minutes: u64) -> RecordingLimit {
+    if limit_minutes == 0 {
+        return RecordingLimit::Within;
     }
-    #[cfg(all(unix, not(target_os = "macos")))]
-    {
-        std::process::Command::new("xdg-open")
-            .arg(&url)
-            .spawn()
-            .map_err(|e| format!("xdg-open failed: {e}"))?;
-    }
-    #[cfg(windows)]
-    {
-        use windows_sys::Win32::UI::{Shell::ShellExecuteW, WindowsAndMessaging::SW_SHOWNORMAL};
-        if url.contains('\0') {
-            return Err("Invalid URL".into());
+    let limit = limit_minutes as f64 * 60.0;
+    let warning = limit - RECORDING_WARNING_LEAD_SECONDS.min(limit / 3.0);
+    if recorded_seconds >= limit {
+        RecordingLimit::Stop
+    } else if !warned && recorded_seconds >= warning {
+        RecordingLimit::Warn {
+            remaining_seconds: (limit - recorded_seconds).ceil() as u64,
         }
-        let url: Vec<u16> = url.encode_utf16().chain(Some(0)).collect();
-        // Launch directly: cmd.exe interprets query-string ampersands as commands.
-        //
-        // SAFETY: `url` is NUL-terminated above (and rejected if it already
-        // contained an interior NUL) and outlives the call; every other
-        // pointer argument is the null the API accepts for "unused".
-        let result = unsafe {
-            ShellExecuteW(
-                0,
-                std::ptr::null(),
-                url.as_ptr(),
-                std::ptr::null(),
-                std::ptr::null(),
-                SW_SHOWNORMAL,
-            )
-        };
-        if result as isize <= 32 {
-            return Err("Could not open URL".into());
-        }
+    } else {
+        RecordingLimit::Within
     }
-    Ok(())
+}
+
+#[cfg(test)]
+mod recording_limit_tests {
+    use super::*;
+
+    #[test]
+    fn warns_once_then_stops_at_the_limit() {
+        assert_eq!(recording_limit(599.0, false, 15), RecordingLimit::Within);
+        assert_eq!(
+            recording_limit(600.0, false, 15),
+            RecordingLimit::Warn {
+                remaining_seconds: 300
+            }
+        );
+        assert_eq!(
+            recording_limit(612.4, false, 15),
+            RecordingLimit::Warn {
+                remaining_seconds: 288
+            }
+        );
+        assert_eq!(recording_limit(612.4, true, 15), RecordingLimit::Within);
+        assert_eq!(recording_limit(900.0, true, 15), RecordingLimit::Stop);
+        // A late first check past the limit stops rather than warns.
+        assert_eq!(recording_limit(905.0, false, 15), RecordingLimit::Stop);
+    }
+
+    #[test]
+    fn a_short_limit_warns_a_third_ahead_and_zero_means_none() {
+        assert_eq!(recording_limit(199.0, false, 5), RecordingLimit::Within);
+        assert_eq!(
+            recording_limit(200.0, false, 5),
+            RecordingLimit::Warn {
+                remaining_seconds: 100
+            }
+        );
+        assert_eq!(recording_limit(300.0, true, 5), RecordingLimit::Stop);
+        assert_eq!(recording_limit(86_400.0, false, 0), RecordingLimit::Within);
+    }
 }
 
 /// Emit `audio-level` events (~30 Hz) while a recording session is live so
@@ -686,6 +704,7 @@ fn open_url(url: String) -> Result<(), String> {
 /// static guard prevents overlapping pollers (only one session is ever
 /// active at a time). Without this nothing emitted `audio-level`, so the
 /// overlay waveform sat flat — see `OverlayApp.tsx` `listen("audio-level")`.
+/// Once a second it also checks the recording against [`recording_limit`].
 pub(crate) fn spawn_level_emitter(app: &AppHandle, recorder: Arc<crate::audio::AudioRecorder>) {
     use std::sync::atomic::{AtomicBool, Ordering};
     static EMITTING: AtomicBool = AtomicBool::new(false);
@@ -697,6 +716,10 @@ pub(crate) fn spawn_level_emitter(app: &AppHandle, recorder: Arc<crate::audio::A
         let mut tick: u32 = 0;
         let mut logged_first_frame = false;
         loop {
+            let (mut warned, mut limited) = (false, false);
+            let limit_minutes = crate::config::Config::load(&app)
+                .map(|config| crate::config::recording_limit_minutes(config.as_value()))
+                .unwrap_or(crate::config::DEFAULT_RECORDING_LIMIT_MINUTES);
             while recorder.is_recording() {
                 if !logged_first_frame {
                     if let Some(first_frame_ms) = recorder.first_frame_ms() {
@@ -707,10 +730,42 @@ pub(crate) fn spawn_level_emitter(app: &AppHandle, recorder: Arc<crate::audio::A
                 let raw = recorder.level();
                 let level = crate::audio::display_level(raw);
                 let _ = app.emit("audio-level", serde_json::json!({ "level": level }));
-                // Throttled (~1 Hz) diagnostic so app.log reveals the real level
-                // if the meter ever looks dead again (log both raw + mapped).
+                // Throttled (~1 Hz) diagnostic for a meter that looks dead
+                // (raw + mapped). Debug level: at info it filled app.log with
+                // a line for every second of every dictation.
                 if tick.is_multiple_of(30) {
-                    log::info!("audio-level poll: raw={raw:.4} mapped={level:.4}");
+                    log::debug!("audio-level poll: raw={raw:.4} mapped={level:.4}");
+                    if !limited {
+                        // Read before measuring: a recording started after
+                        // the read measures short, so the id can only name
+                        // the recording being measured or an older one.
+                        let session_id = app
+                            .state::<AppState>()
+                            .current_session_id
+                            .load(Ordering::Acquire);
+                        let recorded = recorder.recorded_seconds();
+                        match recording_limit(recorded, warned, limit_minutes) {
+                            RecordingLimit::Within => {}
+                            RecordingLimit::Warn { remaining_seconds } => {
+                                warned = true;
+                                let _ = app.emit(
+                                    "recording-limit",
+                                    serde_json::json!({
+                                        "session_id": session_id,
+                                        "remaining_seconds": remaining_seconds,
+                                    }),
+                                );
+                            }
+                            RecordingLimit::Stop => {
+                                limited = true;
+                                log::info!(
+                                    "recording limit reached after {recorded:.0}s, stopping"
+                                );
+                                let state = app.state::<AppState>();
+                                let _ = dictation::stop_if_current(&app, &state, session_id);
+                            }
+                        }
+                    }
                 }
                 tick = tick.wrapping_add(1);
                 std::thread::sleep(std::time::Duration::from_millis(33));
@@ -931,7 +986,6 @@ pub(crate) fn build_dictation_command(
     let pipeline_mode = telemetry_pipeline_mode(config);
     if pipeline_mode != "cloud" {
         return Ok(crate::whisper::EngineCommand::Transcribe {
-            source: crate::model_performance::RunSource::Dictation,
             session_id,
             audio,
             speech_timing,
@@ -1189,13 +1243,93 @@ fn apply_autostart_inner(app: &AppHandle, rewrite_when_unchanged: bool) {
     }
 }
 
+/// Delete the current user's data from its default locations, for the
+/// uninstaller. Returns the process exit code: 0 when everything went.
+#[cfg(windows)]
+pub fn purge_user_data() -> i32 {
+    i32::from(!crate::user_data::purge().is_empty())
+}
+
+/// Load the configured model on startup, so the overlay does not show
+/// "Модель не загружена" on the first hotkey press.
+fn spawn_model_autoload(app: AppHandle) {
+    let engine = app.state::<AppState>().engine_cmd_tx.clone();
+    tauri::async_runtime::spawn(async move {
+        // Both outcomes are logged: "config unreadable" and "no model
+        // configured" must not look like a healthy first run in the log.
+        match crate::config::config_path(&app) {
+            Ok(path) => log::info!("config: {} (exists: {})", path.display(), path.exists()),
+            Err(error) => log::error!("config path unavailable: {error}"),
+        }
+        let config = match crate::config::Config::load(&app) {
+            Ok(config) => config,
+            Err(error) => {
+                log::error!("config load failed, running with defaults: {error}");
+                return;
+            }
+        };
+        let Some(model) = config.get_string("model") else {
+            log::info!("no model in config, skipping auto-load");
+            return;
+        };
+        if !crate::model::is_downloaded(&model) {
+            log::info!("config.model={model} not downloaded, skipping auto-load");
+            return;
+        }
+        match load_model_into_engine(
+            &app,
+            &engine,
+            &model,
+            crate::whisper::ModelLoadReason::Requested,
+        )
+        .await
+        {
+            Ok(()) => log::info!("auto-loaded model {model} from saved config"),
+            Err(e) => log::warn!("auto-load failed: {e}"),
+        }
+    });
+}
+
+/// The idle watchdog. It unloads nothing itself: the decision is made by the
+/// engine thread, which alone knows what it is doing and for how long (see
+/// `EngineCommand::UnloadIdle`). All that comes from here is a reason to check
+/// plus the threshold from settings.
+fn spawn_idle_watchdog(app: AppHandle) {
+    let state = app.state::<AppState>().inner().clone();
+    tauri::async_runtime::spawn(async move {
+        let mut ticker = tokio::time::interval(IDLE_UNLOAD_TICK);
+        // `interval` delivers its first tick immediately — we skip it: zero
+        // seconds after startup there is nothing to be idle yet.
+        ticker.tick().await;
+        loop {
+            ticker.tick().await;
+            let Some(after) = idle_unload_after(&app) else {
+                continue;
+            };
+            if crate::mutex_recover::lock(&state.engine_current_model).is_none() {
+                continue;
+            }
+            // `try_send`: a busy queue means the engine is not idle, so there
+            // is nothing to ask it about.
+            let _ = state
+                .engine_cmd_tx
+                .try_send(crate::whisper::EngineCommand::UnloadIdle { after });
+        }
+    });
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Phase 4 / Batch 6 / P1: structured file logging. Installs
-    // early (before any other setup) so every subsequent log line
-    // ends up in `~/.speech_to_text/logs/app.log` with API keys
-    // and bearer tokens redacted.
+    // Before the logger opens its file: the log directory moves with the
+    // data. The outcome is logged once the logger exists.
+    let data_migration = crate::user_data::migrate_legacy();
+    // Installs before any other setup so every later log line reaches
+    // `<data dir>/logs/app.log`, with API keys and bearer tokens redacted.
     let _ = crate::structured_log::install();
+    if let Some(migration) = &data_migration {
+        migration.log();
+    }
+    crate::user_data::log_renamed_env();
 
     tauri::Builder::default()
         // Must be registered first — the plugin decides whether this process
@@ -1296,7 +1430,9 @@ pub fn run() {
             let (engine_event_tx, engine_event_rx) =
                 tokio::sync::mpsc::channel::<crate::whisper::EngineEvent>(64);
             let engine_app_handle = app.handle().clone();
-            let engine_handle = std::thread::spawn(move || {
+            // Detached: the engine exits on `EngineCommand::Shutdown` or with
+            // the process.
+            std::thread::spawn(move || {
                 crate::whisper::engine_thread_main(
                     engine_cmd_rx,
                     engine_event_tx,
@@ -1305,7 +1441,7 @@ pub fn run() {
                 );
             });
 
-            // Init AudioRecorder (WS 4a2 Task 8). The recorder is lazy
+            // The recorder is lazy
             // about device acquisition — `new()` only probes the default
             // input device to pre-size the buffer; the actual cpal Stream
             // is built on first `start()` call. Failure here is fatal
@@ -1319,7 +1455,7 @@ pub fn run() {
             // the test can start/stop audio capture and poll levels.
             let microphone_test = crate::mic_test::MicrophoneTest::new();
 
-            // WS 4b Task 7: open the SQLite data layer (stats + history)
+            // Open the SQLite data layer (stats + history)
             // and seed it from legacy `stats.json` / `history.json` if those
             // exist. Migration is idempotent (INSERT OR IGNORE / INSERT OR
             // REPLACE) and runs synchronously in setup() so the dispatcher
@@ -1331,13 +1467,9 @@ pub fn run() {
             // itself IS fatal (we can't run without it).
             let db = crate::db::open().map_err(|e| format!("db open: {e}"))?;
             let db_arc = std::sync::Arc::new(db);
-            app.manage(crate::model_performance::Recorder::start(
-                crate::db::db_path().join("sotto.db"),
-                app.handle().clone(),
-            ));
             {
                 let conn = crate::mutex_recover::lock(&db_arc);
-                let config_dir = crate::db::db_path();
+                let config_dir = crate::user_data::data_dir();
                 if let Err(e) = crate::db::migrate_from_json(&conn, &config_dir) {
                     log::warn!("migration from JSON failed (non-fatal): {e}");
                 }
@@ -1351,6 +1483,10 @@ pub fn run() {
                     Err(e) => log::warn!("stats reconcile failed (non-fatal): {e}"),
                 }
             }
+            // Entries that aged out while the app was closed. After the block
+            // above: the prune takes the connection itself, after the config
+            // lock.
+            crate::history::prune_to_settings(app.handle(), &db_arc);
 
             // Product telemetry is independent from stats/history and is
             // deliberately non-fatal. The installation ID is random and
@@ -1360,8 +1496,7 @@ pub fn run() {
             if startup_config.as_ref().is_some_and(|config| {
                 let formatting = text_formatting_config(config);
                 formatting.enabled
-                    && ((formatting.correct_spelling
-                        && speech_language(Some(config)) == "ru")
+                    && ((formatting.correct_spelling && speech_language(Some(config)) == "ru")
                         || !formatting.effective_custom_words().is_empty())
             }) {
                 // Prepare the local lexicon off the UI thread before the first
@@ -1380,584 +1515,19 @@ pub fn run() {
 
             let engine_state = crate::state::AppState::new(
                 engine_cmd_tx,
-                engine_handle,
                 recorder,
                 db_arc,
                 microphone_test,
                 engine_current_model,
             );
-            // Capture the cancellable-sessions handle before moving
-            // engine_state into Tauri's managed state. The dispatcher task
-            // is `'static` (lives forever) so it needs an owned clone.
-            // `db` comes along so the dispatcher can spawn a blocking write
-            // of stats+history on every successful transcription. The clone
-            // is `Arc<Mutex<Connection>>` — `Arc::clone` is cheap and the
-            // `Mutex` serializes with the Tauri commands that also use
-            // `state.db`.
-            let dispatch_skipped = engine_state.dispatch_skipped_arc();
-            let dispatch_db = engine_state.db.clone();
-            let dispatch_state = engine_state.clone();
-            let dispatch_telemetry = app.state::<crate::telemetry::Telemetry>().inner().clone();
             app.manage(engine_state);
-
-            // Auto-load the configured model on startup. If the user has
-            // a previously-downloaded model in config, send SetModel to
-            // the engine thread so the overlay doesn't show "Модель не
-            // загружена" on the first hotkey press.
-            let auto_load_app = app.handle().clone();
-            let auto_load_tx = app.state::<AppState>().engine_cmd_tx.clone();
-            tauri::async_runtime::spawn(async move {
-                // Both outcomes are logged. `.ok().and_then(...)` used to
-                // collapse "config unreadable" and "no model configured"
-                // into the same silent return, which is indistinguishable
-                // from a healthy first run in the log.
-                match crate::config::config_path(&auto_load_app) {
-                    Ok(path) => {
-                        log::info!("config: {} (exists: {})", path.display(), path.exists())
-                    }
-                    Err(error) => log::error!("config path unavailable: {error}"),
-                }
-                let config = match crate::config::Config::load(&auto_load_app) {
-                    Ok(config) => config,
-                    Err(error) => {
-                        log::error!("config load failed, running with defaults: {error}");
-                        return;
-                    }
-                };
-                let model = match config.get_string("model") {
-                    Some(model) => model,
-                    None => {
-                        log::info!("no model in config, skipping auto-load");
-                        return;
-                    }
-                };
-                if !crate::model::is_downloaded(&model) {
-                    log::info!("config.model={model} not downloaded, skipping auto-load");
-                    return;
-                }
-                match load_model_into_engine(
-                    &auto_load_app,
-                    &auto_load_tx,
-                    &model,
-                    crate::whisper::ModelLoadReason::Requested,
-                )
-                .await
-                {
-                    Ok(()) => log::info!("auto-loaded model {model} from saved config"),
-                    Err(e) => log::warn!("auto-load failed: {e}"),
-                }
-            });
-
-            // The idle watchdog. It unloads nothing itself: the decision is
-            // made by the engine thread, which alone knows what it is doing and
-            // for how long (see `EngineCommand::UnloadIdle`). All that comes
-            // from here is a reason to check plus the threshold from settings.
-            let idle_app = app.handle().clone();
-            let idle_state = app.state::<AppState>().inner().clone();
-            tauri::async_runtime::spawn(async move {
-                let mut ticker = tokio::time::interval(IDLE_UNLOAD_TICK);
-                // `interval` delivers its first tick immediately — we skip it:
-                // zero seconds after startup there is nothing to be idle yet.
-                ticker.tick().await;
-                loop {
-                    ticker.tick().await;
-                    let Some(after) = idle_unload_after(&idle_app) else {
-                        continue;
-                    };
-                    if crate::mutex_recover::lock(&idle_state.engine_current_model).is_none() {
-                        continue;
-                    }
-                    // `try_send`: a busy queue means the engine is not idle, so
-                    // there is nothing to ask it about.
-                    let _ = idle_state
-                        .engine_cmd_tx
-                        .try_send(crate::whisper::EngineCommand::UnloadIdle { after });
-                }
-            });
-
-            // Engine event dispatcher: EngineEvent → Tauri events + paste.
-            // The engine_event_rx is a single-consumer; moving it into the
-            // dispatcher task consumes it here. The task runs in Tauri's
-            // tokio runtime so we can `.await` on the receiver.
-            //
-            // CRITICAL: the dispatcher checks cancellation BEFORE pasting.
-            // Without this, a cancelled session's text would still be pasted
-            // (G2 fix from plan review). Cancelled sessions are dropped from
-            // the set on the dispatcher path so future invocations start
-            // from a clean slate.
-            let app_for_dispatch = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                use crate::whisper::EngineEvent;
-                let mut event_rx = engine_event_rx;
-                while let Some(event) = event_rx.recv().await {
-                    match event {
-                        EngineEvent::ModelLoading { name } => {
-                            let _ = app_for_dispatch.emit("whisper-loading", name);
-                        }
-                        EngineEvent::ModelReady { name } => {
-                            let _ = app_for_dispatch.emit("whisper-ready", name);
-                        }
-                        EngineEvent::ModelUnloaded { name } => {
-                            // The same event as an unload before deleting a
-                            // model: the lists and the status refresh the same
-                            // way, and they have no need to know exactly how the
-                            // memory was freed.
-                            let _ = app_for_dispatch.emit("model-unloaded", name);
-                        }
-                        EngineEvent::ModelRestored { name } => {
-                            let _ = app_for_dispatch.emit("model-restored", name);
-                        }
-                        EngineEvent::ModelLoadFailed { name, error } => {
-                            // Same contract fix as `whisper-failed`: the
-                            // frontend reads `message`, not `error`.
-                            let _ = app_for_dispatch.emit(
-                                "whisper-load-failed",
-                                serde_json::json!({
-                                    "name": name,
-                                    "message": error,
-                                }),
-                            );
-                        }
-                        EngineEvent::PreviewText { session_id, text } => {
-                            // The previous dictation's hypothesis must not be
-                            // appended to the current one's overlay: while the
-                            // event travelled the channel, the recording could
-                            // have changed.
-                            let current = app_for_dispatch
-                                .state::<AppState>()
-                                .current_session_id
-                                .load(Ordering::Acquire);
-                            if current != session_id {
-                                continue;
-                            }
-                            let _ = app_for_dispatch.emit(
-                                "transcription-delta",
-                                serde_json::json!({
-                                    "session_id": session_id,
-                                    "text": text,
-                                }),
-                            );
-                        }
-                        EngineEvent::InferenceStarted { session_id } => {
-                            // File jobs and retired sessions must not raise the
-                            // dictation overlay, even if their events arrive late.
-                            if !dispatch_state.owns_dictation(session_id) {
-                                continue;
-                            }
-                            let _ = app_for_dispatch.emit("whisper-started", session_id);
-                        }
-                        EngineEvent::InferenceCompleted { session_id, result } => {
-                            // The session belongs to a caller that awaits the
-                            // engine's `oneshot` reply itself (file
-                            // transcription). None of the dictation delivery
-                            // below applies to it: no paste, no history, no
-                            // stats, no FSM transition. The file guard owns this
-                            // marker through post-processing, which remains cancellable.
-                            if crate::mutex_recover::lock(&dispatch_skipped).contains(&session_id) {
-                                log::info!("session {session_id} dispatch skipped (file job)");
-                                continue;
-                            }
-                            // A file reply can retire its guard before this dispatcher
-                            // consumes completion. Ownership, not that guard's lifetime,
-                            // decides whether this result may touch dictation UI.
-                            if !dispatch_state.owns_dictation(session_id) {
-                                continue;
-                            }
-                            // Every branch that ends a dictation as cancelled
-                            // does so in this order: tell the UI, release the
-                            // session, then record it.
-                            let report_cancelled = || {
-                                let _ = app_for_dispatch.emit("whisper-cancelled", session_id);
-                                dictation::finish(&dispatch_state, session_id);
-                                dispatch_telemetry.record_cancelled(
-                                    crate::telemetry::Source::Microphone,
-                                    &telemetry_pipeline_mode_of(&app_for_dispatch),
-                                );
-                            };
-                            let cancelled = dispatch_state.is_cancelled(session_id);
-                            match classify_completion(cancelled, result) {
-                                Completion::Cancelled => {
-                                    log::info!("session {session_id} cancelled, skipping paste");
-                                    report_cancelled();
-                                }
-                                Completion::Empty => {
-                                    log::info!("session {session_id} empty transcription");
-                                    let _ = app_for_dispatch.emit("whisper-empty", session_id);
-                                    dictation::finish(&dispatch_state, session_id);
-
-                                    crate::sounds::play(
-                                        &app_for_dispatch,
-                                        crate::sounds::Cue::Error,
-                                    );
-                                    dispatch_telemetry.record_failed(
-                                        crate::telemetry::Source::Microphone,
-                                        &telemetry_pipeline_mode_of(&app_for_dispatch),
-                                        telemetry::FailureStage::Stt,
-                                        telemetry::FailureReason::EmptyTranscript,
-                                    );
-                                }
-                                Completion::Failed(message) => {
-                                    crate::sounds::play(
-                                        &app_for_dispatch,
-                                        crate::sounds::Cue::Error,
-                                    );
-                                    // The frontend ErrorPayload contract
-                                    // (`desktop/src/overlay/OverlayApp.tsx`)
-                                    // is `{ message?: string }`. Emit the
-                                    // failure reason under that key so the
-                                    // overlay shows the real cause instead
-                                    // of its hardcoded fallback.
-                                    let _ = app_for_dispatch.emit(
-                                        "whisper-failed",
-                                        serde_json::json!({
-                                            "session_id": session_id,
-                                            "message": message,
-                                        }),
-                                    );
-                                    dictation::finish(&dispatch_state, session_id);
-                                    dispatch_telemetry.record_failed(
-                                        crate::telemetry::Source::Microphone,
-                                        &telemetry_pipeline_mode_of(&app_for_dispatch),
-                                        telemetry::FailureStage::Stt,
-                                        telemetry::FailureReason::EngineError,
-                                    );
-                                }
-                                Completion::Transcribed(inference) => {
-                                    // The engine completion and the overlay
-                                    // cancel are independent async events. Do
-                                    // not even enter formatting/LLM when the
-                                    // cancel won the race.
-                                    if dispatch_state.is_cancelled(session_id) {
-                                        report_cancelled();
-                                        continue;
-                                    }
-                                    let _ = app_for_dispatch.emit("whisper-done", &inference);
-
-                                    // Post-Whisper pipeline: local formatting +
-                                    // optional LLM cleanup. This produces the
-                                    // final text to paste AND the raw/formatted
-                                    // stages + AI status the history diff needs.
-                                    // Awaited inline (the dispatcher is async);
-                                    // in hybrid mode the paste is intentionally
-                                    // delayed by the LLM round-trip.
-                                    let processed = tokio::select! {
-                                        biased;
-                                        _ = dispatch_state.wait_cancelled(session_id) => None,
-                                        result = post_process_transcription(&app_for_dispatch, &inference) => Some(result),
-                                    };
-                                    if dispatch_state.is_cancelled(session_id) {
-                                        report_cancelled();
-                                        continue;
-                                    }
-
-                                    let Some(processed) = processed else {
-                                        continue;
-                                    };
-
-                                    // Stats + history write via
-                                    // `spawn_blocking`. The Connection is
-                                    // `!Send` so we can't hold the lock across
-                                    // `.await` from the async dispatcher
-                                    // thread; instead we hand the work off to a
-                                    // blocking worker and `await` the result.
-                                    // DB write failures are NON-FATAL — a
-                                    // broken DB must NOT prevent paste.
-                                    let db = dispatch_db.clone();
-                                    let lang = inference.language.clone();
-                                    let transcription_model = inference.model_id.clone();
-                                    let inf_ms = inference.inference_time_ms;
-                                    let audio_secs = inference.audio_seconds;
-                                    let speech_seconds = inference.speech_seconds;
-                                    let sess_id = inference.session_id;
-                                    // `processed` is not used after this point, so
-                                    // move its fields out instead of cloning all
-                                    // six. `final_text` alone is needed twice (the
-                                    // DB write below and the paste closure), so it
-                                    // is the only field that still needs a clone.
-                                    let ProcessedTranscription {
-                                        raw_text,
-                                        formatted_text,
-                                        final_text,
-                                        ai_json,
-                                        ai_status,
-                                        stats_json,
-                                        system_prompt,
-                                    } = processed;
-                                    // One config read for every telemetry
-                                    // field below: this sits between "STT
-                                    // finished" and "text pasted", the part of
-                                    // the run the user is waiting through.
-                                    let telemetry_config =
-                                        crate::config::Config::load(&app_for_dispatch).ok();
-                                    let telemetry_pipeline =
-                                        telemetry_pipeline_mode(telemetry_config.as_ref());
-
-                                    // The post-processor emptied the text —
-                                    // the whole transcription was a Whisper
-                                    // silence hallucination. Treat it exactly
-                                    // like an empty transcription: no paste,
-                                    // no history entry, no stats. `whisper-done`
-                                    // already fired above, so `whisper-empty`
-                                    // is what corrects the overlay from "Текст
-                                    // готов" back to idle.
-                                    if !is_deliverable(&final_text) {
-                                        log::info!(
-                                            "session {session_id} produced only hallucinations, \
-                                             skipping paste"
-                                        );
-                                        let _ = app_for_dispatch.emit("whisper-empty", session_id);
-                                        dictation::finish(&dispatch_state, session_id);
-
-                                        crate::sounds::play(
-                                            &app_for_dispatch,
-                                            crate::sounds::Cue::Error,
-                                        );
-                                        dispatch_telemetry.record_failed(
-                                            crate::telemetry::Source::Microphone,
-                                            &telemetry_pipeline,
-                                            telemetry::FailureStage::PostProcess,
-                                            telemetry::FailureReason::EmptyAfterProcessing,
-                                        );
-                                        continue;
-                                    }
-
-                                    // Atomically claim final delivery before
-                                    // any stats/history write. A cancel that
-                                    // arrives first keeps this session out of
-                                    // all successful side effects; a cancel
-                                    // after this point is too late to turn a
-                                    // committed session into a false success.
-                                    if !dispatch_state.begin_commit(session_id) {
-                                        let was_cancelled = dispatch_state.is_cancelled(session_id);
-
-                                        if was_cancelled {
-                                            let _ = app_for_dispatch
-                                                .emit("whisper-cancelled", session_id);
-                                            dispatch_telemetry.record_cancelled(
-                                                crate::telemetry::Source::Microphone,
-                                                &telemetry_pipeline_mode_of(&app_for_dispatch),
-                                            );
-                                        }
-                                        dictation::finish(&dispatch_state, session_id);
-                                        continue;
-                                    }
-
-                                    let database_started = std::time::Instant::now();
-                                    let paste_text = final_text.clone();
-                                    // Measured on the text that is actually
-                                    // going in. `whisper-done` fires before the
-                                    // LLM runs, so anything counted there is the
-                                    // pre-cleanup draft.
-                                    let pasted_length = paste_text.chars().count();
-                                    // Same reason: whether the LLM fell back to
-                                    // the local text is only known now, so the
-                                    // overlay's warning has to ride along with
-                                    // the paste rather than with `whisper-done`.
-                                    let paste_ai = ai_status.as_ref().map(|status| {
-                                        serde_json::json!({
-                                            "fallback": status.fallback,
-                                            "skipped_reason": status.skipped_reason,
-                                        })
-                                    });
-                                    let telemetry_for_paste = dispatch_telemetry.clone();
-                                    let dictation_telemetry = DictationTelemetry::capture(
-                                        telemetry_config.as_ref(),
-                                        &telemetry_pipeline,
-                                        transcription_model.clone(),
-                                        audio_secs,
-                                        inf_ms,
-                                        ai_status.clone(),
-                                        inference.stt_service,
-                                    );
-                                    let (stats_tx, stats_rx) =
-                                        tokio::sync::oneshot::channel::<Result<(), String>>();
-                                    tokio::task::spawn_blocking(move || {
-                                        // LLM outcome first: it is the one
-                                        // aggregate that survives history
-                                        // pruning, so it must not be skipped
-                                        // when a later write fails.
-                                        if let Some(status) = &ai_status {
-                                            if let Err(e) =
-                                                crate::stats::record_ai_outcome(&db, status)
-                                            {
-                                                log::warn!(
-                                                    "llm stats write failed (non-fatal): {e}"
-                                                );
-                                            }
-                                        }
-                                        let result = crate::stats::record_transcription(
-                                            &db,
-                                            &final_text,
-                                            lang.as_deref(),
-                                            inf_ms,
-                                            audio_secs,
-                                            crate::stats::TIME_SAVED_CPM_FALLBACK,
-                                            speech_seconds,
-                                        )
-                                        .and_then(|_| {
-                                            crate::history::append_entry(
-                                                &db,
-                                                &crate::history::NewEntry {
-                                                    text: &final_text,
-                                                    raw_text: &raw_text,
-                                                    formatted_text: &formatted_text,
-                                                    session_id: Some(sess_id),
-                                                    language: lang.as_deref(),
-                                                    inference_time_ms: inf_ms,
-                                                    ai_processing_json: ai_json.as_deref(),
-                                                    processing_stats_json: Some(&stats_json),
-                                                    system_prompt: system_prompt.as_deref(),
-                                                    transcription_model: transcription_model
-                                                        .as_deref(),
-                                                },
-                                            )
-                                            .map(|_| ())
-                                        })
-                                        .map_err(|e| e.to_string());
-                                        let _ = stats_tx.send(result);
-                                    });
-                                    match stats_rx.await {
-                                        Ok(Ok(())) => {}
-                                        Ok(Err(e)) => log::warn!(
-                                            "stats/history write failed (non-fatal): {e}"
-                                        ),
-                                        Err(_) => log::warn!(
-                                            "stats/history worker channel closed (non-fatal)"
-                                        ),
-                                    }
-
-                                    log::info!("delivery timing: session={session_id} database_ms={}", database_started.elapsed().as_millis());
-
-                                    // Tell the frontend a history entry
-                                    // was just appended so HistoryPage can
-                                    // re-fetch. Payload is the session_id
-                                    // (Tauri auto-serializes the inner JSON
-                                    // object as the event body).
-                                    let _ = app_for_dispatch.emit(
-                                        "history-updated",
-                                        serde_json::json!({ "session_id": session_id }),
-                                    );
-
-                                    // Move only AppHandle clones into the
-                                    // main-thread closure; `app2` would be
-                                    // moved twice otherwise. Paste the FINAL
-                                    // (formatted + LLM-cleaned) text.
-                                    let app2 = app_for_dispatch.clone();
-                                    let app3 = app2.clone();
-                                    // auto-paste / trailing space / auto-submit.
-                                    // Read here rather than inside the delivery
-                                    // call so the main thread does not touch the
-                                    // disk.
-                                    let delivery = crate::config::Config::load(&app_for_dispatch)
-                                        .map(|cfg| {
-                                            crate::clipboard::DeliveryOptions::from_config(
-                                                cfg.as_value(),
-                                            )
-                                        })
-                                        .unwrap_or_default();
-                                    let telemetry_paste_result = if delivery.auto_paste {
-                                        telemetry::PasteResult::Success
-                                    } else {
-                                        telemetry::PasteResult::ClipboardOnly
-                                    };
-                                    let dispatch_state_for_paste = dispatch_state.clone();
-                                    let paste_queued = std::time::Instant::now();
-                                    let paste_result = app2.run_on_main_thread(move || {
-                                        let paste_started = std::time::Instant::now();
-                                        let queue_ms = paste_queued.elapsed().as_millis();
-                                        // Cue and `paste-done` after the paste
-                                        // result is known. Successful key dispatch
-                                        // cannot confirm target acceptance, but
-                                        // observable delivery errors must fail. The overlay waits for this
-                                        // event before claiming anything was
-                                        // inserted, which is what keeps it quiet
-                                        // while a slow LLM is still working.
-                                        match crate::clipboard::deliver(
-                                            app3.clone(),
-                                            paste_text,
-                                            delivery,
-                                        ) {
-                                            Ok(()) => {
-                                                crate::sounds::play(
-                                                    &app3,
-                                                    crate::sounds::Cue::Done,
-                                                );
-                                                let _ = app3.emit(
-                                                    "paste-done",
-                                                    serde_json::json!({
-                                                        "session_id": session_id,
-                                                        "length": pasted_length,
-                                                        "ai_processing": paste_ai,
-                                                    }),
-                                                );
-                                                dictation_telemetry.record(
-                                                    &telemetry_for_paste,
-                                                    pasted_length,
-                                                    telemetry_paste_result,
-                                                );
-                                            }
-                                            Err(e) => {
-                                                log::error!("paste failed: {e}");
-                                                crate::sounds::play(
-                                                    &app3,
-                                                    crate::sounds::Cue::Error,
-                                                );
-                                                let message = format!(
-                                                    "{} {e}",
-                                                    crate::ui_text::t(
-                                                        "Не удалось вставить текст в активное окно."
-                                                    )
-                                                );
-                                                let _ = app3.emit(
-                                                    "app-error",
-                                                    serde_json::json!({
-                                                        "kind": "paste",
-                                                        "message": message,
-                                                    }),
-                                                );
-                                                // The overlay is waiting in
-                                                // "распознано" for a paste that
-                                                // is never coming. Without this
-                                                // it sits there until the
-                                                // stuck-overlay timeout — three
-                                                // minutes of pretending to work.
-                                                let _ = app3.emit(
-                                                    "paste-failed",
-                                                    serde_json::json!({
-                                                        "session_id": session_id,
-                                                        "message": message,
-                                                    }),
-                                                );
-                                                dictation_telemetry.record(
-                                                    &telemetry_for_paste,
-                                                    pasted_length,
-                                                    telemetry::PasteResult::Failed,
-                                                );
-                                            }
-                                        }
-                                        log::info!("delivery timing: session={session_id} main_queue_ms={queue_ms} paste_ms={}", paste_started.elapsed().as_millis());
-                                        dictation::finish(&dispatch_state_for_paste, session_id);
-                                    });
-                                    if paste_result.is_err() {
-                                        let _ = app_for_dispatch.emit("paste-failed", serde_json::json!({
-                                            "session_id": session_id,
-                                            "message": crate::ui_text::t("Не удалось вставить текст в активное окно."),
-                                        }));
-                                        dictation::finish(&dispatch_state, session_id);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                log::info!("whisper event dispatcher exiting");
-            });
+            spawn_model_autoload(app.handle().clone());
+            spawn_idle_watchdog(app.handle().clone());
+            crate::engine_events::spawn(app.handle().clone(), engine_event_rx);
 
             // Startup: register the saved hotkey from config.json.
-            // WS 4a1 Task 13b: fetch the AppState we just `manage()`-ed
-            // and hand it to `register`. The handler closure captures a
-            // clone so the global-shortcut handler can dispatch into the
-            // engine thread without going through the sidecar.
+            // The shortcut handler captures an AppState clone so it can
+            // dispatch into the engine thread.
             let state: tauri::State<AppState> = app.state();
             match config::load_hotkey(app.handle()) {
                 Ok(hotkey) => {
@@ -1967,7 +1537,7 @@ pub fn run() {
                 }
                 Err(e) => log::warn!("could not load hotkey from config: {e}"),
             }
-            // WS 4a1 Task 15: wire the overlay to engine lifecycle events
+            // Wire the overlay to engine lifecycle events
             // (whisper-started/done/failed/cancelled/loading/load-failed +
             // recording-started from the start_recording command). The
             // listener closure captures `app.handle()` and lives for the
@@ -2005,7 +1575,6 @@ pub fn run() {
             audio_file::pick_audio_file,
             audio_file::transcribe_audio_file,
             audio_file::cancel_audio_file,
-            overlay::show_state,
             overlay::hide,
             overlay::current_state,
             overlay::overlay_ready,
@@ -2014,9 +1583,8 @@ pub fn run() {
             #[cfg(windows)]
             windows::tray_popup::hide_tray_popup,
             focus_main_window,
-            open_url,
+            external_link::open_url,
             hotkey::validate_hotkey,
-            hotkey::set_hotkey,
             ai::fetch_provider_models,
             model_download::cancel_model_download,
             crate::overlay::set_overlay_presentation,
@@ -2026,10 +1594,8 @@ pub fn run() {
             mic_test::start_microphone_test,
             mic_test::stop_microphone_test,
             mic_test::set_microphone_test_monitor,
-            // WS 4b Task 9: stats + history Tauri commands. Frontend calls
-            // these via `rustInvoke` from `desktop/src/bridge/stats.ts`.
-            // All 5 are `async fn` so the DB op runs through `spawn_blocking`
-            // via the `run_db_op` helper above.
+            // Stats and history: `async fn`s whose DB work runs through
+            // `spawn_blocking` via `run_db_op`.
             stats::get_stats,
             history::list_history,
             history::delete_history_entry,
@@ -2038,10 +1604,11 @@ pub fn run() {
             // and the write are separate so the result can be reviewed first.
             history::preview_history_ai_processing,
             history::apply_history_ai_processing,
-            // Phase 4 / PR-B: native Tauri commands (replaced Python sidecar).
+            // Settings.
             config::get_config,
             config::save_config,
-            // PR-A: boot-blocking commands called from MainWindow.load() via Promise.all.
+            config::set_replacements_paused,
+            // Boot-blocking commands called from MainWindow.load() via Promise.all.
             app_version,
             release_notes::get_whats_new,
             release_notes::dismiss_whats_new,
@@ -2050,13 +1617,11 @@ pub fn run() {
             audio::list_microphones,
             model::list_models,
             model_performance::model_assessments,
-            model_performance::reset_model_assessment,
             get_runtime_status,
-            // PR-B0: model lifecycle commands.
+            // Model lifecycle.
             model_download::download_model,
             model::set_model,
             model::delete_model,
-            model::get_model_status,
             // API-key storage (native secret store). The frontend's
             // API-keys / providers pages depend on these three.
             secret_store::save_api_key,
@@ -2099,10 +1664,6 @@ pub fn run() {
         });
 }
 
-/// Borrow the `ai_processing` sub-object from a loaded config, or a
-/// stable error string. Centralizes the lookup shared by the retry
-/// and cloud-STT paths (both need the same object and the same
-/// "missing ai_processing config" error message).
 /// Result of the post-Whisper pipeline: local formatting + optional LLM.
 ///
 /// `raw_text` is the untouched whisper output, `formatted_text` is the
@@ -2199,74 +1760,6 @@ fn llm_should_run(ai: Option<&Value>) -> bool {
         .and_then(Value::as_str)
         .unwrap_or("local")
         == "hybrid"
-}
-
-/// The dictation facts telemetry needs, captured before the paste closure
-/// takes ownership of the text. Delivery is the only thing still unknown at
-/// that point, so the closure supplies it and calls `record` exactly once.
-struct DictationTelemetry {
-    stt_service: Option<crate::telemetry::ProviderService>,
-    pipeline_mode: String,
-    stt_model: Option<String>,
-    audio_seconds: f64,
-    stt_millis: u64,
-    ai_status: Option<crate::ai::step::AiStatus>,
-    recording_mode: crate::telemetry::RecordingMode,
-    compute: Option<crate::telemetry::Compute>,
-    formatting_enabled: bool,
-    replacement_rules: usize,
-}
-
-impl DictationTelemetry {
-    fn capture(
-        config: Option<&crate::config::Config>,
-        pipeline_mode: &str,
-        stt_model: Option<String>,
-        audio_seconds: f64,
-        stt_millis: u64,
-        ai_status: Option<crate::ai::step::AiStatus>,
-        stt_service: Option<crate::telemetry::ProviderService>,
-    ) -> Self {
-        let (formatting_enabled, replacement_rules) =
-            config.map(telemetry_formatting).unwrap_or((false, 0));
-        Self {
-            stt_service,
-            pipeline_mode: pipeline_mode.to_string(),
-            recording_mode: config
-                .map(telemetry_recording_mode)
-                .unwrap_or(crate::telemetry::RecordingMode::NotApplicable),
-            compute: config.map(|config| telemetry_compute(config, stt_model.as_deref())),
-            stt_model,
-            audio_seconds,
-            stt_millis,
-            ai_status,
-            formatting_enabled,
-            replacement_rules,
-        }
-    }
-
-    fn record(
-        &self,
-        telemetry: &crate::telemetry::Telemetry,
-        chars: usize,
-        paste_result: crate::telemetry::PasteResult,
-    ) {
-        telemetry.record_completed(crate::telemetry::Outcome {
-            source: crate::telemetry::Source::Microphone,
-            pipeline_mode: &self.pipeline_mode,
-            recording_mode: self.recording_mode,
-            stt_model: self.stt_model.as_deref(),
-            stt_service: self.stt_service,
-            audio_seconds: self.audio_seconds,
-            stt_millis: self.stt_millis,
-            chars,
-            ai_status: self.ai_status.as_ref(),
-            compute: self.compute,
-            formatting_enabled: self.formatting_enabled,
-            replacement_rules: self.replacement_rules,
-            paste_result,
-        });
-    }
 }
 
 /// Resolve the configured pipeline for a telemetry outcome.  Unknown or
@@ -2397,7 +1890,8 @@ pub(crate) async fn post_process_transcription(
             let api_key = if ai_cfg.api_key_ref.is_empty() {
                 None
             } else {
-                crate::secret_store::get_key(&ai_cfg.api_key_ref)
+                crate::secret_store::load_key(&ai_cfg.api_key_ref)
+                    .await
                     .ok()
                     .flatten()
             };
@@ -2476,6 +1970,10 @@ fn text_formatting_config(
         .unwrap_or_default()
 }
 
+/// Borrow the `ai_processing` sub-object from a loaded config, or a
+/// stable error string. Centralizes the lookup shared by the retry
+/// and cloud-STT paths (both need the same object and the same
+/// "missing ai_processing config" error message).
 pub(crate) fn ai_processing_config(config: &crate::config::Config) -> Result<&Value, String> {
     config
         .as_value()

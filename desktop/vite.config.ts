@@ -10,11 +10,14 @@ export default defineConfig(async () => ({
     port: 1420,
     strictPort: true,
   },
-  envPrefix: ["VITE_", "TAURI_"],
+  // Only the variables the Tauri CLI sets for the frontend build. A bare
+  // "TAURI_" prefix would also expose TAURI_SIGNING_PRIVATE_KEY and its
+  // password, which the release build has in the same environment.
+  envPrefix: ["VITE_", "TAURI_ENV_"],
   build: {
-    target: process.env.TAURI_PLATFORM === "windows" ? "chrome105" : "es2022",
-    minify: !process.env.TAURI_DEBUG ? "esbuild" : false,
-    sourcemap: !!process.env.TAURI_DEBUG,
+    target: process.env.TAURI_ENV_PLATFORM === "windows" ? "chrome105" : "es2022",
+    minify: process.env.TAURI_ENV_DEBUG === "true" ? false : "esbuild",
+    sourcemap: process.env.TAURI_ENV_DEBUG === "true",
     modulePreload: {
       // WebKit retains a failed modulepreload across reloads. Let import()
       // fetch the lazy entry itself so Reload can retry; still preload its

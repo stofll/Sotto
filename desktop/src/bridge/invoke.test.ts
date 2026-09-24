@@ -2,8 +2,7 @@
 //
 // `invoke` is the central RPC entry point. In Tauri mode it's a
 // direct passthrough to the native command; outside Tauri it
-// throws a clear error (no HTTP bridge fallback — the Python
-// sidecar is gone).
+// throws a clear error (there is no HTTP bridge fallback).
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

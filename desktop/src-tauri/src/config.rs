@@ -1,9 +1,11 @@
 //! JSON configuration, migrations, merge patches and live settings updates.
 
 use serde_json::{Map, Value};
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
+use std::time::SystemTime;
 use tauri::{AppHandle, Manager};
 
 const DEFAULT_HOTKEY: &str = "ctrl+shift+space";
@@ -19,6 +21,38 @@ fn with_locked_config<T>(
     let _writer = crate::mutex_recover::lock(&CONFIG_WRITES);
     let mut config = Config::load_at(path)?;
     update(&mut config, path)
+}
+
+/// Run `read` on the settings saved at `path` while no writer can change them.
+pub fn read_locked<T>(path: &Path, read: impl FnOnce(&Config) -> T) -> Result<T, String> {
+    with_locked_config(path, |config, _| Ok(read(config)))
+}
+
+/// The last contents read or written for each config file, with the stamp
+/// of the file they match.
+///
+/// A single dictation asks for the config several times, and most of those
+/// reads sit between the transcript and the paste. A changed stamp — a hand
+/// edit or another tool writing the file — sends the next load to disk.
+static LOADED: LazyLock<Mutex<HashMap<PathBuf, (FileStamp, Value)>>> =
+    LazyLock::new(Default::default);
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct FileStamp {
+    modified: SystemTime,
+    len: u64,
+}
+
+fn file_stamp(path: &Path) -> Option<FileStamp> {
+    let meta = fs::metadata(path).ok()?;
+    Some(FileStamp {
+        modified: meta.modified().ok()?,
+        len: meta.len(),
+    })
+}
+
+fn remember(path: &Path, stamp: FileStamp, data: &Value) {
+    crate::mutex_recover::lock(&LOADED).insert(path.to_owned(), (stamp, data.clone()));
 }
 
 /// Value of the `device` config key meaning "run inference on the GPU".
@@ -85,6 +119,17 @@ impl Config {
     /// Load a config from an explicit path. Returns an empty config (`{}`)
     /// if the file does not exist — first-run case.
     fn load_at(path: &Path) -> Result<Self, String> {
+        // Stamped before reading: a write that lands in between leaves an
+        // older stamp next to newer contents, which costs one more read
+        // rather than serving stale settings.
+        let stamp = file_stamp(path);
+        if let Some(stamp) = stamp {
+            if let Some((cached, data)) = crate::mutex_recover::lock(&LOADED).get(path) {
+                if *cached == stamp {
+                    return Ok(Self { data: data.clone() });
+                }
+            }
+        }
         if !path.exists() {
             return Ok(Self {
                 data: Value::Object(Map::new()),
@@ -95,6 +140,9 @@ impl Config {
             serde_json::from_str(&raw).map_err(|e| format!("parse config.json: {e}"))?;
         crate::dictionaries::migrate(&mut data);
         crate::overlay_preferences::migrate(&mut data);
+        if let Some(stamp) = stamp {
+            remember(path, stamp, &data);
+        }
         Ok(Self { data })
     }
 
@@ -115,8 +163,7 @@ impl Config {
 
     /// Read a string value, or `None` if the key is absent or has another type.
     pub fn get_string(&self, key: &str) -> Option<String> {
-        self.get(key)
-            .and_then(|v| v.as_str().map(|s| s.to_string()))
+        self.data.get(key)?.as_str().map(str::to_owned)
     }
 
     /// Borrow the underlying `serde_json::Value`. Used by callers that
@@ -138,6 +185,9 @@ impl Config {
         let tmp = path.with_extension("json.tmp");
         fs::write(&tmp, &pretty).map_err(|e| format!("write config tmp: {e}"))?;
         fs::rename(&tmp, path).map_err(|e| format!("rename config tmp: {e}"))?;
+        if let Some(stamp) = file_stamp(path) {
+            remember(path, stamp, &self.data);
+        }
         Ok(())
     }
 
@@ -237,6 +287,26 @@ pub fn model_unload_after_minutes(config: &Value) -> u64 {
     minutes.min(MAX_MODEL_UNLOAD_MINUTES)
 }
 
+/// Key: after how many minutes a recording stops by itself.
+pub const RECORDING_LIMIT_KEY: &str = "recording_limit_minutes";
+
+/// A recording left running in toggle mode grows by about 230 MB an hour and
+/// then goes to the engine whole. The values are duplicated in
+/// `src/pages/recordingLimitSettings.ts`.
+pub const DEFAULT_RECORDING_LIMIT_MINUTES: u64 = 15;
+
+/// Longer than any dictation, and still a bound on memory.
+const MAX_RECORDING_LIMIT_MINUTES: u64 = 24 * 60;
+
+/// After how many minutes of recording to stop and transcribe. `0` — never.
+pub fn recording_limit_minutes(config: &Value) -> u64 {
+    config
+        .get(RECORDING_LIMIT_KEY)
+        .and_then(Value::as_u64)
+        .unwrap_or(DEFAULT_RECORDING_LIMIT_MINUTES)
+        .min(MAX_RECORDING_LIMIT_MINUTES)
+}
+
 /// One-shot startup migration of the compute-device settings.
 ///
 /// - `device: "cuda"` → `"gpu"` (see [`resolve_device`]).
@@ -333,27 +403,28 @@ fn save_with_merge_patch_at(path: &Path, patch: Value) -> Result<Value, String> 
     })
 }
 
-/// Register a new shortcut and persist it under the same writer lock as settings.
-/// A failed write restores the previous binding before another writer can enter.
-pub(crate) fn change_hotkey(
-    app: &AppHandle,
-    hotkey: &str,
-    replace_binding: impl FnOnce(&str, &str) -> Result<crate::hotkey::BindingRollback, String>,
-) -> Result<(), String> {
-    change_hotkey_at(&config_path(app)?, hotkey, replace_binding)
-}
-
-fn change_hotkey_at(
+/// The part of `save_config` that needs no `AppHandle`: merge `patch` into a
+/// copy of `current`, let `check` refuse the result, validate and write it.
+/// A patch with a hotkey rebinds it first and restores the previous binding
+/// if the write fails. `current` is left as it was; the saved copy is
+/// returned.
+fn persist_patch(
+    current: &Config,
     path: &Path,
-    hotkey: &str,
+    patch: &Value,
+    check: impl FnOnce(&Config) -> Result<(), String>,
     replace_binding: impl FnOnce(&str, &str) -> Result<crate::hotkey::BindingRollback, String>,
-) -> Result<(), String> {
-    with_locked_config(path, |config, path| {
-        let old = hotkey_from(config);
-        config.set("hotkey", Value::String(hotkey.into()))?;
-        validate(config.as_value())?;
-        persist_with_hotkey(config, path, &old, replace_binding)
-    })
+) -> Result<Config, String> {
+    let mut candidate = current.clone();
+    candidate.apply_merge_patch(patch)?;
+    check(&candidate)?;
+    validate(candidate.as_value())?;
+    if patch.get("hotkey").is_some() {
+        persist_with_hotkey(&candidate, path, &hotkey_from(current), replace_binding)?;
+    } else {
+        candidate.save_at(path)?;
+    }
+    Ok(candidate)
 }
 
 fn persist_with_hotkey(
@@ -411,6 +482,23 @@ pub(crate) async fn save_config(
     .map_err(|error| format!("config worker: {error}"))?
 }
 
+/// The tray's switch for pausing replacements. A command of its own so the
+/// tray window is not granted `save_config`, which can change any setting,
+/// including the provider address API keys are sent to.
+#[tauri::command]
+pub(crate) async fn set_replacements_paused(
+    app: AppHandle,
+    state: tauri::State<'_, crate::state::AppState>,
+    paused: bool,
+) -> Result<Value, String> {
+    save_config(
+        app,
+        state,
+        serde_json::json!({ "replacements_paused": paused }),
+    )
+    .await
+}
+
 fn save_config_locked(
     app: &AppHandle,
     state: &crate::state::AppState,
@@ -419,35 +507,34 @@ fn save_config_locked(
     patch: Value,
 ) -> Result<Value, String> {
     let device_before = resolve_device(current_config.as_value());
-    let mut candidate_config = current_config.clone();
-    candidate_config.apply_merge_patch(&patch)?;
     // The configured-model half of the GigaAM language rule lives in
     // `config::validate`, which every writer goes through. This half cannot:
     // it asks what the engine has loaded right now, which no `Value` knows.
-    if patch.get("language").is_some() || patch.get("model").is_some() {
-        let language = candidate_config
+    let check_loaded_model = |candidate: &Config| {
+        if patch.get("language").is_none() && patch.get("model").is_none() {
+            return Ok(());
+        }
+        let language = candidate
             .get_string("language")
             .unwrap_or_else(|| "ru".to_string());
         let loaded_model = crate::mutex_recover::lock(&state.engine_current_model).clone();
-        if let Some(model) = loaded_model.as_deref() {
-            if !crate::model::model_supports_language(model, &language) {
+        match loaded_model.as_deref() {
+            Some(model) if !crate::model::model_supports_language(model, &language) => {
                 let languages = crate::model::model_languages(model).unwrap_or_default();
-                return Err(crate::model::language_unsupported_message(languages));
+                Err(crate::model::language_unsupported_message(languages))
             }
+            _ => Ok(()),
         }
-    }
-    validate(candidate_config.as_value())?;
-    if patch.get("hotkey").is_some() {
-        persist_with_hotkey(
-            &candidate_config,
-            path,
-            &hotkey_from(current_config),
-            |old, new| crate::hotkey::re_register_with_rollback(app, state, old, new),
-        )?;
-    } else {
-        candidate_config.save_at(path)?;
-    }
-    let saved = candidate_config.as_value().clone();
+    };
+    let saved = persist_patch(
+        current_config,
+        path,
+        &patch,
+        check_loaded_model,
+        |old, new| crate::hotkey::re_register_with_rollback(app, state, old, new),
+    )?
+    .as_value()
+    .clone();
     let device_after = resolve_device(&saved);
     apply_runtime_config(app, &saved, &patch);
 
@@ -508,6 +595,17 @@ fn apply_runtime_config(app: &AppHandle, saved: &Value, patch: &Value) {
     if patch.get("auto_start").is_some() {
         crate::apply_autostart(app);
     }
+    // Deleted now rather than at the next dictation: a shorter retention is
+    // usually a request to get rid of the old entries. Still under the config
+    // lock, so a prune never runs with a policy a later save has replaced.
+    if crate::history::RetentionPolicy::is_changed_by(patch) {
+        let retention = crate::history::RetentionPolicy::from_config(saved);
+        let state = app.state::<crate::state::AppState>();
+        let pruned = crate::history::prune(&crate::mutex_recover::lock(&state.db), retention);
+        if let Err(error) = pruned {
+            log::warn!("history prune failed (non-fatal): {error}");
+        }
+    }
     if patch.get(crate::ui_text::CONFIG_KEY).is_some() {
         crate::ui_text::set_from_config(saved);
         // Refresh native menu labels while retaining the existing tray icon.
@@ -531,6 +629,25 @@ fn apply_runtime_config(app: &AppHandle, saved: &Value, patch: &Value) {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// `save_config` with a hotkey patch, minus the `AppHandle`: the same
+    /// writer lock and [`persist_patch`], with the native rebind stubbed.
+    fn change_hotkey_at(
+        path: &Path,
+        hotkey: &str,
+        replace_binding: impl FnOnce(&str, &str) -> Result<crate::hotkey::BindingRollback, String>,
+    ) -> Result<(), String> {
+        with_locked_config(path, |config, path| {
+            persist_patch(
+                config,
+                path,
+                &json!({ "hotkey": hotkey }),
+                |_| Ok(()),
+                replace_binding,
+            )
+            .map(|_| ())
+        })
+    }
 
     #[test]
     fn concurrent_settings_and_hotkey_writers_preserve_independent_changes() {
@@ -645,6 +762,34 @@ mod tests {
             );
             assert_eq!(Config::load_at(&path).unwrap().as_value(), &original);
         }
+    }
+
+    #[test]
+    fn a_refused_patch_neither_rebinds_nor_writes() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        let original = json!({"hotkey": "ctrl+space", "language": "ru"});
+        fs::write(&path, original.to_string()).unwrap();
+        let save = |patch: Value, check: fn(&Config) -> Result<(), String>| {
+            with_locked_config(&path, |config, path| {
+                persist_patch(config, path, &patch, check, |_, _| {
+                    panic!("must not rebind")
+                })
+                .map(|saved| saved.as_value().clone())
+            })
+        };
+
+        let error = save(json!({"hotkey": "ctrl+shift+a", "language": "en"}), |_| {
+            Err("the loaded model is Russian-only".into())
+        })
+        .unwrap_err();
+        assert_eq!(error, "the loaded model is Russian-only");
+        assert_eq!(Config::load_at(&path).unwrap().as_value(), &original);
+
+        // Without a hotkey in the patch the binding is not touched at all.
+        let saved = save(json!({"theme": "light"}), |_| Ok(())).unwrap();
+        assert_eq!(saved["theme"], "light");
+        assert_eq!(saved["hotkey"], "ctrl+space");
     }
 
     #[test]
@@ -992,6 +1137,54 @@ mod tests {
     }
 
     #[test]
+    fn repeated_loads_are_served_from_memory_until_the_file_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        fs::write(&path, r#"{"theme":"dark"}"#).unwrap();
+        assert_eq!(
+            Config::load_at(&path).unwrap().get_string("theme").unwrap(),
+            "dark"
+        );
+        let modified = fs::metadata(&path).unwrap().modified().unwrap();
+        let rewrite = |contents: &str, modified: SystemTime| {
+            fs::write(&path, contents).unwrap();
+            fs::File::options()
+                .write(true)
+                .open(&path)
+                .unwrap()
+                .set_modified(modified)
+                .unwrap();
+        };
+
+        // Same stamp: the file is not read again.
+        rewrite(r#"{"theme":"lite"}"#, modified);
+        assert_eq!(
+            Config::load_at(&path).unwrap().get_string("theme").unwrap(),
+            "dark"
+        );
+
+        // A hand edit moves the stamp and is picked up.
+        let edited = modified + std::time::Duration::from_secs(2);
+        rewrite(r#"{"theme":"lite"}"#, edited);
+        assert_eq!(
+            Config::load_at(&path).unwrap().get_string("theme").unwrap(),
+            "lite"
+        );
+
+        // A save updates memory along with the file.
+        save_with_merge_patch_at(&path, json!({"theme": "light"})).unwrap();
+        let saved = fs::metadata(&path).unwrap().modified().unwrap();
+        rewrite(
+            &fs::read_to_string(&path).unwrap().replace("light", "LIGHT"),
+            saved,
+        );
+        assert_eq!(
+            Config::load_at(&path).unwrap().get_string("theme").unwrap(),
+            "light"
+        );
+    }
+
+    #[test]
     fn load_at_rejects_broken_json() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.json");
@@ -1119,6 +1312,30 @@ mod tests {
 
         assert!(refused.is_err());
         assert_eq!(Config::load_at(&path).unwrap().as_value(), &before);
+    }
+
+    #[test]
+    fn recording_limit_defaults_caps_and_turns_off() {
+        assert_eq!(
+            recording_limit_minutes(&json!({})),
+            DEFAULT_RECORDING_LIMIT_MINUTES
+        );
+        assert_eq!(
+            recording_limit_minutes(&json!({ RECORDING_LIMIT_KEY: 0 })),
+            0
+        );
+        assert_eq!(
+            recording_limit_minutes(&json!({ RECORDING_LIMIT_KEY: 30 })),
+            30
+        );
+        assert_eq!(
+            recording_limit_minutes(&json!({ RECORDING_LIMIT_KEY: 100_000 })),
+            24 * 60
+        );
+        assert_eq!(
+            recording_limit_minutes(&json!({ RECORDING_LIMIT_KEY: "5" })),
+            DEFAULT_RECORDING_LIMIT_MINUTES
+        );
     }
 
     /// No key still means unloading is on: otherwise the update would quietly

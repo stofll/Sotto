@@ -1,0 +1,22 @@
+name: Security audit
+
+# The pull request check in rust-ci.yml only sees advisories published while
+# a change is open. An unchanged main can become vulnerable any day, and the
+# landing page's lockfile is not touched by application pull requests at all,
+# so the same audit also runs on a schedule.
+on:
+  schedule:
+    - cron: '17 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Weekly dependency audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/dependency-audit
