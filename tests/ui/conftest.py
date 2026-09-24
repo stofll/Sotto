@@ -7,6 +7,7 @@ import secrets
 import socket
 import subprocess
 import time
+from contextlib import contextmanager
 from fnmatch import fnmatch
 from pathlib import Path
 from urllib.request import urlopen
@@ -31,6 +32,16 @@ def pytest_addoption(parser):
         default="windows",
         help="Tauri frontend build target; does not emulate native OS behavior.",
     )
+
+
+def pytest_configure(config):
+    worker = getattr(config, "workerinput", None)
+    if worker is not None:
+        # pytest-playwright clears --output at session start; each worker needs
+        # its own directory so one cannot erase another's traces or screenshots.
+        config.option.output = str(
+            Path(config.getoption("--output")) / worker["workerid"]
+        )
 
 
 # The sidebar group each tab lives in; a collapsed group hides its tabs.
@@ -75,6 +86,40 @@ def _stop(process):
         process.wait(timeout=5)
 
 
+@contextmanager
+def _vite_server(work, args, *, env=None, log_prefix="vite"):
+    failures = []
+    for _ in range(3):
+        port = _free_port()
+        url = f"http://127.0.0.1:{port}"
+        with (work / f"{log_prefix}-{port}.log").open("w+") as log:
+            process = subprocess.Popen(
+                [
+                    "node",
+                    "node_modules/vite/bin/vite.js",
+                    *args,
+                    "--host",
+                    "127.0.0.1",
+                    "--port",
+                    str(port),
+                    "--strictPort",
+                ],
+                cwd=ROOT / "desktop",
+                stdout=log,
+                stderr=subprocess.STDOUT,
+                env=env,
+            )
+            try:
+                if _serving(process, url):
+                    yield url
+                    return
+                log.seek(0)
+                failures.append(f"port {port}:\n{log.read()}")
+            finally:
+                _stop(process)
+    pytest.fail("Vite failed to start:\n" + "\n".join(failures))
+
+
 @pytest.fixture(scope="session")
 def ui_server(tmp_path_factory, pytestconfig):
     work = tmp_path_factory.mktemp("sotto-ui")
@@ -97,38 +142,10 @@ def ui_server(tmp_path_factory, pytestconfig):
             check=True,
         )
         server_args = ["preview", "--outDir", str(dist)]
-    # Something else can take the probed port before Vite binds it, and
-    # --strictPort turns that race into an immediate exit. Retry on a fresh
-    # port rather than failing the whole session on a lost race.
-    failures = []
-    for _ in range(3):
-        port = _free_port()
-        url = f"http://127.0.0.1:{port}"
-        with (work / f"vite-{port}.log").open("w+") as log:
-            process = subprocess.Popen(
-                [
-                    "node",
-                    "node_modules/vite/bin/vite.js",
-                    *server_args,
-                    "--host",
-                    "127.0.0.1",
-                    "--port",
-                    str(port),
-                    "--strictPort",
-                ],
-                cwd=ROOT / "desktop",
-                stdout=log,
-                stderr=subprocess.STDOUT,
-            )
-            try:
-                if _serving(process, url):
-                    yield url, harness.read_text()
-                    return
-                log.seek(0)
-                failures.append(f"port {port}:\n{log.read()}")
-            finally:
-                _stop(process)
-    pytest.fail("Vite failed to start:\n" + "\n".join(failures))
+    # A probed port can be taken before Vite binds it; the shared server
+    # helper retries both application and setup previews on a fresh port.
+    with _vite_server(work, server_args) as url:
+        yield url, harness.read_text()
 
 
 @pytest.fixture(scope="session")

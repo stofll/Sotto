@@ -17,7 +17,7 @@ export function checkReleaseSource({ repo, source, api, git }) {
   });
   const sourceRuns = runsFor(source);
   if (sourceRuns.every((runs) => latestRunPassed(runs, source))) return source;
-  if (sourceRuns.some((runs) => runs.length > 0)) {
+  if (sourceRuns.some((runs) => runs.length > 0 && !latestRunPassed(runs, source))) {
     throw new Error('Source CI is incomplete or unsuccessful. Finish successful Rust CI and UI tests on main before releasing.');
   }
 

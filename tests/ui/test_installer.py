@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from conftest import ROOT, _free_port, _serving, _stop
+from conftest import ROOT, _vite_server
 from playwright.sync_api import expect
 
 
@@ -33,30 +33,8 @@ def setup_server(tmp_path_factory, pytestconfig):
             check=True,
         )
         args = ["preview", *args, "--outDir", str(dist)]
-    port = _free_port()
-    url = f"http://127.0.0.1:{port}"
-    with (work / "server.log").open("w") as log:
-        process = subprocess.Popen(
-            [
-                "node",
-                "node_modules/vite/bin/vite.js",
-                *args,
-                "--host",
-                "127.0.0.1",
-                "--port",
-                str(port),
-                "--strictPort",
-            ],
-            cwd=ROOT / "desktop",
-            stdout=log,
-            stderr=subprocess.STDOUT,
-            env=env,
-        )
-        try:
-            assert _serving(process, url), "Setup preview server did not start"
-            yield url
-        finally:
-            _stop(process)
+    with _vite_server(work, args, env=env, log_prefix="setup-vite") as url:
+        yield url
 
 
 MOCK = r"""

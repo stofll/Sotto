@@ -2,7 +2,11 @@
 name = "sotto-ui-tests"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = ["pytest>=8,<10", "pytest-playwright>=0.7,<1"]
+dependencies = [
+    "pytest>=8,<10",
+    "pytest-playwright>=0.7,<1",
+    "pytest-xdist>=3,<4",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["."]
