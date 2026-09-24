@@ -18,7 +18,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 raw-window-handle = "0.6"
 tokio = { version = "1", features = ["sync", "time", "fs", "io-util", "macros", "rt"] }
-reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "stream", "json"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls-no-provider", "stream", "json"] }
 # The crypto provider reqwest is built without; see src/http_client.rs.
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 futures-util = "0.3"
@@ -32,7 +32,7 @@ tauri-plugin-clipboard-manager = "2"
 tauri-plugin-autostart = "2"
 # A second instance would register the same global hotkey and lose the race
 # nondeterministically — single-instance is a correctness fix, not polish.
-tauri-plugin-single-instance = "2"
+tauri-plugin-single-instance = "2.4.5"
 # Self-update. The plugin downloads and installs the artifact from latest.json
 # on GitHub Releases, verifying the minisign signature with the public key from
 # tauri.conf.json. Integrity — yes, publisher — no: SmartScreen's "unknown
