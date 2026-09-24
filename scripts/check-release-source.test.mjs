@@ -13,11 +13,12 @@ test('requires the latest CI attempt to succeed, never an older green result', (
   }
   assert.equal(latestRunPassed([run(head)], source), false);
   assert.equal(latestRunPassed([run(source, { event: 'pull_request_target' })], source), false);
+  assert.equal(latestRunPassed([run(source, { event: 'push' })], source), false);
 });
 
 function verify({
   direct = false, sameTree = true, merged = true, uiPass = true,
-  sourceRustPass = false, sourceFailed = false, sourcePending = false,
+  sourcePush = null, sourceUiDispatch = false, sourceFailed = false, sourcePending = false,
   headFailed = false, headPending = false, apiFails = false,
 } = {}) {
   return checkReleaseSource({
@@ -31,7 +32,12 @@ function verify({
       }]];
       const sha = endpoint.includes(`head_sha=${source}`) ? source : head;
       const uiWorkflow = endpoint.includes('ui-tests.yml');
-      let runs = (direct || sha === head || (sourceRustPass && !uiWorkflow)) ? [run(sha)] : [];
+      let runs = (direct || sha === head) ? [run(sha)] : [];
+      if (sourcePush && sha === source && !uiWorkflow) {
+        const pending = sourcePush === 'in_progress';
+        runs = [run(sha, { event: 'push', status: pending ? 'in_progress' : 'completed', conclusion: pending ? null : sourcePush })];
+      }
+      if (sourceUiDispatch && sha === source && uiWorkflow) runs = [run(sha, { event: 'workflow_dispatch' })];
       if (sourceFailed && sha === source) runs = [run(sha, { conclusion: 'failure' })];
       if (sourcePending && sha === source) runs = [run(sha, { status: 'in_progress', conclusion: null })];
       if (headFailed && sha === head && uiWorkflow) runs = [run(sha, { conclusion: 'failure' })];
@@ -49,11 +55,14 @@ test('reuses merged PR CI only for an identical tree', () => {
   assert.throws(() => verify({ sameTree: false }));
   assert.throws(() => verify({ merged: false }));
 });
-test('reuses matching PR CI when only Rust CI passed on main', () => {
-  assert.equal(verify({ sourceRustPass: true }), head);
-  assert.throws(() => verify({ sourceRustPass: true, sameTree: false }), /No successful/);
-  assert.throws(() => verify({ sourceRustPass: true, headFailed: true }), /No successful/);
-  assert.throws(() => verify({ sourceRustPass: true, headPending: true }), /No successful/);
+test('ignores the build-only Rust CI run of a push to main', () => {
+  for (const sourcePush of ['success', 'failure', 'in_progress']) {
+    assert.equal(verify({ sourcePush }), head);
+    assert.throws(() => verify({ sourcePush, sameTree: false }), /No successful/);
+    assert.throws(() => verify({ sourcePush, headFailed: true }), /No successful/);
+    assert.throws(() => verify({ sourcePush, headPending: true }), /No successful/);
+  }
+  assert.throws(() => verify({ sourcePush: 'success', sourceUiDispatch: true, merged: false }), /No successful/);
 });
 test('refuses missing UI coverage and fails closed on API errors', () => {
   assert.throws(() => verify({ uiPass: false }));
