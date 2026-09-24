@@ -736,15 +736,18 @@ pub(crate) fn spawn_level_emitter(app: &AppHandle, recorder: Arc<crate::audio::A
                 if tick.is_multiple_of(30) {
                     log::debug!("audio-level poll: raw={raw:.4} mapped={level:.4}");
                     if !limited {
+                        // Read before measuring: a recording started after
+                        // the read measures short, so the id can only name
+                        // the recording being measured or an older one.
+                        let session_id = app
+                            .state::<AppState>()
+                            .current_session_id
+                            .load(Ordering::Acquire);
                         let recorded = recorder.recorded_seconds();
                         match recording_limit(recorded, warned, limit_minutes) {
                             RecordingLimit::Within => {}
                             RecordingLimit::Warn { remaining_seconds } => {
                                 warned = true;
-                                let session_id = app
-                                    .state::<AppState>()
-                                    .current_session_id
-                                    .load(Ordering::Acquire);
                                 let _ = app.emit(
                                     "recording-limit",
                                     serde_json::json!({
@@ -759,7 +762,7 @@ pub(crate) fn spawn_level_emitter(app: &AppHandle, recorder: Arc<crate::audio::A
                                     "recording limit reached after {recorded:.0}s, stopping"
                                 );
                                 let state = app.state::<AppState>();
-                                let _ = dictation::stop(&app, &state);
+                                let _ = dictation::stop_if_current(&app, &state, session_id);
                             }
                         }
                     }
