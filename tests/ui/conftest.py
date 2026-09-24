@@ -395,6 +395,10 @@ def app(page, ui_server, pytestconfig, monkeypatch, browser_name):
             harness + "\nSottoHarness.install(" + json.dumps(seed) + ");"
         )
         page.goto(url + ("/" if window == "main" else f"/{window}.html"))
+        # English strings load asynchronously after the window first renders
+        # in Russian; clicking before they arrive can hit a shifting layout.
+        locale = seed.get("config", {}).get("ui_language", "ru")
+        expect(page.locator("html")).to_have_attribute("lang", locale)
         if window == "main":
             expect(page.get_by_test_id("startup-loading")).not_to_be_visible()
             expect(page.get_by_test_id("page-settings")).to_be_visible()
