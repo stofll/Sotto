@@ -64,7 +64,7 @@ log = "0.4"
 # Vulkan SDK; release builds turn it on. whisper.cpp falls back to CPU at
 # runtime anyway when the GPU can't be initialised.
 whisper-rs = "0.14"
-dirs = "6"
+dirs = "7"
 # 0.16 fixes the CoreAudio disconnect-listener cycle that kept explicitly
 # selected microphones recording after their stream was dropped.
 cpal = "0.16"
