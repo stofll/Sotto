@@ -10,5 +10,5 @@ addopts = "--tracing=retain-on-failure --screenshot=only-on-failure --output=tes
 
 [dependency-groups]
 dev = [
-    "ruff>=0.16.7",
+    "ruff>=0.16.8",
 ]
