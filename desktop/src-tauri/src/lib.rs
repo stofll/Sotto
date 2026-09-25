@@ -5,9 +5,9 @@
 //! [`run`] names them by path. What stays here is what has no single domain:
 //!
 //! - `run()` and `setup()`: window, tray, hotkey, engine and worker wiring.
-//! - The app-level commands (`app_version`, `focus_main_window`,
-//!   `get_runtime_status`, `get_output_contract`) — they answer for the
-//!   application, not for one of its parts.
+//! - The app-level commands (`app_version`, `get_runtime_status`,
+//!   `get_output_contract`) — they answer for the application, not for one
+//!   of its parts.
 //! - The dictation pipeline, from `on_recording_started` to
 //!   `post_process_transcription`. It is the app's main flow rather than a
 //!   module's, and its post-processing half is shared: `audio_file` runs the
@@ -621,15 +621,6 @@ pub(crate) fn show_main_window(app: &AppHandle) -> Result<(), String> {
         window.show().map_err(|e| e.to_string())?;
         window.unminimize().map_err(|e| e.to_string())?;
         window.set_focus().map_err(|e| e.to_string())?;
-    }
-    Ok(())
-}
-
-#[tauri::command]
-fn focus_main_window(app: AppHandle, tab: String) -> Result<(), String> {
-    show_main_window(&app)?;
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.emit("navigate-tab", tab);
     }
     Ok(())
 }
@@ -1584,7 +1575,6 @@ pub fn run() {
             overlay::hide,
             overlay::current_state,
             overlay::overlay_ready,
-            focus_main_window,
             external_link::open_url,
             hotkey::validate_hotkey,
             ai::fetch_provider_models,

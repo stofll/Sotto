@@ -183,22 +183,6 @@ def test_theme_failure_rolls_back(app, page):
     expect(page.locator("html")).to_have_attribute("data-theme", "dark")
 
 
-@pytest.mark.parametrize(
-    "legacy,current",
-    [
-        ("formatting", "text"),
-        ("replacements", "text"),
-        ("providers", "integrations"),
-        ("api-keys", "integrations"),
-        ("overview", "settings"),
-    ],
-)
-def test_legacy_navigation_events(app, page, legacy, current):
-    ui = app()
-    ui.emit("navigate-tab", legacy)
-    expect(page.get_by_test_id(f"page-{current}")).to_be_visible()
-
-
 def test_permission_banner_deduplicates_and_dismisses(app, page):
     ui = app()
     payload = {

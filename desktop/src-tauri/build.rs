@@ -10,7 +10,6 @@ const APP_COMMANDS: &[&str] = &[
     "hide",
     "current_state",
     "overlay_ready",
-    "focus_main_window",
     "open_url",
     "validate_hotkey",
     "fetch_provider_models",
