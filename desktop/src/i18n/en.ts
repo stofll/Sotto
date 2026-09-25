@@ -156,8 +156,6 @@ export const en: Record<string, string | string[]> = {
   "Скрыть детали": "Hide details",
   "Подробнее": "Details",
   "Скрыть": "Hide",
-  "Скрыть меню": "Hide menu",
-  "Выход": "Quit",
   "Локально": "Local",
   "Локально + LLM": "Local + LLM",
   "Облако": "Cloud",
@@ -214,7 +212,6 @@ export const en: Record<string, string | string[]> = {
   "Модель распознавания не скачана.": "The speech model has not been downloaded.",
   "Не удалось распознать речь. Откройте «Настройки → Модели» и убедитесь, что модель скачана.":
     "Could not transcribe. Open Settings → Models and make sure a model is downloaded.",
-  "Не удалось загрузить модель": "Could not load the model",
   "Не удалось загрузить модель. Откройте «Настройки → Модели» и попробуйте снова.":
     "Could not load the model. Open Settings → Models and try again.",
   "Не удалось вставить текст в активное окно.": "Could not insert the text into the active window.",
@@ -239,18 +236,15 @@ export const en: Record<string, string | string[]> = {
   "Открыть папку логов": "Open the log folder",
 
   // ── Settings: language, device, microphone ─────────────────────────────
-  "Язык": "Speech language",
   "Язык речи": "Speech language",
   "Язык, на котором вы диктуете: модель распознаёт речь именно как его. «Авто» определяет язык по самой записи — это чуть медленнее и иногда ошибается на коротких фразах. На язык интерфейса не влияет.":
     "The language you dictate in: the model transcribes speech as that language. “Auto” detects it from the recording itself — slightly slower, and sometimes wrong on short phrases. It does not affect the interface language.",
   "Язык интерфейса": "Interface language",
   "Авто": "Auto",
   "Пробел в конце": "Trailing space",
-  "Русский": "Russian",
   "Устройство обработки": "Compute device",
   "Модель работает только на CPU": "This model runs on the CPU only",
   "Микрофон": "Microphone",
-  "Системный": "System",
   "Системный микрофон по умолчанию": "System default microphone",
   "Проверка микрофона": "Microphone check",
   "Индикатор показывает уровень сигнала. Скажите что-нибудь: полоса должна доходить до середины и не упираться в край.": "The meter shows the input level. Say something: the bar should reach about halfway without hitting the end.",
@@ -590,8 +584,6 @@ export const en: Record<string, string | string[]> = {
   "Фраза": "Phrase",
   "Внутри": "Inside",
   "Регистр": "Case",
-  "Пауза замен": "Pause replacements",
-  "Возобновить замены": "Resume replacements",
   "У каждого правила должно быть заполнено поле поиска.": "Every rule needs something to search for.",
   "Одно из правил ничего не меняет: текст поиска совпадает с заменой.":
     "One rule changes nothing: the search text equals the replacement.",

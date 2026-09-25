@@ -116,11 +116,11 @@ The configured `script-src` stays closed at `'self'`, with no `'unsafe-inline'`,
 
 `default-src 'self'` with `connect-src 'self' ipc: http://ipc.localhost` is what lets a window reach the Rust commands and nothing else — network access belongs to the Rust side and is documented in [Privacy](privacy.md). `img-src` adds `asset:` and `http://asset.localhost` for Tauri's asset protocol and `data:` for inline images.
 
-All three windows load this one policy, so a directive relaxed for one of them is relaxed for the settings window as well.
+Both windows load this one policy, so a directive relaxed for the overlay is relaxed for the settings window as well.
 
 ## Window capabilities
 
-Every application command is declared in `APP_COMMANDS` in `desktop/src-tauri/build.rs`, so Tauri checks each call against the calling window's capability in `desktop/src-tauri/capabilities/`. A window can call only the commands its file grants as `allow-<command-name>`; any other call fails with "not allowed by ACL". The settings window, the overlay and the tray popup each have their own file.
+Every application command is declared in `APP_COMMANDS` in `desktop/src-tauri/build.rs`, so Tauri checks each call against the calling window's capability in `desktop/src-tauri/capabilities/`. A window can call only the commands its file grants as `allow-<command-name>`; any other call fails with "not allowed by ACL". The settings window and overlay each have their own file.
 
 When you add a command, register it in `generate_handler!`, declare it in `APP_COMMANDS`, and grant it in the capability of every window that calls it. `desktop/src/bridge/window-capabilities.test.ts` follows each window's imports from its entry point and fails when a grant is missing or no longer used.
 

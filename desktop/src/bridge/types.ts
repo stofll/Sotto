@@ -213,7 +213,7 @@ export interface RuntimeStatusResult {
    *  entry belongs to the installed copy. */
   portable?: boolean;
   /** Build-target OS (`std::env::consts::OS` on the Rust side). Platform-
-   *  conditional UI (the tray's Windows-only popup controls) keys off this. */
+   *  conditional UI can key off this. */
   os?: string;
   model?: string | null;
   /** Model actually loaded by the engine thread; differs from `model` when a switch failed. */

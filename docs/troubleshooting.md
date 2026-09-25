@@ -38,7 +38,7 @@ Older records have no pause measurements and retain the original duration-based 
 
 ## Recording seems to start late
 
-There is no intentional countdown before capture. The hotkey's 500 ms auto-repeat guard ignores repeated key-down events while the key is held; it does not postpone the first press. Start dictation with the global hotkey while the target editor has focus. The Windows tray panel provides status, settings shortcuts, and app exit.
+There is no intentional countdown before capture. The hotkey's 500 ms auto-repeat guard ignores repeated key-down events while the key is held; it does not postpone the first press. Start dictation with the global hotkey while the target editor has focus. Left-click the Windows tray icon to open Settings, or right-click it and choose **Quit** to exit.
 
 Each recording opens the selected microphone again. Configuration and route checks, the audio worker queue, device setup and the first audio callback all precede captured speech; their duration depends on the device and system. The recording overlay is notified after the stream starts and the start hooks run, so its appearance is not an exact timestamp for the first captured sample. Model restoration is queued after the stream starts and does not wait for inference readiness before capturing audio.
 

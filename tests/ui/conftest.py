@@ -210,7 +210,7 @@ def ui_server(tmp_path_factory, pytestconfig, browser):
             warm_dev_server(
                 browser,
                 url,
-                ["/", "/overlay.html", "/tray.html"],
+                ["/", "/overlay.html"],
                 harness.read_text() + "\nSottoHarness.install({});",
             )
         yield url, harness.read_text()

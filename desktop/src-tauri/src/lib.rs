@@ -81,7 +81,6 @@ mod windows_util;
 #[cfg(windows)]
 mod windows {
     pub mod overlay_diag;
-    pub mod tray_popup;
     pub mod win_util;
 }
 
@@ -270,9 +269,7 @@ fn get_runtime_status(
         // `apply_autostart_inner`), and the interface has to know: a checkbox
         // that saves its value and changes nothing is worse than no checkbox.
         "portable": crate::portable::data_dir().is_some(),
-        // Build-target OS (`std::env::consts::OS`). The frontend has no
-        // build-time platform flag of its own; platform-conditional UI —
-        // hiding the Windows-only tray popup controls — reads it from here.
+        // Build-target OS (`std::env::consts::OS`) for platform-specific UI.
         "os": std::env::consts::OS,
         "model": model,
         "loaded_model": loaded_model,
@@ -1578,12 +1575,6 @@ pub fn run() {
             overlay::hide,
             overlay::current_state,
             overlay::overlay_ready,
-            #[cfg(windows)]
-            windows::tray_popup::show_tray_popup,
-            #[cfg(windows)]
-            windows::tray_popup::hide_tray_popup,
-            #[cfg(windows)]
-            tray::quit_app,
             focus_main_window,
             external_link::open_url,
             hotkey::validate_hotkey,
@@ -1609,7 +1600,6 @@ pub fn run() {
             // Settings.
             config::get_config,
             config::save_config,
-            config::set_replacements_paused,
             // Boot-blocking commands called from MainWindow.load() via Promise.all.
             app_version,
             release_notes::get_whats_new,

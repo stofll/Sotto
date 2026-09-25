@@ -24,7 +24,7 @@ The overlay color is independent of the interface color. Older configurations us
 
 **Interface color** now lives in **Settings → Advanced**. Four presets are shortcuts; the swatch with the rainbow ring opens the system color picker and any `#rrggbb` value is accepted. The companion tokens are derived from it: hover gets a lighter shade, and the text printed on the accent flips between near-black and near-white so a pale yellow and a navy both stay readable. The color is applied while the picker is being dragged and written to the configuration once the dragging settles.
 
-The interface color is stored in the configuration and applies to both Settings and the tray popup. Accent text and keyboard focus outlines adjust to the current light or dark theme to stay readable. If saving fails, the interface returns to its saved color; select the color again to retry.
+The interface color is stored in the configuration and applies to Settings. Accent text and keyboard focus outlines adjust to the current light or dark theme to stay readable. If saving fails, the interface returns to its saved color; select the color again to retry.
 
 On the first successful settings load after upgrading, an older accent from browser storage is copied to configuration if no value is already saved. An existing configuration value takes precedence.
 
@@ -42,4 +42,4 @@ Offsets are measured from the overlay window to the full monitor boundary and sc
 
 On Windows the next recording uses the monitor of the captured target window when available, falling back to the primary monitor. macOS currently uses the primary monitor. Changing appearance while the overlay is visible keeps it on its current monitor.
 
-On Windows, positioning uses the monitor work area so the overlay stays clear of the taskbar. The edge offset is measured from that work area. Left-click the tray icon to open Settings; right-click to open the tray panel with status, shortcuts, and **Quit**. Click **Hide menu** or left-click outside the panel to dismiss it. Start and stop dictation with the global hotkey while the target editor has focus.
+On Windows, positioning uses the monitor work area so the overlay stays clear of the taskbar. The edge offset is measured from that work area. Left-click the tray icon to open Settings; right-click to open the native menu containing only **Quit**. Start and stop dictation with the global hotkey while the target editor has focus.

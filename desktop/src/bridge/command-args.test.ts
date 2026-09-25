@@ -159,7 +159,6 @@ describe("Tauri command arguments", () => {
     expect(commands.get("process_text_ai")?.required).toEqual(new Set(["text"]));
     expect(commands.get("test_ai_prompt")?.accepted.has("profile_id")).toBe(true);
     expect(commands.get("hide")?.required).toEqual(new Set());
-    expect(commands.get("hide_tray_popup")?.required).toEqual(new Set());
     expect(commands.get("validate_hotkey")?.required).toEqual(new Set(["hotkey"]));
   });
 

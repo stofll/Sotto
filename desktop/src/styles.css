@@ -160,24 +160,6 @@ html.overlay-window #root::-webkit-scrollbar {
   display: none;
 }
 
-html.tray-window,
-html.tray-window body,
-html.tray-window #root,
-html.tray-window .app-frame { background: transparent !important; }
-
-html.tray-window,
-html.tray-window body,
-html.tray-window #root {
-  overflow: hidden !important;
-}
-
-html.tray-window::-webkit-scrollbar,
-html.tray-window body::-webkit-scrollbar,
-html.tray-window #root::-webkit-scrollbar {
-  width: 0;
-  height: 0;
-  display: none;
-}
 button, input, textarea, select { font: inherit; }
 .app-frame, .app-frame * { box-sizing: border-box; }
 .app-frame { font-family: var(--font-sans); color: var(--ink); background: var(--bg-0); font-feature-settings: "ss01", "cv11"; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; letter-spacing: -0.005em; }
