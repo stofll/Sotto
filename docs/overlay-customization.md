@@ -68,3 +68,7 @@ Free placement of pieces, a window sized from its content, user-authored markup 
 ## Checks
 
 Beyond the [general checks](testing.md), a recipe has to round-trip through configuration, fall back when a field is invalid, and survive a failed save. Pill, bead, and glow presets must keep their current window sizes at S, M, and L, including the streaming row and the bead's expansion for an error. The limit countdown remains visible when the timer slot is off. The settings stage and the overlay window must show the same scene for the same recipe and phase. Native placement on the affected operating system is still required; a unit test of the size table does not show that the window landed on the right monitor.
+
+## References
+
+Look-and-placement examples collected for this work live in [Overlay appearance references](overlay-refs.md). They are not a list of features to copy.
