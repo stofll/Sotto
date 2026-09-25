@@ -238,6 +238,11 @@ class App:
         group = self.page.get_by_test_id(f"nav-group-{NAV_GROUPS[tab]}")
         if group.is_visible() and group.get_attribute("aria-expanded") == "false":
             group.click()
+            # The items slide open under `overflow: hidden`; a click during that
+            # transition can land between rows and leave the tab unchanged.
+            group.locator("xpath=following-sibling::div[1]").evaluate(
+                "async el => { await Promise.all(el.getAnimations().map(a => a.finished)); }"
+            )
         self.page.get_by_test_id(f"nav-{tab}").click()
         expect(self.page.get_by_test_id(f"page-{tab}")).to_be_visible()
         return self.page.get_by_test_id(f"page-{tab}")
