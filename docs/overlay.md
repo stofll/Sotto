@@ -18,7 +18,7 @@ A recording stops by itself at the **Recording limit** from Advanced settings (1
 
 ## Color and size
 
-Palettes are picked as colors: **Overlay color** is a caption with a row of rectangular swatches under it, sitting beside the size, offset and timer controls. The name of a palette appears on hover rather than under the row. Choose copper, graphite, lagoon, violet, or a custom hue and saturation. Graphite is neutral. Success, warning and error colors retain their meaning regardless of the selected palette. The overlay keeps its dark surface in both app themes.
+Palettes are picked as colors: **Overlay color** is a caption with a row of rectangular swatches under it, sitting beside the size, offset and timer controls. The name of a palette appears on hover rather than under the row. Graphite is the default for configurations without a saved palette; choose copper, lagoon, violet, or a custom hue and saturation for another color. An explicitly saved palette remains unchanged. Success, warning and error colors retain their meaning regardless of the selected palette. The overlay keeps its dark surface in both app themes.
 
 The overlay color is independent of the interface color. Older configurations using the retired app-accent, coal or amber palettes migrate to copper when loaded. The migration is written to disk on the next successful settings save.
 
@@ -42,4 +42,4 @@ Offsets are measured from the overlay window to the full monitor boundary and sc
 
 On Windows the next recording uses the monitor of the captured target window when available, falling back to the primary monitor. macOS currently uses the primary monitor. Changing appearance while the overlay is visible keeps it on its current monitor.
 
-On Windows, positioning uses the monitor work area so the overlay stays clear of the taskbar. The edge offset is measured from that work area. The tray shows status and settings links; start and stop dictation with the global hotkey while the target editor has focus.
+On Windows, positioning uses the monitor work area so the overlay stays clear of the taskbar. The edge offset is measured from that work area. Left-click the tray icon to open Settings; right-click to open the tray panel with status, shortcuts, and **Quit**. Click **Hide menu** or left-click outside the panel to dismiss it. Start and stop dictation with the global hotkey while the target editor has focus.

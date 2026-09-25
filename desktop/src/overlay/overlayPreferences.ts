@@ -23,9 +23,10 @@ function number(value: unknown, min: number, max: number, fallback: number): num
 }
 export function overlayPreferences(raw: unknown): OverlayPreferences {
   const value = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+  const retiredPalette = value.palette === "accent" || value.palette === "coal" || value.palette === "amber";
   return {
     form: choice(OVERLAY_FORMS, value.form, "pill"),
-    palette: choice(OVERLAY_PALETTES, value.palette, "copper"),
+    palette: retiredPalette ? "copper" : choice(OVERLAY_PALETTES, value.palette, "graphite"),
     palette_hue: typeof value.palette_hue === "number" && value.palette_hue < 360 ? number(value.palette_hue, 0, 360, 268) : 268,
     palette_chroma: number(value.palette_chroma, 0, 0.2, 0.14),
     size: choice(OVERLAY_SIZES, value.size, "m"),

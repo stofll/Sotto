@@ -6,6 +6,7 @@ import { accentVariables, resolveAccent } from "../accent";
 describe("overlay preferences", () => {
   it("normalizes older and hand-edited configs without losing valid fields", () => {
     const defaults = overlayPreferences(undefined);
+    expect(defaults.palette).toBe("graphite");
     expect(defaults.edge_offset).toBe(25);
     expect(overlayPreferences({ edge_offset: 20 }).edge_offset).toBe(20);
     expect(overlayPreferences(false)).toEqual(defaults);
@@ -51,11 +52,10 @@ describe("overlay palette", () => {
     expect(lightness("--overlay-wave-top")).toBeGreaterThan(lightness("--overlay-wave-mid"));
     expect(lightness("--overlay-wave-mid")).toBeGreaterThan(lightness("--overlay-wave-bottom"));
   });
-  it("is neutral on graphite and keeps the old warm default on a retired palette", () => {
-    const neutral = overlayPalette(overlayPreferences({ palette: "graphite" }));
+  it("defaults to neutral graphite and preserves an explicit copper choice", () => {
+    const neutral = overlayPalette(overlayPreferences(undefined));
     expect(Object.values(neutral).every((value) => /^oklch\([\d.]+ 0 /.test(String(value)))).toBe(true);
-    // Configs written when the palette followed the interface colour name a
-    // palette that no longer exists; they land on copper, the hue they had.
+    expect(overlayPreferences({ palette: "copper" }).palette).toBe("copper");
     for (const retired of ["accent", "coal", "amber"]) {
       expect(overlayPreferences({ palette: retired }).palette).toBe("copper");
     }

@@ -1582,6 +1582,8 @@ pub fn run() {
             windows::tray_popup::show_tray_popup,
             #[cfg(windows)]
             windows::tray_popup::hide_tray_popup,
+            #[cfg(windows)]
+            tray::quit_app,
             focus_main_window,
             external_link::open_url,
             hotkey::validate_hotkey,

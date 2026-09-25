@@ -191,10 +191,13 @@ def test_tray_navigation(app, page, label, tab):
 def test_tray_navigation_dismisses_popup_only_on_windows(app, page, os):
     ui = app("tray", runtime={"os": os})
     hide = page.get_by_role("button", name="Скрыть меню", exact=True)
+    quit_button = page.get_by_role("button", name="Выход", exact=True)
     if os == "windows":
         expect(hide).to_be_visible()
+        expect(quit_button).to_be_visible()
     else:
         expect(hide).to_have_count(0)
+        expect(quit_button).to_have_count(0)
     page.get_by_role("menuitem", name="Настройки").click()
     page.wait_for_function(
         "window.__sottoTest.calls.some(x => x.command === 'focus_main_window')"
@@ -218,6 +221,23 @@ def test_tray_can_dismiss_before_runtime_status_arrives(app, page):
         "window.__sottoTest.calls.some(x => x.command === 'hide_tray_popup')"
     )
     assert len(ui.calls("hide_tray_popup")) == 1
+
+
+@pytest.mark.parametrize("locale,quit_label", [("ru", "Выход"), ("en", "Quit")])
+@pytest.mark.parametrize("theme", ["light", "dark"])
+def test_tray_quit_is_reachable_and_reports_failure(
+    app, page, locale, quit_label, theme
+):
+    ui = app("tray", config={"ui_language": locale, "theme": theme})
+    quit_button = page.get_by_role("button", name=quit_label, exact=True)
+    quit_button.focus()
+    expect(quit_button).to_be_focused()
+    ui.queue("quit_app", {"error": "Synthetic exit failure"})
+    quit_button.click()
+    expect(page.get_by_role("alert")).to_have_text("Synthetic exit failure")
+    assert len(ui.calls("quit_app")) == 1
+    quit_button.click()
+    assert len(ui.calls("quit_app")) == 2
 
 
 def test_overlay_full_lifecycle_and_stale_events(app, page):

@@ -202,10 +202,9 @@ export function TrayApp() {
             { icon: "info", label: t("Справка"), action: () => openMain("info") },
           ].map((item) => <button role="menuitem" key={item.label} style={rowButtonStyle({ padding: "8px 10px" })} onClick={() => void item.action()}><span style={{ color: "var(--ink-dim)", display: "flex" }}><Icon name={item.icon} size={14}/></span><span style={{ font: "500 12px/1 var(--font-sans)", color: "var(--ink)", flex: 1 }}>{item.label}</span>{item.right && <span className="mono" style={{ font: "500 10px/1 var(--font-mono)", color: "var(--ink-mute)" }}>{item.right}</span>}</button>)}
         </div>
-        {/* The popup exists only on Windows (tray_popup.rs): a control that
-            does nothing must not render on the other platforms. */}
-        <div style={{ borderTop: "1px solid var(--line)", padding: "8px 16px", display: "flex", alignItems: "center" }}>
-          {isWindows && <button style={{ appearance: "none", border: 0, background: "transparent", cursor: "pointer", font: "500 12px/1 var(--font-sans)", color: "var(--ink-dim)", padding: 0 }} onClick={() => tauriInvoke("hide_tray_popup").catch(() => {})}>{t("Скрыть меню")}</button>}
+        <div style={{ borderTop: "1px solid var(--line)", padding: "4px 8px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          {isWindows && <button type="button" className="btn btn--ghost btn--sm" onClick={() => tauriInvoke("hide_tray_popup").catch(() => {})}>{t("Скрыть меню")}</button>}
+          {isWindows && <button type="button" className="btn btn--ghost btn--sm" onClick={() => tauriInvoke("quit_app").catch((e) => setError(e instanceof Error ? e.message : String(e)))}>{t("Выход")}</button>}
         </div>
       </div>
       <div style={{ position: "absolute", bottom: 1, right: 34, width: 12, height: 12, background: "var(--bg-3)", transform: "rotate(45deg)", borderRight: "1px solid var(--line-strong)", borderBottom: "1px solid var(--line-strong)" }}/>

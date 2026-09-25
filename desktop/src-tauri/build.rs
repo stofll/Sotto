@@ -12,6 +12,7 @@ const APP_COMMANDS: &[&str] = &[
     "overlay_ready",
     "show_tray_popup",
     "hide_tray_popup",
+    "quit_app",
     "focus_main_window",
     "open_url",
     "validate_hotkey",

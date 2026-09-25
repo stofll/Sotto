@@ -6,7 +6,7 @@ A `portable.flag` file next to the EXE enables portable mode. Settings, window s
 
 API keys stay in the Windows Credential Manager: on another machine they must be entered again. Autostart is not registered in portable mode.
 
-To update, exit the app via the "Exit" item in the tray and replace the app files from the new ZIP, keeping `data` and `portable.flag`. The update installer is disabled in portable mode. The installed copy and the portable copy must not run at the same time.
+To update, right-click the tray icon, choose **Quit** in the panel, and replace the app files from the new ZIP, keeping `data` and `portable.flag`. The update installer is disabled in portable mode. The installed copy and the portable copy must not run at the same time.
 
 ## Building
 

@@ -157,6 +157,7 @@ export const en: Record<string, string | string[]> = {
   "Подробнее": "Details",
   "Скрыть": "Hide",
   "Скрыть меню": "Hide menu",
+  "Выход": "Quit",
   "Локально": "Local",
   "Локально + LLM": "Local + LLM",
   "Облако": "Cloud",
