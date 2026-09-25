@@ -30,129 +30,6 @@ def settled_bar_count(page):
     ).json_value()
 
 
-@pytest.mark.parametrize("locale", ["ru", "en"])
-def test_tray_has_no_recording_controls(app, page, locale):
-    ui = app("tray", config={"ui_language": locale})
-    expect(page.get_by_role("menu")).to_be_visible()
-    expect(page.get_by_test_id("tray-record")).to_have_count(0)
-    ui.emit("recording-started", 1)
-    expect(page.get_by_test_id("tray-record")).to_have_count(0)
-    assert not ui.calls("start_recording")
-    assert not ui.calls("stop_recording")
-
-
-def test_tray_pause_replacements(app, page):
-    ui = app("tray")
-    page.get_by_role("menuitem", name="Пауза замен", exact=True).click()
-    expect(
-        page.get_by_role("menuitem", name="Возобновить замены", exact=True)
-    ).to_be_visible()
-    ui.saved("replacements_paused", True)
-    page.get_by_role("menuitem", name="Возобновить замены", exact=True).click()
-    ui.saved("replacements_paused", False)
-
-
-@pytest.mark.parametrize("locale", ["ru", "en"])
-@pytest.mark.parametrize("theme", ["light", "dark"])
-def test_tray_refreshes_unloaded_and_restored_model(
-    app, page, locale, theme, output_path
-):
-    page.set_viewport_size({"width": 300, "height": 360})
-    ui = app(
-        "tray",
-        config={"ui_language": locale, "theme": theme},
-        runtime={
-            "active_model": "tiny",
-            "active_engine": "whisper.cpp",
-            "active_device": "cpu",
-        },
-    )
-    expect(page.locator("body")).to_contain_text("tiny · whisper.cpp · CPU")
-    page.evaluate("""window.__sottoTest.state.runtime = {
-        ...window.__sottoTest.state.runtime, model_loaded: false,
-        loaded_model: null, active_model: null, active_engine: null,
-        active_device: null
-    }""")
-    ui.emit("model-unloaded", "tiny")
-    unloaded = "Модель не загружена" if locale == "ru" else "No model loaded"
-    expect(page.locator("body")).to_contain_text(unloaded)
-    expect(page.locator("body")).not_to_contain_text("tiny")
-    expect(page.locator("body")).not_to_contain_text("GPU")
-    hide = page.get_by_role(
-        "button", name="Скрыть меню" if locale == "ru" else "Hide menu", exact=True
-    )
-    hide.focus()
-    expect(hide).to_be_focused()
-    box = hide.bounding_box()
-    assert box["y"] + box["height"] <= page.viewport_size["height"]
-    Path(output_path).mkdir(parents=True, exist_ok=True)
-    page.screenshot(
-        path=str(Path(output_path) / "tray-unloaded.png"), animations="disabled"
-    )
-    loading = "Загружаю модель" if locale == "ru" else "Loading model"
-    expect(page.locator("body")).not_to_contain_text(loading)
-    page.evaluate("""window.__sottoTest.state.runtime = {
-        ...window.__sottoTest.state.runtime, model_loaded: true,
-        loaded_model: 'base', active_model: 'base', active_engine: 'whisper.cpp',
-        active_device: 'cpu'
-    }""")
-    ui.emit("model-restored", "base")
-    expect(page.locator("body")).to_contain_text("base · whisper.cpp · CPU")
-    expect(page.locator("body")).not_to_contain_text(unloaded)
-    page.screenshot(
-        path=str(Path(output_path) / "tray-restored.png"), animations="disabled"
-    )
-
-
-def test_tray_ignores_snapshot_started_before_unload(app, page):
-    ui = app("tray", responses={"get_runtime_status": [{"hold": True}]})
-    page.evaluate("""window.__sottoTest.state.runtime = {
-        ...window.__sottoTest.state.runtime, model_loaded: false,
-        loaded_model: null, active_model: null, active_engine: null,
-        active_device: null
-    }""")
-    ui.emit("model-unloaded", "tiny")
-    expect(page.locator("body")).to_contain_text("Модель не загружена")
-    ui.settle(
-        "get_runtime_status",
-        result={
-            "model_loaded": True,
-            "loaded_model": "stale-model",
-            "state": "idle",
-            "active_model": "stale-model",
-            "active_engine": "whisper.cpp",
-            "active_device": "cpu",
-        },
-    )
-    # Drain the settled promise and the next browser frame before checking the UI.
-    page.evaluate("() => new Promise(resolve => requestAnimationFrame(resolve))")
-    expect(page.locator("body")).not_to_contain_text("stale-model")
-    expect(page.locator("body")).to_contain_text("Модель не загружена")
-
-
-def test_tray_uses_saved_interface_color_and_live_updates(app, page):
-    ui = app("tray", config={"ui_accent": "#102040", "theme": "dark"})
-    root = page.locator("html")
-    expect(root).to_have_css("--accent", "#102040")
-    ui.emit("config-updated", {"ui_accent": "#3dc97c", "theme": "light"})
-    expect(root).to_have_css("--accent", "#3dc97c")
-    expect(root).to_have_attribute("data-theme", "light")
-    expect(page.get_by_role("menu")).to_be_visible()
-    ui.emit("config-updated", {"theme": "dark"})
-    expect(root).to_have_css("--accent", "#e68a3d")
-    expect(root).to_have_attribute("data-theme", "dark")
-    expect(page.get_by_role("menu")).to_be_visible()
-
-
-@pytest.mark.parametrize("locale", ["ru", "en"])
-def test_tray_starts_in_saved_light_theme(app, page, locale):
-    app("tray", config={"theme": "light", "ui_language": locale})
-    expect(page.get_by_role("menu")).to_be_visible()
-    expect(page.locator("html")).to_have_attribute("data-theme", "light")
-    page.reload()
-    expect(page.get_by_role("menu")).to_be_visible()
-
-
 def test_glow_module_failure_keeps_cancel_available(app, page, pytestconfig):
     production = pytestconfig.getoption("--ui-mode") == "production"
     module_url = (
@@ -172,52 +49,6 @@ def test_glow_module_failure_keeps_cancel_available(app, page, pytestconfig):
     assert ui.calls("cancel_recording")[-1]["args"]["sessionId"] == 42
     ui.emit("recording-started", 43)
     expect(page.get_by_test_id("overlay")).to_be_visible()
-
-
-@pytest.mark.parametrize(
-    "label,tab",
-    [("Настройки", "settings"), ("Статистика", "stats"), ("Справка", "info")],
-)
-def test_tray_navigation(app, page, label, tab):
-    ui = app("tray")
-    page.get_by_role("menuitem", name=label).click()
-    page.wait_for_function(
-        "window.__sottoTest.calls.some(x => x.command === 'focus_main_window')"
-    )
-    assert ui.calls("focus_main_window")[-1]["args"]["tab"] == tab
-
-
-@pytest.mark.parametrize("os", ["windows", "macos", "linux"])
-def test_tray_navigation_dismisses_popup_only_on_windows(app, page, os):
-    ui = app("tray", runtime={"os": os})
-    hide = page.get_by_role("button", name="Скрыть меню", exact=True)
-    if os == "windows":
-        expect(hide).to_be_visible()
-    else:
-        expect(hide).to_have_count(0)
-    page.get_by_role("menuitem", name="Настройки").click()
-    page.wait_for_function(
-        "window.__sottoTest.calls.some(x => x.command === 'focus_main_window')"
-    )
-    commands = page.evaluate(
-        "window.__sottoTest.calls.map(x => x.command).filter("
-        "x => ['hide_tray_popup', 'focus_main_window'].includes(x))"
-    )
-    assert commands == (
-        ["hide_tray_popup", "focus_main_window"]
-        if os == "windows"
-        else ["focus_main_window"]
-    )
-    assert ui.calls("focus_main_window")[-1]["args"]["tab"] == "settings"
-
-
-def test_tray_can_dismiss_before_runtime_status_arrives(app, page):
-    ui = app("tray", responses={"get_runtime_status": [{"hold": True}]})
-    page.get_by_role("button", name="Скрыть меню", exact=True).click()
-    page.wait_for_function(
-        "window.__sottoTest.calls.some(x => x.command === 'hide_tray_popup')"
-    )
-    assert len(ui.calls("hide_tray_popup")) == 1
 
 
 def test_overlay_full_lifecycle_and_stale_events(app, page):
@@ -285,18 +116,6 @@ def test_overlay_streaming_preview(app, page):
     expect(page.get_by_test_id("overlay")).to_contain_text("Synthetic live preview")
     ui.emit("recording-stopped", 1)
     expect(page.get_by_test_id("overlay")).not_to_contain_text("Synthetic live preview")
-
-
-def test_tray_updates_locale_from_settings_event(app, page):
-    ui = app("tray")
-    expect(page.get_by_role("menuitem", name="Пауза замен")).to_be_visible()
-    ui.emit(
-        "config-updated",
-        {**ui.state()["config"], "ui_language": "en", "replacements_paused": True},
-    )
-    expect(
-        page.get_by_role("menuitem", name="Resume replacements", exact=True)
-    ).to_be_visible()
 
 
 def test_overlay_late_mount_reads_current_state(app, page):

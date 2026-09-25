@@ -30,7 +30,7 @@ export type Dictionary = Record<string, string | string[]>;
 
 // Russian is the keys themselves and needs no dictionary. The English one is
 // fetched the first time English is chosen, so a Russian interface never
-// downloads it — the overlay and tray windows included.
+// downloads it — the overlay window included.
 let english: Dictionary | null = null;
 let englishLoading: Promise<Dictionary> | null = null;
 

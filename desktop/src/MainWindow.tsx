@@ -212,15 +212,6 @@ export function MainWindow() {
         return [...current, { permission: payload.permission!, hint: payload.hint ?? payload.permission!, message: payload.message }];
       });
     }));
-    unlisteners.push(subscribe<string>("navigate-tab", (next) => {
-      // «Форматирование» + «Замены» merged into «Текст», «Провайдеры» +
-      // «API-ключи» into «Интеграции», and «Обзор» was removed entirely. The
-      // aliases stay because the event is sent by the tray: a separate window
-      // that may survive from a previous build and know only the old ids.
-      const legacy: Record<string, TabId> = { formatting: "text", replacements: "text", providers: "integrations", "api-keys": "integrations", overview: "settings" };
-      const resolved = (legacy[next] ?? next) as TabId;
-      if (mounted && MVP_TABS.includes(resolved)) setTab(resolved);
-    }));
     unlisteners.push(subscribe<ConfigResult>("config-updated", (next) => {
       if (!mounted) return;
       setConfig(next);

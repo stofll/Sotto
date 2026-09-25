@@ -160,24 +160,6 @@ html.overlay-window #root::-webkit-scrollbar {
   display: none;
 }
 
-html.tray-window,
-html.tray-window body,
-html.tray-window #root,
-html.tray-window .app-frame { background: transparent !important; }
-
-html.tray-window,
-html.tray-window body,
-html.tray-window #root {
-  overflow: hidden !important;
-}
-
-html.tray-window::-webkit-scrollbar,
-html.tray-window body::-webkit-scrollbar,
-html.tray-window #root::-webkit-scrollbar {
-  width: 0;
-  height: 0;
-  display: none;
-}
 button, input, textarea, select { font: inherit; }
 .app-frame, .app-frame * { box-sizing: border-box; }
 .app-frame { font-family: var(--font-sans); color: var(--ink); background: var(--bg-0); font-feature-settings: "ss01", "cv11"; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; letter-spacing: -0.005em; }
@@ -810,7 +792,7 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 .shimmer { background: linear-gradient(90deg, var(--ink-mute) 30%, var(--ink) 50%, var(--ink-mute) 70%); background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: shimmer 1.6s linear infinite; }
 
 .heatmap-cell { position: relative; cursor: default; transition: transform .1s ease, box-shadow .1s ease; }
-.heatmap-cell:hover { transform: translateY(-1px); box-shadow: 0 0 0 1px var(--accent-soft-2), 0 4px 12px rgba(0,0,0,0.25); z-index: 20; }
+.heatmap-cell:hover { transform: translateY(-1px); box-shadow: 0 0 0 1px var(--accent-text), 0 4px 12px rgba(0,0,0,0.25); z-index: 20; }
 .heatmap-popover { position: absolute; left: 50%; bottom: calc(100% + 8px); min-width: 190px; padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--bg-3) 96%, black); color: var(--ink-dim); box-shadow: var(--shadow-pop); font: 500 11px/1.45 var(--font-mono); opacity: 0; pointer-events: none; transform: translateX(-50%) translateY(4px); transition: opacity .12s ease, transform .12s ease; }
 /* A 190 px bubble centred on a ~10 px cell overhangs by 90 px on each side. On
    the outermost weeks that took it past the content area and `overflow: auto`

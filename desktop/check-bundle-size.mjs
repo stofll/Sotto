@@ -22,13 +22,12 @@ const BUDGETS_KB = setup ? { "index.html": 330 } : {
   // accumulating features, which is what this window is for.
   //
   // Raised rather than split because the settings window is the one the user
-  // opens deliberately and waits for, unlike the overlay and the tray, whose
-  // budgets are untouched and have room. Code-splitting the dialog would buy
+  // opens deliberately and waits for, unlike the overlay, whose budget is
+  // untouched and has room. Code-splitting the dialog would buy
   // back the 4 kB; that is worth doing when the screen next needs room, not to
   // recover 400 bytes.
   "index.html": 570,
   "overlay.html": 330,
-  "tray.html": 330,
 };
 
 const distUrl = new URL(setup ? "setup/dist/" : "dist/", import.meta.url);

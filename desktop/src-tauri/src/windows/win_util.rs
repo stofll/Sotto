@@ -16,7 +16,7 @@ const DWMWA_CLOAK_ATTR: u32 = 13;
 const DWMWA_BORDER_COLOR_ATTR: u32 = 34;
 const DWMWA_COLOR_NONE: u32 = 0xFFFFFFFE;
 
-/// Make a borderless helper window (overlay, tray popup) unfocusable and
+/// Make a borderless helper window (overlay) unfocusable and
 /// strip the caption Windows would otherwise paint on it.
 ///
 /// # The caption

@@ -29,7 +29,6 @@ import buildRs from "../../src-tauri/build.rs?raw";
 const WINDOW_ENTRIES: Record<string, string> = {
   main: "main.tsx",
   overlay: "overlay/main.tsx",
-  "tray-popup": "tray/main.tsx",
 };
 
 const INVOKE_CALL =

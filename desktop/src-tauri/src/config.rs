@@ -482,23 +482,6 @@ pub(crate) async fn save_config(
     .map_err(|error| format!("config worker: {error}"))?
 }
 
-/// The tray's switch for pausing replacements. A command of its own so the
-/// tray window is not granted `save_config`, which can change any setting,
-/// including the provider address API keys are sent to.
-#[tauri::command]
-pub(crate) async fn set_replacements_paused(
-    app: AppHandle,
-    state: tauri::State<'_, crate::state::AppState>,
-    paused: bool,
-) -> Result<Value, String> {
-    save_config(
-        app,
-        state,
-        serde_json::json!({ "replacements_paused": paused }),
-    )
-    .await
-}
-
 fn save_config_locked(
     app: &AppHandle,
     state: &crate::state::AppState,
@@ -838,6 +821,14 @@ mod tests {
             .build(context)
             .expect("create isolated native app");
         let handle = app.handle();
+        let menu_items = crate::tray::tray_menu(handle)
+            .unwrap()
+            .items()
+            .unwrap()
+            .into_iter()
+            .map(|item| item.id().as_ref().to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(menu_items, ["quit"]);
         let tray_resources = || {
             let resources = handle.resources_table();
             resources

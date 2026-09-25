@@ -51,9 +51,7 @@ export function install(seed: any = {}) {
     config: { ...config, ...seed.config, text_formatting: { ...config.text_formatting, ...seed.config?.text_formatting }, ai_processing: { ...config.ai_processing, ...seed.config?.ai_processing } },
     whats_new: seed.whats_new ?? null,
     models: seed.models ?? models, stats: { ...stats, ...seed.stats }, history: seed.history ?? [],
-    keys: seed.keys ?? {}, assessments: seed.assessments ?? [], runtime: { model_loaded: true, loaded_model: 'tiny', model: 'tiny', device: 'cpu', engine: 'whisper.cpp', recording: false, state: 'idle', // The tray styles itself for the platform whose popup commands the harness
-    // stubs; another platform can be modelled through the `runtime` seed.
-    os: 'windows', ...seed.runtime },
+    keys: seed.keys ?? {}, assessments: seed.assessments ?? [], runtime: { model_loaded: true, loaded_model: 'tiny', model: 'tiny', device: 'cpu', engine: 'whisper.cpp', recording: false, state: 'idle', os: 'windows', ...seed.runtime },
   };
   const calls: Array<{ command: string; args: any }> = [];
   const unknown: string[] = JSON.parse(sessionStorage.getItem('sotto-test-unknown') ?? '[]');
@@ -62,7 +60,7 @@ export function install(seed: any = {}) {
   const subscriptions: Record<string, number> = {};
   let session = 0;
   const persist = () => sessionStorage.setItem('sotto-test-state', JSON.stringify(state));
-  mockWindows(location.pathname.includes('overlay') ? 'overlay' : location.pathname.includes('tray') ? 'tray' : 'main');
+  mockWindows(location.pathname.includes('overlay') ? 'overlay' : 'main');
   mockIPC(async (command, args: any = {}) => {
     calls.push({ command, args });
     const answer = queues[command]?.shift();
@@ -86,8 +84,6 @@ export function install(seed: any = {}) {
         };
         state.models.forEach((m: ModelInfo) => { m.selected = m.id === state.config.model; });
         persist(); return structuredClone(state.config);
-      case 'set_replacements_paused':
-        state.config.replacements_paused = args.paused; persist(); return structuredClone(state.config);
       case 'list_models': return structuredClone(state.models);
       case 'list_microphones': return [{ id: 'test-mic', name: 'Synthetic microphone' }];
       case 'get_runtime_status': return structuredClone(state.runtime);
@@ -135,7 +131,7 @@ export function install(seed: any = {}) {
       case 'plugin:window|is_maximized': return false;
       case 'plugin:window|minimize': case 'plugin:window|toggle_maximize': case 'plugin:window|close':
       case 'plugin:window|start_dragging': case 'overlay_ready': case 'hide':
-      case 'set_overlay_presentation': case 'hide_tray_popup': case 'focus_main_window': case 'open_url':
+      case 'set_overlay_presentation': case 'open_url':
       case 'start_microphone_test': case 'stop_microphone_test': case 'set_microphone_test_monitor':
       case 'preview_sound_cue': case 'preview_output_duck': case 'open_diagnostics_folder':
       case 'suspend_hotkey': case 'resume_hotkey': return null;

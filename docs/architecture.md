@@ -12,13 +12,12 @@ File transcription uses the same speech pipeline without touching the focused wi
 
 Local model files are downloaded into the application cache; see [Models](models.md) for the current engine split and platform restrictions.
 
-The frontend has three pages, one per window:
+The frontend has two pages, one per window:
 
 - `index.html` — settings.
 - `overlay.html` — the recording overlay.
-- `tray.html` — the tray popup.
 
-Rust opens each window at its own URL, so the overlay does not download the settings UI. Shared bridge, i18n, and React code is extracted into common chunks.
+Rust opens each window at its own URL, so the overlay does not download the settings UI. The system tray uses a native menu. Shared bridge, i18n, and React code is extracted into common chunks.
 
 This is intentionally a boundary-level document: it describes the boundaries that hold today, not the route taken to them.
 

@@ -163,7 +163,8 @@ function buildDailySeries(history: DailyStats[], range: StatsRange): DailyStats[
 }
 
 function Heatmap({ history }: { history: DailyStats[] }) {
-  const colors = ["var(--bg-2)", ...[18, 40, 65].map((share) => `color-mix(in srgb, var(--accent) ${share}%, transparent)`), "var(--accent)"];
+  // Opaque steps keep pale and dark custom accents visible on both themes.
+  const colors = ["var(--bg-2)", ...[25, 45, 70, 100].map((share) => `color-mix(in srgb, var(--accent-text) ${share}%, var(--bg-2))`)];
   const cells = buildDailySeries(history, "year");
   const max = Math.max(1, ...cells.map((item) => item.count));
   const monthLabels = [0, 4, 8].map((week) => {

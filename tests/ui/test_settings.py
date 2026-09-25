@@ -322,6 +322,9 @@ def test_overlay_palette_swatches_save_and_name_on_hover(app, page):
     ui = app()
     settings = open_overlay_settings(page)
     palette = settings.get_by_role("group", name="Цвет оверлея", exact=True)
+    expect(palette.get_by_role("button", name="Графит", exact=True)).to_have_attribute(
+        "aria-pressed", "true"
+    )
     lagoon = palette.get_by_role("button", name="Лагуна", exact=True)
     lagoon.click()
     ui.saved("overlay", {"palette": "lagoon"})
@@ -335,6 +338,34 @@ def test_overlay_palette_swatches_save_and_name_on_hover(app, page):
     expect(page.get_by_role("tooltip", name="Лагуна", exact=True)).to_be_visible()
     # The interface colour is not an overlay setting any more.
     expect(settings.get_by_text("Акцент приложения")).to_have_count(0)
+
+
+@pytest.mark.parametrize(
+    "locale,group_label,graphite_label",
+    [
+        ("ru", "Цвет оверлея", "Графит"),
+        ("en", "Overlay colour", "Graphite"),
+    ],
+)
+@pytest.mark.parametrize("theme", ["light", "dark"])
+def test_overlay_defaults_to_graphite_in_both_themes(
+    app, page, locale, group_label, graphite_label, theme, output_path
+):
+    app(config={"ui_language": locale, "theme": theme})
+    settings = open_overlay_settings(page)
+    palette = settings.get_by_role("group", name=group_label, exact=True)
+    graphite = palette.get_by_role("button", name=graphite_label, exact=True)
+    expect(palette.get_by_role("button").first).to_have_attribute(
+        "aria-label", graphite_label
+    )
+    expect(graphite).to_have_attribute("aria-pressed", "true")
+    graphite.focus()
+    expect(graphite).to_be_focused()
+    assert " 0 0 " in settings.get_by_test_id("overlay-preview").get_attribute("style")
+    Path(output_path).mkdir(parents=True, exist_ok=True)
+    page.screenshot(
+        path=str(Path(output_path) / "overlay-default.png"), animations="disabled"
+    )
 
 
 def test_overlay_timer_toggle_saves(app, page):

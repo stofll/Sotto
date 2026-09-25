@@ -1,9 +1,6 @@
 import type { CSSProperties } from "react";
 import type { OverlayPreferences } from "./overlayPreferences";
 
-// Copper repeats the hue the overlay has always had, so a config that never
-// touched the palette looks the same after the setting stopped following the
-// interface colour.
 const PALETTES = {
   copper: [55, 0.14], graphite: [0, 0], lagoon: [195, 0.1], violet: [295, 0.14],
 } as const;

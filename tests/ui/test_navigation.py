@@ -16,10 +16,7 @@ TABS = {
 }
 
 
-@pytest.mark.parametrize("window", ["main", "tray"])
-def test_startup_waits_for_stylesheet_before_deriving_accent(
-    app, page, pytestconfig, window
-):
+def test_startup_waits_for_stylesheet_before_deriving_accent(app, page, pytestconfig):
     if pytestconfig.getoption("--ui-mode") != "production":
         pytest.skip(
             "Production links CSS separately; Vite dev injects it with JavaScript"
@@ -46,9 +43,7 @@ def test_startup_waits_for_stylesheet_before_deriving_accent(
         route.continue_()
 
     page.route("**/assets/styles-*.css", delayed_stylesheet)
-    app(window, config={"ui_accent": "#102040", "theme": "light"})
-    if window == "tray":
-        expect(page.get_by_role("menu")).to_be_visible()
+    app(config={"ui_accent": "#102040", "theme": "light"})
     expect(page.locator("html")).to_have_css("--accent", "#102040")
     assert page.locator("html").evaluate(
         "el => el.style.getPropertyValue('--accent-text').trim().length > 0"
@@ -148,7 +143,7 @@ def test_theme_persists_after_reload(app, page, locale):
         expect(page.locator(".theme-toggle")).to_be_focused()
 
 
-@pytest.mark.parametrize("window", ["main", "overlay", "tray"])
+@pytest.mark.parametrize("window", ["main", "overlay"])
 def test_built_entry_loads_under_application_csp(app, page, pytestconfig, window):
     if pytestconfig.getoption("--ui-mode") != "production":
         pytest.skip("Release assets and CSP are production-only")
@@ -165,8 +160,6 @@ def test_built_entry_loads_under_application_csp(app, page, pytestconfig, window
     if window == "overlay":
         ui.emit("recording-started", 1)
         expect(page.get_by_test_id("overlay")).to_be_visible()
-    elif window == "tray":
-        expect(page.get_by_role("menu")).to_be_visible()
     if window != "main":
         for selector in ["html", "body", "#root"]:
             expect(page.locator(selector)).to_have_css(
@@ -188,22 +181,6 @@ def test_theme_failure_rolls_back(app, page):
     page.get_by_role("button", name="Включить светлую тему").click()
     expect(page.get_by_role("alert")).to_contain_text("Cannot save theme")
     expect(page.locator("html")).to_have_attribute("data-theme", "dark")
-
-
-@pytest.mark.parametrize(
-    "legacy,current",
-    [
-        ("formatting", "text"),
-        ("replacements", "text"),
-        ("providers", "integrations"),
-        ("api-keys", "integrations"),
-        ("overview", "settings"),
-    ],
-)
-def test_legacy_navigation_events(app, page, legacy, current):
-    ui = app()
-    ui.emit("navigate-tab", legacy)
-    expect(page.get_by_test_id(f"page-{current}")).to_be_visible()
 
 
 def test_permission_banner_deduplicates_and_dismisses(app, page):

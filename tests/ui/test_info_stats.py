@@ -1,9 +1,39 @@
 import re
 from datetime import datetime, timedelta
+from itertools import pairwise
 from pathlib import Path
 
 import pytest
 from playwright.sync_api import expect
+
+
+def heatmap_rgba(page):
+    return page.locator(".heatmap-cell").evaluate_all("""cells => {
+        const canvas = document.createElement('canvas');
+        canvas.width = canvas.height = 1;
+        const context = canvas.getContext('2d');
+        return [cells[0], ...cells.slice(-4)].map(cell => {
+            context.clearRect(0, 0, 1, 1);
+            context.fillStyle = getComputedStyle(cell).backgroundColor;
+            context.fillRect(0, 0, 1, 1);
+            return [...context.getImageData(0, 0, 1, 1).data];
+        });
+    }""")
+
+
+def contrast(first, second):
+    def luminance(rgb):
+        channels = [value / 255 for value in rgb[:3]]
+        linear = [
+            value / 12.92 if value <= 0.04045 else ((value + 0.055) / 1.055) ** 2.4
+            for value in channels
+        ]
+        return sum(
+            value * weight for value, weight in zip(linear, [0.2126, 0.7152, 0.0722])
+        )
+
+    a, b = luminance(first), luminance(second)
+    return (max(a, b) + 0.05) / (min(a, b) + 0.05)
 
 
 def test_update_current_error_retry(app, page):
@@ -74,6 +104,69 @@ def test_stats_periods_and_refresh(app, page):
     page.get_by_role("button", name="Обновить", exact=True).click()
     page.get_by_role("button", name="Всё время", exact=True).click()
     expect(page.get_by_test_id("page-stats")).to_contain_text(re.compile(r"4\s*321"))
+
+
+@pytest.mark.parametrize("theme", ["light", "dark"])
+@pytest.mark.parametrize(
+    "accent", ["#ffffff", "#000000", "#f2e14a", "#102040", "#ff00ff", "#e68a3d"]
+)
+def test_heatmap_levels_remain_distinct_for_interface_colors(
+    app, page, theme, accent, output_path
+):
+    today = datetime.now().astimezone().date()
+    ui = app(
+        config={"theme": theme, "ui_accent": accent},
+        stats={
+            "daily_history": [
+                {
+                    "date": (today - timedelta(days=3 - index)).isoformat(),
+                    "count": index + 1,
+                }
+                for index in range(4)
+            ]
+        },
+    )
+    region = ui.nav("stats")
+    cells = region.locator(".heatmap-cell")
+    expect(cells).to_have_count(84)
+    colors = heatmap_rgba(page)
+    assert all(color[3] == 255 for color in colors)
+    ratios = [contrast(colors[0], color) for color in colors[1:]]
+    assert ratios[0] >= 1.25, (theme, accent, colors, ratios)
+    assert ratios[-1] >= 4.0, (theme, accent, colors, ratios)
+    assert all(second > first + 0.15 for first, second in pairwise(ratios)), (
+        theme,
+        accent,
+        colors,
+        ratios,
+    )
+    if (theme, accent) in {
+        ("light", "#ffffff"),
+        ("dark", "#000000"),
+        ("light", "#f2e14a"),
+        ("dark", "#102040"),
+    }:
+        Path(output_path).mkdir(parents=True, exist_ok=True)
+        region.locator(".stats-bottom .chart-card").first.screenshot(
+            path=str(Path(output_path) / "heatmap-extreme.png"), animations="disabled"
+        )
+
+
+@pytest.mark.parametrize("theme", ["light", "dark"])
+def test_heatmap_updates_with_interface_color(app, page, theme):
+    today = datetime.now().astimezone().date()
+    ui = app(
+        config={"theme": theme, "ui_accent": "#e68a3d"},
+        stats={"daily_history": [{"date": today.isoformat(), "count": 4}]},
+    )
+    ui.nav("stats")
+    before = heatmap_rgba(page)
+    ui.emit("config-updated", {**ui.state()["config"], "ui_accent": "#5b8def"})
+    expect(page.locator("html")).to_have_css("--accent", "#5b8def")
+    after = heatmap_rgba(page)
+    assert after[0] == before[0]
+    assert after[-1] != before[-1]
+    assert contrast(after[0], after[-1]) >= 4.0
 
 
 def test_paste_test_waits_before_pasting_and_reports_success(app, page):

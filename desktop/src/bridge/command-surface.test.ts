@@ -12,14 +12,8 @@
 // and asserts (1) ⊆ (2). Sources are loaded as raw strings via Vite's
 // `?raw` imports (typed by vite/client) — no Node fs, no extra deps.
 //
-// A registration can also be conditional: `show_tray_popup` and
-// `hide_tray_popup` sit under `#[cfg(windows)]`, so on macOS the same call
-// fails with the same message. For those the check is the guard at the call
-// site — the `os` reported by `get_runtime_status`, or an `isWindows`-style
-// value derived from it — and a restricted command called without one fails
-// here. The guard is a TypeScript condition that implies the platform, so a
-// same-line `if (isWindows)` and a block above it both count, while a mention
-// of `isWindows` in a comment, a negation, or a `||` does not.
+// If a command is registered under `#[cfg(...)]`, calls to it must have a
+// matching platform guard so they cannot fail on another operating system.
 
 import { describe, it, expect } from "vitest";
 import ts from "typescript";
@@ -330,21 +324,18 @@ describe("Tauri command surface", () => {
   });
 
   it("reads the platform condition off a registration", () => {
-    // The tray's command is the one the guard test below depends on: a parser
-    // that stopped seeing `#[cfg(windows)]` would let that test pass for the
-    // wrong reason, so the condition is pinned here.
-    expect(restricted.get("hide_tray_popup")).toBe("windows");
-    expect(restricted.get("show_tray_popup")).toBe("windows");
-    expect(restricted.has("save_config")).toBe(false);
+    const fixture = commandRegistry(`generate_handler![
+      #[cfg(windows)]
+      native_command,
+      save_config,
+    ])`);
+    expect(fixture.restricted.get("native_command")).toBe("windows");
+    expect(fixture.restricted.has("save_config")).toBe(false);
   });
 
   it("guards every call to a platform-restricted command", () => {
     const sources = frontendCode();
     const calls = invocationSites(sources).filter((site) => restricted.has(site.command));
-    // Anti-vacuity: the frontend does call a restricted command today, and a
-    // refactor that removed the call should revisit this check, not skip it.
-    expect(calls.length).toBeGreaterThan(0);
-
     const unguarded = calls
       .filter((site) => {
         const source = sources.find((candidate) => candidate.file === site.file)!;
@@ -365,24 +356,24 @@ describe("Tauri command surface", () => {
       return callIsGuarded({ file: "fixture.tsx", text }, at!, "windows");
     };
 
-    expect(guarded('  if (isWindows) await invoke("hide_tray_popup");')).toBe(true);
-    expect(guarded('  if (isWindows) {\n    await invoke("hide_tray_popup");\n  }')).toBe(true);
-    expect(guarded('  isWindows && await invoke("hide_tray_popup");')).toBe(true);
-    expect(guarded('  if (isWindows && enabled) await invoke("hide_tray_popup");')).toBe(true);
-    expect(guarded('  if (os === "windows") await invoke("hide_tray_popup");')).toBe(true);
-    expect(guarded('  if (runtime.os === "windows") await invoke("hide_tray_popup");')).toBe(true);
-    expect(guarded('{isWindows && <button onClick={() => invoke("hide_tray_popup")} />}')).toBe(true);
+    expect(guarded('  if (isWindows) await invoke("windows_command");')).toBe(true);
+    expect(guarded('  if (isWindows) {\n    await invoke("windows_command");\n  }')).toBe(true);
+    expect(guarded('  isWindows && await invoke("windows_command");')).toBe(true);
+    expect(guarded('  if (isWindows && enabled) await invoke("windows_command");')).toBe(true);
+    expect(guarded('  if (os === "windows") await invoke("windows_command");')).toBe(true);
+    expect(guarded('  if (runtime.os === "windows") await invoke("windows_command");')).toBe(true);
+    expect(guarded('{isWindows && <button onClick={() => invoke("windows_command")} />}')).toBe(true);
 
-    expect(guarded('  await invoke("hide_tray_popup");')).toBe(false);
-    expect(guarded('  // isWindows: the popup is Windows-only\n  await invoke("hide_tray_popup");')).toBe(false);
-    expect(guarded('  report("isWindows");\n  await invoke("hide_tray_popup");')).toBe(false);
+    expect(guarded('  await invoke("windows_command");')).toBe(false);
+    expect(guarded('  // isWindows: Windows only\n  await invoke("windows_command");')).toBe(false);
+    expect(guarded('  report("isWindows");\n  await invoke("windows_command");')).toBe(false);
     // Declared earlier in the same body, but not on the path to the call.
-    expect(guarded('  const ready = isWindows;\n  await invoke("hide_tray_popup");')).toBe(false);
-    expect(guarded('  const ready = isWindows; await invoke("hide_tray_popup");')).toBe(false);
-    expect(guarded('  if (!isWindows) await invoke("hide_tray_popup");')).toBe(false);
-    expect(guarded('  if (!isWindows) {\n    await invoke("hide_tray_popup");\n  }')).toBe(false);
-    expect(guarded('  if (isWindows || enabled) await invoke("hide_tray_popup");')).toBe(false);
-    expect(guarded('  !isWindows && await invoke("hide_tray_popup");')).toBe(false);
-    expect(guarded('  if (os === "macos") await invoke("hide_tray_popup");')).toBe(false);
+    expect(guarded('  const ready = isWindows;\n  await invoke("windows_command");')).toBe(false);
+    expect(guarded('  const ready = isWindows; await invoke("windows_command");')).toBe(false);
+    expect(guarded('  if (!isWindows) await invoke("windows_command");')).toBe(false);
+    expect(guarded('  if (!isWindows) {\n    await invoke("windows_command");\n  }')).toBe(false);
+    expect(guarded('  if (isWindows || enabled) await invoke("windows_command");')).toBe(false);
+    expect(guarded('  !isWindows && await invoke("windows_command");')).toBe(false);
+    expect(guarded('  if (os === "macos") await invoke("windows_command");')).toBe(false);
   });
 });

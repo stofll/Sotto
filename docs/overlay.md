@@ -18,13 +18,13 @@ A recording stops by itself at the **Recording limit** from Advanced settings (1
 
 ## Color and size
 
-Palettes are picked as colors: **Overlay color** is a caption with a row of rectangular swatches under it, sitting beside the size, offset and timer controls. The name of a palette appears on hover rather than under the row. Choose copper, graphite, lagoon, violet, or a custom hue and saturation. Graphite is neutral. Success, warning and error colors retain their meaning regardless of the selected palette. The overlay keeps its dark surface in both app themes.
+Palettes are picked as colors: **Overlay color** is a caption with a row of rectangular swatches under it, sitting beside the size, offset and timer controls. The name of a palette appears on hover rather than under the row. Graphite is the default for configurations without a saved palette; choose copper, lagoon, violet, or a custom hue and saturation for another color. An explicitly saved palette remains unchanged. Success, warning and error colors retain their meaning regardless of the selected palette. The overlay keeps its dark surface in both app themes.
 
 The overlay color is independent of the interface color. Older configurations using the retired app-accent, coal or amber palettes migrate to copper when loaded. The migration is written to disk on the next successful settings save.
 
 **Interface color** now lives in **Settings → Advanced**. Four presets are shortcuts; the swatch with the rainbow ring opens the system color picker and any `#rrggbb` value is accepted. The companion tokens are derived from it: hover gets a lighter shade, and the text printed on the accent flips between near-black and near-white so a pale yellow and a navy both stay readable. The color is applied while the picker is being dragged and written to the configuration once the dragging settles.
 
-The interface color is stored in the configuration and applies to both Settings and the tray popup. Accent text and keyboard focus outlines adjust to the current light or dark theme to stay readable. If saving fails, the interface returns to its saved color; select the color again to retry.
+The interface color is stored in the configuration and applies to Settings. Accent text and keyboard focus outlines adjust to the current light or dark theme to stay readable. If saving fails, the interface returns to its saved color; select the color again to retry.
 
 On the first successful settings load after upgrading, an older accent from browser storage is copied to configuration if no value is already saved. An existing configuration value takes precedence.
 
@@ -42,4 +42,4 @@ Offsets are measured from the overlay window to the full monitor boundary and sc
 
 On Windows the next recording uses the monitor of the captured target window when available, falling back to the primary monitor. macOS currently uses the primary monitor. Changing appearance while the overlay is visible keeps it on its current monitor.
 
-On Windows, positioning uses the monitor work area so the overlay stays clear of the taskbar. The edge offset is measured from that work area. The tray shows status and settings links; start and stop dictation with the global hotkey while the target editor has focus.
+On Windows, positioning uses the monitor work area so the overlay stays clear of the taskbar. The edge offset is measured from that work area. Left-click the tray icon to open Settings; right-click to open the native menu containing only **Quit**. Start and stop dictation with the global hotkey while the target editor has focus.
