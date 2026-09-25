@@ -355,6 +355,9 @@ def test_overlay_defaults_to_graphite_in_both_themes(
     settings = open_overlay_settings(page)
     palette = settings.get_by_role("group", name=group_label, exact=True)
     graphite = palette.get_by_role("button", name=graphite_label, exact=True)
+    expect(palette.get_by_role("button").first).to_have_attribute(
+        "aria-label", graphite_label
+    )
     expect(graphite).to_have_attribute("aria-pressed", "true")
     graphite.focus()
     expect(graphite).to_be_focused()

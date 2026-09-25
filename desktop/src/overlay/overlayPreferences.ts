@@ -1,5 +1,5 @@
 export const OVERLAY_FORMS = ["pill", "bead", "glow"] as const;
-export const OVERLAY_PALETTES = ["copper", "graphite", "lagoon", "violet", "custom"] as const;
+export const OVERLAY_PALETTES = ["graphite", "copper", "lagoon", "violet", "custom"] as const;
 export const OVERLAY_SIZES = ["s", "m", "l"] as const;
 // Logical pixels; mirrors the native default in overlay_preferences.rs.
 export const DEFAULT_EDGE_OFFSET = 25;

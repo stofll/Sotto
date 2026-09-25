@@ -75,7 +75,7 @@ export function OverlaySettings({ config, onConfigChanged }: Props) {
     }
   }
   const paletteOptions: Array<{ value: OverlayPreferences["palette"]; label: string }> = [
-    { value: "copper", label: t("Медь") }, { value: "graphite", label: t("Графит") },
+    { value: "graphite", label: t("Графит") }, { value: "copper", label: t("Медь") },
     { value: "lagoon", label: t("Лагуна") }, { value: "violet", label: t("Фиолетовый") },
     { value: "custom", label: t("Своя палитра") },
   ];
