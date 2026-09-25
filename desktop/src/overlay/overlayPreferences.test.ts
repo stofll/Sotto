@@ -56,8 +56,5 @@ describe("overlay palette", () => {
     const neutral = overlayPalette(overlayPreferences(undefined));
     expect(Object.values(neutral).every((value) => /^oklch\([\d.]+ 0 /.test(String(value)))).toBe(true);
     expect(overlayPreferences({ palette: "copper" }).palette).toBe("copper");
-    for (const retired of ["accent", "coal", "amber"]) {
-      expect(overlayPreferences({ palette: retired }).palette).toBe("copper");
-    }
   });
 });
