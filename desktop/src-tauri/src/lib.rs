@@ -269,7 +269,8 @@ fn get_runtime_status(
         // `apply_autostart_inner`), and the interface has to know: a checkbox
         // that saves its value and changes nothing is worse than no checkbox.
         "portable": crate::portable::data_dir().is_some(),
-        // Build-target OS (`std::env::consts::OS`) for platform-specific UI.
+        // Build-target OS (`std::env::consts::OS`): the frontend's guard for any
+        // command registered under `#[cfg(...)]` (see command-surface.test.ts).
         "os": std::env::consts::OS,
         "model": model,
         "loaded_model": loaded_model,
@@ -614,12 +615,20 @@ pub(crate) fn speech_language(config: Option<&crate::config::Config>) -> String 
         .unwrap_or_default()
 }
 
-#[tauri::command]
-fn focus_main_window(app: AppHandle, tab: String) -> Result<(), String> {
+/// Bring the main window forward on the tab the user left open.
+pub(crate) fn show_main_window(app: &AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("main") {
         window.show().map_err(|e| e.to_string())?;
         window.unminimize().map_err(|e| e.to_string())?;
         window.set_focus().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn focus_main_window(app: AppHandle, tab: String) -> Result<(), String> {
+    show_main_window(&app)?;
+    if let Some(window) = app.get_webview_window("main") {
         let _ = window.emit("navigate-tab", tab);
     }
     Ok(())

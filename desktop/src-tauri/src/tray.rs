@@ -34,10 +34,20 @@ pub fn build_tray(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Erro
         return Ok(());
     }
 
-    let builder = TrayIconBuilder::with_id("main-tray")
+    TrayIconBuilder::with_id("main-tray")
         .icon(tray_icon_image())
         .tooltip("Sotto")
+        .menu(&menu)
         .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| {
+            #[cfg(not(windows))]
+            if event.id.as_ref() == "open" {
+                let _ = crate::show_main_window(app);
+            }
+            if event.id.as_ref() == "quit" {
+                app.exit(0);
+            }
+        })
         .on_tray_icon_event(|tray, event| {
             if let TrayIconEvent::Click {
                 button: MouseButton::Left,
@@ -45,25 +55,12 @@ pub fn build_tray(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Erro
                 ..
             } = event
             {
-                if let Err(error) =
-                    crate::focus_main_window(tray.app_handle().clone(), "settings".into())
-                {
+                if let Err(error) = crate::show_main_window(tray.app_handle()) {
                     log::warn!("open main window from tray: {error}");
                 }
             }
-        });
-
-    let builder = builder.menu(&menu).on_menu_event(|app, event| {
-        #[cfg(not(windows))]
-        if event.id.as_ref() == "open" {
-            let _ = crate::focus_main_window(app.clone(), "settings".into());
-        }
-        if event.id.as_ref() == "quit" {
-            app.exit(0);
-        }
-    });
-
-    builder.build(app)?;
+        })
+        .build(app)?;
 
     Ok(())
 }
