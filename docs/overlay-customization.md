@@ -72,3 +72,5 @@ Beyond the [general checks](testing.md), a recipe has to round-trip through conf
 ## References
 
 Look-and-placement examples collected for this work live in [Overlay appearance references](overlay-refs.md). They are not a list of features to copy.
+
+The visual options explored after that plan live in [Overlay ideas](overlay-ideas.md). That catalog is a menu for choosing a direction. It does not add those shells to the recipe above.
