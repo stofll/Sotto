@@ -31,10 +31,11 @@ export function SettingsPage({ config, microphones, models, portable, onConfigCh
   // choice follow from its properties (language, CPU-only).
   const selectedModelInfo = (models.length ? models : fallbackModels()).find((item) => item.id === model);
   const recordingMode = config?.recording_mode ?? "toggle";
-  const [editingOverlay, setEditingOverlay] = useState(false);
+  // Open constructor; `template` is the id of the user template being edited.
+  const [editingOverlay, setEditingOverlay] = useState<{ template?: string } | null>(null);
   if (editingOverlay) {
     return <Suspense fallback={null}>
-      <OverlayEditor config={config} onConfigChanged={onConfigChanged} onClose={() => setEditingOverlay(false)}/>
+      <OverlayEditor config={config} onConfigChanged={onConfigChanged} template={editingOverlay.template} onClose={() => setEditingOverlay(null)}/>
     </Suspense>;
   }
 
@@ -92,7 +93,7 @@ export function SettingsPage({ config, microphones, models, portable, onConfigCh
 
         <details className="card card--rows advanced" data-testid="overlay-disclosure">
           <summary><Icon name="chev-down" size={13}/>{t("Оверлей")}</summary>
-          <OverlaySettings config={config} onConfigChanged={onConfigChanged} onOpenEditor={() => setEditingOverlay(true)}/>
+          <OverlaySettings config={config} onConfigChanged={onConfigChanged} onOpenEditor={(template) => setEditingOverlay({ template })}/>
         </details>
 
         {/* 5. Everything that is configured once or never. Collapsed on purpose:

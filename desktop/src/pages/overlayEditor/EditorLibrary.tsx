@@ -1,5 +1,6 @@
 import { useEffect, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { Hint } from "../../components/Hint";
+import { Icon } from "../../components/Icon";
 import { NumberField } from "../../components/NumberField";
 import { Segmented } from "../../components/Shell";
 import { t } from "../../i18n";
@@ -8,11 +9,11 @@ import { OverlayMatrix } from "../../overlay/OverlayMatrix";
 import { overlayPalette } from "../../overlay/overlayPalette";
 import { OVERLAY_ANCHORS, type OverlayPreferences } from "../../overlay/overlayPreferences";
 import {
-  DRAWINGS, MOTIONS, SHELLS, SHELL_LAYOUT, STYLE_OPTIONS, WINDOW_SIZE, fitsShell, regionOf, shellRadius,
+  CANCEL_SPOTS, DRAWINGS, MOTIONS, SHELLS, cancelDraws, cancelShows, SHELL_LAYOUT, STYLE_OPTIONS, WINDOW_SIZE, fitsShell, regionOf, shellRadius,
   type ElementType, type Recipe, type RecipeMatrix, type RecipeStyle, type RegionKind, type Shell, type UserTemplate,
 } from "../../overlay/overlayRecipe";
 import { DraftPart, LevelPart, ModePart, RecPart, TimerPart } from "../../overlay/sceneParts";
-import { drawNames, elementNames, elementNotes, kindPlaces, motionNames, processPatternNames, regionNames, shellNames, speechPatternNames, styleNames } from "./labels";
+import { cancelDrawNames, cancelShowNames, cancelSpotNames, drawNames, elementNames, elementNotes, kindPlaces, motionNames, processPatternNames, regionNames, shellNames, speechPatternNames, styleNames } from "./labels";
 import type { OverlayLook } from "./overlayDraft";
 import { drawingKinds } from "./recipeEdits";
 import { simulatedVoice } from "./simulatedVoice";
@@ -63,6 +64,7 @@ type Props = {
   onLook: (look: Partial<OverlayLook>) => void;
   onApplySystem: (key: SystemTemplate) => void;
   onApplyMine: (template: UserTemplate) => void;
+  onEditMine: (template: UserTemplate) => void;
   onTemplates: (templates: UserTemplate[], saved?: UserTemplate) => void;
 };
 
@@ -76,7 +78,7 @@ export function EditorLibrary(props: Props) {
     {tab === "templates" && <>
       <section className="ove-sec">
         <header className="ove-sec__head"><b>{t("Мои шаблоны")}</b><span>{t("со своим цветом и размером")}</span></header>
-        <MyTemplates layout="grid" recipe={recipe} preferences={preferences} onApply={props.onApplyMine} onChange={props.onTemplates}/>
+        <MyTemplates layout="grid" recipe={recipe} preferences={preferences} onApply={props.onApplyMine} onEdit={props.onEditMine} onChange={props.onTemplates}/>
       </section>
       <section className="ove-sec">
         <header className="ove-sec__head"><b>{t("Шаблоны Sotto")}</b><span>{t("цвет, размер и место сохранятся")}</span></header>
@@ -135,7 +137,39 @@ function BuildTab({ recipe, preferences, onShell, onAddPart, onPartPointerDown, 
         {type === "level" && where && recipe.draw.level === "matrix" && <MatrixOptions recipe={recipe} onRecipe={onRecipe}/>}
       </section>;
     })}
+    <section className="ove-sec">
+      <header className="ove-sec__head"><b>{t("Отмена")}</b><span>{t("есть всегда, её можно переставить")}</span></header>
+      <CancelOptions recipe={recipe} onRecipe={onRecipe}/>
+    </section>
   </>;
+}
+
+/** The cancel button's look, place and visibility. It has no "remove": see `CANCEL_SPOTS`. */
+export function CancelOptions({ recipe, onRecipe }: { recipe: Recipe; onRecipe: (recipe: Recipe, message: string) => void }) {
+  const draws = cancelDrawNames(), spots = cancelSpotNames(), shows = cancelShowNames();
+  const set = (patch: Partial<Recipe["cancel"]>, message: string) => onRecipe({ ...recipe, cancel: { ...recipe.cancel, ...patch } }, message);
+  const spotList = CANCEL_SPOTS[recipe.shell], showList = cancelShows(recipe.shell);
+  return <div className="ove-cancel">
+    <div className="ove-opts">
+      {cancelDraws(recipe.shell).map((draw) => <button key={draw} type="button" className="ove-opt" aria-pressed={recipe.cancel.draw === draw}
+        onClick={() => set({ draw }, t("Отмена: «{p0}»", { p0: draws[draw] }))}>
+        <span className="ove-cancel__pv">{draw === "x" ? <Icon name="x" size={12}/> : draw === "stop" ? <i/> : t("Отмена")}</span>
+        <span>{draws[draw]}</span>
+      </button>)}
+    </div>
+    {spotList.length > 1 && <div className="ove-row">
+      <span className="ove-cancel__label">{t("Где")}</span>
+      <Segmented value={recipe.cancel.at} onChange={(at) => set({ at }, t("Отмена: {p0}", { p0: spots[at] }))}
+        options={spotList.map((spot) => ({ value: spot, label: spots[spot] }))}/>
+    </div>}
+    <div className="ove-row">
+      <span className="ove-cancel__label">{t("Видна")}</span>
+      {showList.length > 1
+        ? <Segmented value={recipe.cancel.show} onChange={(show) => set({ show: show as Recipe["cancel"]["show"] }, t("Отмена: {p0}", { p0: shows[show as Recipe["cancel"]["show"]].toLowerCase() }))}
+          options={showList.map((show) => ({ value: show, label: shows[show] }))}/>
+        : <span className="ove-cancel__note">{t("при наведении: в этом корпусе кнопка лежит поверх деталей")}</span>}
+    </div>
+  </div>;
 }
 
 /** Patterns and density for the dot matrix, each drawn alive. */

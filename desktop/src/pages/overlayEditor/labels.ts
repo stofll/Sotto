@@ -1,5 +1,5 @@
 import { t } from "../../i18n";
-import type { ElementType, Motion, RecipeStyle, RegionKind, Shell } from "../../overlay/overlayRecipe";
+import type { ElementType, Motion, RecipeCancel, RecipeStyle, RegionKind, Shell } from "../../overlay/overlayRecipe";
 import type { MatrixProcess, MatrixSpeech } from "../../overlay/dotMatrix";
 
 // Names for everything the constructor shows. Built on each call so they
@@ -17,6 +17,16 @@ export const elementNotes = (): Record<ElementType, string> => ({
   level: t("рисует громкость"), timer: t("время записи и отсчёт лимита"), rec: t("идёт запись"),
   draft: t("текст стриминговой модели"), mode: t("язык и модель"),
 });
+
+/** Where the cancel button can sit; the keys are the spots of `CANCEL_SPOTS`. */
+export const cancelSpotNames = (): Record<string, string> => ({
+  start: t("в начале строки"), end: t("в конце строки"), footL: t("внизу слева"), footR: t("внизу справа"),
+  corner: t("в углу"), center: t("по центру"), top: t("сверху"), bottom: t("снизу"),
+});
+
+export const cancelDrawNames = (): Record<RecipeCancel["draw"], string> => ({ x: t("Крестик"), stop: t("Стоп"), text: t("Надпись") });
+
+export const cancelShowNames = (): Record<RecipeCancel["show"], string> => ({ hover: t("При наведении"), always: t("Всегда") });
 
 export const drawNames = (): Record<ElementType, Record<string, string>> => ({
   level: {

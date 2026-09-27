@@ -216,6 +216,7 @@ fn validate_recipe(recipe: &Value) -> Result<(), &'static str> {
         ("draw", ".draw"),
         ("style", ".style"),
         ("matrix", ".matrix"),
+        ("cancel", ".cancel"),
     ] {
         let Some(map) = object.get(key) else { continue };
         let entries = map.as_object().ok_or(field)?;
@@ -373,7 +374,7 @@ mod tests {
 
     #[test]
     fn validates_recipes_and_templates() {
-        let recipe = json!({"shell":"pill","slots":{"start":"timer","below":null},"draw":{"level":"matrix"},"style":{"radius":"round"},"motion":"soft","matrix":{"density":7}});
+        let recipe = json!({"shell":"pill","slots":{"start":"timer","below":null},"draw":{"level":"matrix"},"style":{"radius":"round"},"motion":"soft","matrix":{"density":7},"cancel":{"at":"end","draw":"x","show":"hover"}});
         assert!(validate(&json!({"overlay":{"recipe":recipe.clone()}})).is_ok());
         let template =
             json!({"id":"a1","name":"Мой","recipe":recipe.clone(),"palette":"violet","size":"l"});
@@ -383,6 +384,7 @@ mod tests {
             json!({"recipe":{"slots":{}}}),
             json!({"recipe":{"shell":"pill","slots":{"start":{"nested":true}}}}),
             json!({"recipe":{"shell":"pill","motion":""}}),
+            json!({"recipe":{"shell":"pill","cancel":"end"}}),
             json!({"templates":[{"id":"a","name":" ","recipe":recipe.clone()}]}),
             json!({"templates":[{"id":"a","name":"x","recipe":recipe.clone(),"size":"xl"}]}),
             json!({"templates":vec![template.clone(); MAX_TEMPLATES + 1]}),

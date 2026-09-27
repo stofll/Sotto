@@ -15,7 +15,10 @@ export const currentRecipe = (preferences: OverlayPreferences) => preferences.re
 /** Which template, if any, the current overlay matches exactly. */
 export function matchingTemplate(recipe: Recipe, preferences: OverlayPreferences): { kind: "system"; key: SystemTemplate } | { kind: "mine"; template: UserTemplate } | null {
   const mine = preferences.templates.find((template) => sameRecipe(template.recipe, recipe)
-    && (template.palette ?? preferences.palette) === preferences.palette && (template.size ?? preferences.size) === preferences.size);
+    && (template.palette ?? preferences.palette) === preferences.palette && (template.size ?? preferences.size) === preferences.size
+    && (preferences.palette !== "custom" || (
+      (template.palette_hue ?? preferences.palette_hue) === preferences.palette_hue
+      && (template.palette_chroma ?? preferences.palette_chroma) === preferences.palette_chroma)));
   if (mine) return { kind: "mine", template: mine };
   const key = (Object.keys(SYSTEM_TEMPLATES) as SystemTemplate[]).find((name) => sameRecipe(SYSTEM_TEMPLATES[name], recipe));
   return key ? { kind: "system", key } : null;
@@ -28,7 +31,7 @@ export function matchingTemplate(recipe: Recipe, preferences: OverlayPreferences
  * new shell does not have.
  */
 export function useOverlaySaver(config: ConfigResult | null, onConfigChanged: ConfigChange) {
-  const queue = useRef<Promise<unknown>>(Promise.resolve());
+  const queue = useRef<Promise<ConfigResult | null>>(Promise.resolve(null));
   const savedRecipe = useRef<unknown>(config?.overlay?.recipe ?? null);
   const [error, setError] = useState("");
 
@@ -37,8 +40,10 @@ export function useOverlaySaver(config: ConfigResult | null, onConfigChanged: Co
       try {
         const result = await onConfigChanged({ overlay: patch } as Partial<ConfigResult>);
         setError(result ? "" : t("Не удалось сохранить настройки оверлея. Попробуйте ещё раз."));
+        return result;
       } catch {
         setError(t("Не удалось сохранить настройки оверлея. Попробуйте ещё раз."));
+        return null;
       }
     });
     return queue.current;
@@ -64,6 +69,11 @@ export function templateLook(template: UserTemplate): Partial<OverlayLook> {
   if (template.palette_chroma !== undefined) look.palette_chroma = template.palette_chroma;
   if (template.size) look.size = template.size;
   return look;
+}
+
+/** `template` with the current recipe, colour and size; its id and name stay. */
+export function updatedTemplate(template: UserTemplate, recipe: Recipe, preferences: OverlayPreferences): UserTemplate {
+  return { ...newTemplate(template.name, recipe, preferences), id: template.id };
 }
 
 export function newTemplate(name: string, recipe: Recipe, preferences: OverlayPreferences): UserTemplate {

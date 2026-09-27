@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
+import { easeStep, frameRunner } from "./frameClock";
 import { audioLevelSource, type LevelSource } from "./levelSource";
 
 // Bar and gap, px. The pill keeps this spacing and takes as many bars as
@@ -78,20 +79,34 @@ export function OverlayWaveform({ surfaceRef, circular = false, variant = "bars"
   // eslint-disable-next-line react-hooks/exhaustive-deps -- `reading` only depends on these
   }, [count, circular, variant]);
 
+  const readingRef = useRef(reading);
+  readingRef.current = reading;
   useEffect(() => {
     let energy = 0.08;
     const surface = surfaceRef?.current;
     surface?.style.setProperty("--overlay-energy", String(energy));
+    const pixel = variant === "pixel";
+    // Readings arrive about 30 times a second. Smooth bars glide to each one on
+    // the shared ~60 fps clock; pixel bars snap by design, so they paint per reading.
+    const shown: number[] = [];
+    const runner = frameRunner((_now, seconds) => {
+      const levels = levelsRef.current, step = easeStep(seconds, 0.035);
+      for (let index = 0; index < barsRef.current.length; index++) {
+        const target = readingRef.current(levels, index);
+        shown[index] = (shown[index] ?? target) + (target - (shown[index] ?? target)) * step;
+        paintBar(barsRef.current[index], shown[index], circular);
+      }
+    });
     const stop = source((sample) => {
       const levels = levelsRef.current;
       levels.push(sample);
       levels.splice(0, Math.max(0, levels.length - barsRef.current.length));
       energy = energy * 0.78 + Math.sqrt(sample) * 0.22;
       surface?.style.setProperty("--overlay-energy", String(Math.max(0.08, energy)));
-      for (let index = 0; index < barsRef.current.length; index++) paintBar(barsRef.current[index], reading(levels, index), circular, variant === "pixel");
+      if (!pixel) { runner.wake(); return; }
+      for (let index = 0; index < barsRef.current.length; index++) paintBar(barsRef.current[index], readingRef.current(levels, index), circular, true);
     });
-    return () => { stop(); surface?.style.removeProperty("--overlay-energy"); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- `reading` only depends on these
+    return () => { stop(); runner.stop(); surface?.style.removeProperty("--overlay-energy"); };
   }, [surfaceRef, circular, variant, source]);
 
   return <div ref={waveRef} className={`overlay-waveform${circular ? " overlay-waveform--circular" : ""}${variant === "pixel" ? " overlay-waveform--pixel" : ""}`} aria-hidden="true">

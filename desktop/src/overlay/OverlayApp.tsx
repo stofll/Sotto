@@ -103,7 +103,11 @@ function RecipeOverlay({ session, recipe }: { session: OverlaySession; recipe: R
         draft={session.previewText} draftPlaceholder={t("Говорите — текст появится здесь")}
         timer={state === "loading" ? "--:--" : clock.text} limited={clock.limited} status={status}
         mode={{ full: config?.model ? `${language} · ${config.model}` : language, short: language }}
-        close={{ label: state === "pasted" || state === "error" ? t("Закрыть") : t("Отменить запись"), onClick: session.handleClose, disabled: session.isClosing }}
+        close={{
+          label: state === "pasted" || state === "error" ? t("Закрыть") : t("Отменить запись"),
+          text: state === "pasted" || state === "error" ? t("Закрыть") : t("Отмена"),
+          onClick: session.handleClose, disabled: session.isClosing,
+        }}
         hovered={session.hovered} surfaceRef={surfaceRef} source={audioLevelSource}/>
     </Suspense>
   </div>;

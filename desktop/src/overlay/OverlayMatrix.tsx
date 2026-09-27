@@ -1,4 +1,5 @@
 import { useEffect, useRef, type RefObject } from "react";
+import { frameRunner, onFrame } from "./frameClock";
 import { audioLevelSource, type LevelSource } from "./levelSource";
 import { brightnessStep, matrixGrid, paintProcess, paintSpeech, speechState, type MatrixDensity, type MatrixGrid, type MatrixProcess, type MatrixSpeech } from "./dotMatrix";
 
@@ -86,10 +87,10 @@ export function OverlayMatrix({ mode, size, density, speech, process, surfaceRef
         paintProcess(grid, cells, process, (reduced ? Math.floor((now - started) / 250) * 250 : now - started) / 1000);
         draw(now);
       };
-      let frame = 0, timer = 0;
+      let stopFrames = () => {}, timer = 0;
       if (reduced) { tick(performance.now()); timer = window.setInterval(() => tick(performance.now()), 250); }
-      else { const loop = (now: number) => { tick(now); frame = requestAnimationFrame(loop); }; frame = requestAnimationFrame(loop); }
-      return () => { cancelAnimationFrame(frame); window.clearInterval(timer); observer?.disconnect(); };
+      else stopFrames = onFrame(tick);
+      return () => { stopFrames(); window.clearInterval(timer); observer?.disconnect(); };
     }
 
     const levels: number[] = [];
@@ -98,17 +99,20 @@ export function OverlayMatrix({ mode, size, density, speech, process, surfaceRef
     const surface = surfaceRef?.current;
     surface?.style.setProperty("--overlay-energy", String(energy));
     draw(performance.now());
+    // Painted on the shared ~60 fps clock so rings and fades move between readings.
+    const runner = frameRunner((now) => {
+      if (!fit() || !grid) return;
+      paintSpeech(grid, cells, speech, levels, now, state);
+      draw(now);
+    });
     const stop = source((sample) => {
       levels.push(sample);
       if (levels.length > HISTORY) levels.shift();
       energy = energy * 0.78 + Math.sqrt(sample) * 0.22;
       surface?.style.setProperty("--overlay-energy", String(Math.max(0.08, energy)));
-      if (!fit() || !grid) return;
-      const now = performance.now();
-      paintSpeech(grid, cells, speech, levels, now, state);
-      draw(now);
+      runner.wake();
     });
-    return () => { stop(); observer?.disconnect(); surface?.style.removeProperty("--overlay-energy"); };
+    return () => { stop(); runner.stop(); observer?.disconnect(); surface?.style.removeProperty("--overlay-energy"); };
   }, [mode, size, density, speech, process, surfaceRef, source, sharp]);
 
   return <canvas ref={canvasRef} className={`overlay-matrix${size === undefined ? " overlay-matrix--row" : ""}`}

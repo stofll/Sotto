@@ -71,3 +71,14 @@ describe("normalizeTemplates", () => {
     expect(templates[1].palette_hue).toBeUndefined();
   });
 });
+
+describe("cancel button in a recipe", () => {
+  it("gives a recipe saved before it existed the shell's default button", () => {
+    expect(normalizeRecipe({ shell: "card" })?.cancel).toEqual({ at: "footR", draw: "x", show: "hover" });
+  });
+
+  it("drops a place or a look the shell cannot have", () => {
+    expect(normalizeRecipe({ shell: "stack", cancel: { at: "corner", draw: "text", show: "always" } })?.cancel)
+      .toEqual({ at: "top", draw: "x", show: "hover" });
+  });
+});

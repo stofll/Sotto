@@ -27,11 +27,12 @@ export type SceneProps = {
   status: ReactNode;
   mode: { full: string; short: string };
   source: LevelSource;
-  close: { label: string; onClick?: () => void; disabled?: boolean };
+  /** `label` names the action for screen readers; `text` is the word the "text" drawing shows. */
+  close: { label: string; text: string; onClick?: () => void; disabled?: boolean };
   hovered?: boolean;
   surfaceRef?: RefObject<HTMLDivElement | null>;
   /** Constructor mode: regions become targets with labels, and the targets outside the shell appear. */
-  interactive?: { labels: Record<string, string>; ghosts: Record<string, string>; selected: ElementType | null };
+  interactive?: { labels: Record<string, string>; ghosts: Record<string, string>; selected: ElementType | "cancel" | null; cancelLabel: string };
   /** Thumbnails: no transitions. */
   still?: boolean;
 };
@@ -98,20 +99,26 @@ export function OverlayScene(props: SceneProps) {
     status = <span className="ovs-lbl ovs-lbl--err">{props.status}</span>;
   }
   const stl = <div className="ovs-stl" role={phase === "recording" ? undefined : "status"}>{status}</div>;
-  const close = <button type="button" className="ovs-close" aria-label={props.close.label} onClick={props.close.onClick}
-    disabled={props.close.disabled} tabIndex={interactive ? -1 : undefined}><Icon name="x" size={14}/></button>;
+  const { cancel } = recipe;
+  // In the constructor the button is a target like the parts: it opens its own options.
+  const close = <button type="button" className={`ovs-close${interactive?.selected === "cancel" ? " ovs-sel" : ""}`} data-draw={cancel.draw}
+    data-cancel={interactive ? "" : undefined} aria-label={interactive ? interactive.cancelLabel : props.close.label}
+    onClick={interactive ? undefined : props.close.onClick} disabled={interactive ? false : props.close.disabled}>
+    {cancel.draw === "x" ? <Icon name="x" size={14}/> : cancel.draw === "stop" ? <span className="ovs-close__stop"/> : props.close.text}
+  </button>;
+  const at = (spot: string) => cancel.at === spot ? close : null;
   const layers = <><div className="ovs-gfx"/><div className="ovs-bb"/><div className="ovs-flash"/></>;
 
   let body: ReactNode;
   if (recipe.shell === "caps") {
     body = <div className="ovs-capwrap">
-      <div className="ovs-chip ovs-skin" ref={surfaceRef}>{layers}<div className="ovs-main-row">{R("c1")}{R("c2")}{stl}{close}</div></div>
+      <div className="ovs-chip ovs-skin" ref={surfaceRef}>{layers}<div className="ovs-main-row">{at("start")}{R("c1")}{R("c2")}{stl}{at("end")}</div></div>
       {R("lines")}
     </div>;
   } else {
     let content: ReactNode;
-    if (recipe.shell === "pill" || recipe.shell === "island") content = <><div className="ovs-main-row">{R("start")}{R("center")}{R("end")}{stl}{close}</div>{R("below")}</>;
-    else if (recipe.shell === "card") content = <>{R("body")}<div className="ovs-foot">{R("footL")}<div className="ovs-sp"/>{R("footR")}{close}</div>{stl}</>;
+    if (recipe.shell === "pill" || recipe.shell === "island") content = <><div className="ovs-main-row">{at("start")}{R("start")}{R("center")}{R("end")}{stl}{at("end")}</div>{R("below")}</>;
+    else if (recipe.shell === "card") content = <>{R("body")}<div className="ovs-foot">{at("footL")}{R("footL")}<div className="ovs-sp"/>{R("footR")}{at("footR")}</div>{stl}{at("corner")}</>;
     else if (recipe.shell === "bead") content = <>{R("core")}{stl}{close}</>;
     else content = <>{R("top")}{R("bottom")}{stl}{close}</>;
     body = <>{layers}<div className="ovs-edgefx">{recipe.slots.edge ? element("edge") : null}</div><div className="ovs-content">{content}</div></>;
@@ -127,8 +134,10 @@ export function OverlayScene(props: SceneProps) {
   return <div className={`ovs${still ? " ovs--still" : ""}`}
     data-shell={recipe.shell} data-radius={recipe.style.radius} data-stroke={recipe.style.stroke} data-fill={recipe.style.fill}
     data-glow={recipe.style.glow} data-font={recipe.style.font} data-motion={recipe.motion} data-phase={phase}
+    data-cancel-at={cancel.at} data-cancel-show={cancel.show}
     data-shown={shown ? "1" : "0"} data-draft={draftOpen ? "1" : "0"} data-limit={props.limited && phase === "recording" ? "1" : "0"}
     data-notimer={timerless ? "1" : "0"} data-needs-text={needsText ? "1" : "0"} data-hovered={props.hovered ? "true" : "false"}
+    data-edit={interactive ? "1" : undefined}
     style={{ "--fs": FONT_SCALE[size], "--rowh": `${rowHeight}px` } as CSSProperties}>
     <div className={`ovs-shell${recipe.shell === "caps" ? "" : " ovs-skin"}`} ref={recipe.shell === "caps" ? undefined : surfaceRef}
       style={{ width: shellWidth, height: shellHeight, borderRadius: recipe.shell === "caps" ? undefined : shellRadius(recipe, size) }}>

@@ -8,9 +8,11 @@ The overlay card offers four Sotto templates (pill, bead, glow and orb) and a ro
 
 **Open the constructor** turns the Settings page into an editor. Pick a shell, then add parts from the library: the level (bars, pixels, oscilloscope, dot matrix, ring, orb and others), the timer, a recording indicator, the language and model, and the streaming draft. Every part is drawn live with a simulated voice. Click a part to add it or redraw the element already in place, or drag it onto a region of the preview; a region that cannot hold it says why. Click an element in the preview to see the drawings that fit there or remove it. The Style tab sets corners, stroke, fill, voice glow, font, motion, color and size; the Place tab sets the anchor and edge offset.
 
+Every overlay has a cancel button, because it is the only way to stop a recording with the mouse: it can be moved and redrawn but not removed. The Build tab and a click on the button in the preview choose a cross, a stop square or the word "Cancel", its place (the start or end of the row, the card's footer or corner, the top or bottom of the stack) and whether it is always visible or appears on hover. In the bead and the stack the button sits over the parts, so it appears only on hover and has no word; the preview shows a hover-only button half visible.
+
 A phase control under the preview shows recording, streaming, processing, insertion, error and the limit countdown, or runs them as a scenario. What happens after recording is not part of the recipe: the list under the preview explains it for the current shell. The dot matrix has its own speech and processing patterns and a density of 5 × 5, 7 × 7 or 9 × 9; while text is processed, the matrix replaces the usual status animation.
 
-Save the result with **Save as template**, or from the add tile in the overlay card. Up to eight templates are kept; each has a menu to apply, rename, update it with the current overlay, or delete it. Deleting a template does not change the overlay on screen.
+Save the result with **Save as template** in the constructor; the **+** tile in the overlay card opens the constructor. Up to eight templates are kept; each has a menu to apply, edit in the constructor, rename, or delete it. Editing applies the template and adds a **Save to** button that writes the changes back into it. Deleting a template does not change the overlay on screen.
 
 A shell keeps one corner radius per size and corner style in every state, including the streaming card and the error row. The recipe is stored in the configuration as `overlay.recipe`, templates as `overlay.templates`, and the legacy `form` is kept in step with the closest shell so an older Sotto still shows a similar overlay. The stack is the one shell with a window size of its own: 72 × 112, 80 × 128 and 88 × 144.
 
@@ -26,7 +28,7 @@ Every shape hides the cancel control until the pointer is over the overlay or th
 
 Without a recipe, the timer on the pill and the glow can be hidden from Overlay settings; with one, the timer is a part placed in the constructor. The bead has no timer. Hiding it does not change the native window size; the waveform uses the space the timer occupied.
 
-A recording stops by itself at the **Recording limit** from Advanced settings (15 minutes by default, or no limit) and is transcribed like any other, so one left running in toggle mode does not grow without bound. Five minutes before the stop, or a third of a shorter limit, the timer starts counting down in the warning color, even when it is hidden in settings. The bead has no timer and shows no countdown.
+A recording stops by itself at the **Recording limit** from Advanced settings (15 minutes by default, or no limit) and is transcribed like any other, so one left running in toggle mode does not grow without bound. Five minutes before the stop, or a third of a shorter limit, the timer starts counting down in the warning color, even when it is hidden in settings. The legacy bead has no timer and shows no countdown. In a constructor recipe without a timer, the countdown temporarily replaces the parts inside the shell; the cancel button remains available.
 
 ## Color and size
 

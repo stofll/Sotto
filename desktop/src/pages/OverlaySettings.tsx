@@ -17,7 +17,8 @@ import { QUICK_TEMPLATES, SYSTEM_TEMPLATES, systemTemplateNames } from "./overla
 type Props = {
   config: ConfigResult | null;
   onConfigChanged: (patch: Partial<ConfigResult>) => Promise<ConfigResult | null>;
-  onOpenEditor: () => void;
+  /** Opens the constructor; with a template id, edits that template. */
+  onOpenEditor: (template?: string) => void;
 };
 
 // Fixed bar heights: the preview is a still picture of the overlay, not a
@@ -95,7 +96,7 @@ export function OverlaySettings({ config, onConfigChanged, onOpenEditor }: Props
   const match = matchingTemplate(recipe, draft);
   const recipeLine = match?.kind === "mine" ? t("Сейчас: мой шаблон «{p0}»", { p0: match.template.name })
     : match ? t("Сейчас: шаблон «{p0}»", { p0: systemTemplateNames()[match.key] })
-    : t("Сейчас: своя сборка из конструктора");
+    : null;
   const [sceneWidth, sceneHeight] = WINDOW_SIZE[SHELL_LAYOUT[recipe.shell]][draft.size];
   return <section className="overlay-settings" aria-label={t("Оверлей")} data-testid="overlay-settings">
     <div className="overlay-templates">
@@ -108,11 +109,12 @@ export function OverlaySettings({ config, onConfigChanged, onOpenEditor }: Props
         <span className="set-label">{t("Мои шаблоны")}</span>
         <MyTemplates layout="strip" recipe={recipe} preferences={draft} disabled={locked}
           onApply={(template) => void saver.saveRecipe(structuredClone(template.recipe), templateLook(template))}
-          onChange={(templates) => void saver.saveTemplates(templates)}/>
+          onChange={(templates) => void saver.saveTemplates(templates)} onCreate={() => onOpenEditor()}
+          onEdit={(template) => void saver.saveRecipe(structuredClone(template.recipe), templateLook(template)).then(() => onOpenEditor(template.id))}/>
       </div>
       <div className="overlay-templates__foot">
         <span className="overlay-settings-hint">{recipeLine}</span>
-        <button type="button" className="btn btn--primary" disabled={!config} onClick={onOpenEditor}>
+        <button type="button" className="btn btn--primary" disabled={!config} onClick={() => onOpenEditor()}>
           <Icon name="sliders" size={14}/>{t("Открыть конструктор")}
         </button>
       </div>
@@ -192,7 +194,7 @@ export function OverlaySettings({ config, onConfigChanged, onOpenEditor }: Props
           {draft.recipe ? <span className="overlay-mini overlay-mini--scene" data-anchor={draft.anchor}
             style={{ ...overlayPalette(draft), ...previewPlacement(draft.anchor, draft.edge_offset), width: sceneWidth, height: sceneHeight }}>
             <OverlayScene still recipe={draft.recipe} size={draft.size} phase="recording" streaming={false} draft="" draftPlaceholder=""
-              timer="00:07" limited={false} status="" mode={{ full: "RU · large-v3", short: "RU" }} source={stillVoice} close={{ label: "" }}/>
+              timer="00:07" limited={false} status="" mode={{ full: "RU · large-v3", short: "RU" }} source={stillVoice} close={{ label: "", text: t("Отмена") }}/>
           </span> : <span className="overlay-mini" data-form={draft.form} data-size={draft.size}
             data-anchor={draft.anchor}
             style={{ ...overlayPalette(draft), ...previewPlacement(draft.anchor, draft.edge_offset) }}>

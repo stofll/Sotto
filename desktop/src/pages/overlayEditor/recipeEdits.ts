@@ -1,10 +1,20 @@
 import {
-  DRAWINGS, SHELL_REGIONS, compatible, emptySlots, fitsShell, regionOf,
+  DEFAULT_STYLE, DRAWINGS, SHELL_REGIONS, compatible, emptySlots, fitCancel, fitsShell, regionOf,
   type ElementType, type Recipe, type RegionKind, type Shell,
 } from "../../overlay/overlayRecipe";
 
 // Every edit the constructor makes to a recipe. Each returns a new recipe
 // or a reason it cannot be done; nothing here knows about the screen.
+
+const hasOrb = (recipe: Recipe) => recipe.draw.level === "orb" && regionOf(recipe, "level") !== null;
+
+/** The orb is the only drawing meant to float without a shell. When an edit
+ *  takes it away, a shell that is still invisible gets its default look back,
+ *  otherwise the new parts would hang in the air. */
+export function restoreShell(before: Recipe, after: Recipe): Recipe {
+  if (!hasOrb(before) || hasOrb(after) || after.style.fill !== "none" || after.style.stroke !== "none") return after;
+  return { ...after, style: { ...after.style, fill: DEFAULT_STYLE.fill, stroke: DEFAULT_STYLE.stroke, glow: DEFAULT_STYLE.glow } };
+}
 
 /** Where an element goes first when it is added without choosing a place. */
 const PREFERRED: Record<Shell, Partial<Record<ElementType, string[]>>> = {
@@ -77,6 +87,7 @@ export function changeShell(recipe: Recipe, shell: Shell): EditResult & { ok: tr
   const next = clone(recipe);
   next.shell = shell;
   next.slots = emptySlots(shell);
+  next.cancel = fitCancel(shell, recipe.cancel);
   const regions = SHELL_REGIONS[shell];
   const placed = PLACEMENT_ORDER.filter((type) => regionOf(recipe, type));
   const switched: ElementType[] = [];

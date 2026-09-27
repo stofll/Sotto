@@ -50,6 +50,34 @@ export const MOTIONS = ["quiet", "soft", "spring", "pixel"] as const;
 export type Motion = typeof MOTIONS[number];
 
 export type RecipeMatrix = { speech: MatrixSpeech; process: MatrixProcess; density: MatrixDensity };
+
+/**
+ * The cancel button is part of every overlay: it is the only way to stop a
+ * recording with the mouse, so a recipe can move and redraw it but never
+ * drop it. It has places of its own, outside the regions, so it never takes
+ * a part's room. The first place of each shell is the default.
+ */
+export const CANCEL_SPOTS: Record<Shell, readonly string[]> = {
+  pill: ["end", "start"], island: ["end", "start"], card: ["footR", "footL", "corner"],
+  bead: ["center"], stack: ["top", "bottom"], caps: ["end", "start"],
+};
+export const CANCEL_DRAWS = ["x", "stop", "text"] as const;
+export const CANCEL_SHOWS = ["hover", "always"] as const;
+export type RecipeCancel = { at: string; draw: typeof CANCEL_DRAWS[number]; show: typeof CANCEL_SHOWS[number] };
+const ROUND_SHELLS: readonly Shell[] = ["bead", "stack"];
+/** A word needs a row. */
+export const cancelDraws = (shell: Shell): readonly RecipeCancel["draw"][] => ROUND_SHELLS.includes(shell) ? ["x", "stop"] : CANCEL_DRAWS;
+/** In the bead and the stack the button sits over the parts, so it can only appear on hover. */
+export const cancelShows = (shell: Shell): readonly RecipeCancel["show"][] => ROUND_SHELLS.includes(shell) ? ["hover"] : CANCEL_SHOWS;
+/** The cancel button a shell can have that is closest to `raw`. */
+export function fitCancel(shell: Shell, raw: unknown): RecipeCancel {
+  const value = record(raw);
+  return {
+    at: pick(CANCEL_SPOTS[shell], value.at, CANCEL_SPOTS[shell][0]),
+    draw: pick(cancelDraws(shell), value.draw, "x"),
+    show: pick(cancelShows(shell), value.show, "hover"),
+  };
+}
 export const DEFAULT_MATRIX: RecipeMatrix = { speech: "rings", process: "perimeter", density: 7 };
 
 export type Recipe = {
@@ -59,6 +87,7 @@ export type Recipe = {
   style: RecipeStyle;
   motion: Motion;
   matrix: RecipeMatrix;
+  cancel: RecipeCancel;
 };
 export type OverlaySize = "s" | "m" | "l";
 
@@ -110,6 +139,7 @@ export function normalizeRecipe(raw: unknown): Recipe | null {
       process: pick(MATRIX_PROCESS, rawMatrix.process, DEFAULT_MATRIX.process),
       density: pick(MATRIX_DENSITIES, rawMatrix.density, DEFAULT_MATRIX.density),
     },
+    cancel: fitCancel(shell, value.cancel),
   };
 }
 

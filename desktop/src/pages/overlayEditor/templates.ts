@@ -1,13 +1,13 @@
 import { t } from "../../i18n";
 import {
-  DEFAULT_DRAW, DEFAULT_MATRIX, DEFAULT_STYLE, emptySlots, normalizeRecipe,
+  DEFAULT_DRAW, DEFAULT_MATRIX, DEFAULT_STYLE, emptySlots, fitCancel, normalizeRecipe,
   type ElementType, type Motion, type Recipe, type RecipeMatrix, type RecipeStyle, type Shell,
 } from "../../overlay/overlayRecipe";
 
 function recipe(shell: Shell, slots: Record<string, ElementType>, draw: Partial<Recipe["draw"]>, style: Partial<RecipeStyle>, motion: Motion, matrix: Partial<RecipeMatrix> = {}): Recipe {
   return {
     shell, slots: { ...emptySlots(shell), ...slots }, draw: { ...DEFAULT_DRAW, ...draw },
-    style: { ...DEFAULT_STYLE, ...style }, motion, matrix: { ...DEFAULT_MATRIX, ...matrix },
+    style: { ...DEFAULT_STYLE, ...style }, motion, matrix: { ...DEFAULT_MATRIX, ...matrix }, cancel: fitCancel(shell, {}),
   };
 }
 

@@ -23,7 +23,7 @@ export function OverlayThumb({ recipe, preferences, size }: { recipe: Recipe; pr
   return <span className="ovt" style={overlayPalette(preferences)} aria-hidden="true">
     <span className="ovt__scene" style={{ width, height, transform: `translate(-50%, -50%) scale(${scale.toFixed(3)})` } as CSSProperties}>
       <OverlayScene still recipe={recipe} size={size} phase="recording" streaming={false} draft="" draftPlaceholder=""
-        timer="00:07" limited={false} status="" mode={{ full: "RU · large-v3", short: "RU" }} source={stillVoice} close={{ label: "" }}/>
+        timer="00:07" limited={false} status="" mode={{ full: "RU · large-v3", short: "RU" }} source={stillVoice} close={{ label: "", text: t("Отмена") }}/>
     </span>
   </span>;
 }
@@ -49,10 +49,14 @@ type MineProps = {
   disabled?: boolean;
   onApply: (template: UserTemplate) => void;
   onChange: (templates: UserTemplate[], saved?: UserTemplate) => void;
+  /** Opens the template in the constructor, where changes are saved back into it. */
+  onEdit: (template: UserTemplate) => void;
+  /** Replaces the save tile with a plain "+" that opens the constructor. */
+  onCreate?: () => void;
 };
 
 /** The user's own templates: apply, save the current overlay, rename, update, delete. */
-export function MyTemplates({ recipe, preferences, layout, disabled, onApply, onChange }: MineProps) {
+export function MyTemplates({ recipe, preferences, layout, disabled, onApply, onChange, onEdit, onCreate }: MineProps) {
   const [naming, setNaming] = useState<{ template?: UserTemplate } | null>(null);
   const templates = preferences.templates;
   const match = matchingTemplate(recipe, preferences);
@@ -63,10 +67,6 @@ export function MyTemplates({ recipe, preferences, layout, disabled, onApply, on
   async function remove(template: UserTemplate) {
     if (!await confirmDestructive(t("Удалить шаблон «{p0}»? Оверлей на экране останется как есть.", { p0: template.name }))) return;
     onChange(templates.filter((item) => item.id !== template.id));
-  }
-  function update(template: UserTemplate) {
-    const fresh = { ...newTemplate(template.name, recipe, preferences), id: template.id };
-    onChange(templates.map((item) => item.id === template.id ? fresh : item), fresh);
   }
   function submitName(name: string) {
     const renaming = naming?.template;
@@ -92,22 +92,30 @@ export function MyTemplates({ recipe, preferences, layout, disabled, onApply, on
         <span className="ovt-mine__menu">
           <RowMenu label={t("Действия с шаблоном «{p0}»", { p0: template.name })} items={[
             { id: "apply", label: t("Применить"), icon: "check", disabled: current, onSelect: () => onApply(template) },
+            { id: "edit", label: t("Изменить в конструкторе"), icon: "sliders", onSelect: () => onEdit(template) },
             { id: "rename", label: t("Переименовать"), icon: "pencil", onSelect: () => setNaming({ template }) },
-            { id: "update", label: t("Обновить текущей настройкой"), icon: "refresh", disabled: current, onSelect: () => update(template) },
             { id: "delete", label: t("Удалить"), icon: "trash", danger: true, onSelect: () => void remove(template) },
           ]}/>
         </span>
       </div>;
     })}
-    <Hint text={addHint}>
-      <span className="ovt-mine__add">
-        <button type="button" className="ovt-tile ovt-tile--add" disabled={disabled || !!match || full} onClick={() => setNaming({})}>
-          <span className="ovt-add__thumb"><OverlayThumb recipe={recipe} preferences={preferences} size={preferences.size}/><Icon name="plus" size={18}/></span>
-          <span className="ovt-tile__name">{addState}</span>
-        </button>
-      </span>
-    </Hint>
-    {!templates.length && <p className="ovt-mine__empty">{t("Соберите оверлей в конструкторе и сохраните его, чтобы вернуться к нему одним нажатием.")}</p>}
+    {onCreate
+      ? <Hint text={t("Соберите оверлей в конструкторе и сохраните его, чтобы вернуться к нему одним нажатием.")}>
+        <span className="ovt-mine__add">
+          <button type="button" className="ovt-tile ovt-tile--new" disabled={disabled} aria-label={t("Собрать свой шаблон")} onClick={onCreate}>
+            <Icon name="plus" size={20}/>
+          </button>
+        </span>
+      </Hint>
+      : <Hint text={addHint}>
+        <span className="ovt-mine__add">
+          <button type="button" className="ovt-tile ovt-tile--add" disabled={disabled || !!match || full} onClick={() => setNaming({})}>
+            <span className="ovt-add__thumb"><OverlayThumb recipe={recipe} preferences={preferences} size={preferences.size}/><Icon name="plus" size={18}/></span>
+            <span className="ovt-tile__name">{addState}</span>
+          </button>
+        </span>
+      </Hint>}
+    {!templates.length && !onCreate && <p className="ovt-mine__empty">{t("Соберите оверлей в конструкторе и сохраните его, чтобы вернуться к нему одним нажатием.")}</p>}
     {naming && <NameDialog title={naming.template ? t("Переименовать шаблон") : t("Сохранить как шаблон")}
       initial={naming.template?.name ?? defaultName()} action={naming.template ? t("Переименовать") : t("Сохранить")}
       onCancel={() => setNaming(null)} onSubmit={submitName}/>}

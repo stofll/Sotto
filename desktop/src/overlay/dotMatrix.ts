@@ -63,10 +63,14 @@ export function brightnessStep(value: number) {
   return Math.round(Math.max(0, Math.min(1, value)) * 3);
 }
 
-export type SpeechState = { rings: Array<{ start: number; strength: number }>; average: number; lastRing: number };
+export type SpeechState = { rings: Array<{ start: number; strength: number }>; average: number; lastRing: number; lastPaint: number | null };
 export function speechState(): SpeechState {
-  return { rings: [], average: 0, lastRing: -Infinity };
+  return { rings: [], average: 0, lastRing: -Infinity, lastPaint: null };
 }
+
+// The fades below are tuned per level reading, which arrives about 30 times a
+// second; painting more often scales them by the time that actually passed.
+const READING_MS = 1000 / 30;
 
 const RIPPLE_LIFE_MS = 900;
 
@@ -80,12 +84,15 @@ export function paintSpeech(grid: MatrixGrid, cells: Float32Array, pattern: Matr
   const count = cols * rows;
   const level = Math.sqrt(levels[levels.length - 1] ?? 0);
   const middle = (rows - 1) / 2;
+  const readings = state.lastPaint === null ? 1 : Math.min(3, Math.max(0, now - state.lastPaint) / READING_MS);
+  state.lastPaint = now;
+  const fade = (base: number) => base ** readings;
   switch (pattern) {
     case "rings": {
       const reach = level * 1.15;
       for (let index = 0; index < count; index++) {
         const d = distance[index];
-        cells[index] = Math.max(level > 0.06 && d <= reach ? 1 - 0.6 * d / (reach + 0.001) : 0, cells[index] * 0.55);
+        cells[index] = Math.max(level > 0.06 && d <= reach ? 1 - 0.6 * d / (reach + 0.001) : 0, cells[index] * fade(0.55));
       }
       break;
     }
@@ -100,7 +107,7 @@ export function paintSpeech(grid: MatrixGrid, cells: Float32Array, pattern: Matr
       break;
     }
     case "ripple": {
-      state.average = state.average * 0.9 + level * 0.1;
+      state.average += (level - state.average) * (1 - fade(0.9));
       if (level > 0.2 && level > state.average + 0.08 && now - state.lastRing > 170) {
         state.rings.push({ start: now, strength: Math.min(1, level * 1.2) });
         state.lastRing = now;
@@ -114,7 +121,7 @@ export function paintSpeech(grid: MatrixGrid, cells: Float32Array, pattern: Matr
           const band = 1 - Math.abs(d - radius) * rows * 0.9;
           if (band > 0) value = Math.max(value, band * ring.strength * (1 - radius / 1.25));
         }
-        cells[index] = Math.max(value, cells[index] * 0.72);
+        cells[index] = Math.max(value, cells[index] * fade(0.72));
       }
       break;
     }
@@ -124,7 +131,7 @@ export function paintSpeech(grid: MatrixGrid, cells: Float32Array, pattern: Matr
         const x = index % cols, y = Math.floor(index / cols);
         const noise = 0.5 + 0.5 * Math.sin(x * 0.8 + seconds * 1.6 + Math.sin(y * 0.9 - seconds * 0.9) * 1.8)
           * Math.cos(y * 0.7 - seconds * 1.2 + Math.sin(x * 0.45 + seconds * 0.7) * 1.4);
-        cells[index] = Math.max(noise > threshold ? 0.35 + 0.65 * (noise - threshold) / (1 - threshold + 0.001) : 0, cells[index] * 0.6);
+        cells[index] = Math.max(noise > threshold ? 0.35 + 0.65 * (noise - threshold) / (1 - threshold + 0.001) : 0, cells[index] * fade(0.6));
       }
       break;
     }

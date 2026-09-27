@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { regionOf } from "../../overlay/overlayRecipe";
-import { addPart, changeShell, placeInto, removePart, replacementPatch } from "./recipeEdits";
+import { addPart, changeShell, placeInto, removePart, replacementPatch, restoreShell } from "./recipeEdits";
 import { SYSTEM_TEMPLATES } from "./templates";
 
 const pill = SYSTEM_TEMPLATES.pill;
@@ -62,5 +62,31 @@ describe("replacementPatch", () => {
     const after = { shell: "bead", slots: { core: "level" }, draw: { level: "ring" } };
     expect(replacementPatch(before, after)).toEqual({ shell: "bead", slots: { start: null, below: null, core: "level" }, draw: { level: "ring" } });
     expect(replacementPatch(null, after)).toBe(after);
+  });
+});
+
+describe("restoreShell", () => {
+  const orb = SYSTEM_TEMPLATES.orb;
+
+  it("gives a shell back when the orb is replaced", () => {
+    const result = addPart(orb, "level", "caps");
+    if (!result.ok) throw new Error("rejected");
+    const style = restoreShell(orb, result.recipe).style;
+    expect(style.fill).not.toBe("none");
+    expect(style.stroke).not.toBe("none");
+  });
+
+  it("keeps a transparent shell the user chose without an orb", () => {
+    const glassy = { ...pill, style: { ...pill.style, fill: "none", stroke: "none" } } as typeof pill;
+    expect(restoreShell(glassy, glassy)).toBe(glassy);
+  });
+});
+
+describe("the cancel button", () => {
+  it("keeps a place and a look the new shell has, and falls back where it has none", () => {
+    const text = { ...pill, cancel: { at: "start", draw: "text", show: "always" } } as typeof pill;
+    expect(changeShell(text, "caps").recipe.cancel).toEqual({ at: "start", draw: "text", show: "always" });
+    // The bead's centre is shared with the level: no word, and only on hover.
+    expect(changeShell(text, "bead").recipe.cancel).toEqual({ at: "center", draw: "x", show: "hover" });
   });
 });
