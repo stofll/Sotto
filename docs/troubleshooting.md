@@ -8,6 +8,10 @@ Expected: the builds carry no publisher certificate, so SmartScreen and Gatekeep
 
 Try the Reload button in the error message. If the error persists, quit Sotto completely and start it again; closing the settings window alone can leave the application running. If restarting does not help, reinstall a verified application package; reloading cannot repair a missing or damaged bundled file.
 
+## Reopen release notes
+
+Open Help → Updates → What's new to read the installed version's release notes again, including after restarting Sotto. Cached notes work offline; if they have not been cached, Sotto retrieves them from that version's GitHub release. If notes are unavailable, check your connection and use Retry.
+
 ## The application does not build
 
 Use the Rust, Node.js and pnpm versions pinned in `rust-toolchain.toml`, `.node-version` and `desktop/package.json`. Confirm that CMake, LLVM/libclang, and the platform-specific native toolchain are installed.

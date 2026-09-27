@@ -9,6 +9,7 @@ import { CustomSelect, type SelectOption } from "../components/CustomSelect";
 import { t } from "../i18n";
 import { FeedbackCard } from "./FeedbackCard";
 import { DEFAULT_HOTKEY } from "../hotkey";
+import { WhatsNewDialog } from "../components/WhatsNewDialog";
 
 function hotkeyParts(hotkey?: string): string[] {
   const labels: Record<string, string> = { ctrl: "Ctrl", control: "Ctrl", shift: "Shift", alt: "Alt", win: "Win", cmd: "Win", super: "Win", space: "Space", enter: "Enter", esc: "Esc", tab: "Tab" };
@@ -63,6 +64,7 @@ function formatMb(bytes: number) {
 // coming: the version, the date and the release notes.
 function UpdatesCard({ version }: { version?: string | null }) {
   const [state, setState] = useState<UpdateState>({ kind: "idle" });
+  const [showNotes, setShowNotes] = useState(false);
 
   async function check(loud: boolean) {
     setState({ kind: "checking" });
@@ -136,6 +138,7 @@ function UpdatesCard({ version }: { version?: string | null }) {
       {state.kind === "error" && <p style={{ margin: "12px 0 0", font: "400 11.5px/1.4 var(--font-sans)", color: "var(--err)" }}>{state.message}</p>}
 
       <div className="flex-row" style={{ gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+        <button className="btn btn--ghost" type="button" onClick={() => setShowNotes(true)}>{t("Что нового")}</button>
         <button className="btn btn--ghost" type="button" disabled={busy} onClick={() => void check(true)}>
           <Icon name="refresh" size={13}/> {state.kind === "checking" ? t("Проверяем…") : t("Проверить обновления")}
         </button>
@@ -145,6 +148,7 @@ function UpdatesCard({ version }: { version?: string | null }) {
           </button>
         )}
       </div>
+      {showNotes && <WhatsNewDialog ready onClose={() => setShowNotes(false)}/>}
     </HelpCard>
   );
 }

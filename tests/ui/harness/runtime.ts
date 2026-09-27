@@ -70,8 +70,8 @@ export function install(seed: any = {}) {
       return structuredClone(answer.result);
     }
     switch (command) {
-      case 'get_whats_new': return state.whats_new ?? null;
-      case 'dismiss_whats_new': state.whats_new = null; persist(); return null;
+      case 'get_whats_new': return args.manual || !state.whats_new_seen ? state.whats_new ?? null : null;
+      case 'dismiss_whats_new': state.whats_new_seen = true; persist(); return null;
       case 'app_version': return { version: '0.0.5-test' };
       case 'check_accessibility': return true;
       case 'get_config': return structuredClone(state.config);

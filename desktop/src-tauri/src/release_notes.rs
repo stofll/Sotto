@@ -174,8 +174,10 @@ async fn fetch_notes_from(
 pub async fn get_whats_new(
     app: AppHandle,
     state: State<'_, AppState>,
+    manual: Option<bool>,
 ) -> Result<Option<ReleaseNotes>, String> {
-    if cfg!(debug_assertions) {
+    let manual = manual.unwrap_or(false);
+    if cfg!(debug_assertions) && !manual {
         return Ok(None);
     }
     let version = app.package_info().version.to_string();
@@ -185,7 +187,7 @@ pub async fn get_whats_new(
     })
     .await
     .inspect_err(|error| log::error!("Could not read release notes state: {error}"))?;
-    if !show {
+    if !show && !manual {
         return Ok(None);
     }
     let notes = match notes {
@@ -314,6 +316,21 @@ mod tests {
         assert_eq!(
             cached(&conn, "0.2.0").unwrap().unwrap(),
             "## Fixed\n- Example"
+        );
+        assert_eq!(cached(&conn, "0.3.0").unwrap(), None);
+    }
+
+    #[test]
+    fn acknowledged_notes_remain_cached_for_manual_reopening() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::run_migrations(&conn).unwrap();
+        pending(&conn, "0.1.0").unwrap();
+        store_notes(&conn, "0.2.0", "Installed release notes").unwrap();
+        acknowledge(&conn, "0.2.0").unwrap();
+        assert!(!pending(&conn, "0.2.0").unwrap());
+        assert_eq!(
+            cached(&conn, "0.2.0").unwrap().as_deref(),
+            Some("Installed release notes")
         );
         assert_eq!(cached(&conn, "0.3.0").unwrap(), None);
     }

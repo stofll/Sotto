@@ -4,6 +4,8 @@ Sotto's custom Windows setup opens a small window with the application name, an 
 
 This is a separate Tauri executable. It embeds the existing NSIS package and delegates file replacement, native libraries, shortcuts, previous-name migration and uninstall registration to that package. The setup UI does not load the dictation runtime, application settings, history or speech models. It installs for the current Windows user.
 
+The release workflow currently publishes the standard NSIS installer and does not package this custom shell. In-app updates select the signed NSIS artifact from `latest.json` and run it in passive mode, so they display the standard installation progress UI. Building the custom shell locally does not change that update path.
+
 Installation options below Install open a separate view with the full application path, a native folder picker and independent Desktop and Start menu shortcut choices. Back keeps those choices. Both directions use a short fade and movement, disabled when reduced motion is requested.
 
 On a fresh installation the default is the current user's Local AppData folder followed by Sotto, resolved by Windows and displayed as a full path. A custom destination must be an empty local folder; the default folder may keep leftovers of a removed installation. When Sotto is already registered, setup shows its existing directory read-only; moving an installed application is not supported. Setup refuses to replace a newer installed version with an older package, and stops if the registered version cannot be read. Explicitly disabling a shortcut removes an existing Sotto shortcut at the installer-managed location, but preserves a same-named shortcut targeting another application.
