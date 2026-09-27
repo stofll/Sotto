@@ -18,11 +18,17 @@
   color: var(--ink);
   letter-spacing: 0;
 }
+/* One corner radius per size, whatever the shell holds: the pill that opens
+   into the streaming card and the glow card keep the curve of the pill's own
+   ends instead of each state picking another one. The bead stays a circle. */
+.overlay { --overlay-radius: 28px; }
+.overlay[data-size="s"] { --overlay-radius: 26px; }
+.overlay[data-size="l"] { --overlay-radius: 32px; }
 .overlay-shell {
   width: 100%;
   max-width: 552px;
   height: 56px;
-  border-radius: 999px;
+  border-radius: var(--overlay-radius);
   padding: 4px;
   background: linear-gradient(180deg, var(--overlay-shell-top), var(--overlay-shell-bottom));
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.05) inset;
@@ -32,7 +38,7 @@
   position: relative;
   width: 100%;
   height: 100%;
-  border-radius: 999px;
+  border-radius: calc(var(--overlay-radius) - 4px);
   border: 1px solid transparent;
   background: var(--overlay-surface);
   padding: 0 8px;
@@ -90,8 +96,8 @@
 .overlay-waveform > span[data-active="true"]::after { content: ""; position: absolute; inset: 0; border-radius: inherit; box-shadow: 0 0 var(--bar-glow) var(--overlay-wave-mid); opacity: var(--bar-glow-opacity); }
 .overlay-progress { display: flex; align-items: center; gap: 10px; }
 .overlay-progress > span { font: 500 11px/1 var(--font-sans); color: var(--ink-dim); white-space: nowrap; }
-.overlay[data-layout="streaming"] .overlay-shell { max-width: 592px; height: 142px; border-radius: 22px; }
-.overlay[data-layout="streaming"] .overlay-surface { border-radius: 18px; gap: 8px; padding: 9px 11px; }
+.overlay[data-layout="streaming"] .overlay-shell { max-width: 592px; height: 142px; }
+.overlay[data-layout="streaming"] .overlay-surface { gap: 8px; padding: 9px 11px; }
 .overlay[data-layout="streaming"] .overlay-row { display: flex; gap: 10px; }
 .overlay[data-layout="streaming"] .overlay-detail { flex: 1; }
 .overlay-preview { position: relative; flex: 1; min-height: 0; overflow: hidden; word-break: break-word; font: 500 14px/1.45 var(--font-sans); color: var(--ink); opacity: 0.96; text-align: left; }
@@ -125,16 +131,14 @@
 .overlay[data-layout="streaming"][data-size="l"] .overlay-shell { max-width: 672px; height: 166px; }
 .overlay[data-layout="streaming"][data-size="s"] .overlay-preview { font-size: 13px; }
 .overlay[data-layout="streaming"][data-size="l"] .overlay-preview { font-size: 16px; }
-.overlay[data-layout="glow"] .overlay-shell { max-width: 400px; height: 104px; border-radius: 28px; }
-.overlay[data-layout="glow"] .overlay-surface { border-radius: 24px; padding: 10px 12px 8px; display: flex; flex-direction: column; justify-content: space-between; gap: 4px; }
+.overlay[data-layout="glow"] .overlay-shell { max-width: 400px; height: 104px; }
+.overlay[data-layout="glow"] .overlay-surface { padding: 10px 12px 8px; display: flex; flex-direction: column; justify-content: space-between; gap: 4px; }
 .overlay[data-layout="glow"] .overlay-surface::before,
 .overlay[data-layout="glow"] .overlay-surface::after,
 .overlay[data-layout="glow"] .overlay-glow { display: none; }
 .overlay[data-layout="glow"]:is([data-state="loading"], [data-state="processing"], [data-state="done"]) .overlay-shell::before { content: none; animation: none; }
-.overlay[data-layout="glow"][data-size="s"] .overlay-shell { max-width: 360px; height: 92px; border-radius: 24px; }
-.overlay[data-layout="glow"][data-size="s"] .overlay-surface { border-radius: 20px; }
-.overlay[data-layout="glow"][data-size="l"] .overlay-shell { max-width: 440px; height: 116px; border-radius: 32px; }
-.overlay[data-layout="glow"][data-size="l"] .overlay-surface { border-radius: 28px; }
+.overlay[data-layout="glow"][data-size="s"] .overlay-shell { max-width: 360px; height: 92px; }
+.overlay[data-layout="glow"][data-size="l"] .overlay-shell { max-width: 440px; height: 116px; }
 .overlay-composer-body { position: relative; z-index: 1; flex: 1; min-height: 0; display: flex; }
 .overlay-composer-body .overlay-preview { font: 500 14px/1.35 var(--font-sans); }
 .overlay-composer-body .overlay-preview-empty { align-items: flex-start; padding-top: 2px; }
@@ -152,6 +156,7 @@
   position: absolute; inset: 0; border-radius: inherit; overflow: hidden; pointer-events: none; z-index: 0;
 }
 .overlay[data-layout="bead"] .overlay-shell { width: 64px; height: 64px; }
+.overlay[data-layout="bead"] :is(.overlay-shell, .overlay-surface) { border-radius: 50%; }
 .overlay[data-layout="bead"][data-size="s"] { --overlay-ring-radius: 16px; }
 .overlay[data-layout="bead"][data-size="s"] .overlay-shell { width: 56px; height: 56px; }
 .overlay[data-layout="bead"][data-size="l"] { --overlay-ring-radius: 24px; }
@@ -189,3 +194,7 @@
 .overlay[data-layout="compact"][data-state="recording"][data-timer="off"] .overlay-row { --timer-slot: 0px; }
 .overlay[data-layout="compact"][data-state="recording"] .overlay-close { position: absolute; right: 0; z-index: 2; }
 .overlay[data-layout="compact"] .overlay-waveform { justify-content: space-between; }
+
+/* Dot matrix. A row fills its region's height; a square has a fixed size. */
+.overlay-matrix { display: block; flex: 0 0 auto; }
+.overlay-matrix--row { width: 100%; min-width: 0; height: 100%; min-height: 20px; }

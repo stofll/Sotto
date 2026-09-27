@@ -1,10 +1,22 @@
 # Overlay appearance
 
-Open **Settings → Overlay** to choose the recording indicator's shape, palette, size and screen position. Overlay and Advanced are separate sections, both collapsed when Settings opens. Changes are saved automatically and apply to an open overlay. If saving fails, the controls return to the saved values; change the setting again to retry.
+Open **Settings → Overlay** to choose the recording indicator's template, palette, size and screen position, or to build your own in the constructor. Overlay and Advanced are separate sections, both collapsed when Settings opens. Changes are saved automatically and apply to an open overlay. If saving fails, the controls return to the saved values; change the setting again to retry.
+
+## Templates and the constructor
+
+The overlay card offers four Sotto templates (pill, bead, glow and orb) and a row of your own templates. A template changes what the overlay is made of and how it moves; it never moves the overlay on screen. Sotto templates keep the current color and size, while your own templates bring the color and size they were saved with.
+
+**Open the constructor** turns the Settings page into an editor. Pick a shell, then add parts from the library: the level (bars, pixels, oscilloscope, dot matrix, ring, orb and others), the timer, a recording indicator, the language and model, and the streaming draft. Every part is drawn live with a simulated voice. Click a part to add it or redraw the element already in place, or drag it onto a region of the preview; a region that cannot hold it says why. Click an element in the preview to see the drawings that fit there or remove it. The Style tab sets corners, stroke, fill, voice glow, font, motion, color and size; the Place tab sets the anchor and edge offset.
+
+A phase control under the preview shows recording, streaming, processing, insertion, error and the limit countdown, or runs them as a scenario. What happens after recording is not part of the recipe: the list under the preview explains it for the current shell. The dot matrix has its own speech and processing patterns and a density of 5 × 5, 7 × 7 or 9 × 9; while text is processed, the matrix replaces the usual status animation.
+
+Save the result with **Save as template**, or from the add tile in the overlay card. Up to eight templates are kept; each has a menu to apply, rename, update it with the current overlay, or delete it. Deleting a template does not change the overlay on screen.
+
+A shell keeps one corner radius per size and corner style in every state, including the streaming card and the error row. The recipe is stored in the configuration as `overlay.recipe`, templates as `overlay.templates`, and the legacy `form` is kept in step with the closest shell so an older Sotto still shows a similar overlay. The stack is the one shell with a window size of its own: 72 × 112, 80 × 128 and 88 × 144.
 
 ## Shapes and cancellation
 
-The pill displays recording duration and audio levels. With a streaming model it expands into a card showing the live draft. After recording stops, the timer disappears and the pill shows processing progress until insertion finishes.
+This section describes the three shapes a configuration without a constructor recipe uses. The pill displays recording duration and audio levels. With a streaming model it expands into a card showing the live draft. After recording stops, the timer disappears and the pill shows processing progress until insertion finishes.
 
 The bead shows audio levels and session status in a ring. Streaming recognition still works, but the live text is hidden. Errors and LLM fallback warnings expand the bead into a pill so their messages remain visible. The next recording returns to the selected shape.
 
@@ -12,7 +24,7 @@ The glow is a rounded composer. A colorful beam along the bottom edge rises with
 
 Every shape hides the cancel control until the pointer is over the overlay or the control is focused from the keyboard. After insertion, the same control dismisses the notification. Cancelling an active session uses one path for all shapes. The recording hotkey stops and processes a recording; it is not a cancellation shortcut.
 
-The timer on the pill and the glow can be hidden from Overlay settings. The bead has no timer. Hiding it does not change the native window size; the waveform uses the space the timer occupied.
+Without a recipe, the timer on the pill and the glow can be hidden from Overlay settings; with one, the timer is a part placed in the constructor. The bead has no timer. Hiding it does not change the native window size; the waveform uses the space the timer occupied.
 
 A recording stops by itself at the **Recording limit** from Advanced settings (15 minutes by default, or no limit) and is transcribed like any other, so one left running in toggle mode does not grow without bound. Five minutes before the stop, or a third of a shorter limit, the timer starts counting down in the warning color, even when it is hidden in settings. The bead has no timer and shows no countdown.
 

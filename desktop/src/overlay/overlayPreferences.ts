@@ -1,3 +1,5 @@
+import { normalizeRecipe, normalizeTemplates, type Recipe, type UserTemplate } from "./overlayRecipe";
+
 export const OVERLAY_FORMS = ["pill", "bead", "glow"] as const;
 export const OVERLAY_PALETTES = ["graphite", "copper", "lagoon", "violet", "custom"] as const;
 export const OVERLAY_SIZES = ["s", "m", "l"] as const;
@@ -13,6 +15,9 @@ export type OverlayPreferences = {
   anchor: typeof OVERLAY_ANCHORS[number];
   edge_offset: number;
   show_timer: boolean;
+  /** Built in the constructor; while it is absent the legacy `form` draws the overlay. */
+  recipe: Recipe | null;
+  templates: UserTemplate[];
 };
 
 function choice<T extends string>(values: readonly T[], value: unknown, fallback: T): T {
@@ -33,6 +38,8 @@ export function overlayPreferences(raw: unknown): OverlayPreferences {
     anchor: choice(OVERLAY_ANCHORS, value.anchor, "bottom-center"),
     edge_offset: Number.isInteger(value.edge_offset) ? number(value.edge_offset, 0, 512, DEFAULT_EDGE_OFFSET) : DEFAULT_EDGE_OFFSET,
     show_timer: typeof value.show_timer === "boolean" ? value.show_timer : true,
+    recipe: normalizeRecipe(value.recipe),
+    templates: normalizeTemplates(value.templates),
   };
 }
 

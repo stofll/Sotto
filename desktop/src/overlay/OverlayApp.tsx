@@ -6,6 +6,11 @@ import { overlayPalette } from "./overlayPalette";
 import { overlayDetail, recordingClock } from "./overlayDetail";
 import { OverlayWaveform } from "./OverlayWaveform";
 import { useOverlaySession, type OverlaySession } from "./useOverlaySession";
+import type { Recipe, ScenePhase } from "./overlayRecipe";
+import { audioLevelSource } from "./levelSource";
+
+// The recipe scene is the constructor's overlay; configs without a recipe keep the forms below.
+const OverlayScene = lazy(() => import("./OverlayScene").then((m) => ({ default: m.OverlayScene })));
 
 // A missing animation chunk must not unmount the recording/cancel controls.
 const OverlayGlow = lazy(() => import("./OverlayGlow")
@@ -22,6 +27,7 @@ export function OverlayApp() {
   const surfaceRef = useRef<HTMLDivElement>(null);
   const { state, layout, previewText, streaming, handleClose, isClosing, config, preferences, hovered, setHovered } = session;
   if (state === null) return null;
+  if (preferences.recipe) return <RecipeOverlay session={session} recipe={preferences.recipe}/>;
   const bead = layout === "bead";
   const glow = layout === "glow";
   // The limit countdown shows even with the timer turned off: it is the only
@@ -67,6 +73,40 @@ export function OverlayApp() {
       </div>
     </div>
   );
+}
+
+function scenePhase(state: NonNullable<OverlaySession["state"]>): ScenePhase {
+  if (state === "recording" || state === "pasted" || state === "error") return state;
+  return "processing";
+}
+
+function RecipeOverlay({ session, recipe }: { session: OverlaySession; recipe: Recipe }) {
+  const { state, preferences, config } = session;
+  const now = useNow(state === "recording" || state === "done");
+  const surfaceRef = useRef<HTMLDivElement>(null);
+  if (state === null) return null;
+  const clock = recordingClock(session.recordingStartedAt, session.recordingStoppedAt, session.limitAt, now);
+  const detail = overlayDetail({
+    state, pastedLength: session.pastedLength,
+    polishingMs: session.decodedAt === null ? 0 : now - session.decodedAt,
+    errorText: session.errorText, aiProblem: session.aiProblem,
+  });
+  const status = detail.kind === "waveform" ? ""
+    : detail.kind === "progress" ? (detail.seconds === undefined ? detail.label : `${detail.label} ${t("{p0} с", { p0: detail.seconds })}`)
+    : "warning" in detail ? `${detail.text} · ${detail.warning}` : detail.text;
+  const language = (config?.language || "auto").toUpperCase();
+  return <div data-testid="overlay" data-state={state} data-layout="recipe" className="overlay" style={config ? overlayPalette(preferences) : undefined}
+    onPointerEnter={() => session.setHovered(true)} onPointerLeave={() => session.setHovered(false)}>
+    <Suspense fallback={null}>
+      <OverlayScene key={session.sessionId} recipe={recipe} size={preferences.size} phase={scenePhase(state)}
+        streaming={session.streaming} needsText={state === "error" || (state === "pasted" && !!session.aiProblem)}
+        draft={session.previewText} draftPlaceholder={t("Говорите — текст появится здесь")}
+        timer={state === "loading" ? "--:--" : clock.text} limited={clock.limited} status={status}
+        mode={{ full: config?.model ? `${language} · ${config.model}` : language, short: language }}
+        close={{ label: state === "pasted" || state === "error" ? t("Закрыть") : t("Отменить запись"), onClick: session.handleClose, disabled: session.isClosing }}
+        hovered={session.hovered} surfaceRef={surfaceRef} source={audioLevelSource}/>
+    </Suspense>
+  </div>;
 }
 
 function glowMode(state: NonNullable<OverlaySession["state"]>): "listen" | "process" | "idle" {

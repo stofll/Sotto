@@ -7,10 +7,17 @@ import type { ConfigResult } from "../bridge/types";
 import { t } from "../i18n";
 import { DEFAULT_EDGE_OFFSET, OVERLAY_ANCHORS, overlayPreferences, type OverlayPreferences } from "../overlay/overlayPreferences";
 import { overlayPalette } from "../overlay/overlayPalette";
+import { OverlayScene } from "../overlay/OverlayScene";
+import { SHELL_LAYOUT, WINDOW_SIZE } from "../overlay/overlayRecipe";
+import { MyTemplates, SystemTemplates } from "./overlayEditor/TemplateTiles";
+import { currentRecipe, matchingTemplate, templateLook, useOverlaySaver } from "./overlayEditor/overlayDraft";
+import { stillVoice } from "./overlayEditor/simulatedVoice";
+import { QUICK_TEMPLATES, SYSTEM_TEMPLATES, systemTemplateNames } from "./overlayEditor/templates";
 
 type Props = {
   config: ConfigResult | null;
   onConfigChanged: (patch: Partial<ConfigResult>) => Promise<ConfigResult | null>;
+  onOpenEditor: () => void;
 };
 
 // Fixed bar heights: the preview is a still picture of the overlay, not a
@@ -36,7 +43,7 @@ function previewPlacement(anchor: OverlayPreferences["anchor"], edgeOffset: numb
   };
 }
 
-export function OverlaySettings({ config, onConfigChanged }: Props) {
+export function OverlaySettings({ config, onConfigChanged, onOpenEditor }: Props) {
   const [draft, setDraft] = useState(() => overlayPreferences(config?.overlay));
   const [busy, setBusy] = useState(false);
   const saving = useRef(false);
@@ -83,15 +90,34 @@ export function OverlaySettings({ config, onConfigChanged }: Props) {
     t("Слева по центру"), t("По центру"), t("Справа по центру"),
     t("Снизу слева"), t("Снизу по центру"), t("Снизу справа")];
   const locked = busy || !config;
+  const saver = useOverlaySaver(config, onConfigChanged);
+  const recipe = currentRecipe(draft);
+  const match = matchingTemplate(recipe, draft);
+  const recipeLine = match?.kind === "mine" ? t("Сейчас: мой шаблон «{p0}»", { p0: match.template.name })
+    : match ? t("Сейчас: шаблон «{p0}»", { p0: systemTemplateNames()[match.key] })
+    : t("Сейчас: своя сборка из конструктора");
+  const [sceneWidth, sceneHeight] = WINDOW_SIZE[SHELL_LAYOUT[recipe.shell]][draft.size];
   return <section className="overlay-settings" aria-label={t("Оверлей")} data-testid="overlay-settings">
-    <div className="overlay-settings-grid">
-      <div className="set-cell set-cell--auto" role="group" aria-label={t("Форма")}>
-        <span className="set-label">{t("Форма")}</span>
-        <Segmented value={draft.form} disabled={locked} options={[
-          { value: "pill", label: t("Пилюля") }, { value: "bead", label: t("Бусина") },
-          { value: "glow", label: t("Свечение") },
-        ]} onChange={(form) => void save({ form: form as OverlayPreferences["form"] })}/>
+    <div className="overlay-templates">
+      <div className="set-cell" role="group" aria-label={t("Шаблоны Sotto")}>
+        <span className="set-label">{t("Шаблоны Sotto")}</span>
+        <SystemTemplates keys={QUICK_TEMPLATES} recipe={recipe} preferences={draft} disabled={locked}
+          onApply={(key) => void saver.saveRecipe(structuredClone(SYSTEM_TEMPLATES[key]))}/>
       </div>
+      <div className="set-cell" role="group" aria-label={t("Мои шаблоны")}>
+        <span className="set-label">{t("Мои шаблоны")}</span>
+        <MyTemplates layout="strip" recipe={recipe} preferences={draft} disabled={locked}
+          onApply={(template) => void saver.saveRecipe(structuredClone(template.recipe), templateLook(template))}
+          onChange={(templates) => void saver.saveTemplates(templates)}/>
+      </div>
+      <div className="overlay-templates__foot">
+        <span className="overlay-settings-hint">{recipeLine}</span>
+        <button type="button" className="btn btn--primary" disabled={!config} onClick={onOpenEditor}>
+          <Icon name="sliders" size={14}/>{t("Открыть конструктор")}
+        </button>
+      </div>
+    </div>
+    <div className="overlay-settings-grid">
       <div className="set-cell set-cell--auto" role="group" aria-label={t("Размер")}>
         <span className="set-label">{t("Размер")}</span>
         <Segmented value={draft.size} disabled={locked} options={[
@@ -118,9 +144,10 @@ export function OverlaySettings({ config, onConfigChanged }: Props) {
           </Hint>
         </div>
       </div>
-      <div className="set-cell set-cell--auto overlay-timer-cell" role="group" aria-label={t("Секундомер")}>
+      {/* With a recipe the timer is a part placed in the constructor. */}
+      {!draft.recipe && <div className="set-cell set-cell--auto overlay-timer-cell" role="group" aria-label={t("Секундомер")}>
         <label className="checkbox-row"><input type="checkbox" className="checkbox" checked={draft.show_timer} disabled={locked} onChange={(event) => void save({ show_timer: event.target.checked })}/>{t("Секундомер")}</label>
-      </div>
+      </div>}
       <div className="set-cell set-cell--auto" role="group" aria-label={t("Цвет оверлея")}>
         <span className="set-label">{t("Цвет оверлея")}</span>
         {/* The names live on the swatches themselves: a caption under the row
@@ -136,7 +163,7 @@ export function OverlaySettings({ config, onConfigChanged }: Props) {
         </div>
       </div>
     </div>
-    {draft.form === "bead" && <p className="overlay-settings-hint" data-testid="bead-hint">
+    {!draft.recipe && draft.form === "bead" && <p className="overlay-settings-hint" data-testid="bead-hint">
       {t("Для отмены наведите указатель на бусину.")} {t("В бусине потоковый текст не отображается.")}
     </p>}
     {draft.palette === "custom" && <div className="overlay-settings-grid">
@@ -162,7 +189,11 @@ export function OverlaySettings({ config, onConfigChanged }: Props) {
           onClick={() => void save({ anchor })}/>)}
         <div className="overlay-screen__scene" aria-hidden="true"
           style={{ width: PREVIEW_WIDTH, height: PREVIEW_HEIGHT, transform: `scale(${previewScale})` }}>
-          <span className="overlay-mini" data-form={draft.form} data-size={draft.size}
+          {draft.recipe ? <span className="overlay-mini overlay-mini--scene" data-anchor={draft.anchor}
+            style={{ ...overlayPalette(draft), ...previewPlacement(draft.anchor, draft.edge_offset), width: sceneWidth, height: sceneHeight }}>
+            <OverlayScene still recipe={draft.recipe} size={draft.size} phase="recording" streaming={false} draft="" draftPlaceholder=""
+              timer="00:07" limited={false} status="" mode={{ full: "RU · large-v3", short: "RU" }} source={stillVoice} close={{ label: "" }}/>
+          </span> : <span className="overlay-mini" data-form={draft.form} data-size={draft.size}
             data-anchor={draft.anchor}
             style={{ ...overlayPalette(draft), ...previewPlacement(draft.anchor, draft.edge_offset) }}>
             <span className="overlay-mini__shell">
@@ -182,10 +213,10 @@ export function OverlaySettings({ config, onConfigChanged }: Props) {
                 </>}
               </span>
             </span>
-          </span>
+          </span>}
         </div>
       </div>
     </div>
-    {error && <p className="overlay-settings-error" role="alert">{error}</p>}
+    {(error || saver.error) && <p className="overlay-settings-error" role="alert">{error || saver.error}</p>}
   </section>;
 }

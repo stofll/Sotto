@@ -1,3 +1,4 @@
+import { lazy, Suspense, useState } from "react";
 import { Card, PageHeader } from "../components/Shell";
 import type { ConfigResult, MicrophoneResult, ModelInfo } from "../bridge/types";
 import { t } from "../i18n";
@@ -11,6 +12,9 @@ import { Icon } from "../components/Icon";
 import { OverlaySettings } from "./OverlaySettings";
 import { AdvancedSection } from "./settings/AdvancedSection";
 import { SetLabel } from "./settings/controls";
+
+// The constructor is a mode of this page, loaded when it is first opened.
+const OverlayEditor = lazy(() => import("./OverlayEditor").then((m) => ({ default: m.OverlayEditor })));
 
 type Props = {
   config: ConfigResult | null;
@@ -27,6 +31,12 @@ export function SettingsPage({ config, microphones, models, portable, onConfigCh
   // choice follow from its properties (language, CPU-only).
   const selectedModelInfo = (models.length ? models : fallbackModels()).find((item) => item.id === model);
   const recordingMode = config?.recording_mode ?? "toggle";
+  const [editingOverlay, setEditingOverlay] = useState(false);
+  if (editingOverlay) {
+    return <Suspense fallback={null}>
+      <OverlayEditor config={config} onConfigChanged={onConfigChanged} onClose={() => setEditingOverlay(false)}/>
+    </Suspense>;
+  }
 
   return (
     <div className="page">
@@ -82,7 +92,7 @@ export function SettingsPage({ config, microphones, models, portable, onConfigCh
 
         <details className="card card--rows advanced" data-testid="overlay-disclosure">
           <summary><Icon name="chev-down" size={13}/>{t("Оверлей")}</summary>
-          <OverlaySettings config={config} onConfigChanged={onConfigChanged}/>
+          <OverlaySettings config={config} onConfigChanged={onConfigChanged} onOpenEditor={() => setEditingOverlay(true)}/>
         </details>
 
         {/* 5. Everything that is configured once or never. Collapsed on purpose:
