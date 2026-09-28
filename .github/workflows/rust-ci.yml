@@ -347,6 +347,22 @@ jobs:
         working-directory: desktop/src-tauri
         run: cargo test --locked --test test_sherpa_runtime -- --ignored --nocapture
 
+  # A matrix job skipped by `if:` never expands its matrix: it reports one
+  # check literally named `Build + test (${{ matrix.os }})`, and the three
+  # required per-OS contexts stay pending forever. On site/-only pull requests
+  # this job reports them instead, under the same names, without building.
+  build-test-skipped:
+    name: Build + test (${{ matrix.os }})
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.app == 'false' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    strategy:
+      matrix:
+        os: [ubuntu-24.04, windows-latest, macos-latest]
+    steps:
+      - run: echo 'site/-only changes — the application build is not needed.'
+
   frontend-test:
     name: TypeScript typecheck + build
     needs: changes
