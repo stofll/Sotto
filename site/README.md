@@ -65,10 +65,10 @@ Deploys run on push to `main` and on `release: published`. The second trigger ma
 These live in the Cloudflare and GitHub dashboards, not in this repository.
 
 1. Create the Worker once — `pnpm dlx wrangler@4.134.0 deploy` from `site/`, or let the first CI run create it.
-2. Attach the domain: **Workers & Pages → sotto-site → Settings → Domains & Routes → Add custom domain**. Cloudflare issues the certificate and writes the DNS record itself. `.app` is in the HSTS preload list, so the site is HTTPS-only from the first request.
-3. Add `www` as a second custom domain, then redirect it: **Rules → Redirect Rules**, hostname equals `www.sotto.app`, 301 to `https://sotto.app` with the path preserved. `_redirects` cannot do this — it has no notion of hostnames — so the rule has to live at the zone level.
+2. Attach the domain: **Workers & Pages → sotto-site → Settings → Domains & Routes → Add custom domain**. Cloudflare issues the certificate and writes the DNS record itself. `.today` is not in the HSTS preload list, so turn on **SSL/TLS → Edge Certificates → Always Use HTTPS**: without it a first visit over plain HTTP is served as-is, before the `Strict-Transport-Security` header from `_headers` has taken effect.
+3. Add `www` as a second custom domain, then redirect it: **Rules → Redirect Rules**, hostname equals `www.sotto.today`, 301 to `https://sotto.today` with the path preserved. `_redirects` cannot do this — it has no notion of hostnames — so the rule has to live at the zone level.
 4. Create a scoped API token — **My Profile → API Tokens**, template *Edit Cloudflare Workers*, restricted to this account and zone — and store it as the `CLOUDFLARE_API_TOKEN` repository secret, with the account ID as `CLOUDFLARE_ACCOUNT_ID`. Both are read by the `production` environment, which is where the branch protection belongs.
-5. Turn on analytics: **Web Analytics → Add a site → sotto.app**, automatic setup. Nothing is added to the page source — Cloudflare injects the beacon into the HTML on the way out. This is why `_headers` deliberately omits `no-transform`: that directive forbids exactly the rewrite the injection depends on.
+5. Turn on analytics: **Web Analytics → Add a site → sotto.today**, automatic setup. Nothing is added to the page source — Cloudflare injects the beacon into the HTML on the way out. This is why `_headers` deliberately omits `no-transform`: that directive forbids exactly the rewrite the injection depends on.
 
 ### Content Security Policy
 
@@ -81,8 +81,6 @@ These live in the Cloudflare and GitHub dashboards, not in this repository.
 Adding an external font, embed, or analytics script means widening this file, and forgetting to means the resource is silently blocked in the browser rather than at build time.
 
 ## Not yet decided
-
-The canonical origin in `astro.config.mjs` is a placeholder. Set `SITE` to the real domain before the first deploy, and update `homepageUrl` on the GitHub repository to match.
 
 The social preview image is language-neutral and shared by both locales. Per-locale images carrying each headline would read better when the page is shared.
 

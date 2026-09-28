@@ -5,7 +5,7 @@ import sitemap from '@astrojs/sitemap';
 
 // The canonical origin. Astro needs it for sitemap and canonical URLs, so it is
 // the one place a domain change has to be made.
-export const SITE = 'https://sotto.app';
+export const SITE = 'https://sotto.today';
 
 /** Routing, the sitemap and the 404 plugin below are all derived from this.
  *  The same list is repeated in src/i18n/index.ts, because the client bundle
