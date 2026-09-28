@@ -27,6 +27,7 @@ pub struct HotkeySpec {
 /// after `.to_lowercase()`); all preceding tokens are modifiers. Aliases:
 /// `ctrl`/`control`, `alt`, `shift`, `cmd`/`super`/`win`/`meta` (all map to
 /// `meta`). Unknown modifiers and empty input are rejected with an `Err`.
+/// A key without modifiers is accepted only when [`is_standalone_key`].
 ///
 /// The parser is layout-agnostic: any non-empty key token (including
 /// non-Latin characters like Cyrillic letters) is accepted; downstream
@@ -37,14 +38,10 @@ pub fn parse(hotkey: &str) -> Result<HotkeySpec, String> {
         return Err("empty hotkey".into());
     }
     let parts: Vec<&str> = trimmed.split('+').map(str::trim).collect();
-    if parts.len() < 2 {
-        return Err(format!(
-            "hotkey must contain at least one modifier and one key, got: {hotkey:?}"
-        ));
-    }
-    let key = parts.last().unwrap().to_lowercase();
+    let (key, modifiers) = parts.split_last().expect("split yields at least one token");
+    let key = key.to_lowercase();
     // Reject when the key token is itself a modifier name — e.g. "ctrl+shift"
-    // has 2 tokens but no actual key.
+    // has no actual key.
     match key.as_str() {
         "ctrl" | "control" | "alt" | "shift" | "cmd" | "super" | "win" | "meta" => {
             return Err(format!(
@@ -54,7 +51,7 @@ pub fn parse(hotkey: &str) -> Result<HotkeySpec, String> {
         _ => {}
     }
     let mut mods = Modifiers::default();
-    for token in &parts[..parts.len() - 1] {
+    for token in modifiers {
         match token.to_lowercase().as_str() {
             "ctrl" | "control" => mods.ctrl = true,
             "alt" => mods.alt = true,
@@ -66,7 +63,37 @@ pub fn parse(hotkey: &str) -> Result<HotkeySpec, String> {
     if key.is_empty() {
         return Err("empty key token".into());
     }
+    if modifiers.is_empty() && !is_standalone_key(&key) {
+        return Err(format!(
+            "a hotkey without modifiers must be F1-F24 or a numpad key, got: {hotkey:?}"
+        ));
+    }
     Ok(HotkeySpec { mods, key })
+}
+
+/// Keys that may be bound without a modifier. A global registration takes
+/// the key away from every other application, so letters, digits, editing
+/// and navigation keys would break ordinary typing. `numpadenter` is left
+/// out because Windows registers it as the main Enter key.
+fn is_standalone_key(key: &str) -> bool {
+    let function_key = key
+        .strip_prefix('f')
+        .filter(|n| !n.starts_with('0'))
+        .and_then(|n| n.parse::<u8>().ok())
+        .is_some_and(|n| (1..=24).contains(&n));
+    let numpad_operator = matches!(
+        key,
+        "numpadadd" | "numpadsubtract" | "numpadmultiply" | "numpaddivide"
+    );
+    function_key || numpad_operator || is_num_lock_key(key)
+}
+
+/// Numpad keys that Windows reports as navigation keys (Insert, End, …)
+/// unless Num Lock is on.
+fn is_num_lock_key(key: &str) -> bool {
+    key.strip_prefix("numpad").is_some_and(|rest| {
+        rest == "decimal" || (rest.len() == 1 && rest.as_bytes()[0].is_ascii_digit())
+    })
 }
 
 // ---- runtime registration ----
@@ -425,7 +452,17 @@ fn hotkey_do_stop(app: &AppHandle, state: &AppState) {
 /// `Ok(())` for a valid string.
 #[tauri::command]
 pub(crate) fn validate_hotkey(hotkey: String) -> Result<(), String> {
-    parse(&hotkey).map(|_| ())
+    let spec = parse(&hotkey)?;
+    // Windows turns Shift+numpad digit into a navigation key: with Num Lock
+    // on it also releases Shift first, with it off the digit never arrives.
+    // Only new choices are refused, so an already saved binding can still be
+    // parsed, released and replaced.
+    if cfg!(windows) && spec.mods.shift && is_num_lock_key(&spec.key) {
+        return Err(format!(
+            "Windows never delivers Shift with a numpad digit, got: {hotkey:?}"
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -434,14 +471,16 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    #[ignore = "temporarily registers Ctrl+Alt+Shift+F23/F24; requires a Windows desktop session"]
+    #[ignore = "temporarily registers Ctrl+Alt+Shift+F23/F24 and bare F24; requires a Windows desktop session"]
     fn native_hotkey_rebinding_preserves_ownership() {
         use std::sync::{Arc, Mutex};
 
         const FIRST: &str = "ctrl+alt+shift+f23";
         const SECOND: &str = "ctrl+alt+shift+f24";
+        const BARE: &str = "f24";
         let first = to_shortcut(&parse(FIRST).unwrap()).unwrap();
         let second = to_shortcut(&parse(SECOND).unwrap()).unwrap();
+        let bare = to_shortcut(&parse(BARE).unwrap()).unwrap();
         // No application setup, windows, running event loop or injected keys. The
         // recorder constructors allocate state but never open a native stream.
         let mut context = tauri::generate_context!();
@@ -455,7 +494,7 @@ mod tests {
         let handle = app.handle();
         struct OwnedShortcuts<'a> {
             app: &'a AppHandle,
-            keys: [Shortcut; 2],
+            keys: [Shortcut; 3],
         }
         impl Drop for OwnedShortcuts<'_> {
             fn drop(&mut self) {
@@ -473,7 +512,7 @@ mod tests {
         }
         let cleanup = OwnedShortcuts {
             app: handle,
-            keys: [first, second],
+            keys: [first, second, bare],
         };
         let db = rusqlite::Connection::open_in_memory().unwrap();
         crate::db::run_migrations(&db).unwrap();
@@ -539,23 +578,220 @@ mod tests {
             handle.global_shortcut().is_registered(second),
             "no-op rollback preserves existing ownership"
         );
+        // A modifier-less binding goes through RegisterHotKey without flags.
+        re_register(handle, &state, SECOND, BARE).unwrap();
+        assert!(handle.global_shortcut().is_registered(bare));
+        assert!(!handle.global_shortcut().is_registered(second));
+        re_register(handle, &state, BARE, SECOND).unwrap();
+        assert!(!handle.global_shortcut().is_registered(bare));
+        assert!(handle.global_shortcut().is_registered(second));
         drop(cleanup);
         assert!(!handle.global_shortcut().is_registered(first));
         assert!(!handle.global_shortcut().is_registered(second));
+        assert!(!handle.global_shortcut().is_registered(bare));
         assert!(!state.recorder.is_recording());
     }
 
+    /// Captured key tokens that may be bound on their own.
+    fn standalone_key_tokens() -> Vec<String> {
+        let mut keys: Vec<String> = (1..=24).map(|n| format!("f{n}")).collect();
+        keys.extend((0..=9).map(|n| format!("numpad{n}")));
+        keys.extend(
+            [
+                "numpadadd",
+                "numpadsubtract",
+                "numpadmultiply",
+                "numpaddivide",
+                "numpaddecimal",
+            ]
+            .map(String::from),
+        );
+        keys
+    }
+
+    /// Captured key tokens that are used for typing or navigation.
+    fn modifier_required_key_tokens() -> Vec<String> {
+        let mut keys: Vec<String> = ('a'..='z').chain('0'..='9').map(String::from).collect();
+        keys.extend(
+            [
+                "numpadenter",
+                "space",
+                "escape",
+                "enter",
+                "tab",
+                "backspace",
+                "delete",
+                "insert",
+                "left",
+                "right",
+                "up",
+                "down",
+                "home",
+                "end",
+                "pageup",
+                "pagedown",
+                "minus",
+                "equal",
+                "bracketleft",
+                "bracketright",
+                "backslash",
+                "semicolon",
+                "quote",
+                "backquote",
+                "comma",
+                "period",
+                "slash",
+            ]
+            .map(String::from),
+        );
+        keys
+    }
+
+    /// Every key token the settings capture (`desktop/src/hotkey.ts`) can produce.
+    fn captured_key_tokens() -> Vec<String> {
+        let mut keys = standalone_key_tokens();
+        keys.extend(modifier_required_key_tokens());
+        keys
+    }
+
+    /// The modifier subset selected by the low four bits of `mask`.
+    fn modifier_set(mask: u8) -> (Vec<&'static str>, PluginMods) {
+        let mut names = Vec::new();
+        let mut mods = PluginMods::empty();
+        for (bit, (name, flag)) in [
+            ("ctrl", PluginMods::CONTROL),
+            ("alt", PluginMods::ALT),
+            ("shift", PluginMods::SHIFT),
+            ("cmd", PluginMods::SUPER),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            if mask & (1 << bit) != 0 {
+                names.push(name);
+                mods |= flag;
+            }
+        }
+        (names, mods)
+    }
+
+    fn shortcut(hotkey: &str) -> Result<Shortcut, String> {
+        parse(hotkey).and_then(|spec| to_shortcut(&spec))
+    }
+
     #[test]
-    fn captured_keys_convert_to_native_shortcuts() {
-        for key in [
-            "2", "f12", "escape", "delete", "left", "pageup", "slash", "numpad2", "a",
-        ] {
-            assert!(
-                to_shortcut(&parse(&format!("ctrl+shift+{key}")).unwrap()).is_ok(),
-                "{key}"
+    fn every_captured_key_registers_with_every_modifier_set() {
+        let keys = captured_key_tokens();
+        let mut codes = std::collections::HashSet::new();
+        for key in &keys {
+            for mask in 1..16 {
+                let (names, mods) = modifier_set(mask);
+                let combo = format!("{}+{key}", names.join("+"));
+                let native = shortcut(&combo).unwrap_or_else(|e| panic!("{combo}: {e}"));
+                assert_eq!(native.mods, mods, "{combo}");
+                codes.insert(native.key);
+            }
+        }
+        assert_eq!(
+            codes.len(),
+            keys.len(),
+            "every key token needs its own native key"
+        );
+    }
+
+    #[test]
+    fn function_and_numpad_keys_register_without_modifiers() {
+        for key in standalone_key_tokens() {
+            let native = shortcut(&key).unwrap_or_else(|e| panic!("{key}: {e}"));
+            assert_eq!(native.mods, PluginMods::empty(), "{key}");
+            assert_eq!(
+                native,
+                shortcut(&format!(" {} ", key.to_uppercase())).unwrap()
             );
         }
-        assert!(to_shortcut(&parse("ctrl+unknown").unwrap()).is_err());
+    }
+
+    #[test]
+    fn typing_and_navigation_keys_require_a_modifier() {
+        let typing = modifier_required_key_tokens()
+            .into_iter()
+            .chain(["я", "f0", "f01", "f25", "fn", "numpad10"].map(String::from));
+        for key in typing {
+            let error = parse(&key).expect_err(&key);
+            assert!(error.contains("without modifiers"), "{key}: {error}");
+            // The same key stays available behind any single modifier.
+            assert!(parse(&format!("alt+{key}")).is_ok(), "alt+{key}");
+        }
+    }
+
+    #[test]
+    fn shift_with_a_num_lock_numpad_key_is_refused_on_windows() {
+        for key in ["numpad0", "numpad5", "numpad9", "numpaddecimal"] {
+            for combo in [format!("shift+{key}"), format!("ctrl+Shift+{key}")] {
+                assert_eq!(
+                    validate_hotkey(combo.clone()).is_err(),
+                    cfg!(windows),
+                    "{combo}"
+                );
+                assert!(
+                    shortcut(&combo).is_ok(),
+                    "a saved {combo} can still be released"
+                );
+            }
+            assert!(validate_hotkey(key.to_string()).is_ok(), "{key}");
+            assert!(validate_hotkey(format!("ctrl+alt+{key}")).is_ok(), "{key}");
+        }
+        for combo in [
+            "shift+numpadadd",
+            "shift+numpaddivide",
+            "shift+numpadenter",
+            "shift+f5",
+        ] {
+            assert!(validate_hotkey(combo.into()).is_ok(), "{combo}");
+        }
+    }
+
+    #[test]
+    fn modifier_aliases_case_order_and_spacing_spell_the_same_shortcut() {
+        let expected = shortcut("ctrl+alt+shift+cmd+numpad0").unwrap();
+        for spelling in [
+            "control+alt+shift+super+numpad0",
+            "win+shift+alt+ctrl+numpad0",
+            "META + SHIFT + ALT + CONTROL + NUMPAD0",
+            "  cmd+ctrl+shift+alt+Numpad0  ",
+            "ctrl+ctrl+alt+shift+cmd+numpad0",
+        ] {
+            assert_eq!(shortcut(spelling).unwrap(), expected, "{spelling}");
+        }
+        assert_eq!(
+            shortcut("ctrl+esc").unwrap(),
+            shortcut("ctrl+escape").unwrap()
+        );
+    }
+
+    #[test]
+    fn malformed_hotkeys_are_rejected() {
+        for hotkey in [
+            "",
+            "   ",
+            "+",
+            "ctrl+",
+            "+numpad0",
+            "ctrl++a",
+            "ctrl",
+            "numpad0+ctrl",
+            "shift+cmd",
+            "hyper+f1",
+            "fn+f1",
+            "f1+a",
+            "ctrl-a",
+        ] {
+            assert!(parse(hotkey).is_err(), "{hotkey:?} must be rejected");
+        }
+        // Accepted by the layout-agnostic parser, but no native key exists.
+        for hotkey in ["ctrl+unknown", "ctrl+я"] {
+            assert!(shortcut(hotkey).is_err(), "{hotkey:?} must not register");
+        }
     }
 
     #[test]

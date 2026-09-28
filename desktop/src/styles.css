@@ -558,6 +558,7 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 .hotkey-display__keys { display: inline-flex; align-items: center; gap: 5px; height: var(--control-h); padding: 0 10px; background: var(--bg-2); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); flex: 0 0 auto; }
 .hotkey-display .btn { flex: 0 0 auto; height: var(--control-h); padding: 0 9px; }
 .hotkey-display .hotkey-display__edit { width: var(--control-h); padding: 0; justify-content: center; }
+.hotkey-display__note { margin: 0; font: 400 11.5px/1.35 var(--font-sans); color: var(--ink-mute); }
 /* Edit mode lives in the same cell as the keys — its buttons keep the shared
    height too, otherwise the row twitches on entering edit mode. */
 .hotkey-edit .btn { height: var(--control-h); }

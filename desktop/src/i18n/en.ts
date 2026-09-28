@@ -483,6 +483,7 @@ export const en: Record<string, string | string[]> = {
   "Запись не была обработана": "The recording was not processed",
   "Отменить overlay": "Dismiss the overlay",
   "Esc — отмена": "Esc to cancel",
+  "Срабатывает при включённом NumLock": "Works only with Num Lock on",
   "Отменить": "Cancel",
   "Отмена": "Cancel",
 
