@@ -609,8 +609,14 @@ impl OnlineRecognizer {
     }
 
     /// Forget what was accumulated and start the next dictation from scratch.
+    ///
+    /// A new stream, not `OnlineRecognizer::reset`: that one only rewinds the
+    /// decoder and keeps the features it has not decoded yet. After a live
+    /// preview those are the last syllables of the phrase, and the final pass
+    /// over the whole recording would read them first — «ёный ничьих не
+    /// требуя…». It would also keep a stream closed by `finish`.
     pub fn reset(&mut self) {
-        self.recognizer.reset(&self.stream);
+        self.stream = self.recognizer.create_stream();
         // The next phrase may arrive at another rate — from a file rather than
         // from the microphone — and the padding must follow it, not the last
         // one.

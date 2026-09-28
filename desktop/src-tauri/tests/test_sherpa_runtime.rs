@@ -72,6 +72,23 @@ async fn sherpa_download_load_infer_and_reload() {
                 text.contains("зелёный"),
                 "streaming transcript lost its tail: {text}"
             );
+            // A dictation feeds the live preview chunk by chunk, then transcribes
+            // the whole recording on the same recognizer. Whatever the preview
+            // left undecoded must not come back in front of the final text.
+            // The hotkey is released right after the last word, so the recording
+            // ends on speech rather than on the sample's trailing silence.
+            let end = speech.iter().rposition(|s| s.abs() > 0.02).unwrap() + 1_600;
+            let spoken = &speech[..end.min(speech.len())];
+            let clean = recognizer.transcribe(16_000, spoken).unwrap();
+            recognizer.reset_preview();
+            for chunk in spoken.chunks(1600) {
+                recognizer.feed_preview(16_000, chunk).unwrap();
+            }
+            let after_preview = recognizer.transcribe(16_000, spoken).unwrap();
+            assert_eq!(
+                after_preview, clean,
+                "the preview's tail leaked into the final text"
+            );
         }
     }
     std::env::remove_var("SOTTO_MODELS_DIR");
