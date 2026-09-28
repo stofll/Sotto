@@ -108,6 +108,18 @@ export function changeShell(recipe: Recipe, shell: Shell): EditResult & { ok: tr
   return { ok: true, recipe: next, switched, left: placed.filter((type) => !regionOf(next, type)) };
 }
 
+/** The order parts are offered in, in the library and in an empty region. */
+export const PART_ORDER: ElementType[] = ["level", "timer", "rec", "draft", "mode"];
+
+/** What an empty region can take: each element with the drawings that fit there. */
+export function partsFor(recipe: Recipe, region: string): Array<{ type: ElementType; draws: string[] }> {
+  const kinds = SHELL_REGIONS[recipe.shell][region];
+  if (!kinds) return [];
+  return PART_ORDER
+    .map((type) => ({ type, draws: Object.keys(DRAWINGS[type]).filter((draw) => compatible(type, draw, kinds)) }))
+    .filter((part) => part.draws.length > 0);
+}
+
 /** The kinds of place a drawing can go, for "fits: …" hints. */
 export const drawingKinds = (type: ElementType, draw: string) => DRAWINGS[type][draw] ?? [];
 

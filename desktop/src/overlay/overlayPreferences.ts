@@ -3,6 +3,8 @@ import { normalizeRecipe, normalizeTemplates, type Recipe, type UserTemplate } f
 export const OVERLAY_FORMS = ["pill", "bead", "glow"] as const;
 export const OVERLAY_PALETTES = ["graphite", "copper", "lagoon", "violet", "custom"] as const;
 export const OVERLAY_SIZES = ["s", "m", "l"] as const;
+/** How loud speech must be to fill the level; Rust maps each to a dB window in `level_window`. */
+export const LEVEL_SENSITIVITIES = ["low", "normal", "high"] as const;
 // Logical pixels; mirrors the native default in overlay_preferences.rs.
 export const DEFAULT_EDGE_OFFSET = 25;
 export const OVERLAY_ANCHORS = ["top-left", "top-center", "top-right", "center-left", "center", "center-right", "bottom-left", "bottom-center", "bottom-right"] as const;
@@ -15,6 +17,7 @@ export type OverlayPreferences = {
   anchor: typeof OVERLAY_ANCHORS[number];
   edge_offset: number;
   show_timer: boolean;
+  level_sensitivity: typeof LEVEL_SENSITIVITIES[number];
   /** Built in the constructor; while it is absent the legacy `form` draws the overlay. */
   recipe: Recipe | null;
   templates: UserTemplate[];
@@ -38,6 +41,7 @@ export function overlayPreferences(raw: unknown): OverlayPreferences {
     anchor: choice(OVERLAY_ANCHORS, value.anchor, "bottom-center"),
     edge_offset: Number.isInteger(value.edge_offset) ? number(value.edge_offset, 0, 512, DEFAULT_EDGE_OFFSET) : DEFAULT_EDGE_OFFSET,
     show_timer: typeof value.show_timer === "boolean" ? value.show_timer : true,
+    level_sensitivity: choice(LEVEL_SENSITIVITIES, value.level_sensitivity, "normal"),
     recipe: normalizeRecipe(value.recipe),
     templates: normalizeTemplates(value.templates),
   };

@@ -30,7 +30,7 @@ export function OverlayMatrix({ mode, size, density, speech, process, surfaceRef
     if (!canvas || !context) return;
     let grid: MatrixGrid | null = null;
     let cells = new Float32Array(0);
-    let colours = { mid: "", top: "" };
+    let colours = { mid: "", top: "", idle: "" };
     let coloursAt = -Infinity;
 
     const fit = () => {
@@ -50,7 +50,10 @@ export function OverlayMatrix({ mode, size, density, speech, process, surfaceRef
       // The palette can change while the overlay is open; re-read it now and then, not per frame.
       if (now - coloursAt > 1000) {
         const style = getComputedStyle(canvas);
-        colours = { mid: style.getPropertyValue("--overlay-wave-mid").trim() || "#ff8a3d", top: style.getPropertyValue("--overlay-wave-top").trim() || "#ffc27a" };
+        colours = {
+          mid: style.getPropertyValue("--overlay-wave-mid").trim() || "#ff8a3d", top: style.getPropertyValue("--overlay-wave-top").trim() || "#ffc27a",
+          idle: style.getPropertyValue("--ovs-idle").trim() || "rgba(255, 255, 255, 0.09)",
+        };
         coloursAt = now;
       }
       const ratio = canvas.width / (size ?? canvas.clientWidth);
@@ -66,7 +69,7 @@ export function OverlayMatrix({ mode, size, density, speech, process, surfaceRef
       context.setTransform(ratio, 0, 0, ratio, 0, 0);
       context.clearRect(0, 0, canvas.width, canvas.height);
       context.globalAlpha = 1;
-      context.fillStyle = "rgba(255, 255, 255, 0.09)";
+      context.fillStyle = colours.idle;
       context.fill(paths[0]);
       context.fillStyle = colours.mid;
       context.globalAlpha = 0.45; context.fill(paths[1]);

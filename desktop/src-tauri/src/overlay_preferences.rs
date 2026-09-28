@@ -13,6 +13,8 @@ const MAX_NAME_CHARS: usize = 40;
 const MAX_TOKEN_CHARS: usize = 32;
 const SIZES: &[&str] = &["s", "m", "l"];
 const PALETTES: &[&str] = &["copper", "graphite", "lagoon", "violet", "custom"];
+/// Mirrors `LEVEL_SENSITIVITIES` in overlayPreferences.ts.
+const SENSITIVITIES: &[&str] = &["low", "normal", "high"];
 const ANCHORS: &[&str] = &[
     "top-left",
     "top-center",
@@ -139,6 +141,17 @@ pub fn migrate(config: &mut Value) {
     }
 }
 
+/// The dB window the overlay's level is drawn over. «High» suits a quiet
+/// microphone: speech that barely moved the level fills it. «Low» suits a hot
+/// one, whose speech otherwise sits pinned at the top.
+pub fn level_window(config: &Value) -> (f32, f32) {
+    match config["overlay"]["level_sensitivity"].as_str() {
+        Some("high") => (-58.0, -32.0),
+        Some("low") => (-44.0, -12.0),
+        _ => crate::audio::LEVEL_WINDOW_DB,
+    }
+}
+
 pub fn validate(config: &Value) -> Result<(), String> {
     let Some(value) = config.get("overlay") else {
         return Ok(());
@@ -151,6 +164,7 @@ pub fn validate(config: &Value) -> Result<(), String> {
         ("size", SIZES),
         ("palette", PALETTES),
         ("anchor", ANCHORS),
+        ("level_sensitivity", SENSITIVITIES),
     ] {
         if let Some(raw) = value.get(key) {
             if !raw.as_str().is_some_and(|s| values.contains(&s)) {
@@ -316,6 +330,24 @@ mod tests {
     }
 
     #[test]
+    fn level_sensitivity_moves_the_level_window() {
+        use crate::audio::display_level_in;
+        let window =
+            |sensitivity: &str| level_window(&json!({"overlay":{"level_sensitivity":sensitivity}}));
+        assert_eq!(level_window(&json!({})), crate::audio::LEVEL_WINDOW_DB);
+        // Quiet speech at -45 dBFS barely moves the normal level; high lifts it.
+        let quiet = 10f32.powf(-45.0 / 20.0);
+        assert!(
+            display_level_in(quiet, window("high"))
+                > 2.0 * display_level_in(quiet, window("normal"))
+        );
+        // Loud speech at -15 dBFS pins the normal level; low leaves it headroom.
+        let loud = 10f32.powf(-15.0 / 20.0);
+        assert_eq!(display_level_in(loud, window("normal")), 1.0);
+        assert!(display_level_in(loud, window("low")) < 1.0);
+    }
+
+    #[test]
     fn rejects_invalid_preferences() {
         for patch in [
             json!(null),
@@ -329,10 +361,11 @@ mod tests {
             json!({"edge_offset":513}),
             json!({"edge_offset":0.5}),
             json!({"show_timer":"yes"}),
+            json!({"level_sensitivity":"max"}),
         ] {
             assert!(validate(&json!({"overlay":patch})).is_err());
         }
-        assert!(validate(&json!({"overlay":{"palette":"custom","palette_hue":359.9,"palette_chroma":0.2,"edge_offset":512,"show_timer":false}})).is_ok());
+        assert!(validate(&json!({"overlay":{"palette":"custom","palette_hue":359.9,"palette_chroma":0.2,"edge_offset":512,"show_timer":false,"level_sensitivity":"high"}})).is_ok());
     }
 
     #[test]

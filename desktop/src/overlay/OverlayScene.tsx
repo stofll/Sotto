@@ -32,7 +32,7 @@ export type SceneProps = {
   hovered?: boolean;
   surfaceRef?: RefObject<HTMLDivElement | null>;
   /** Constructor mode: regions become targets with labels, and the targets outside the shell appear. */
-  interactive?: { labels: Record<string, string>; ghosts: Record<string, string>; selected: ElementType | "cancel" | null; cancelLabel: string };
+  interactive?: { labels: Record<string, string>; ghosts: Record<string, string>; selected: ElementType | "cancel" | null; selectedRegion?: string | null; cancelLabel: string; hideCancel?: boolean };
   /** Thumbnails: no transitions. */
   still?: boolean;
 };
@@ -77,7 +77,7 @@ export function OverlayScene(props: SceneProps) {
       ...(interactive ? {
         tabIndex: 0, role: "button",
         "aria-label": interactive.labels[region],
-        className: interactive.selected && type === interactive.selected ? "ovs-sel" : undefined,
+        className: (interactive.selected && type === interactive.selected) || region === interactive.selectedRegion ? "ovs-sel" : undefined,
       } : {}),
     };
   };
@@ -137,7 +137,7 @@ export function OverlayScene(props: SceneProps) {
     data-cancel-at={cancel.at} data-cancel-show={cancel.show}
     data-shown={shown ? "1" : "0"} data-draft={draftOpen ? "1" : "0"} data-limit={props.limited && phase === "recording" ? "1" : "0"}
     data-notimer={timerless ? "1" : "0"} data-needs-text={needsText ? "1" : "0"} data-hovered={props.hovered ? "true" : "false"}
-    data-edit={interactive ? "1" : undefined}
+    data-edit={interactive ? "1" : undefined} data-cancel-hidden={interactive?.hideCancel ? "1" : undefined}
     style={{ "--fs": FONT_SCALE[size], "--rowh": `${rowHeight}px` } as CSSProperties}>
     <div className={`ovs-shell${recipe.shell === "caps" ? "" : " ovs-skin"}`} ref={recipe.shell === "caps" ? undefined : surfaceRef}
       style={{ width: shellWidth, height: shellHeight, borderRadius: recipe.shell === "caps" ? undefined : shellRadius(recipe, size) }}>

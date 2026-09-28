@@ -39,7 +39,7 @@ export const DEFAULT_DRAW: Record<ElementType, string> = { level: "bars", timer:
 export const STYLE_OPTIONS = {
   radius: ["round", "soft", "sharp"],
   stroke: ["none", "hair", "rim"],
-  fill: ["palette", "black", "none"],
+  fill: ["palette", "light", "black", "none"],
   glow: ["0", "1", "2"],
   font: ["sans", "mono"],
 } as const;
@@ -64,7 +64,7 @@ export const CANCEL_SPOTS: Record<Shell, readonly string[]> = {
 export const CANCEL_DRAWS = ["x", "stop", "text"] as const;
 export const CANCEL_SHOWS = ["hover", "always"] as const;
 export type RecipeCancel = { at: string; draw: typeof CANCEL_DRAWS[number]; show: typeof CANCEL_SHOWS[number] };
-const ROUND_SHELLS: readonly Shell[] = ["bead", "stack"];
+export const ROUND_SHELLS: readonly Shell[] = ["bead", "stack"];
 /** A word needs a row. */
 export const cancelDraws = (shell: Shell): readonly RecipeCancel["draw"][] => ROUND_SHELLS.includes(shell) ? ["x", "stop"] : CANCEL_DRAWS;
 /** In the bead and the stack the button sits over the parts, so it can only appear on hover. */

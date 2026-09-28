@@ -1,13 +1,12 @@
-import { useEffect, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
+import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { Hint } from "../../components/Hint";
 import { Icon } from "../../components/Icon";
-import { NumberField } from "../../components/NumberField";
 import { Segmented } from "../../components/Shell";
 import { t } from "../../i18n";
 import { MATRIX_DENSITIES, MATRIX_PROCESS, MATRIX_SPEECH } from "../../overlay/dotMatrix";
 import { OverlayMatrix } from "../../overlay/OverlayMatrix";
 import { overlayPalette } from "../../overlay/overlayPalette";
-import { OVERLAY_ANCHORS, type OverlayPreferences } from "../../overlay/overlayPreferences";
+import type { OverlayPreferences } from "../../overlay/overlayPreferences";
 import {
   CANCEL_SPOTS, DRAWINGS, MOTIONS, SHELLS, cancelDraws, cancelShows, SHELL_LAYOUT, STYLE_OPTIONS, WINDOW_SIZE, fitsShell, regionOf, shellRadius,
   type ElementType, type Recipe, type RecipeMatrix, type RecipeStyle, type RegionKind, type Shell, type UserTemplate,
@@ -15,13 +14,13 @@ import {
 import { DraftPart, LevelPart, ModePart, RecPart, TimerPart } from "../../overlay/sceneParts";
 import { cancelDrawNames, cancelShowNames, cancelSpotNames, drawNames, elementNames, elementNotes, kindPlaces, motionNames, processPatternNames, regionNames, shellNames, speechPatternNames, styleNames } from "./labels";
 import type { OverlayLook } from "./overlayDraft";
-import { drawingKinds } from "./recipeEdits";
+import { drawingKinds, PART_ORDER } from "./recipeEdits";
 import { simulatedVoice } from "./simulatedVoice";
+import { PaletteTone } from "./PaletteTone";
 import { MyTemplates, SystemTemplates } from "./TemplateTiles";
 import { SYSTEM_TEMPLATES, type SystemTemplate } from "./templates";
 
-export type LibraryTab = "templates" | "build" | "style" | "place";
-const LIBRARY_ORDER: ElementType[] = ["level", "timer", "rec", "draft", "mode"];
+export type LibraryTab = "templates" | "build" | "style";
 const ALL_SYSTEM = Object.keys(SYSTEM_TEMPLATES) as SystemTemplate[];
 
 /** The shape a part is previewed in: the place it most naturally goes. */
@@ -33,6 +32,9 @@ function previewKind(type: ElementType, draw: string): RegionKind {
   if (kinds.includes("square") && (draw === "ring" || draw === "orb")) return "square";
   return kinds.includes("small") ? "small" : kinds[0] ?? "small";
 }
+
+/** Parts whose preview needs a whole row of the parts grid. */
+export const isWidePart = (type: ElementType, draw: string) => type === "draft" || draw === "scope" || draw === "beam";
 
 /** A part drawn alive, the way it will look in the shell with the current style. */
 export function PartPreview({ type, draw, recipe }: { type: ElementType; draw: string; recipe: Recipe }) {
@@ -62,6 +64,9 @@ type Props = {
   onAddPart: (type: ElementType, draw: string) => void;
   onPartPointerDown: (event: ReactPointerEvent, type: ElementType, draw: string) => void;
   onLook: (look: Partial<OverlayLook>) => void;
+  /** A slider step: shown at once, saved by `onLookCommit` when the slider is released. */
+  onLookPreview: (look: Partial<OverlayLook>) => void;
+  onLookCommit: (look: Partial<OverlayLook>) => void;
   onApplySystem: (key: SystemTemplate) => void;
   onApplyMine: (template: UserTemplate) => void;
   onEditMine: (template: UserTemplate) => void;
@@ -73,7 +78,7 @@ export function EditorLibrary(props: Props) {
   return <div className="card ove-lib" style={overlayPalette(preferences)}>
     <Segmented value={tab} onChange={(value) => onTab(value as LibraryTab)} options={[
       { value: "templates", label: t("Шаблоны") }, { value: "build", label: t("Сборка") },
-      { value: "style", label: t("Стиль") }, { value: "place", label: t("Место") },
+      { value: "style", label: t("Стиль") },
     ]}/>
     {tab === "templates" && <>
       <section className="ove-sec">
@@ -87,7 +92,6 @@ export function EditorLibrary(props: Props) {
     </>}
     {tab === "build" && <BuildTab {...props}/>}
     {tab === "style" && <StyleTab {...props}/>}
-    {tab === "place" && <PlaceTab {...props}/>}
   </div>;
 }
 
@@ -111,7 +115,7 @@ function BuildTab({ recipe, preferences, onShell, onAddPart, onPartPointerDown, 
         })}
       </div>
     </section>
-    {LIBRARY_ORDER.map((type) => {
+    {PART_ORDER.map((type) => {
       const where = regionOf(recipe, type);
       return <section className="ove-sec" key={type}>
         <header className="ove-sec__head"><b>{elements[type]}</b><span>{notes[type]}</span></header>
@@ -122,9 +126,8 @@ function BuildTab({ recipe, preferences, onShell, onAddPart, onPartPointerDown, 
             const hint = fits
               ? used ? t("Уже в макете. Перетащите, чтобы переставить") : t("Нажмите, чтобы добавить, или перетащите в область")
               : t("В корпус «{p0}» не помещается. Подходит: {p1}", { p0: shells[recipe.shell], p1: drawingKinds(type, draw).map((kind) => places[kind]).join(", ") });
-            const wide = type === "draft" || draw === "scope" || draw === "beam";
             return <Hint key={draw} asChild text={hint}>
-              <button type="button" className={`ove-part${wide ? " ove-part--wide" : ""}`} aria-pressed={used} aria-disabled={!fits}
+              <button type="button" className={`ove-part${isWidePart(type, draw) ? " ove-part--wide" : ""}`} aria-pressed={used} aria-disabled={!fits}
                 aria-label={`${elements[type]}: ${draws[type][draw]}. ${hint}`}
                 onClick={() => onAddPart(type, draw)} onPointerDown={(event) => fits && onPartPointerDown(event, type, draw)}>
                 <span className="ove-part__pv"><PartPreview type={type} draw={draw} recipe={recipe}/></span>
@@ -151,10 +154,10 @@ export function CancelOptions({ recipe, onRecipe }: { recipe: Recipe; onRecipe: 
   const spotList = CANCEL_SPOTS[recipe.shell], showList = cancelShows(recipe.shell);
   return <div className="ove-cancel">
     <div className="ove-opts">
+      {/* The look speaks for itself: a caption such as «Стоп» read as "stop and keep the text", which this button does not do. */}
       {cancelDraws(recipe.shell).map((draw) => <button key={draw} type="button" className="ove-opt" aria-pressed={recipe.cancel.draw === draw}
-        onClick={() => set({ draw }, t("Отмена: «{p0}»", { p0: draws[draw] }))}>
+        aria-label={t("Отмена: «{p0}»", { p0: draws[draw] })} onClick={() => set({ draw }, t("Отмена: «{p0}»", { p0: draws[draw] }))}>
         <span className="ove-cancel__pv">{draw === "x" ? <Icon name="x" size={12}/> : draw === "stop" ? <i/> : t("Отмена")}</span>
-        <span>{draws[draw]}</span>
       </button>)}
     </div>
     {spotList.length > 1 && <div className="ove-row">
@@ -197,7 +200,7 @@ export function MatrixOptions({ recipe, onRecipe }: { recipe: Recipe; onRecipe: 
   </div>;
 }
 
-function StyleTab({ recipe, preferences, onRecipe, onLook }: Props) {
+function StyleTab({ recipe, preferences, onRecipe, onLook, onLookPreview, onLookCommit }: Props) {
   const names = styleNames(), motions = motionNames();
   const paletteOptions: Array<{ value: OverlayPreferences["palette"]; label: string }> = [
     { value: "graphite", label: t("Графит") }, { value: "copper", label: t("Медь") },
@@ -218,6 +221,7 @@ function StyleTab({ recipe, preferences, onRecipe, onLook }: Props) {
         <Segmented value={preferences.size} onChange={(size) => onLook({ size: size as OverlayPreferences["size"] })}
           options={[{ value: "s", label: "S" }, { value: "m", label: "M" }, { value: "l", label: "L" }]}/>
       </div>
+      <PaletteTone palette={preferences} onChange={onLookPreview} onCommit={onLookCommit}/>
     </section>
     {(Object.keys(STYLE_OPTIONS) as (keyof RecipeStyle)[]).map((key) => {
       const [title, options] = names[key];
@@ -245,30 +249,3 @@ function StyleTab({ recipe, preferences, onRecipe, onLook }: Props) {
     </section>
   </>;
 }
-
-function PlaceTab({ preferences, onLook }: Props) {
-  const [offset, setOffset] = useState(preferences.edge_offset);
-  useEffect(() => setOffset(preferences.edge_offset), [preferences.edge_offset]);
-  const commitOffset = (value: number) => {
-    if (Number.isInteger(value) && value >= 0 && value <= 512) onLook({ edge_offset: value });
-    else setOffset(preferences.edge_offset);
-  };
-  const labels = [t("Сверху слева"), t("Сверху по центру"), t("Сверху справа"),
-    t("Слева по центру"), t("По центру"), t("Справа по центру"),
-    t("Снизу слева"), t("Снизу по центру"), t("Снизу справа")];
-  return <section className="ove-sec">
-    <header className="ove-sec__head"><b>{t("Положение на экране")}</b><span>{t("шаблоны его не меняют")}</span></header>
-    <div className="ove-anchors">
-      {OVERLAY_ANCHORS.map((anchor, index) => <Hint key={anchor} asChild text={labels[index]}>
-        <button type="button" aria-label={labels[index]} aria-pressed={preferences.anchor === anchor} onClick={() => onLook({ anchor })}><i/></button>
-      </Hint>)}
-    </div>
-    <div className="ove-row">
-      <label className="set-label" htmlFor="ove-offset">{t("Отступ от края")}</label>
-      <NumberField id="ove-offset" min={0} max={512} step={1} value={offset} disabled={preferences.anchor === "center"}
-        onValueChange={(value) => setOffset(Number(value))} onStepCommit={(value) => commitOffset(Number(value))}
-        onBlur={() => commitOffset(offset)}/>
-    </div>
-  </section>;
-}
-

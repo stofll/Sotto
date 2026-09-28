@@ -24,7 +24,7 @@ export const cancelSpotNames = (): Record<string, string> => ({
   corner: t("в углу"), center: t("по центру"), top: t("сверху"), bottom: t("снизу"),
 });
 
-export const cancelDrawNames = (): Record<RecipeCancel["draw"], string> => ({ x: t("Крестик"), stop: t("Стоп"), text: t("Надпись") });
+export const cancelDrawNames = (): Record<RecipeCancel["draw"], string> => ({ x: t("Крестик"), stop: t("Квадрат"), text: t("Надпись") });
 
 export const cancelShowNames = (): Record<RecipeCancel["show"], string> => ({ hover: t("При наведении"), always: t("Всегда") });
 
@@ -53,7 +53,7 @@ export const kindPlaces = (): Record<RegionKind, string> => ({
 export const styleNames = (): { [K in keyof RecipeStyle]: [string, Record<RecipeStyle[K], string>] } => ({
   radius: [t("Скругление"), { round: t("Круглое"), soft: t("Мягкое"), sharp: t("Острое") }],
   stroke: [t("Обводка"), { none: t("Нет"), hair: t("Тонкая"), rim: t("Обод") }],
-  fill: [t("Заливка"), { palette: t("Палитра"), black: t("Чёрная"), none: t("Нет") }],
+  fill: [t("Заливка"), { palette: t("Палитра"), light: t("Светлая"), black: t("Чёрная"), none: t("Нет") }],
   glow: [t("Свечение от голоса"), { "0": t("Нет"), "1": t("Тихое"), "2": t("Яркое") }],
   font: [t("Шрифт"), { sans: t("Обычный"), mono: t("Моно") }],
 });

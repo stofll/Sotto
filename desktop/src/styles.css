@@ -2179,8 +2179,12 @@ button.card { appearance: none; font: inherit; color: inherit; }
    The overlay pictures inside are OverlayScene (overlay/overlayScene.css);
    these rules only frame them. Picture backgrounds reuse the dark screen of
    .overlay-screen, because the overlay is always drawn dark. */
-.overlay-templates { display: grid; gap: 14px; margin-top: 12px; }
-.overlay-templates__foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+/* Sotto's templates and the user's share one row; the user's strip scrolls and wraps under them when narrow. */
+.overlay-templates { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 14px 24px; margin-top: 12px; }
+.overlay-templates > .set-cell { flex: 0 1 auto; min-width: 0; }
+.overlay-templates > .set-cell:nth-child(2) { flex: 1 1 260px; }
+.overlay-templates .ovt-grid { grid-auto-flow: column; grid-template-columns: none; grid-auto-columns: 120px; overflow-x: auto; }
+.overlay-templates__foot { flex-basis: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .overlay-templates__foot .overlay-settings-hint { margin: 0; }
 .overlay-templates__foot .btn { gap: 6px; }
 .overlay-mini--scene { display: block; }
@@ -2220,13 +2224,24 @@ button.card { appearance: none; font: inherit; color: inherit; }
 
 .ove-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
 .ove-head .btn { gap: 6px; }
-.ove-head__title { display: grid; gap: 2px; }
+.ove-head__title { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
 .ove-head__title .page-title { margin: 0; }
-.ove-head__title span { color: var(--ink-mute); font: 400 12.5px/1.2 var(--font-sans); }
+.ove-head__title span { padding-left: 10px; border-left: 1px solid var(--line-strong); color: var(--ink-mute); font: 400 12.5px/1.2 var(--font-sans); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ove-head__grow { flex: 1; }
 .ove-grid { display: grid; grid-template-columns: minmax(300px, 380px) minmax(0, 1fr); gap: 16px; align-items: start; }
-/* The sidebar takes part of the window, so the layout follows the page's own width. */
+/* The sidebar takes part of the window, so the layout follows the page's own width.
+   The constructor works with two wide columns, so it outgrows the reading width of other pages. */
 .ove { container-type: inline-size; }
+.page.ove { max-width: 2000px; }
+/* A wide page gives the extra room to the library, where it saves scrolling; the stage
+   stays short enough to remain in view while the library scrolls under it. */
+@container (min-width: 1240px) {
+  .ove .ove-grid { grid-template-columns: minmax(380px, 2fr) minmax(0, 3fr); }
+  .ove .ove-shells { grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); }
+  .ove .ove-parts, .ove .ove-motions { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  .ove .ove-pop .ove-parts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ove .ove-stage__view { max-height: 56vh; }
+}
 .ove-after--page { display: none; margin-top: 16px; }
 @container (max-width: 820px) {
   .ove .ove-head__grow { flex-basis: 100%; }
@@ -2306,6 +2321,7 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .ove-mini--stroke[data-value="none"] { box-shadow: none; }
 .ove-mini--stroke[data-value="hair"] { box-shadow: inset 0 0 0 1px var(--overlay-edge); }
 .ove-mini--stroke[data-value="rim"] { box-shadow: inset 0 0 0 3px var(--overlay-shell-top); }
+.ove-mini--fill[data-value="light"] { background: oklch(0.95 calc(var(--overlay-chroma) * .2) var(--overlay-hue)); color: oklch(0.5 var(--overlay-chroma) var(--overlay-hue)); }
 .ove-mini--fill[data-value="black"] { background: #0a0a0c; }
 .ove-mini--fill[data-value="none"] { background: repeating-conic-gradient(#3a3a44 0 25%, #24242b 0 50%) 0 0 / 8px 8px; }
 .ove-mini--glow[data-value="1"] { box-shadow: inset 0 0 8px var(--overlay-wave-mid); }
@@ -2320,13 +2336,6 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .ove-motion__demo[data-motion="pixel"] i { --ove-ease: steps(3, end); border-radius: 1px; }
 @keyframes ove-morph { 0%, 38% { width: 30px; height: 12px; } 50%, 88% { width: 78px; height: 28px; } 100% { width: 30px; height: 12px; } }
 
-.ove-anchors { display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr); gap: 3px; aspect-ratio: 16 / 9; padding: 3px; border-radius: var(--radius); background: linear-gradient(160deg, #1b1a21, #0f0e13); }
-.ove-anchors button { appearance: none; display: grid; place-items: center; border: 1px dashed transparent; border-radius: var(--radius-sm); background: transparent; cursor: pointer; }
-.ove-anchors button:hover { border-color: rgba(255, 255, 255, 0.18); }
-.ove-anchors button i { width: 6px; height: 6px; border-radius: 50%; background: var(--overlay-edge); opacity: 0.35; }
-.ove-anchors button[aria-pressed="true"] { border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
-.ove-anchors button[aria-pressed="true"] i { width: 22px; height: 8px; border-radius: 4px; opacity: 1; background: var(--overlay-wave-mid); }
-.ove-anchors button:focus-visible { outline: none; box-shadow: var(--ring); }
 
 .ove-stagecard { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; padding: 12px; position: sticky; top: 12px; }
 .ove-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
@@ -2337,18 +2346,47 @@ button.card { appearance: none; font: inherit; color: inherit; }
 /* A backdrop lighter than the darkest fills, so a graphite or black shell keeps its outline. */
 .ove-stage__view { position: relative; aspect-ratio: 16 / 9; border-radius: var(--radius); background: linear-gradient(160deg, #2c2b33, #18171d); overflow: hidden; }
 .ove-compose { position: absolute; inset: 0; display: grid; place-items: center; }
-.ove-window { position: relative; display: grid; place-items: center; outline: 1px dashed rgba(255, 255, 255, 0.22); transition: width .3s, height .3s; }
+.ove-window { position: relative; display: grid; place-items: center; transition: width .3s, height .3s; }
 .ove-screen { position: absolute; left: 0; top: 0; transform-origin: 0 0; background: #e9e8ee; }
 .ove-screen__doc { position: absolute; left: 300px; right: 300px; top: 60px; bottom: 0; padding: 80px 90px; background: #fff; display: grid; align-content: start; gap: 28px; }
 .ove-screen__doc i { display: block; height: 18px; border-radius: 9px; background: #dcdce3; }
 .ove-screen__doc i:nth-child(3n) { width: 70%; }
 .ove-screen__window { position: absolute; display: grid; place-items: center; }
+/* Hue and saturation in the constructor: the track is the scale, the thumb the colour picked. */
+.ove-tone { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; margin-top: 4px; }
+.ove-tone__cell { display: grid; gap: 6px; min-width: 0; }
+.ove-tone__head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font: 500 11.5px/1.2 var(--font-sans); color: var(--ink-mute); }
+.ove-tone__head output { font: 500 11px/1 var(--font-mono); color: var(--ink-dim); }
+.ove-tone__range { -webkit-appearance: none; appearance: none; display: block; width: 100%; height: 18px; margin: 0; background: transparent; cursor: pointer; }
+.ove-tone__range::-webkit-slider-runnable-track { height: 8px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--line); }
+.ove-tone__range--hue::-webkit-slider-runnable-track { background: linear-gradient(90deg, oklch(.72 .12 0), oklch(.72 .12 60), oklch(.72 .12 120), oklch(.72 .12 180), oklch(.72 .12 240), oklch(.72 .12 300), oklch(.72 .12 360)); }
+.ove-tone__range--chroma::-webkit-slider-runnable-track { background: linear-gradient(90deg, oklch(.72 0 var(--tone-h)), oklch(.72 .2 var(--tone-h))); }
+.ove-tone__range::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 16px; height: 16px; margin-top: -4px; border-radius: 50%; border: 2px solid var(--ink); background: oklch(.72 var(--tone-c) var(--tone-h)); box-shadow: var(--shadow-pop); transition: transform .12s; }
+.ove-tone__range:active::-webkit-slider-thumb { transform: scale(1.12); }
+.ove-tone__range:focus-visible { outline: none; }
+.ove-tone__range:focus-visible::-webkit-slider-thumb { box-shadow: var(--ring); }
+/* Corner brackets just outside the shell: dragging one along its diagonal changes
+   the corner style. Each bracket echoes the current rounding. */
+.ove-radius { position: absolute; inset: 0; pointer-events: none; z-index: 10; }
+.ove-radius__corner { --arm: 12px; --gap: 5px; --r: 2px; position: absolute; width: var(--arm); height: var(--arm); pointer-events: auto; touch-action: none; border: 0 solid rgba(255, 255, 255, .35); transition: border-color .12s; }
+.ove-radius[data-radius="soft"] .ove-radius__corner { --r: 6px; }
+.ove-radius[data-radius="round"] .ove-radius__corner { --r: 10px; }
+.ove-radius__corner:hover, .ove-radius__corner:focus-visible { border-color: rgba(255, 255, 255, .85); outline: none; }
+.ove-radius__corner:focus-visible { box-shadow: var(--ring); }
+.ove-radius__corner--tl { translate: calc(-100% - var(--gap)) calc(-100% - var(--gap)); border-width: 2px 0 0 2px; border-top-left-radius: var(--r); cursor: nwse-resize; }
+.ove-radius__corner--tr { translate: var(--gap) calc(-100% - var(--gap)); border-width: 2px 2px 0 0; border-top-right-radius: var(--r); cursor: nesw-resize; }
+.ove-radius__corner--bl { translate: calc(-100% - var(--gap)) var(--gap); border-width: 0 0 2px 2px; border-bottom-left-radius: var(--r); cursor: nesw-resize; }
+.ove-radius__corner--br { translate: var(--gap) var(--gap); border-width: 0 2px 2px 0; border-bottom-right-radius: var(--r); cursor: nwse-resize; }
 .ove-pop { position: absolute; z-index: 20; width: 320px; max-width: calc(100% - 8px); display: grid; gap: 8px; padding: 10px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--bg-3); box-shadow: var(--shadow-pop); }
 .ove-pop__head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font: 400 12px/1.2 var(--font-sans); color: var(--ink-mute); }
 .ove-pop__head b { color: var(--ink); font-weight: 600; }
-.ove-pop__head .btn { height: 26px; padding: 0 8px; font-size: 12px; }
+.ove-pop__head .btn, .ove-bar__toggle { height: 26px; padding: 0 8px; font-size: 12px; }
+.ove-bar__toggle { gap: 6px; }
+.ove-bar__grow { flex: 1; }
 .ove-pop__note { margin: 0; font: 400 11.5px/1.35 var(--font-sans); color: var(--ink-mute); }
 .ove-pop .ove-part { cursor: pointer; }
+.ove-pop--insert { width: 360px; max-height: min(460px, 70vh); overflow-y: auto; gap: 4px; }
+.ove-stagecard .overlay-settings-hint { margin: 0; }
 .ove-toast { min-height: 1.4em; margin: 0; font: 400 12.5px/1.4 var(--font-sans); color: var(--ink-dim); }
 .ove-toast--warn { color: var(--warn); }
 .ove-after summary { cursor: pointer; font: 500 12.5px/1.2 var(--font-sans); color: var(--ink-dim); }

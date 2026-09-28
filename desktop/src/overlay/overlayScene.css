@@ -5,6 +5,7 @@
 .ovs {
   --ovs-ink: #ECEAF3; --ovs-ink-dim: #B8B4C5; --ovs-ink-mute: #8C889B;
   --ovs-ok: #4ade80; --ovs-warn: #fbbf24; --ovs-err: #f87171;
+  --ovs-idle: rgba(255, 255, 255, .09);
   --ovs-ease: cubic-bezier(.2, .55, .25, 1); --ovs-spring: cubic-bezier(.3, 1.3, .5, 1);
   --fs: 1; --sd: .44s; --se: var(--ovs-ease); --fd: .18s; --fx: 4px; --pad: 0px;
   position: relative; display: grid; place-items: center;
@@ -24,7 +25,7 @@
 
 .ovs-shell { position: relative; transition: width var(--sd) var(--se), height var(--sd) var(--se), border-radius var(--sd) var(--se); }
 .ovs-skin { position: relative; overflow: hidden; transition: width var(--sd) var(--se), height var(--sd) var(--se), border-radius var(--sd) var(--se), box-shadow .2s; }
-.ovs[data-fill="palette"] .ovs-skin { background: var(--overlay-surface); }
+.ovs:is([data-fill="palette"], [data-fill="light"]) .ovs-skin { background: var(--overlay-surface); }
 .ovs[data-fill="black"] .ovs-skin { background: #0a0a0c; }
 .ovs[data-fill="none"] .ovs-skin { background: transparent; }
 .ovs-skin::before, .ovs-skin::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: 4; }
@@ -126,7 +127,7 @@
 .ovs-caps i { width: var(--u); height: var(--u); border-radius: 999px; background: linear-gradient(180deg, var(--overlay-wave-top), var(--overlay-wave-bottom)); }
 .ovs[data-radius="sharp"] .ovs-caps i { border-radius: 1px; }
 .ovs-seg { display: flex; align-items: flex-end; gap: calc(var(--u) * .4); }
-.ovs-seg i { width: var(--u); background: rgba(255, 255, 255, .1); border-radius: 1px; }
+.ovs-seg i { width: var(--u); background: var(--ovs-idle); border-radius: 1px; }
 .ovs-seg i:nth-child(1) { height: calc(var(--u) * 1.3); }
 .ovs-seg i:nth-child(2) { height: calc(var(--u) * 2.3); }
 .ovs-seg i:nth-child(3) { height: calc(var(--u) * 3.4); }
@@ -144,6 +145,7 @@
 .ovs-tplain .ovs-tt { font-weight: 500; }
 .ovs-tbig .ovs-tt { font-size: calc(21px * var(--fs)); font-weight: 500; }
 .ovs[data-limit="1"] .ovs-tt { color: var(--ovs-warn); }
+.ovs-rdot { display: flex; }
 .ovs-rdot .ovs-dot { width: 8px; height: 8px; animation: ovs-pulse 1.6s ease-in-out infinite; }
 .ovs-rlabel { display: flex; align-items: center; gap: 7px; }
 .ovs-rlabel span:last-child { font: 500 calc(13px * var(--fs))/1 var(--font-sans); font-family: inherit; color: var(--ovs-ink-mute); white-space: nowrap; }
@@ -237,3 +239,26 @@
 /* The constructor shows a hover-only button half visible, so its place is never a surprise. */
 .ovs[data-edit][data-cancel-show="hover"] .ovs-close { opacity: .5; }
 .ovs[data-edit] .ovs-close:hover, .ovs[data-edit] .ovs-close.ovs-sel { opacity: 1; }
+/* Hidden only in the constructor's preview; it keeps its place so the layout does not shift. */
+.ovs[data-cancel-hidden] .ovs-close { visibility: hidden; }
+
+/* A light fill: the same palette hue at inverted lightness, so the parts turn dark on a
+   light shell. It redefines the palette's own variables inside the scene, canvas
+   drawings included, instead of adding a second palette. */
+.ovs[data-fill="light"] {
+  --ovs-ink: #1c1a24; --ovs-ink-dim: #45414f; --ovs-ink-mute: #6c6879;
+  --ovs-ok: #15803d; --ovs-warn: #b45309; --ovs-err: #b91c1c;
+  --ovs-idle: rgba(0, 0, 0, .1);
+  --overlay-surface: oklch(0.95 calc(var(--overlay-chroma) * .2) var(--overlay-hue) / .97);
+  --overlay-shell-top: oklch(0.84 calc(var(--overlay-chroma) * .6) var(--overlay-hue) / .92);
+  --overlay-shell-bottom: oklch(0.74 calc(var(--overlay-chroma) * .7) var(--overlay-hue) / .95);
+  --overlay-edge: oklch(0.48 var(--overlay-chroma) var(--overlay-hue));
+  --overlay-wave-top: oklch(0.6 var(--overlay-chroma) var(--overlay-hue));
+  --overlay-wave-mid: oklch(0.5 var(--overlay-chroma) var(--overlay-hue));
+  --overlay-wave-bottom: oklch(0.4 var(--overlay-chroma) var(--overlay-hue));
+}
+.ovs[data-fill="light"] .overlay-waveform > span:not([data-active="true"]) { background: var(--ovs-idle); }
+.ovs[data-fill="light"] .ovs-close { background: rgba(0, 0, 0, .07); color: rgba(0, 0, 0, .72); }
+.ovs[data-fill="light"] .ovs-mode { border-color: rgba(0, 0, 0, .16); }
+.ovs[data-fill="light"] [data-region][tabindex]:not([data-drop]) { outline-color: rgba(0, 0, 0, .3); }
+.ovs[data-fill="light"] .ovs-rg[tabindex]:not([data-filled])::before { color: rgba(0, 0, 0, .5); }

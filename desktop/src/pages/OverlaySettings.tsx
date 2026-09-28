@@ -115,7 +115,7 @@ export function OverlaySettings({ config, onConfigChanged, onOpenEditor }: Props
       <div className="overlay-templates__foot">
         <span className="overlay-settings-hint">{recipeLine}</span>
         <button type="button" className="btn btn--primary" disabled={!config} onClick={() => onOpenEditor()}>
-          <Icon name="sliders" size={14}/>{t("Открыть конструктор")}
+          {t("Открыть конструктор")}
         </button>
       </div>
     </div>
@@ -125,6 +125,14 @@ export function OverlaySettings({ config, onConfigChanged, onOpenEditor }: Props
         <Segmented value={draft.size} disabled={locked} options={[
           { value: "s", label: "S" }, { value: "m", label: "M" }, { value: "l", label: "L" },
         ]} onChange={(size) => void save({ size: size as OverlayPreferences["size"] })}/>
+      </div>
+      <div className="set-cell set-cell--auto" role="group" aria-label={t("Чувствительность уровня")}>
+        <span className="set-label">{t("Чувствительность уровня")}
+          <Hint text={t("Высокая — для тихого микрофона: уровень оживает от негромкой речи. Низкая — если уровень всё время упирается в потолок. Видно на настоящей записи.")}/>
+        </span>
+        <Segmented value={draft.level_sensitivity} disabled={locked} options={[
+          { value: "low", label: t("Низкая") }, { value: "normal", label: t("Обычная") }, { value: "high", label: t("Высокая") },
+        ]} onChange={(value) => void save({ level_sensitivity: value as OverlayPreferences["level_sensitivity"] })}/>
       </div>
       <div className="set-cell set-cell--auto overlay-offset-cell">
         <label className="set-label" htmlFor="overlay-offset">{t("Отступ от края")}</label>
@@ -168,17 +176,6 @@ export function OverlaySettings({ config, onConfigChanged, onOpenEditor }: Props
     {!draft.recipe && draft.form === "bead" && <p className="overlay-settings-hint" data-testid="bead-hint">
       {t("Для отмены наведите указатель на бусину.")} {t("В бусине потоковый текст не отображается.")}
     </p>}
-    {draft.palette === "custom" && <div className="overlay-settings-grid">
-      {(["palette_hue", "palette_chroma"] as const).map((key) => <label className="set-cell" key={key}>
-        <span className="set-label">{key === "palette_hue" ? t("Тон") : t("Насыщенность")}</span>
-        <input type="range" min="0" max={key === "palette_hue" ? 359 : 0.2} step={key === "palette_hue" ? 1 : 0.005}
-          value={draft[key]} disabled={locked}
-          onChange={(event) => setDraft({ ...draft, [key]: Number(event.target.value) })}
-          onPointerUp={() => void save({ [key]: draft[key] })}
-          onKeyUp={(event) => { if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"].includes(event.key)) void save({ [key]: draft[key] }); }}
-          onBlur={() => void save({ [key]: draft[key] })}/>
-      </label>)}
-    </div>}
     <div className="set-cell overlay-place-cell" role="group" aria-label={t("Положение на экране")}>
       <span className="set-label">{t("Положение на экране")}
         <Hint text={t("Щёлкните по месту на экране, где должен появляться оверлей.")}/>

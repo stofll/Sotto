@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { regionOf } from "../../overlay/overlayRecipe";
-import { addPart, changeShell, placeInto, removePart, replacementPatch, restoreShell } from "./recipeEdits";
+import { addPart, changeShell, partsFor, placeInto, removePart, replacementPatch, restoreShell } from "./recipeEdits";
 import { SYSTEM_TEMPLATES } from "./templates";
 
 const pill = SYSTEM_TEMPLATES.pill;
@@ -88,5 +88,22 @@ describe("the cancel button", () => {
     expect(changeShell(text, "caps").recipe.cancel).toEqual({ at: "start", draw: "text", show: "always" });
     // The bead's centre is shared with the level: no word, and only on hover.
     expect(changeShell(text, "bead").recipe.cancel).toEqual({ at: "center", draw: "x", show: "hover" });
+  });
+});
+
+describe("partsFor", () => {
+  it("offers only the drawings that fit an empty region", () => {
+    const parts = partsFor(removePart(SYSTEM_TEMPLATES.stack, "timer"), "bottom");
+    expect(parts.find((part) => part.type === "timer")?.draws).toEqual(["plain", "big"]);
+    expect(parts.find((part) => part.type === "mode")?.draws).toEqual(["short"]);
+    expect(parts.some((part) => part.type === "draft")).toBe(false);
+  });
+
+  it("offers the text only for the line under a pill", () => {
+    expect(partsFor(pill, "below")).toEqual([{ type: "draft", draws: ["tail", "plain"] }]);
+  });
+
+  it("offers nothing for a region the shell does not have", () => {
+    expect(partsFor(pill, "core")).toEqual([]);
   });
 });

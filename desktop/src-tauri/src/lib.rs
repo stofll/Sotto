@@ -714,9 +714,15 @@ pub(crate) fn spawn_level_emitter(app: &AppHandle, recorder: Arc<crate::audio::A
         let mut logged_first_frame = false;
         loop {
             let (mut warned, mut limited) = (false, false);
-            let limit_minutes = crate::config::Config::load(&app)
+            let config = crate::config::Config::load(&app).ok();
+            let limit_minutes = config
+                .as_ref()
                 .map(|config| crate::config::recording_limit_minutes(config.as_value()))
                 .unwrap_or(crate::config::DEFAULT_RECORDING_LIMIT_MINUTES);
+            let level_window = config
+                .as_ref()
+                .map(|config| crate::overlay_preferences::level_window(config.as_value()))
+                .unwrap_or(crate::audio::LEVEL_WINDOW_DB);
             while recorder.is_recording() {
                 if !logged_first_frame {
                     if let Some(first_frame_ms) = recorder.first_frame_ms() {
@@ -725,7 +731,7 @@ pub(crate) fn spawn_level_emitter(app: &AppHandle, recorder: Arc<crate::audio::A
                     }
                 }
                 let raw = recorder.level();
-                let level = crate::audio::display_level(raw);
+                let level = crate::audio::display_level_in(raw, level_window);
                 let _ = app.emit("audio-level", serde_json::json!({ "level": level }));
                 // Throttled (~1 Hz) diagnostic for a meter that looks dead
                 // (raw + mapped). Debug level: at info it filled app.log with
