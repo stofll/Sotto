@@ -91,10 +91,10 @@ export function MyTemplates({ recipe, preferences, layout, disabled, onApply, on
         </button>
         <span className="ovt-mine__menu">
           <RowMenu label={t("Действия с шаблоном «{p0}»", { p0: template.name })} items={[
-            { id: "apply", label: t("Применить"), icon: "check", disabled: current, onSelect: () => onApply(template) },
-            { id: "edit", label: t("Изменить в конструкторе"), icon: "sliders", onSelect: () => onEdit(template) },
-            { id: "rename", label: t("Переименовать"), icon: "pencil", onSelect: () => setNaming({ template }) },
-            { id: "delete", label: t("Удалить"), icon: "trash", danger: true, onSelect: () => void remove(template) },
+            { id: "apply", label: t("Применить"), icon: "check", disabled: disabled || current, onSelect: () => onApply(template) },
+            { id: "edit", label: t("Изменить в конструкторе"), icon: "sliders", disabled, onSelect: () => onEdit(template) },
+            { id: "rename", label: t("Переименовать"), icon: "pencil", disabled, onSelect: () => setNaming({ template }) },
+            { id: "delete", label: t("Удалить"), icon: "trash", danger: true, disabled, onSelect: () => void remove(template) },
           ]}/>
         </span>
       </div>;

@@ -206,3 +206,6 @@
 /* Dot matrix. A row fills its region's height; a square has a fixed size. */
 .overlay-matrix { display: block; flex: 0 0 auto; }
 .overlay-matrix--row { width: 100%; min-width: 0; height: 100%; min-height: 20px; }
+.overlay-scene-fallback { display: flex; align-items: center; gap: 4px; max-width: 100%; min-width: 0; padding: 4px; border-radius: 12px; background: var(--overlay-surface); color: var(--overlay-edge); }
+.overlay-scene-fallback > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.overlay-scene-fallback > .overlay-close { opacity: 1; flex: 0 0 28px; }

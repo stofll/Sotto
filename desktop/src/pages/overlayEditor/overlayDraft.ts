@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ConfigResult } from "../../bridge/types";
 import { t } from "../../i18n";
 import { nativeForm, type Recipe, type UserTemplate } from "../../overlay/overlayRecipe";
@@ -32,31 +32,37 @@ export function matchingTemplate(recipe: Recipe, preferences: OverlayPreferences
  */
 export function useOverlaySaver(config: ConfigResult | null, onConfigChanged: ConfigChange) {
   const queue = useRef<Promise<ConfigResult | null>>(Promise.resolve(null));
-  const savedRecipe = useRef<unknown>(config?.overlay?.recipe ?? null);
+  const saved = useRef(config);
+  const pending = useRef(0);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  useEffect(() => { if (!pending.current) saved.current = config; }, [config]);
 
-  function save(patch: Record<string, unknown>) {
+  function save(patch: Record<string, unknown> | (() => Record<string, unknown>)) {
+    pending.current++;
+    setBusy(true);
     queue.current = queue.current.then(async () => {
       try {
-        const result = await onConfigChanged({ overlay: patch } as Partial<ConfigResult>);
+        const result = await onConfigChanged({ overlay: typeof patch === "function" ? patch() : patch } as Partial<ConfigResult>);
+        if (result) saved.current = result;
         setError(result ? "" : t("Не удалось сохранить настройки оверлея. Попробуйте ещё раз."));
         return result;
       } catch {
         setError(t("Не удалось сохранить настройки оверлея. Попробуйте ещё раз."));
         return null;
+      } finally {
+        if (--pending.current === 0) setBusy(false);
       }
     });
     return queue.current;
   }
   function saveRecipe(recipe: Recipe, extra: Partial<OverlayLook> = {}) {
-    const patch = { ...extra, recipe: replacementPatch(savedRecipe.current, recipe), form: nativeForm(recipe.shell) };
-    savedRecipe.current = recipe;
-    return save(patch);
+    return save(() => ({ ...extra, recipe: replacementPatch(saved.current?.overlay?.recipe, recipe), form: nativeForm(recipe.shell) }));
   }
   function saveTemplates(templates: UserTemplate[]) {
     return save({ templates });
   }
-  return { save, saveRecipe, saveTemplates, error };
+  return { saveRecipe, saveTemplates, error, busy, saved };
 }
 
 export const preferencesOf = (config: ConfigResult | null) => overlayPreferences(config?.overlay);

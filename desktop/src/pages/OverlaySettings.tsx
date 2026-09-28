@@ -90,8 +90,8 @@ export function OverlaySettings({ config, onConfigChanged, onOpenEditor }: Props
   const anchorLabels = [t("Сверху слева"), t("Сверху по центру"), t("Сверху справа"),
     t("Слева по центру"), t("По центру"), t("Справа по центру"),
     t("Снизу слева"), t("Снизу по центру"), t("Снизу справа")];
-  const locked = busy || !config;
   const saver = useOverlaySaver(config, onConfigChanged);
+  const locked = busy || saver.busy || !config;
   const recipe = currentRecipe(draft);
   const match = matchingTemplate(recipe, draft);
   const recipeLine = match?.kind === "mine" ? t("Сейчас: мой шаблон «{p0}»", { p0: match.template.name })
@@ -110,11 +110,11 @@ export function OverlaySettings({ config, onConfigChanged, onOpenEditor }: Props
         <MyTemplates layout="strip" recipe={recipe} preferences={draft} disabled={locked}
           onApply={(template) => void saver.saveRecipe(structuredClone(template.recipe), templateLook(template))}
           onChange={(templates) => void saver.saveTemplates(templates)} onCreate={() => onOpenEditor()}
-          onEdit={(template) => void saver.saveRecipe(structuredClone(template.recipe), templateLook(template)).then(() => onOpenEditor(template.id))}/>
+          onEdit={(template) => void saver.saveRecipe(structuredClone(template.recipe), templateLook(template)).then((saved) => { if (saved) onOpenEditor(template.id); })}/>
       </div>
       <div className="overlay-templates__foot">
         <span className="overlay-settings-hint">{recipeLine}</span>
-        <button type="button" className="btn btn--primary" disabled={!config} onClick={() => onOpenEditor()}>
+        <button type="button" className="btn btn--primary" disabled={locked} onClick={() => onOpenEditor()}>
           {t("Открыть конструктор")}
         </button>
       </div>

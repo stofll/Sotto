@@ -217,8 +217,8 @@
 /* Captions: a chip above lines of text on no background */
 .ovs-chip-radius { position: absolute; inset: 0; }
 .ovs-capwrap { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 8px; }
-.ovs-chip { display: flex; align-items: center; flex: 0 0 auto; border-radius: var(--ovs-radius); }
-.ovs-chip .ovs-main-row { --rowh: 34px; padding: 0 4px 0 12px; }
+.ovs-chip { display: flex; align-items: center; flex: 0 0 auto; max-width: 100%; border-radius: var(--ovs-radius); }
+.ovs-chip .ovs-main-row { --rowh: 34px; flex: 0 1 auto; min-width: 0; padding: 0 4px 0 12px; }
 .ovs-chip :is(.ovs-rg-c1, .ovs-rg-c2) { flex: 0 0 auto; }
 /* The chip's row is 34 px at every size, so the capsule does not grow with it. */
 .ovs-chip .ovs-tcap { height: 26px; }

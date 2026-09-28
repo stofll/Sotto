@@ -8,9 +8,22 @@ import { OverlayWaveform } from "./OverlayWaveform";
 import { isOverlayBody, useOverlaySession, type OverlaySession } from "./useOverlaySession";
 import type { Recipe, ScenePhase } from "./overlayRecipe";
 import { audioLevelSource } from "./levelSource";
+import type { SceneProps } from "./OverlayScene";
 
 // The recipe scene is the constructor's overlay; configs without a recipe keep the forms below.
-const OverlayScene = lazy(() => import("./OverlayScene").then((m) => ({ default: m.OverlayScene })));
+const OverlayScene = lazy(() => import("./OverlayScene")
+  .then((m) => ({ default: m.OverlayScene }))
+  .catch(() => ({ default: SceneFallback })));
+
+// This stays in the entry chunk so a missing scene cannot take cancellation
+// away. It fits even the smallest native window without needing scene CSS.
+function SceneFallback({ phase, status, timer, close, loading = false }: Pick<SceneProps, "phase" | "status" | "timer" | "close"> & { loading?: boolean }) {
+  return <div className="overlay-scene-fallback" role="status" aria-busy={loading}>
+    <span>{phase === "recording" ? timer : status}</span>
+    {phase !== "pasted" && <button className="overlay-close" aria-label={close.label}
+      onClick={close.onClick} disabled={close.disabled}><Icon name="x" size={14}/></button>}
+  </div>;
+}
 
 // A missing animation chunk must not unmount the recording/cancel controls.
 const OverlayGlow = lazy(() => import("./OverlayGlow")
@@ -98,7 +111,8 @@ function RecipeOverlay({ session, recipe }: { session: OverlaySession; recipe: R
   const language = (config?.language || "auto").toUpperCase();
   return <div data-testid="overlay" data-state={state} data-layout="recipe" className="overlay" style={config ? overlayPalette(preferences) : undefined}
     onPointerMove={(event) => session.setHovered(isOverlayBody(event.target))} onPointerLeave={() => session.setHovered(false)}>
-    <Suspense fallback={null}>
+    <Suspense fallback={<SceneFallback loading phase={scenePhase(state)} timer={clock.text} status={status}
+      close={{ label: state === "pasted" || state === "error" ? t("Закрыть") : t("Отменить запись"), text: t("Отмена"), onClick: session.handleClose, disabled: session.isClosing }}/>}>
       <OverlayScene key={session.sessionId} recipe={recipe} size={preferences.size} phase={scenePhase(state)}
         streaming={session.streaming} needsText={state === "error" || (state === "pasted" && !!session.aiProblem)}
         draft={session.previewText} draftPlaceholder={t("Говорите — текст появится здесь")}

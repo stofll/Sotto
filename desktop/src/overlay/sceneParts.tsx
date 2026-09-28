@@ -6,8 +6,10 @@ import type { LevelSource } from "./levelSource";
 import type { OverlaySize, ProcessDraw, RecipeMatrix, RegionKind, ScenePhase } from "./overlayRecipe";
 
 // The heavier drawings load on first use, so a recipe without them costs nothing.
-const OverlayMatrix = lazy(() => import("./OverlayMatrix").then((m) => ({ default: m.OverlayMatrix })));
-const OverlayGlow = lazy(() => import("./OverlayGlow").then((m) => ({ default: m.OverlayGlow })));
+const OverlayMatrix = lazy(() => import("./OverlayMatrix").then((m) => ({ default: m.OverlayMatrix }))
+  .catch(() => ({ default: () => <></> })));
+const OverlayGlow = lazy(() => import("./OverlayGlow").then((m) => ({ default: m.OverlayGlow }))
+  .catch(() => ({ default: () => <></> })));
 
 const BLOCKS = "▁▂▃▄▅▆▇█";
 const HISTORY = 96;

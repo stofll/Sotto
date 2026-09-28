@@ -86,29 +86,45 @@ export function OverlayEditor({ config, onConfigChanged, onClose, template }: {
   function remember() {
     setHistory((items) => [...items.slice(-HISTORY_LIMIT + 1), { recipe, look: lookOf(preferences) }]);
   }
+  const editVersion = useRef(0);
+  function saveView(next: Recipe, look: OverlayLook) {
+    const version = ++editVersion.current;
+    // Save the whole visible draft: a later edit must also carry changes whose
+    // earlier save failed. Only the latest failure may roll the preview back.
+    void saver.saveRecipe(next, look).then((result) => {
+      if (result || version !== editVersion.current) return;
+      const restored = preferencesOf(saver.saved.current);
+      setPreferences(restored);
+      setRecipe(currentRecipe(restored));
+      setHistory([]);
+      setSelected(null);
+      setToast(null);
+    });
+  }
   function commitRecipe(edited: Recipe, message?: string, look: Partial<OverlayLook> = {}, warn = false) {
     const next = restoreShell(recipe, edited);
     remember();
     setRecipe(next);
     if (Object.keys(look).length) setPreferences((current) => ({ ...current, ...look }));
-    void saver.saveRecipe(next, look);
+    saveView(next, { ...lookOf(preferences), ...look });
     if (message) setToast({ text: message, warn });
   }
   function commitLook(look: Partial<OverlayLook>) {
     remember();
     setPreferences((current) => ({ ...current, ...look }));
-    void saver.save(look);
+    saveView(recipe, { ...lookOf(preferences), ...look });
   }
   // A slider drag is one change: history keeps the look from before the drag, and it is saved on release.
   const lookDrag = useRef(false);
   function previewLook(look: Partial<OverlayLook>) {
+    editVersion.current++;
     if (!lookDrag.current) { remember(); lookDrag.current = true; }
     setPreferences((current) => ({ ...current, ...look }));
   }
   function commitPreviewedLook(look: Partial<OverlayLook>) {
     if (!lookDrag.current) return;
     lookDrag.current = false;
-    void saver.save(look);
+    saveView(recipe, { ...lookOf(preferences), ...look });
   }
   function undo() {
     const last = history[history.length - 1];
@@ -116,7 +132,7 @@ export function OverlayEditor({ config, onConfigChanged, onClose, template }: {
     setHistory((items) => items.slice(0, -1));
     setRecipe(last.recipe);
     setPreferences((current) => ({ ...current, ...last.look }));
-    void saver.saveRecipe(last.recipe, last.look);
+    saveView(last.recipe, last.look);
     setToast({ text: t("Последнее изменение отменено"), warn: false });
   }
   async function saveTemplates(templates: UserTemplate[], saved?: UserTemplate) {

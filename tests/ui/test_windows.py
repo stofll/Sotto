@@ -30,6 +30,17 @@ def settled_bar_count(page):
     ).json_value()
 
 
+def native_pointer_inside(ui, page):
+    bounds = page.locator(".overlay-shell").bounding_box()
+    ui.emit(
+        "overlay-pointer",
+        {
+            "x": bounds["x"] + bounds["width"] / 2,
+            "y": bounds["y"] + bounds["height"] / 2,
+        },
+    )
+
+
 def test_glow_module_failure_keeps_cancel_available(app, page, pytestconfig):
     production = pytestconfig.getoption("--ui-mode") == "production"
     module_url = (
@@ -161,6 +172,9 @@ def test_bead_traces_the_voice_clockwise_from_the_top(app, page):
     assert newest["dy"] < -8
     # The next one takes its place, so that reading moves on clockwise.
     ui.emit("audio-level", {"level": 0})
+    expect(page.locator(".overlay-waveform--circular > span").last).to_have_css(
+        "height", "3px"
+    )
     moved = ring_mark(page)
     assert moved["dx"] > 1
     assert moved["dy"] < 0
@@ -284,7 +298,7 @@ def test_overlay_close_shows_on_native_pointer_event(app, page):
     page.mouse.move(0, 0)
     expect(overlay).to_have_attribute("data-hovered", "false")
     expect(button).to_have_css("opacity", "0")
-    ui.emit("overlay-pointer", True)
+    native_pointer_inside(ui, page)
     expect(overlay).to_have_attribute("data-hovered", "true")
     expect(button).to_have_css("opacity", "1")
 
@@ -384,13 +398,13 @@ def test_native_pointer_leave_overrides_stale_css_hover(app, page):
     button = page.get_by_role("button", name="Отменить запись", exact=True)
     expect(button).to_have_css("opacity", "1")
     # WKWebView can keep :hover after the native window has moved/hidden.
-    ui.emit("overlay-pointer", False)
+    ui.emit("overlay-pointer", None)
     expect(button).to_have_css("opacity", "0")
     ui.emit("overlay-reset")
     page.mouse.move(0, 0)
     ui.emit("recording-started", 2)
     expect(button).to_have_css("opacity", "0")
-    ui.emit("overlay-pointer", True)
+    native_pointer_inside(ui, page)
     expect(button).to_have_css("opacity", "1")
 
 
@@ -413,7 +427,9 @@ def test_pill_cancel_overlays_waveform_without_shifting_bars(
     )
     overlay = page.get_by_test_id("overlay")
     expect(overlay).to_have_attribute("data-hovered", "false")
-    page.wait_for_timeout(250)
+    page.locator(".overlay").evaluate(
+        "el => Promise.all(el.getAnimations({subtree: true}).filter(a => a.effect.getTiming().iterations !== Infinity).map(a => a.finished))"
+    )
     wave = page.locator(".overlay-waveform")
     bars = wave.locator("span")
     bounds = wave.bounding_box()
