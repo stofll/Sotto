@@ -1034,7 +1034,8 @@ pub(crate) fn build_dictation_command(
 /// the command silently does not exist in practice.
 pub(crate) fn on_recording_started(app: &AppHandle) {
     crate::sounds::play(app, crate::sounds::Cue::Start);
-    // After the start cue, so the cue itself is still audible.
+    // Ducking skips our own audio session, so the cue stays audible even
+    // though it is still playing when this lands.
     if let Ok(cfg) = crate::config::Config::load(app) {
         crate::output_volume::duck(cfg.as_value());
     }

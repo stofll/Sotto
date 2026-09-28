@@ -604,8 +604,8 @@ export const en: Record<string, string | string[]> = {
   "Громкость восстановлена": "Volume restored",
   "Проверить": "Test",
   "Проверяем приглушение…": "Testing ducking…",
-  "На время записи убавить общую громкость и вернуть её после. Нужно, если пишете с колонок: звук из них попадает в микрофон.":
-    "Turn the system volume down while recording and restore it afterwards. Useful with speakers, whose output leaks into the mic.",
+  "На время записи убавить звук других приложений и вернуть его после. Нужно, если пишете с колонок: звук из них попадает в микрофон.":
+    "Turn other apps down while recording and restore them afterwards. Useful with speakers, whose output leaks into the mic.",
   "Запускать вместе с системой": "Start with the system",
   "Приложение запускается в фоне при входе в систему, горячая клавиша становится доступна сразу.":
     "The app starts in the background when you sign in, so the shortcut is available immediately.",

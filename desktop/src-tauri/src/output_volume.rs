@@ -1,9 +1,13 @@
-//! Duck the system output volume while recording.
+//! Duck other applications' audio while recording.
 //!
 //! Two reasons, and the second is the one that matters for other people's
 //! machines: whatever is playing leaks into the microphone, and you cannot
 //! hear yourself over it. On a desktop with a headset neither is a problem;
 //! on a laptop with built-in speakers both are.
+//!
+//! Per-application sessions rather than the endpoint's master volume: the
+//! master slider also scales our own start/stop cues, which play while the
+//! duck is being applied and lifted, so they came out muffled.
 //!
 //! Off by default. Moving somebody's volume slider without being asked is
 //! not a reasonable default, however well-intentioned.
@@ -14,7 +18,8 @@ use serde_json::Value;
 
 /// Config key: duck the output while recording.
 const CONFIG_ENABLED: &str = "duck_output_while_recording";
-/// Config key: what to duck *to*, as a fraction of full scale.
+/// Config key: what to duck *to*, as a fraction of each application's
+/// current volume.
 const CONFIG_LEVEL: &str = "duck_output_level";
 /// Quiet enough to stop bleed into the microphone, loud enough that the
 /// user can still tell something is playing.
@@ -179,10 +184,10 @@ fn request_with_reply(
 
 #[cfg(windows)]
 mod windows_impl {
-    use windows::core::Result;
-    use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
+    use windows::core::{Interface, Result};
     use windows::Win32::Media::Audio::{
-        eMultimedia, eRender, IMMDeviceEnumerator, MMDeviceEnumerator,
+        eMultimedia, eRender, AudioSessionStateExpired, IAudioSessionControl2,
+        IAudioSessionManager2, IMMDeviceEnumerator, ISimpleAudioVolume, MMDeviceEnumerator,
     };
     use windows::Win32::System::Com::{
         CoCreateInstance, CoInitializeEx, CLSCTX_ALL, COINIT_MULTITHREADED,
@@ -196,12 +201,12 @@ mod windows_impl {
         let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
     }
 
-    /// Open the default playback endpoint's volume control.
+    /// Open the default playback endpoint's session manager.
     ///
     /// Resolved per call rather than cached: the default device changes when
     /// headphones are plugged in, and a cached handle would then be adjusting
     /// the volume of a device nobody is listening to.
-    unsafe fn endpoint() -> Result<IAudioEndpointVolume> {
+    unsafe fn session_manager() -> Result<IAudioSessionManager2> {
         let enumerator: IMMDeviceEnumerator =
             CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
         // Browser, music and video playback use the multimedia role. The
@@ -209,58 +214,86 @@ mod windows_impl {
         // endpoint (for example HDMI vs headphones), making ducking appear
         // to do nothing even though another device's slider moved.
         let device = enumerator.GetDefaultAudioEndpoint(eRender, eMultimedia)?;
-        device.Activate::<IAudioEndpointVolume>(CLSCTX_ALL, None)
+        device.Activate::<IAudioSessionManager2>(CLSCTX_ALL, None)
     }
 
-    pub struct DuckState {
-        endpoint: IAudioEndpointVolume,
-        level: f32,
+    /// The live sessions of other processes. Our own is left out so the cues
+    /// keep their volume whenever they play relative to the duck.
+    unsafe fn foreign_sessions() -> Result<Vec<ISimpleAudioVolume>> {
+        let sessions = session_manager()?.GetSessionEnumerator()?;
+        let own_pid = std::process::id();
+        let mut out = Vec::new();
+        for index in 0..sessions.GetCount()? {
+            let Ok(control) = sessions.GetSession(index) else {
+                continue;
+            };
+            if control.GetState().is_ok_and(|state| state == AudioSessionStateExpired) {
+                continue;
+            }
+            let Ok(control2) = control.cast::<IAudioSessionControl2>() else {
+                continue;
+            };
+            if control2.GetProcessId().is_ok_and(|pid| pid == own_pid) {
+                continue;
+            }
+            if let Ok(volume) = control.cast::<ISimpleAudioVolume>() {
+                out.push(volume);
+            }
+        }
+        Ok(out)
     }
+
+    /// Each ducked session with the volume to put back.
+    pub struct DuckState(Vec<(ISimpleAudioVolume, f32)>);
 
     /// # Safety
     /// Must run on a thread that has entered the same COM apartment
     /// [`init_com`] created — in practice the single volume worker, which is
-    /// the only place this is called from. The interface stored in
-    /// `previous` belongs to that apartment and cannot be used outside it.
+    /// the only place this is called from. The interfaces stored in
+    /// `previous` belong to that apartment and cannot be used outside it.
     pub unsafe fn duck(previous: &mut Option<DuckState>, level: f32) -> Result<()> {
         if previous.is_some() {
             return Ok(()); // already ducked
         }
-        let volume = endpoint()?;
-        let current = volume.GetMasterVolumeLevelScalar()?;
-        // Nothing to duck to if the user is already quieter than the target.
-        if current <= level {
-            log::debug!("output volume already at {current:.3}, target {level:.3}");
-            return Ok(());
+        let mut ducked = Vec::new();
+        // Per-session failures are skipped rather than returned: a session
+        // already lowered must still be remembered, or it would stay quiet.
+        for volume in foreign_sessions()? {
+            let Ok(current) = volume.GetMasterVolume() else {
+                continue;
+            };
+            if volume.SetMasterVolume(current * level, std::ptr::null()).is_ok() {
+                ducked.push((volume, current));
+            }
         }
-        volume.SetMasterVolumeLevelScalar(level, std::ptr::null())?;
-        log::info!("output volume ducked {current:.3} → {level:.3}");
-        *previous = Some(DuckState {
-            endpoint: volume,
-            level: current,
-        });
+        log::info!("output volume: ducked {} session(s) to {level:.3}", ducked.len());
+        if !ducked.is_empty() {
+            *previous = Some(DuckState(ducked));
+        }
         Ok(())
     }
 
     /// # Safety
     /// Must run in the same COM apartment as the [`duck`] call that filled
-    /// `previous`: the endpoint interface inside it cannot cross apartments.
+    /// `previous`: the session interfaces inside it cannot cross apartments.
     pub unsafe fn restore(previous: &mut Option<DuckState>) -> Result<()> {
-        let Some(state) = previous.as_ref() else {
+        let Some(DuckState(ducked)) = previous.take() else {
             return Ok(());
         };
-        // Restore the exact endpoint that was changed. The default output can
-        // switch during a recording when headphones are connected.
-        state
-            .endpoint
-            .SetMasterVolumeLevelScalar(state.level, std::ptr::null())?;
-        log::info!("output volume restored to {:.3}", state.level);
-        *previous = None;
+        // The exact sessions that were changed, even if the default output
+        // switched during the recording. One whose app closed meanwhile fails
+        // harmlessly and must not stop the rest from coming back.
+        for (volume, level) in &ducked {
+            if let Err(error) = volume.SetMasterVolume(*level, std::ptr::null()) {
+                log::debug!("output volume: session not restored: {error}");
+            }
+        }
+        log::info!("output volume: restored {} session(s)", ducked.len());
         Ok(())
     }
 }
 
-/// Temporarily lower the Windows multimedia output so the setting can be
+/// Temporarily lower other applications' audio so the setting can be
 /// verified without starting a recording. Unlike normal best-effort ducking,
 /// this command returns the Core Audio error to the settings UI.
 #[tauri::command]
@@ -327,13 +360,13 @@ mod tests {
     /// Touches the real audio endpoint:
     /// `cargo test --lib output_volume::tests::round_trip -- --ignored --nocapture`
     ///
-    /// Ignored because it moves the machine's volume slider. Worth having
-    /// anyway — nothing short of a real COM call proves the interface is
-    /// being driven correctly, and the failure mode of getting it wrong is
-    /// "the volume silently never changes".
+    /// Ignored because it moves other applications' volume; start some
+    /// playback first, or there is nothing to duck. Worth having anyway —
+    /// nothing short of a real COM call proves the interfaces are being
+    /// driven correctly.
     #[cfg(windows)]
     #[test]
-    #[ignore = "changes the system output volume"]
+    #[ignore = "changes other applications' output volume"]
     fn round_trip() {
         // SAFETY: the test body is the whole life of this thread, so
         // `init_com` runs first and every COM call below stays on it.
@@ -342,13 +375,12 @@ mod tests {
             let before = read_master_volume().expect("read volume");
             let mut previous = None;
             windows_impl::duck(&mut previous, 0.05).expect("duck");
-            let ducked = read_master_volume().expect("read volume");
+            let during = read_master_volume().expect("read volume");
+            println!("ducked sessions: {}", previous.is_some());
             windows_impl::restore(&mut previous).expect("restore");
-            let after = read_master_volume().expect("read volume");
-            println!("before={before:.3} ducked={ducked:.3} after={after:.3}");
-            assert!(ducked < before, "volume did not drop");
-            assert!((after - before).abs() < 0.01, "volume was not restored");
-            assert!(previous.is_none(), "restore must clear the saved level");
+            // The master slider scales our own cues too, so it must not move.
+            assert!((during - before).abs() < 0.01, "master volume changed");
+            assert!(previous.is_none(), "restore must clear the saved levels");
         }
     }
 

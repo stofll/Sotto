@@ -117,7 +117,7 @@ export function BehaviorSection({ config, onConfigChanged }: { config: ConfigRes
             <input className="checkbox" type="checkbox" checked={duckOutput} onChange={(e) => void onConfigChanged({ duck_output_while_recording: e.target.checked })}/>
             {t("Приглушать звук")}
           </label>
-          <HintIcon text={t("На время записи убавить общую громкость и вернуть её после. Нужно, если пишете с колонок: звук из них попадает в микрофон.")}/>
+          <HintIcon text={t("На время записи убавить звук других приложений и вернуть его после. Нужно, если пишете с колонок: звук из них попадает в микрофон.")}/>
         </span>
         {/* The whole test is a single icon button, and the same button
             shows the result: a tick or a red mark instead of words beside
