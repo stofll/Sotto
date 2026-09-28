@@ -13,12 +13,12 @@ describe("normalizeRecipe", () => {
     const recipe = normalizeRecipe({
       shell: "pill",
       slots: { start: "level", center: "level", end: "draft", below: "draft", ghost: "timer" },
-      draw: { level: "ring", timer: "sundial" },
+      draw: { level: "beam", timer: "sundial" },
       style: { radius: "wobbly", fill: "black" },
       motion: "teleport",
       matrix: { density: 8, speech: "field" },
     })!;
-    // A ring has no place in a pill row, so the level falls back to its default drawing only where it fits.
+    // A beam has no place in a pill row, so the level falls back to its default drawing only where it fits.
     expect(recipe.slots).toEqual({ start: null, center: null, end: null, below: "draft" });
     expect(recipe.draw.timer).toBe("capsule");
     expect(recipe.style).toMatchObject({ radius: "round", fill: "black" });
@@ -80,5 +80,33 @@ describe("cancel button in a recipe", () => {
   it("drops a place or a look the shell cannot have", () => {
     expect(normalizeRecipe({ shell: "stack", cancel: { at: "corner", draw: "text", show: "always" } })?.cancel)
       .toEqual({ at: "top", draw: "x", show: "hover" });
+  });
+});
+
+describe("processing look", () => {
+  it("keeps what a recipe saved before the choice showed", () => {
+    expect(normalizeRecipe({ shell: "pill", slots: { center: "level" } })?.processing).toEqual({ draw: "dots", edge: true, words: true, speed: "normal" });
+    expect(normalizeRecipe({ shell: "bead", slots: { core: "level" }, draw: { level: "ring" } })?.processing.draw).toBe("arc");
+    expect(normalizeRecipe({ shell: "pill", slots: { center: "level" }, draw: { level: "matrix" } })?.processing.draw).toBe("matrix");
+    // Pixel motion had a cursor and no running light.
+    expect(normalizeRecipe({ shell: "pill", slots: { center: "level" }, motion: "pixel" })?.processing).toMatchObject({ draw: "cursor", edge: false });
+  });
+
+  it("keeps explicit choices and the old single sign, and drops unknown values one by one", () => {
+    expect(normalizeRecipe({ shell: "pill", processing: { draw: "none", edge: false, words: false, speed: "fast" } })?.processing)
+      .toEqual({ draw: "none", edge: false, words: false, speed: "fast" });
+    expect(normalizeRecipe({ shell: "pill", process: "matrix" })?.processing.draw).toBe("matrix");
+    expect(normalizeRecipe({ shell: "bead", processing: { draw: "fireworks", edge: "yes", speed: "warp" } })?.processing)
+      .toEqual({ draw: "arc", edge: true, words: true, speed: "normal" });
+  });
+});
+
+describe("inserted note", () => {
+  it("flashes, speaks and stays the usual time unless the recipe says otherwise", () => {
+    expect(normalizeRecipe({ shell: "pill" })?.pasted).toEqual({ flash: true, words: true, hold: "normal" });
+    expect(normalizeRecipe({ shell: "pill", pasted: { flash: false, words: false, hold: "long" } })?.pasted)
+      .toEqual({ flash: false, words: false, hold: "long" });
+    expect(normalizeRecipe({ shell: "pill", pasted: { flash: "no", hold: "forever" } })?.pasted)
+      .toEqual({ flash: true, words: true, hold: "normal" });
   });
 });

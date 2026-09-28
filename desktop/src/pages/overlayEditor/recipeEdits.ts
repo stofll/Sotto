@@ -24,6 +24,7 @@ const PREFERRED: Record<Shell, Partial<Record<ElementType, string[]>>> = {
   bead: { level: ["core"], rec: ["core"] },
   stack: { level: ["top", "bottom"], timer: ["bottom", "top"], rec: ["top", "bottom"], mode: ["bottom", "top"] },
   caps: { draft: ["lines"], timer: ["c1", "c2"], level: ["c2", "c1"], rec: ["c1", "c2"], mode: ["c2", "c1"] },
+  mini: { level: ["start", "end"], timer: ["end", "start"], rec: ["start", "end"], mode: ["end", "start"] },
 };
 /** Placement order when a new shell has to take everything the old one held: the text first, it has one place. */
 const PLACEMENT_ORDER: ElementType[] = ["draft", "level", "timer", "rec", "mode"];
@@ -37,7 +38,8 @@ export type EditResult =
   | { ok: false; reason: "no-fit" | "no-room"; type: ElementType; draw: string; region?: string };
 
 /** Put `type` into `region`, drawn as `draw` or the nearest drawing that fits.
- *  Whatever sat there moves to where `type` came from when it fits, or leaves. */
+ *  Whatever sat there moves to where `type` came from when it fits, or leaves.
+ *  `switched` names the elements redrawn without being asked. */
 export function placeInto(recipe: Recipe, type: ElementType, draw: string | null, region: string): EditResult {
   const kinds = SHELL_REGIONS[recipe.shell][region];
   if (!kinds) return { ok: false, reason: "no-fit", type, draw: draw ?? recipe.draw[type], region };
@@ -46,14 +48,16 @@ export function placeInto(recipe: Recipe, type: ElementType, draw: string | null
   const next = clone(recipe);
   const from = regionOf(next, type);
   const displaced = next.slots[region];
+  const switched: ElementType[] = !draw && chosen !== recipe.draw[type] ? [type] : [];
   if (from) next.slots[from] = null;
   next.slots[region] = type;
   next.draw[type] = chosen;
   if (displaced && displaced !== type && from) {
     const back = pickDraw(displaced, next.draw[displaced], SHELL_REGIONS[next.shell][from]);
     if (back) { next.slots[from] = displaced; next.draw[displaced] = back; }
+    if (back && back !== recipe.draw[displaced]) switched.push(displaced);
   }
-  return { ok: true, recipe: next };
+  return { ok: true, recipe: next, switched };
 }
 
 /** A click on a part: redraw the element where it already is, or put it in the best free place. */
@@ -119,6 +123,9 @@ export function partsFor(recipe: Recipe, region: string): Array<{ type: ElementT
     .map((type) => ({ type, draws: Object.keys(DRAWINGS[type]).filter((draw) => compatible(type, draw, kinds)) }))
     .filter((part) => part.draws.length > 0);
 }
+
+/** What an empty region can take that is not in the shell yet: a placed part is moved by dragging it. */
+export const freePartsFor = (recipe: Recipe, region: string) => partsFor(recipe, region).filter((part) => !regionOf(recipe, part.type));
 
 /** The kinds of place a drawing can go, for "fits: …" hints. */
 export const drawingKinds = (type: ElementType, draw: string) => DRAWINGS[type][draw] ?? [];

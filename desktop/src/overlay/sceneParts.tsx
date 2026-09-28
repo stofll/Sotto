@@ -3,7 +3,7 @@ import { t } from "../i18n";
 import { OverlayWaveform } from "./OverlayWaveform";
 import { easeStep, frameRunner, type FrameTick } from "./frameClock";
 import type { LevelSource } from "./levelSource";
-import type { OverlaySize, RecipeMatrix, RegionKind, ScenePhase } from "./overlayRecipe";
+import type { OverlaySize, ProcessDraw, RecipeMatrix, RegionKind, ScenePhase } from "./overlayRecipe";
 
 // The heavier drawings load on first use, so a recipe without them costs nothing.
 const OverlayMatrix = lazy(() => import("./OverlayMatrix").then((m) => ({ default: m.OverlayMatrix })));
@@ -65,24 +65,31 @@ export function LevelPart({ draw, kind, box, source, matrix, sharp, size, phase,
       return <div className={`ovs-level ovs-level--${small ? "small" : "fill"}`}>
         <OverlayWaveform source={source} surfaceRef={surfaceRef} variant={draw === "qbars" ? "pixel" : draw === "wave" ? "wave" : "bars"}/>
       </div>;
-    case "ring":
-      return <div className="ovs-ring" style={{ "--overlay-ring-radius": `${Math.round(box * 0.36)}px` } as CSSProperties}>
-        <OverlayWaveform source={source} surfaceRef={surfaceRef} circular/>
+    case "ring": {
+      // Only the bead's core is sized for the full ring. Elsewhere it is compact: a bar
+      // reaches 3 px past the radius, so a ring of radius 11 fits the small orb's 30 px.
+      const compact = kind !== "square";
+      return <div className={`ovs-ring${compact ? " ovs-ring--small" : ""}`} style={{ "--overlay-ring-radius": `${compact ? 11 : Math.round(box * 0.36)}px` } as CSSProperties}>
+        <OverlayWaveform source={source} surfaceRef={surfaceRef} circular compact={compact}/>
       </div>;
-    case "matrix":
-      return <Suspense fallback={null}>
+    }
+    case "matrix": {
+      const grid = <Suspense fallback={null}>
         <OverlayMatrix mode="speech" source={source} surfaceRef={surfaceRef} sharp={sharp} {...matrix}
           size={kind === "wide" || small ? undefined : Math.round(box * (kind === "square" ? 0.66 : 0.7))}/>
       </Suspense>;
+      // A row fills its box, and a small region sizes to its content, so it needs a box of its own.
+      return small ? <div className="ovs-level ovs-level--small">{grid}</div> : grid;
+    }
     case "beam":
       return <Suspense fallback={null}>
         <OverlayGlow mode={phase === "recording" ? "listen" : phase === "processing" ? "process" : "idle"} size={size} source={source}/>
       </Suspense>;
-    case "scope": return <Scope source={source}/>;
+    case "scope": return small ? <div className="ovs-level ovs-level--small"><Scope source={source}/></div> : <Scope source={source}/>;
     case "ascii": return <Ascii source={source} count={small ? 7 : 26}/>;
     case "caps": return <Capsules source={source} kind={kind} box={box}/>;
     case "segments": return <Segments source={source} unit={small || kind === "wide" ? 7 : Math.max(5, Math.round(box * 0.14))}/>;
-    case "orb": return <Orb source={source} side={small ? 30 : Math.round(box * (kind === "square" ? 1 : 0.7))}/>;
+    case "orb": return <Orb source={source} side={small || kind === "wide" ? 30 : Math.round(box * (kind === "square" ? 1 : 0.7))}/>;
     default: return null;
   }
 }
@@ -153,9 +160,16 @@ function Segments({ source, unit }: { source: LevelSource; unit: number }) {
   </div>;
 }
 
-// A ball that is always there while waiting; speech grows blobs out of it. The
-// goo filter's blur follows the size, otherwise a small orb blurs below the
-// alpha threshold and disappears when the room is quiet.
+/**
+ * A drop of liquid that answers the voice. Everything follows a smoothed
+ * level, so the drop swells and settles instead of twitching with each
+ * reading. The blobs circle on their own slow ellipses, half of them the
+ * other way round, and those paths drift over seconds, so the figure keeps
+ * changing without jumping. Silence draws the blobs into the core, which
+ * then only breathes. The goo filter's blur follows the size, otherwise a
+ * small orb blurs below the alpha threshold and disappears when the room is
+ * quiet.
+ */
 function Orb({ source, side }: { source: LevelSource; side: number }) {
   const filter = `ovs-goo-${useId().replace(/:/g, "")}`;
   const refs = useRef<(HTMLElement | null)[]>([]);
@@ -163,17 +177,24 @@ function Orb({ source, side }: { source: LevelSource; side: number }) {
   const core = Math.round(side * 0.52), blob = Math.round(side * 0.28);
   useLevelFrames(source, (readings, now, seconds) => {
     const state = motion.current, level = Math.sqrt(readings[readings.length - 1] ?? 0);
-    state.smooth += (level - state.smooth) * easeStep(seconds, 0.08); state.angle += seconds * (0.6 + state.smooth * 1.6);
+    state.smooth += (level - state.smooth) * easeStep(seconds, 0.18);
+    state.angle += seconds * (0.35 + state.smooth * 0.9);
     const [ball, ...blobs] = refs.current;
-    const breath = 1 + 0.03 * Math.sin(now / 900);
-    if (ball) ball.style.transform = `scale(${(breath + state.smooth * 0.14).toFixed(3)})`;
+    const breath = 1 + 0.035 * Math.sin(now / 1100);
+    if (ball) ball.style.transform = `scale(${(breath + state.smooth * 0.12).toFixed(3)})`;
     blobs.forEach((node, index) => {
-      const i = index + 1, a = state.angle * (1 + i * 0.25) + i * 2.1;
-      state.own[index] += (Math.sqrt(readings[readings.length - 1 - i * 3] ?? 0) - state.own[index]) * easeStep(seconds, 0.06);
+      const i = index + 1, direction = i % 2 ? 1 : -1;
+      // Each blob answers a slightly older reading, so they swell one after another.
+      state.own[index] += (Math.sqrt(readings[readings.length - 1 - i * 3] ?? 0) - state.own[index]) * easeStep(seconds, 0.22);
       const own = state.own[index];
-      const reach = side * (0.04 + state.smooth * (0.3 + own * 0.18));
-      const grow = 0.55 + state.smooth * 0.45 + own * 0.2;
-      if (node) node.style.transform = `translate(${(Math.cos(a) * reach).toFixed(2)}px,${(Math.sin(a) * reach).toFixed(2)}px) scale(${grow.toFixed(3)})`;
+      const drift = Math.sin(now / (5200 + i * 1300) + i * 1.7);
+      const a = direction * state.angle * (0.8 + i * 0.15) + i * 1.57 + drift * 0.6;
+      const reach = Math.min(0.5, 0.04 + state.smooth * (0.26 + own * 0.16)) * side;
+      // An ellipse that slowly turns instead of a fixed circle.
+      const wide = 1 + 0.22 * drift, tilt = i * 0.8 + now / 9000;
+      const x = Math.cos(a) * reach * wide, y = Math.sin(a) * reach / wide;
+      const grow = 0.55 + state.smooth * 0.4 + own * 0.2;
+      if (node) node.style.transform = `translate(${(x * Math.cos(tilt) - y * Math.sin(tilt)).toFixed(2)}px,${(x * Math.sin(tilt) + y * Math.cos(tilt)).toFixed(2)}px) scale(${grow.toFixed(3)})`;
     });
   });
   return <div className="ovs-orb" style={{ width: side, height: side, filter: `url(#${filter})` }} aria-hidden="true">
@@ -225,9 +246,14 @@ export function DraftPart({ draw, text, captions, phase, placeholder }: { draw: 
   </div>;
 }
 
-export function ProcessLead({ matrix, size, sharp, pixel }: { matrix: RecipeMatrix | null; size: number; sharp: boolean; pixel: boolean }) {
-  if (matrix) return <Suspense fallback={null}><OverlayMatrix mode="process" size={size} sharp={sharp} {...matrix}/></Suspense>;
-  return pixel ? <span className="ovs-blk"/> : <span className="ovs-dots"><i/><i/><i/></span>;
+/** The processing look the recipe chose, `size` px tall: a row's height, or the middle of a round shell. */
+export function ProcessLead({ draw, matrix, size, sharp, pace = 1 }: { draw: Exclude<ProcessDraw, "none">; matrix: RecipeMatrix; size: number; sharp: boolean; pace?: number }) {
+  switch (draw) {
+    case "matrix": return <Suspense fallback={null}><OverlayMatrix mode="process" size={size} sharp={sharp} pace={pace} {...matrix}/></Suspense>;
+    case "arc": return <span className="ovs-comet" style={{ width: size, height: size }}/>;
+    case "cursor": return <span className="ovs-blk" style={{ "--blk-w": `${Math.max(6, Math.round(size * 0.36))}px`, "--blk-h": `${Math.max(12, Math.round(size * 0.64))}px` } as CSSProperties}/>;
+    case "dots": return <span className="ovs-dots" style={{ "--dot": `${Math.max(5, Math.round(size * 0.2))}px` } as CSSProperties}><i/><i/><i/></span>;
+  }
 }
 
 export function CheckMark({ big = false }: { big?: boolean }) {

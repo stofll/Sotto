@@ -6,7 +6,7 @@ const DEFAULT_EDGE_OFFSET: f64 = 25.0;
 const FORMS: &[&str] = &["pill", "bead", "glow"];
 /// Mirrors `SHELLS` in overlayRecipe.ts. A saved recipe picks the window
 /// from its shell; without one the legacy `form` does.
-const SHELLS: &[&str] = &["pill", "card", "bead", "stack", "island", "caps"];
+const SHELLS: &[&str] = &["pill", "card", "bead", "stack", "island", "caps", "mini"];
 /// Mirrors `MAX_TEMPLATES` in overlayRecipe.ts.
 const MAX_TEMPLATES: usize = 8;
 const MAX_NAME_CHARS: usize = 40;
@@ -37,6 +37,18 @@ pub struct OverlayPreferences {
     pub shell: Option<&'static str>,
     /// Whether the recipe puts the streaming draft under the pill row.
     pub draft_row: bool,
+    /// How long the "inserted" note stays, from the recipe's `pasted.hold`.
+    pub pasted_hold_ms: u64,
+}
+
+/// Mirrors `PASTED_SECONDS` in OverlayEditor.tsx; "normal" is the delay the
+/// note always had.
+fn pasted_hold_ms(hold: Option<&str>) -> u64 {
+    match hold {
+        Some("short") => 1000,
+        Some("long") => 3500,
+        _ => 1800,
+    }
 }
 
 fn choice(
@@ -68,6 +80,7 @@ impl OverlayPreferences {
                 .copied()
                 .find(|item| Some(*item) == value["recipe"]["shell"].as_str()),
             draft_row: value["recipe"]["slots"]["below"].as_str() == Some("draft"),
+            pasted_hold_ms: pasted_hold_ms(value["recipe"]["pasted"]["hold"].as_str()),
         }
     }
 
@@ -80,6 +93,7 @@ impl OverlayPreferences {
                 _ if needs_text => Layout::Pill,
                 "bead" => Layout::Bead,
                 "stack" => Layout::Stack,
+                "mini" => Layout::Mini,
                 // A pill or island opens only when the recipe has a draft row to show.
                 _ if streaming && self.draft_row => Layout::Streaming,
                 _ => Layout::Pill,
@@ -115,6 +129,9 @@ impl OverlayPreferences {
             (Layout::Stack, "s") => (72.0, 112.0),
             (Layout::Stack, "l") => (88.0, 144.0),
             (Layout::Stack, _) => (80.0, 128.0),
+            (Layout::Mini, "s") => (132.0, 40.0),
+            (Layout::Mini, "l") => (168.0, 48.0),
+            (Layout::Mini, _) => (148.0, 44.0),
         }
     }
 }
@@ -127,6 +144,7 @@ pub enum Layout {
     Streaming,
     Glow,
     Stack,
+    Mini,
 }
 
 // Loading repairs known retired values in memory; only a successful save writes them.
@@ -208,8 +226,8 @@ fn short_text(value: &Value, max: usize) -> bool {
         .is_some_and(|text| !text.trim().is_empty() && text.chars().count() <= max)
 }
 
-/// The native side needs the shell; the rest of the recipe is a flat map of
-/// short tokens the frontend normalises. Unknown tokens are its concern, but
+/// The native side needs the shell; the rest of the recipe is flat maps of
+/// short tokens, numbers and flags the frontend normalises. Unknown tokens are its concern, but
 /// nothing nested or oversized reaches the config file.
 fn validate_recipe(recipe: &Value) -> Result<(), &'static str> {
     let object = recipe.as_object().ok_or("")?;
@@ -220,9 +238,12 @@ fn validate_recipe(recipe: &Value) -> Result<(), &'static str> {
     {
         return Err(".shell");
     }
-    if let Some(motion) = object.get("motion") {
-        if !short_text(motion, MAX_TOKEN_CHARS) {
-            return Err(".motion");
+    for (key, field) in [("motion", ".motion"), ("process", ".process")] {
+        if object
+            .get(key)
+            .is_some_and(|token| !short_text(token, MAX_TOKEN_CHARS))
+        {
+            return Err(field);
         }
     }
     for (key, field) in [
@@ -231,6 +252,8 @@ fn validate_recipe(recipe: &Value) -> Result<(), &'static str> {
         ("style", ".style"),
         ("matrix", ".matrix"),
         ("cancel", ".cancel"),
+        ("processing", ".processing"),
+        ("pasted", ".pasted"),
     ] {
         let Some(map) = object.get(key) else { continue };
         let entries = map.as_object().ok_or(field)?;
@@ -238,6 +261,7 @@ fn validate_recipe(recipe: &Value) -> Result<(), &'static str> {
             || !entries.iter().all(|(name, item)| {
                 name.chars().count() <= MAX_TOKEN_CHARS
                     && (item.is_null()
+                        || item.is_boolean()
                         || item.as_f64().is_some_and(f64::is_finite)
                         || short_text(item, MAX_TOKEN_CHARS))
             })
@@ -381,6 +405,23 @@ mod tests {
             Layout::Pill,
             "errors open into the pill row"
         );
+        assert_eq!(with(json!({"shell":"pill"})).pasted_hold_ms, 1800);
+        assert_eq!(
+            with(json!({"shell":"pill","pasted":{"hold":"short"}})).pasted_hold_ms,
+            1000
+        );
+        assert_eq!(
+            with(json!({"shell":"pill","pasted":{"hold":"long"}})).pasted_hold_ms,
+            3500
+        );
+        let mini = with(json!({"shell":"mini"}));
+        assert_eq!(mini.layout(false, false), Layout::Mini);
+        assert_eq!(mini.window_size(Layout::Mini), (148.0, 44.0));
+        assert_eq!(
+            mini.layout(false, true),
+            Layout::Pill,
+            "errors open into the pill row"
+        );
         let pill = with(json!({"shell":"pill","slots":{"center":"level"}}));
         assert_eq!(
             pill.layout(true, false),
@@ -407,7 +448,7 @@ mod tests {
 
     #[test]
     fn validates_recipes_and_templates() {
-        let recipe = json!({"shell":"pill","slots":{"start":"timer","below":null},"draw":{"level":"matrix"},"style":{"radius":"round"},"motion":"soft","matrix":{"density":7},"cancel":{"at":"end","draw":"x","show":"hover"}});
+        let recipe = json!({"shell":"pill","slots":{"start":"timer","below":null},"draw":{"level":"matrix"},"style":{"radius":"round"},"motion":"soft","processing":{"draw":"none","edge":false,"words":true,"speed":"fast"},"matrix":{"density":7},"cancel":{"at":"end","draw":"x","show":"hover"}});
         assert!(validate(&json!({"overlay":{"recipe":recipe.clone()}})).is_ok());
         let template =
             json!({"id":"a1","name":"Мой","recipe":recipe.clone(),"palette":"violet","size":"l"});
@@ -417,6 +458,9 @@ mod tests {
             json!({"recipe":{"slots":{}}}),
             json!({"recipe":{"shell":"pill","slots":{"start":{"nested":true}}}}),
             json!({"recipe":{"shell":"pill","motion":""}}),
+            json!({"recipe":{"shell":"pill","process":{"nested":true}}}),
+            json!({"recipe":{"shell":"pill","processing":{"draw":{"nested":true}}}}),
+            json!({"recipe":{"shell":"pill","pasted":{"hold":{"nested":true}}}}),
             json!({"recipe":{"shell":"pill","cancel":"end"}}),
             json!({"templates":[{"id":"a","name":" ","recipe":recipe.clone()}]}),
             json!({"templates":[{"id":"a","name":"x","recipe":recipe.clone(),"size":"xl"}]}),

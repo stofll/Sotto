@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { regionOf } from "../../overlay/overlayRecipe";
-import { addPart, changeShell, partsFor, placeInto, removePart, replacementPatch, restoreShell } from "./recipeEdits";
+import { addPart, changeShell, freePartsFor, partsFor, placeInto, removePart, replacementPatch, restoreShell } from "./recipeEdits";
 import { SYSTEM_TEMPLATES } from "./templates";
 
 const pill = SYSTEM_TEMPLATES.pill;
@@ -17,12 +17,37 @@ describe("addPart", () => {
     expect(result.ok && regionOf(result.recipe, "rec")).toBe("end");
   });
 
+  it("puts the ring and the orb in a pill's centre and in the stack", () => {
+    for (const draw of ["ring", "orb"]) {
+      const inPill = addPart(pill, "level", draw);
+      expect(inPill.ok && regionOf(inPill.recipe, "level")).toBe("center");
+      const inStack = addPart(SYSTEM_TEMPLATES.stack, "level", draw);
+      expect(inStack.ok && inStack.recipe.draw.level).toBe(draw);
+    }
+  });
+
   it("explains a drawing the shell has no place for", () => {
-    expect(addPart(pill, "level", "ring")).toMatchObject({ ok: false, reason: "no-fit" });
+    expect(addPart(pill, "level", "beam")).toMatchObject({ ok: false, reason: "no-fit" });
   });
 });
 
 describe("placeInto", () => {
+  it("keeps the drawing when it fits the new place", () => {
+    const withScope = addPart(pill, "level", "scope");
+    if (!withScope.ok) throw new Error("setup");
+    const moved = placeInto(withScope.recipe, "level", null, "end");
+    expect(moved).toMatchObject({ ok: true, switched: [] });
+    expect(moved.ok && moved.recipe.draw.level).toBe("scope");
+  });
+
+  it("names an element it had to redraw to fit the new place", () => {
+    const bigTimer = placeInto(pill, "timer", "big", "center");
+    if (!bigTimer.ok) throw new Error("setup");
+    const moved = placeInto(bigTimer.recipe, "timer", null, "end");
+    expect(moved).toMatchObject({ ok: true, switched: ["timer"] });
+    expect(moved.ok && moved.recipe.draw.timer).toBe("capsule");
+  });
+
   it("swaps two elements when each fits the other's place", () => {
     const withRec = addPart(pill, "rec", "dot");
     if (!withRec.ok) throw new Error("setup");
@@ -105,5 +130,12 @@ describe("partsFor", () => {
 
   it("offers nothing for a region the shell does not have", () => {
     expect(partsFor(pill, "core")).toEqual([]);
+  });
+});
+
+describe("freePartsFor", () => {
+  it("leaves out the parts already in the shell", () => {
+    // The pill template has the timer at the start and the level in the centre.
+    expect(freePartsFor(pill, "end").map((part) => part.type)).toEqual(["rec", "mode"]);
   });
 });

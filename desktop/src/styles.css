@@ -2238,8 +2238,9 @@ button.card { appearance: none; font: inherit; color: inherit; }
 @container (min-width: 1240px) {
   .ove .ove-grid { grid-template-columns: minmax(380px, 2fr) minmax(0, 3fr); }
   .ove .ove-shells { grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); }
-  .ove .ove-parts, .ove .ove-motions { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  .ove .ove-parts, .ove .ove-motions, .ove .ove-opts { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
   .ove .ove-pop .ove-parts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ove .ove-pop .ove-opts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .ove .ove-stage__view { max-height: 56vh; }
 }
 .ove-after--page { display: none; margin-top: 16px; }
@@ -2256,6 +2257,7 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .ove-lib > .segmented + .ove-sec { border-top: 0; }
 .ove-sec__head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .ove-sec__head b { font: 600 12.5px/1.2 var(--font-sans); color: var(--ink); }
+.ove-sec__title { display: inline-flex; align-items: center; gap: 5px; }
 .ove-sec__head span { font: 400 11.5px/1.2 var(--font-sans); color: var(--ink-mute); text-align: right; }
 .ove-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 
@@ -2279,8 +2281,9 @@ button.card { appearance: none; font: inherit; color: inherit; }
 
 .ove-parts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
 .ove-part { cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
-.ove-part--wide { grid-column: 1 / -1; }
-.ove-part[aria-disabled="true"] { opacity: 0.4; cursor: not-allowed; }
+/* Two tiles: room for a line of the draft without stretching over a wide library. */
+.ove-part--wide { grid-column: span 2; }
+:is(.ove-part, .ove-opt)[aria-disabled="true"] { opacity: 0.4; cursor: not-allowed; }
 .ove-part__pv { height: 48px; border-radius: var(--radius-sm); background: linear-gradient(160deg, #1b1a21, #0f0e13); display: grid; place-items: center; overflow: hidden; }
 .ove-part__meta { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
 .ove-part__meta span { color: var(--accent-text); white-space: nowrap; }
@@ -2288,7 +2291,6 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .ove-pv { position: relative; display: flex; align-items: center; justify-content: center; height: 38px; padding: 0 10px; border-radius: 12px; background: var(--overlay-surface); overflow: hidden; }
 .ove-pv-root[data-fill="black"] .ove-pv { background: #0a0a0c; }
 .ove-pv-root[data-fill="none"] .ove-pv { background: transparent; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12); }
-.ove-pv-root[data-stroke="hair"] .ove-pv { box-shadow: inset 0 0 0 1px var(--overlay-edge); }
 .ove-pv-root[data-radius="sharp"] .ove-pv { border-radius: 2px; }
 .ove-pv-root[data-radius="round"] :is(.ove-pv--small, .ove-pv--wide) { border-radius: 999px; }
 .ove-pv--small { width: 84px; }
@@ -2380,11 +2382,22 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .ove-pop { position: absolute; z-index: 20; width: 320px; max-width: calc(100% - 8px); display: grid; gap: 8px; padding: 10px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--bg-3); box-shadow: var(--shadow-pop); }
 .ove-pop__head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font: 400 12px/1.2 var(--font-sans); color: var(--ink-mute); }
 .ove-pop__head b { color: var(--ink); font-weight: 600; }
-.ove-pop__head .btn, .ove-bar__toggle { height: 26px; padding: 0 8px; font-size: 12px; }
-.ove-bar__toggle { gap: 6px; }
+.ove-pop__head .btn { height: 26px; padding: 0 8px; font-size: 12px; }
+.ove-bar__check, .ove-check { font: 500 12px/1.2 var(--font-sans); color: var(--ink-mute); }
+/* A phase of the dictation in the Build tab, titled like the sidebar's groups. */
+.ove-group { display: grid; gap: 4px; margin-top: 14px; }
+.ove-group__head { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.ove-group__toggle { appearance: none; display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; padding: 4px 4px 4px 0; border: 0; background: transparent; color: inherit; cursor: pointer; }
+.ove-group__toggle:hover .ove-group__title { color: var(--ink); }
+.ove-group__toggle:focus-visible { outline: none; box-shadow: var(--ring); border-radius: var(--radius-sm); }
+.ove-group__title { font: 500 10px/1 var(--font-mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-mute); }
+.ove-group__summary { flex: 1 1 auto; min-width: 0; margin-left: 6px; font: 400 11.5px/1.2 var(--font-sans); color: var(--ink-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ove-procrow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; }
+.ove-procrow__item { display: inline-flex; align-items: center; gap: 5px; }
+.ove-procrow__item > .segmented { margin-left: 4px; }
 .ove-bar__grow { flex: 1; }
 .ove-pop__note { margin: 0; font: 400 11.5px/1.35 var(--font-sans); color: var(--ink-mute); }
-.ove-pop .ove-part { cursor: pointer; }
+.ove-pop .ove-part, .ove-part--pick { cursor: pointer; }
 .ove-pop--insert { width: 360px; max-height: min(460px, 70vh); overflow-y: auto; gap: 4px; }
 .ove-stagecard .overlay-settings-hint { margin: 0; }
 .ove-toast { min-height: 1.4em; margin: 0; font: 400 12.5px/1.4 var(--font-sans); color: var(--ink-dim); }

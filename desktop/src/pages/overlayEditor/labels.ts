@@ -1,12 +1,24 @@
 import { t } from "../../i18n";
-import type { ElementType, Motion, RecipeCancel, RecipeStyle, RegionKind, Shell } from "../../overlay/overlayRecipe";
+import type { ElementType, Motion, PastedHold, ProcessDraw, ProcessSpeed, RecipeCancel, RecipeStyle, RegionKind, Shell } from "../../overlay/overlayRecipe";
 import type { MatrixProcess, MatrixSpeech } from "../../overlay/dotMatrix";
 
 // Names for everything the constructor shows. Built on each call so they
 // follow the interface language.
 
 export const shellNames = (): Record<Shell, string> => ({
-  pill: t("Пилюля"), card: t("Карточка"), bead: t("Бусина"), stack: t("Стопка"), island: t("Остров"), caps: t("Субтитры"),
+  pill: t("Пилюля"), card: t("Карточка"), bead: t("Бусина"), stack: t("Стопка"), island: t("Остров"), caps: t("Субтитры"), mini: t("Мини"),
+});
+
+export const processNames = (): Record<ProcessDraw, string> => ({
+  dots: t("Точки"), arc: t("Дуга"), matrix: t("Матрица"), cursor: t("Курсор"), none: t("Нет"),
+});
+
+export const processSpeedNames = (): Record<ProcessSpeed, string> => ({
+  slow: t("Медленно"), normal: t("Обычно"), fast: t("Быстро"),
+});
+
+export const pastedHoldNames = (): Record<PastedHold, string> => ({
+  short: t("Коротко"), normal: t("Обычно"), long: t("Долго"),
 });
 
 export const elementNames = (): Record<ElementType, string> => ({
@@ -14,8 +26,8 @@ export const elementNames = (): Record<ElementType, string> => ({
 });
 
 export const elementNotes = (): Record<ElementType, string> => ({
-  level: t("рисует громкость"), timer: t("время записи и отсчёт лимита"), rec: t("идёт запись"),
-  draft: t("текст стриминговой модели"), mode: t("язык и модель"),
+  level: t("Рисует громкость голоса"), timer: t("Время записи и отсчёт до лимита"), rec: t("Показывает, что идёт запись"),
+  draft: t("Текст, который стриминговая модель распознаёт по ходу речи"), mode: t("Язык распознавания и модель"),
 });
 
 /** Where the cancel button can sit; the keys are the spots of `CANCEL_SPOTS`. */
@@ -31,7 +43,7 @@ export const cancelShowNames = (): Record<RecipeCancel["show"], string> => ({ ho
 export const drawNames = (): Record<ElementType, Record<string, string>> => ({
   level: {
     bars: t("Столбики"), wave: t("Волна"), qbars: t("Пиксели"), scope: t("Осциллограф"), ascii: t("Символы"),
-    caps: t("Капсулы"), matrix: t("Матрица"), segments: t("Сегменты"), ring: t("Кольцо"), orb: t("Сфера"), beam: t("Луч по краю"),
+    caps: t("Капсулы"), matrix: t("Матрица"), segments: t("Сегменты"), ring: t("Кольцо"), orb: t("Сфера"), beam: t("Свечение по краю"),
   },
   timer: { capsule: t("В капсуле"), plain: t("Цифры"), big: t("Крупные") },
   rec: { dot: t("Точка"), label: t("«Слушаю»"), REC: "REC" },

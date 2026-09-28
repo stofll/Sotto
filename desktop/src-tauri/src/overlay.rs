@@ -52,7 +52,17 @@ static WINDOW_CREATE_LOCK: Mutex<()> = Mutex::new(());
 /// keeps duplicate state events from repeating reveal/z-order work and stays
 /// consistent across the pre-warmed and hidden window paths.
 static ON_SCREEN: Mutex<bool> = Mutex::new(false);
-static POINTER_INSIDE: Mutex<Option<bool>> = Mutex::new(None);
+/// The last `overlay-pointer` sent: `Some(None)` means "outside".
+static POINTER_INSIDE: Mutex<Option<Option<PointerAt>>> = Mutex::new(None);
+
+/// The pointer over the overlay window, in CSS pixels from its top-left
+/// corner. React hit-tests it against the visible shell, which can be much
+/// smaller than the window: the captions chip sits in a 600 px wide window.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize)]
+struct PointerAt {
+    x: f64,
+    y: f64,
+}
 
 fn is_on_screen() -> bool {
     ON_SCREEN.lock().map(|g| *g).unwrap_or(false)
@@ -95,10 +105,22 @@ fn set_on_screen(value: bool) {
 enum OverlayOp {
     Show(String),
     ShowFor(String, Duration),
+    /// Start leaving: the WebView plays its exit, then `Conceal` follows.
     Hide,
+    /// Actually take the window off screen. Only the worker's own deadline
+    /// produces it, `LEAVE_DURATION` after a `Hide`.
+    Conceal,
     Configure(OverlayPreferences),
-    Presentation { streaming: bool, needs_text: bool },
+    Presentation {
+        streaming: bool,
+        needs_text: bool,
+    },
 }
+
+/// How long the WebView has for its exit animation before the window is
+/// concealed. The overlay's CSS keeps every exit shorter than this; the
+/// window stays on screen, transparent, for the rest.
+const LEAVE_DURATION: Duration = Duration::from_millis(220);
 
 static OP_TX: OnceLock<Sender<OverlayOp>> = OnceLock::new();
 
@@ -116,30 +138,58 @@ fn post(op: OverlayOp) {
 /// One deadline belongs to the worker's current presentation. Replacing or
 /// hiding that presentation discards its deadline, even if the next state
 /// has the same name. No detached timer can enqueue a stale hide afterwards.
+///
+/// `conceal` is the end of a leave in progress. A new presentation cancels
+/// it, so a dictation started during the exit keeps the window on screen
+/// instead of waiting for it to disappear first.
 #[derive(Default)]
 struct AutoHide {
     deadline: Option<Instant>,
+    conceal: Option<Instant>,
 }
 
 impl AutoHide {
     fn observe(&mut self, op: &OverlayOp, now: Instant) {
         match op {
-            OverlayOp::ShowFor(_, delay) => self.deadline = Some(now + *delay),
-            OverlayOp::Show(_) | OverlayOp::Hide => self.deadline = None,
+            OverlayOp::ShowFor(_, delay) => {
+                self.deadline = Some(now + *delay);
+                self.conceal = None;
+            }
+            OverlayOp::Show(_) => {
+                self.deadline = None;
+                self.conceal = None;
+            }
+            OverlayOp::Hide => self.deadline = None,
+            OverlayOp::Conceal => self.conceal = None,
             OverlayOp::Configure(_) | OverlayOp::Presentation { .. } => {}
         }
     }
 
+    /// Called when a `Hide` has started an exit animation; a second hide
+    /// during the same exit keeps the first deadline.
+    fn leave(&mut self, now: Instant) {
+        self.conceal.get_or_insert(now + LEAVE_DURATION);
+    }
+
     fn receive(&self, rx: &Receiver<OverlayOp>) -> Option<OverlayOp> {
-        match self.deadline {
-            Some(deadline) => {
-                match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
-                    Ok(op) => Some(op),
-                    Err(RecvTimeoutError::Timeout) => Some(OverlayOp::Hide),
-                    Err(RecvTimeoutError::Disconnected) => None,
-                }
-            }
-            None => rx.recv().ok(),
+        // The earlier of the two deadlines; a conceal wins a tie, since the
+        // hide it would race has already happened.
+        let conceal_first = match (self.conceal, self.deadline) {
+            (Some(conceal), Some(deadline)) => conceal <= deadline,
+            (conceal, _) => conceal.is_some(),
+        };
+        let Some(at) = (if conceal_first {
+            self.conceal
+        } else {
+            self.deadline
+        }) else {
+            return rx.recv().ok();
+        };
+        match rx.recv_timeout(at.saturating_duration_since(Instant::now())) {
+            Ok(op) => Some(op),
+            Err(RecvTimeoutError::Timeout) if conceal_first => Some(OverlayOp::Conceal),
+            Err(RecvTimeoutError::Timeout) => Some(OverlayOp::Hide),
+            Err(RecvTimeoutError::Disconnected) => None,
         }
     }
 }
@@ -161,7 +211,12 @@ pub fn start_worker(app: AppHandle) {
             auto_hide.observe(&op, Instant::now());
             let result = match op {
                 OverlayOp::Show(state) | OverlayOp::ShowFor(state, _) => apply_show(&app, state),
-                OverlayOp::Hide => apply_hide(&app),
+                OverlayOp::Hide => begin_leave(&app).map(|leaving| {
+                    if leaving {
+                        auto_hide.leave(Instant::now());
+                    }
+                }),
+                OverlayOp::Conceal => apply_hide(&app),
                 OverlayOp::Configure(next) => {
                     *crate::mutex_recover::lock(&PREFERENCES) = next;
                     refresh_geometry(&app)
@@ -466,8 +521,8 @@ fn start_macos_pointer_watch_main(window: tauri::WebviewWindow) {
         if !is_on_screen() {
             return;
         }
-        let inside = cursor_inside_overlay_ns(ns as *mut AnyObject);
-        emit_overlay_pointer(&window_for_timer, inside);
+        let at = cursor_over_overlay_ns(ns as *mut AnyObject);
+        emit_overlay_pointer(&window_for_timer, at);
     });
     // SAFETY: the block is Send (`WebviewWindow` + `usize`) and the timer
     // is created on the main thread, which is where it must be invalidated.
@@ -477,7 +532,7 @@ fn start_macos_pointer_watch_main(window: tauri::WebviewWindow) {
     // SAFETY: both objects belong to the main thread; the mode is an AppKit constant.
     unsafe { NSRunLoop::mainRunLoop().addTimer_forMode(&timer, NSRunLoopCommonModes) };
     *crate::mutex_recover::lock(&MACOS_POINTER_WATCH) = Some(MacosPointerWatch { timer });
-    emit_overlay_pointer(&window, cursor_inside_overlay_ns(ns as *mut AnyObject));
+    emit_overlay_pointer(&window, cursor_over_overlay_ns(ns as *mut AnyObject));
 }
 
 #[cfg(target_os = "macos")]
@@ -488,24 +543,24 @@ fn stop_macos_pointer_watch_main() {
 }
 
 #[cfg(target_os = "macos")]
-fn cursor_inside_overlay_ns(ns_window: *mut objc2::runtime::AnyObject) -> bool {
+fn cursor_over_overlay_ns(ns_window: *mut objc2::runtime::AnyObject) -> Option<PointerAt> {
     use objc2_app_kit::{NSEvent, NSWindow};
 
     if ns_window.is_null() {
-        return false;
+        return None;
     }
     // SAFETY: `ns_window` is the live overlay NSWindow and this runs on
     // the main thread, which AppKit requires for `frame` / `mouseLocation`.
     let window = unsafe { &*ns_window.cast::<NSWindow>() };
     let mouse = NSEvent::mouseLocation();
     let frame = window.frame();
-    point_in_rect(
-        mouse.x,
-        mouse.y,
-        frame.origin.x,
-        frame.origin.y,
-        frame.size.width,
-        frame.size.height,
+    // AppKit points are CSS pixels already, and its frame grows upwards.
+    pointer_at(
+        (mouse.x, mouse.y),
+        (frame.origin.x, frame.origin.y),
+        (frame.size.width, frame.size.height),
+        1.0,
+        true,
     )
 }
 
@@ -559,11 +614,11 @@ fn apply_show(app: &AppHandle, state: String) -> Result<(), String> {
     }
     // The pill can appear under the cursor. WKWebView then never gets a
     // pointerenter, so the cancel control would stay hidden until a click
-    // or a mouse move. Tell React whether the pointer is already inside.
+    // or a mouse move. Tell React where the pointer already is.
     // macOS keeps watching after reveal: CSS :hover still needs a click on
     // a non-key WKWebView, so later movement has to drive `overlay-pointer`.
     #[cfg(not(target_os = "macos"))]
-    emit_overlay_pointer(&window, pointer_inside_overlay(&window));
+    emit_overlay_pointer(&window, pointer_over_overlay(&window));
     Ok(())
 }
 
@@ -571,37 +626,56 @@ fn point_in_rect(x: f64, y: f64, origin_x: f64, origin_y: f64, width: f64, heigh
     x >= origin_x && y >= origin_y && x < origin_x + width && y < origin_y + height
 }
 
-fn emit_overlay_pointer(window: &tauri::WebviewWindow, inside: bool) {
-    if inside && !is_on_screen() {
+/// Where `point` falls in a window at `origin` of `size`, measured from its
+/// top-left corner in CSS pixels, or `None` outside it. AppKit's frame grows
+/// upwards, so macOS passes `from_bottom`. Whole pixels keep the macOS
+/// watcher from re-sending a point that only moved by a fraction.
+fn pointer_at(
+    (x, y): (f64, f64),
+    (origin_x, origin_y): (f64, f64),
+    (width, height): (f64, f64),
+    scale: f64,
+    from_bottom: bool,
+) -> Option<PointerAt> {
+    if !point_in_rect(x, y, origin_x, origin_y, width, height) {
+        return None;
+    }
+    let top = if from_bottom {
+        origin_y + height - y
+    } else {
+        y - origin_y
+    };
+    Some(PointerAt {
+        x: ((x - origin_x) / scale).floor(),
+        y: (top / scale).floor(),
+    })
+}
+
+fn emit_overlay_pointer(window: &tauri::WebviewWindow, at: Option<PointerAt>) {
+    if at.is_some() && !is_on_screen() {
         return;
     }
     let mut last = crate::mutex_recover::lock(&POINTER_INSIDE);
-    if *last == Some(inside) {
+    if *last == Some(at) {
         return;
     }
-    *last = Some(inside);
+    *last = Some(at);
     drop(last);
-    let _ = window.emit("overlay-pointer", inside);
+    let _ = window.emit("overlay-pointer", at);
 }
 
 #[cfg(not(target_os = "macos"))]
-fn pointer_inside_overlay(window: &tauri::WebviewWindow) -> bool {
-    let Ok(cursor) = window.cursor_position() else {
-        return false;
-    };
-    let Ok(pos) = window.outer_position() else {
-        return false;
-    };
-    let Ok(size) = window.outer_size() else {
-        return false;
-    };
-    point_in_rect(
-        cursor.x,
-        cursor.y,
-        f64::from(pos.x),
-        f64::from(pos.y),
-        f64::from(size.width),
-        f64::from(size.height),
+fn pointer_over_overlay(window: &tauri::WebviewWindow) -> Option<PointerAt> {
+    let cursor = window.cursor_position().ok()?;
+    let pos = window.outer_position().ok()?;
+    let size = window.outer_size().ok()?;
+    let scale = window.scale_factor().ok()?;
+    pointer_at(
+        (cursor.x, cursor.y),
+        (f64::from(pos.x), f64::from(pos.y)),
+        (f64::from(size.width), f64::from(size.height)),
+        scale,
+        false,
     )
 }
 
@@ -791,7 +865,26 @@ pub fn hide() {
     post(OverlayOp::Hide);
 }
 
-/// Worker-thread body of `OverlayOp::Hide`.
+/// Worker-thread body of `OverlayOp::Hide`. A window on screen gets its exit
+/// animation first and is concealed by the following `Conceal`; `true` means
+/// that exit has started. A window already off screen is concealed at once.
+fn begin_leave(app: &AppHandle) -> Result<bool, String> {
+    if !is_on_screen() {
+        return apply_hide(app).map(|()| false);
+    }
+    match app.get_webview_window(OVERLAY_LABEL) {
+        Some(window) => {
+            // A failed emit only costs the animation, never the hide.
+            if let Err(e) = window.emit("overlay-leaving", ()) {
+                log::warn!("hide: leaving emit failed: {e}");
+            }
+            Ok(true)
+        }
+        None => apply_hide(app).map(|()| false),
+    }
+}
+
+/// Worker-thread body of `OverlayOp::Conceal`.
 fn apply_hide(app: &AppHandle) -> Result<(), String> {
     log::debug!("apply_hide()");
     set_last_state(None);
@@ -851,6 +944,28 @@ fn apply_hide(app: &AppHandle) -> Result<(), String> {
 
 const AUTO_HIDE_DELAY_MS: u64 = 1800;
 
+/// Whether the "inserted" note carries an LLM warning. Mirrors
+/// `shortAiProblem` in useOverlaySession.ts.
+fn pasted_note_warns(payload: &serde_json::Value) -> bool {
+    let ai = &payload["ai_processing"];
+    payload["ai_problem"]
+        .as_str()
+        .is_some_and(|text| !text.is_empty())
+        || ai["fallback"].as_bool() == Some(true)
+        || matches!(
+            ai["skipped_reason"].as_str(),
+            Some("missing_provider" | "missing_api_key")
+        )
+}
+
+fn pasted_hold_ms(chosen: u64, warned: bool) -> u64 {
+    if warned {
+        chosen.max(AUTO_HIDE_DELAY_MS)
+    } else {
+        chosen
+    }
+}
+
 /// How long the overlay may sit in "распознано" before we assume the rest
 /// of the pipeline died and hide it anyway.
 ///
@@ -902,11 +1017,15 @@ pub fn subscribe_engine_events(app: &AppHandle) {
 
     // paste-done: dispatcher fires this once the text is actually in the
     // focused window. This is the real end of the cycle and the only
-    // point where a character count is true.
-    app.listen("paste-done", move |_event| {
+    // point where a character count is true. The recipe sets how long the
+    // note stays, but never shorter than usual when it carries an LLM
+    // warning: that one has to be read.
+    app.listen("paste-done", move |event| {
+        let warned = serde_json::from_str::<serde_json::Value>(event.payload())
+            .is_ok_and(|payload| pasted_note_warns(&payload));
         post(OverlayOp::ShowFor(
             "pasted".to_string(),
-            Duration::from_millis(AUTO_HIDE_DELAY_MS),
+            Duration::from_millis(pasted_hold_ms(preferences().pasted_hold_ms, warned)),
         ));
     });
 
@@ -1002,6 +1121,7 @@ mod tests {
         let (tx, rx) = channel();
         let mut timer = AutoHide {
             deadline: Some(Instant::now()),
+            ..AutoHide::default()
         };
         tx.send(OverlayOp::ShowFor("error".into(), Duration::from_secs(2)))
             .unwrap();
@@ -1011,6 +1131,47 @@ mod tests {
         assert!(timer.deadline.unwrap() > Instant::now());
         timer.deadline = Some(Instant::now());
         assert!(matches!(timer.receive(&rx), Some(OverlayOp::Hide)));
+    }
+
+    #[test]
+    fn a_warning_keeps_the_inserted_note_long_enough_to_read() {
+        use serde_json::json;
+        assert_eq!(pasted_hold_ms(1000, false), 1000);
+        assert_eq!(pasted_hold_ms(3500, true), 3500);
+        let warned = pasted_note_warns(&json!({"ai_processing":{"fallback":true}}));
+        assert_eq!(pasted_hold_ms(1000, warned), AUTO_HIDE_DELAY_MS);
+        assert!(pasted_note_warns(&json!({"ai_problem":"LLM is down"})));
+        assert!(pasted_note_warns(
+            &json!({"ai_processing":{"skipped_reason":"missing_api_key"}})
+        ));
+        assert!(!pasted_note_warns(
+            &json!({"length":23,"ai_processing":{"fallback":false}})
+        ));
+    }
+
+    #[test]
+    fn a_hide_leaves_first_and_a_new_show_keeps_the_window() {
+        let (tx, rx) = channel();
+        let start = Instant::now();
+        let mut timer = AutoHide::default();
+        timer.observe(&OverlayOp::Hide, start);
+        timer.leave(start);
+        assert_eq!(timer.conceal, Some(start + LEAVE_DURATION));
+        // A repeated hide during the exit does not push the conceal back.
+        timer.leave(start + LEAVE_DURATION / 2);
+        assert_eq!(timer.conceal, Some(start + LEAVE_DURATION));
+        timer.observe(&OverlayOp::Show("recording".into()), start);
+        assert!(
+            timer.conceal.is_none(),
+            "a new dictation cancels the conceal"
+        );
+
+        timer.leave(start);
+        timer.conceal = Some(Instant::now());
+        assert!(matches!(timer.receive(&rx), Some(OverlayOp::Conceal)));
+        timer.observe(&OverlayOp::Conceal, Instant::now());
+        assert!(timer.conceal.is_none());
+        drop(tx);
     }
 
     struct SimulatedGeometry {
@@ -1200,6 +1361,20 @@ mod tests {
         assert_eq!(
             overlay_origin((0, 0), FHD, OVERLAY, 9999, "top-left"),
             (1612, 1016)
+        );
+    }
+
+    #[test]
+    fn the_pointer_is_measured_from_the_window_top_left_in_css_pixels() {
+        // Windows: physical pixels at 150 %, y grows downwards.
+        let at = pointer_at((460.0, 330.0), (400.0, 300.0), (600.0, 225.0), 1.5, false);
+        assert_eq!(at, Some(PointerAt { x: 40.0, y: 20.0 }));
+        // macOS: points, the frame's origin is its bottom-left corner.
+        let at = pointer_at((110.0, 140.0), (100.0, 100.0), (400.0, 150.0), 1.0, true);
+        assert_eq!(at, Some(PointerAt { x: 10.0, y: 110.0 }));
+        assert_eq!(
+            pointer_at((99.0, 140.0), (100.0, 100.0), (400.0, 150.0), 1.0, true),
+            None
         );
     }
 

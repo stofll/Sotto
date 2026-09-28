@@ -25,6 +25,8 @@ This is intentionally a boundary-level document: it describes the boundaries tha
 
 Keep overlay session transitions and cancellation in `useOverlaySession`, and visual layout in the overlay components and stylesheet. Appearance preferences come from configuration; a pure palette function derives the overlay colors. Native geometry changes run through the same worker queue as show/hide.
 
+A hide does not conceal the window at once. The worker emits `overlay-leaving`, the WebView plays its exit, and the window is concealed after the fixed `LEAVE_DURATION` in `overlay.rs`, so every exit animation must end within it. A show that arrives during the exit cancels the conceal and keeps the window on screen; a new dictation never waits for the previous exit.
+
 Audio levels belong to the waveform component so frequent samples do not rerender the whole window; time updates run only while recording or waiting for post-processing. New visual variants must preserve the session contract and fit the native window geometry.
 
 The bead hides streaming text and expands only for errors or LLM fallback warnings. The glow keeps streaming text and errors in the composer shape and drives its beam from the same `audio-level` events as the waveform. Every shape shows its cancel control on hover or keyboard focus. The timer can be turned off in Overlay settings. See [Overlay appearance](overlay.md) for user settings.

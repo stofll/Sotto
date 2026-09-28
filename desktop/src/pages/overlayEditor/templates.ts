@@ -1,13 +1,14 @@
 import { t } from "../../i18n";
 import {
-  DEFAULT_DRAW, DEFAULT_MATRIX, DEFAULT_STYLE, emptySlots, fitCancel, normalizeRecipe,
+  DEFAULT_DRAW, DEFAULT_MATRIX, DEFAULT_PASTED, DEFAULT_STYLE, defaultProcessing, emptySlots, fitCancel, normalizeRecipe,
   type ElementType, type Motion, type Recipe, type RecipeMatrix, type RecipeStyle, type Shell,
 } from "../../overlay/overlayRecipe";
 
 function recipe(shell: Shell, slots: Record<string, ElementType>, draw: Partial<Recipe["draw"]>, style: Partial<RecipeStyle>, motion: Motion, matrix: Partial<RecipeMatrix> = {}): Recipe {
+  const base = { shell, slots: { ...emptySlots(shell), ...slots }, draw: { ...DEFAULT_DRAW, ...draw }, motion };
   return {
-    shell, slots: { ...emptySlots(shell), ...slots }, draw: { ...DEFAULT_DRAW, ...draw },
-    style: { ...DEFAULT_STYLE, ...style }, motion, matrix: { ...DEFAULT_MATRIX, ...matrix }, cancel: fitCancel(shell, {}),
+    ...base, style: { ...DEFAULT_STYLE, ...style }, matrix: { ...DEFAULT_MATRIX, ...matrix }, cancel: fitCancel(shell, {}),
+    processing: defaultProcessing(base), pasted: { ...DEFAULT_PASTED },
   };
 }
 
@@ -26,13 +27,14 @@ export const SYSTEM_TEMPLATES = {
   scope: recipe("pill", { start: "timer", center: "level" }, { level: "scope", timer: "plain" }, { radius: "soft", ...flat }, "soft"),
   caps: recipe("caps", { c1: "timer", c2: "level", lines: "draft" }, { timer: "plain" }, { stroke: "none", fill: "black", glow: "0" }, "soft"),
   term: recipe("pill", { start: "rec", center: "level", end: "timer", below: "draft" }, { rec: "REC", level: "ascii", timer: "plain" }, { radius: "soft", ...flat, font: "mono" }, "pixel"),
+  mini: recipe("mini", { start: "level", end: "timer" }, { timer: "plain" }, {}, "soft"),
 } satisfies Record<string, Recipe>;
 export type SystemTemplate = keyof typeof SYSTEM_TEMPLATES;
 export const QUICK_TEMPLATES: SystemTemplate[] = ["pill", "bead", "glow", "orb"];
 
 export const systemTemplateNames = (): Record<SystemTemplate, string> => ({
   pill: t("Пилюля"), bead: t("Бусина"), glow: t("Сияние"), orb: t("Сфера"), plank: t("Планка"), square: t("Квадрат"),
-  stack: t("Стопка"), scope: t("Осциллограф"), caps: t("Субтитры"), term: t("Терминал"),
+  stack: t("Стопка"), scope: t("Осциллограф"), caps: t("Субтитры"), term: t("Терминал"), mini: t("Мини"),
 });
 
 /** The recipe a config without one is drawn with, so the constructor opens on what the user already sees. */

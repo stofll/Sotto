@@ -6,7 +6,7 @@ import { MATRIX_DENSITIES, MATRIX_PROCESS, MATRIX_SPEECH, type MatrixDensity, ty
 // side reads only the shell and whether the draft row is used (see
 // overlay_preferences.rs); everything else is normalised here.
 
-export const SHELLS = ["pill", "card", "bead", "stack", "island", "caps"] as const;
+export const SHELLS = ["pill", "card", "bead", "stack", "island", "caps", "mini"] as const;
 export type Shell = typeof SHELLS[number];
 export type RegionKind = "small" | "wide" | "text" | "square" | "tall" | "edge";
 
@@ -17,6 +17,7 @@ export const SHELL_REGIONS: Record<Shell, Record<string, readonly RegionKind[]>>
   stack: { top: ["tall"], bottom: ["tall"] },
   island: { start: ["small"], center: ["wide"], end: ["small"], below: ["text"] },
   caps: { c1: ["small"], c2: ["small"], lines: ["text"] },
+  mini: { start: ["small"], end: ["small"] },
 };
 
 export const ELEMENTS = ["level", "timer", "rec", "mode", "draft"] as const;
@@ -25,9 +26,9 @@ export type ElementType = typeof ELEMENTS[number];
 const ALL_SMALL: readonly RegionKind[] = ["small", "wide", "square", "tall"];
 export const DRAWINGS: { [T in ElementType]: Record<string, readonly RegionKind[]> } = {
   level: {
-    bars: ["small", "wide"], wave: ["small", "wide"], qbars: ["small", "wide"], scope: ["wide"],
+    bars: ["small", "wide"], wave: ["small", "wide"], qbars: ["small", "wide"], scope: ["small", "wide"],
     ascii: ["small", "wide"], caps: ALL_SMALL, matrix: ALL_SMALL, segments: ALL_SMALL,
-    ring: ["square"], orb: ["small", "square", "tall"], beam: ["edge"],
+    ring: ["small", "wide", "square", "tall"], orb: ["small", "wide", "square", "tall"], beam: ["edge"],
   },
   timer: { capsule: ["small", "wide"], plain: ["small", "wide", "tall"], big: ["wide", "tall"] },
   rec: { dot: ["small", "wide", "tall", "square"], label: ["small", "wide"], REC: ["small", "wide", "tall"] },
@@ -59,16 +60,18 @@ export type RecipeMatrix = { speech: MatrixSpeech; process: MatrixProcess; densi
  */
 export const CANCEL_SPOTS: Record<Shell, readonly string[]> = {
   pill: ["end", "start"], island: ["end", "start"], card: ["footR", "footL", "corner"],
-  bead: ["center"], stack: ["top", "bottom"], caps: ["end", "start"],
+  bead: ["center"], stack: ["top", "bottom"], caps: ["end", "start"], mini: ["end", "start"],
 };
 export const CANCEL_DRAWS = ["x", "stop", "text"] as const;
 export const CANCEL_SHOWS = ["hover", "always"] as const;
 export type RecipeCancel = { at: string; draw: typeof CANCEL_DRAWS[number]; show: typeof CANCEL_SHOWS[number] };
-export const ROUND_SHELLS: readonly Shell[] = ["bead", "stack"];
+/** Shells too small to give the cancel button a place of its own: it floats
+ *  over the parts on hover, and a status is shown as a sign without words. */
+export const COMPACT_SHELLS: readonly Shell[] = ["bead", "stack", "mini"];
 /** A word needs a row. */
-export const cancelDraws = (shell: Shell): readonly RecipeCancel["draw"][] => ROUND_SHELLS.includes(shell) ? ["x", "stop"] : CANCEL_DRAWS;
-/** In the bead and the stack the button sits over the parts, so it can only appear on hover. */
-export const cancelShows = (shell: Shell): readonly RecipeCancel["show"][] => ROUND_SHELLS.includes(shell) ? ["hover"] : CANCEL_SHOWS;
+export const cancelDraws = (shell: Shell): readonly RecipeCancel["draw"][] => COMPACT_SHELLS.includes(shell) ? ["x", "stop"] : CANCEL_DRAWS;
+/** In a compact shell the button sits over the parts, so it can only appear on hover. */
+export const cancelShows = (shell: Shell): readonly RecipeCancel["show"][] => COMPACT_SHELLS.includes(shell) ? ["hover"] : CANCEL_SHOWS;
 /** The cancel button a shell can have that is closest to `raw`. */
 export function fitCancel(shell: Shell, raw: unknown): RecipeCancel {
   const value = record(raw);
@@ -80,6 +83,23 @@ export function fitCancel(shell: Shell, raw: unknown): RecipeCancel {
 }
 export const DEFAULT_MATRIX: RecipeMatrix = { speech: "rings", process: "perimeter", density: 7 };
 
+/** What the overlay shows while the text is decoded and polished: a sign
+ *  (or none), a light running along the stroke, the word, and their pace. */
+export const PROCESS_DRAWS = ["dots", "arc", "matrix", "cursor", "none"] as const;
+export type ProcessDraw = typeof PROCESS_DRAWS[number];
+export const PROCESS_SPEEDS = ["slow", "normal", "fast"] as const;
+export type ProcessSpeed = typeof PROCESS_SPEEDS[number];
+/** How many times faster than normal each speed runs. */
+export const PROCESS_PACE: Record<ProcessSpeed, number> = { slow: 0.6, normal: 1, fast: 1.6 };
+export type RecipeProcessing = { draw: ProcessDraw; edge: boolean; words: boolean; speed: ProcessSpeed };
+
+/** The "inserted" note: the green flash, its words, and how long it stays
+ *  (the native side reads `hold`, see `pasted_hold_ms` in overlay_preferences.rs). */
+export const PASTED_HOLDS = ["short", "normal", "long"] as const;
+export type PastedHold = typeof PASTED_HOLDS[number];
+export type RecipePasted = { flash: boolean; words: boolean; hold: PastedHold };
+export const DEFAULT_PASTED: RecipePasted = { flash: true, words: true, hold: "normal" };
+
 export type Recipe = {
   shell: Shell;
   slots: Record<string, ElementType | null>;
@@ -88,14 +108,25 @@ export type Recipe = {
   motion: Motion;
   matrix: RecipeMatrix;
   cancel: RecipeCancel;
+  processing: RecipeProcessing;
+  pasted: RecipePasted;
 };
+
+/** The processing a recipe showed before it was a choice of its own, so a
+ *  recipe saved without it keeps its look. Pixel motion had no running light. */
+export function defaultProcessing(recipe: Pick<Recipe, "shell" | "slots" | "draw" | "motion">): RecipeProcessing {
+  const draw = recipe.draw.level === "matrix" && regionOf(recipe, "level") ? "matrix"
+    : recipe.motion === "pixel" ? "cursor"
+    : COMPACT_SHELLS.includes(recipe.shell) ? "arc" : "dots";
+  return { draw, edge: recipe.motion !== "pixel", words: true, speed: "normal" };
+}
 export type OverlaySize = "s" | "m" | "l";
 
 export const compatible = (type: ElementType, draw: string, kinds: readonly RegionKind[]) =>
   (DRAWINGS[type][draw] ?? []).some((kind) => kinds.includes(kind));
 export const firstKind = (type: ElementType, draw: string, kinds: readonly RegionKind[]) =>
   (DRAWINGS[type][draw] ?? []).find((kind) => kinds.includes(kind)) ?? kinds[0];
-export const regionOf = (recipe: Recipe, type: ElementType) =>
+export const regionOf = (recipe: Pick<Recipe, "slots">, type: ElementType) =>
   Object.keys(recipe.slots).find((region) => recipe.slots[region] === type) ?? null;
 export const fitsShell = (type: ElementType, draw: string, shell: Shell) =>
   Object.values(SHELL_REGIONS[shell]).some((kinds) => compatible(type, draw, kinds));
@@ -131,19 +162,38 @@ export function normalizeRecipe(raw: unknown): Recipe | null {
   const style = Object.fromEntries(Object.entries(STYLE_OPTIONS).map(([key, options]) =>
     [key, pick(options, rawStyle[key], DEFAULT_STYLE[key as keyof RecipeStyle])])) as RecipeStyle;
   const rawMatrix = record(value.matrix);
+  const motion = pick(MOTIONS, value.motion, "soft");
   return {
-    shell, slots, draw, style,
-    motion: pick(MOTIONS, value.motion, "soft"),
+    shell, slots, draw, style, motion,
     matrix: {
       speech: pick(MATRIX_SPEECH, rawMatrix.speech, DEFAULT_MATRIX.speech),
       process: pick(MATRIX_PROCESS, rawMatrix.process, DEFAULT_MATRIX.process),
       density: pick(MATRIX_DENSITIES, rawMatrix.density, DEFAULT_MATRIX.density),
     },
     cancel: fitCancel(shell, value.cancel),
+    processing: normalizeProcessing(value, defaultProcessing({ shell, slots, draw, motion })),
+    pasted: normalizePasted(value.pasted),
   };
 }
 
-export type RecipeLayout = "pill" | "bead" | "streaming" | "glow" | "stack";
+/** `processing` from saved JSON. A recipe saved while it was a single `process` sign keeps that sign. */
+function normalizeProcessing(value: Record<string, unknown>, fallback: RecipeProcessing): RecipeProcessing {
+  const raw = record(value.processing);
+  const flag = (key: "edge" | "words") => typeof raw[key] === "boolean" ? raw[key] as boolean : fallback[key];
+  return {
+    draw: pick(PROCESS_DRAWS, raw.draw ?? value.process, fallback.draw),
+    edge: flag("edge"), words: flag("words"),
+    speed: pick(PROCESS_SPEEDS, raw.speed, fallback.speed),
+  };
+}
+
+function normalizePasted(value: unknown): RecipePasted {
+  const raw = record(value);
+  const flag = (key: "flash" | "words") => typeof raw[key] === "boolean" ? raw[key] as boolean : DEFAULT_PASTED[key];
+  return { flash: flag("flash"), words: flag("words"), hold: pick(PASTED_HOLDS, raw.hold, DEFAULT_PASTED.hold) };
+}
+
+export type RecipeLayout = "pill" | "bead" | "streaming" | "glow" | "stack" | "mini";
 /** Mirrors `OverlayPreferences::layout` for a saved recipe in overlay_preferences.rs. */
 export function recipeLayout(recipe: Recipe, streaming: boolean, needsText: boolean): RecipeLayout {
   if (recipe.shell === "card") return "glow";
@@ -151,6 +201,7 @@ export function recipeLayout(recipe: Recipe, streaming: boolean, needsText: bool
   if (needsText) return "pill";
   if (recipe.shell === "bead") return "bead";
   if (recipe.shell === "stack") return "stack";
+  if (recipe.shell === "mini") return "mini";
   return streaming && recipe.slots.below === "draft" ? "streaming" : "pill";
 }
 
@@ -161,9 +212,10 @@ export const WINDOW_SIZE: Record<RecipeLayout, Record<OverlaySize, readonly [num
   glow: { s: [360, 100], m: [400, 112], l: [440, 124] },
   bead: { s: [64, 64], m: [72, 72], l: [80, 80] },
   stack: { s: [72, 112], m: [80, 128], l: [88, 144] },
+  mini: { s: [132, 40], m: [148, 44], l: [168, 48] },
 };
 /** The window a shell is designed around, before any state opens it wider. */
-export const SHELL_LAYOUT: Record<Shell, RecipeLayout> = { pill: "pill", island: "pill", card: "glow", bead: "bead", stack: "stack", caps: "streaming" };
+export const SHELL_LAYOUT: Record<Shell, RecipeLayout> = { pill: "pill", island: "pill", card: "glow", bead: "bead", stack: "stack", caps: "streaming", mini: "mini" };
 export const FONT_SCALE: Record<OverlaySize, number> = { s: 0.92, m: 1, l: 1.12 };
 
 /** The legacy form that comes closest, kept in sync so an older Sotto that

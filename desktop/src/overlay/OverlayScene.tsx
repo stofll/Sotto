@@ -3,7 +3,7 @@ import { Icon } from "../components/Icon";
 import { CheckMark, DraftPart, LevelPart, ModePart, ProcessLead, RecPart, TimerPart } from "./sceneParts";
 import type { LevelSource } from "./levelSource";
 import {
-  FONT_SCALE, SHELL_LAYOUT, SHELL_REGIONS, WINDOW_SIZE, firstKind, recipeHasMatrix, recipeLayout, regionOf, shellRadius, shellSize,
+  COMPACT_SHELLS, FONT_SCALE, PROCESS_PACE, SHELL_LAYOUT, SHELL_REGIONS, WINDOW_SIZE, firstKind, recipeLayout, regionOf, shellRadius, shellSize,
   type ElementType, type OverlaySize, type Recipe, type ScenePhase,
 } from "./overlayRecipe";
 import "./overlay.css";
@@ -48,7 +48,7 @@ export function OverlayScene(props: SceneProps) {
   const [designWidth, designHeight] = WINDOW_SIZE[SHELL_LAYOUT[recipe.shell]][size];
   const box = recipe.shell === "stack" ? designWidth - 8 - 2 * pad : Math.min(designWidth, designHeight) - 8 - 2 * pad;
   const rowHeight = WINDOW_SIZE.pill[size][1] - 8 - 2 * pad;
-  const round = recipe.shell === "bead" || recipe.shell === "stack";
+  const compact = COMPACT_SHELLS.includes(recipe.shell);
   const regions = SHELL_REGIONS[recipe.shell];
   const localSurface = useRef<HTMLDivElement>(null);
   const surfaceRef = props.surfaceRef ?? localSurface;
@@ -86,19 +86,24 @@ export function OverlayScene(props: SceneProps) {
     return <div key={region} {...attrs} className={`ovs-rg ovs-rg-${region}${attrs.className ? ` ${attrs.className}` : ""}`}>{region === "edge" ? null : element(region)}</div>;
   };
 
-  const matrix = recipeHasMatrix(recipe) ? recipe.matrix : null;
   const sharp = recipe.style.radius === "sharp";
+  const { processing } = recipe;
   let status: ReactNode = null;
   if (phase === "processing") {
-    status = round && !needsText
-      ? matrix ? <ProcessLead matrix={matrix} size={Math.round(box * 0.62)} sharp={sharp} pixel={false}/> : <span className="ovs-comet"/>
-      : <><ProcessLead matrix={matrix} size={Math.round(rowHeight * 0.5)} sharp={sharp} pixel={recipe.motion === "pixel"}/><span className="ovs-lbl">{props.status}</span></>;
+    const sign = compact && !needsText;
+    const lead = processing.draw === "none" ? null : <ProcessLead draw={processing.draw} matrix={recipe.matrix} sharp={sharp}
+      pace={PROCESS_PACE[processing.speed]} size={sign ? Math.round(box * (recipe.shell === "mini" ? 0.8 : 0.62)) : Math.round(rowHeight * 0.5)}/>;
+    // Without the word on screen, the status still reaches a screen reader.
+    status = <>{lead}<span className={!sign && processing.words ? "ovs-lbl" : "sr-only"}>{props.status}</span></>;
   } else if (phase === "pasted") {
-    status = round && !needsText ? <CheckMark big/> : <><CheckMark/><span className="ovs-lbl ovs-lbl--ok">{props.status}</span></>;
+    const sign = compact && !needsText;
+    // An LLM warning always keeps its words: it is the reason the note needs text.
+    status = <><CheckMark big={sign}/><span className={!sign && (recipe.pasted.words || needsText) ? "ovs-lbl ovs-lbl--ok" : "sr-only"}>{props.status}</span></>;
   } else if (phase === "error") {
     status = <span className="ovs-lbl ovs-lbl--err">{props.status}</span>;
   }
-  const stl = <div className="ovs-stl" role={phase === "recording" ? undefined : "status"}>{status}</div>;
+  // Keyed by phase: each new status enters on its own instead of swapping its words in place.
+  const stl = <div key={phase} className="ovs-stl" role={phase === "recording" ? undefined : "status"}>{status}</div>;
   const { cancel } = recipe;
   // In the constructor the button is a target like the parts: it opens its own options.
   const close = <button type="button" className={`ovs-close${interactive?.selected === "cancel" ? " ovs-sel" : ""}`} data-draw={cancel.draw}
@@ -119,6 +124,7 @@ export function OverlayScene(props: SceneProps) {
     let content: ReactNode;
     if (recipe.shell === "pill" || recipe.shell === "island") content = <><div className="ovs-main-row">{at("start")}{R("start")}{R("center")}{R("end")}{stl}{at("end")}</div>{R("below")}</>;
     else if (recipe.shell === "card") content = <>{R("body")}<div className="ovs-foot">{at("footL")}{R("footL")}<div className="ovs-sp"/>{R("footR")}{at("footR")}</div>{stl}{at("corner")}</>;
+    else if (recipe.shell === "mini") content = <div className="ovs-main-row">{at("start")}{R("start")}{R("end")}{stl}{at("end")}</div>;
     else if (recipe.shell === "bead") content = <>{R("core")}{stl}{close}</>;
     else content = <>{R("top")}{R("bottom")}{stl}{close}</>;
     body = <>{layers}<div className="ovs-edgefx">{recipe.slots.edge ? element("edge") : null}</div><div className="ovs-content">{content}</div></>;
@@ -134,6 +140,7 @@ export function OverlayScene(props: SceneProps) {
   return <div className={`ovs${still ? " ovs--still" : ""}`}
     data-shell={recipe.shell} data-radius={recipe.style.radius} data-stroke={recipe.style.stroke} data-fill={recipe.style.fill}
     data-glow={recipe.style.glow} data-font={recipe.style.font} data-motion={recipe.motion} data-phase={phase}
+    data-proc-edge={recipe.processing.edge ? "1" : "0"} data-proc-speed={recipe.processing.speed} data-pasted-flash={recipe.pasted.flash ? "1" : "0"}
     data-cancel-at={cancel.at} data-cancel-show={cancel.show}
     data-shown={shown ? "1" : "0"} data-draft={draftOpen ? "1" : "0"} data-limit={props.limited && phase === "recording" ? "1" : "0"}
     data-notimer={timerless ? "1" : "0"} data-needs-text={needsText ? "1" : "0"} data-hovered={props.hovered ? "true" : "false"}

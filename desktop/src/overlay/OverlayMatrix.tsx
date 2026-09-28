@@ -19,9 +19,11 @@ type Props = {
   source?: LevelSource;
   /** Square dots instead of round ones, for the sharp style. */
   sharp?: boolean;
+  /** How many times faster than normal the processing pattern runs. */
+  pace?: number;
 };
 
-export function OverlayMatrix({ mode, size, density, speech, process, surfaceRef, source = audioLevelSource, sharp = false }: Props) {
+export function OverlayMatrix({ mode, size, density, speech, process, surfaceRef, source = audioLevelSource, sharp = false, pace = 1 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -87,7 +89,7 @@ export function OverlayMatrix({ mode, size, density, speech, process, surfaceRef
       const tick = (now: number) => {
         if (!fit() || !grid) return;
         // Reduced motion keeps the pattern but moves it in visible steps, four a second.
-        paintProcess(grid, cells, process, (reduced ? Math.floor((now - started) / 250) * 250 : now - started) / 1000);
+        paintProcess(grid, cells, process, (reduced ? Math.floor((now - started) / 250) * 250 : now - started) / 1000 * pace);
         draw(now);
       };
       let stopFrames = () => {}, timer = 0;
@@ -116,7 +118,7 @@ export function OverlayMatrix({ mode, size, density, speech, process, surfaceRef
       runner.wake();
     });
     return () => { stop(); runner.stop(); observer?.disconnect(); surface?.style.removeProperty("--overlay-energy"); };
-  }, [mode, size, density, speech, process, surfaceRef, source, sharp]);
+  }, [mode, size, density, speech, process, surfaceRef, source, sharp, pace]);
 
   return <canvas ref={canvasRef} className={`overlay-matrix${size === undefined ? " overlay-matrix--row" : ""}`}
     style={size === undefined ? undefined : { width: size, height: size }} aria-hidden="true"/>;

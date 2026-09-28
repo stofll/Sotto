@@ -5,7 +5,7 @@ import { t, useLocale } from "../i18n";
 import { overlayPalette } from "./overlayPalette";
 import { overlayDetail, recordingClock } from "./overlayDetail";
 import { OverlayWaveform } from "./OverlayWaveform";
-import { useOverlaySession, type OverlaySession } from "./useOverlaySession";
+import { isOverlayBody, useOverlaySession, type OverlaySession } from "./useOverlaySession";
 import type { Recipe, ScenePhase } from "./overlayRecipe";
 import { audioLevelSource } from "./levelSource";
 
@@ -36,7 +36,7 @@ export function OverlayApp() {
   const showTimer = timerOn && state === "recording";
   const closeLabel = state === "pasted" || state === "error" ? t("Закрыть") : t("Отменить запись");
   return (
-    <div data-testid="overlay" data-state={state} data-layout={layout === "pill" ? "compact" : layout} data-size={preferences.size} data-timer={timerOn ? "on" : "off"} data-hovered={hovered ? "true" : "false"} className="overlay" style={config ? overlayPalette(preferences) : undefined}>
+    <div data-testid="overlay" data-state={state} data-layout={layout === "pill" ? "compact" : layout} data-size={preferences.size} data-timer={timerOn ? "on" : "off"} data-hovered={hovered ? "true" : "false"} data-leaving={session.leaving ? "true" : undefined} className="overlay" style={config ? overlayPalette(preferences) : undefined}>
       <div className="overlay-shell" onPointerEnter={() => setHovered(true)} onPointerLeave={() => setHovered(false)}>
         <div className="overlay-surface" ref={surfaceRef}>
           {glow ? <>
@@ -84,6 +84,7 @@ function RecipeOverlay({ session, recipe }: { session: OverlaySession; recipe: R
   const { state, preferences, config } = session;
   const now = useNow(state === "recording" || state === "done");
   const surfaceRef = useRef<HTMLDivElement>(null);
+  const entered = useEntered();
   if (state === null) return null;
   const clock = recordingClock(session.recordingStartedAt, session.recordingStoppedAt, session.limitAt, now);
   const detail = overlayDetail({
@@ -96,7 +97,7 @@ function RecipeOverlay({ session, recipe }: { session: OverlaySession; recipe: R
     : "warning" in detail ? `${detail.text} · ${detail.warning}` : detail.text;
   const language = (config?.language || "auto").toUpperCase();
   return <div data-testid="overlay" data-state={state} data-layout="recipe" className="overlay" style={config ? overlayPalette(preferences) : undefined}
-    onPointerEnter={() => session.setHovered(true)} onPointerLeave={() => session.setHovered(false)}>
+    onPointerMove={(event) => session.setHovered(isOverlayBody(event.target))} onPointerLeave={() => session.setHovered(false)}>
     <Suspense fallback={null}>
       <OverlayScene key={session.sessionId} recipe={recipe} size={preferences.size} phase={scenePhase(state)}
         streaming={session.streaming} needsText={state === "error" || (state === "pasted" && !!session.aiProblem)}
@@ -108,7 +109,7 @@ function RecipeOverlay({ session, recipe }: { session: OverlaySession; recipe: R
           text: state === "pasted" || state === "error" ? t("Закрыть") : t("Отмена"),
           onClick: session.handleClose, disabled: session.isClosing,
         }}
-        hovered={session.hovered} surfaceRef={surfaceRef} source={audioLevelSource}/>
+        hovered={session.hovered} surfaceRef={surfaceRef} source={audioLevelSource} shown={entered && !session.leaving}/>
     </Suspense>
   </div>;
 }
@@ -123,6 +124,23 @@ function beadLabel(state: NonNullable<OverlaySession["state"]>) {
   if (state === "loading") return t("Подготавливаю локальную модель");
   if (state === "pasted") return t("Текст вставлен");
   return t("Обрабатываю");
+}
+
+/**
+ * False for the first frame after mount, so the scene starts hidden and its
+ * entrance transition runs. Rust shows the window about one frame after the
+ * state event; the timeout covers a WebView that draws no frames while it is
+ * still hidden.
+ */
+function useEntered() {
+  const [entered, setEntered] = useState(false);
+  useEffect(() => {
+    const enter = () => setEntered(true);
+    const frame = requestAnimationFrame(() => requestAnimationFrame(enter));
+    const timer = window.setTimeout(enter, 60);
+    return () => { cancelAnimationFrame(frame); window.clearTimeout(timer); };
+  }, []);
+  return entered;
 }
 
 function useNow(active: boolean) {
