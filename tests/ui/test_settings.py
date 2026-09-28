@@ -256,8 +256,8 @@ def test_overlay_preferences_persist_and_center_keeps_offset(app, page):
     ui = app(config={"ui_accent": "#e68a3d"})
     settings = open_overlay_settings(page)
     settings.get_by_role("button", name="Бусина", exact=True).click()
-    expect(settings.get_by_test_id("bead-hint")).to_contain_text(
-        "потоковый текст не отображается"
+    expect(settings.get_by_role("button", name="Бусина", exact=True)).to_have_attribute(
+        "aria-pressed", "true"
     )
     settings.get_by_role("button", name="L", exact=True).click()
     offset = settings.get_by_label("Отступ от края", exact=True)
@@ -269,7 +269,11 @@ def test_overlay_preferences_persist_and_center_keeps_offset(app, page):
     for button in steppers.all():
         expect(button).to_be_disabled()
         button.evaluate("e => e.click()")
-    assert ui.state()["config"]["overlay"] == {
+    saved_overlay = ui.state()["config"]["overlay"]
+    assert saved_overlay["recipe"]["shell"] == "bead"
+    assert {
+        key: saved_overlay[key] for key in ["form", "size", "edge_offset", "anchor"]
+    } == {
         "form": "bead",
         "size": "l",
         "edge_offset": 128,
@@ -625,7 +629,10 @@ def test_custom_palette_saves_on_release_and_retains_other_fields(app, page):
         }
     )
     settings = open_overlay_settings(page)
-    hue = settings.get_by_role("slider", name="Тон", exact=True)
+    settings.get_by_role("button", name="Открыть конструктор", exact=True).click()
+    editor = page.get_by_test_id("overlay-editor")
+    editor.get_by_role("button", name="Стиль", exact=True).click()
+    hue = editor.locator(".ove-tone__range--hue")
     hue.focus()
     hue.press("ArrowRight")
     page.wait_for_function(
@@ -634,7 +641,10 @@ def test_custom_palette_saves_on_release_and_retains_other_fields(app, page):
     assert ui.state()["config"]["overlay"]["form"] == "bead"
     assert ui.state()["config"]["overlay"]["size"] == "l"
     page.reload()
-    open_overlay_settings(page)
+    open_overlay_settings(page).get_by_role(
+        "button", name="Открыть конструктор", exact=True
+    ).click()
+    editor.get_by_role("button", name="Стиль", exact=True).click()
     expect(hue).to_have_value("269")
 
 
@@ -695,3 +705,25 @@ def test_overlay_and_advanced_are_independent_collapsed_sections(
     summary.click()
     expect(page.get_by_test_id("overlay-settings")).not_to_be_visible()
     expect(advanced).to_have_attribute("open", "")
+
+
+def test_audio_recordings_are_opt_in_with_a_keep_limit(app, page):
+    ui = app()
+    page.get_by_text("Дополнительно", exact=True).click()
+    row = page.get_by_test_id("recordings-settings")
+    switch = row.get_by_role("checkbox", name="Сохранять аудиозаписи", exact=True)
+    keep = row.locator(".custom-select__button")
+    expect(switch).not_to_be_checked()
+    expect(keep).to_be_disabled()
+    expect(keep).to_have_text("Последние 50")
+    expect(row.get_by_role("button", name="Открыть папку")).to_contain_text("3.0 МБ")
+
+    switch.check()
+    ui.saved("debug_save_recordings", True)
+    keep.click()
+    page.get_by_role("option", name="Без ограничения", exact=True).click()
+    ui.saved("debug_max_recordings", 0)
+    row.get_by_role("button", name="Открыть папку").click()
+    page.wait_for_function(
+        "() => window.__sottoTest.calls.some(x => x.command === 'open_recordings_folder')"
+    )

@@ -281,6 +281,7 @@ impl Dispatcher {
         let audio_seconds = inference.audio_seconds;
         let speech_seconds = inference.speech_seconds;
         let inference_session = inference.session_id;
+        let recording_file = self.state.pending_recordings.take(inference_session).await;
         let written = tokio::task::spawn_blocking(move || {
             let ProcessedTranscription {
                 raw_text,
@@ -321,6 +322,7 @@ impl Dispatcher {
                         processing_stats_json: Some(&stats_json),
                         system_prompt: system_prompt.as_deref(),
                         transcription_model: transcription_model.as_deref(),
+                        recording_file: recording_file.as_deref(),
                     },
                 )
             })

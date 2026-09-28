@@ -31,7 +31,13 @@ Review provider settings before enabling a cloud workflow. Do not put secrets, t
 
 ## Local data
 
-History, settings, telemetry outbox data, and optional diagnostic recordings are stored locally by the application. Diagnostic recording is a separate opt-in setting. To request help, share only the minimum redacted logs needed to reproduce a problem.
+History, settings, telemetry outbox data, and optional audio recordings are stored locally by the application. To request help, share only the minimum redacted logs needed to reproduce a problem.
+
+Audio recordings are off by default. When **Settings → Advanced → Save audio recordings** is on, every dictation is kept as a WAV file in the `recordings` folder and can be played from History. The newest 50 are kept unless you choose another limit.
+
+A recording is deleted with its History entry: when you delete the entry, clear History, or the History retention limits remove it. A cancelled dictation's recording is deleted as well. A dictation that produced no text or failed to transcribe has no History entry, so its recording stays in the folder until the recordings limit removes it or you delete it there.
+
+The folder is separate from the logs, so sharing the logs folder does not share your voice. Builds before this change kept recordings inside `logs`, and the first launch of a newer build moves them out.
 
 Pasting goes through the system clipboard, so the last dictated text stays there until something else is copied, and a clipboard history such as Windows' Win+V may keep it longer.
 
@@ -42,7 +48,7 @@ Model cards take their speed from measurements bundled with the application and 
 | Data | Windows | macOS |
 | --- | --- | --- |
 | Settings (`config.json`) | `%APPDATA%\com.sotto.app` | `~/Library/Application Support/com.sotto.app` |
-| History and statistics database, logs, diagnostic recordings | `%LOCALAPPDATA%\com.sotto.app` | `~/Library/Application Support/com.sotto.app` |
+| History and statistics database, logs, audio recordings | `%LOCALAPPDATA%\com.sotto.app` | `~/Library/Application Support/com.sotto.app` |
 | Downloaded models | `%LOCALAPPDATA%\sotto\models` | `~/Library/Caches/sotto/models` |
 | API keys | Credential Manager, entries ending in `.sotto` | Keychain, service `sotto` |
 

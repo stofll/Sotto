@@ -82,6 +82,7 @@ const FORMAT_DEFAULTS: TextFormattingConfig = {
   normalize_spaces: true,
   correct_spelling: true,
   split_sentences: false,
+  split_paragraphs: false,
   capitalize_sentences: true,
   final_punctuation: true,
   custom_parasite_words: [],
@@ -108,6 +109,7 @@ const CLEAN_RULES = (): FormatRule[] => ([
   { key: "normalize_spaces", title: t("Нормализовать пробелы"), sub: t("лишние пробелы и пропущенные пробелы после знаков в русском тексте") },
   { key: "correct_spelling", title: t("Исправлять опечатки"), sub: t("при русском языке диктовки: однозначные исправления по встроенному словарю, без LLM") },
   { key: "split_sentences", title: t("Разбивать длинные предложения"), sub: t("мягкое разделение длинных фраз по связкам") },
+  { key: "split_paragraphs", title: t("Разбивать текст на абзацы"), sub: t("группировать готовые предложения без изменения слов; сохранять существующие переносы") },
   { key: "capitalize_sentences", title: t("Капитализация предложений"), sub: t("заглавная буква в начале текста и после точки") },
   { key: "final_punctuation", title: t("Финальная пунктуация"), sub: t("добавлять точку, если фраза без знака в конце") },
 ]);

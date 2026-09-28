@@ -28,10 +28,77 @@ def test_whats_new_dismiss_persists(app, page, locale, theme, output_path):
     dialog.screenshot(path=str(Path(output_path) / f"whats-new-{locale}-{theme}.png"))
     page.keyboard.press("Escape")
     expect(dialog).not_to_be_visible()
+
+    ui.nav("info")
+    opener = page.get_by_role(
+        "button", name="Что нового" if locale == "ru" else "What's new", exact=True
+    )
+    opener.focus()
+    page.screenshot(path=str(Path(output_path) / f"help-notes-{locale}-{theme}.png"))
+    page.keyboard.press("Enter")
+    expect(dialog).to_contain_text("Sotto 0.2.0")
+    expect(dialog.get_by_role("listitem")).to_have_count(3)
+    assert ui.calls("get_whats_new")[-1]["args"] == {"manual": True}
+    dialog.screenshot(
+        path=str(Path(output_path) / f"manual-notes-{locale}-{theme}.png")
+    )
+    page.keyboard.press("Escape")
+    expect(dialog).not_to_be_visible()
+    expect(opener).to_be_focused()
+    opener.click()
+    expect(dialog).to_be_visible()
+    page.keyboard.press("Escape")
     assert ui.calls("dismiss_whats_new")[-1]["args"] == {"version": "0.2.0"}
     page.reload()
     expect(page.get_by_test_id("page-settings")).to_be_visible()
     expect(dialog).not_to_be_visible()
+    ui.nav("info")
+    opener.click()
+    expect(dialog).to_contain_text("Sotto 0.2.0")
+
+
+@pytest.mark.parametrize("response", [{"result": None}, {"error": "Synthetic failure"}])
+def test_manual_whats_new_loading_unavailable_and_retry(app, page, response):
+    ui = app()
+    ui.nav("info")
+    ui.queue("get_whats_new", {"hold": True})
+    page.get_by_role("button", name="Что нового", exact=True).click()
+    dialog = page.get_by_role("dialog")
+    expect(dialog.get_by_role("status")).to_have_text("Загружаем список изменений…")
+    ui.settle("get_whats_new", result=None)
+    expect(dialog.get_by_role("status")).to_contain_text(
+        "Список изменений пока недоступен"
+    )
+    ui.queue("get_whats_new", response)
+    dialog.get_by_role("button", name="Повторить", exact=True).click()
+    expect(dialog.get_by_role("status")).to_contain_text(
+        "Список изменений пока недоступен"
+    )
+    ui.queue("get_whats_new", {"result": RELEASE})
+    dialog.get_by_role("button", name="Повторить", exact=True).click()
+    expect(dialog).to_contain_text("Sotto 0.2.0")
+    page.keyboard.press("Escape")
+    expect(dialog).not_to_be_visible()
+    assert not ui.calls("dismiss_whats_new")
+
+
+def test_manual_whats_new_can_close_during_loading(app, page):
+    ui = app()
+    ui.nav("info")
+    ui.queue("get_whats_new", {"hold": True})
+    opener = page.get_by_role("button", name="Что нового", exact=True)
+    opener.focus()
+    page.keyboard.press("Enter")
+    dialog = page.get_by_role("dialog")
+    expect(dialog.get_by_role("status")).to_have_text("Загружаем список изменений…")
+    page.keyboard.press("Escape")
+    expect(dialog).not_to_be_visible()
+    expect(opener).to_be_focused()
+    ui.settle("get_whats_new", result=RELEASE)
+    expect(dialog).not_to_be_visible()
+    ui.queue("get_whats_new", {"result": RELEASE})
+    opener.click()
+    expect(dialog).to_contain_text("Sotto 0.2.0")
 
 
 def test_whats_new_failed_dismiss_and_link_retry(app, page):

@@ -34,6 +34,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::LazyLock;
 
+mod paragraphs;
+
 // ---------------------------------------------------------------------------
 // Defaults
 // ---------------------------------------------------------------------------
@@ -1218,6 +1220,9 @@ const PRESET_DEVELOPMENT: &[&str] = &[
     "debug",
     "callback",
     "thread",
+    "оверлей",
+    "Hugging Face",
+    "drag and drop",
 ];
 
 /// The sets the frontend offers to add to the dictionary.
@@ -1489,6 +1494,8 @@ fn apply_case_of(matched: &str, canonical: &str) -> String {
 pub struct CustomWordsCorrector {
     enabled: bool,
     terms: Vec<CustomTerm>,
+    /// Lower-cased terms ending in «й», whose inflected forms stay as spoken.
+    inflecting: Vec<String>,
     max_window: usize,
 }
 
@@ -1540,9 +1547,15 @@ impl CustomWordsCorrector {
             .max()
             .unwrap_or(0)
             + 1;
+        let inflecting = terms
+            .iter()
+            .map(|term| term.canonical.to_lowercase())
+            .filter(|canonical| canonical.ends_with('й'))
+            .collect();
         Self {
             enabled,
             terms,
+            inflecting,
             max_window,
         }
     }
@@ -1610,6 +1623,28 @@ impl CustomWordsCorrector {
         let limit = self.max_window().min(words.len() - start);
         let mut best: Option<(f64, usize, &str)> = None;
         let mut ambiguous = false;
+        // Keep inflected Russian terms rather than flattening them to the
+        // dictionary's nominative («оверлеи» and «оверлей» fold identically).
+        if !self.inflecting.is_empty() {
+            let first_word = words[start]
+                .trim_matches(|c: char| !c.is_alphanumeric())
+                .to_lowercase();
+            if self.inflecting.iter().any(|canonical| {
+                let stem = canonical.strip_suffix('й').unwrap_or(canonical);
+                let inflected = first_word.strip_prefix(stem).is_some_and(|ending| {
+                    matches!(
+                        ending,
+                        "я" | "ю" | "ем" | "е" | "и" | "ев" | "ям" | "ями" | "ях"
+                    )
+                });
+                let attached = first_word
+                    .strip_prefix(canonical.as_str())
+                    .is_some_and(|tail| tail.chars().count() >= 2);
+                inflected || attached
+            }) {
+                return None;
+            }
+        }
         for n in 1..=limit {
             if n > 1
                 && words[start..start + n - 1]
@@ -1631,6 +1666,34 @@ impl CustomWordsCorrector {
                 )
             });
             let folded: Vec<char> = folded.chars().collect();
+            let latin_word = n == 1
+                && words[start]
+                    .trim_matches(|c: char| !c.is_alphanumeric())
+                    .chars()
+                    .all(|c| c.is_ascii_alphabetic());
+            let function_edge = n > 1
+                && [words[start], words[start + n - 1]].iter().any(|word| {
+                    matches!(
+                        word.trim_matches(|c: char| !c.is_alphanumeric())
+                            .to_lowercase()
+                            .as_str(),
+                        "в" | "с"
+                            | "к"
+                            | "на"
+                            | "и"
+                            | "а"
+                            | "о"
+                            | "у"
+                            | "из"
+                            | "от"
+                            | "по"
+                            | "до"
+                            | "не"
+                            | "для"
+                            | "за"
+                            | "но"
+                    )
+                });
             for term in &self.terms {
                 let CustomTerm {
                     canonical,
@@ -1644,6 +1707,11 @@ impl CustomWordsCorrector {
                 // A dictionary term is not permission to rewrite valid prose.
                 // Exact phonetic matches still restore transliterated terms.
                 if ordinary_russian && &folded != key {
+                    continue;
+                }
+                // Similarity alone cannot distinguish a technical identifier
+                // from a misspelling, or justify swallowing a preposition.
+                if ((latin_word && !acronym) || function_edge) && &folded != key {
                     continue;
                 }
                 // A single edit in a short token can change the subject
@@ -1764,7 +1832,14 @@ impl FormatStep for CustomWordsCorrector {
         let mut i = 0;
         let mut scratch = DistanceScratch::default();
         while i < tokens.len() {
-            match self.best_match(&raws, i, &mut scratch) {
+            let line_end = tokens
+                .iter()
+                .enumerate()
+                .skip(i + 1)
+                .take(self.max_window())
+                .find(|(_, token)| token.gap.contains(['\n', '\r']))
+                .map_or(tokens.len(), |(end, _)| end);
+            match self.best_match(&raws[..line_end], i, &mut scratch) {
                 Some((n, canonical)) => {
                     let first = &tokens[i];
                     let last = &tokens[i + n - 1];
@@ -1889,14 +1964,18 @@ impl FormatStep for ParasiteWordsRemover {
                             .iter()
                             .any(|custom| custom.eq_ignore_ascii_case(word));
                         let meaningful = !explicit_custom
-                            && ((word == "короче"
+                            && ((word == "типа"
                                 && !prefix.is_empty()
-                                && !prefix.ends_with(['.', '!', '?', '…'])
-                                && prefix
-                                    .rsplit(['.', '!', '?', '…'])
-                                    .next()
-                                    .is_none_or(|clause| clause.trim().to_lowercase() != "ну")
-                                && !(prefix.ends_with(',') && matched.as_str().ends_with(',')))
+                                && !prefix.ends_with(['.', '!', '?', '…', ','])
+                                && !matched.as_str().ends_with(','))
+                                || (word == "короче"
+                                    && !prefix.is_empty()
+                                    && !prefix.ends_with(['.', '!', '?', '…'])
+                                    && prefix.rsplit(['.', '!', '?', '…']).next().is_none_or(
+                                        |clause| clause.trim().to_lowercase() != "ну",
+                                    )
+                                    && !(prefix.ends_with(',')
+                                        && matched.as_str().ends_with(',')))
                                 || (word == "в общем"
                                     && suffix
                                         .split_whitespace()
@@ -2516,6 +2595,10 @@ pub struct TextFormattingConfig {
     pub correct_spelling: bool,
     #[serde(default)]
     pub split_sentences: bool,
+    /// Off by default: the line breaks reach whatever field the text is
+    /// pasted into, and a single-line field keeps only the first paragraph.
+    #[serde(default)]
+    pub split_paragraphs: bool,
     /// Identifiers of the enabled ready-made sets ([`DICTIONARY_PRESETS`]).
     ///
     /// Stored as a list of ids rather than a copy of the words precisely for the
@@ -2605,6 +2688,7 @@ impl Default for TextFormattingConfig {
             // phrasing, which is a bigger intervention than the cleanup
             // steps above.
             split_sentences: false,
+            split_paragraphs: false,
             capitalize_sentences: true,
             final_punctuation: true,
             custom_parasite_words: Vec::new(),
@@ -2640,6 +2724,7 @@ pub struct FormatterConfig {
 
 pub struct Formatter {
     enabled: bool,
+    split_paragraphs: bool,
     steps: Vec<Box<dyn FormatStep>>,
     replacement_protection: Vec<Regex>,
 }
@@ -2700,6 +2785,7 @@ impl Formatter {
         ];
         Self {
             enabled: fmt.enabled,
+            split_paragraphs: fmt.split_paragraphs,
             steps,
             replacement_protection,
         }
@@ -2745,6 +2831,8 @@ impl Formatter {
         }
         if restore_accidental_empty && current.trim().is_empty() {
             text.trim().to_string()
+        } else if self.split_paragraphs {
+            paragraphs::split(&current)
         } else {
             current
         }
@@ -2889,6 +2977,7 @@ mod tests {
                 normalize_spaces: true,
                 correct_spelling: true,
                 split_sentences: false,
+                split_paragraphs: true,
                 capitalize_sentences: true,
                 final_punctuation: true,
                 custom_parasite_words: Vec::new(),

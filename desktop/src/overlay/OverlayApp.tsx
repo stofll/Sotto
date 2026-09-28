@@ -5,7 +5,25 @@ import { t, useLocale } from "../i18n";
 import { overlayPalette } from "./overlayPalette";
 import { overlayDetail, recordingClock } from "./overlayDetail";
 import { OverlayWaveform } from "./OverlayWaveform";
-import { useOverlaySession, type OverlaySession } from "./useOverlaySession";
+import { isOverlayBody, useOverlaySession, type OverlaySession } from "./useOverlaySession";
+import type { Recipe, ScenePhase } from "./overlayRecipe";
+import { audioLevelSource } from "./levelSource";
+import type { SceneProps } from "./OverlayScene";
+
+// The recipe scene is the constructor's overlay; configs without a recipe keep the forms below.
+const OverlayScene = lazy(() => import("./OverlayScene")
+  .then((m) => ({ default: m.OverlayScene }))
+  .catch(() => ({ default: SceneFallback })));
+
+// This stays in the entry chunk so a missing scene cannot take cancellation
+// away. It fits even the smallest native window without needing scene CSS.
+function SceneFallback({ phase, status, timer, close, loading = false }: Pick<SceneProps, "phase" | "status" | "timer" | "close"> & { loading?: boolean }) {
+  return <div className="overlay-scene-fallback" role="status" aria-busy={loading}>
+    <span>{phase === "recording" ? timer : status}</span>
+    {phase !== "pasted" && <button className="overlay-close" aria-label={close.label}
+      onClick={close.onClick} disabled={close.disabled}><Icon name="x" size={14}/></button>}
+  </div>;
+}
 
 // A missing animation chunk must not unmount the recording/cancel controls.
 const OverlayGlow = lazy(() => import("./OverlayGlow")
@@ -22,6 +40,7 @@ export function OverlayApp() {
   const surfaceRef = useRef<HTMLDivElement>(null);
   const { state, layout, previewText, streaming, handleClose, isClosing, config, preferences, hovered, setHovered } = session;
   if (state === null) return null;
+  if (preferences.recipe) return <RecipeOverlay session={session} recipe={preferences.recipe}/>;
   const bead = layout === "bead";
   const glow = layout === "glow";
   // The limit countdown shows even with the timer turned off: it is the only
@@ -30,12 +49,12 @@ export function OverlayApp() {
   const showTimer = timerOn && state === "recording";
   const closeLabel = state === "pasted" || state === "error" ? t("Закрыть") : t("Отменить запись");
   return (
-    <div data-testid="overlay" data-state={state} data-layout={layout === "pill" ? "compact" : layout} data-size={preferences.size} data-timer={timerOn ? "on" : "off"} data-hovered={hovered ? "true" : "false"} className="overlay" style={config ? overlayPalette(preferences) : undefined}>
+    <div data-testid="overlay" data-state={state} data-layout={layout === "pill" ? "compact" : layout} data-size={preferences.size} data-timer={timerOn ? "on" : "off"} data-hovered={hovered ? "true" : "false"} data-leaving={session.leaving ? "true" : undefined} className="overlay" style={config ? overlayPalette(preferences) : undefined}>
       <div className="overlay-shell" onPointerEnter={() => setHovered(true)} onPointerLeave={() => setHovered(false)}>
         <div className="overlay-surface" ref={surfaceRef}>
           {glow ? <>
             <Suspense fallback={null}>
-              <OverlayGlow key={session.sessionId} mode={glowMode(state)} size={preferences.size} />
+              <OverlayGlow key={session.dictationKey} mode={glowMode(state)} size={preferences.size} />
             </Suspense>
             <div className="overlay-composer-body">
               {state === "recording"
@@ -54,7 +73,7 @@ export function OverlayApp() {
               {!bead && <div className="overlay-timer-slot">{showTimer && <TimerBadge session={session} />}</div>}
               <div className="overlay-detail">
                 {state === "recording"
-                  ? <OverlayWaveform key={session.sessionId} surfaceRef={surfaceRef} circular={bead} />
+                  ? <OverlayWaveform key={session.dictationKey} surfaceRef={surfaceRef} circular={bead} />
                   : bead ? <span className="overlay-bead-status" aria-label={beadLabel(state)} role="status" /> : <StateDetail session={session} />}
               </div>
               <button className="overlay-close" aria-label={closeLabel} onClick={handleClose} disabled={isClosing}>
@@ -69,6 +88,46 @@ export function OverlayApp() {
   );
 }
 
+function scenePhase(state: NonNullable<OverlaySession["state"]>): ScenePhase {
+  if (state === "recording" || state === "pasted" || state === "error") return state;
+  return "processing";
+}
+
+function RecipeOverlay({ session, recipe }: { session: OverlaySession; recipe: Recipe }) {
+  const { state, preferences, config } = session;
+  const now = useNow(state === "recording" || state === "done");
+  const surfaceRef = useRef<HTMLDivElement>(null);
+  const entered = useEntered();
+  if (state === null) return null;
+  const clock = recordingClock(session.recordingStartedAt, session.recordingStoppedAt, session.limitAt, now);
+  const detail = overlayDetail({
+    state, pastedLength: session.pastedLength,
+    polishingMs: session.decodedAt === null ? 0 : now - session.decodedAt,
+    errorText: session.errorText, aiProblem: session.aiProblem,
+  });
+  const status = detail.kind === "waveform" ? ""
+    : detail.kind === "progress" ? (detail.seconds === undefined ? detail.label : `${detail.label} ${t("{p0} с", { p0: detail.seconds })}`)
+    : "warning" in detail ? `${detail.text} · ${detail.warning}` : detail.text;
+  const language = (config?.language || "auto").toUpperCase();
+  return <div data-testid="overlay" data-state={state} data-layout="recipe" className="overlay" style={config ? overlayPalette(preferences) : undefined}
+    onPointerMove={(event) => session.setHovered(isOverlayBody(event.target))} onPointerLeave={() => session.setHovered(false)}>
+    <Suspense fallback={<SceneFallback loading phase={scenePhase(state)} timer={clock.text} status={status}
+      close={{ label: state === "pasted" || state === "error" ? t("Закрыть") : t("Отменить запись"), text: t("Отмена"), onClick: session.handleClose, disabled: session.isClosing }}/>}>
+      <OverlayScene key={session.dictationKey} recipe={recipe} size={preferences.size} phase={scenePhase(state)}
+        streaming={session.streaming} needsText={state === "error" || (state === "pasted" && !!session.aiProblem)}
+        draft={session.previewText} draftPlaceholder={t("Говорите — текст появится здесь")}
+        timer={state === "loading" ? "--:--" : clock.text} limited={clock.limited} status={status}
+        mode={{ full: config?.model ? `${language} · ${config.model}` : language, short: language }}
+        close={{
+          label: state === "pasted" || state === "error" ? t("Закрыть") : t("Отменить запись"),
+          text: state === "pasted" || state === "error" ? t("Закрыть") : t("Отмена"),
+          onClick: session.handleClose, disabled: session.isClosing,
+        }}
+        hovered={session.hovered} surfaceRef={surfaceRef} source={audioLevelSource} shown={entered && !session.leaving}/>
+    </Suspense>
+  </div>;
+}
+
 function glowMode(state: NonNullable<OverlaySession["state"]>): "listen" | "process" | "idle" {
   if (state === "recording") return "listen";
   if (state === "loading" || state === "processing" || state === "done") return "process";
@@ -79,6 +138,23 @@ function beadLabel(state: NonNullable<OverlaySession["state"]>) {
   if (state === "loading") return t("Подготавливаю локальную модель");
   if (state === "pasted") return t("Текст вставлен");
   return t("Обрабатываю");
+}
+
+/**
+ * False for the first frame after mount, so the scene starts hidden and its
+ * entrance transition runs. Rust shows the window about one frame after the
+ * state event; the timeout covers a WebView that draws no frames while it is
+ * still hidden.
+ */
+function useEntered() {
+  const [entered, setEntered] = useState(false);
+  useEffect(() => {
+    const enter = () => setEntered(true);
+    const frame = requestAnimationFrame(() => requestAnimationFrame(enter));
+    const timer = window.setTimeout(enter, 60);
+    return () => { cancelAnimationFrame(frame); window.clearTimeout(timer); };
+  }, []);
+  return entered;
 }
 
 function useNow(active: boolean) {

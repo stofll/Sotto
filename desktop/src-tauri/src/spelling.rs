@@ -33,6 +33,12 @@ pub(crate) fn known_russian_word(word: &str) -> bool {
 
 fn unique_correction(word: &str) -> Option<String> {
     let chars: Vec<char> = word.chars().collect();
+    // Short function words need a narrower rule than the full edit neighbourhood.
+    if chars.len() == 4 && chars[2] == chars[3] {
+        let base: String = chars[..3].iter().collect();
+        return matches!(base.as_str(), "так" | "как" | "что" | "это" | "тут" | "там")
+            .then_some(base);
+    }
     let mut found: Option<String> = None;
     // Do not trust suggestion ranking: enumerate the complete one-edit
     // neighbourhood and require agreement.
@@ -173,7 +179,7 @@ fn mechanical_edit(chars: &[char], candidate: &str) -> bool {
                 return true;
             }
         }
-        if i + 1 < chars.len() {
+        if chars.len() >= 7 && i + 1 < chars.len() {
             let mut swapped = chars.to_vec();
             swapped.swap(i, i + 1);
             if swapped.into_iter().collect::<String>() == candidate {
@@ -230,7 +236,7 @@ impl FormatStep for RussianSpellingCorrector {
             let word = token.trim_matches(|c| ".,!?;:()[]{}«»\"'…".contains(c));
             // Capitalisation can mark a name. Mixed scripts, identifiers, paths,
             // hyphenated compounds and quoted code must not be guessed at.
-            let eligible = (5..=MAX_WORD_CHARS).contains(&word.chars().count())
+            let eligible = (4..=MAX_WORD_CHARS).contains(&word.chars().count())
                 && word.chars().all(|c| russian_letter(c) && c.is_lowercase())
                 && !self.protected.contains(word);
             if eligible && !known_russian_word(word) {
@@ -280,6 +286,10 @@ mod tests {
         assert_eq!(corrector.apply(text), text);
         let code = "`команда итогуу проверкка`\n``ещё итогуу``\n```\nпроверкка\n```";
         assert_eq!(corrector.apply(code), code);
+        assert_eq!(
+            corrector.apply("какда такк которае обновлени"),
+            "какда так которае обновлени"
+        );
     }
 
     #[test]

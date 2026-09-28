@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_EDGE_OFFSET, overlayLayout, overlayPreferences } from "./overlayPreferences";
-import { overlayPalette, paletteVariables } from "./overlayPalette";
+import { overlayPalette, paletteTone, paletteVariables } from "./overlayPalette";
 import { accentVariables, resolveAccent } from "../accent";
 
 describe("overlay preferences", () => {
@@ -18,6 +18,9 @@ describe("overlay preferences", () => {
     expect(defaults.show_timer).toBe(true);
     expect(overlayPreferences({ show_timer: false }).show_timer).toBe(false);
     expect(overlayPreferences({ show_timer: "no" }).show_timer).toBe(true);
+    expect(defaults.level_sensitivity).toBe("normal");
+    expect(overlayPreferences({ level_sensitivity: "high" }).level_sensitivity).toBe("high");
+    expect(overlayPreferences({ level_sensitivity: "max" }).level_sensitivity).toBe("normal");
   });
   it("keeps a bead during streaming and restores it after a warning", () => {
     expect(overlayLayout("bead", true, false)).toBe("bead");
@@ -53,8 +56,13 @@ describe("overlay palette", () => {
     expect(lightness("--overlay-wave-mid")).toBeGreaterThan(lightness("--overlay-wave-bottom"));
   });
   it("defaults to neutral graphite and preserves an explicit copper choice", () => {
-    const neutral = overlayPalette(overlayPreferences(undefined));
-    expect(Object.values(neutral).every((value) => /^oklch\([\d.]+ 0 /.test(String(value)))).toBe(true);
+    const { "--overlay-hue": hue, "--overlay-chroma": chroma, ...colours } = overlayPalette(overlayPreferences(undefined)) as Record<string, unknown>;
+    expect(Object.values(colours).every((value) => /^oklch\([\d.]+ 0 /.test(String(value)))).toBe(true);
+    expect([hue, chroma]).toEqual([0, 0]);
     expect(overlayPreferences({ palette: "copper" }).palette).toBe("copper");
+  });
+  it("reports the tone a preset draws with, and the custom palette's own", () => {
+    expect(paletteTone({ palette: "lagoon", palette_hue: 10, palette_chroma: 0.02 })).toEqual({ palette_hue: 195, palette_chroma: 0.1 });
+    expect(paletteTone({ palette: "custom", palette_hue: 10, palette_chroma: 0.02 })).toEqual({ palette_hue: 10, palette_chroma: 0.02 });
   });
 });

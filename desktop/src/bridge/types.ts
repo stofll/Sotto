@@ -52,6 +52,7 @@ export interface TextFormattingConfig {
   normalize_spaces: boolean;
   correct_spelling: boolean;
   split_sentences: boolean;
+  split_paragraphs: boolean;
   capitalize_sentences: boolean;
   final_punctuation: boolean;
   custom_parasite_words: string[];
@@ -117,8 +118,11 @@ export interface ConfigResult {
    *  It has no control in the UI: the value is managed by Rust, and the field is
    *  described here so that `save_config` does not drop it when saving. */
   telemetry_session_timeout_minutes?: number;
-  /** Save the audio of every recording next to the logs. Disabled by default. */
+  /** Keep the audio of every dictation in the recordings folder, playable
+   *  from History. Disabled by default; the key predates the move from Help. */
   debug_save_recordings: boolean;
+  /** How many recordings to keep. 0 — no limit. No field — 50. */
+  debug_max_recordings?: number;
   /** Issue #24: verbose log of styles and windows around showing/hiding the overlay. */
   debug_overlay_diag: boolean;
   replacements_paused: boolean;
@@ -332,6 +336,8 @@ export interface PreviewFormatResult {
 
 export interface HistoryEntry {
   id: number;
+  /** The dictation's saved recording is on disk and can be played. */
+  has_recording?: boolean;
   timestamp: number;
   text: string;
   raw_text?: string;

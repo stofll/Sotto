@@ -40,6 +40,82 @@ const MIN_SAVING_SECONDS: f32 = 1.0;
 
 const SAMPLE_RATE: usize = 16_000;
 
+/// GigaAM's short-form path is intended for at most 25 seconds. Keep every
+/// sample exactly once, preferring the middle of a pause near 20 seconds.
+pub(crate) fn recognition_segments(samples: &[f32]) -> Vec<Range<usize>> {
+    const MAX: usize = 25 * SAMPLE_RATE;
+    if samples.len() <= MAX {
+        return std::iter::once(0..samples.len()).collect();
+    }
+    let mut detector = earshot::Detector::default_boxed();
+    let frames: Vec<(bool, f64)> = samples
+        .chunks_exact(FRAME)
+        .map(|frame| {
+            let energy = frame.iter().map(|&s| f64::from(s).powi(2)).sum::<f64>() / FRAME as f64;
+            (detector.predict_f32(frame) > SPEECH_THRESHOLD, energy)
+        })
+        .collect();
+    segment_ranges(samples.len(), &frames)
+}
+
+fn segment_ranges(length: usize, frames: &[(bool, f64)]) -> Vec<Range<usize>> {
+    const MIN: usize = 15 * SAMPLE_RATE;
+    const TARGET: usize = 20 * SAMPLE_RATE;
+    const MAX: usize = 25 * SAMPLE_RATE;
+    const MIN_PAUSE_FRAMES: usize = 16; // 256 ms, leaving room on both sides.
+    let mut ranges = Vec::new();
+    let mut start = 0;
+    while length - start > MAX {
+        let low = (start + MIN).div_ceil(FRAME);
+        let high = ((start + MAX) / FRAME).min(frames.len());
+        let target = (start + TARGET) / FRAME;
+        let mut pause_start = low;
+        let mut best_pause = None;
+        for (offset, speech) in frames[low..high]
+            .iter()
+            .map(|frame| frame.0)
+            .chain(std::iter::once(true))
+            .enumerate()
+        {
+            let i = low + offset;
+            if speech {
+                if i - pause_start >= MIN_PAUSE_FRAMES {
+                    let midpoint = (pause_start + i) / 2;
+                    if best_pause
+                        .is_none_or(|best: usize| midpoint.abs_diff(target) < best.abs_diff(target))
+                    {
+                        best_pause = Some(midpoint);
+                    }
+                }
+                pause_start = i + 1;
+            }
+        }
+        // Continuous speech has no guaranteed word boundary. Choose a quiet
+        // 80 ms neighbourhood instead of an arbitrary fixed-time cut; no
+        // overlap means stitching cannot delete deliberate word repetitions.
+        let cut_frame = best_pause.unwrap_or_else(|| {
+            (low..high)
+                .min_by(|&a, &b| {
+                    let energy = |i: usize| {
+                        frames[i.saturating_sub(2)..(i + 3).min(frames.len())]
+                            .iter()
+                            .map(|frame| frame.1)
+                            .sum::<f64>()
+                    };
+                    energy(a)
+                        .total_cmp(&energy(b))
+                        .then_with(|| a.abs_diff(target).cmp(&b.abs_diff(target)))
+                })
+                .unwrap_or(target)
+        });
+        let end = cut_frame * FRAME;
+        ranges.push(start..end);
+        start = end;
+    }
+    ranges.push(start..length);
+    ranges
+}
+
 pub fn enabled(config: &Value) -> bool {
     config
         .get(CONFIG_ENABLED)
@@ -188,6 +264,50 @@ fn speech_range_from_frames(total_len: usize, first: usize, last: usize) -> Rang
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn longform_prefers_pauses_and_preserves_every_sample() {
+        let length = 67 * SAMPLE_RATE + 123;
+        let mut frames = vec![(true, 1.0); length / FRAME];
+        for second in [18, 39, 59] {
+            for frame in
+                &mut frames[second * SAMPLE_RATE / FRAME..(second + 1) * SAMPLE_RATE / FRAME]
+            {
+                *frame = (false, 0.0);
+            }
+        }
+        let ranges = segment_ranges(length, &frames);
+        assert_eq!(ranges.len(), 4);
+        assert_eq!(ranges.first().unwrap().start, 0);
+        assert_eq!(ranges.last().unwrap().end, length);
+        for pair in ranges.windows(2) {
+            assert_eq!(pair[0].end, pair[1].start);
+            assert!(!frames[pair[0].end / FRAME].0);
+        }
+        assert!(ranges.iter().all(|range| range.len() <= 25 * SAMPLE_RATE));
+        assert_eq!(ranges.iter().map(Range::len).sum::<usize>(), length);
+    }
+
+    #[test]
+    fn continuous_speech_and_silence_have_bounded_fragments_and_keep_the_tail() {
+        for speech in [true, false] {
+            for seconds in [26, 51, 121, 600] {
+                let length = seconds * SAMPLE_RATE + 17;
+                let frames = vec![(speech, 1.0); length / FRAME];
+                let ranges = segment_ranges(length, &frames);
+                assert!(ranges
+                    .iter()
+                    .all(|r| !r.is_empty() && r.len() <= 25 * SAMPLE_RATE));
+                assert_eq!(ranges.iter().map(Range::len).sum::<usize>(), length);
+                assert_eq!(ranges.last().unwrap().end, length);
+            }
+        }
+        for length in [0, 1, 25 * SAMPLE_RATE] {
+            let ranges = recognition_segments(&vec![0.0; length]);
+            assert_eq!(ranges.len(), 1);
+            assert_eq!(ranges[0], 0..length);
+        }
+    }
 
     /// A tone loud enough to read as speech-ish energy. Not real speech —
     /// these tests are about the trimming arithmetic and the guards, not

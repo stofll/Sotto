@@ -621,8 +621,11 @@ function frame(ts: number): void {
     slowSince = 0;
   }
 
-  if (ts - lastFrame < FRAME_INTERVAL) return;
-  lastFrame = ts;
+  const sinceFrame = ts - lastFrame;
+  if (sinceFrame < FRAME_INTERVAL) return;
+  // Keep the 60 fps grid rather than restarting it at each frame: a 144 Hz
+  // frame never lands on it, and restarting would settle at 48 fps.
+  lastFrame = lastFrame && sinceFrame < 2000 / 60 ? ts - (sinceFrame % (1000 / 60)) : ts;
 
   instances.forEach((inst) => {
     const { el, config, source, s } = inst;

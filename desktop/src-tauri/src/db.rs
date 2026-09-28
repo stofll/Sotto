@@ -82,6 +82,9 @@ pub fn run_migrations(conn: &Connection) -> Result<(), rusqlite::Error> {
     if current < 10 {
         tx.execute_batch(include_str!("migrations/v10.sql"))?;
     }
+    if current < 11 {
+        tx.execute_batch(include_str!("migrations/v11.sql"))?;
+    }
     tx.pragma_update(None, "user_version", SCHEMA_VERSION)?;
     tx.commit()?;
     log::info!("db: migrated schema from v{current} to v{SCHEMA_VERSION}");
@@ -92,7 +95,7 @@ pub fn run_migrations(conn: &Connection) -> Result<(), rusqlite::Error> {
 ///
 /// Tests assert against this rather than a literal, so adding a migration
 /// does not break every test that only cares about "ended up current".
-pub const SCHEMA_VERSION: i32 = 10;
+pub const SCHEMA_VERSION: i32 = 11;
 
 const SCHEMA_V1: &str = include_str!("migrations/v1.sql");
 const SCHEMA_V2: &str = include_str!("migrations/v2.sql");
@@ -567,6 +570,7 @@ mod tests {
             include_str!("migrations/v8.sql"),
             include_str!("migrations/v9.sql"),
             include_str!("migrations/v10.sql"),
+            include_str!("migrations/v11.sql"),
         ];
         for version in 0..=SCHEMA_VERSION {
             let conn = Connection::open_in_memory().unwrap();

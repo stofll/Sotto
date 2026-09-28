@@ -9,6 +9,8 @@ import { CustomSelect, type SelectOption } from "../components/CustomSelect";
 import { t } from "../i18n";
 import { FeedbackCard } from "./FeedbackCard";
 import { DEFAULT_HOTKEY } from "../hotkey";
+import { WhatsNewDialog } from "../components/WhatsNewDialog";
+import { formatFileSize } from "./fileSize";
 
 function hotkeyParts(hotkey?: string): string[] {
   const labels: Record<string, string> = { ctrl: "Ctrl", control: "Ctrl", shift: "Shift", alt: "Alt", win: "Win", cmd: "Win", super: "Win", space: "Space", enter: "Enter", esc: "Esc", tab: "Tab" };
@@ -63,6 +65,7 @@ function formatMb(bytes: number) {
 // coming: the version, the date and the release notes.
 function UpdatesCard({ version }: { version?: string | null }) {
   const [state, setState] = useState<UpdateState>({ kind: "idle" });
+  const [showNotes, setShowNotes] = useState(false);
 
   async function check(loud: boolean) {
     setState({ kind: "checking" });
@@ -136,6 +139,7 @@ function UpdatesCard({ version }: { version?: string | null }) {
       {state.kind === "error" && <p style={{ margin: "12px 0 0", font: "400 11.5px/1.4 var(--font-sans)", color: "var(--err)" }}>{state.message}</p>}
 
       <div className="flex-row" style={{ gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+        <button className="btn btn--ghost" type="button" onClick={() => setShowNotes(true)}>{t("Что нового")}</button>
         <button className="btn btn--ghost" type="button" disabled={busy} onClick={() => void check(true)}>
           <Icon name="refresh" size={13}/> {state.kind === "checking" ? t("Проверяем…") : t("Проверить обновления")}
         </button>
@@ -145,6 +149,7 @@ function UpdatesCard({ version }: { version?: string | null }) {
           </button>
         )}
       </div>
+      {showNotes && <WhatsNewDialog ready onClose={() => setShowNotes(false)}/>}
     </HelpCard>
   );
 }
@@ -154,18 +159,9 @@ const LOG_LEVELS = ["error", "warn", "info", "debug", "trace"] as const;
 // Long enough to reach another window, short enough that nobody waits for it.
 const PASTE_TEST_DELAY_SECONDS = 3;
 
-// The logs rotate at 5 MB and keep three archives, so the size lives between
-// kilobytes and a couple of dozen megabytes. "0.0 MB" on a fresh install reports
-// nothing, so small values are shown in kilobytes.
-function formatLogSize(bytes: number) {
-  return bytes < 1024 * 1024
-    ? t("{p0} КБ", { p0: Math.round(bytes / 1024).toString() })
-    : t("{p0} МБ", { p0: (bytes / 1024 / 1024).toFixed(1) });
-}
-
-// Diagnosing somebody else's problem rests on what they send you. Here are the
-// three things they can send: the log level, an environment summary, and the
-// saved recordings.
+// Diagnosing somebody else's problem rests on what they send you: the log level
+// and an environment summary. Saved recordings are a setting of their own,
+// kept out of the logs folder so a shared log never carries a voice.
 function DiagnosticsCard({ config, onConfigChanged }: { config: ConfigResult | null; onConfigChanged?: (partial: Partial<ConfigResult>) => Promise<ConfigResult | null> }) {
   const [report, setReport] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -244,18 +240,15 @@ function DiagnosticsCard({ config, onConfigChanged }: { config: ConfigResult | n
           label={t("Размер логов")}
           value={
             <span style={{ color: "var(--ink-mute)", font: "500 11.5px/1 var(--font-mono)" }}>
-              {logsBytes === null ? "—" : formatLogSize(logsBytes)}
+              {logsBytes === null ? "—" : formatFileSize(logsBytes)}
             </span>
           }
         />
         <InfoRow
-          label={t("Сохранять записи в WAV")}
+          label={t("Аудиозаписи")}
           value={
-            <Hint text={t("Класть каждую запись рядом с логами. Нужно, чтобы воспроизвести жалобу «распознало не то».")}>
-            <label className="checkbox-row" style={{ justifyContent: "flex-end" }}>
-              <input className="checkbox" type="checkbox" checked={saveRecordings} disabled={!onConfigChanged} onChange={(e) => void onConfigChanged?.({ debug_save_recordings: e.target.checked })}/>
+            <Hint text={t("Включаются в «Настройки → Дополнительно». Нужны, чтобы воспроизвести жалобу «распознало не то»: запись можно прослушать в истории.")}>
               <span style={{ color: "var(--ink-mute)", font: "500 11.5px/1 var(--font-sans)" }}>{saveRecordings ? t("включено") : t("выключено")}</span>
-            </label>
             </Hint>
           }
         />
@@ -301,10 +294,6 @@ function DiagnosticsCard({ config, onConfigChanged }: { config: ConfigResult | n
       )}
       {report && (
         <pre style={{ margin: "12px 0 0", padding: 10, background: "var(--bg-2)", border: "1px solid var(--line)", borderRadius: "var(--radius)", font: "500 11px/1.5 var(--font-mono)", color: "var(--ink-mute)", whiteSpace: "pre-wrap", overflowX: "auto" }}>{report}</pre>
-      )}
-      {saveRecordings && (
-        <p style={{ margin: "10px 0 0", font: "400 11.5px/1.5 var(--font-sans)", color: "var(--ink-mute)" }}>
-           {t("Записи с микрофона пишутся на диск. Хранятся последние 50, старые удаляются автоматически.")} </p>
       )}
     </HelpCard>
   );

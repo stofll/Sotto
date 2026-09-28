@@ -740,7 +740,11 @@ fn decode_sherpa(
         _ => requested.map(str::to_string),
     };
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        recognizer.transcribe(16_000, audio)
+        if model_id == Some("gigaam-v3") {
+            recognizer.transcribe_gigaam(audio, || job.cancelled())
+        } else {
+            recognizer.transcribe(16_000, audio)
+        }
     })) {
         Ok(Ok(_)) if job.cancelled() => {
             Err("sherpa transcribe cancelled after inference".to_string())

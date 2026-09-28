@@ -238,3 +238,36 @@ def test_history_reprocess_failure_can_retry(app, page):
     expect(card.get_by_role("button", name="Запустить", exact=True)).to_be_enabled()
     expect(card).to_contain_text(ENTRIES[0]["text"])
     assert not ui.calls("apply_history_ai_processing")
+
+
+def test_history_plays_a_saved_recording(app, page, browser_name):
+    if browser_name == "webkit":
+        # Playwright's WebKit build has no audio playback: play() rejects any
+        # WAV with NotSupportedError. The failed-load path is covered below.
+        pytest.skip("Playwright WebKit cannot play audio")
+    recorded = {**ENTRIES[0], "has_recording": True}
+    ui = app(history=[recorded, ENTRIES[1]])
+    ui.nav("history")
+    expect(page.get_by_test_id("history-play-2")).to_have_count(0)
+    play = page.get_by_test_id("history-play-1")
+    play.click()
+    slider = page.get_by_test_id("history-entry-1").get_by_role(
+        "slider", name="Позиция воспроизведения"
+    )
+    expect(slider).to_be_visible()
+    expect(page.get_by_test_id("history-entry-1")).to_contain_text("/ 0:02")
+    assert ui.calls("history_recording") == [
+        {"command": "history_recording", "args": {"id": 1}}
+    ]
+    expect(play).to_have_attribute("aria-pressed", "true")
+    play.click()
+    expect(play).to_have_attribute("aria-pressed", "false")
+
+
+def test_history_reports_a_recording_that_cannot_be_read(app, page):
+    ui = app(history=[{**ENTRIES[0], "has_recording": True}])
+    ui.nav("history")
+    ui.queue("history_recording", {"error": "read recording: not found"})
+    page.get_by_test_id("history-play-1").click()
+    expect(page.get_by_role("alert")).to_contain_text("read recording: not found")
+    expect(page.get_by_role("slider", name="Позиция воспроизведения")).to_have_count(0)

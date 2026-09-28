@@ -7,24 +7,26 @@ use tauri::AppHandle;
 const LIMIT: u64 = 256 * 1024;
 
 pub fn summary(version: &str, config: &Value) -> String {
-    let model = config
-        .get("model")
-        .and_then(Value::as_str)
-        .and_then(crate::model::catalog_model)
-        .map(|m| m.id)
-        .unwrap_or("custom_or_unset");
+    // A fresh install writes no keys until the user changes a setting, so an
+    // absent key reports the default the app actually runs with; only a value
+    // outside the allow-list is withheld.
+    let model = match config.get("model").and_then(Value::as_str) {
+        None => "not_selected",
+        Some(value) => crate::model::catalog_model(value).map_or("custom", |m| m.id),
+    };
     let mode = match config
         .pointer("/ai_processing/pipeline_mode")
         .and_then(Value::as_str)
     {
-        Some("local") => "local",
+        None | Some("local") => "local",
         Some("hybrid") => "hybrid",
         Some("cloud") => "cloud",
         _ => "unknown",
     };
+    // Dictation treats everything except push-to-talk as toggle.
     let recording = match config.get("recording_mode").and_then(Value::as_str) {
+        None | Some("toggle") => "toggle",
         Some("push_to_talk") => "push_to_talk",
-        Some("toggle") => "toggle",
         _ => "unknown",
     };
     format!("Sotto: {version}\nOS: {}\nArchitecture: {}\nModel: {model}\nPipeline: {mode}\nRecording: {recording}\n", std::env::consts::OS, std::env::consts::ARCH)
@@ -148,6 +150,14 @@ mod tests {
         assert!(!report.contains("private"));
         assert!(!report.contains("secret"));
         assert!(!report.contains("token"));
+        assert!(report.lines().any(|line| line == "Model: custom"));
+    }
+    #[test]
+    fn public_summary_reports_defaults_for_a_fresh_config() {
+        let report = summary("1.0", &serde_json::json!({}));
+        assert!(report.lines().any(|line| line == "Model: not_selected"));
+        assert!(report.lines().any(|line| line == "Pipeline: local"));
+        assert!(report.lines().any(|line| line == "Recording: toggle"));
     }
     #[test]
     fn export_drops_private_messages_and_malformed_records() {

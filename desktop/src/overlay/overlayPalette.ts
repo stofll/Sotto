@@ -11,6 +11,9 @@ export function paletteVariables(hue: number, chroma: number): CSSProperties {
   const color = (lightness: number, saturation = 1, alpha = 1) =>
     `oklch(${lightness} ${chroma * saturation} ${hue} / ${alpha})`;
   return {
+    // The raw hue and chroma let a light fill redraw the same colours at other lightness.
+    "--overlay-hue": hue,
+    "--overlay-chroma": chroma,
     "--overlay-surface": color(0.18, 0.12, 0.97),
     "--overlay-shell-top": color(0.43, 0.7, 0.9),
     "--overlay-shell-bottom": color(0.3, 0.5, 0.94),
@@ -21,8 +24,14 @@ export function paletteVariables(hue: number, chroma: number): CSSProperties {
   } as CSSProperties;
 }
 
-export function overlayPalette(preferences: OverlayPreferences): CSSProperties {
+/** The hue and chroma the overlay is drawn with: a preset's own, or the custom palette's. */
+export function paletteTone(preferences: Pick<OverlayPreferences, "palette" | "palette_hue" | "palette_chroma">) {
   const { palette, palette_hue, palette_chroma } = preferences;
   const [hue, chroma] = palette === "custom" ? [palette_hue, palette_chroma] : PALETTES[palette];
-  return paletteVariables(hue, chroma);
+  return { palette_hue: hue, palette_chroma: chroma };
+}
+
+export function overlayPalette(preferences: OverlayPreferences): CSSProperties {
+  const { palette_hue, palette_chroma } = paletteTone(preferences);
+  return paletteVariables(palette_hue, palette_chroma);
 }

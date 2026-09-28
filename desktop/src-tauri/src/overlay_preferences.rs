@@ -4,8 +4,17 @@ use serde_json::Value;
 /// Mirrors `DEFAULT_EDGE_OFFSET` in overlayPreferences.ts.
 const DEFAULT_EDGE_OFFSET: f64 = 25.0;
 const FORMS: &[&str] = &["pill", "bead", "glow"];
+/// Mirrors `SHELLS` in overlayRecipe.ts. A saved recipe picks the window
+/// from its shell; without one the legacy `form` does.
+const SHELLS: &[&str] = &["pill", "card", "bead", "stack", "island", "caps", "mini"];
+/// Mirrors `MAX_TEMPLATES` in overlayRecipe.ts.
+const MAX_TEMPLATES: usize = 8;
+const MAX_NAME_CHARS: usize = 40;
+const MAX_TOKEN_CHARS: usize = 32;
 const SIZES: &[&str] = &["s", "m", "l"];
 const PALETTES: &[&str] = &["copper", "graphite", "lagoon", "violet", "custom"];
+/// Mirrors `LEVEL_SENSITIVITIES` in overlayPreferences.ts.
+const SENSITIVITIES: &[&str] = &["low", "normal", "high"];
 const ANCHORS: &[&str] = &[
     "top-left",
     "top-center",
@@ -24,6 +33,22 @@ pub struct OverlayPreferences {
     pub size: &'static str,
     pub anchor: &'static str,
     pub edge_offset: f64,
+    /// The shell of the saved recipe, if the user built one.
+    pub shell: Option<&'static str>,
+    /// Whether the recipe puts the streaming draft under the pill row.
+    pub draft_row: bool,
+    /// How long the "inserted" note stays, from the recipe's `pasted.hold`.
+    pub pasted_hold_ms: u64,
+}
+
+/// Mirrors `PASTED_SECONDS` in OverlayEditor.tsx; "normal" is the delay the
+/// note always had.
+fn pasted_hold_ms(hold: Option<&str>) -> u64 {
+    match hold {
+        Some("short") => 1000,
+        Some("long") => 3500,
+        _ => 1800,
+    }
 }
 
 fn choice(
@@ -50,10 +75,30 @@ impl OverlayPreferences {
                 .as_f64()
                 .filter(|n| (0.0..=512.0).contains(n) && n.fract() == 0.0)
                 .unwrap_or(DEFAULT_EDGE_OFFSET),
+            shell: SHELLS
+                .iter()
+                .copied()
+                .find(|item| Some(*item) == value["recipe"]["shell"].as_str()),
+            draft_row: value["recipe"]["slots"]["below"].as_str() == Some("draft"),
+            pasted_hold_ms: pasted_hold_ms(value["recipe"]["pasted"]["hold"].as_str()),
         }
     }
 
     pub fn layout(&self, streaming: bool, needs_text: bool) -> Layout {
+        if let Some(shell) = self.shell {
+            return match shell {
+                "card" => Layout::Glow,
+                // Captions always keep room for their lines, errors included.
+                "caps" => Layout::Streaming,
+                _ if needs_text => Layout::Pill,
+                "bead" => Layout::Bead,
+                "stack" => Layout::Stack,
+                "mini" => Layout::Mini,
+                // A pill or island opens only when the recipe has a draft row to show.
+                _ if streaming && self.draft_row => Layout::Streaming,
+                _ => Layout::Pill,
+            };
+        }
         if self.form == "glow" {
             Layout::Glow
         } else if needs_text {
@@ -81,6 +126,12 @@ impl OverlayPreferences {
             (Layout::Glow, "s") => (360.0, 100.0),
             (Layout::Glow, "l") => (440.0, 124.0),
             (Layout::Glow, _) => (400.0, 112.0),
+            (Layout::Stack, "s") => (72.0, 112.0),
+            (Layout::Stack, "l") => (88.0, 144.0),
+            (Layout::Stack, _) => (80.0, 128.0),
+            (Layout::Mini, "s") => (132.0, 40.0),
+            (Layout::Mini, "l") => (168.0, 48.0),
+            (Layout::Mini, _) => (148.0, 44.0),
         }
     }
 }
@@ -92,6 +143,8 @@ pub enum Layout {
     Bead,
     Streaming,
     Glow,
+    Stack,
+    Mini,
 }
 
 // Loading repairs known retired values in memory; only a successful save writes them.
@@ -103,6 +156,17 @@ pub fn migrate(config: &mut Value) {
         if matches!(palette.as_str(), Some("accent" | "coal" | "amber")) {
             *palette = Value::String("copper".into());
         }
+    }
+}
+
+/// The dB window the overlay's level is drawn over. «High» suits a quiet
+/// microphone: speech that barely moved the level fills it. «Low» suits a hot
+/// one, whose speech otherwise sits pinned at the top.
+pub fn level_window(config: &Value) -> (f32, f32) {
+    match config["overlay"]["level_sensitivity"].as_str() {
+        Some("high") => (-58.0, -32.0),
+        Some("low") => (-44.0, -12.0),
+        _ => crate::audio::LEVEL_WINDOW_DB,
     }
 }
 
@@ -118,6 +182,7 @@ pub fn validate(config: &Value) -> Result<(), String> {
         ("size", SIZES),
         ("palette", PALETTES),
         ("anchor", ANCHORS),
+        ("level_sensitivity", SENSITIVITIES),
     ] {
         if let Some(raw) = value.get(key) {
             if !raw.as_str().is_some_and(|s| values.contains(&s)) {
@@ -129,6 +194,12 @@ pub fn validate(config: &Value) -> Result<(), String> {
         if !raw.is_boolean() {
             return Err("Invalid overlay.show_timer".into());
         }
+    }
+    if let Some(recipe) = value.get("recipe") {
+        validate_recipe(recipe).map_err(|field| format!("Invalid overlay.recipe{field}"))?;
+    }
+    if let Some(templates) = value.get("templates") {
+        validate_templates(templates)?;
     }
     for (key, max, exclusive, integer) in [
         ("palette_hue", 360.0, true, false),
@@ -144,6 +215,94 @@ pub fn validate(config: &Value) -> Result<(), String> {
             }) {
                 return Err(format!("Invalid overlay.{key}"));
             }
+        }
+    }
+    Ok(())
+}
+
+fn short_text(value: &Value, max: usize) -> bool {
+    value
+        .as_str()
+        .is_some_and(|text| !text.trim().is_empty() && text.chars().count() <= max)
+}
+
+/// The native side needs the shell; the rest of the recipe is flat maps of
+/// short tokens, numbers and flags the frontend normalises. Unknown tokens are its concern, but
+/// nothing nested or oversized reaches the config file.
+fn validate_recipe(recipe: &Value) -> Result<(), &'static str> {
+    let object = recipe.as_object().ok_or("")?;
+    if !object
+        .get("shell")
+        .and_then(Value::as_str)
+        .is_some_and(|shell| SHELLS.contains(&shell))
+    {
+        return Err(".shell");
+    }
+    for (key, field) in [("motion", ".motion"), ("process", ".process")] {
+        if object
+            .get(key)
+            .is_some_and(|token| !short_text(token, MAX_TOKEN_CHARS))
+        {
+            return Err(field);
+        }
+    }
+    for (key, field) in [
+        ("slots", ".slots"),
+        ("draw", ".draw"),
+        ("style", ".style"),
+        ("matrix", ".matrix"),
+        ("cancel", ".cancel"),
+        ("processing", ".processing"),
+        ("pasted", ".pasted"),
+    ] {
+        let Some(map) = object.get(key) else { continue };
+        let entries = map.as_object().ok_or(field)?;
+        if entries.len() > 16
+            || !entries.iter().all(|(name, item)| {
+                name.chars().count() <= MAX_TOKEN_CHARS
+                    && (item.is_null()
+                        || item.is_boolean()
+                        || item.as_f64().is_some_and(f64::is_finite)
+                        || short_text(item, MAX_TOKEN_CHARS))
+            })
+        {
+            return Err(field);
+        }
+    }
+    Ok(())
+}
+
+fn validate_templates(templates: &Value) -> Result<(), String> {
+    let list = templates
+        .as_array()
+        .filter(|list| list.len() <= MAX_TEMPLATES)
+        .ok_or("Invalid overlay.templates")?;
+    for template in list {
+        let valid = template.as_object().is_some_and(|object| {
+            object
+                .get("id")
+                .is_some_and(|id| short_text(id, MAX_NAME_CHARS))
+                && object
+                    .get("name")
+                    .is_some_and(|name| short_text(name, MAX_NAME_CHARS))
+                && object
+                    .get("recipe")
+                    .is_some_and(|recipe| validate_recipe(recipe).is_ok())
+                && object
+                    .get("palette")
+                    .is_none_or(|v| v.as_str().is_some_and(|s| PALETTES.contains(&s)))
+                && object
+                    .get("size")
+                    .is_none_or(|v| v.as_str().is_some_and(|s| SIZES.contains(&s)))
+                && object
+                    .get("palette_hue")
+                    .is_none_or(|v| v.as_f64().is_some_and(|n| (0.0..360.0).contains(&n)))
+                && object
+                    .get("palette_chroma")
+                    .is_none_or(|v| v.as_f64().is_some_and(|n| (0.0..=0.2).contains(&n)))
+        });
+        if !valid {
+            return Err("Invalid overlay.templates".into());
         }
     }
     Ok(())
@@ -195,6 +354,24 @@ mod tests {
     }
 
     #[test]
+    fn level_sensitivity_moves_the_level_window() {
+        use crate::audio::display_level_in;
+        let window =
+            |sensitivity: &str| level_window(&json!({"overlay":{"level_sensitivity":sensitivity}}));
+        assert_eq!(level_window(&json!({})), crate::audio::LEVEL_WINDOW_DB);
+        // Quiet speech at -45 dBFS barely moves the normal level; high lifts it.
+        let quiet = 10f32.powf(-45.0 / 20.0);
+        assert!(
+            display_level_in(quiet, window("high"))
+                > 2.0 * display_level_in(quiet, window("normal"))
+        );
+        // Loud speech at -15 dBFS pins the normal level; low leaves it headroom.
+        let loud = 10f32.powf(-15.0 / 20.0);
+        assert_eq!(display_level_in(loud, window("normal")), 1.0);
+        assert!(display_level_in(loud, window("low")) < 1.0);
+    }
+
+    #[test]
     fn rejects_invalid_preferences() {
         for patch in [
             json!(null),
@@ -208,9 +385,88 @@ mod tests {
             json!({"edge_offset":513}),
             json!({"edge_offset":0.5}),
             json!({"show_timer":"yes"}),
+            json!({"level_sensitivity":"max"}),
         ] {
             assert!(validate(&json!({"overlay":patch})).is_err());
         }
-        assert!(validate(&json!({"overlay":{"palette":"custom","palette_hue":359.9,"palette_chroma":0.2,"edge_offset":512,"show_timer":false}})).is_ok());
+        assert!(validate(&json!({"overlay":{"palette":"custom","palette_hue":359.9,"palette_chroma":0.2,"edge_offset":512,"show_timer":false,"level_sensitivity":"high"}})).is_ok());
+    }
+
+    #[test]
+    fn a_recipe_picks_the_window_from_its_shell() {
+        let with = |recipe: Value| {
+            OverlayPreferences::from_config(&json!({"overlay":{"form":"glow","recipe":recipe}}))
+        };
+        let stack = with(json!({"shell":"stack"}));
+        assert_eq!(stack.layout(false, false), Layout::Stack);
+        assert_eq!(stack.window_size(Layout::Stack), (80.0, 128.0));
+        assert_eq!(
+            stack.layout(false, true),
+            Layout::Pill,
+            "errors open into the pill row"
+        );
+        assert_eq!(with(json!({"shell":"pill"})).pasted_hold_ms, 1800);
+        assert_eq!(
+            with(json!({"shell":"pill","pasted":{"hold":"short"}})).pasted_hold_ms,
+            1000
+        );
+        assert_eq!(
+            with(json!({"shell":"pill","pasted":{"hold":"long"}})).pasted_hold_ms,
+            3500
+        );
+        let mini = with(json!({"shell":"mini"}));
+        assert_eq!(mini.layout(false, false), Layout::Mini);
+        assert_eq!(mini.window_size(Layout::Mini), (148.0, 44.0));
+        assert_eq!(
+            mini.layout(false, true),
+            Layout::Pill,
+            "errors open into the pill row"
+        );
+        let pill = with(json!({"shell":"pill","slots":{"center":"level"}}));
+        assert_eq!(
+            pill.layout(true, false),
+            Layout::Pill,
+            "no draft row, no streaming card"
+        );
+        let drafted = with(json!({"shell":"island","slots":{"below":"draft"}}));
+        assert_eq!(drafted.layout(true, false), Layout::Streaming);
+        assert_eq!(drafted.layout(false, false), Layout::Pill);
+        assert_eq!(
+            with(json!({"shell":"caps"})).layout(false, true),
+            Layout::Streaming
+        );
+        assert_eq!(
+            with(json!({"shell":"card"})).layout(true, true),
+            Layout::Glow
+        );
+        assert_eq!(
+            with(json!({"shell":"blob"})).layout(false, false),
+            Layout::Glow,
+            "an unknown shell leaves the legacy form in charge"
+        );
+    }
+
+    #[test]
+    fn validates_recipes_and_templates() {
+        let recipe = json!({"shell":"pill","slots":{"start":"timer","below":null},"draw":{"level":"matrix"},"style":{"radius":"round"},"motion":"soft","processing":{"draw":"none","edge":false,"words":true,"speed":"fast"},"matrix":{"density":7},"cancel":{"at":"end","draw":"x","show":"hover"}});
+        assert!(validate(&json!({"overlay":{"recipe":recipe.clone()}})).is_ok());
+        let template =
+            json!({"id":"a1","name":"Мой","recipe":recipe.clone(),"palette":"violet","size":"l"});
+        assert!(validate(&json!({"overlay":{"templates":[template.clone()]}})).is_ok());
+        for bad in [
+            json!({"recipe":{"shell":"blob"}}),
+            json!({"recipe":{"slots":{}}}),
+            json!({"recipe":{"shell":"pill","slots":{"start":{"nested":true}}}}),
+            json!({"recipe":{"shell":"pill","motion":""}}),
+            json!({"recipe":{"shell":"pill","process":{"nested":true}}}),
+            json!({"recipe":{"shell":"pill","processing":{"draw":{"nested":true}}}}),
+            json!({"recipe":{"shell":"pill","pasted":{"hold":{"nested":true}}}}),
+            json!({"recipe":{"shell":"pill","cancel":"end"}}),
+            json!({"templates":[{"id":"a","name":" ","recipe":recipe.clone()}]}),
+            json!({"templates":[{"id":"a","name":"x","recipe":recipe.clone(),"size":"xl"}]}),
+            json!({"templates":vec![template.clone(); MAX_TEMPLATES + 1]}),
+        ] {
+            assert!(validate(&json!({"overlay":bad})).is_err(), "{bad}");
+        }
     }
 }

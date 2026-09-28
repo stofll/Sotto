@@ -442,6 +442,52 @@ impl OfflineRecognizer {
 mod tests {
     use super::*;
 
+    #[test]
+    fn longform_keeps_repeated_words_and_discards_partial_results_on_failure() {
+        let audio = vec![0.0; 51 * 16_000];
+        let mut count = 0;
+        let text = transcribe_gigaam_segments(
+            &audio,
+            || false,
+            |_| {
+                count += 1;
+                Ok(" да ".to_owned())
+            },
+        )
+        .unwrap();
+        assert_eq!(count, 3);
+        assert_eq!(text, "да да да");
+        let mut count = 0;
+        let result = transcribe_gigaam_segments(
+            &audio,
+            || false,
+            |_| {
+                count += 1;
+                if count == 2 {
+                    Err("synthetic inference failure".into())
+                } else {
+                    Ok("prefix".into())
+                }
+            },
+        );
+        assert_eq!(result.unwrap_err(), "synthetic inference failure");
+    }
+
+    #[test]
+    fn longform_cancellation_does_not_deliver_an_incomplete_transcript() {
+        let cancelled = std::cell::Cell::new(false);
+        let audio = vec![0.0; 51 * 16_000];
+        let result = transcribe_gigaam_segments(
+            &audio,
+            || cancelled.get(),
+            |_| {
+                cancelled.set(true);
+                Ok("partial result".into())
+            },
+        );
+        assert!(result.unwrap_err().contains("cancelled"));
+    }
+
     #[cfg(any(windows, target_os = "macos"))]
     #[test]
     fn rejects_invalid_thread_count_before_ffi() {
@@ -609,8 +655,14 @@ impl OnlineRecognizer {
     }
 
     /// Forget what was accumulated and start the next dictation from scratch.
+    ///
+    /// A new stream, not `OnlineRecognizer::reset`: that one only rewinds the
+    /// decoder and keeps the features it has not decoded yet. After a live
+    /// preview those are the last syllables of the phrase, and the final pass
+    /// over the whole recording would read them first — «ёный ничьих не
+    /// требуя…». It would also keep a stream closed by `finish`.
     pub fn reset(&mut self) {
-        self.recognizer.reset(&self.stream);
+        self.stream = self.recognizer.create_stream();
         // The next phrase may arrive at another rate — from a file rather than
         // from the microphone — and the padding must follow it, not the last
         // one.
@@ -667,6 +719,19 @@ pub enum SherpaRecognizer {
 }
 
 impl SherpaRecognizer {
+    /// Bounded GigaAM recognition shared by microphone and file transcription.
+    /// Each fragment uses a fresh offline stream; cancellation never returns
+    /// the successfully decoded prefix as if it were the full recording.
+    pub fn transcribe_gigaam(
+        &mut self,
+        samples: &[f32],
+        cancelled: impl Fn() -> bool,
+    ) -> Result<String, String> {
+        transcribe_gigaam_segments(samples, cancelled, |fragment| {
+            self.transcribe(16_000, fragment)
+        })
+    }
+
     pub fn open(
         engine: crate::model::ModelEngine,
         files: &crate::model::BundleFiles,
@@ -729,4 +794,34 @@ impl SherpaRecognizer {
             }
         }
     }
+}
+
+fn transcribe_gigaam_segments(
+    samples: &[f32],
+    cancelled: impl Fn() -> bool,
+    mut decode: impl FnMut(&[f32]) -> Result<String, String>,
+) -> Result<String, String> {
+    let cancel_error = || "sherpa transcribe cancelled between fragments".to_owned();
+    if cancelled() {
+        return Err(cancel_error());
+    }
+    let ranges = crate::vad::recognition_segments(samples);
+    let mut text = String::new();
+    for range in ranges {
+        if cancelled() {
+            return Err(cancel_error());
+        }
+        let fragment = decode(&samples[range])?;
+        if cancelled() {
+            return Err(cancel_error());
+        }
+        let fragment = fragment.trim();
+        if !fragment.is_empty() {
+            if !text.is_empty() {
+                text.push(' ');
+            }
+            text.push_str(fragment);
+        }
+    }
+    Ok(text)
 }

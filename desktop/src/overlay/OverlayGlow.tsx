@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, type CSSProperties } from "react";
-import { subscribe } from "../bridge/events";
+import { audioLevelSource, type LevelSource } from "./levelSource";
 import { themePresets, generateVoiceBeamCSS } from "./voice-glow/styles";
 import { resolveVoiceDefaults, resolveVoiceStyle } from "./voice-glow/presets";
 import { registerVoiceInstance, type VoiceDriverConfig } from "./voice-glow/voiceDriver";
@@ -55,7 +55,7 @@ const TUNING = {
   hueDuration: 9,
 } as const;
 
-export function OverlayGlow({ mode, size }: { mode: GlowMode; size: OverlayPreferences["size"] }) {
+export function OverlayGlow({ mode, size, source = audioLevelSource }: { mode: GlowMode; size: OverlayPreferences["size"]; source?: LevelSource }) {
   const radius = { s: 19, m: 23, l: 27 }[size];
   const rawId = useId().replace(/:/g, "-");
   const id = `sotto${rawId}`;
@@ -166,12 +166,8 @@ export function OverlayGlow({ mode, size }: { mode: GlowMode; size: OverlayPrefe
   );
 
   useEffect(() => {
-    const stop = subscribe<{ level?: number }>("audio-level", (payload) => {
-      const level = payload?.level;
-      levelRef.current = typeof level === "number" ? level : 0;
-    });
-    return stop;
-  }, []);
+    return source((level) => { levelRef.current = level; });
+  }, [source]);
 
   useEffect(() => {
     const el = ref.current;

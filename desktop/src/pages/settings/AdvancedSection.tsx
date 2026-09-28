@@ -9,6 +9,9 @@ import type { ConfigResult } from "../../bridge/types";
 import { ACCENT_PRESETS, applyAccent, resolveAccent } from "../../accent";
 import { modelUnloadMinutes, modelUnloadOptions } from "../modelUnloadSettings";
 import { recordingLimitMinutes, recordingLimitOptions } from "../recordingLimitSettings";
+import { recordingKeepCount, recordingKeepOptions } from "../recordingKeepSettings";
+import { formatFileSize } from "../fileSize";
+import { invoke } from "../../bridge";
 import { isTelemetryEnabled } from "../telemetrySettings";
 import { HintIcon, SetLabel, type ConfigChanged } from "./controls";
 
@@ -147,6 +150,49 @@ function RecordingLimitControl({ value, onConfigChanged }: { value?: number; onC
       options={options}
       onChange={(next) => void onConfigChanged({ recording_limit_minutes: next })}
     />
+  );
+}
+
+// Off by default: it writes the user's voice to disk. A saved recording plays
+// from its History entry and is deleted with it. The size is read when the
+// section mounts; it grows by a couple of megabytes a minute of speech, and
+// nothing here needs to watch it live.
+function RecordingsRow({ enabled, keep, onConfigChanged }: { enabled: boolean; keep?: number; onConfigChanged: ConfigChanged }) {
+  const [bytes, setBytes] = useState<number | null>(null);
+  const current = recordingKeepCount(keep);
+  const options = recordingKeepOptions(current).map((count) => ({
+    value: count,
+    label: count === 0 ? t("Без ограничения") : t("Последние {p0}", { p0: count }),
+  }));
+
+  useEffect(() => {
+    void invoke<number>("recordings_size").then(setBytes).catch(() => setBytes(null));
+  }, [enabled]);
+
+  return (
+    <div className="advanced__recordings-row" data-testid="recordings-settings">
+      <span className="label-with-hint">
+        <label className="checkbox-row">
+          <input className="checkbox" type="checkbox" checked={enabled} onChange={(e) => void onConfigChanged({ debug_save_recordings: e.target.checked })}/>
+          {t("Сохранять аудиозаписи")}
+        </label>
+        <HintIcon text={t("Каждая диктовка сохраняется в WAV на этом компьютере и прослушивается в истории. Минута речи занимает около 2 МБ. Удаление записи из истории удаляет и её аудио.")}/>
+      </span>
+      <div className="advanced__recordings-keep">
+        <span className="advanced__recordings-caption" style={{ color: enabled ? undefined : "var(--ink-faint)" }}>{t("Хранить")}</span>
+        <CustomSelect
+          className="custom-select--recordings-keep"
+          value={current}
+          disabled={!enabled}
+          options={options}
+          onChange={(next) => void onConfigChanged({ debug_max_recordings: next })}
+        />
+      </div>
+      <button className="btn btn--ghost" type="button" onClick={() => void invoke("open_recordings_folder").catch(() => {})}>
+        <Icon name="folder" size={12}/> {t("Открыть папку")}
+        {bytes !== null && bytes > 0 && <span className="advanced__recordings-size">{formatFileSize(bytes)}</span>}
+      </button>
+    </div>
   );
 }
 
@@ -296,6 +342,8 @@ export function AdvancedSection({ config, portable, cpuOnly, onConfigChanged }: 
           <InterfaceColorPicker value={config?.ui_accent} onConfigChanged={onConfigChanged}/>
         </div>
       </div>
+
+      <RecordingsRow enabled={config?.debug_save_recordings ?? false} keep={config?.debug_max_recordings} onConfigChanged={onConfigChanged}/>
 
       {/* Autostart is set once per installation — exactly the case this block
           is collapsed for. Silence trimming is no longer here: vad.rs refuses

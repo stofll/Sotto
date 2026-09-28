@@ -34,6 +34,13 @@ function shortAiProblem(payload?: TranscriptionPayload) {
   return t("Ошибка LLM, вставлен локальный текст");
 }
 
+/** The visible body of the overlay. The window around it is transparent and
+ *  can be much larger (the captions chip), so hovering the window is not
+ *  hovering the overlay. */
+const OVERLAY_BODY = ".ovs-skin, .ovs-close, .overlay-shell";
+export const isOverlayBody = (target: EventTarget | Element | null) =>
+  target instanceof Element && target.closest(OVERLAY_BODY) !== null;
+
 export function useOverlaySession() {
   const sessionId = useRef<number | null>(null);
   const initialConfig = useRef<Promise<void> | null>(null);
@@ -89,10 +96,16 @@ export function useOverlaySession() {
   // and their order is not guaranteed — the number shows they are about one and
   // the same dictation.
   const [armedSession, setArmedSession] = useState<number | null>(null);
+  // Keys the drawings to one dictation. Unlike `sessionId`, which is released
+  // as soon as the result arrives, it holds until the next recording starts,
+  // so the inserted note and an error keep the scene they transition from.
+  const [dictationKey, setDictationKey] = useState<number | null>(null);
   const [errorText, setErrorText] = useState("");
   const [aiProblem, setAiProblem] = useState("");
   const [isClosing, setIsClosing] = useState(false);
   const isClosingRef = useRef(false);
+  // Rust is about to conceal the window: play the exit. A new state cancels it.
+  const [leaving, setLeaving] = useState(false);
   const [hovered, setHovered] = useState(false);
 
   const handleClose = useCallback(() => {
@@ -149,6 +162,7 @@ export function useOverlaySession() {
     const applyOverlayState = (next: OverlayState) => {
       isClosingRef.current = false;
       setIsClosing(false);
+      setLeaving(false);
       setState(next);
       if (next === "recording") resetDetails();
       if (next === "processing") {
@@ -157,6 +171,7 @@ export function useOverlaySession() {
     };
     const resetOverlayState = () => {
       sessionId.current = null;
+      setLeaving(false);
       resetDetails();
       setState(null);
       setPreviewText("");
@@ -177,10 +192,16 @@ export function useOverlaySession() {
     // Native hit-test after show: the overlay can appear under the cursor,
     // which never fires pointerenter. CSS :hover on an inactive WKWebView
     // is equally unreliable until a click.
-    const unlistenPointer = win.listen<boolean>("overlay-pointer", (event) => {
-      if (!disposed) setHovered(Boolean(event.payload));
+    // Rust reports where the pointer is in the window, or null outside it.
+    const unlistenPointer = win.listen<{ x: number; y: number } | null>("overlay-pointer", (event) => {
+      if (disposed) return;
+      const at = event.payload;
+      setHovered(at !== null && isOverlayBody(document.elementFromPoint(at.x, at.y)));
     });
-    const registrations = [unlistenState, unlistenReset, unlistenPointer];
+    const unlistenLeaving = win.listen("overlay-leaving", () => {
+      if (!disposed) setLeaving(true);
+    });
+    const registrations = [unlistenState, unlistenReset, unlistenPointer, unlistenLeaving];
     const stops: Array<() => void> = [];
     for (const registration of registrations) {
       void registration.then((stop) => {
@@ -229,10 +250,12 @@ export function useOverlaySession() {
       }),
       subscribe<number>("recording-started", (payload) => {
         sessionId.current = payload;
+        setDictationKey(payload);
         setPreviewText("");
         // We do not overwrite the mark if it already arrived for this same
         // dictation: the order of these two events is not guaranteed.
         setArmedSession((current) => (current === payload ? current : null));
+        setLeaving(false);
         setState("recording");
         resetDetails();
       }),
@@ -323,8 +346,8 @@ export function useOverlaySession() {
   }, [handleClose]);
 
   return {
-    state, config, preferences, layout, sessionId: sessionId.current, streaming, recordingStartedAt, recordingStoppedAt, limitAt,
-    pastedLength, decodedAt, previewText, errorText, aiProblem, isClosing, hovered, setHovered, handleClose,
+    state, config, preferences, layout, dictationKey, streaming, recordingStartedAt, recordingStoppedAt, limitAt,
+    pastedLength, decodedAt, previewText, errorText, aiProblem, isClosing, leaving, hovered, setHovered, handleClose,
   };
 }
 

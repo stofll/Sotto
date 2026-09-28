@@ -56,6 +56,7 @@ mod output_volume;
 mod overlay;
 mod overlay_preferences;
 mod portable;
+mod recordings;
 mod release_notes;
 pub mod secret_store;
 pub mod sherpa;
@@ -714,9 +715,15 @@ pub(crate) fn spawn_level_emitter(app: &AppHandle, recorder: Arc<crate::audio::A
         let mut logged_first_frame = false;
         loop {
             let (mut warned, mut limited) = (false, false);
-            let limit_minutes = crate::config::Config::load(&app)
+            let config = crate::config::Config::load(&app).ok();
+            let limit_minutes = config
+                .as_ref()
                 .map(|config| crate::config::recording_limit_minutes(config.as_value()))
                 .unwrap_or(crate::config::DEFAULT_RECORDING_LIMIT_MINUTES);
+            let level_window = config
+                .as_ref()
+                .map(|config| crate::overlay_preferences::level_window(config.as_value()))
+                .unwrap_or(crate::audio::LEVEL_WINDOW_DB);
             while recorder.is_recording() {
                 if !logged_first_frame {
                     if let Some(first_frame_ms) = recorder.first_frame_ms() {
@@ -725,7 +732,7 @@ pub(crate) fn spawn_level_emitter(app: &AppHandle, recorder: Arc<crate::audio::A
                     }
                 }
                 let raw = recorder.level();
-                let level = crate::audio::display_level(raw);
+                let level = crate::audio::display_level_in(raw, level_window);
                 let _ = app.emit("audio-level", serde_json::json!({ "level": level }));
                 // Throttled (~1 Hz) diagnostic for a meter that looks dead
                 // (raw + mapped). Debug level: at info it filled app.log with
@@ -1027,7 +1034,8 @@ pub(crate) fn build_dictation_command(
 /// the command silently does not exist in practice.
 pub(crate) fn on_recording_started(app: &AppHandle) {
     crate::sounds::play(app, crate::sounds::Cue::Start);
-    // After the start cue, so the cue itself is still audible.
+    // Ducking skips our own audio session, so the cue stays audible even
+    // though it is still playing when this lands.
     if let Ok(cfg) = crate::config::Config::load(app) {
         crate::output_volume::duck(cfg.as_value());
     }
@@ -1067,19 +1075,17 @@ pub(crate) fn on_recording_stopped(app: &AppHandle, session_id: u64, audio: Opti
         return;
     };
     // A cancel may arrive while the audio worker is finalizing, and a
-    // cancelled capture must not be written out as a successful debug
-    // recording. A plain read, not a lock held across the write: both callers
-    // check the same marker immediately before calling in, and holding the
-    // cancellation mutex across file I/O would park every concurrent
-    // `request_cancel`/`begin_commit` for the length of a WAV write.
+    // cancelled capture must not be kept as a recording. A plain read is
+    // enough: both callers check the same marker immediately before calling
+    // in, and a cancel that lands after it deletes the file when the
+    // dictation finishes (`dictation::finish`).
     if app.state::<AppState>().is_cancelled(session_id) {
         return;
     }
-    if let Some(path) = crate::debug::save_recording(cfg.as_value(), session_id, samples) {
-        log::info!(
-            "session {session_id}: recording saved to {}",
-            path.display()
-        );
+    if let Some(saving) = crate::recordings::save(cfg.as_value(), session_id, samples) {
+        app.state::<AppState>()
+            .pending_recordings
+            .put(session_id, saving);
     }
     // Toggle mode only — see `sounds::Cue::Stop`.
     if cfg.get_string("recording_mode").as_deref() == Some("toggle") {
@@ -1484,6 +1490,9 @@ pub fn run() {
             // above: the prune takes the connection itself, after the config
             // lock.
             crate::history::prune_to_settings(app.handle(), &db_arc);
+            // Builds before recordings moved to Settings kept them in the
+            // logs folder, which is what people share in bug reports.
+            crate::recordings::adopt_diagnostics_recordings();
 
             // Product telemetry is independent from stats/history and is
             // deliberately non-fatal. The installation ID is random and
@@ -1592,6 +1601,7 @@ pub fn run() {
             history::list_history,
             history::delete_history_entry,
             history::clear_history,
+            history::history_recording,
             // Manual LLM processing of an existing history entry: the run
             // and the write are separate so the result can be reviewed first.
             history::preview_history_ai_processing,
@@ -1635,6 +1645,8 @@ pub fn run() {
             feedback::get_public_logs,
             feedback::save_public_logs,
             debug::open_diagnostics_folder,
+            recordings::open_recordings_folder,
+            recordings::recordings_size,
             debug::logs_size,
             debug::clear_logs,
             dictionaries::dictionary_presets,

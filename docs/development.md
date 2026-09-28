@@ -114,7 +114,7 @@ The first build signed this way is still a new application to macOS. Remove the 
 
 The configured `script-src` stays closed at `'self'`, with no `'unsafe-inline'`, `'unsafe-eval'`, or additional host. Tauri may add authorization for bundled scripts during packaging. The frontend ships as local bundles and evaluates no strings, so an exemption there would only widen what an injected script could reach; treat any proposal to relax this directive as a security change requiring review, not as a build fix.
 
-`default-src 'self'` with `connect-src 'self' ipc: http://ipc.localhost` is what lets a window reach the Rust commands and nothing else — network access belongs to the Rust side and is documented in [Privacy](privacy.md). `img-src` adds `asset:` and `http://asset.localhost` for Tauri's asset protocol and `data:` for inline images.
+`default-src 'self'` with `connect-src 'self' ipc: http://ipc.localhost` is what lets a window reach the Rust commands and nothing else — network access belongs to the Rust side and is documented in [Privacy](privacy.md). `img-src` adds `asset:` and `http://asset.localhost` for Tauri's asset protocol and `data:` for inline images. `media-src 'self' blob:` lets History play a saved recording, which the page receives as bytes and wraps in a blob URL.
 
 Both windows load this one policy, so a directive relaxed for the overlay is relaxed for the settings window as well.
 

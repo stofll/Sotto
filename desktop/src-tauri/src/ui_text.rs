@@ -382,7 +382,12 @@ mod tests {
     /// are read by developers and stay in English.
     #[test]
     fn russian_text_reaches_the_user_only_through_t() {
-        const SPEECH_MODULES: [&str; 3] = ["formatter.rs", "spelling.rs", "ui_text.rs"];
+        const SPEECH_MODULES: [&str; 4] = [
+            "formatter.rs",
+            "formatter/paragraphs.rs",
+            "spelling.rs",
+            "ui_text.rs",
+        ];
         let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
         let mut files = Vec::new();
         collect_rust_paths(&src, &mut files);

@@ -5,6 +5,7 @@ import {
     clearHistory,
     deleteHistoryEntry,
     listHistory,
+    historyRecording,
     previewHistoryAiProcessing,
 } from "../bridge/stats";
 import { Card, PageHeader, Segmented } from "../components/Shell";
@@ -16,6 +17,7 @@ import { DiffBlock } from "../components/DiffBlock";
 import type { ConfigResult, HistoryAiPreview, HistoryEntry } from "../bridge/types";
 import { effectiveSystemPrompt } from "./aiShared";
 import { localeTag, t, tPlural } from "../i18n";
+import { formatPlayerTime, useRecordingPlayer, type PlayerState } from "./historyPlayer";
 
 type AiConfig = ConfigResult["ai_processing"];
 type AiProfile = NonNullable<AiConfig["profiles"]>[number];
@@ -291,6 +293,13 @@ export function HistoryPage() {
   const seenIdsRef = useRef<Set<number>>(new Set());
   const initializedRef = useRef(false);
 
+  const reportPlaybackError = useCallback((message: string) => {
+    setError(t("Не удалось воспроизвести запись: {p0}", { p0: message }));
+  }, []);
+  const player = useRecordingPlayer(historyRecording, reportPlaybackError);
+  const playingId = player.state?.id;
+  const stopPlayer = player.stop;
+
   const refresh = useCallback(async () => {
     try {
       const [result, config] = await Promise.all([
@@ -374,7 +383,8 @@ export function HistoryPage() {
       return changed ? next : prev;
     });
     if (reprocessId !== null && !ids.has(reprocessId)) setReprocessTarget(null);
-  }, [entries, reprocessId]);
+    if (playingId !== undefined && !ids.has(playingId)) stopPlayer();
+  }, [entries, reprocessId, playingId, stopPlayer]);
 
   function flashNotice(text: string) {
     setNotice(text);
@@ -738,6 +748,9 @@ export function HistoryPage() {
                       reprocessError={reprocessError}
                       onRunReprocess={() => void runReprocess(entry)}
                       onApplyReprocess={() => void applyReprocess(entry)}
+                      player={player.state?.id === entry.id ? player.state : null}
+                      onTogglePlay={() => player.toggle(entry.id)}
+                      onSeek={player.seek}
                       menuOpen={openMenuId === entry.id}
                       onToggleMenu={() => setOpenMenuId((current) => current === entry.id ? null : entry.id)}
                     />
@@ -880,6 +893,9 @@ function EntryCard(props: {
   reprocessError: string | null;
   onRunReprocess: () => void;
   onApplyReprocess: () => void;
+  player: PlayerState;
+  onTogglePlay: () => void;
+  onSeek: (seconds: number) => void;
   menuOpen: boolean;
   onToggleMenu: () => void;
 }) {
@@ -890,7 +906,7 @@ function EntryCard(props: {
     copiedBlockKey, onCopyBlock, expandedBlockKeys, onToggleBlock,
     reprocessOpen, onOpenReprocess, onCloseReprocess, reprocessProfileId, onReprocessProfileId,
     reprocessRunning, reprocessApplying, reprocessPreview, reprocessError,
-    onRunReprocess, onApplyReprocess, menuOpen, onToggleMenu,
+    onRunReprocess, onApplyReprocess, player, onTogglePlay, onSeek, menuOpen, onToggleMenu,
   } = props;
 
   const compact = viewMode === "list" && !detailsExpanded;
@@ -956,6 +972,7 @@ function EntryCard(props: {
           {fresh && <span className="tag" style={{ height: 18, fontSize: 9, background: "var(--accent-soft-2)", borderColor: "var(--accent-soft-2)", color: "var(--ink)" }}>{t("новое")}</span>}
         </div>
 
+        {player && <RecordingProgress player={player} onSeek={onSeek}/>}
         {compact ? (
           <Hint text={t("Развернуть")} className="hint-anchor--block">
             <div
@@ -1055,6 +1072,21 @@ function EntryCard(props: {
       </div>
 
       <div style={{ display: "flex", gap: 4, alignItems: "start" }}>
+        {entry.has_recording && (
+          <Hint text={player?.status === "playing" ? t("Пауза") : t("Прослушать запись")}>
+            <button
+              className={player ? "btn btn--primary" : "btn btn--ghost"}
+              onClick={onTogglePlay}
+              aria-label={player?.status === "playing" ? t("Пауза") : t("Прослушать запись")}
+              aria-pressed={player?.status === "playing"}
+              aria-busy={player?.status === "loading"}
+              data-testid={`history-play-${entry.id}`}
+              style={{ height: 30, padding: "0 9px" }}
+            >
+              <Icon name={player?.status === "playing" ? "pause" : "play"} size={15}/>
+            </button>
+          </Hint>
+        )}
         <Hint text={copiedId === entry.id ? t("Скопировано") : t("Скопировать в буфер обмена")}>
           <button
             className={copiedId === entry.id ? "btn btn--primary" : "btn btn--ghost"}
@@ -1074,6 +1106,44 @@ function EntryCard(props: {
         />
       </div>
     </article>
+  );
+}
+
+// A seekable bar above the text of the entry that is playing. Arrow keys move
+// by five seconds, so the bar is usable without a mouse.
+function RecordingProgress({ player, onSeek }: { player: NonNullable<PlayerState>; onSeek: (seconds: number) => void }) {
+  const { position, duration } = player;
+  const percent = duration > 0 ? Math.min(100, (position / duration) * 100) : 0;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "2px 0 8px" }}>
+      <div
+        role="slider"
+        tabIndex={0}
+        aria-label={t("Позиция воспроизведения")}
+        aria-valuemin={0}
+        aria-valuemax={Math.round(duration)}
+        aria-valuenow={Math.round(position)}
+        aria-valuetext={formatPlayerTime(position)}
+        onClick={(e) => {
+          const rect = e.currentTarget.getBoundingClientRect();
+          if (rect.width > 0) onSeek(((e.clientX - rect.left) / rect.width) * duration);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+            e.preventDefault();
+            onSeek(position + (e.key === "ArrowRight" ? 5 : -5));
+          }
+        }}
+        style={{ position: "relative", flex: 1, height: 14, cursor: duration > 0 ? "pointer" : "default" }}
+      >
+        <div style={{ position: "absolute", left: 0, right: 0, top: 5, height: 4, borderRadius: 999, background: "var(--bg-4)", overflow: "hidden" }}>
+          <div style={{ width: `${percent}%`, height: "100%", background: "var(--accent)", borderRadius: 999 }}/>
+        </div>
+      </div>
+      <span style={{ font: "500 11px/1 var(--font-mono)", color: "var(--ink-mute)", whiteSpace: "nowrap" }}>
+        {player.status === "loading" ? t("Загружаю…") : `${formatPlayerTime(position)} / ${formatPlayerTime(duration)}`}
+      </span>
+    </div>
   );
 }
 

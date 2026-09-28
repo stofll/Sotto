@@ -15,6 +15,7 @@ const config: ConfigResult = {
     enabled: true, remove_hallucinations: true, remove_fillers: true,
     remove_parasites: true, remove_duplicates: true, collapse_phrase_loops: true,
     clean_commas: true, normalize_spaces: true, correct_spelling: true, split_sentences: true,
+    split_paragraphs: true,
     capitalize_sentences: true, final_punctuation: true, custom_parasite_words: [],
     disabled_parasite_words: [],
     custom_words: [], enabled_presets: [], dictionary_sets: [], dictionary_spellings: [],
@@ -37,6 +38,18 @@ const stats: StatsResult = {
   total_llm_used: 0, total_llm_fallbacks: 0, total_llm_input_tokens: 0,
   total_llm_output_tokens: 0, total_llm_tokens: 0, daily_history: [],
 };
+
+// A saved recording as the backend sends it: 16 kHz mono PCM16 WAV bytes.
+function silentWav(seconds: number): ArrayBuffer {
+  const samples = 16000 * seconds;
+  const view = new DataView(new ArrayBuffer(44 + samples * 2));
+  const ascii = (offset: number, text: string) => [...text].forEach((c, i) => view.setUint8(offset + i, c.charCodeAt(0)));
+  ascii(0, 'RIFF'); view.setUint32(4, 36 + samples * 2, true); ascii(8, 'WAVEfmt ');
+  view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+  view.setUint32(24, 16000, true); view.setUint32(28, 32000, true); view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true); ascii(36, 'data'); view.setUint32(40, samples * 2, true);
+  return view.buffer;
+}
 
 // Only the test runner injects this bundle; application entry points never import it.
 export function install(seed: any = {}) {
@@ -70,8 +83,8 @@ export function install(seed: any = {}) {
       return structuredClone(answer.result);
     }
     switch (command) {
-      case 'get_whats_new': return state.whats_new ?? null;
-      case 'dismiss_whats_new': state.whats_new = null; persist(); return null;
+      case 'get_whats_new': return args.manual || !state.whats_new_seen ? state.whats_new ?? null : null;
+      case 'dismiss_whats_new': state.whats_new_seen = true; persist(); return null;
       case 'app_version': return { version: '0.0.5-test' };
       case 'check_accessibility': return true;
       case 'get_config': return structuredClone(state.config);
@@ -91,6 +104,8 @@ export function install(seed: any = {}) {
       case 'list_history': return { entries: structuredClone(state.history), max_age_seconds: 2592000, max_entries: 1000 };
       case 'delete_history_entry': state.history = state.history.filter((e: any) => e.id !== args.id); persist(); return { deleted: true };
       case 'clear_history': { const count = state.history.length; state.history = []; persist(); return { deleted: count }; }
+      case 'history_recording': return silentWav(2);
+      case 'recordings_size': return 3 * 1024 * 1024;
       case 'has_api_key': return state.keys[args.key_id] ?? { available: false, label: '', masked: '' };
       case 'save_api_key': state.keys[args.key_id] = { available: true, label: args.label, masked: 'test-***' }; persist(); return { saved: true, ...state.keys[args.key_id] };
       case 'delete_api_key': delete state.keys[args.key_id]; persist(); return { deleted: true };
@@ -134,6 +149,7 @@ export function install(seed: any = {}) {
       case 'set_overlay_presentation': case 'open_url':
       case 'start_microphone_test': case 'stop_microphone_test': case 'set_microphone_test_monitor':
       case 'preview_sound_cue': case 'preview_output_duck': case 'open_diagnostics_folder':
+      case 'open_recordings_folder':
       case 'suspend_hotkey': case 'resume_hotkey': return null;
       default:
         unknown.push(command);

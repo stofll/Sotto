@@ -18,21 +18,33 @@
   color: var(--ink);
   letter-spacing: 0;
 }
+/* One corner radius per size, whatever the shell holds: the pill that opens
+   into the streaming card and the glow card keep the curve of the pill's own
+   ends instead of each state picking another one. The bead stays a circle. */
+.overlay { --overlay-radius: 28px; }
+.overlay[data-size="s"] { --overlay-radius: 26px; }
+.overlay[data-size="l"] { --overlay-radius: 32px; }
 .overlay-shell {
   width: 100%;
   max-width: 552px;
   height: 56px;
-  border-radius: 999px;
+  border-radius: var(--overlay-radius);
   padding: 4px;
   background: linear-gradient(180deg, var(--overlay-shell-top), var(--overlay-shell-bottom));
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.05) inset;
+  /* The shell mounts with each dictation, so the entrance plays every time.
+     The exit stays under the native LEAVE_DURATION (220 ms, overlay.rs). */
+  transform-origin: 50% 100%;
+  animation: overlay-enter 320ms cubic-bezier(.16, 1, .3, 1) backwards;
+  transition: opacity 180ms cubic-bezier(.4, 0, 1, 1), transform 180ms cubic-bezier(.4, 0, 1, 1);
 }
+.overlay[data-leaving] .overlay-shell { opacity: 0; transform: translateY(6px) scale(.94); }
 .overlay-surface {
   --overlay-energy: 0.25;
   position: relative;
   width: 100%;
   height: 100%;
-  border-radius: 999px;
+  border-radius: calc(var(--overlay-radius) - 4px);
   border: 1px solid transparent;
   background: var(--overlay-surface);
   padding: 0 8px;
@@ -73,7 +85,8 @@
 .overlay-close:focus-visible:disabled { opacity: 0.55; }
 .overlay-close:focus-visible { outline: 2px solid var(--overlay-edge); outline-offset: 2px; }
 .overlay[data-state="recording"] .overlay-close { color: rgba(255,255,255,0.84); }
-.overlay[data-state="pasted"] .overlay-close { color: var(--ok); }
+/* The inserted note is gone in a moment by itself: there is nothing to cancel or close. */
+.overlay[data-state="pasted"] .overlay-close { visibility: hidden; }
 .overlay[data-state="error"] .overlay-close { color: var(--err); }
 .overlay-text, .overlay-result > div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 .overlay-text { font: 600 14px/1.2 var(--font-sans); color: var(--ink-dim); }
@@ -90,8 +103,8 @@
 .overlay-waveform > span[data-active="true"]::after { content: ""; position: absolute; inset: 0; border-radius: inherit; box-shadow: 0 0 var(--bar-glow) var(--overlay-wave-mid); opacity: var(--bar-glow-opacity); }
 .overlay-progress { display: flex; align-items: center; gap: 10px; }
 .overlay-progress > span { font: 500 11px/1 var(--font-sans); color: var(--ink-dim); white-space: nowrap; }
-.overlay[data-layout="streaming"] .overlay-shell { max-width: 592px; height: 142px; border-radius: 22px; }
-.overlay[data-layout="streaming"] .overlay-surface { border-radius: 18px; gap: 8px; padding: 9px 11px; }
+.overlay[data-layout="streaming"] .overlay-shell { max-width: 592px; height: 142px; }
+.overlay[data-layout="streaming"] .overlay-surface { gap: 8px; padding: 9px 11px; }
 .overlay[data-layout="streaming"] .overlay-row { display: flex; gap: 10px; }
 .overlay[data-layout="streaming"] .overlay-detail { flex: 1; }
 .overlay-preview { position: relative; flex: 1; min-height: 0; overflow: hidden; word-break: break-word; font: 500 14px/1.45 var(--font-sans); color: var(--ink); opacity: 0.96; text-align: left; }
@@ -125,16 +138,14 @@
 .overlay[data-layout="streaming"][data-size="l"] .overlay-shell { max-width: 672px; height: 166px; }
 .overlay[data-layout="streaming"][data-size="s"] .overlay-preview { font-size: 13px; }
 .overlay[data-layout="streaming"][data-size="l"] .overlay-preview { font-size: 16px; }
-.overlay[data-layout="glow"] .overlay-shell { max-width: 400px; height: 104px; border-radius: 28px; }
-.overlay[data-layout="glow"] .overlay-surface { border-radius: 24px; padding: 10px 12px 8px; display: flex; flex-direction: column; justify-content: space-between; gap: 4px; }
+.overlay[data-layout="glow"] .overlay-shell { max-width: 400px; height: 104px; }
+.overlay[data-layout="glow"] .overlay-surface { padding: 10px 12px 8px; display: flex; flex-direction: column; justify-content: space-between; gap: 4px; }
 .overlay[data-layout="glow"] .overlay-surface::before,
 .overlay[data-layout="glow"] .overlay-surface::after,
 .overlay[data-layout="glow"] .overlay-glow { display: none; }
 .overlay[data-layout="glow"]:is([data-state="loading"], [data-state="processing"], [data-state="done"]) .overlay-shell::before { content: none; animation: none; }
-.overlay[data-layout="glow"][data-size="s"] .overlay-shell { max-width: 360px; height: 92px; border-radius: 24px; }
-.overlay[data-layout="glow"][data-size="s"] .overlay-surface { border-radius: 20px; }
-.overlay[data-layout="glow"][data-size="l"] .overlay-shell { max-width: 440px; height: 116px; border-radius: 32px; }
-.overlay[data-layout="glow"][data-size="l"] .overlay-surface { border-radius: 28px; }
+.overlay[data-layout="glow"][data-size="s"] .overlay-shell { max-width: 360px; height: 92px; }
+.overlay[data-layout="glow"][data-size="l"] .overlay-shell { max-width: 440px; height: 116px; }
 .overlay-composer-body { position: relative; z-index: 1; flex: 1; min-height: 0; display: flex; }
 .overlay-composer-body .overlay-preview { font: 500 14px/1.35 var(--font-sans); }
 .overlay-composer-body .overlay-preview-empty { align-items: flex-start; padding-top: 2px; }
@@ -152,6 +163,7 @@
   position: absolute; inset: 0; border-radius: inherit; overflow: hidden; pointer-events: none; z-index: 0;
 }
 .overlay[data-layout="bead"] .overlay-shell { width: 64px; height: 64px; }
+.overlay[data-layout="bead"] :is(.overlay-shell, .overlay-surface) { border-radius: 50%; }
 .overlay[data-layout="bead"][data-size="s"] { --overlay-ring-radius: 16px; }
 .overlay[data-layout="bead"][data-size="s"] .overlay-shell { width: 56px; height: 56px; }
 .overlay[data-layout="bead"][data-size="l"] { --overlay-ring-radius: 24px; }
@@ -169,9 +181,10 @@
 .overlay[data-layout="bead"]:focus-within .overlay-bead-status::after { opacity: 0; }
 @keyframes overlay-edge-sweep { from { background-position: 150% 0; } to { background-position: -50% 0; } }
 @keyframes overlay-counter-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes overlay-enter { from { opacity: 0; transform: translateY(6px) scale(.94); } }
 @media (prefers-reduced-motion: reduce) {
-  .overlay-row, .overlay-close { transition: none !important; }
-  .overlay-counter, .overlay-shell::before { animation: none !important; }
+  .overlay-row, .overlay-close, .overlay-shell { transition: none !important; }
+  .overlay-counter, .overlay-shell, .overlay-shell::before { animation: none !important; }
 }
 
 /* Equal side slots keep status text centred independently of the cancel button. */
@@ -189,3 +202,10 @@
 .overlay[data-layout="compact"][data-state="recording"][data-timer="off"] .overlay-row { --timer-slot: 0px; }
 .overlay[data-layout="compact"][data-state="recording"] .overlay-close { position: absolute; right: 0; z-index: 2; }
 .overlay[data-layout="compact"] .overlay-waveform { justify-content: space-between; }
+
+/* Dot matrix. A row fills its region's height; a square has a fixed size. */
+.overlay-matrix { display: block; flex: 0 0 auto; }
+.overlay-matrix--row { width: 100%; min-width: 0; height: 100%; min-height: 20px; }
+.overlay-scene-fallback { display: flex; align-items: center; gap: 4px; max-width: 100%; min-width: 0; padding: 4px; border-radius: 12px; background: var(--overlay-surface); color: var(--overlay-edge); }
+.overlay-scene-fallback > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.overlay-scene-fallback > .overlay-close { opacity: 1; flex: 0 0 28px; }

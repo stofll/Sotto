@@ -354,7 +354,11 @@ def app(page, ui_server, pytestconfig, monkeypatch, browser_name):
     )
 
     def route(request_route):
-        if request_route.request.url.startswith(url + "/"):
+        # WebKit routes a page's own blob: URLs too, such as the History
+        # player's audio; they never leave the page.
+        if request_route.request.url.startswith("blob:" + url + "/"):
+            request_route.continue_()
+        elif request_route.request.url.startswith(url + "/"):
             if production and request_route.request.resource_type == "document":
                 response = request_route.fetch()
                 # Tauri authorizes bundled <style> blocks with per-document

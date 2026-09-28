@@ -498,8 +498,14 @@ impl AudioRecorder {
 /// upper range. Both the overlay (`audio-level`) and the mic test
 /// (`microphone-test-level`) emit through this so they stay consistent.
 pub fn display_level(raw_rms: f32) -> f32 {
-    const FLOOR_DB: f32 = -50.0;
-    const CEIL_DB: f32 = -20.0;
+    display_level_in(raw_rms, LEVEL_WINDOW_DB)
+}
+
+/// The dB window of [`display_level`]: (floor → 0.0, ceiling → 1.0).
+pub const LEVEL_WINDOW_DB: (f32, f32) = (-50.0, -20.0);
+
+/// [`display_level`] over another dB window; the overlay's level sensitivity picks one.
+pub fn display_level_in(raw_rms: f32, (floor_db, ceil_db): (f32, f32)) -> f32 {
     // Treat non-positive levels AND NaN as silence. Written with an explicit
     // NaN check + `<=` rather than `!(raw_rms > 1e-6)` so clippy's
     // `neg_cmp_on_partial_ord` stays quiet while keeping the NaN→0.0 behaviour.
@@ -507,7 +513,7 @@ pub fn display_level(raw_rms: f32) -> f32 {
         return 0.0;
     }
     let db = 20.0 * raw_rms.log10();
-    ((db - FLOOR_DB) / (CEIL_DB - FLOOR_DB)).clamp(0.0, 1.0)
+    ((db - floor_db) / (ceil_db - floor_db)).clamp(0.0, 1.0)
 }
 
 /// Where the recording callback puts its output: the full recording, the level

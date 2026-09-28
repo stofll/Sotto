@@ -153,6 +153,9 @@ pub struct AppState {
     /// cancelled is the one being downloaded right now, and the only way the
     /// user knows it is by name.
     pub download_cancels: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
+
+    /// Saved recordings waiting for their dictation's history entry.
+    pub pending_recordings: Arc<crate::recordings::Pending>,
 }
 
 impl AppState {
@@ -185,6 +188,7 @@ impl AppState {
             microphone_test,
             engine_current_model,
             download_cancels: Arc::new(Mutex::new(HashMap::new())),
+            pending_recordings: Arc::default(),
         }
     }
 

@@ -1,5 +1,22 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Sotto",
+        "width": 1000,
+        "height": 710,
+        "minWidth": 1000,
+        "minHeight": 710,
+        "resizable": true,
+        "decorations": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": { "x": 18, "y": 19 }
+      }
+    ]
+  },
   "bundle": {
     "targets": ["app"],
     "macOS": {

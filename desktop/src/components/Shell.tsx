@@ -38,6 +38,12 @@ export const NAV_GROUPS = (): NavGroup[] => ([
   { id: "help", label: t("Помощь"), items: [{ id: "info", label: t("Справка"), icon: "info" }] },
 ]);
 
+// macOS draws its own window buttons (the traffic lights) over the webview —
+// see `titleBarStyle: "Overlay"` in tauri.macos.conf.json. WKWebView reports
+// "Macintosh" in its user agent; it is read once, synchronously, so the first
+// frame already has the right layout.
+const IS_MACOS = typeof navigator !== "undefined" && /Macintosh/.test(navigator.userAgent);
+
 export function TitleBar({ collapsed, onToggleCollapse }: { collapsed?: boolean; onToggleCollapse?: () => void }) {
   async function withWindow(action: "minimize" | "maximize" | "close") {
     const win = getCurrentWindow();
@@ -51,50 +57,62 @@ export function TitleBar({ collapsed, onToggleCollapse }: { collapsed?: boolean;
   // is the page background with the window buttons. It has no colour of its own,
   // so there is no longer a "black stripe" across the top.
   //
+  // On macOS the traffic lights take the left corner instead, and a collapsed
+  // rail is too narrow to hold them: there the bar spans the whole width and the
+  // collapse button stands right of the lights, as in Finder or Notes.
+  //
   // Window dragging rests on `data-tauri-drag-region` rather than on
   // `-webkit-app-region: drag`: only WebView2 understands the latter, so on
   // macOS (WKWebView) the window resized but would not move. The `deep` value
   // spreads the zone across the whole bar; Tauri excludes buttons itself — any
   // `<button>` in the event path cancels the drag.
+  const toggleInBar = IS_MACOS && collapsed;
   return (
-    <div className="titlebar" data-tauri-drag-region="deep">
-      <div className="titlebar__rail"><Brand collapsed={collapsed} onToggleCollapse={onToggleCollapse}/></div>
+    <div className={`titlebar${IS_MACOS ? " titlebar--macos" : ""}`} data-tauri-drag-region="deep">
+      <div className="titlebar__rail"><Brand collapsed={collapsed} onToggleCollapse={toggleInBar ? undefined : onToggleCollapse}/></div>
       <div className="titlebar__bar">
-        <button className="btn btn--ghost titlebar__button" onClick={() => void withWindow("minimize")} aria-label={t("Свернуть")}><svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 5h6" stroke="currentColor" strokeWidth="1"/></svg></button>
-        <button className="btn btn--ghost titlebar__button" onClick={() => void withWindow("maximize")} aria-label={t("Развернуть")}><svg width="10" height="10" viewBox="0 0 10 10"><rect x="2" y="2" width="6" height="6" stroke="currentColor" strokeWidth="1" fill="none"/></svg></button>
-        <button className="btn btn--ghost titlebar__button titlebar__button--close" onClick={() => void withWindow("close")} aria-label={t("Закрыть")}><svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 2l6 6M8 2l-6 6" stroke="currentColor" strokeWidth="1"/></svg></button>
+        {toggleInBar && onToggleCollapse && <SidebarToggle collapsed={collapsed} onToggle={onToggleCollapse}/>}
+        {!IS_MACOS && <>
+          <button className="btn btn--ghost titlebar__button" onClick={() => void withWindow("minimize")} aria-label={t("Свернуть")}><svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 5h6" stroke="currentColor" strokeWidth="1"/></svg></button>
+          <button className="btn btn--ghost titlebar__button" onClick={() => void withWindow("maximize")} aria-label={t("Развернуть")}><svg width="10" height="10" viewBox="0 0 10 10"><rect x="2" y="2" width="6" height="6" stroke="currentColor" strokeWidth="1" fill="none"/></svg></button>
+          <button className="btn btn--ghost titlebar__button titlebar__button--close" onClick={() => void withWindow("close")} aria-label={t("Закрыть")}><svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 2l6 6M8 2l-6 6" stroke="currentColor" strokeWidth="1"/></svg></button>
+        </>}
       </div>
     </div>
   );
 }
 
 // The name lives in the title-bar rail rather than in the sidebar itself: the
-// row with the window buttons occupies the top 38 px anyway, and keeping another
-// row with the name below it meant spending that height twice. Sections now
-// start at the very top of the sidebar.
+// row with the window buttons occupies the top of the window anyway, and keeping
+// another row with the name below it meant spending that height twice. Sections
+// now start at the very top of the sidebar.
 export function Brand({ collapsed, onToggleCollapse }: { collapsed?: boolean; onToggleCollapse?: () => void }) {
-  // The button is the same in both states — only its place changes: to the right
-  // of the name, and in a collapsed sidebar it is the only one and sits centred.
-  // Hiding it behind hover is not an option: nobody hovers over an element they
-  // do not know about — that is the same unread button as before, only without a
-  // place of its own.
-  const label = collapsed ? t("Развернуть сайдбар") : t("Свернуть сайдбар");
   return (
     <div className="sidebar-brand">
       <div className="sidebar-brand__name">Sotto</div>
-      {onToggleCollapse && (
-        <Hint text={label}>
-          <button
-            className="sidebar-brand__toggle"
-            type="button"
-            onClick={onToggleCollapse}
-            aria-label={label}
-          >
-            <Icon name="panel" size={15}/>
-          </button>
-        </Hint>
-      )}
+      {onToggleCollapse && <SidebarToggle collapsed={collapsed} onToggle={onToggleCollapse}/>}
     </div>
+  );
+}
+
+// The button is the same in both states — only its place changes: to the right
+// of the name, and in a collapsed sidebar it is the only one and sits centred.
+// Hiding it behind hover is not an option: nobody hovers over an element they
+// do not know about — that is the same unread button as before, only without a
+// place of its own.
+function SidebarToggle({ collapsed, onToggle }: { collapsed?: boolean; onToggle: () => void }) {
+  const label = collapsed ? t("Развернуть сайдбар") : t("Свернуть сайдбар");
+  return (
+    <Hint text={label}>
+      <button
+        className="sidebar-brand__toggle"
+        type="button"
+        onClick={onToggle}
+        aria-label={label}
+      >
+        <Icon name="panel" size={15}/>
+      </button>
+    </Hint>
   );
 }
 

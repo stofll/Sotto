@@ -40,6 +40,11 @@ export async function clearHistory(): Promise<{ deleted: number }> {
     return await rustInvoke<{ deleted: number }>("clear_history");
 }
 
+/** The entry's saved recording as WAV bytes; see `has_recording`. */
+export async function historyRecording(id: number): Promise<ArrayBuffer> {
+    return await rustInvoke<ArrayBuffer>("history_recording", { id });
+}
+
 /**
  * Re-run the LLM over an existing entry WITHOUT storing anything: the caller
  * shows the result next to the current text and decides what to do with it.
