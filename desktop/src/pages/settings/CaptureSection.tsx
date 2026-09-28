@@ -4,7 +4,7 @@ import { Segmented } from "../../components/Shell";
 import { Icon } from "../../components/Icon";
 import { Hint } from "../../components/Hint";
 import { t } from "../../i18n";
-import { DEFAULT_HOTKEY, normalizeHotkeyKey } from "../../hotkey";
+import { DEFAULT_HOTKEY, dependsOnNumLock, normalizeHotkeyKey } from "../../hotkey";
 import type { ConfigChanged } from "./controls";
 
 function hotkeyLabel(hotkey: string | undefined, fallback: string) {
@@ -220,20 +220,26 @@ export function HotkeyDisplay({ hotkey, fallback = DEFAULT_HOTKEY, onConfigChang
     );
   }
 
+  const shown = hotkey || fallback;
   return (
-    <div className="hotkey-display">
-      <div className="hotkey-display__keys">
-        {hotkeyLabel(hotkey, fallback).map((key, i, arr) => <span key={`${key}-${i}`} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><span className="kbd">{key}</span>{i < arr.length - 1 && <span style={{ color: "var(--ink-mute)" }}>+</span>}</span>)}
+    <>
+      <div className="hotkey-display">
+        <div className="hotkey-display__keys">
+          {hotkeyLabel(shown, fallback).map((key, i, arr) => <span key={`${key}-${i}`} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><span className="kbd">{key}</span>{i < arr.length - 1 && <span style={{ color: "var(--ink-mute)" }}>+</span>}</span>)}
+        </div>
+        <Hint text={t("Изменить")}>
+          <button
+            className="btn btn--ghost hotkey-display__edit"
+            type="button"
+            aria-label={t("Изменить")}
+            onClick={() => { setValue(shown); setEditing(true); }}
+          ><Icon name="pencil" size={13}/></button>
+        </Hint>
       </div>
-      <Hint text={t("Изменить")}>
-        <button
-          className="btn btn--ghost hotkey-display__edit"
-          type="button"
-          aria-label={t("Изменить")}
-          onClick={() => { setValue(hotkey || fallback); setEditing(true); }}
-        ><Icon name="pencil" size={13}/></button>
-      </Hint>
-    </div>
+      {import.meta.env.TAURI_ENV_PLATFORM === "windows" && dependsOnNumLock(shown) && (
+        <p className="hotkey-display__note">{t("Срабатывает при включённом NumLock")}</p>
+      )}
+    </>
   );
 }
 

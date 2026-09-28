@@ -32,7 +32,8 @@ def pytest_addoption(parser):
         "--ui-build-platform",
         choices=["windows", "macos"],
         default="windows",
-        help="Tauri frontend build target; does not emulate native OS behavior.",
+        help="Tauri frontend target platform for the build or dev server; "
+        "does not emulate native OS behavior.",
     )
 
 
@@ -197,15 +198,16 @@ def ui_server(tmp_path_factory, pytestconfig, browser):
     )
     server_args = []
     dev = pytestconfig.getoption("--ui-mode") == "dev"
+    # `tauri dev` also sets the platform, so both modes see the same target.
+    env = build_env(pytestconfig)
     if not dev:
-        env = build_env(pytestconfig)
         dist = shared_build(
             tmp_path_factory, "sotto-ui-dist", lambda out: vite_build(out, env=env)
         )
         server_args = ["preview", "--outDir", str(dist)]
     # A probed port can be taken before Vite binds it; the shared server
     # helper retries both application and setup previews on a fresh port.
-    with _vite_server(work, server_args) as url:
+    with _vite_server(work, server_args, env=env) as url:
         if dev:
             warm_dev_server(
                 browser,

@@ -177,6 +177,49 @@ def test_hotkey_failed_save_keeps_draft_and_retries_one_transaction(app, page, c
     assert len(ui.calls("save_config")) == 2
 
 
+@pytest.mark.parametrize(
+    "keys,hotkey",
+    [
+        ("Numpad0", "numpad0"),
+        ("NumpadAdd", "numpadadd"),
+        ("F9", "f9"),
+        ("Alt+Numpad7", "alt+numpad7"),
+        ("Shift+Control+F5", "ctrl+shift+f5"),
+        ("Meta+Alt+Control+Shift+KeyK", "ctrl+alt+shift+cmd+k"),
+    ],
+)
+def test_hotkey_capture_records_physical_chord(app, page, keys, hotkey):
+    ui = app(config={"ui_accent": "#e68a3d"})
+    ui.queue("validate_hotkey", {"result": None})
+    page.get_by_role("button", name="Изменить", exact=True).click()
+    page.get_by_role("button", name="Записать", exact=True).click()
+    page.keyboard.press(keys)
+    ui.saved("hotkey", hotkey)
+    assert [call["args"] for call in ui.calls("validate_hotkey")] == [
+        {"hotkey": hotkey}
+    ]
+
+
+@pytest.mark.parametrize(
+    "hotkey,depends",
+    [
+        ("numpad0", True),
+        ("alt+numpaddecimal", True),
+        ("numpadadd", False),
+        ("ctrl+shift+f5", False),
+    ],
+)
+def test_numpad_digit_hotkey_mentions_num_lock(
+    app, page, pytestconfig, hotkey, depends
+):
+    app(config={"hotkey": hotkey})
+    expect(page.get_by_role("button", name="Изменить", exact=True)).to_be_visible()
+    windows = pytestconfig.getoption("--ui-build-platform") == "windows"
+    expect(page.get_by_text("Срабатывает при включённом NumLock")).to_have_count(
+        1 if depends and windows else 0
+    )
+
+
 def test_hotkey_escape_leaves_config_unchanged(app, page):
     ui = app(config={"ui_accent": "#e68a3d"})
     page.get_by_role("button", name="Изменить", exact=True).click()

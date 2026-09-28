@@ -2,6 +2,13 @@
 // `src-tauri/src/config.rs`. Persisted config still takes precedence.
 export const DEFAULT_HOTKEY = "ctrl+shift+space";
 
+// Windows reports these as navigation keys (Insert, End, …) while Num Lock is
+// off, so the shortcut only fires with Num Lock on.
+export function dependsOnNumLock(hotkey: string): boolean {
+  const key = hotkey.split("+").pop()?.trim().toLowerCase() ?? "";
+  return /^numpad([0-9]|decimal)$/.test(key);
+}
+
 export function normalizeHotkeyKey(e: Pick<KeyboardEvent, "key" | "code">): string | null {
   // Modifier keys come through with both e.key and e.code reflecting the name.
   if (e.key === "Control" || e.code === "ControlLeft" || e.code === "ControlRight") return "ctrl";
@@ -15,7 +22,7 @@ export function normalizeHotkeyKey(e: Pick<KeyboardEvent, "key" | "code">): stri
     Home: "home", End: "end", PageUp: "pageup", PageDown: "pagedown",
   };
   if (named[e.code]) return named[e.code];
-  if (/^F\d{1,2}$/.test(e.code)) return e.code.toLowerCase();
+  if (/^F([1-9]|1\d|2[0-4])$/.test(e.code)) return e.code.toLowerCase();
   // Physical codes stay the same with Russian layouts and Shift pressed.
   if (/^Key[A-Z]$/.test(e.code)) return e.code.slice(3).toLowerCase();
   if (/^Digit[0-9]$/.test(e.code)) return e.code.slice(5);
