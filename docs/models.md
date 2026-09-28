@@ -29,6 +29,8 @@ The engine is selected from the manifest, not from the file name: `ModelEngine` 
 
 All of them run on the CPU provider of ONNX Runtime. The CPU/GPU switch only applies to Whisper, and the UI does not show it for sherpa models.
 
+GigaAM recordings longer than 25 seconds are decoded in consecutive fragments. Sotto prefers a speech-detector pause near 20 seconds and keeps each fragment within 25 seconds; continuous speech falls back to a nearby low-energy boundary. All samples are retained without overlap, so joining results does not remove intentional repeated words. Short recordings take the original single-pass path. This applies to microphone and file transcription, and cancellation is checked between fragments; an in-progress native decode still has to finish. A boundary without a pause can cut a word, so segmentation does not guarantee perfect long-form recognition.
+
 Quantization is shown by the catalog next to the size: `int8` for sherpa bundles, `q8_0` for some Whisper builds. It explains why a model weighs less than expected, and it lives next to the size rather than in the name.
 
 ### Languages are a closed list

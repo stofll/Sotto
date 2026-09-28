@@ -56,6 +56,7 @@ mod output_volume;
 mod overlay;
 mod overlay_preferences;
 mod portable;
+mod recordings;
 mod release_notes;
 pub mod secret_store;
 pub mod sherpa;
@@ -1073,19 +1074,19 @@ pub(crate) fn on_recording_stopped(app: &AppHandle, session_id: u64, audio: Opti
         return;
     };
     // A cancel may arrive while the audio worker is finalizing, and a
-    // cancelled capture must not be written out as a successful debug
-    // recording. A plain read, not a lock held across the write: both callers
-    // check the same marker immediately before calling in, and holding the
+    // cancelled capture must not be kept as a recording. A plain read, not a
+    // lock held across the write: both callers check the same marker
+    // immediately before calling in, and holding the
     // cancellation mutex across file I/O would park every concurrent
     // `request_cancel`/`begin_commit` for the length of a WAV write.
     if app.state::<AppState>().is_cancelled(session_id) {
         return;
     }
-    if let Some(path) = crate::debug::save_recording(cfg.as_value(), session_id, samples) {
-        log::info!(
-            "session {session_id}: recording saved to {}",
-            path.display()
-        );
+    if let Some(name) = crate::recordings::save(cfg.as_value(), session_id, samples) {
+        log::info!("session {session_id}: recording saved");
+        app.state::<AppState>()
+            .pending_recordings
+            .put(session_id, name);
     }
     // Toggle mode only — see `sounds::Cue::Stop`.
     if cfg.get_string("recording_mode").as_deref() == Some("toggle") {
@@ -1490,6 +1491,9 @@ pub fn run() {
             // above: the prune takes the connection itself, after the config
             // lock.
             crate::history::prune_to_settings(app.handle(), &db_arc);
+            // Builds before recordings moved to Settings kept them in the
+            // logs folder, which is what people share in bug reports.
+            crate::recordings::adopt_diagnostics_recordings();
 
             // Product telemetry is independent from stats/history and is
             // deliberately non-fatal. The installation ID is random and
@@ -1598,6 +1602,7 @@ pub fn run() {
             history::list_history,
             history::delete_history_entry,
             history::clear_history,
+            history::history_recording,
             // Manual LLM processing of an existing history entry: the run
             // and the write are separate so the result can be reviewed first.
             history::preview_history_ai_processing,
@@ -1641,6 +1646,8 @@ pub fn run() {
             feedback::get_public_logs,
             feedback::save_public_logs,
             debug::open_diagnostics_folder,
+            recordings::open_recordings_folder,
+            recordings::recordings_size,
             debug::logs_size,
             debug::clear_logs,
             dictionaries::dictionary_presets,

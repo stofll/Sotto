@@ -140,8 +140,8 @@ impl AiConfig {
     /// needs; a live path that has a recording can set
     /// `audio_duration_seconds` on the returned value.
     ///
-    /// Defaults mirror the previous inline extraction: `pipeline_mode`
-    /// falls back to `"hybrid"`, `llm_timeout_seconds` to `12`, string
+    /// Defaults: `pipeline_mode` falls back to `"local"`, the app-wide
+    /// default for a config without it, `llm_timeout_seconds` to `12`, string
     /// fields to empty, and `system_prompt` accepts the legacy
     /// `format_prompt` alias.
     pub fn from_ai_processing(v: &serde_json::Value) -> Self {
@@ -155,7 +155,7 @@ impl AiConfig {
             pipeline_mode: v
                 .get("pipeline_mode")
                 .and_then(serde_json::Value::as_str)
-                .unwrap_or("hybrid")
+                .unwrap_or("local")
                 .to_string(),
             provider: s("provider"),
             model: s("model"),
@@ -717,6 +717,12 @@ mod tests {
     /// `run_ai_prompt` drops a blank Base URL before it builds the config;
     /// the live dictation path comes through here instead, so this is where
     /// the empty string the UI persists has to disappear.
+    #[test]
+    fn config_from_ai_processing_defaults_to_local() {
+        let config = AiConfig::from_ai_processing(&serde_json::json!({}));
+        assert_eq!(config.pipeline_mode, "local");
+    }
+
     #[test]
     fn config_from_ai_processing_treats_a_blank_base_url_as_absent() {
         for blank in ["", "   "] {

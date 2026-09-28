@@ -14,9 +14,10 @@
 //! `timestamp REAL`, exact `transcription_model`, and JSON-blob columns for
 //! `ai_processing` / `processing_stats` containing the recorded pipeline metrics.
 
+use std::collections::HashSet;
 use std::sync::Mutex;
 
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 use serde::Serialize;
 use serde_json::Value;
 use tauri::AppHandle;
@@ -111,6 +112,12 @@ pub struct HistoryEntry {
     #[serde(rename = "system_prompt")]
     pub system_prompt: Option<String>,
     pub length: u32,
+    /// Whether the dictation's saved recording is still on disk. The file
+    /// name itself stays on this side of the bridge.
+    #[serde(rename = "has_recording")]
+    pub has_recording: bool,
+    #[serde(skip)]
+    pub recording_file: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -151,6 +158,8 @@ pub struct NewEntry<'a> {
     pub processing_stats_json: Option<&'a str>,
     pub system_prompt: Option<&'a str>,
     pub transcription_model: Option<&'a str>,
+    /// File name from [`crate::recordings::save`].
+    pub recording_file: Option<&'a str>,
 }
 
 /// Append a new entry. Returns the assigned `id`.
@@ -188,6 +197,7 @@ pub fn append(
             processing_stats_json: Some(&processing_stats),
             system_prompt: None,
             transcription_model: None,
+            recording_file: None,
         },
     )
 }
@@ -226,8 +236,8 @@ fn insert_entry_with_collision_retry(
         let affected = conn.execute(
             "INSERT OR IGNORE INTO history (id, timestamp, text, raw_text, formatted_text, \
              length, language, session_id, inference_time_ms, ai_processing_json, \
-             processing_stats_json, system_prompt, transcription_model) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+             processing_stats_json, system_prompt, transcription_model, recording_file) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             rusqlite::params![
                 id,
                 timestamp,
@@ -242,6 +252,7 @@ fn insert_entry_with_collision_retry(
                 entry.processing_stats_json,
                 entry.system_prompt,
                 entry.transcription_model,
+                entry.recording_file,
             ],
         )?;
         if affected > 0 {
@@ -326,32 +337,11 @@ pub fn list_history_from(
     } else {
         -1
     };
-    let mut stmt = conn.prepare(
-        "SELECT id, timestamp, text, raw_text, formatted_text, language, inference_time_ms, \
-         ai_processing_json, processing_stats_json, system_prompt, transcription_model, length \
-         FROM history WHERE timestamp > ?1 ORDER BY timestamp DESC LIMIT ?2",
-    )?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {ENTRY_COLUMNS} FROM history WHERE timestamp > ?1 ORDER BY timestamp DESC LIMIT ?2"
+    ))?;
     let entries = stmt
-        .query_map(rusqlite::params![cutoff, select_limit], |r| {
-            Ok(HistoryEntry {
-                id: r.get::<_, i64>(0)? as u64,
-                timestamp: r.get(1)?,
-                text: r.get(2)?,
-                raw_text: r.get(3)?,
-                formatted_text: r.get(4)?,
-                language: r.get(5)?,
-                inference_time_ms: r.get::<_, Option<i64>>(6)?.map(|v| v as u64),
-                ai_processing: r
-                    .get::<_, Option<String>>(7)?
-                    .and_then(|s| serde_json::from_str(&s).ok()),
-                processing_stats: r
-                    .get::<_, Option<String>>(8)?
-                    .and_then(|s| serde_json::from_str(&s).ok()),
-                system_prompt: r.get(9)?,
-                transcription_model: r.get(10)?,
-                length: r.get::<_, i64>(11)? as u32,
-            })
-        })?
+        .query_map(rusqlite::params![cutoff, select_limit], entry_from_row)?
         .collect::<Result<Vec<_>, _>>()?;
 
     Ok(HistoryListResult {
@@ -361,18 +351,92 @@ pub fn list_history_from(
     })
 }
 
-pub fn delete_from(conn: &Connection, id: u64) -> Result<DeleteResult, rusqlite::Error> {
-    let affected = conn.execute("DELETE FROM history WHERE id = ?1", [id as i64])?;
-    Ok(DeleteResult {
-        deleted: affected > 0,
+const ENTRY_COLUMNS: &str = "id, timestamp, text, raw_text, formatted_text, language, \
+     inference_time_ms, ai_processing_json, processing_stats_json, system_prompt, \
+     transcription_model, length, recording_file";
+
+/// One row selected with [`ENTRY_COLUMNS`]. `has_recording` is left to
+/// [`mark_recordings`], which needs the disk rather than the database.
+fn entry_from_row(r: &rusqlite::Row) -> Result<HistoryEntry, rusqlite::Error> {
+    Ok(HistoryEntry {
+        id: r.get::<_, i64>(0)? as u64,
+        timestamp: r.get(1)?,
+        text: r.get(2)?,
+        raw_text: r.get(3)?,
+        formatted_text: r.get(4)?,
+        language: r.get(5)?,
+        inference_time_ms: r.get::<_, Option<i64>>(6)?.map(|v| v as u64),
+        ai_processing: r
+            .get::<_, Option<String>>(7)?
+            .and_then(|s| serde_json::from_str(&s).ok()),
+        processing_stats: r
+            .get::<_, Option<String>>(8)?
+            .and_then(|s| serde_json::from_str(&s).ok()),
+        system_prompt: r.get(9)?,
+        transcription_model: r.get(10)?,
+        length: r.get::<_, i64>(11)? as u32,
+        has_recording: false,
+        recording_file: r.get(12)?,
     })
 }
 
-pub fn clear_from(conn: &Connection) -> Result<ClearResult, rusqlite::Error> {
+/// Set `has_recording` from what is on disk: the recordings limit and the
+/// user's own file manager both delete files the database still names.
+fn mark_recordings(entries: &mut [HistoryEntry], existing: &HashSet<String>) {
+    for entry in entries {
+        entry.has_recording = entry
+            .recording_file
+            .as_ref()
+            .is_some_and(|name| existing.contains(name));
+    }
+}
+
+fn mark_recordings_on_disk(entries: &mut [HistoryEntry]) {
+    if entries.iter().any(|entry| entry.recording_file.is_some()) {
+        mark_recordings(entries, &crate::recordings::existing_names());
+    }
+}
+
+fn recording_of(conn: &Connection, id: u64) -> Result<Option<String>, rusqlite::Error> {
+    Ok(conn
+        .query_row(
+            "SELECT recording_file FROM history WHERE id = ?1",
+            [id as i64],
+            |r| r.get::<_, Option<String>>(0),
+        )
+        .optional()?
+        .flatten())
+}
+
+/// Delete one entry and return the name of its recording, if it had one:
+/// deleting a dictation from History deletes its audio too.
+pub fn delete_from(
+    conn: &Connection,
+    id: u64,
+) -> Result<(DeleteResult, Option<String>), rusqlite::Error> {
+    let recording = recording_of(conn, id)?;
+    let affected = conn.execute("DELETE FROM history WHERE id = ?1", [id as i64])?;
+    Ok((
+        DeleteResult {
+            deleted: affected > 0,
+        },
+        recording,
+    ))
+}
+
+/// Delete every entry and return the names of their recordings.
+pub fn clear_from(conn: &Connection) -> Result<(ClearResult, Vec<String>), rusqlite::Error> {
+    let recordings = conn
+        .prepare("SELECT recording_file FROM history WHERE recording_file IS NOT NULL")?
+        .query_map([], |r| r.get(0))?
+        .collect::<Result<Vec<String>, _>>()?;
     let affected = conn.execute("DELETE FROM history", [])?;
-    Ok(ClearResult {
-        deleted: affected as u64,
-    })
+    Ok((
+        ClearResult {
+            deleted: affected as u64,
+        },
+        recordings,
+    ))
 }
 
 #[tauri::command]
@@ -386,7 +450,13 @@ pub(crate) async fn list_history(
         .map(|cfg| RetentionPolicy::from_config(cfg.as_value()))
         .unwrap_or_default();
     let db = state.db.clone();
-    crate::run_db_op(db, move |conn| list_history_from(conn, policy)).await
+    let mut result = crate::run_db_op(db, move |conn| list_history_from(conn, policy)).await?;
+    tokio::task::spawn_blocking(move || {
+        mark_recordings_on_disk(&mut result.entries);
+        result
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -395,7 +465,11 @@ pub(crate) async fn delete_history_entry(
     id: u64,
 ) -> Result<DeleteResult, String> {
     let db = state.db.clone();
-    crate::run_db_op(db, move |conn| delete_from(conn, id)).await
+    let (result, recording) = crate::run_db_op(db, move |conn| delete_from(conn, id)).await?;
+    if let Some(name) = recording {
+        let _ = tokio::task::spawn_blocking(move || crate::recordings::remove(&[name])).await;
+    }
+    Ok(result)
 }
 
 #[tauri::command]
@@ -403,7 +477,26 @@ pub(crate) async fn clear_history(
     state: tauri::State<'_, crate::state::AppState>,
 ) -> Result<ClearResult, String> {
     let db = state.db.clone();
-    crate::run_db_op(db, clear_from).await
+    let (result, recordings) = crate::run_db_op(db, clear_from).await?;
+    let _ = tokio::task::spawn_blocking(move || crate::recordings::remove(&recordings)).await;
+    Ok(result)
+}
+
+/// The saved recording of a history entry as WAV bytes for the History
+/// player. Bytes rather than a path: the page needs no file access.
+#[tauri::command]
+pub(crate) async fn history_recording(
+    state: tauri::State<'_, crate::state::AppState>,
+    id: u64,
+) -> Result<tauri::ipc::Response, String> {
+    let db = state.db.clone();
+    let name = crate::run_db_op(db, move |conn| recording_of(conn, id))
+        .await?
+        .ok_or_else(|| "no recording for this entry".to_string())?;
+    let bytes = tokio::task::spawn_blocking(move || crate::recordings::read(&name))
+        .await
+        .map_err(|e| e.to_string())??;
+    Ok(tauri::ipc::Response::new(bytes))
 }
 
 /// Return shape for `apply_history_ai_processing`.
@@ -661,6 +754,16 @@ pub(crate) async fn apply_history_ai_processing(
 
     let db = state.db.clone();
     let entry = crate::run_db_op(db, move |conn| read_history_entry(conn, id)).await?;
+    // The page replaces its copy of the row with this one, player included.
+    let entry = tokio::task::spawn_blocking(move || {
+        let mut entry = entry;
+        if let Some(entry) = entry.as_mut() {
+            mark_recordings_on_disk(std::slice::from_mut(entry));
+        }
+        entry
+    })
+    .await
+    .map_err(|e| e.to_string())?;
     Ok(HistoryRetryAiResult {
         updated: entry.is_some(),
         entry,
@@ -715,34 +818,12 @@ fn retry_failure_reason(status: &crate::ai::step::AiStatus) -> Option<String> {
 /// Read a single history row by id (used by the manual LLM processing path
 /// to fetch the source text and to re-fetch the row after the write).
 fn read_history_entry(conn: &Connection, id: u64) -> Result<Option<HistoryEntry>, rusqlite::Error> {
-    let mut stmt = conn.prepare(
-        "SELECT id, timestamp, text, raw_text, formatted_text, language, inference_time_ms, \
-         ai_processing_json, processing_stats_json, system_prompt, transcription_model, length \
-         FROM history WHERE id = ?1",
-    )?;
-    let mut rows = stmt.query([id as i64])?;
-    if let Some(row) = rows.next()? {
-        Ok(Some(HistoryEntry {
-            id: row.get::<_, i64>(0)? as u64,
-            timestamp: row.get(1)?,
-            text: row.get(2)?,
-            raw_text: row.get(3)?,
-            formatted_text: row.get(4)?,
-            language: row.get(5)?,
-            inference_time_ms: row.get::<_, Option<i64>>(6)?.map(|v| v as u64),
-            ai_processing: row
-                .get::<_, Option<String>>(7)?
-                .and_then(|s| serde_json::from_str(&s).ok()),
-            processing_stats: row
-                .get::<_, Option<String>>(8)?
-                .and_then(|s| serde_json::from_str(&s).ok()),
-            system_prompt: row.get(9)?,
-            transcription_model: row.get(10)?,
-            length: row.get::<_, i64>(11)? as u32,
-        }))
-    } else {
-        Ok(None)
-    }
+    conn.query_row(
+        &format!("SELECT {ENTRY_COLUMNS} FROM history WHERE id = ?1"),
+        [id as i64],
+        entry_from_row,
+    )
+    .optional()
 }
 
 /// Write back the result of re-running the LLM over an existing history row.
@@ -987,6 +1068,7 @@ mod tests {
                 processing_stats_json: Some(stats_json),
                 system_prompt: Some("Ты редактор диктовки."),
                 transcription_model: Some("gigaam-v3"),
+                recording_file: None,
             },
         )
         .unwrap();
@@ -1078,11 +1160,70 @@ mod tests {
     fn delete_history_entry_returns_deleted_true() {
         let db = fresh_db();
         let id = append(&db, "test", Some(1), None, 100, 2.0).unwrap();
-        let result = delete_from(&db.lock().unwrap(), id).unwrap();
+        let (result, recording) = delete_from(&db.lock().unwrap(), id).unwrap();
         assert!(result.deleted);
+        assert_eq!(recording, None);
         // Second delete returns false.
-        let result2 = delete_from(&db.lock().unwrap(), id).unwrap();
+        let (result2, _) = delete_from(&db.lock().unwrap(), id).unwrap();
         assert!(!result2.deleted);
+    }
+
+    fn append_with_recording(db: &Mutex<Connection>, text: &str, recording: &str) -> u64 {
+        append_entry(
+            db,
+            &NewEntry {
+                text,
+                recording_file: Some(recording),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn deleting_an_entry_hands_back_its_recording() {
+        let db = fresh_db();
+        let id = append_with_recording(&db, "a", "1000-1.wav");
+        let (_, recording) = delete_from(&db.lock().unwrap(), id).unwrap();
+        assert_eq!(recording.as_deref(), Some("1000-1.wav"));
+    }
+
+    #[test]
+    fn clearing_hands_back_every_recording() {
+        let db = fresh_db();
+        append_with_recording(&db, "a", "1000-1.wav");
+        append(&db, "b", None, None, 0, 0.0).unwrap();
+        append_with_recording(&db, "c", "1001-2.wav");
+        let (result, mut recordings) = clear_from(&db.lock().unwrap()).unwrap();
+        recordings.sort();
+        assert_eq!(result.deleted, 3);
+        assert_eq!(recordings, ["1000-1.wav", "1001-2.wav"]);
+    }
+
+    #[test]
+    fn only_recordings_still_on_disk_are_playable() {
+        let db = fresh_db();
+        let kept = append_with_recording(&db, "a", "1000-1.wav");
+        let pruned = append_with_recording(&db, "b", "1001-2.wav");
+        let none = append(&db, "c", None, None, 0, 0.0).unwrap();
+        let mut list = list_history_from(&db.lock().unwrap(), RetentionPolicy::default()).unwrap();
+        mark_recordings(
+            &mut list.entries,
+            &HashSet::from(["1000-1.wav".to_string()]),
+        );
+        let playable = |id| {
+            list.entries
+                .iter()
+                .find(|e| e.id == id)
+                .unwrap()
+                .has_recording
+        };
+        assert!(playable(kept));
+        assert!(!playable(pruned));
+        assert!(!playable(none));
+        // The file name never reaches the page.
+        let json = serde_json::to_value(&list.entries[0]).unwrap();
+        assert!(json.get("recording_file").is_none());
     }
 
     #[test]
@@ -1126,7 +1267,7 @@ mod tests {
         let db = fresh_db();
         append(&db, "a", None, None, 0, 0.0).unwrap();
         append(&db, "b", None, None, 0, 0.0).unwrap();
-        let result = clear_from(&db.lock().unwrap()).unwrap();
+        let (result, _) = clear_from(&db.lock().unwrap()).unwrap();
         assert_eq!(result.deleted, 2);
         let list = list_history_from(&db.lock().unwrap(), RetentionPolicy::default()).unwrap();
         assert_eq!(list.entries.len(), 0);

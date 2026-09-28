@@ -432,7 +432,10 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 .checkbox-row:has(.checkbox:disabled) { cursor: not-allowed; }
 .label-with-hint { display: inline-flex; align-items: center; gap: 5px; }
 
-.win { background: var(--bg-0); border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow-modal); height: 100%; display: grid; grid-template-rows: auto 1fr; }
+/* No radius or shadow of its own: the window is opaque, so the OS draws its
+   corners (Windows 11, macOS) — a second, different radius inside left a
+   darker wedge in each corner. */
+.win { background: var(--bg-0); overflow: hidden; height: 100%; display: grid; grid-template-rows: auto 1fr; }
 .win__layout { display: grid; grid-template-columns: var(--sidebar-w) 1fr; min-height: 0; position: relative; transition: grid-template-columns .34s cubic-bezier(.32,.72,0,1); }
 /* The expand easing starts with a jolt and takes a long time to settle — on
    opening that reads as responsiveness, while on closing the same jolt looks
@@ -452,8 +455,18 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 .titlebar__bar { background: var(--bg-2); display: flex; align-items: flex-start; justify-content: flex-end; gap: 4px; padding: 6px 12px 0; color: var(--ink-mute); }
 .titlebar__button { height: 24px; width: 28px; padding: 0; }
 .titlebar__button--close:hover:not(:disabled) { background: rgba(239,94,107,0.16); color: var(--err); }
-.titlebar__dots { display: flex; gap: 6px; }
-.titlebar__dots span { width: 11px; height: 11px; border-radius: 50%; background: var(--bg-5); border: 1px solid var(--line-strong); }
+/* macOS: the native traffic lights sit at the left of the rail (their inset is
+   `trafficLightPosition` in tauri.macos.conf.json), so the name starts after
+   them. A collapsed rail cannot fit them: the rail folds away in the title bar
+   and the bar, with the collapse button, spans the width. */
+.titlebar--macos { --traffic-lights-w: 84px; }
+.titlebar--macos .titlebar__rail { overflow: hidden; }
+.titlebar--macos .sidebar-brand { padding-left: var(--traffic-lights-w); }
+.titlebar--macos .sidebar-brand__name { left: var(--traffic-lights-w); }
+.titlebar--macos .titlebar__bar { align-items: center; justify-content: flex-start; padding-top: 0; }
+.win.collapsed .titlebar--macos { grid-template-columns: 0 1fr; }
+.win.collapsed .titlebar--macos .titlebar__rail { border-right-color: transparent; }
+.win.collapsed .titlebar--macos .titlebar__bar { padding-left: var(--traffic-lights-w); }
 .sidebar-brand { position: relative; display: flex; align-items: center; gap: 8px; height: 100%; width: 100%; min-width: 0; padding: 0 8px 0 16px; transition: padding .4s cubic-bezier(.32,.72,0,1); }
 .sidebar-brand__name { position: absolute; left: 16px; top: 50%; transform: translateY(-50%); pointer-events: none; font: 600 17px/1 var(--font-sans); letter-spacing: -0.015em; white-space: nowrap; opacity: 1; transition: opacity .3s ease-out; }
 .nav { padding: 10px 8px 6px; display: flex; flex-direction: column; gap: 4px; overflow-y: auto; overflow-x: hidden; }
@@ -1289,6 +1302,8 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .behavior-row__paste-options .checkbox-row,
 .behavior-row__duck .checkbox-row,
 .advanced__autostart-row .checkbox-row,
+.advanced__recordings-row .checkbox-row,
+.advanced__recordings-caption,
 .overlay-settings .checkbox-row,
 .sound-feedback-control__label { font: 500 11.5px/1 var(--font-sans); color: var(--ink-mute); }
 
@@ -1435,7 +1450,8 @@ button.card { appearance: none; font: inherit; color: inherit; }
 }
 .advanced__paste-row .checkbox-row { font: 500 11.5px/1 var(--font-sans); color: var(--ink-mute); }
 
-.advanced__autostart-row {
+.advanced__autostart-row,
+.advanced__recordings-row {
   display: flex;
   align-items: center;
   gap: 16px 28px;
@@ -1444,6 +1460,10 @@ button.card { appearance: none; font: inherit; color: inherit; }
   padding-top: 12px;
   border-top: 1px solid var(--line-soft);
 }
+
+.advanced__recordings-keep { display: inline-flex; align-items: center; gap: 8px; }
+.advanced__recordings-keep .custom-select { width: 150px; max-width: 150px; }
+.advanced__recordings-size { font: 500 11px/1 var(--font-mono); color: var(--ink-faint); }
 
 /* Collapsible sections on the settings page. */
 .advanced > summary { list-style: none; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; font: 500 11.5px/1 var(--font-sans); color: var(--ink-mute); user-select: none; outline: none; }

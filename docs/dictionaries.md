@@ -34,7 +34,7 @@ The library and editor operate locally and do not require an LLM or cloud servic
 
 **Processing → Text → Cleanup → Correct spelling** checks lowercase Russian words when the dictation language is **Russian**. It uses a bundled Hunspell dictionary, works offline with every speech engine, and is enabled by default. **Auto** and other languages leave spelling unchanged: Cyrillic alone does not establish that a word is Russian. Switch it off independently or disable local formatting to keep the recognised spelling.
 
-The corrector changes an unknown word only when it finds a single valid candidate one letter edit away and the change repairs a mechanical error: a repeated letter, transposed neighbours, a trailing filler sound «э», or a missing hyphen in an indefinite pronoun or adverb with «кое-», «-то», «-либо» or «-нибудь». A unique dictionary neighbour alone is insufficient: it could replace unknown jargon with an unrelated ordinary word. Arbitrary letter substitutions, compound hyphens and word splits are never invented.
+The corrector changes an unknown word only when it finds a single valid candidate one letter edit away and the change repairs a mechanical error: a repeated letter, transposed neighbours in words of at least seven letters, a trailing filler sound «э», or a missing hyphen in an indefinite pronoun or adverb with «кое-», «-то», «-либо» or «-нибудь». Short transpositions are left unchanged because they can produce an unrelated valid word. Repeated final letters in the short function words «так», «как», «что», «это», «тут» and «там» have a separate narrow correction rule. Arbitrary letter substitutions, compound hyphens and word splits are never invented.
 
 It preserves recognised words, capitalised names, mixed scripts, technical tokens, and terms from enabled dictionaries. Shorter words and ambiguous candidates are left alone; agreement, missing words, and meaning are not inferred. The bundled vocabulary can miss modern slang and specialist terms.
 
@@ -48,7 +48,15 @@ Comma cleanup removes duplicate commas and a leading comma; it preserves commas 
 
 Cleanup preserves «в общем и целом», comparative «короче» inside a clause, and lexical repetitions such as «чуть чуть», «еле еле» and «едва едва». An explicit custom verbal tic still requests deletion. These safeguards do not infer sentence meaning: unpunctuated sentence boundaries and deliberate repetitions can remain ambiguous.
 
-The spelling dictionary is prepared on a background worker at startup when needed by the saved settings, or loaded on demand after those settings change. Local formatting runs on a background worker for dictation, file transcription, and text preview. Candidate searches are bounded to words of 5–24 letters and 128 distinct unknown words per pass; words beyond that limit remain unchanged. Source revision, checksums and redistribution notices are recorded in [the bundled dictionary sources](../desktop/src-tauri/resources/spelling/SOURCES.md).
+The spelling dictionary is prepared on a background worker at startup when needed by the saved settings, or loaded on demand after those settings change. Local formatting runs on a background worker for dictation, file transcription, and text preview. Candidate searches are bounded to words of 4–24 letters and 128 distinct unknown words per pass; words beyond that limit remain unchanged. Source revision, checksums and redistribution notices are recorded in [the bundled dictionary sources](../desktop/src-tauri/resources/spelling/SOURCES.md).
+
+Fuzzy term matching does not rewrite a single Latin word unless it is a dictionary acronym, and does not absorb a Russian function word at either edge of a phrase. Exact phonetic matches remain available. The development set includes «оверлей», `Hugging Face` and `drag and drop`; an ambiguous fragment is not automatically treated as one of these terms. Built-in verbal-tic cleanup preserves «типа» within an unpunctuated clause, such as «поле типа string»; an explicit custom deletion still takes precedence.
+
+## Local paragraphs
+
+**Processing → Text → Cleanup → Split text into paragraphs** is enabled by default and works without an LLM. It groups existing sentences in longer text, usually around four sentences or 350 characters, and avoids leaving a very short final paragraph. It preserves existing line breaks and does not change words or invent punctuation. Short messages and text without reliable sentence endings remain together.
+
+Paragraph detection protects code, links, common Russian and English abbreviations, initials and quoted or parenthesized text. It is a readability heuristic, not semantic topic detection. The separate **Split long sentences** option remains off by default and uses conjunction-based rules; it is not needed for paragraphs. Disabling local formatting also disables paragraph grouping.
 
 ## Verbal tics
 

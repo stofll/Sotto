@@ -1,15 +1,14 @@
 //! Debug mode: what to ask a user for when you cannot look at their machine.
 //!
-//! Three things, each cheap on its own:
+//! Two things, each cheap on its own:
 //!
 //! - **Log level from config.** `info` is right for normal use and useless
 //!   for a bug that only reproduces on someone else's setup.
 //! - **A diagnostics summary** they can copy into an issue: versions, paths,
 //!   the settings that actually change behaviour.
-//! - **Saved recordings.** The pipeline is audio in, text out; without the
-//!   audio, a "it transcribed this wrong" report cannot be reproduced. Off
-//!   by default — it writes microphone recordings to disk, which is not
-//!   something to switch on behind someone's back.
+//!
+//! Saved recordings, which reproduce an "it transcribed this wrong" report,
+//! are a user setting now; see [`crate::recordings`].
 
 use std::path::{Path, PathBuf};
 
@@ -17,15 +16,6 @@ use tauri::AppHandle;
 
 /// Config key: `error` | `warn` | `info` | `debug` | `trace`.
 const CONFIG_LOG_LEVEL: &str = "log_level";
-/// Config key: keep a copy of every recording on disk.
-const CONFIG_SAVE_RECORDINGS: &str = "debug_save_recordings";
-/// Config key: how many recordings to keep before the oldest is dropped.
-const CONFIG_MAX_RECORDINGS: &str = "debug_max_recordings";
-
-const DEFAULT_MAX_RECORDINGS: usize = 50;
-/// Sample rate of the capture pipeline. Recordings are dumped as-is.
-const RECORDING_SAMPLE_RATE: u32 = 16_000;
-
 /// Parse the configured log level. Unknown values fall back to `Info`
 /// rather than to silence — a typo in the config must not turn logging off.
 pub fn log_level_from_config(config: &serde_json::Value) -> log::LevelFilter {
@@ -46,23 +36,6 @@ pub fn log_level_from_config(config: &serde_json::Value) -> log::LevelFilter {
     }
 }
 
-/// Whether captured audio should be kept on disk.
-pub fn save_recordings_enabled(config: &serde_json::Value) -> bool {
-    config
-        .get(CONFIG_SAVE_RECORDINGS)
-        .and_then(serde_json::Value::as_bool)
-        .unwrap_or(false)
-}
-
-fn max_recordings(config: &serde_json::Value) -> usize {
-    config
-        .get(CONFIG_MAX_RECORDINGS)
-        .and_then(serde_json::Value::as_u64)
-        .map(|value| value as usize)
-        .filter(|value| *value > 0)
-        .unwrap_or(DEFAULT_MAX_RECORDINGS)
-}
-
 /// Where diagnostics artefacts live: `<data dir>/logs`, alongside
 /// `app.log`, so "send me your logs folder" covers everything.
 pub fn diagnostics_dir() -> PathBuf {
@@ -72,65 +45,6 @@ pub fn diagnostics_dir() -> PathBuf {
         }
     }
     crate::user_data::data_dir().join("logs")
-}
-
-fn recordings_dir() -> PathBuf {
-    diagnostics_dir().join("recordings")
-}
-
-/// Write one captured recording to `recordings/<session>-<stamp>.wav`.
-///
-/// Best-effort and non-fatal: a diagnostics feature must never be able to
-/// break a dictation. Returns the path when something was written.
-pub fn save_recording(
-    config: &serde_json::Value,
-    session_id: u64,
-    samples: &[f32],
-) -> Option<PathBuf> {
-    if !save_recordings_enabled(config) || samples.is_empty() {
-        return None;
-    }
-    let dir = recordings_dir();
-    if let Err(error) = std::fs::create_dir_all(&dir) {
-        log::warn!("recordings dir: {error}");
-        return None;
-    }
-    let stamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    let path = dir.join(format!("{stamp}-{session_id}.wav"));
-    let pcm = crate::wav::f32_to_pcm16(samples);
-    let wav = crate::wav::encode_pcm16_mono(&pcm, RECORDING_SAMPLE_RATE);
-    if let Err(error) = std::fs::write(&path, wav) {
-        log::warn!("write recording {}: {error}", path.display());
-        return None;
-    }
-    prune_recordings(&dir, max_recordings(config));
-    Some(path)
-}
-
-/// Keep only the newest `keep` recordings.
-///
-/// Sorted by filename, which starts with a Unix timestamp — no metadata
-/// calls, and stable when several recordings land in the same second
-/// because the session id breaks the tie.
-fn prune_recordings(dir: &Path, keep: usize) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    let mut files: Vec<PathBuf> = entries
-        .flatten()
-        .map(|entry| entry.path())
-        .filter(|path| path.extension().is_some_and(|ext| ext == "wav"))
-        .collect();
-    if files.len() <= keep {
-        return;
-    }
-    files.sort();
-    for path in files.iter().take(files.len() - keep) {
-        let _ = std::fs::remove_file(path);
-    }
 }
 
 /// A plain-text summary of the setup, for pasting into a bug report.
@@ -180,7 +94,7 @@ pub fn diagnostics_report(app: &AppHandle, config: &serde_json::Value) -> String
     line("log_level", format!("{}", log_level_from_config(config)));
     line(
         "save_recordings",
-        save_recordings_enabled(config).to_string(),
+        crate::recordings::enabled(config).to_string(),
     );
     line("logs_dir", diagnostics_dir().display().to_string());
     line(
@@ -249,9 +163,7 @@ pub(crate) fn get_diagnostics(app: AppHandle) -> Result<String, String> {
     Ok(diagnostics_report(&app, config.as_value()))
 }
 
-/// Reveal the diagnostics folder (logs + saved recordings) in the file
-/// manager. `save_recordings` puts the WAVs in a subfolder of the same
-/// place, so one button covers both.
+/// Reveal the diagnostics folder (logs) in the file manager.
 #[tauri::command]
 pub(crate) fn open_diagnostics_folder() -> Result<(), String> {
     open_in_file_manager(&diagnostics_dir())
@@ -317,59 +229,5 @@ mod tests {
             log_level_from_config(&json!({ "log_level": "off" })),
             log::LevelFilter::Off
         );
-    }
-
-    #[test]
-    fn recordings_are_off_by_default() {
-        assert!(!save_recordings_enabled(&json!({})));
-        assert!(save_recordings_enabled(
-            &json!({ "debug_save_recordings": true })
-        ));
-    }
-
-    #[test]
-    fn saving_is_skipped_when_disabled_or_empty() {
-        assert!(save_recording(&json!({}), 1, &[0.1, 0.2]).is_none());
-        assert!(save_recording(&json!({ "debug_save_recordings": true }), 1, &[]).is_none());
-    }
-
-    #[test]
-    fn prune_keeps_the_newest_files() {
-        let dir = tempfile::tempdir().unwrap();
-        for stamp in ["1000-1", "1001-1", "1002-1", "1003-1"] {
-            std::fs::write(dir.path().join(format!("{stamp}.wav")), b"x").unwrap();
-        }
-        // A non-wav file must survive: the directory is the diagnostics
-        // folder, not ours alone.
-        std::fs::write(dir.path().join("notes.txt"), b"x").unwrap();
-
-        prune_recordings(dir.path(), 2);
-
-        let mut left: Vec<String> = std::fs::read_dir(dir.path())
-            .unwrap()
-            .flatten()
-            .map(|e| e.file_name().to_string_lossy().into_owned())
-            .collect();
-        left.sort();
-        assert_eq!(left, ["1002-1.wav", "1003-1.wav", "notes.txt"]);
-    }
-
-    #[test]
-    fn prune_is_a_no_op_below_the_limit() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("1000-1.wav"), b"x").unwrap();
-        prune_recordings(dir.path(), 50);
-        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
-    }
-
-    #[test]
-    fn max_recordings_rejects_zero_and_garbage() {
-        // `0` would mean "delete everything you just wrote".
-        assert_eq!(max_recordings(&json!({ "debug_max_recordings": 0 })), 50);
-        assert_eq!(
-            max_recordings(&json!({ "debug_max_recordings": "ten" })),
-            50
-        );
-        assert_eq!(max_recordings(&json!({ "debug_max_recordings": 5 })), 5);
     }
 }

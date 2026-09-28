@@ -833,6 +833,8 @@ export const en: Record<string, string | string[]> = {
   "лишние пробелы и пропущенные пробелы после знаков в русском тексте": "extra spaces and missing spaces after punctuation in Russian text",
   "Разбивать длинные предложения": "Split long sentences",
   "мягкое разделение длинных фраз по связкам": "gentle splitting of long phrases at conjunctions",
+  "Разбивать текст на абзацы": "Split text into paragraphs",
+  "группировать готовые предложения без изменения слов; сохранять существующие переносы": "group existing sentences without changing words; preserve existing line breaks",
   "Капитализация предложений": "Capitalise sentences",
   "заглавная буква в начале текста и после точки": "a capital at the start and after a full stop",
   "Финальная пунктуация": "Final punctuation",
@@ -1052,7 +1054,16 @@ export const en: Record<string, string | string[]> = {
   "Ключ удалён.": "Key deleted.",
   "Удалить ключ «{p0}»? Профили, ссылающиеся на этот слот, останутся без ключа.":
     "Delete the key “{p0}”? Profiles pointing at this slot will be left without one.",
-  "Сохранять записи в WAV": "Save recordings as WAV",
+  "Сохранять аудиозаписи": "Save audio recordings",
+  "Каждая диктовка сохраняется в WAV на этом компьютере и прослушивается в истории. Минута речи занимает около 2 МБ. Удаление записи из истории удаляет и её аудио.":
+    "Every dictation is saved as a WAV file on this computer and plays from History. A minute of speech takes about 2 MB. Deleting an entry from History deletes its audio too.",
+  "Хранить": "Keep",
+  "Последние {p0}": "Latest {p0}",
+  "Открыть папку": "Open folder",
+  "Прослушать запись": "Play recording",
+  "Пауза": "Pause",
+  "Позиция воспроизведения": "Playback position",
+  "Не удалось воспроизвести запись: {p0}": "Could not play the recording: {p0}",
   "Сохраняется в DPAPI, отдельным слотом. Привязать к профилю можно потом.":
     "Stored in DPAPI as its own slot. You can bind it to a profile later.",
   "Сохранённых ключей нет. Добавьте первый ключ — он появится в этом списке и сможет быть привязан к любому профилю.":
@@ -1127,10 +1138,9 @@ export const en: Record<string, string | string[]> = {
   "Вставляю…": "Pasting…",
   "Кладёт пробный текст в буфер и вставляет его в активное окно тем же путём, что и диктовка. Отделяет поломку вставки от поломки распознавания.": "Puts sample text on the clipboard and pastes it into the active window the same way dictation does. Separates a broken paste from broken recognition.",
   "Очистить логи": "Clear logs",
-  "Класть каждую запись рядом с логами. Нужно, чтобы воспроизвести жалобу «распознало не то».":
-    "Keep every recording next to the logs. Needed to reproduce a “it transcribed the wrong thing” report.",
-  "Записи с микрофона пишутся на диск. Хранятся последние 50, старые удаляются автоматически.":
-    "Microphone recordings are written to disk. The last 50 are kept; older ones are removed automatically.",
+  "Аудиозаписи": "Audio recordings",
+  "Включаются в «Настройки → Дополнительно». Нужны, чтобы воспроизвести жалобу «распознало не то»: запись можно прослушать в истории.":
+    "Turned on in Settings → Advanced. Needed to reproduce an “it transcribed the wrong thing” report: the recording plays from History.",
   "Обновления": "Updates",
   "Установленная версия": "Installed version",
   "Доступна версия": "Version available",

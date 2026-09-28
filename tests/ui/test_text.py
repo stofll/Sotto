@@ -6,8 +6,15 @@ from playwright.sync_api import expect
 
 @pytest.mark.parametrize("locale", ["ru", "en"])
 @pytest.mark.parametrize("theme", ["dark", "light"])
-def test_local_spelling_switch_persists_and_recovers_from_save_failure(
-    app, page, locale, theme, output_path
+@pytest.mark.parametrize(
+    "setting,ru_label,en_label",
+    [
+        ("correct_spelling", "Исправлять опечатки", "Correct spelling"),
+        ("split_paragraphs", "Разбивать текст на абзацы", "Split text into paragraphs"),
+    ],
+)
+def test_local_cleanup_switch_persists_and_recovers_from_save_failure(
+    app, page, locale, theme, output_path, setting, ru_label, en_label
 ):
     from pathlib import Path
 
@@ -16,7 +23,7 @@ def test_local_spelling_switch_persists_and_recovers_from_save_failure(
     ui.nav("text")
     title = "Очистка" if locale == "ru" else "Cleanup"
     page.get_by_role("button", name=re.compile("^" + title)).click()
-    label = "Исправлять опечатки" if locale == "ru" else "Correct spelling"
+    label = ru_label if locale == "ru" else en_label
     switch = page.get_by_role("button", name=label, exact=True)
     expect(switch).to_have_attribute("aria-pressed", "true")
     ui.queue("save_config", {"error": "Synthetic spelling save failure"})
@@ -28,7 +35,7 @@ def test_local_spelling_switch_persists_and_recovers_from_save_failure(
     page.keyboard.press("Space")
     expect(switch).to_have_attribute("aria-pressed", "false")
     page.wait_for_function(
-        "window.__sottoTest.state.config.text_formatting.correct_spelling === false"
+        f"window.__sottoTest.state.config.text_formatting.{setting} === false"
     )
     page.reload()
     ui.nav("text")
@@ -43,7 +50,9 @@ def test_local_spelling_switch_persists_and_recovers_from_save_failure(
     )
     assert overflow <= 1
     Path(output_path).mkdir(parents=True, exist_ok=True)
-    page.screenshot(path=str(Path(output_path) / "spelling.png"), animations="disabled")
+    page.screenshot(
+        path=str(Path(output_path) / f"{setting}.png"), animations="disabled"
+    )
 
 
 def test_preview_preserves_draft_across_navigation(app, page):

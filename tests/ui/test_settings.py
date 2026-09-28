@@ -695,3 +695,25 @@ def test_overlay_and_advanced_are_independent_collapsed_sections(
     summary.click()
     expect(page.get_by_test_id("overlay-settings")).not_to_be_visible()
     expect(advanced).to_have_attribute("open", "")
+
+
+def test_audio_recordings_are_opt_in_with_a_keep_limit(app, page):
+    ui = app()
+    page.get_by_text("Дополнительно", exact=True).click()
+    row = page.get_by_test_id("recordings-settings")
+    switch = row.get_by_role("checkbox", name="Сохранять аудиозаписи", exact=True)
+    keep = row.locator(".custom-select__button")
+    expect(switch).not_to_be_checked()
+    expect(keep).to_be_disabled()
+    expect(keep).to_have_text("Последние 50")
+    expect(row.get_by_role("button", name="Открыть папку")).to_contain_text("3.0 МБ")
+
+    switch.check()
+    ui.saved("debug_save_recordings", True)
+    keep.click()
+    page.get_by_role("option", name="Без ограничения", exact=True).click()
+    ui.saved("debug_max_recordings", 0)
+    row.get_by_role("button", name="Открыть папку").click()
+    page.wait_for_function(
+        "() => window.__sottoTest.calls.some(x => x.command === 'open_recordings_folder')"
+    )
