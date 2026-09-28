@@ -166,7 +166,10 @@ def test_bead_traces_the_voice_clockwise_from_the_top(app, page):
     ui = app("overlay", config={"overlay": {"form": "bead"}})
     ui.emit("recording-started", 1)
     ui.emit("audio-level", {"level": 1})
-    # The newest reading is drawn at twelve o'clock.
+    # The newest reading is drawn at twelve o'clock, once a frame has painted it.
+    expect(page.locator(".overlay-waveform--circular > span").last).to_have_css(
+        "height", "12px"
+    )
     newest = ring_mark(page)
     assert abs(newest["dx"]) < 2
     assert newest["dy"] < -8

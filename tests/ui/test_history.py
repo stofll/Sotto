@@ -240,7 +240,11 @@ def test_history_reprocess_failure_can_retry(app, page):
     assert not ui.calls("apply_history_ai_processing")
 
 
-def test_history_plays_a_saved_recording(app, page):
+def test_history_plays_a_saved_recording(app, page, browser_name):
+    if browser_name == "webkit":
+        # Playwright's WebKit build has no audio playback: play() rejects any
+        # WAV with NotSupportedError. The failed-load path is covered below.
+        pytest.skip("Playwright WebKit cannot play audio")
     recorded = {**ENTRIES[0], "has_recording": True}
     ui = app(history=[recorded, ENTRIES[1]])
     ui.nav("history")

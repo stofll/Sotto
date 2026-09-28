@@ -137,6 +137,9 @@ def test_pill_sizes_and_long_content(app, page, locale, streaming, size, output_
             {"session_id": 1, "text": "Long synthetic draft. " * 80},
         )
         expect(page.locator(".overlay-preview")).to_be_visible()
+        button = page.get_by_role("button").bounding_box()
+        assert button["x"] >= 0 and button["x"] + button["width"] <= width
+        assert button["y"] >= 0 and button["y"] + button["height"] <= height
     else:
         ui.emit(
             "paste-done",
@@ -161,9 +164,8 @@ def test_pill_sizes_and_long_content(app, page, locale, streaming, size, output_
             "e => ({scroll: e.scrollHeight, client: e.clientHeight, width: e.clientWidth})"
         )
         assert dimensions["scroll"] <= dimensions["client"] + 1, dimensions
-    button = page.get_by_role("button").bounding_box()
-    assert button["x"] >= 0 and button["x"] + button["width"] <= width
-    assert button["y"] >= 0 and button["y"] + button["height"] <= height
+        # The inserted note leaves by itself: it has no control to fit.
+        expect(page.get_by_role("button")).to_have_count(0)
     Path(output_path).mkdir(parents=True, exist_ok=True)
     page.screenshot(path=str(Path(output_path) / "content.png"), animations="disabled")
 
