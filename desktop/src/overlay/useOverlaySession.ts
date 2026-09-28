@@ -96,6 +96,10 @@ export function useOverlaySession() {
   // and their order is not guaranteed — the number shows they are about one and
   // the same dictation.
   const [armedSession, setArmedSession] = useState<number | null>(null);
+  // Keys the drawings to one dictation. Unlike `sessionId`, which is released
+  // as soon as the result arrives, it holds until the next recording starts,
+  // so the inserted note and an error keep the scene they transition from.
+  const [dictationKey, setDictationKey] = useState<number | null>(null);
   const [errorText, setErrorText] = useState("");
   const [aiProblem, setAiProblem] = useState("");
   const [isClosing, setIsClosing] = useState(false);
@@ -246,6 +250,7 @@ export function useOverlaySession() {
       }),
       subscribe<number>("recording-started", (payload) => {
         sessionId.current = payload;
+        setDictationKey(payload);
         setPreviewText("");
         // We do not overwrite the mark if it already arrived for this same
         // dictation: the order of these two events is not guaranteed.
@@ -341,7 +346,7 @@ export function useOverlaySession() {
   }, [handleClose]);
 
   return {
-    state, config, preferences, layout, sessionId: sessionId.current, streaming, recordingStartedAt, recordingStoppedAt, limitAt,
+    state, config, preferences, layout, dictationKey, streaming, recordingStartedAt, recordingStoppedAt, limitAt,
     pastedLength, decodedAt, previewText, errorText, aiProblem, isClosing, leaving, hovered, setHovered, handleClose,
   };
 }

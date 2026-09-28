@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { Hint } from "../../components/Hint";
 import { Icon } from "../../components/Icon";
-import { Segmented } from "../../components/Shell";
+import { Card, Segmented } from "../../components/Shell";
 import { t } from "../../i18n";
 import { MATRIX_DENSITIES, MATRIX_PROCESS, MATRIX_SPEECH } from "../../overlay/dotMatrix";
 import { OverlayMatrix } from "../../overlay/OverlayMatrix";
@@ -188,7 +188,7 @@ type Props = {
 
 export function EditorLibrary(props: Props) {
   const { tab, onTab, recipe, preferences } = props;
-  return <div className="card ove-lib" style={overlayPalette(preferences)}>
+  return <Card pad="rows" className="ove-lib" style={overlayPalette(preferences)}>
     <Segmented value={tab} onChange={(value) => onTab(value as LibraryTab)} options={[
       { value: "templates", label: t("Шаблоны") }, { value: "build", label: t("Сборка") },
       { value: "style", label: t("Стиль") },
@@ -205,7 +205,7 @@ export function EditorLibrary(props: Props) {
     </>}
     {tab === "build" && <BuildTab {...props}/>}
     {tab === "style" && <StyleTab {...props}/>}
-  </div>;
+  </Card>;
 }
 
 type GroupId = "record" | "process" | "pasted" | "cancel";

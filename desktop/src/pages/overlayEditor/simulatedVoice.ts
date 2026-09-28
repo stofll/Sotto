@@ -82,6 +82,8 @@ export function useTicker(active: boolean, interval = 250) {
   const [now, setNow] = useState(() => performance.now());
   useEffect(() => {
     if (!active) return;
+    // A ticker that was paused starts from the present, not from its last tick.
+    setNow(performance.now());
     const id = window.setInterval(() => setNow(performance.now()), interval);
     return () => window.clearInterval(id);
   }, [active, interval]);

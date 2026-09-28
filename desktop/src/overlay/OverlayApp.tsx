@@ -54,7 +54,7 @@ export function OverlayApp() {
         <div className="overlay-surface" ref={surfaceRef}>
           {glow ? <>
             <Suspense fallback={null}>
-              <OverlayGlow key={session.sessionId} mode={glowMode(state)} size={preferences.size} />
+              <OverlayGlow key={session.dictationKey} mode={glowMode(state)} size={preferences.size} />
             </Suspense>
             <div className="overlay-composer-body">
               {state === "recording"
@@ -73,7 +73,7 @@ export function OverlayApp() {
               {!bead && <div className="overlay-timer-slot">{showTimer && <TimerBadge session={session} />}</div>}
               <div className="overlay-detail">
                 {state === "recording"
-                  ? <OverlayWaveform key={session.sessionId} surfaceRef={surfaceRef} circular={bead} />
+                  ? <OverlayWaveform key={session.dictationKey} surfaceRef={surfaceRef} circular={bead} />
                   : bead ? <span className="overlay-bead-status" aria-label={beadLabel(state)} role="status" /> : <StateDetail session={session} />}
               </div>
               <button className="overlay-close" aria-label={closeLabel} onClick={handleClose} disabled={isClosing}>
@@ -113,7 +113,7 @@ function RecipeOverlay({ session, recipe }: { session: OverlaySession; recipe: R
     onPointerMove={(event) => session.setHovered(isOverlayBody(event.target))} onPointerLeave={() => session.setHovered(false)}>
     <Suspense fallback={<SceneFallback loading phase={scenePhase(state)} timer={clock.text} status={status}
       close={{ label: state === "pasted" || state === "error" ? t("Закрыть") : t("Отменить запись"), text: t("Отмена"), onClick: session.handleClose, disabled: session.isClosing }}/>}>
-      <OverlayScene key={session.sessionId} recipe={recipe} size={preferences.size} phase={scenePhase(state)}
+      <OverlayScene key={session.dictationKey} recipe={recipe} size={preferences.size} phase={scenePhase(state)}
         streaming={session.streaming} needsText={state === "error" || (state === "pasted" && !!session.aiProblem)}
         draft={session.previewText} draftPlaceholder={t("Говорите — текст появится здесь")}
         timer={state === "loading" ? "--:--" : clock.text} limited={clock.limited} status={status}

@@ -1,10 +1,11 @@
 /* The overlay built from a recipe (OverlayScene.tsx). The overlay window is
    always dark, and so is its picture in the constructor, whatever the settings
-   theme: the status colours are the dark theme's own values, pinned here
-   because a light settings page redefines the shared tokens. */
+   theme: the scene is a theme of its own and overrides the shared ink and
+   status tokens, as [data-theme="light"] does, with the dark values; the light
+   fill below overrides them again. */
 .ovs {
-  --ovs-ink: #ECEAF3; --ovs-ink-dim: #B8B4C5; --ovs-ink-mute: #8C889B;
-  --ovs-ok: #4ade80; --ovs-warn: #fbbf24; --ovs-err: #f87171;
+  --ink: #ECEAF3; --ink-dim: #B8B4C5; --ink-mute: #8C889B;
+  --ok: #4ade80; --warn: #fbbf24; --err: #f87171;
   --ovs-idle: rgba(255, 255, 255, .09);
   --ovs-ease: cubic-bezier(.2, .55, .25, 1); --ovs-spring: cubic-bezier(.3, 1.3, .5, 1);
   --fs: 1; --sd: .44s; --se: var(--ovs-ease); --fd: .18s; --fx: 4px; --pad: 0px;
@@ -17,7 +18,7 @@
   /* The processing speed stretches every processing animation (PROCESS_PACE). */
   --proc-k: 1;
   position: relative; display: grid; place-items: center;
-  font-family: var(--font-sans); color: var(--ovs-ink); letter-spacing: 0;
+  font-family: var(--font-sans); color: var(--ink); letter-spacing: 0;
   transition: opacity var(--in-d) var(--in-e), transform var(--in-d) var(--in-e); transform-origin: 50% 100%;
 }
 .ovs, .ovs *, .ovs ::before, .ovs ::after { box-sizing: border-box; }
@@ -49,7 +50,7 @@
 .ovs[data-stroke="hair"] .ovs-skin::after { border: 1px solid var(--overlay-edge); }
 /* The constructor outlines a shell with no fill and no stroke, so its bounds stay visible. */
 .ovs[data-edit][data-fill="none"][data-stroke="none"] .ovs-skin::after { border: 1px dashed rgba(255, 255, 255, .3); }
-.ovs[data-stroke="hair"][data-phase="error"] .ovs-skin::after { border-color: var(--ovs-err); }
+.ovs[data-stroke="hair"][data-phase="error"] .ovs-skin::after { border-color: var(--err); }
 .ovs-gfx { position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: 1; }
 .ovs[data-glow="1"] .ovs-gfx { box-shadow: 0 0 calc(5px + var(--overlay-energy, .1) * 12px) var(--overlay-wave-mid) inset; opacity: calc(.06 + var(--overlay-energy, .1) * .24); }
 .ovs[data-glow="2"] .ovs-gfx { background: radial-gradient(circle at 50% 60%, var(--overlay-wave-mid), transparent 70%); box-shadow: 0 0 calc(8px + var(--overlay-energy, .1) * 22px) var(--overlay-wave-mid) inset; opacity: calc(.1 + var(--overlay-energy, .1) * .45); }
@@ -68,11 +69,11 @@
 .ovs[data-phase="processing"][data-proc-edge="1"]:not([data-stroke="none"]) .ovs-bb { opacity: 1; animation: ovs-sweep calc(1.2s * var(--proc-k)) linear infinite; }
 .ovs[data-motion="pixel"][data-phase="processing"] .ovs-bb { animation-timing-function: steps(16); transition: none; }
 @keyframes ovs-sweep { to { --ovs-angle: 360deg; } }
-.ovs-flash { position: absolute; inset: 0; border-radius: inherit; opacity: 0; pointer-events: none; z-index: 5; box-shadow: inset 0 0 0 1.5px var(--ovs-ok), inset 0 0 24px color-mix(in srgb, var(--ovs-ok) 45%, transparent); }
+.ovs-flash { position: absolute; inset: 0; border-radius: inherit; opacity: 0; pointer-events: none; z-index: 5; box-shadow: inset 0 0 0 1.5px var(--ok), inset 0 0 24px color-mix(in srgb, var(--ok) 45%, transparent); }
 .ovs[data-phase="pasted"] .ovs-flash { animation: ovs-flash 1.1s ease-out; }
-.ovs[data-motion="pixel"][data-phase="pasted"] .ovs-flash { box-shadow: inset 0 0 0 1px var(--ovs-ok); animation: ovs-flash-px .5s; }
+.ovs[data-motion="pixel"][data-phase="pasted"] .ovs-flash { box-shadow: inset 0 0 0 1px var(--ok); animation: ovs-flash-px .5s; }
 .ovs:is([data-motion="quiet"], [data-pasted-flash="0"])[data-phase="pasted"] .ovs-flash { animation: none; }
-.ovs[data-phase="error"]:not([data-stroke="rim"]) .ovs-flash { opacity: .85; box-shadow: inset 0 0 0 1px var(--ovs-err); }
+.ovs[data-phase="error"]:not([data-stroke="rim"]) .ovs-flash { opacity: .85; box-shadow: inset 0 0 0 1px var(--err); }
 @keyframes ovs-flash { 0% { opacity: 0; } 15% { opacity: 1; } 100% { opacity: 0; } }
 @keyframes ovs-flash-px { 0%, 99% { opacity: 1; } }
 
@@ -95,17 +96,17 @@
 .ovs[data-radius="sharp"] .ovs-close { border-radius: 3px; }
 /* The inserted note is gone in a moment by itself: there is nothing to cancel or close. */
 .ovs[data-phase="pasted"] .ovs-close { visibility: hidden; }
-.ovs[data-phase="error"] .ovs-close { color: var(--ovs-err); }
+.ovs[data-phase="error"] .ovs-close { color: var(--err); }
 
-.ovs-lbl { font: 600 calc(14px * var(--fs))/1.2 var(--font-sans); font-family: inherit; color: var(--ovs-ink-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.ovs-lbl--ok { color: var(--ovs-ok); }
-.ovs-lbl--err { color: var(--ovs-err); }
+.ovs-lbl { font: 600 calc(14px * var(--fs))/1.2 var(--font-sans); font-family: inherit; color: var(--ink-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.ovs-lbl--ok { color: var(--ok); }
+.ovs-lbl--err { color: var(--err); }
 .ovs-dots { display: inline-flex; gap: calc(var(--dot, 5px) * .8); flex: 0 0 auto; }
 .ovs-dots i { width: var(--dot, 5px); height: var(--dot, 5px); border-radius: 50%; background: var(--overlay-edge); animation: ovs-bob calc(1s * var(--proc-k, 1)) ease-in-out infinite; }
 .ovs-dots i:nth-child(2) { animation-delay: calc(.14s * var(--proc-k, 1)); }
 .ovs-dots i:nth-child(3) { animation-delay: calc(.28s * var(--proc-k, 1)); }
 @keyframes ovs-bob { 0%, 100% { transform: translateY(0); opacity: .45; } 40% { transform: translateY(-4px); opacity: 1; } }
-.ovs-chk { width: 18px; height: 18px; flex: 0 0 18px; color: var(--ovs-ok); }
+.ovs-chk { width: 18px; height: 18px; flex: 0 0 18px; color: var(--ok); }
 .ovs-chk--big { width: 26px; height: 26px; flex-basis: 26px; }
 .ovs-chk path { fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 24; stroke-dashoffset: 24; animation: ovs-draw .34s .06s var(--ovs-ease) forwards; }
 .ovs:is([data-motion="quiet"], [data-motion="pixel"]) .ovs-chk path { animation: none; stroke-dashoffset: 0; }
@@ -123,9 +124,9 @@
 @keyframes ovs-spin { to { transform: rotate(360deg); } }
 .ovs-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--overlay-wave-mid); flex: 0 0 auto; }
 .ovs[data-radius="sharp"] .ovs-dot { border-radius: 0; }
-.ovs[data-limit="1"] .ovs-dot { background: var(--ovs-warn); animation: ovs-pulse 1s ease-in-out infinite; }
+.ovs[data-limit="1"] .ovs-dot { background: var(--warn); animation: ovs-pulse 1s ease-in-out infinite; }
 @keyframes ovs-pulse { 50% { opacity: .25; } }
-.ovs-limitb { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 1; pointer-events: none; display: none; align-items: center; gap: 6px; padding: 5px 4px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--ovs-warn) 50%, transparent); background: #111216; color: var(--ovs-warn); font: 600 12px/1 var(--font-mono); white-space: nowrap; }
+.ovs-limitb { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 1; pointer-events: none; display: none; align-items: center; gap: 6px; padding: 5px 4px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--warn) 50%, transparent); background: #111216; color: var(--warn); font: 600 12px/1 var(--font-mono); white-space: nowrap; }
 .ovs[data-limit="1"][data-notimer="1"] .ovs-limitb { display: flex; }
 .ovs-limitb .ovs-dot { display: none; }
 .ovs[data-limit="1"][data-notimer="1"] :is(.ovs-rg, .ovs-edgefx) { opacity: 0; }
@@ -155,7 +156,7 @@
 .ovs-orb i { position: absolute; left: 50%; top: 50%; width: var(--d); height: var(--d); margin: calc(var(--d) / -2) 0 0 calc(var(--d) / -2); border-radius: 50%; background: radial-gradient(circle at 35% 30%, var(--overlay-wave-top), var(--overlay-wave-mid) 50%, var(--overlay-wave-bottom)); }
 
 /* Timer, indicator, mode */
-.ovs-tt { font: 600 calc(12.5px * var(--fs))/1 var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--ovs-ink); }
+.ovs-tt { font: 600 calc(12.5px * var(--fs))/1 var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--ink); }
 .ovs-tcap { height: calc(32px * var(--fs)); min-width: calc(60px * var(--fs)); padding: 0 9px; border-radius: 999px; background: color-mix(in srgb, var(--overlay-wave-mid) 14%, transparent); display: flex; align-items: center; justify-content: center; gap: 6px; }
 .ovs[data-radius="sharp"] .ovs-tcap { border-radius: 2px; }
 .ovs[data-radius="soft"] .ovs-tcap { border-radius: 8px; }
@@ -163,16 +164,16 @@
 .ovs-tplain { display: flex; align-items: center; gap: 6px; }
 .ovs-tplain .ovs-tt { font-weight: 500; }
 .ovs-tbig .ovs-tt { font-size: calc(21px * var(--fs)); font-weight: 500; }
-.ovs[data-limit="1"] .ovs-tt { color: var(--ovs-warn); }
+.ovs[data-limit="1"] .ovs-tt { color: var(--warn); }
 .ovs-rdot { display: flex; }
 .ovs-rdot .ovs-dot { width: 8px; height: 8px; animation: ovs-pulse 1.6s ease-in-out infinite; }
 .ovs-rlabel { display: flex; align-items: center; gap: 7px; }
-.ovs-rlabel span:last-child { font: 500 calc(13px * var(--fs))/1 var(--font-sans); font-family: inherit; color: var(--ovs-ink-mute); white-space: nowrap; }
+.ovs-rlabel span:last-child { font: 500 calc(13px * var(--fs))/1 var(--font-sans); font-family: inherit; color: var(--ink-mute); white-space: nowrap; }
 .ovs-rec-text { font: 600 calc(12.5px * var(--fs))/1 var(--font-mono); color: var(--overlay-wave-mid); letter-spacing: .04em; white-space: nowrap; }
-.ovs-mode { font: 500 calc(11.5px * var(--fs))/1 var(--font-mono); color: var(--ovs-ink-dim); border: 1px solid rgba(255, 255, 255, .14); border-radius: 6px; padding: 5px 7px; white-space: nowrap; }
-.ovs-draft { font: 500 calc(14px * var(--fs))/1.45 var(--font-sans); font-family: inherit; color: var(--ovs-ink); overflow: hidden; text-align: left; width: 100%; height: 100%; word-break: break-word; }
+.ovs-mode { font: 500 calc(11.5px * var(--fs))/1 var(--font-mono); color: var(--ink-dim); border: 1px solid rgba(255, 255, 255, .14); border-radius: 6px; padding: 5px 7px; white-space: nowrap; }
+.ovs-draft { font: 500 calc(14px * var(--fs))/1.45 var(--font-sans); font-family: inherit; color: var(--ink); overflow: hidden; text-align: left; width: 100%; height: 100%; word-break: break-word; }
 .ovs-draft__tail { opacity: .5; }
-.ovs-draft--empty { font-size: calc(12px * var(--fs)); color: var(--ovs-ink-dim); opacity: .6; }
+.ovs-draft--empty { font-size: calc(12px * var(--fs)); color: var(--ink-dim); opacity: .6; }
 .ovs[data-font="mono"] .ovs-draft { font-size: calc(13px * var(--fs)); }
 
 /* Pill and island: one row, the draft opens beneath it */
@@ -249,7 +250,7 @@
 .ovs [data-region][data-drop="ok"] { outline: 1.5px dashed var(--overlay-wave-top); }
 .ovs [data-region][data-drop="no"] { outline-color: rgba(248, 113, 113, .55); }
 .ovs [data-region][data-drop="hot"] { outline: 2px solid var(--overlay-wave-top) !important; background: color-mix(in srgb, var(--overlay-wave-mid) 16%, transparent); }
-.ovs [data-region][data-drop="hot-no"] { outline: 2px solid var(--ovs-err) !important; }
+.ovs [data-region][data-drop="hot-no"] { outline: 2px solid var(--err) !important; }
 /* The part being dragged out of the shell: released there, it leaves. */
 .ovs [data-region][data-leaving="1"] > * { opacity: .25; }
 
@@ -291,8 +292,8 @@
    light shell. It redefines the palette's own variables inside the scene, canvas
    drawings included, instead of adding a second palette. */
 .ovs[data-fill="light"] {
-  --ovs-ink: #1c1a24; --ovs-ink-dim: #45414f; --ovs-ink-mute: #6c6879;
-  --ovs-ok: #15803d; --ovs-warn: #b45309; --ovs-err: #b91c1c;
+  --ink: #1c1a24; --ink-dim: #45414f; --ink-mute: #6c6879;
+  --ok: #15803d; --warn: #b45309; --err: #b91c1c;
   --ovs-idle: rgba(0, 0, 0, .1);
   --overlay-surface: oklch(0.95 calc(var(--overlay-chroma) * .2) var(--overlay-hue) / .97);
   --overlay-shell-top: oklch(0.84 calc(var(--overlay-chroma) * .6) var(--overlay-hue) / .92);

@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type 
 import { createPortal } from "react-dom";
 import { Hint } from "../components/Hint";
 import { Icon } from "../components/Icon";
-import { Segmented } from "../components/Shell";
+import { Card, Segmented } from "../components/Shell";
 import type { ConfigResult } from "../bridge/types";
 import { localeTag, t } from "../i18n";
 import { OverlayScene } from "../overlay/OverlayScene";
@@ -27,6 +27,7 @@ type Selection = ElementType | "cancel" | { region: string } | null;
 type Drag = { type: ElementType; draw: string | null; from: string | null; x: number; y: number; moved: boolean; target: string | null; reason: string; remove: boolean };
 const HISTORY_LIMIT = 60;
 const SCREEN = { width: 1920, height: 1080 };
+const ANIMATED_PHASES: readonly PhaseMode[] = ["scenario", "recording", "streaming", "limit"];
 
 const lookOf = (preferences: ReturnType<typeof preferencesOf>): OverlayLook => ({
   palette: preferences.palette, palette_hue: preferences.palette_hue, palette_chroma: preferences.palette_chroma,
@@ -65,8 +66,10 @@ export function OverlayEditor({ config, onConfigChanged, onClose, template }: {
   const [radiusDraft, setRadiusDraft] = useState<RecipeStyle["radius"] | null>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const [stageBox, setStageBox] = useState({ width: 640, height: 360 });
-  const now = useTicker(true, 250);
-  const frame = frameAt(phaseMode, now - phaseSince);
+  // Only these phases change over time; the others are one still frame.
+  const now = useTicker(ANIMATED_PHASES.includes(phaseMode), 250);
+  // `now` lags a phase picked since its last tick; a moment before the phase began is its start.
+  const frame = frameAt(phaseMode, Math.max(0, now - phaseSince));
 
   const names = { elements: elementNames(), draws: drawNames(), regions: regionNames(), shells: shellNames(), places: kindPlaces() };
 
@@ -190,6 +193,9 @@ export function OverlayEditor({ config, onConfigChanged, onClose, template }: {
 
   // Drag and drop between the library and the regions of the scene.
   const dragRef = useRef<Drag | null>(null);
+  // A drag released back over its own library tile still clicks that tile;
+  // the click that ends a drag must not also add the part.
+  const dragEnded = useRef(false);
   function startDrag(event: ReactPointerEvent, type: ElementType, draw: string | null, from: string | null) {
     if (event.button !== 0) return;
     const start = { x: event.clientX, y: event.clientY };
@@ -233,6 +239,11 @@ export function OverlayEditor({ config, onConfigChanged, onClose, template }: {
       const current = dragRef.current;
       dragRef.current = null;
       setDrag(null);
+      if (current?.moved) {
+        // The click, if any, is dispatched before this timeout runs.
+        dragEnded.current = true;
+        window.setTimeout(() => { dragEnded.current = false; }, 0);
+      }
       // A cancelled gesture (the system took the pointer) changes nothing.
       if (upEvent.type === "pointercancel") return;
       if (!current?.moved) {
@@ -311,6 +322,7 @@ export function OverlayEditor({ config, onConfigChanged, onClose, template }: {
         }}
         onRecipe={(next, message) => commitRecipe(next, message)} onShell={onShell}
         onAddPart={(type, draw) => {
+          if (dragEnded.current) return;
           const result = addPart(recipe, type, draw);
           const before = regionOf(recipe, type), after = result.ok ? regionOf(result.recipe, type) : null;
           apply(result, before && before === after
@@ -323,7 +335,7 @@ export function OverlayEditor({ config, onConfigChanged, onClose, template }: {
         onEditMine={(template) => { setSelected(null); setEditingId(template.id); commitRecipe(structuredClone(template.recipe), t("Правка шаблона «{p0}»: изменения сохраняются кнопкой вверху", { p0: template.name }), templateLook(template)); }}
         onApplyMine={(template) => { setSelected(null); commitRecipe(structuredClone(template.recipe), t("Мой шаблон «{p0}». Место на экране не изменилось", { p0: template.name }), templateLook(template)); }}
         onTemplates={saveTemplates}/>
-      <div className="card ove-stagecard">
+      <Card pad="rows" className="ove-stagecard">
         <div className="ove-bar">
           <Segmented value={view} onChange={(value) => { setView(value as "compose" | "screen"); setSelected(null); }}
             options={[{ value: "compose", label: t("Состав") }, { value: "screen", label: t("На экране") }]}/>
@@ -403,7 +415,7 @@ export function OverlayEditor({ config, onConfigChanged, onClose, template }: {
         </p>}
         <p className={`ove-toast${toast?.warn ? " ove-toast--warn" : ""}`} role="status" aria-live="polite">{toast?.text ?? (view === "compose" ? t("Перетащите деталь из библиотеки в область или нажмите её. Нажмите элемент в макете, чтобы сменить рисунок, или пустую область, чтобы что-то вставить.") : "")}</p>
         <AfterRecording recipe={recipe} preferences={preferences} names={names} place="stage"/>
-      </div>
+      </Card>
     </div>
     <AfterRecording recipe={recipe} preferences={preferences} names={names} place="page"/>
     {drag?.moved && createPortal(<div className="ove-ghost" style={{ left: drag.x + 14, top: drag.y + 14 }}>

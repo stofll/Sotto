@@ -105,12 +105,16 @@ export function OverlayScene(props: SceneProps) {
   // Keyed by phase: each new status enters on its own instead of swapping its words in place.
   const stl = <div key={phase} className="ovs-stl" role={phase === "recording" ? undefined : "status"}>{status}</div>;
   const { cancel } = recipe;
+  const closeLook = cancel.draw === "x" ? <Icon name="x" size={14}/> : cancel.draw === "stop" ? <span className="ovs-close__stop"/> : props.close.text;
   // In the constructor the button is a target like the parts: it opens its own options.
-  const close = <button type="button" className={`ovs-close${interactive?.selected === "cancel" ? " ovs-sel" : ""}`} data-draw={cancel.draw}
-    data-cancel={interactive ? "" : undefined} aria-label={interactive ? interactive.cancelLabel : props.close.label}
-    onClick={interactive ? undefined : props.close.onClick} disabled={interactive ? false : props.close.disabled}>
-    {cancel.draw === "x" ? <Icon name="x" size={14}/> : cancel.draw === "stop" ? <span className="ovs-close__stop"/> : props.close.text}
-  </button>;
+  // A thumbnail sits inside a template's own button, so it only draws one.
+  const close = still
+    ? <span className="ovs-close" data-draw={cancel.draw}>{closeLook}</span>
+    : <button type="button" className={`ovs-close${interactive?.selected === "cancel" ? " ovs-sel" : ""}`} data-draw={cancel.draw}
+      data-cancel={interactive ? "" : undefined} aria-label={interactive ? interactive.cancelLabel : props.close.label}
+      onClick={interactive ? undefined : props.close.onClick} disabled={interactive ? false : props.close.disabled}>
+      {closeLook}
+    </button>;
   const at = (spot: string) => cancel.at === spot ? close : null;
   const layers = <><div className="ovs-gfx"/><div className="ovs-bb"/><div className="ovs-flash"/></>;
 

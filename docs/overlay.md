@@ -16,7 +16,7 @@ A phase control under the preview shows recording, streaming, processing, insert
 
 Save the result with **Save as template** in the constructor; the **+** tile in the overlay card opens the constructor. Up to eight templates are kept; each has a menu to apply, edit in the constructor, rename, or delete it. Editing applies the template and adds a **Save to** button that writes the changes back into it. Deleting a template does not change the overlay on screen.
 
-A shell keeps one corner radius per size and corner style in every state, including the streaming card and the error row. The recipe is stored in the configuration as `overlay.recipe`, templates as `overlay.templates`, and the legacy `form` is kept in step with the closest shell so an older Sotto still shows a similar overlay. The stack is the one shell with a window size of its own: 72 × 112, 80 × 128 and 88 × 144.
+A shell keeps one corner radius per size and corner style in every state, including the streaming card and the error row. The recipe is stored in the configuration as `overlay.recipe`, templates as `overlay.templates`, and the legacy `form` is kept in step with the closest shell so an older Sotto still shows a similar overlay. The stack and the mini are the shells with window sizes of their own: the stack is 72 × 112, 80 × 128 and 88 × 144, and the mini is 132 × 40, 148 × 44 and 168 × 48.
 
 ## Shapes and cancellation
 
