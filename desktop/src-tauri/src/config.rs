@@ -585,8 +585,9 @@ fn apply_runtime_config(app: &AppHandle, saved: &Value, patch: &Value) {
         let retention = crate::history::RetentionPolicy::from_config(saved);
         let state = app.state::<crate::state::AppState>();
         let pruned = crate::history::prune(&crate::mutex_recover::lock(&state.db), retention);
-        if let Err(error) = pruned {
-            log::warn!("history prune failed (non-fatal): {error}");
+        match pruned {
+            Ok(recordings) => crate::recordings::remove(&recordings),
+            Err(error) => log::warn!("history prune failed (non-fatal): {error}"),
         }
     }
     if patch.get(crate::ui_text::CONFIG_KEY).is_some() {

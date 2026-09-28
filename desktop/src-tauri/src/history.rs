@@ -279,23 +279,43 @@ fn unix_now() -> Result<f64, rusqlite::Error> {
         })
 }
 
-/// Physically delete the rows outside `policy`.
+/// Physically delete the rows outside `policy` and return the names of their
+/// recordings, which go with them: an entry History no longer shows must not
+/// leave its audio behind where nothing can reach it.
 ///
 /// Runs after each new entry, at startup and when the retention settings
 /// change, so reading the history never writes. Between those points a
 /// lowered setting already shows, because the listing applies the same policy.
-pub fn prune(conn: &Connection, policy: RetentionPolicy) -> Result<(), rusqlite::Error> {
+pub fn prune(conn: &Connection, policy: RetentionPolicy) -> Result<Vec<String>, rusqlite::Error> {
+    let mut recordings = Vec::new();
     if policy.max_age_seconds > 0 {
         let cutoff = unix_now()? - policy.max_age_seconds as f64;
-        conn.execute("DELETE FROM history WHERE timestamp <= ?1", [cutoff])?;
+        recordings.extend(delete_returning_recordings(
+            conn,
+            "DELETE FROM history WHERE timestamp <= ?1 RETURNING recording_file",
+            [cutoff],
+        )?);
     }
     if policy.max_entries > 0 {
-        conn.execute(
-            "DELETE FROM history WHERE id NOT IN (SELECT id FROM history ORDER BY timestamp DESC LIMIT ?1)",
+        recordings.extend(delete_returning_recordings(
+            conn,
+            "DELETE FROM history WHERE id NOT IN (SELECT id FROM history ORDER BY timestamp DESC LIMIT ?1) \
+             RETURNING recording_file",
             [policy.max_entries],
-        )?;
+        )?);
     }
-    Ok(())
+    Ok(recordings)
+}
+
+fn delete_returning_recordings(
+    conn: &Connection,
+    sql: &str,
+    params: impl rusqlite::Params,
+) -> Result<Vec<String>, rusqlite::Error> {
+    conn.prepare(sql)?
+        .query_map(params, |r| r.get::<_, Option<String>>(0))?
+        .filter_map(Result::transpose)
+        .collect()
 }
 
 /// [`prune`] to the saved retention settings, read under the config write lock
@@ -315,7 +335,8 @@ fn prune_to_settings_at(config_path: &std::path::Path, db: &Mutex<Connection>) {
         prune(&crate::mutex_recover::lock(db), policy)
     });
     match pruned {
-        Ok(Ok(())) => {}
+        // Outside both locks: the files are ours alone once the rows are gone.
+        Ok(Ok(recordings)) => crate::recordings::remove(&recordings),
         Ok(Err(e)) => log::warn!("history prune failed (non-fatal): {e}"),
         Err(e) => log::warn!("history prune skipped, config unreadable: {e}"),
     }
@@ -1198,6 +1219,40 @@ mod tests {
         recordings.sort();
         assert_eq!(result.deleted, 3);
         assert_eq!(recordings, ["1000-1.wav", "1001-2.wav"]);
+    }
+
+    #[test]
+    fn pruning_hands_back_the_recordings_of_removed_entries() {
+        let db = fresh_db();
+        let now = unix_now().unwrap();
+        // Too old for the age limit; then the oldest of three recent entries
+        // is over the count limit. The one without a recording names nothing.
+        for (id, timestamp, recording) in [
+            (1, 0.0, Some("0-1.wav")),
+            (2, now - 30.0, Some("1000-2.wav")),
+            (3, now - 20.0, None),
+            (4, now - 10.0, Some("1001-4.wav")),
+        ] {
+            db.lock()
+                .unwrap()
+                .execute(
+                    "INSERT INTO history (id, timestamp, text, length, recording_file) \
+                     VALUES (?1, ?2, 'x', 1, ?3)",
+                    rusqlite::params![id, timestamp, recording],
+                )
+                .unwrap();
+        }
+        let policy = RetentionPolicy {
+            max_entries: 2,
+            ..RetentionPolicy::default()
+        };
+        let mut recordings = prune(&db.lock().unwrap(), policy).unwrap();
+        recordings.sort();
+        assert_eq!(recordings, ["0-1.wav", "1000-2.wav"]);
+        let left = list_history_from(&db.lock().unwrap(), RetentionPolicy::default()).unwrap();
+        let mut ids: Vec<u64> = left.entries.iter().map(|entry| entry.id).collect();
+        ids.sort();
+        assert_eq!(ids, [3, 4]);
     }
 
     #[test]

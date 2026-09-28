@@ -54,7 +54,7 @@ Fuzzy term matching does not rewrite a single Latin word unless it is a dictiona
 
 ## Local paragraphs
 
-**Processing → Text → Cleanup → Split text into paragraphs** is enabled by default and works without an LLM. It groups existing sentences in longer text, usually around four sentences or 350 characters, and avoids leaving a very short final paragraph. It preserves existing line breaks and does not change words or invent punctuation. Short messages and text without reliable sentence endings remain together.
+**Processing → Text → Cleanup → Split text into paragraphs** is off by default and works without an LLM. The paragraph breaks are pasted into whatever field has focus, and a single-line field or a terminal handles them badly: the field may keep only the first paragraph, and a shell may run each line. It groups existing sentences in longer text, usually around four sentences or 350 characters, and avoids leaving a very short final paragraph. It preserves existing line breaks and does not change words or invent punctuation. Short messages and text without reliable sentence endings remain together.
 
 Paragraph detection protects code, links, common Russian and English abbreviations, initials and quoted or parenthesized text. It is a readability heuristic, not semantic topic detection. The separate **Split long sentences** option remains off by default and uses conjunction-based rules; it is not needed for paragraphs. Disabling local formatting also disables paragraph grouping.
 

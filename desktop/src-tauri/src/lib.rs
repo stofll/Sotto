@@ -1075,19 +1075,17 @@ pub(crate) fn on_recording_stopped(app: &AppHandle, session_id: u64, audio: Opti
         return;
     };
     // A cancel may arrive while the audio worker is finalizing, and a
-    // cancelled capture must not be kept as a recording. A plain read, not a
-    // lock held across the write: both callers check the same marker
-    // immediately before calling in, and holding the
-    // cancellation mutex across file I/O would park every concurrent
-    // `request_cancel`/`begin_commit` for the length of a WAV write.
+    // cancelled capture must not be kept as a recording. A plain read is
+    // enough: both callers check the same marker immediately before calling
+    // in, and a cancel that lands after it deletes the file when the
+    // dictation finishes (`dictation::finish`).
     if app.state::<AppState>().is_cancelled(session_id) {
         return;
     }
-    if let Some(name) = crate::recordings::save(cfg.as_value(), session_id, samples) {
-        log::info!("session {session_id}: recording saved");
+    if let Some(saving) = crate::recordings::save(cfg.as_value(), session_id, samples) {
         app.state::<AppState>()
             .pending_recordings
-            .put(session_id, name);
+            .put(session_id, saving);
     }
     // Toggle mode only — see `sounds::Cue::Stop`.
     if cfg.get_string("recording_mode").as_deref() == Some("toggle") {

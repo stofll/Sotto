@@ -82,7 +82,7 @@ const FORMAT_DEFAULTS: TextFormattingConfig = {
   normalize_spaces: true,
   correct_spelling: true,
   split_sentences: false,
-  split_paragraphs: true,
+  split_paragraphs: false,
   capitalize_sentences: true,
   final_punctuation: true,
   custom_parasite_words: [],

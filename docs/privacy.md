@@ -33,7 +33,11 @@ Review provider settings before enabling a cloud workflow. Do not put secrets, t
 
 History, settings, telemetry outbox data, and optional audio recordings are stored locally by the application. To request help, share only the minimum redacted logs needed to reproduce a problem.
 
-Audio recordings are off by default. When **Settings → Advanced → Save audio recordings** is on, every dictation is kept as a WAV file in the `recordings` folder and can be played from History. The newest 50 are kept unless you choose another limit; deleting an entry from History, or clearing History, deletes its recording too. Entries removed by the History retention limits leave their recordings in place until the recordings limit removes them. The folder is separate from the logs, so sharing the logs folder does not share your voice; builds before this change kept recordings inside `logs`, and the first launch of a newer build moves them out.
+Audio recordings are off by default. When **Settings → Advanced → Save audio recordings** is on, every dictation is kept as a WAV file in the `recordings` folder and can be played from History. The newest 50 are kept unless you choose another limit.
+
+A recording is deleted with its History entry: when you delete the entry, clear History, or the History retention limits remove it. A cancelled dictation's recording is deleted as well. A dictation that produced no text or failed to transcribe has no History entry, so its recording stays in the folder until the recordings limit removes it or you delete it there.
+
+The folder is separate from the logs, so sharing the logs folder does not share your voice. Builds before this change kept recordings inside `logs`, and the first launch of a newer build moves them out.
 
 Pasting goes through the system clipboard, so the last dictated text stays there until something else is copied, and a clipboard history such as Windows' Win+V may keep it longer.
 

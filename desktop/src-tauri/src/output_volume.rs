@@ -227,7 +227,10 @@ mod windows_impl {
             let Ok(control) = sessions.GetSession(index) else {
                 continue;
             };
-            if control.GetState().is_ok_and(|state| state == AudioSessionStateExpired) {
+            if control
+                .GetState()
+                .is_ok_and(|state| state == AudioSessionStateExpired)
+            {
                 continue;
             }
             let Ok(control2) = control.cast::<IAudioSessionControl2>() else {
@@ -262,11 +265,17 @@ mod windows_impl {
             let Ok(current) = volume.GetMasterVolume() else {
                 continue;
             };
-            if volume.SetMasterVolume(current * level, std::ptr::null()).is_ok() {
+            if volume
+                .SetMasterVolume(current * level, std::ptr::null())
+                .is_ok()
+            {
                 ducked.push((volume, current));
             }
         }
-        log::info!("output volume: ducked {} session(s) to {level:.3}", ducked.len());
+        log::info!(
+            "output volume: ducked {} session(s) to {level:.3}",
+            ducked.len()
+        );
         if !ducked.is_empty() {
             *previous = Some(DuckState(ducked));
         }

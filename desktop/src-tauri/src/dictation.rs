@@ -20,6 +20,11 @@ pub fn finish(state: &AppState, session_id: u64) {
     if state.owns_dictation(session_id) {
         crate::clipboard::clear_target();
     }
+    // A delivered dictation has already taken its recording for History;
+    // every other ending decides here, before the cancel marker is dropped.
+    state
+        .pending_recordings
+        .release(session_id, state.is_cancelled(session_id));
     state.finish_session(session_id);
 }
 

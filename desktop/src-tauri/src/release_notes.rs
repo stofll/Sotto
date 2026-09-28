@@ -68,6 +68,24 @@ fn store_notes(conn: &Connection, version: &str, notes: &str) -> rusqlite::Resul
     Ok(())
 }
 
+/// Cache the installed version's notes unless the one slot already holds a
+/// newer version's: those were saved by [`cache_update`] for an update that
+/// is downloaded but not yet running, and are its only copy offline.
+fn store_installed_notes(conn: &Connection, version: &str, notes: &str) -> rusqlite::Result<()> {
+    let cached: Option<String> = conn
+        .query_row(
+            "SELECT cached_version FROM release_notes_state WHERE id = 1",
+            [],
+            |r| r.get(0),
+        )
+        .optional()?
+        .flatten();
+    if cached.is_some_and(|cached| is_upgrade(&cached, version)) {
+        return Ok(());
+    }
+    store_notes(conn, version, notes)
+}
+
 fn acknowledge(conn: &Connection, version: &str) -> rusqlite::Result<()> {
     if pending(conn, version)? {
         conn.execute(
@@ -200,7 +218,7 @@ pub async fn get_whats_new(
             let current = version.clone();
             let saved = notes.clone();
             crate::run_db_op(state.db.clone(), move |conn| {
-                store_notes(conn, &current, &saved)
+                store_installed_notes(conn, &current, &saved)
             })
             .await
             .inspect_err(|error| log::error!("Could not store release notes: {error}"))?;
@@ -333,6 +351,27 @@ mod tests {
             Some("Installed release notes")
         );
         assert_eq!(cached(&conn, "0.3.0").unwrap(), None);
+    }
+
+    #[test]
+    fn reopening_notes_keeps_those_cached_for_a_pending_update() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::run_migrations(&conn).unwrap();
+        pending(&conn, "0.2.0").unwrap();
+        // Downloaded, not yet installed: 0.2.0 is still running.
+        store_notes(&conn, "0.3.0", "Next release").unwrap();
+        store_installed_notes(&conn, "0.2.0", "Current release").unwrap();
+        assert_eq!(
+            cached(&conn, "0.3.0").unwrap().as_deref(),
+            Some("Next release")
+        );
+        // Once the cache holds an older version, the running one replaces it.
+        store_notes(&conn, "0.1.0", "Old release").unwrap();
+        store_installed_notes(&conn, "0.2.0", "Current release").unwrap();
+        assert_eq!(
+            cached(&conn, "0.2.0").unwrap().as_deref(),
+            Some("Current release")
+        );
     }
 
     #[test]

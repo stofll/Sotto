@@ -1,10 +1,10 @@
 //! Microphone recordings kept on disk when the user asks for it.
 //!
 //! Off by default: it writes the user's voice to disk, which is not
-//! something to switch on behind their back. Each dictation is written
-//! before transcription, so a recording exists even when recognition fails;
-//! the history entry of that dictation refers to it by file name, which is
-//! how History plays it back.
+//! something to switch on behind their back. Each dictation is written while
+//! it is transcribed, so a recording exists even when recognition fails; the
+//! history entry of that dictation refers to it by file name, which is how
+//! History plays it back. A cancelled dictation loses its recording.
 //!
 //! The folder is separate from the logs: the logs are what people are asked
 //! to share when something breaks, and their voice must not travel with them.
@@ -12,6 +12,8 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+
+use tauri::async_runtime::JoinHandle;
 
 /// Config key: keep a copy of every dictation on disk. The `debug_` prefix
 /// is historical — the switch used to live in Help → Diagnostics.
@@ -23,9 +25,8 @@ const CONFIG_MAX: &str = "debug_max_recordings";
 const DEFAULT_MAX_RECORDINGS: usize = 50;
 /// Sample rate of the capture pipeline. Recordings are written as captured.
 const SAMPLE_RATE: u32 = 16_000;
-/// Saved recordings whose history entry has not been written yet. Only a
-/// dictation that fails or is cancelled after its audio was saved leaves an
-/// entry behind; the bound keeps those from accumulating.
+/// Recordings whose dictation has not ended yet. Every ending releases its
+/// entry; the bound is a backstop against a path that forgets to.
 const MAX_PENDING: usize = 16;
 
 /// Whether dictations should be kept on disk.
@@ -55,18 +56,29 @@ fn diagnostics_recordings_dir() -> PathBuf {
     crate::debug::diagnostics_dir().join("recordings")
 }
 
-/// Write one dictation to `recordings/<unix seconds>-<session>.wav` and
-/// return the file name.
+/// Start writing one dictation to `recordings/<unix seconds>-<session>.wav`;
+/// the task yields the file name.
 ///
-/// Best-effort and non-fatal: keeping a copy must never break a dictation.
-pub fn save(config: &serde_json::Value, session_id: u64, samples: &[f32]) -> Option<String> {
+/// Only the conversion to 16-bit samples runs on the caller's thread: the
+/// caller is on the way from the stopped recording to transcription, and the
+/// write and the limit's directory scan must not delay it. Best-effort and
+/// non-fatal: keeping a copy must never break a dictation.
+pub fn save(
+    config: &serde_json::Value,
+    session_id: u64,
+    samples: &[f32],
+) -> Option<JoinHandle<Option<String>>> {
     if !enabled(config) || samples.is_empty() {
         return None;
     }
-    save_in(&dir(), limit(config), session_id, samples)
+    let pcm = crate::wav::f32_to_pcm16(samples);
+    let keep = limit(config);
+    Some(tauri::async_runtime::spawn_blocking(move || {
+        save_in(&dir(), keep, session_id, &pcm)
+    }))
 }
 
-fn save_in(dir: &Path, keep: Option<usize>, session_id: u64, samples: &[f32]) -> Option<String> {
+fn save_in(dir: &Path, keep: Option<usize>, session_id: u64, pcm: &[i16]) -> Option<String> {
     if let Err(error) = std::fs::create_dir_all(dir) {
         log::warn!("recordings dir: {error}");
         return None;
@@ -76,12 +88,12 @@ fn save_in(dir: &Path, keep: Option<usize>, session_id: u64, samples: &[f32]) ->
         .map(|d| d.as_secs())
         .unwrap_or(0);
     let name = format!("{stamp}-{session_id}.wav");
-    let pcm = crate::wav::f32_to_pcm16(samples);
-    let wav = crate::wav::encode_pcm16_mono(&pcm, SAMPLE_RATE);
+    let wav = crate::wav::encode_pcm16_mono(pcm, SAMPLE_RATE);
     if let Err(error) = std::fs::write(dir.join(&name), wav) {
         log::warn!("write recording {name}: {error}");
         return None;
     }
+    log::info!("session {session_id}: recording saved");
     if let Some(keep) = keep {
         prune(dir, keep);
     }
@@ -140,8 +152,11 @@ pub fn read(name: &str) -> Result<Vec<u8>, String> {
 
 /// Delete the recordings of deleted history entries. Missing files are fine.
 pub fn remove(names: &[String]) {
-    let dir = dir();
-    for path in names.iter().filter_map(|name| path_of(&dir, name)) {
+    remove_in(&dir(), names);
+}
+
+fn remove_in(dir: &Path, names: &[String]) {
+    for path in names.iter().filter_map(|name| path_of(dir, name)) {
         match std::fs::remove_file(&path) {
             Ok(()) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
@@ -183,27 +198,49 @@ fn adopt_from(old: &Path, new: &Path) {
     let _ = std::fs::remove_dir(old);
 }
 
-/// Recordings saved for dictations whose history entry is still on its way.
+/// Recordings of dictations that have not ended yet.
 ///
-/// The audio is written when capture stops, the entry after transcription
-/// and formatting; the session id carries the file name across.
+/// The audio is written from the moment capture stops, the history entry
+/// after transcription and formatting; the session id carries the write
+/// across, and whoever ends the dictation settles what becomes of the file.
 #[derive(Default)]
-pub struct Pending(Mutex<HashMap<u64, String>>);
+pub struct Pending(Mutex<HashMap<u64, JoinHandle<Option<String>>>>);
 
 impl Pending {
-    pub fn put(&self, session_id: u64, name: String) {
+    pub fn put(&self, session_id: u64, saving: JoinHandle<Option<String>>) {
         let mut pending = crate::mutex_recover::lock(&self.0);
         if pending.len() >= MAX_PENDING {
             if let Some(oldest) = pending.keys().min().copied() {
                 pending.remove(&oldest);
             }
         }
-        pending.insert(session_id, name);
+        pending.insert(session_id, saving);
     }
 
-    pub fn take(&self, session_id: u64) -> Option<String> {
-        crate::mutex_recover::lock(&self.0).remove(&session_id)
+    /// The file name for the dictation's history entry, once written.
+    pub async fn take(&self, session_id: u64) -> Option<String> {
+        let saving = crate::mutex_recover::lock(&self.0).remove(&session_id)?;
+        saving.await.ok().flatten()
     }
+
+    /// The dictation ended without a history entry. A cancelled one must not
+    /// leave the user's voice behind; one that produced no text keeps its
+    /// recording in the folder, where it shows what recognition was given.
+    pub fn release(&self, session_id: u64, cancelled: bool) {
+        let saving = crate::mutex_recover::lock(&self.0).remove(&session_id);
+        if let (Some(saving), true) = (saving, cancelled) {
+            discard_in(dir(), saving);
+        }
+    }
+}
+
+/// Delete a recording once its write has finished.
+fn discard_in(dir: PathBuf, saving: JoinHandle<Option<String>>) -> JoinHandle<()> {
+    tauri::async_runtime::spawn(async move {
+        if let Ok(Some(name)) = saving.await {
+            let _ = tauri::async_runtime::spawn_blocking(move || remove_in(&dir, &[name])).await;
+        }
+    })
 }
 
 #[tauri::command]
@@ -211,14 +248,20 @@ pub(crate) fn open_recordings_folder() -> Result<(), String> {
     crate::debug::open_in_file_manager(&dir())
 }
 
-/// Bytes the saved recordings occupy.
+/// Bytes the saved recordings occupy. Async with a blocking worker: without a
+/// limit the folder can hold thousands of files, and a synchronous command
+/// would stat them on the main thread.
 #[tauri::command]
-pub(crate) fn recordings_size() -> u64 {
-    wav_files(&dir())
-        .iter()
-        .filter_map(|path| std::fs::metadata(path).ok())
-        .map(|meta| meta.len())
-        .sum()
+pub(crate) async fn recordings_size() -> Result<u64, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        wav_files(&dir())
+            .iter()
+            .filter_map(|path| std::fs::metadata(path).ok())
+            .map(|meta| meta.len())
+            .sum()
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
@@ -251,7 +294,8 @@ mod tests {
     #[test]
     fn a_saved_recording_is_a_playable_wav_named_by_session() {
         let dir = tempfile::tempdir().unwrap();
-        let name = save_in(dir.path(), Some(50), 7, &[0.0, 0.5, -0.5]).unwrap();
+        let pcm = crate::wav::f32_to_pcm16(&[0.0, 0.5, -0.5]);
+        let name = save_in(dir.path(), Some(50), 7, &pcm).unwrap();
         assert!(name.ends_with("-7.wav"));
         let bytes = std::fs::read(dir.path().join(&name)).unwrap();
         assert_eq!(&bytes[..4], b"RIFF");
@@ -300,17 +344,41 @@ mod tests {
         assert_eq!(names(&new), ["1000-1.wav"]);
     }
 
+    fn written(name: &str) -> JoinHandle<Option<String>> {
+        let name = name.to_owned();
+        tauri::async_runtime::spawn_blocking(move || Some(name))
+    }
+
     #[test]
     fn pending_names_are_taken_once_and_stay_bounded() {
+        use tauri::async_runtime::block_on;
         let pending = Pending::default();
-        pending.put(1, "a.wav".into());
-        assert_eq!(pending.take(1).as_deref(), Some("a.wav"));
-        assert_eq!(pending.take(1), None);
+        pending.put(1, written("a.wav"));
+        assert_eq!(block_on(pending.take(1)).as_deref(), Some("a.wav"));
+        assert_eq!(block_on(pending.take(1)), None);
 
         for session in 0..(MAX_PENDING as u64 + 4) {
-            pending.put(session, format!("{session}.wav"));
+            pending.put(session, written(&format!("{session}.wav")));
         }
-        assert_eq!(pending.take(0), None);
-        assert!(pending.take(MAX_PENDING as u64 + 3).is_some());
+        assert_eq!(block_on(pending.take(0)), None);
+        assert!(block_on(pending.take(MAX_PENDING as u64 + 3)).is_some());
+    }
+
+    #[test]
+    fn a_dictation_that_ends_without_text_keeps_its_recording_but_not_its_entry() {
+        let pending = Pending::default();
+        pending.put(1, written("1000-1.wav"));
+        pending.release(1, false);
+        assert_eq!(tauri::async_runtime::block_on(pending.take(1)), None);
+    }
+
+    #[test]
+    fn a_cancelled_dictation_loses_its_recording_once_written() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("1000-1.wav"), b"RIFF").unwrap();
+        std::fs::write(dir.path().join("1001-2.wav"), b"RIFF").unwrap();
+        tauri::async_runtime::block_on(discard_in(dir.path().to_path_buf(), written("1000-1.wav")))
+            .unwrap();
+        assert_eq!(names(dir.path()), ["1001-2.wav"]);
     }
 }

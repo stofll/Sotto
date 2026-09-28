@@ -1494,6 +1494,8 @@ fn apply_case_of(matched: &str, canonical: &str) -> String {
 pub struct CustomWordsCorrector {
     enabled: bool,
     terms: Vec<CustomTerm>,
+    /// Lower-cased terms ending in «й», whose inflected forms stay as spoken.
+    inflecting: Vec<String>,
     max_window: usize,
 }
 
@@ -1545,9 +1547,15 @@ impl CustomWordsCorrector {
             .max()
             .unwrap_or(0)
             + 1;
+        let inflecting = terms
+            .iter()
+            .map(|term| term.canonical.to_lowercase())
+            .filter(|canonical| canonical.ends_with('й'))
+            .collect();
         Self {
             enabled,
             terms,
+            inflecting,
             max_window,
         }
     }
@@ -1615,28 +1623,27 @@ impl CustomWordsCorrector {
         let limit = self.max_window().min(words.len() - start);
         let mut best: Option<(f64, usize, &str)> = None;
         let mut ambiguous = false;
-        let first_word = words[start]
-            .trim_matches(|c: char| !c.is_alphanumeric())
-            .to_lowercase();
         // Keep inflected Russian terms rather than flattening them to the
         // dictionary's nominative («оверлеи» and «оверлей» fold identically).
-        if self.terms.iter().any(|term| {
-            let canonical = term.canonical.to_lowercase();
-            let Some(stem) = canonical.strip_suffix('й') else {
-                return false;
-            };
-            let inflected = first_word.strip_prefix(stem).is_some_and(|ending| {
-                matches!(
-                    ending,
-                    "я" | "ю" | "ем" | "е" | "и" | "ев" | "ям" | "ями" | "ях"
-                )
-            });
-            let attached = first_word
-                .strip_prefix(&canonical)
-                .is_some_and(|tail| tail.chars().count() >= 2);
-            inflected || attached
-        }) {
-            return None;
+        if !self.inflecting.is_empty() {
+            let first_word = words[start]
+                .trim_matches(|c: char| !c.is_alphanumeric())
+                .to_lowercase();
+            if self.inflecting.iter().any(|canonical| {
+                let stem = canonical.strip_suffix('й').unwrap_or(canonical);
+                let inflected = first_word.strip_prefix(stem).is_some_and(|ending| {
+                    matches!(
+                        ending,
+                        "я" | "ю" | "ем" | "е" | "и" | "ев" | "ям" | "ями" | "ях"
+                    )
+                });
+                let attached = first_word
+                    .strip_prefix(canonical.as_str())
+                    .is_some_and(|tail| tail.chars().count() >= 2);
+                inflected || attached
+            }) {
+                return None;
+            }
         }
         for n in 1..=limit {
             if n > 1
@@ -2588,7 +2595,9 @@ pub struct TextFormattingConfig {
     pub correct_spelling: bool,
     #[serde(default)]
     pub split_sentences: bool,
-    #[serde(default = "default_true")]
+    /// Off by default: the line breaks reach whatever field the text is
+    /// pasted into, and a single-line field keeps only the first paragraph.
+    #[serde(default)]
     pub split_paragraphs: bool,
     /// Identifiers of the enabled ready-made sets ([`DICTIONARY_PRESETS`]).
     ///
@@ -2679,7 +2688,7 @@ impl Default for TextFormattingConfig {
             // phrasing, which is a bigger intervention than the cleanup
             // steps above.
             split_sentences: false,
-            split_paragraphs: true,
+            split_paragraphs: false,
             capitalize_sentences: true,
             final_punctuation: true,
             custom_parasite_words: Vec::new(),
