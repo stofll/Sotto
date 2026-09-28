@@ -9,6 +9,10 @@ packages:
 
 allowBuilds:
   esbuild: true
+  # wrangler-action installs wrangler at deploy time, and pnpm fails that install
+  # on any unreviewed build script. workerd's script sets up the binary behind
+  # `wrangler dev`, which a static-assets deploy never starts.
+  workerd: false
 
 # Potrace's legacy Jimp dependency uses phin 2; retain the local PNG tracing
 # workflow while removing GHSA-x565-32qp-m3vf from its dependency graph.
