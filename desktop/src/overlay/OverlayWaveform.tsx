@@ -98,7 +98,9 @@ export function OverlayWaveform({ surfaceRef, circular = false, compact = false,
       const levels = levelsRef.current, step = easeStep(seconds, 0.035);
       for (let index = 0; index < barsRef.current.length; index++) {
         const target = readingRef.current(levels, index);
-        shown[index] = (shown[index] ?? target) + (target - (shown[index] ?? target)) * step;
+        const eased = (shown[index] ?? target) + (target - (shown[index] ?? target)) * step;
+        // An exponential ease never lands; settle on the reading once it is too close to see.
+        shown[index] = Math.abs(target - eased) < 0.001 ? target : eased;
         paintBar(barsRef.current[index], shown[index], ring);
       }
     });
