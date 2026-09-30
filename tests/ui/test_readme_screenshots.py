@@ -153,6 +153,17 @@ def test_capture_readme_screenshot(app, page, locale, theme, screen):
                 "img", name="Скорость:" if locale == "ru" else "Speed:"
             )
         ).to_be_visible()
+    if locale == "en":
+        # A string evaluated before the English strings loaded would stay Russian.
+        # The interface-language toggle is the one Russian word that belongs here.
+        cyrillic = page.evaluate("""() => {
+          const copy = document.body.cloneNode(true);
+          copy.querySelectorAll('button').forEach((button) => {
+            if (button.textContent.trim() === 'Русский') button.remove();
+          });
+          return copy.textContent.match(/[А-Яа-яЁё]+/g) ?? [];
+        }""")
+        assert cyrillic == [], cyrillic
     page.evaluate("() => document.fonts.ready.then(() => true)")
     page.mouse.move(0, 0)
     output = Path(os.environ["SOTTO_README_SHOTS_DIR"])
