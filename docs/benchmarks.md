@@ -28,7 +28,7 @@ The benchmark remains CPU-only and uses one natural speech clip per language. It
 
 The initial method uses pinned, SHA-256-verified public Russian speech from GigaAM's example and English JFK speech from whisper.cpp. Sources and revisions are in [model_benchmark.rs](../desktop/src-tauri/examples/model_benchmark.rs). A model is tested on Russian when supported, otherwise English, with explicit language and automatic language detection as separate cases. Each case has one warm-up and five timed runs. The output preserves median/min/max processing time, audio duration, load time, thread count, reference CPU/OS and exact model revision. Whisper uses greedy decoding with one candidate; both engines use at most eight CPU threads, matching the application. The streaming case measures the complete final pass, not live-preview latency.
 
-RTF is processing seconds divided by audio seconds. Cards classify RTF ≤ 0.25 as High, RTF ≤ 1 as Medium, and larger values as Low, using the internal score `1 / (1 + RTF)`. These thresholds describe throughput, not accuracy or a percentile across computers. Cards use the CPU reference for the language selected in Settings, falling back to the automatic-detection row, and display it at one third, two thirds or full fill. Dictation observations are still recorded locally, but only a failed load reaches the card; they never produce a speed score.
+RTF is processing seconds divided by audio seconds. Cards classify RTF ≤ 0.25 as High, RTF ≤ 1 as Medium, and larger values as Low, using the internal score `1 / (1 + RTF)`. These thresholds describe throughput, not accuracy or a percentile across computers. Cards use the bundled CPU reference for the language selected in Settings, falling back to the automatic-detection row, and display it at one third, two thirds or full fill. Speed comes only from this bundled reference; dictation performance is not recorded.
 
 Pick the row to retain accordingly: Whisper's `auto` rows run about 1.9x its explicit-language rows because of the detection pass, while the Sherpa rows differ by at most a few percent. The fixture language itself — Russian versus English speech of comparable length — moves RTF by 2–13%, so it is a note on the measurement rather than a second scale.
 
@@ -56,7 +56,7 @@ cargo bench --package sotto -- wav_encoding
 cargo bench --no-run --package sotto
 ```
 
-Results are printed to stdout. Criterion also writes an HTML report to `target/criterion/<benchmark-group>/report/index.html`.
+Results are printed to stdout. With the current `criterion` features, JSON measurements are also saved under `target/criterion/<benchmark-group>/new/`; HTML and CSV reports are disabled.
 
 ## What each benchmark measures
 
@@ -142,11 +142,7 @@ A relative overhead above 10% or an absolute latency above 100 ns warrants a rev
 
 ## Artifacts and CI comparison
 
-Criterion saves detailed measurement data under `desktop/src-tauri/target/criterion/<benchmark-group>/`. Each run produces:
-
-- `new/raw.csv` — raw measurements (nanoseconds per iteration)
-- `new/estimates.json` — summary statistics (mean, std dev, slope, etc.)
-- `report/index.html` — browsable HTML report with violin plots
+Criterion saves detailed measurement data under `desktop/src-tauri/target/criterion/<benchmark-group>/`. The enabled features produce JSON files such as `new/sample.json` (sampling data) and `new/estimates.json` (summary statistics). The `html_reports` and `csv_output` features are not enabled, so do not expect `report/index.html` or `new/raw.csv`.
 
 To compare against a saved baseline:
 

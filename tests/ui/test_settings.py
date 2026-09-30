@@ -77,6 +77,17 @@ def test_locale_changes_live_and_persists(app, page):
     expect(page.get_by_role("heading", name="Settings", exact=True)).to_be_visible()
 
 
+def test_speech_language_labels_follow_the_interface_locale(app, page):
+    app(config={"ui_language": "en", "language": "auto"})
+    picker = page.locator(".custom-select--language")
+    # English strings load after the first render; the label must not stay Russian.
+    expect(picker).to_contain_text("Auto")
+    page.get_by_role("button", name="Русский", exact=True).click()
+    expect(picker).to_contain_text("Авто")
+    page.get_by_role("button", name="English", exact=True).click()
+    expect(picker).to_contain_text("Auto")
+
+
 @pytest.mark.parametrize(
     "locale,next_locale,label", [("ru", "en", "English"), ("en", "ru", "Русский")]
 )

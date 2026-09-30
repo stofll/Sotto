@@ -16,6 +16,8 @@ on:
       - "desktop/package.json"
       - "desktop/src-tauri/Cargo.lock"
       - "desktop/src-tauri/Cargo.toml"
+      - "desktop/setup/src-tauri/Cargo.lock"
+      - "desktop/setup/src-tauri/Cargo.toml"
       - "scripts/sherpa-runtime.lock"
       - "scripts/native-components.json"
       - "scripts/generate-native-inventory*.mjs"
@@ -93,6 +95,16 @@ jobs:
             --override-filename sbom-rust
           mv sbom-rust.json "$GITHUB_WORKSPACE/sbom/sbom-rust.cdx.json"
 
+      - name: SBOM — Windows setup Rust
+        working-directory: desktop/setup/src-tauri
+        run: |
+          cargo cyclonedx \
+            --format json \
+            --spec-version 1.5 \
+            --target all \
+            --override-filename sbom-rust-setup
+          mv sbom-rust-setup.json "$GITHUB_WORKSPACE/sbom/sbom-rust-setup.cdx.json"
+
       - name: Install frontend deps
         working-directory: desktop
         run: pnpm install --frozen-lockfile
@@ -134,7 +146,7 @@ jobs:
         run: |
           node -e '
             const fs = require("fs");
-            for (const f of ["sbom/sbom-rust.cdx.json", "sbom/sbom-npm.cdx.json"]) {
+            for (const f of ["sbom/sbom-rust.cdx.json", "sbom/sbom-rust-setup.cdx.json", "sbom/sbom-npm.cdx.json"]) {
               const bom = JSON.parse(fs.readFileSync(f, "utf8"));
               const comps = bom.components || [];
               const noLicense = comps.filter((c) => !c.licenses || c.licenses.length === 0);
@@ -155,4 +167,6 @@ jobs:
         if: inputs.release_tag != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "${{ inputs.release_tag }}" sbom/* --clobber
+        # The Windows setup shell is not released yet, so its inventory stays a
+        # run artifact until it is (docs/windows-setup.md).
+        run: gh release upload "${{ inputs.release_tag }}" $(ls sbom/* | grep -v '/sbom-rust-setup\.cdx\.json$') --clobber

@@ -34,6 +34,18 @@ cd desktop
 pnpm exec tsc -p ../tests/ui/tsconfig.json
 ```
 
+## Refresh README screenshots
+
+`test_readme_screenshots.py` renders Settings and Models in both locales and themes using synthetic configuration, model state and speed indicators. It is skipped during ordinary runs and never starts the native application or reads user data. On Windows, generate candidates from the repository root:
+
+```powershell
+$env:SOTTO_README_SHOTS_DIR = Join-Path $env:TEMP "sotto-readme-shots"
+uv run --locked --project tests/ui pytest tests/ui/test_readme_screenshots.py --browser chromium
+Remove-Item Env:SOTTO_README_SHOTS_DIR
+```
+
+Review all eight generated PNGs before copying them to `docs/images/` with the same filenames. Settings uses a 1200×680 viewport and Models uses 1280×930, both at device scale 2. The screenshots illustrate current UI; their synthetic model state does not establish native performance.
+
 ## Test boundary and isolation
 
 Playwright injects the separately bundled `tests/ui/harness/runtime.ts` before application JavaScript. It uses the installed Tauri package's `mockIPC` and `mockWindows`, including event mocking. Production entry points do not import this harness, and no production test mode or IPC bypass is added.

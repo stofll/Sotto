@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Segmented } from "../../components/Shell";
 import { CustomSelect, type SelectOption } from "../../components/CustomSelect";
-import { applyLocaleFromConfig, getLocale, isLocale, LOCALE_LABELS, LOCALES, t, type Locale } from "../../i18n";
+import { applyLocaleFromConfig, getLocale, isLocale, LOCALE_LABELS, LOCALES, t, useLocale, type Locale } from "../../i18n";
 import type { ModelInfo } from "../../bridge/types";
 import { fallbackLanguage, speechLanguages } from "../modelCatalog";
 import type { ConfigChanged } from "./controls";
@@ -46,17 +46,17 @@ export function LanguagePicker({ language, model, models, onConfigChanged }: { l
   // German model yet unable to say you are dictating in German. There are
   // deliberately no flags — a language is not a country, and English and Arabic
   // have a dozen each.
-  const options = useMemo<Array<SelectOption<string>>>(
-    () => [
-      { value: "auto", label: t("Авто"), icon: "globe" },
-      ...speechLanguages(model, models).map((item) => ({
-        value: item.code,
-        label: item.name,
-        meta: item.code.toUpperCase(),
-      })),
-    ],
-    [model, models],
-  );
+  // «Авто» and the language names are built at render time for the current
+  // locale, which loads after the first render and changes with the interface.
+  useLocale();
+  const options: Array<SelectOption<string>> = [
+    { value: "auto", label: t("Авто"), icon: "globe" },
+    ...speechLanguages(model, models).map((item) => ({
+      value: item.code,
+      label: item.name,
+      meta: item.code.toUpperCase(),
+    })),
+  ];
   const value = correction ?? language ?? "ru";
   return <CustomSelect className="custom-select--language" value={value} options={options} searchable inlineMeta onChange={(next) => void onConfigChanged({ language: next })}/>;
 }

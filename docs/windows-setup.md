@@ -44,7 +44,7 @@ The embedded payload is checked again before extraction to a unique temporary di
 
 The new executable is currently a candidate artifact. Release automation and the download site still distribute the established NSIS installer. Keep its .sig and latest.json unchanged: existing clients must continue receiving the original updater-compatible NSIS package. Publisher signing of the new shell is separate from the updater's minisign signature and must be addressed before changing the public download.
 
-The change that starts publishing the shell must also add it to the release SBOM. Its Rust dependencies come from its own `desktop/setup/src-tauri/Cargo.lock`, which `sbom.yml` does not read yet; generate a separate CycloneDX file for it, such as `sbom-setup-rust.cdx.json`, and add that lockfile and its `Cargo.toml` to the workflow's trigger paths. Drive the Rust step from a list of projects, one inventory per distributed binary, so a future macOS setup shell is a single new entry. The shell's frontend is already in the npm inventory, and `cargo-audit` already checks its lockfile.
+`sbom.yml` already inventories the shell's Rust dependencies from its own `desktop/setup/src-tauri/Cargo.lock` as `sbom-rust-setup.cdx.json`, but keeps that file a run artifact. The change that starts publishing the shell must also attach it to the release: remove its exclusion from the workflow's release upload step and list it in the draft contents in [Release process](RELEASE.md). The shell's frontend is already in the npm inventory, and `cargo-audit` already checks its lockfile.
 
 ## Runtime behavior and limitations
 
