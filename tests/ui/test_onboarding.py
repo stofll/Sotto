@@ -499,7 +499,7 @@ def test_portable_and_macos_controls(app, page):
         app,
         2,
         runtime={"portable": True, "os": "macos"},
-        responses={"check_accessibility": [{"result": False}]},
+        responses={"check_accessibility": [{"result": False}] * 8},
     )
     expect(page.get_by_test_id("accessibility-notice")).to_be_visible()
     ui.emit("whisper-loading", "turbo")
