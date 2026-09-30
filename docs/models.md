@@ -101,11 +101,11 @@ When a catalog entry is re-pinned to different artifacts, the installed folder s
 
 The `sherpa-onnx` 1.13.7 crate — the Rust API maintained in the Sherpa-ONNX repository itself — pulls in matching binary Sherpa-ONNX/ONNX Runtime libraries during the Cargo build.
 
-Its build script downloads the archive for the target platform unless `SHERPA_ONNX_LIB_DIR` points at one already on disk, and it does not verify what it downloads.
+Its build script downloads the archive for the target platform unless `SHERPA_ONNX_LIB_DIR` points at one already on disk, and it does not verify what it downloads. The repository's Cargo configuration deliberately sets the variable to a file path by default; the build script rejects it before any download.
 
-CI therefore never lets it: every build is preceded by `scripts/fetch-sherpa-runtime.ps1` (or the `.sh` twin on macOS), which downloads the archive, checks it against the SHA-256 pinned in `scripts/sherpa-runtime.lock`, and exports `SHERPA_ONNX_LIB_DIR`.
+CI and the `pnpm tauri dev/build` commands run `scripts/fetch-sherpa-runtime.ps1` (or the `.sh` twin on macOS arm64) before building. The fetch script checks the archive against the SHA-256 pinned in `scripts/sherpa-runtime.lock` and supplies `SHERPA_ONNX_LIB_DIR` to Cargo. A local build for another native target needs its own reviewed archive entry first.
 
-To build locally against verified libraries, set that variable from the same script — it writes the path to standard output, and everything else to standard error:
+For direct Cargo checks, set that variable from the same script — it writes the path to standard output, and everything else to standard error:
 
 ```powershell
 $env:SHERPA_ONNX_LIB_DIR = ./scripts/fetch-sherpa-runtime.ps1
@@ -115,7 +115,7 @@ $env:SHERPA_ONNX_LIB_DIR = ./scripts/fetch-sherpa-runtime.ps1
 export SHERPA_ONNX_LIB_DIR=$(sh scripts/fetch-sherpa-runtime.sh)
 ```
 
-Running the script without capturing its output verifies the archive but leaves the variable unset in the calling shell, and the next build downloads its own copy unchecked.
+Running the script without capturing its output verifies the archive but leaves the variable unset in the calling shell, so a subsequent direct Cargo build fails with a missing-library-directory error.
 
 The development build and Windows tests use the libraries from the Cargo target directory.
 

@@ -852,6 +852,8 @@ export const en: Record<string, string | string[]> = {
   "встроенный список только русский; свои слова работают на любом языке": "the built-in list is Russian only; your own words work in any language",
   "По одному слову или фразе в строке. Также можно разделять запятыми.":
     "One word or phrase per line. Commas work too.",
+  "Термин — до 128 символов и 8 слов. Во всех активных пользовательских наборах — до 1000 разных терминов.":
+    "Each term may have up to 128 characters and 8 words. Active personal sets may hold up to 1,000 distinct terms in total.",
   "Введите слово или фразу и нажмите Enter. Несколько сразу можно разделить запятыми.":
     "Type a word or phrase and press Enter. Separate several with commas.",
   "Своё слово-паразит": "Your own verbal tic",

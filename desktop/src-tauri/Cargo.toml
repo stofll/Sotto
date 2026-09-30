@@ -129,9 +129,9 @@ libc = "0.2"
 # This build script downloads its native archive without checking a hash, where
 # `sherpa-rs` carried a SHA-256 table. `scripts/fetch-sherpa-runtime.sh` fetches
 # and verifies it instead, against `scripts/sherpa-runtime.lock`, and hands the
-# result over through SHERPA_ONNX_LIB_DIR; CI runs it before every build. A
-# plain local `cargo build` with that variable unset still lets the crate
-# download for itself.
+# result over through SHERPA_ONNX_LIB_DIR. CI and `pnpm tauri` prepare it first;
+# .cargo/config.toml prevents an unchecked download by direct Cargo commands
+# without that preparation.
 sherpa-onnx = { version = "=1.13.7" }
 tempfile = "3"
 objc2 = "0.6"

@@ -16,6 +16,8 @@ Existing personal dictionary entries appear in **My words** with their previous 
 
 ## Spelling and limits
 
+New or edited user terms may contain at most 128 characters and 8 words. Up to 1,000 distinct user terms may be active across personal entries and enabled sets; built-in sets do not count toward this limit. A save that exceeds a limit is rejected without changing the stored dictionary. Older dictionaries already above a limit remain available, and unrelated settings can still be saved; remove or disable terms to bring them within the limit before adding more.
+
 User terms take precedence over built-in terms when they differ only in letter case. If enabled user sets contain multiple spellings of the same term after trimming surrounding whitespace and ignoring case, choose the desired spelling before saving. Phonetically similar terms are not spelling conflicts. The choice applies while that spelling is present in an enabled user set; output capitalization also follows the existing correction rules and the source text.
 
 The dictionary corrects similar spellings after recognition. Whisper additionally receives enabled terms as recognition hints; disabling local formatting stops text correction but leaves these Whisper hints active. Other engines do not necessarily support recognition hints, and dictionary entries do not guarantee that a term will be recognized or corrected.

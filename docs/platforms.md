@@ -6,7 +6,7 @@ Sotto is a desktop dictation application for Windows and macOS. The table below 
 | --- | --- | --- | --- |
 | Windows x64 | Supported | Whisper and the Sherpa-ONNX bundles | Release workflow target |
 | macOS arm64 | Supported | Whisper and the Sherpa-ONNX bundles | Release workflow target |
-| macOS x64 | Not currently promised | Whisper and the Sherpa-ONNX bundles when built locally | Confirm per release |
+| macOS x64 | Not currently promised | A local native build requires a separately pinned Sherpa x64 runtime; none is currently in `scripts/sherpa-runtime.lock` | Confirm per release |
 | Linux | Experimental CI/build target | Whisper when built locally | No supported artifact currently documented |
 
 Linux builds are experimental; full functionality is not guaranteed.

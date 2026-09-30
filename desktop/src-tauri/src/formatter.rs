@@ -3942,6 +3942,39 @@ mod tests {
 mod custom_words_tests {
     use super::*;
 
+    #[test]
+    #[ignore = "opt-in synthetic dictionary latency measurement"]
+    fn dictionary_scaling_benchmark() {
+        let text = "Taurx00001 OpenRuter00002 ArchitectureNotebok00003 Taurx00004 OpenRuter00005 ArchitectureNotebok00006";
+        for count in [100, 1_000, 10_000] {
+            let words: Vec<String> = (0..count)
+                .map(|index| match index % 3 {
+                    0 => format!("Tauri{index:05}"),
+                    1 => format!("OpenRouter{index:05}"),
+                    _ => format!("ArchitectureNotebook{index:05}"),
+                })
+                .collect();
+            let mut build = Vec::new();
+            let mut apply = Vec::new();
+            for _ in 0..5 {
+                let started = std::time::Instant::now();
+                let corrector =
+                    CustomWordsCorrector::new(true, std::hint::black_box(words.clone()));
+                build.push(started.elapsed());
+                let started = std::time::Instant::now();
+                std::hint::black_box(corrector.apply(std::hint::black_box(text)));
+                apply.push(started.elapsed());
+            }
+            build.sort_unstable();
+            apply.sort_unstable();
+            println!(
+                "dictionary_terms={count} build_ms={:.3} apply_ms={:.3}",
+                build[2].as_secs_f64() * 1000.0,
+                apply[2].as_secs_f64() * 1000.0
+            );
+        }
+    }
+
     fn correct(words: &[&str], text: &str) -> String {
         let corrector =
             CustomWordsCorrector::new(true, words.iter().map(|w| w.to_string()).collect());

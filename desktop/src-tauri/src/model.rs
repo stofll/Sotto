@@ -1782,6 +1782,8 @@ mod tests {
 
     #[test]
     fn turbo_uses_upstream_ggml_filename() {
+        let root = tempfile::tempdir().unwrap();
+        let _env = crate::test_support::EnvGuard::set("SOTTO_MODELS_DIR", root.path());
         let path = model_path("turbo").unwrap();
         assert!(path
             .to_string_lossy()
@@ -1795,6 +1797,8 @@ mod tests {
 
     #[test]
     fn list_models_marks_turbo_alias_selected() {
+        let root = tempfile::tempdir().unwrap();
+        let _env = crate::test_support::EnvGuard::set("SOTTO_MODELS_DIR", root.path());
         let models = list_model_infos("large-v3-turbo", None);
         assert_eq!(models.iter().filter(|model| model.selected).count(), 1);
         assert!(models
@@ -1849,6 +1853,8 @@ mod tests {
 
     #[test]
     fn manifest_entry_round_trip_for_known_models() {
+        let root = tempfile::tempdir().unwrap();
+        let _env = crate::test_support::EnvGuard::set("SOTTO_MODELS_DIR", root.path());
         for known in [
             "tiny",
             "base",
@@ -1898,6 +1904,8 @@ mod tests {
 
     #[test]
     fn every_catalogue_model_says_how_it_is_quantised() {
+        let root = tempfile::tempdir().unwrap();
+        let _env = crate::test_support::EnvGuard::set("SOTTO_MODELS_DIR", root.path());
         // The question "what exactly am I downloading" is about size and
         // precision at once, and blank space instead of an answer is worse than
         // the answer "f16".
@@ -1989,10 +1997,8 @@ mod tests {
     #[cfg(any(windows, target_os = "macos"))]
     #[test]
     fn transducer_load_spec_resolves_every_artifact_by_role() {
-        // `model_load_spec` resolves `models_dir()` internally and the
-        // assertion re-reads it; a parallel `EnvGuard` test flipping the
-        // override between the two made the paths disagree.
-        let _env = crate::test_support::env_lock();
+        let root = tempfile::tempdir().unwrap();
+        let _env = crate::test_support::EnvGuard::set("SOTTO_MODELS_DIR", root.path());
         let entry = bundle_manifest_entry("parakeet-tdt-v3").unwrap();
         let spec = model_load_spec("parakeet-tdt-v3", true).unwrap();
         let ModelLoadSpec::Sherpa { engine, files } = spec else {
@@ -2030,6 +2036,8 @@ mod tests {
     #[cfg(any(windows, target_os = "macos"))]
     #[test]
     fn only_the_streaming_family_is_marked_streaming() {
+        let root = tempfile::tempdir().unwrap();
+        let _env = crate::test_support::EnvGuard::set("SOTTO_MODELS_DIR", root.path());
         assert!(ModelEngine::SherpaStreamingTransducer.is_streaming());
         assert!(!ModelEngine::SherpaTransducer.is_streaming());
         assert!(!ModelEngine::Whisper.is_streaming());
@@ -2103,6 +2111,8 @@ mod tests {
     #[cfg(any(windows, target_os = "macos"))]
     #[test]
     fn gigaam_is_a_closed_cpu_only_bundle() {
+        let root = tempfile::tempdir().unwrap();
+        let _env = crate::test_support::EnvGuard::set("SOTTO_MODELS_DIR", root.path());
         assert_eq!(normalize_model_id("gigaam-v3").unwrap(), "gigaam-v3");
         assert_eq!(
             model_engine("gigaam-v3").unwrap(),
@@ -2373,6 +2383,8 @@ mod tests {
 
     #[test]
     fn local_model_path_uses_the_stem_verbatim() {
+        let root = tempfile::tempdir().unwrap();
+        let _env = crate::test_support::EnvGuard::set("SOTTO_MODELS_DIR", root.path());
         // Catalogue ids map id → file_stem; local ids ARE the file stem.
         let path = model_path("russian-finetune").unwrap();
         assert!(path.to_string_lossy().ends_with("russian-finetune.bin"));
@@ -2614,6 +2626,8 @@ mod tests {
 
     #[test]
     fn list_models_marks_whisper_selected_and_loaded_by_id() {
+        let root = tempfile::tempdir().unwrap();
+        let _env = EnvGuard::set(MODELS_DIR_ENV, root.path());
         let models = list_model_infos("turbo", Some("turbo"));
         let turbo = models.iter().find(|m| m.id == "turbo").unwrap();
         assert!(turbo.selected, "turbo must be selected when requested");
@@ -2625,6 +2639,8 @@ mod tests {
     #[cfg(any(windows, target_os = "macos"))]
     #[test]
     fn list_models_marks_bundle_selected_and_loaded_by_id() {
+        let root = tempfile::tempdir().unwrap();
+        let _env = EnvGuard::set(MODELS_DIR_ENV, root.path());
         let models = list_model_infos("gigaam-v3", Some("gigaam-v3"));
         let gigaam = models.iter().find(|m| m.id == "gigaam-v3").unwrap();
         assert!(gigaam.selected, "gigaam must be selected when requested");

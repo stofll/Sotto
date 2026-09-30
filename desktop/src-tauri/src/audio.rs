@@ -158,11 +158,9 @@ pub struct AudioRecorder {
 }
 
 impl AudioRecorder {
-    /// Enough for five minutes of recording at 48 kHz. This is a hint to the
-    /// allocator, not a limit: `Vec` grows on its own, and the device's real
-    /// sample rate is learned by
-    /// `start()`.
-    const APPROX_CAPACITY: usize = 48_000 * 60 * 5;
+    /// Five minutes at the resampled output rate. This is a capacity hint,
+    /// not a recording limit; the vector grows for longer sessions.
+    const CAPACITY_SECONDS: usize = 60 * 5;
 
     /// Create a new `AudioRecorder`. The default input device is queried
     /// lazily via `start()`, so a missing or broken device does not prevent
@@ -187,7 +185,9 @@ impl AudioRecorder {
             resampler: Arc::new(Mutex::new(None)),
             capture_error: Arc::new(Mutex::new(None)),
             first_frame_ms: Arc::new(AtomicU64::new(u64::MAX)),
-            audio_buffer: Arc::new(Mutex::new(Vec::with_capacity(Self::APPROX_CAPACITY))),
+            audio_buffer: Arc::new(Mutex::new(Vec::with_capacity(
+                (config.sample_rate_target as usize).saturating_mul(Self::CAPACITY_SECONDS),
+            ))),
             level_ema_bits: Arc::new(AtomicU32::new(0.0_f32.to_bits())),
             live_tap: Arc::new(Mutex::new(None)),
             tap_sample_rate: AtomicU32::new(0),

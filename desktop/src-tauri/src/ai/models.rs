@@ -25,6 +25,7 @@ use super::providers::{build_request, ANTHROPIC_BASE_URL, OPENAI_BASE_URL, OPENC
 /// is pulled from the settings screen while watching a spinner, and half a
 /// minute of waiting there reads as "hung", not as "in progress".
 const FETCH_TIMEOUT_SECS: u64 = 10;
+const MAX_MODELS_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
 
 /// Where to knock for the list and what to authorise with.
 struct Endpoint {
@@ -155,7 +156,17 @@ pub async fn fetch_models(
         });
     }
 
-    let parsed: Value = response.json().await.map_err(|e| {
+    let body = crate::http_client::read_bounded_body(response, MAX_MODELS_RESPONSE_BYTES)
+        .await
+        .map_err(|error| match error {
+            crate::http_client::ResponseBodyError::TooLarge => {
+                crate::ui_text::t("ответ провайдера слишком большой")
+            }
+            crate::http_client::ResponseBodyError::Read(error) => {
+                crate::ui_text::t("запрос не прошёл: {p0}").replace("{p0}", &error.to_string())
+            }
+        })?;
+    let parsed: Value = serde_json::from_slice(&body).map_err(|e| {
         crate::ui_text::t("ответ не разобрался: {p0}").replace("{p0}", &e.to_string())
     })?;
     let models = parse_models(&parsed);
@@ -268,12 +279,12 @@ mod tests {
     // and the empty-list check are not locked away behind the network.
     // ------------------------------------------------------------------
 
-    fn mock_models_server(status_line: &str, body: &str) -> String {
+    fn mock_models_server(status_line: &str, body: impl Into<String>) -> String {
         use std::io::{Read, Write};
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         let status = status_line.to_string();
-        let body = body.to_string();
+        let body = body.into();
         std::thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
             let mut buf = [0_u8; 4096];
@@ -310,5 +321,22 @@ mod tests {
         let url = mock_models_server("HTTP/1.1 200 OK", r#"{"data":[]}"#);
         let err = fetch_models("openai", Some(&url), "key").await.unwrap_err();
         assert_eq!(err, "провайдер вернул пустой список");
+    }
+
+    #[tokio::test]
+    async fn fetch_models_rejects_an_oversized_list_then_recovers() {
+        let oversized = format!(
+            r#"{{"data":[{{"id":"{}"}}]}}"#,
+            "x".repeat(MAX_MODELS_RESPONSE_BYTES)
+        );
+        let url = mock_models_server("HTTP/1.1 200 OK", oversized);
+        let err = fetch_models("openai", Some(&url), "key").await.unwrap_err();
+        assert_eq!(err, "ответ провайдера слишком большой");
+
+        let url = mock_models_server("HTTP/1.1 200 OK", r#"{"data":[{"id":"okay"}]}"#);
+        assert_eq!(
+            fetch_models("openai", Some(&url), "key").await.unwrap(),
+            ["okay"]
+        );
     }
 }

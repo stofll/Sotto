@@ -178,3 +178,11 @@ CI checks benchmark compilation through `cargo clippy --all-targets`, which runs
 2. Register it in the `criterion_group!` macro's target list.
 3. Document the benchmark and its budget in this file.
 4. Run `cargo clippy --all-targets` to confirm it compiles — that is the check CI runs.
+
+## User dictionary scaling
+
+Run `cargo test --locked --lib formatter::custom_words_tests::dictionary_scaling_benchmark -- --ignored --nocapture` after native runtime preparation to compare 100, 1,000 and 10,000 synthetic terms. The test reports the median of five construction and correction runs over six similar technical tokens, including longer terms; it does not load user dictionaries or assert a machine-dependent timing threshold.
+
+The 2026-09-29 Windows debug measurement reported construction/correction times of 0.652/1.857 ms for 100 terms, 6.347/16.911 ms for 1,000 and 64.960/135.218 ms for 10,000. These are local debug timings, not release latency targets. Grouping candidates by length did not improve this fixture and was not retained.
+
+New dictionary edits now enforce the [documented term limits](dictionaries.md#spelling-and-limits). Existing oversized dictionaries remain intact and can still be reduced; their processing cost is not silently capped or skipped.

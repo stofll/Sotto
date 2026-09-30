@@ -575,7 +575,6 @@ async fn send_request(
         }
     };
     let status = response.status();
-    let body = response.text().await.unwrap_or_default();
     let elapsed = started.elapsed().as_secs_f64();
     if !status.is_success() {
         // `message` stays snippet-free: it is what reaches the overlay, the
@@ -583,15 +582,34 @@ async fn send_request(
         // which nothing persists and only the Settings test surfaces.
         let message = format!("HTTP {status} {}", status.canonical_reason().unwrap_or(""));
         let kind = classify_http_status(status.as_u16());
+        let snippet = crate::http_client::read_bounded_body(response, 64 * 1024)
+            .await
+            .ok()
+            .and_then(|body| snippet_for_diagnostics(&String::from_utf8_lossy(&body)));
         return Err(ProviderError {
             kind,
             message,
             http_status: Some(status.as_u16()),
-            response_snippet: snippet_for_diagnostics(&body),
+            response_snippet: snippet,
             retryable: kind.is_retryable(),
         });
     }
-    let json: serde_json::Value = match serde_json::from_str(&body) {
+    let body = match crate::http_client::read_bounded_body(response, 4 * 1024 * 1024).await {
+        Ok(body) => body,
+        Err(crate::http_client::ResponseBodyError::TooLarge) => {
+            return Err(ProviderError {
+                kind: ProviderErrorType::BadResponse,
+                message: "Provider response too large".to_string(),
+                http_status: Some(status.as_u16()),
+                response_snippet: None,
+                retryable: false,
+            });
+        }
+        Err(crate::http_client::ResponseBodyError::Read(error)) => {
+            return Err(classify_execution_error(error, started.elapsed()));
+        }
+    };
+    let json: serde_json::Value = match serde_json::from_slice(&body) {
         Ok(value) => value,
         Err(error) => {
             log::warn!("Provider {provider_name}/{model} returned invalid JSON: {error}");
@@ -599,7 +617,7 @@ async fn send_request(
                 kind: ProviderErrorType::BadResponse,
                 message: format!("Provider returned invalid JSON: {error}"),
                 http_status: Some(status.as_u16()),
-                response_snippet: snippet_for_diagnostics(&body),
+                response_snippet: snippet_for_diagnostics(&String::from_utf8_lossy(&body)),
                 retryable: true,
             });
         }
@@ -612,7 +630,7 @@ async fn send_request(
                 kind: ProviderErrorType::BadResponse,
                 message: format!("{provider_name} response missing {text_field}"),
                 http_status: Some(status.as_u16()),
-                response_snippet: snippet_for_diagnostics(&body),
+                response_snippet: snippet_for_diagnostics(&String::from_utf8_lossy(&body)),
                 retryable: true,
             });
         }
@@ -897,6 +915,47 @@ fn urlencoding(input: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn mock_response(status: &'static str, body: String) -> String {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0u8; 1024];
+            let _ = stream.read(&mut request);
+            let header = format!(
+                "{status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            let _ = stream.write_all(header.as_bytes());
+            let _ = stream.write_all(body.as_bytes());
+        });
+        format!("http://{addr}/response")
+    }
+
+    #[tokio::test]
+    async fn provider_bounds_success_and_error_bodies() {
+        let success = mock_response(
+            "HTTP/1.1 200 OK",
+            format!(r#"{{"text":"{}"}}"#, "x".repeat(4 * 1024 * 1024)),
+        );
+        let request = build_request(reqwest::Method::GET, &success, None, &[]);
+        let error = send_request(request, Duration::from_secs(5), "test", "model", "text")
+            .await
+            .unwrap_err();
+        assert_eq!(error.kind, ProviderErrorType::BadResponse);
+        assert_eq!(error.message, "Provider response too large");
+        assert!(error.response_snippet.is_none());
+
+        let rejected = mock_response("HTTP/1.1 400 Bad Request", "private".repeat(10000));
+        let request = build_request(reqwest::Method::GET, &rejected, None, &[]);
+        let error = send_request(request, Duration::from_secs(5), "test", "model", "text")
+            .await
+            .unwrap_err();
+        assert_eq!(error.http_status, Some(400));
+        assert!(error.response_snippet.is_none());
+    }
 
     /// The settings UI persists `base_url: ""` for a provider that has no
     /// Base URL field of its own — see `resolve_base_url`.

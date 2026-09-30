@@ -5,9 +5,7 @@
 
 mod common;
 use sotto_lib::model::ModelLoadSpec;
-use sotto_lib::whisper::{
-    resolve_model_path, EngineCommand, EngineEvent, InferenceResult, ModelLoadReason,
-};
+use sotto_lib::whisper::{EngineCommand, EngineEvent, InferenceResult, ModelLoadReason};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
@@ -54,7 +52,7 @@ fn channels_accept_all_engine_command_variants() {
         .try_send(EngineCommand::SetModel {
             name: "medium".into(),
             spec: ModelLoadSpec::Whisper {
-                path: resolve_model_path("medium").unwrap(),
+                path: std::path::PathBuf::from("synthetic-models/ggml-medium.bin"),
                 use_gpu: true,
             },
             reason: ModelLoadReason::Requested,
