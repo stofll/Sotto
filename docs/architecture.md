@@ -23,6 +23,12 @@ Rust opens each window at its own URL, so the overlay does not download the sett
 
 This is intentionally a boundary-level document: it describes the boundaries that hold today, not the route taken to them.
 
+Rust classifies a new installation before startup settings writes, preserving existing installations and unfinished introductions. User behavior is documented in [First launch](onboarding.md).
+
+The introduction is a lazy module of the main window; its background model operation stays mounted through completion of the flow. Overlay and tray entry points do not import it.
+
+A pending model choice is persisted separately from the active model. An interrupted download therefore leaves a working local or cloud route available.
+
 ## Overlay presentation and event lifetime
 
 Keep overlay session transitions and cancellation in `useOverlaySession`, and visual layout in the overlay components and stylesheet. Appearance preferences come from configuration; a pure palette function derives the overlay colors. Native geometry changes run through the same worker queue as show/hide.

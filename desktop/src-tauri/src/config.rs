@@ -102,6 +102,59 @@ pub fn config_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir.join("config.json"))
 }
 
+/// Check the introduction's progress fields a patch writes. Only the patch is
+/// checked: the window tolerates a hand-edited value (an invalid step reads as
+/// the first one), so such a value must not make unrelated settings unsavable.
+fn validate_onboarding_patch(patch: &Value) -> Result<(), String> {
+    if patch
+        .get("onboarding_model")
+        .is_some_and(|value| !value.is_string())
+    {
+        return Err("Invalid onboarding_model".into());
+    }
+    if patch
+        .get("onboarding_completed")
+        .is_some_and(|value| !value.is_boolean())
+    {
+        return Err("Invalid onboarding_completed".into());
+    }
+    if patch
+        .get("onboarding_step")
+        .is_some_and(|value| !value.as_u64().is_some_and(|step| step < 4))
+    {
+        return Err("Invalid onboarding_step".into());
+    }
+    Ok(())
+}
+
+/// Classify the installation before startup migrations or UI preferences write
+/// to an empty config. An explicit unfinished introduction survives updates.
+pub fn initialize_onboarding(app: &AppHandle) -> Result<(), String> {
+    initialize_onboarding_at(&config_path(app)?, || {
+        crate::model::list_model_infos("", None)
+            .iter()
+            .any(|model| model.downloaded)
+    })
+}
+
+fn initialize_onboarding_at(path: &Path, has_models: impl FnOnce() -> bool) -> Result<(), String> {
+    with_locked_config(path, |config, path| {
+        let settings = config
+            .as_value()
+            .as_object()
+            .ok_or_else(|| "config root is not a JSON object".to_string())?;
+        if settings.contains_key("onboarding_completed") {
+            return Ok(());
+        }
+        let completed = !settings.is_empty() || has_models();
+        config.set("onboarding_completed", Value::Bool(completed))?;
+        if !completed {
+            config.set("onboarding_step", Value::from(0))?;
+        }
+        config.save_at(path)
+    })
+}
+
 /// Owned snapshot of `config.json`; cloning copies the JSON tree.
 /// Disk writers load their snapshot inside `with_locked_config`.
 #[derive(Debug, Clone)]
@@ -396,6 +449,7 @@ fn validate_speech_route(candidate: &Value) -> Result<(), String> {
 #[cfg(test)]
 fn save_with_merge_patch_at(path: &Path, patch: Value) -> Result<Value, String> {
     with_locked_config(path, |cfg, path| {
+        validate_onboarding_patch(&patch)?;
         let previous = cfg.as_value().clone();
         cfg.apply_merge_patch(&patch)?;
         validate(cfg.as_value())?;
@@ -417,6 +471,7 @@ fn persist_patch(
     check: impl FnOnce(&Config) -> Result<(), String>,
     replace_binding: impl FnOnce(&str, &str) -> Result<crate::hotkey::BindingRollback, String>,
 ) -> Result<Config, String> {
+    validate_onboarding_patch(patch)?;
     let mut candidate = current.clone();
     candidate.apply_merge_patch(patch)?;
     check(&candidate)?;
@@ -616,6 +671,95 @@ fn apply_runtime_config(app: &AppHandle, saved: &Value, patch: &Value) {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn onboarding_classifies_new_and_existing_installations_without_losing_settings() {
+        for (initial, has_models, completed) in [
+            (None, false, false),
+            (Some(json!({})), false, false),
+            (None, true, true),
+            (
+                Some(json!({"hotkey": "ctrl+alt+x", "telemetry_enabled": false})),
+                false,
+                true,
+            ),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("config.json");
+            if let Some(initial) = &initial {
+                fs::write(&path, initial.to_string()).unwrap();
+            }
+            initialize_onboarding_at(&path, || has_models).unwrap();
+            let config = Config::load_at(&path).unwrap();
+            assert_eq!(config.get("onboarding_completed"), Some(json!(completed)));
+            if let Some(initial) = initial {
+                for (key, value) in initial.as_object().unwrap() {
+                    assert_eq!(config.get(key), Some(value.clone()));
+                }
+            }
+            // UI preferences written after classification cannot hide a fresh run.
+            save_with_merge_patch_at(&path, json!({"theme": "light"})).unwrap();
+            initialize_onboarding_at(&path, || panic!("already classified")).unwrap();
+            assert_eq!(
+                Config::load_at(&path).unwrap().get("onboarding_completed"),
+                Some(json!(completed))
+            );
+        }
+    }
+
+    #[test]
+    fn onboarding_resumes_after_settings_and_model_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        fs::write(
+            &path,
+            json!({"onboarding_completed": false, "onboarding_step": 2, "model": "turbo"})
+                .to_string(),
+        )
+        .unwrap();
+        initialize_onboarding_at(&path, || panic!("unfinished run must resume")).unwrap();
+        let resumed = Config::load_at(&path).unwrap();
+        assert_eq!(resumed.get("onboarding_completed"), Some(json!(false)));
+        assert_eq!(resumed.get("onboarding_step"), Some(json!(2)));
+        save_with_merge_patch_at(&path, json!({"onboarding_completed": true})).unwrap();
+        initialize_onboarding_at(&path, || false).unwrap();
+        assert_eq!(
+            Config::load_at(&path).unwrap().get("onboarding_completed"),
+            Some(json!(true))
+        );
+    }
+
+    #[test]
+    fn onboarding_checks_written_progress_and_tolerates_hand_edits() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        fs::write(&path, json!({"onboarding_completed": false}).to_string()).unwrap();
+        for patch in [
+            json!({"onboarding_step": -1}),
+            json!({"onboarding_step": 4}),
+            json!({"onboarding_step": "2"}),
+            json!({"onboarding_completed": "true"}),
+            json!({"onboarding_model": 3}),
+        ] {
+            assert!(save_with_merge_patch_at(&path, patch).is_err());
+        }
+        for step in 0..4 {
+            save_with_merge_patch_at(&path, json!({"onboarding_step": step})).unwrap();
+        }
+        save_with_merge_patch_at(&path, json!({"onboarding_model": "gigaam-v3"})).unwrap();
+
+        // Hand-edited values already on disk block no other write.
+        fs::write(
+            &path,
+            json!({"onboarding_completed": "yes", "onboarding_step": 7}).to_string(),
+        )
+        .unwrap();
+        save_with_merge_patch_at(&path, json!({"theme": "light"})).unwrap();
+
+        fs::write(&path, "broken json").unwrap();
+        assert!(initialize_onboarding_at(&path, || false).is_err());
+        assert_eq!(fs::read_to_string(path).unwrap(), "broken json");
+    }
 
     /// `save_config` with a hotkey patch, minus the `AppHandle`: the same
     /// writer lock and [`persist_patch`], with the native rebind stubbed.
