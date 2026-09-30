@@ -42,8 +42,9 @@ const shot = (id: ScreenId, theme: typeof themes[number], density = 1) =>
         <div class="screen-image">
           {themes.map((theme) => {
             // Only the dark captures show without scripts; the gallery fetches a light one when it is chosen.
+            // Until then it points at a blank pixel, because an <img> must have a src.
             const source = { src: shot(id, theme).src, srcset: `${shot(id, theme).src} 1x, ${shot(id, theme, 2).src} 2x` };
-            return <img {...(theme === 'dark' ? source : { 'data-src': source.src, 'data-srcset': source.srcset })}
+            return <img {...(theme === 'dark' ? source : { src: '/blank.gif', 'data-src': source.src, 'data-srcset': source.srcset })}
               width="1088" height="736" alt={s.alt[id]} loading="lazy" decoding="async"
               data-theme-image={theme} data-full-src={shot(id, theme, 2).src} aria-hidden={theme !== 'dark' ? 'true' : undefined} />;
           })}

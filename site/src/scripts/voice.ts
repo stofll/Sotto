@@ -11,8 +11,9 @@ const NEXT_DELAY_MS = 700;
 
 /**
  * The voice demo: a line that swells while a phrase is "spoken" and the words
- * typing out beside it, plus the quieter line behind the closing call. One animation loop drives all of them, and it runs only while
- * one of the canvases is on screen, the tab is visible and motion is allowed.
+ * typing out beside it, plus the quieter line behind the closing call. One
+ * animation loop drives both, and it runs only while one of the canvases is on
+ * screen, the tab is visible and motion is allowed.
  * Otherwise visible canvases hold a single still frame and the first phrase
  * stays written out, which is also what the page shows without JavaScript.
  */

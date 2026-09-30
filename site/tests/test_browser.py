@@ -134,6 +134,8 @@ def test_gallery_catalog_and_layout(browser, locale, width, appearance):
 def test_feature_steps_and_crossfade(browser, locale):
     context = browser.new_context(viewport={"width": 1440, "height": 1200}, device_scale_factor=1)
     page = context.new_page()
+    light_requests = []
+    page.on("request", lambda request: light_requests.append(request.url) if re.search(r"-light[.@]", request.url) else None)
     page.goto(os.environ["SOTTO_SITE_URL"] + ("/ru/" if locale == "ru" else "/"))
     gallery = page.locator("[data-screens]")
     gallery.scroll_into_view_if_needed()
@@ -173,8 +175,11 @@ def test_feature_steps_and_crossfade(browser, locale):
     }""")
     assert all(max(frame) > 0.25 for frame in frames)
     assert any(sum(value > 0.05 for value in frame) > 1 for frame in frames)
+    # The whole dark tour ran without fetching a light capture.
+    assert light_requests == []
     page.locator('[data-theme-target="light"]').click()
     expect(gallery).to_have_attribute("data-theme", "light")
+    assert light_requests
     page.locator('.screen-hotspot[data-step-target="recording"]').click()
     expect(page.locator('[data-step-description="recording"]')).to_be_visible()
     expect(gallery).to_have_attribute("data-theme", "light")
