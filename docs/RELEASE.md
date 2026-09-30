@@ -33,6 +33,10 @@ Both scheduled and manual preparation run the full Rust CI and UI test workflows
 
 The workflow runs the release-script tests, updates the version, and verifies the committed diff contains only the expected version replacements, with dependencies and file modes unchanged. The release bot pushes the new `main` commit and its tag atomically. The tag starts the release build, which creates a draft; publishing does not change the version.
 
+The version commit records its Prepare Release run in a `Release-Preparation` trailer. Rust CI skips cache warming only when the entire push is that version-only commit and the referenced preparation succeeded on its parent. Release uses the same proof to reuse source UI tests and proceed directly to packaging.
+
+A short wait accommodates preparation cleanup after the atomic push; unavailable, incomplete, failed or mismatched evidence keeps the ordinary checks. Tags without this proof, including older tags, still run the release UI tests, and manual retries verify the proof again.
+
 The build marks any SemVer prerelease as a GitHub prerelease. Publish beta drafts with that flag intact: they must never be marked as the latest stable release. To ship a stable version, prepare and build its stable tag separately; changing a beta's GitHub flag does not change its embedded version.
 
 The workflow updates these four sources together without updating dependencies:

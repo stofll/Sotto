@@ -4,6 +4,7 @@ name: Rust CI
 # Prepare Release (pinned to the release source commit) execute the full
 # checks; pushes to main only build the app and test dependencies to warm the
 # shared Cargo cache on all three operating systems.
+# Verified version-only release pushes already have a warm source cache.
 #
 # A PR cache belongs to refs/pull/N/merge and cannot serve other PRs. Only main
 # writes the Cargo cache so later PRs can restore it without filling storage
@@ -69,17 +70,45 @@ jobs:
     name: Changed paths
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
     outputs:
       app: ${{ steps.filter.outputs.app }}
     steps:
-      # The file list comes from the API rather than a checkout: the gate does
-      # not need the tree, and full history just to run `git diff` costs more
-      # than the answer itself.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: github.event_name == 'push'
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: github.event_name == 'push'
+        with:
+          node-version-file: .node-version
+
+      - name: Check release preparation
+        if: github.event_name == 'push'
+        id: preparation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_BASE: ${{ github.event.before }}
+        run: node scripts/check-prepared-release.mjs
+
+      # PR filtering needs only the API; release pushes need their committed
+      # diff to prove the entire push contains only a version bump.
       - id: filter
         env:
           GH_TOKEN: ${{ github.token }}
+          PREPARED_RELEASE: ${{ steps.preparation.outputs.prepared }}
         run: |
           set -uo pipefail
+          if [ "$PREPARED_RELEASE" = 'true' ]; then
+            echo 'Verified release version push — source CI already warmed the cache.'
+            echo 'app=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           if [ "${{ github.event_name }}" != "pull_request" ]; then
             echo 'Not a pull request — enabling application jobs for this event.'
             echo 'app=true' >> "$GITHUB_OUTPUT"
@@ -154,7 +183,7 @@ jobs:
   # in CI, and Windows-only runtime failures were invisible.
   # ---------------------------------------------------------------
   build-test:
-    name: Build + test (${{ matrix.os }})
+    name: ${{ github.event_name == 'push' && 'Build shared cache' || 'Build + test' }} (${{ matrix.os }})
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.app != 'false' }}
     runs-on: ${{ matrix.os }}
@@ -369,7 +398,7 @@ jobs:
   build-test-skipped:
     name: Build + test (${{ matrix.os }})
     needs: changes
-    if: ${{ !cancelled() && needs.changes.outputs.app == 'false' }}
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.changes.outputs.app == 'false' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     strategy:
@@ -472,7 +501,7 @@ jobs:
           node-version-file: .node-version
 
       - name: Release version regression tests
-        run: node --test scripts/release-version.test.mjs scripts/check-release-changes.test.mjs
+        run: node --test scripts/release-version.test.mjs scripts/check-release-changes.test.mjs scripts/check-prepared-release.test.mjs
 
       - name: CPU baseline regression tests
         run: node --test scripts/check-ggml-baseline.test.mjs

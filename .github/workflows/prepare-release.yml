@@ -49,7 +49,7 @@ jobs:
           node-version-file: .node-version
 
       - name: Test release preparation
-        run: node --test scripts/release-version.test.mjs scripts/check-release-changes.test.mjs
+        run: node --test scripts/release-version.test.mjs scripts/check-release-changes.test.mjs scripts/check-prepared-release.test.mjs
 
       - name: Decide whether to prepare a release
         id: changes
@@ -68,6 +68,7 @@ jobs:
     needs: plan
     if: needs.plan.outputs.changed == 'true'
     permissions:
+      actions: read
       contents: read
       pull-requests: read
     uses: ./.github/workflows/rust-ci.yml
@@ -135,7 +136,7 @@ jobs:
           git config user.email "${bot_id}+${BOT_SLUG}[bot]@users.noreply.github.com"
           gh auth setup-git
           git add desktop/src-tauri/Cargo.toml desktop/src-tauri/Cargo.lock desktop/package.json desktop/src-tauri/Info.plist
-          git commit -m "chore(release): prepare $RELEASE_TAG"
+          git commit -m "chore(release): prepare $RELEASE_TAG" -m "Release-Preparation: $GITHUB_RUN_ID"
           node --input-type=module <<'JS'
           import { verifyReleaseCommit } from './scripts/release-version.mjs';
           verifyReleaseCommit(process.cwd(), process.env.RELEASE_SOURCE, process.env.RELEASE_TAG.slice(1));

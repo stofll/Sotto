@@ -430,9 +430,7 @@ def test_pill_cancel_overlays_waveform_without_shifting_bars(
     )
     overlay = page.get_by_test_id("overlay")
     expect(overlay).to_have_attribute("data-hovered", "false")
-    page.locator(".overlay").evaluate(
-        "el => Promise.all(el.getAnimations({subtree: true}).filter(a => a.effect.getTiming().iterations !== Infinity).map(a => a.finished))"
-    )
+    expect(page.locator(".overlay-shell")).to_have_css("transform", "none")
     wave = page.locator(".overlay-waveform")
     bars = wave.locator("span")
     bounds = wave.bounding_box()

@@ -1,9 +1,24 @@
+import re
+import time
 from pathlib import Path
 
 import pytest
 from playwright.sync_api import expect
 
 RECIPE = {"shell": "pill", "slots": {"center": "level"}, "draw": {"level": "wave"}}
+
+
+def wait_until_still(locator, quiet_ms=200, timeout_ms=7000):
+    """Wait until a box stops moving, covering size transitions and entrance motion."""
+    deadline = time.monotonic() + timeout_ms / 1000
+    box, since = locator.bounding_box(), time.monotonic()
+    while time.monotonic() - since < quiet_ms / 1000:
+        assert time.monotonic() < deadline, f"{locator} kept moving: {box}"
+        locator.page.wait_for_timeout(20)
+        current = locator.bounding_box()
+        if current != box:
+            box, since = current, time.monotonic()
+    return box
 
 
 def open_editor(page):
@@ -104,10 +119,9 @@ def test_native_pointer_tests_the_caption_chip_not_the_transparent_window(app, p
     chip = page.locator(".ovs-chip")
     expect(chip).to_be_visible()
     expect(page.locator(".ovs")).to_have_attribute("data-shown", "1")
-    page.locator(".ovs").evaluate(
-        "el => Promise.all(el.getAnimations({subtree: true}).filter(a => a.effect.getTiming().iterations !== Infinity).map(a => a.finished))"
-    )
-    bounds = chip.bounding_box()
+    # Read pointer coordinates only after the entrance and resizing have settled.
+    expect(page.locator(".ovs")).to_have_css("transform", "none")
+    bounds = wait_until_still(chip)
     ui.emit(
         "overlay-pointer",
         {
@@ -148,15 +162,20 @@ def test_captions_long_error_keeps_close_inside_window(
     ui.emit("whisper-failed", {"session_id": 42, "message": message})
     expect(page.locator(".ovs")).to_have_attribute("data-phase", "error")
     expect(page.locator(".ovs")).to_have_attribute("data-shown", "1")
-    page.locator(".ovs").evaluate(
-        "el => Promise.all(el.getAnimations({subtree: true}).filter(a => a.effect.getTiming().iterations !== Infinity).map(a => a.finished))"
+    # Assert the visible end state without enumerating unrelated animations;
+    # awaiting their finished promises has crashed WebKit in this scenario.
+    expect(page.locator(".ovs")).to_have_css("transform", "none")
+    expect(page.locator(".ovs-stl")).to_have_css("opacity", "1")
+    expect(page.locator(".ovs-stl")).to_have_css(
+        "transform", re.compile(r"^(none|matrix\(1, 0, 0, 1, 0, 0\))$")
     )
     close = page.get_by_role(
         "button", name="Закрыть" if locale == "ru" else "Close", exact=True
     )
     close.focus()
     expect(close).to_have_css("opacity", "1")
-    bounds = close.bounding_box()
+    # The shell resize for the error outlasts the text fade-in.
+    bounds = wait_until_still(close)
     assert bounds and bounds["x"] >= 0 and bounds["x"] + bounds["width"] <= 520
     Path(output_path).mkdir(parents=True, exist_ok=True)
     page.screenshot(

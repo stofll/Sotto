@@ -18,11 +18,14 @@ let painted = 0;
 function loop(now: number) {
   request = requestAnimationFrame(loop);
   const elapsed = now - slot;
-  if (painted && elapsed < FRAME_MS - SLACK_MS) return;
+  if (elapsed < FRAME_MS - SLACK_MS) return;
   // Carry the remainder over: a 144 Hz frame never lands on the 60 fps grid,
   // and restarting the count at each frame would settle at 48 fps.
-  slot = painted && elapsed < FRAME_MS * 2 ? now - (elapsed % FRAME_MS) : now;
-  const seconds = painted ? Math.min(0.1, (now - painted) / 1000) : 1 / 60;
+  slot = elapsed < FRAME_MS * 2 ? now - (elapsed % FRAME_MS) : now;
+  // Exponential easing needs wall time, including delayed frames, because
+  // frameRunner also ends its settling period against the wall clock.
+  // A frame can be timed before the subscription that requested it.
+  const seconds = Math.max(0, now - painted) / 1000;
   painted = now;
   for (const tick of ticks) tick(now, seconds);
 }
@@ -30,7 +33,8 @@ function loop(now: number) {
 /** Call `tick` on every frame until the returned function is called. */
 export function onFrame(tick: FrameTick): () => void {
   ticks.add(tick);
-  if (!request) { painted = 0; request = requestAnimationFrame(loop); }
+  // The first frame always paints; only later ones are held to the grid.
+  if (!request) { slot = -Infinity; painted = performance.now(); request = requestAnimationFrame(loop); }
   return () => {
     ticks.delete(tick);
     if (!ticks.size && request) { cancelAnimationFrame(request); request = 0; }

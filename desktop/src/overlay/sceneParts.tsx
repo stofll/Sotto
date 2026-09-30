@@ -180,7 +180,8 @@ function Orb({ source, side }: { source: LevelSource; side: number }) {
   useLevelFrames(source, (readings, now, seconds) => {
     const state = motion.current, level = Math.sqrt(readings[readings.length - 1] ?? 0);
     state.smooth += (level - state.smooth) * easeStep(seconds, 0.18);
-    state.angle += seconds * (0.35 + state.smooth * 0.9);
+    // Unlike easing, the spin integrates time linearly, so a stalled frame would jump it ahead.
+    state.angle += Math.min(seconds, 0.1) * (0.35 + state.smooth * 0.9);
     const [ball, ...blobs] = refs.current;
     const breath = 1 + 0.035 * Math.sin(now / 1100);
     if (ball) ball.style.transform = `scale(${(breath + state.smooth * 0.12).toFixed(3)})`;
