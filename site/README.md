@@ -11,34 +11,52 @@ pnpm install     # from this directory
 pnpm dev         # http://localhost:4321
 pnpm build       # static output in dist/
 pnpm typecheck   # astro check
+pnpm test        # after pnpm build: native catalog and generated search metadata
 pnpm brand       # re-copy the icon from the desktop app
-pnpm glyph       # re-trace the flat web mark from it
-pnpm og          # regenerate the social preview image
+pnpm og          # regenerate the social preview images, one per locale
 ```
 
 ## Layout
 
-`src/data/product.ts` holds facts that are not translated: links, model names, download sizes. The model figures come from [`docs/models.md`](../docs/models.md) — change them there first.
+`src/data/product.ts` holds facts that are not translated: links, model names, download sizes. Verify languages and sizes against [`desktop/src-tauri/src/model.rs`](../desktop/src-tauri/src/model.rs), which controls the actual downloads; [`docs/models.md`](../docs/models.md) explains the families. Whisper sizes use decimal MB/GB rounded from the shipped artifact, including quantization. The catalog tests detect drift from the native manifest.
 
 `src/i18n/` holds everything a translator touches. `types.ts` is the contract: adding a string there makes `pnpm typecheck` fail for any locale that has not translated it yet, which is what keeps English and Russian from drifting apart. Russian terminology follows [`README.ru.md`](../README.ru.md) — «диктовка», «распознавание», «оверлей», «горячая клавиша».
 
 ## Brand and colour
 
-`desktop/src-tauri/icons/icon-source-1024.png` is the only source of truth for the mark, and the three brand commands derive everything else from it. The site had drifted onto the previous icon precisely because its copy was hand-placed; do not hand-place another one.
+`desktop/src-tauri/icons/icon-source-1024.png` is the only source of truth for the mark. `pnpm brand` copies the plated icon out of it twice: a 96 px PNG for the favicon and the social images, and a 56 px WebP for the header and the download dialog. Do not hand-place another copy: the site once drifted onto the previous icon exactly that way.
 
-The page uses the bare ribbon, not the app icon: `pnpm glyph` traces it into `src/assets/sotto-glyph.svg` as two flat tones of `currentColor`, so it scales, recolours, and costs a fraction of the render. The plate stays where a plate belongs — the favicon and the social image.
+The page is dark only, on a warm near-black, with three steps each for backgrounds, text and borders in `src/styles/base.css`. One hue, `--accent` (orange), is kept for the download buttons, the second line of the headline and live state: the voice line, the caret and progress. Links in running text are underlined rather than coloured. Text colours clear WCAG AA against the page and the cards; `--text-muted` was lifted from the design draft's tone for exactly that reason.
 
-Colour follows the mark. Every value sits on the mark's own axis (hue -100, chroma capped at 0.018), which is why the page is almost neutral. One hue survives, `--accent`, and it is reserved for live state: the recording dots, the typing carets, the "Local" indicator, the waveform, and the pulse along the on-device path. If you find yourself reaching for it anywhere else, reach for `--silver` instead.
+## Download buttons
+
+`src/scripts/platform.ts` reads the platform the browser reports, locally, and points the download buttons at the reader's own system: they open the setup dialog for Windows or macOS, and that platform's card in the Start section moves first. Apple Silicon and Intel Macs cannot be told apart reliably, so a Mac is offered the Apple Silicon build, and the setup dialog it opens says which build that is. On Linux, on a phone, or without JavaScript the buttons lead to the Start section with both platforms; phones also get a line saying Sotto is a desktop app.
 
 ## Type
 
-Sizes are in rem and the root size is never pinned, so a reader who has enlarged their browser default gets a larger page. Page copy has a floor of 12px and letter-spaced labels a floor of 11px; the only text allowed below that is inside the mocked application windows, which are meant to read as a scaled-down interface.
+Two self-hosted families: Unbounded for headings, as the static 500 cut every heading uses, and Onest for running text, as one variable file for its three weights. Labels use the system's monospace face, which costs nothing to load. Only the Latin and Cyrillic subsets are loaded. `Base.astro` preloads the Latin heading and body files on every page, since spaces, digits and product names come from them, and the Cyrillic ones on Russian pages.
+
+Sizes are in rem and the root size is never pinned, so a reader who has enlarged their browser default gets a larger page. Page copy has a floor of 12px and labels a floor of 11px.
+
+## Screenshots
+
+The interface gallery uses dedicated, synthetic captures in `src/assets/screens/`. All three screens share a 1088×736 viewport, the same sidebar state and the same application build. Both themes and locales have native 1× and 2× lossless WebP captures; the gallery uses density-aware sources and the enlarged view uses the 2× original. Dark is the default, with a light-theme switch; do not resize older README screenshots to make them fit.
+
+The nine-step walkthrough highlights features in the actual screenshots, with selectable numbered regions and explanations below the stationary window. Tabs, topic buttons and previous/next controls navigate manually. Automatic playback starts only on request and pauses outside the viewport, in a hidden tab, or on manual interaction. It stops at the last step. Incoming images are decoded before crossfading; loading failures preserve the current screen and allow retry. The hotspot coordinates in `src/data/screen-tour.ts` refer to the capture viewport and must be reviewed when app layout changes. Keyboard users can switch tabs with the arrow keys and close the enlarged view with Escape. Without JavaScript, all three screens and their original-image links remain available.
+
+To refresh the captures, use the isolated browser harness described in [`docs/ui-testing.md`](../docs/ui-testing.md), with `SOTTO_SITE_SHOTS_DIR` pointing to a temporary output directory. Run `uv run --locked --project tests/ui pytest tests/ui/test_site_screenshots.py --browser chromium` from the repository root, review the 24 PNGs, then run `node scripts/import-screens.mjs <capture-directory>` from `site/`. This validates dimensions and encodes the originals without resampling. The capture fixture never opens native application data.
+
+The model section introduces four examples; the full catalog and its filters live in a native disclosure that also works without JavaScript. Privacy details live on the dedicated localized page, linked from the header and footer, with a short answer in the FAQ.
+
+For gallery, keyboard, zoom, model filtering, responsive layout and no-JavaScript regression checks, start `pnpm dev` or `pnpm preview`, set `SOTTO_SITE_URL` to its loopback URL, and run `uv run --locked --project tests/ui pytest tests/ui/test_site_browser.py --browser chromium` from the repository root. Set `SOTTO_SITE_CHECKS_DIR` to a temporary directory for visual review captures. These checks cover both locales, both screenshot themes, system appearances, 1×/2× displays, normal and reduced motion, and image-loading failure/retry. The website itself uses a fixed dark theme.
 
 `src/components/` renders the markup. Sections read their strings through `translationsFor(Astro.currentLocale)` rather than receiving them as props.
 
-`src/scripts/` is progressive enhancement, one module per section. Nothing on the page requires it: with JavaScript disabled the copy, the links and the downloads all still work, and the demos simply hold still. The client scripts stay locale-agnostic by reading the strings that `RuntimeStrings.astro` renders into the page as JSON.
+`src/scripts/` is progressive enhancement, one module per section. Nothing on the page requires it: with JavaScript disabled the copy, the links and the downloads all still work, the demos hold still, every screenshot is listed and the full model catalog can be expanded, and the controls that only filter or switch them are hidden. The voice animation runs only while one of its canvases is on screen, the tab is visible and reduced motion is off. The client scripts stay locale-agnostic by reading the strings that `RuntimeStrings.astro` renders into the page as JSON.
 
-`src/styles/` is the stylesheet split by concern, imported in order by `global.css`. Load order matters: tokens first, breakpoints last.
+`src/styles/` is the stylesheet split by concern, imported in order by `global.css`. Load order matters: tokens first, breakpoints last. Astro inlines it into each page, which saves a render-blocking request.
+
+The stylesheet describes the page as the scripts leave it — the menu button, the filters and the tabs are laid out from the first frame — so nothing shifts when the scripts load. What differs without JavaScript lives in one `<noscript>` block in `Base.astro`.
 
 ## Routing
 
@@ -48,9 +66,17 @@ Each locale also has a 404 page, and getting it to the right place takes one bui
 
 Both 404 pages pass `noindex` to `Base.astro`, which drops the canonical link, the hreflang set and the structured data. All three describe a page at a known URL, and a 404 answers on every wrong URL there is.
 
-The number on that page is set, never drawn. Constructing the digits out of strokes was tried, and out of a waveform after that, and both read as a wireframe standing next to Inter rather than as part of it. It is now the page's own typeface at its own tight tracking, one step larger than anything else on the site, with a vertical gradient for depth that stays on the mark's neutral axis.
+The number on that page is set, never drawn. Constructing the digits out of strokes was tried, and out of a waveform after that, and both read as a wireframe standing next to the type rather than as part of it. It is the heading face at its own tight tracking, one step larger than anything else on the site, in the text colour.
 
-The digits fade up in sequence over a third of a second. The global reduced-motion rule in `responsive.css` kills that animation, which is why that block also resets their opacity: without it the number would never appear at all.
+The digits fade up in sequence over a third of a second. The reduced-motion block in `motion.css` kills that animation, which is why it also resets their opacity: without it the number would never appear at all.
+
+## Search and AI assistants
+
+The landing page's `<title>` and description carry the search terms, while the social card keeps the headline. Each locale gets its own social image from `pnpm og`, which draws the dictionary's headline with the site's fonts.
+
+The FAQ section answers questions people ask before installing, with stable links to individual answers. Structured data connects the website, localized pages, app and FAQ; it describes actual content without promising rich results. `/llms.txt` and `/ru/llms.txt` provide optional text summaries from the same dictionaries and model catalog, with links back to the answers and documentation.
+
+See [Search and agent discovery](SEARCH.md) for indexing checks, the Cloudflare and webmaster-console setup, measurement, and content priorities. `pnpm test` after a build checks both locales, canonical and alternate links, sitemap membership, social assets, FAQ parity, and the summaries. The site workflow also runs these checks when the native model manifest changes.
 
 ## Hosting
 
@@ -79,10 +105,3 @@ These live in the Cloudflare and GitHub dashboards, not in this repository.
 - `style-src` allows `'unsafe-inline'`, because the components set geometry through `style` attributes. Removing those attributes would let this one close.
 
 Adding an external font, embed, or analytics script means widening this file, and forgetting to means the resource is silently blocked in the browser rather than at build time.
-
-## Not yet decided
-
-The social preview image is language-neutral and shared by both locales. Per-locale images carrying each headline would read better when the page is shared.
-
-The site is dark only. That was inherited from the draft rather than decided, and a light theme is now cheap to add: the mark is `currentColor` and the palette is a single neutral axis.
-

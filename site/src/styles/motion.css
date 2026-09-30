@@ -1,2 +1,11 @@
-.reveal-ready { transition: opacity 600ms var(--ease), transform 650ms var(--ease); }
-.reveal-ready:not(.is-visible) { opacity: 0; transform: translateY(12px); }
+.reveal-ready { transition: opacity .9s var(--ease), transform .9s var(--ease); }
+.reveal-ready:not(.is-visible) { opacity: 0; transform: translateY(28px); }
+
+/* Everything that moves by itself stops. The canvases are handled in
+   scripts/voice.ts, which draws them once instead of looping. The 404 digits
+   start transparent, so they are shown outright rather than left invisible. */
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
+  .lost-mark-digits > span { opacity: 1; animation: none; }
+}

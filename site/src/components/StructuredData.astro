@@ -9,6 +9,11 @@ interface Props {
 
 const { canonical } = Astro.props;
 const { locale, t } = translationsFor(Astro.currentLocale);
+const home = new URL('/', canonical).href;
+const websiteId = `${home}#website`;
+const applicationId = `${home}#application`;
+const pageId = `${canonical.href}#webpage`;
+const faqId = `${canonical.href}#faq`;
 
 // Cached from the Hero's own call, so this costs no extra request. A failed
 // lookup simply drops the version rather than failing the build.
@@ -16,31 +21,68 @@ const release = await latestRelease();
 const version = release?.version.replace(/^v/, '');
 
 /**
- * Lets search engines render the app card — free, which platforms, which
- * licence — instead of a plain blue link. Every value is asserted elsewhere on
- * the page, so nothing here is a claim the page does not already make.
+ * Describes the real app without inventing ratings to qualify for a rich
+ * result. Both translations identify the same application and website.
  */
-const schema = {
-  '@context': 'https://schema.org',
+const f = t.features;
+const application = {
   '@type': 'SoftwareApplication',
+  '@id': applicationId,
   name: 'Sotto',
   description: t.meta.description,
-  url: canonical.href,
-  image: new URL(OG_IMAGE.path, Astro.site).href,
+  url: home,
+  image: new URL(OG_IMAGE.path(locale), Astro.site).href,
   applicationCategory: 'UtilitiesApplication',
   applicationSubCategory: 'Speech recognition',
-  operatingSystem: 'macOS, Windows',
-  inLanguage: locale,
+  operatingSystem: ['Windows x64', 'macOS arm64 (Apple Silicon)'],
+  inLanguage: ['en', 'ru'],
   isAccessibleForFree: true,
   offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
   license: LINKS.license,
-  codeRepository: REPO,
+  sameAs: REPO,
   softwareHelp: LINKS.docs,
   downloadUrl: LINKS.releases,
   author: { '@type': 'Person', name: AUTHOR.name, url: AUTHOR.url },
   ...(version ? { softwareVersion: version } : {}),
   ...(release?.published ? { datePublished: release.published } : {}),
+  featureList: [f.anywhere, f.offline, f.live, f.custom, f.files, f.history].map((card) => card.title),
 };
+
+/** The questions the page answers in its FAQ section, word for word. */
+const faq = {
+  '@type': 'FAQPage',
+  '@id': faqId,
+  url: faqId,
+  inLanguage: locale,
+  isPartOf: { '@id': pageId },
+  mainEntity: t.faq.items.map((item) => ({
+    '@type': 'Question',
+    '@id': `${canonical.href}#faq-${item.id}`,
+    url: `${canonical.href}#faq-${item.id}`,
+    name: item.question,
+    acceptedAnswer: { '@type': 'Answer', text: item.answer },
+  })),
+};
+
+const website = {
+  '@type': 'WebSite',
+  '@id': websiteId,
+  name: 'Sotto',
+  url: home,
+  inLanguage: ['en', 'ru'],
+};
+const page = {
+  '@type': 'WebPage',
+  '@id': pageId,
+  url: canonical.href,
+  name: t.meta.title,
+  description: t.meta.description,
+  inLanguage: locale,
+  isPartOf: { '@id': websiteId },
+  mainEntity: { '@id': applicationId },
+  hasPart: { '@id': faqId },
+};
+const schema = { '@context': 'https://schema.org', '@graph': [website, page, application, faq] };
 ---
 
 <script type="application/ld+json" set:html={JSON.stringify(schema)} is:inline />

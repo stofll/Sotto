@@ -1,112 +1,71 @@
 ---
-import Icon from './Icon.astro';
-import WindowBar from './WindowBar.astro';
 import { LINKS, models } from '../data/product';
 import { format } from '../i18n';
 import { translationsFor } from '../i18n/context';
 
 const { t } = translationsFor(Astro.currentLocale);
-
-/** "Multilingual · 651 MB", assembled from a fact and a translated pattern. */
-const metaFor = (model: (typeof models)[number]): string => {
-  const pattern = t.models.languageLabels[model.languages === 'russian' ? 'russian' : model.languages === 'sizes' ? 'sizes' : 'multilingual'];
-  if (model.sizeMb === undefined) return pattern;
-  return format(pattern, { size: format(t.models.megabytes, { n: model.sizeMb }) });
-};
+const m = t.models;
+const total = models.length;
+const filters = Object.entries(m.filters) as [keyof typeof m.filters, string][];
+const featured = ['GigaAM v3', 'Nemotron 3.5', 'Parakeet TDT v3', 'Whisper turbo'].map((name) => models.find((model) => model.name === name)!);
 ---
 
-<section class="section container models-section" id="models" aria-labelledby="models-heading">
-  <div class="split-grid" data-reveal>
-    <div class="section-copy models-copy">
-      <p class="eyebrow">{t.models.eyebrow}</p>
-      <h2 id="models-heading">{t.models.titleLine1}<br />{t.models.titleLine2}</h2>
-      <p class="section-description">
-        {t.models.descriptionLine1}<br />{t.models.descriptionLine2}
-      </p>
-
-      <div class="model-principles">
-        {t.models.principles.map((line) => (
-          <p><Icon name="check" size={16} />{line}</p>
-        ))}
-      </div>
-
-      <a class="inline-link" href={LINKS.models}>
-        {t.models.guideLink}<Icon name="arrow-right" size={16} />
-      </a>
-    </div>
-
-    <div class="model-manager">
-      <WindowBar>
-        <Fragment slot="title">Sotto <span class="muted">/</span> {t.models.windowTitle}</Fragment>
-        <Icon name="sliders" size={15} slot="trailing" />
-      </WindowBar>
-
-      <div class="model-manager-body">
-        <div class="model-manager-heading">
-          <h3>{t.models.panelTitle}</h3>
-          <span>{t.models.panelSubtitle}</span>
-        </div>
-
-        <div class="model-type-tabs" role="tablist" aria-label={t.models.tablistLabel}>
-          <button
-            type="button"
-            role="tab"
-            aria-selected="true"
-            aria-controls="local-model-panel"
-            id="local-model-tab"
-            data-model-type="local"
-            class="is-selected"
-          >{t.models.localTab}</button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected="false"
-            aria-controls="cloud-model-panel"
-            id="cloud-model-tab"
-            data-model-type="cloud"
-            tabindex="-1"
-          >{t.models.cloudTab} <span>{t.models.cloudTabBadge}</span></button>
-        </div>
-
-        <div role="tabpanel" id="local-model-panel" aria-labelledby="local-model-tab">
-          <div class="model-list" role="radiogroup" aria-label={t.models.radiogroupLabel}>
-            {models.map((model, index) => (
-              <button
-                type="button"
-                role="radio"
-                aria-checked={index === 0 ? 'true' : 'false'}
-                tabindex={index === 0 ? 0 : -1}
-                data-model={model.id}
-                class:list={['model-row', { 'is-selected': index === 0 }]}
-              >
-                <span class="model-monogram">{model.letter}</span>
-                <span class="model-info"><strong>{model.name}</strong><span>{metaFor(model)}</span></span>
-                {model.streaming && <span class="streaming-label">{t.models.streamingBadge}</span>}
-                <span class="model-radio"><Icon name="check" size={12} /></span>
-              </button>
-            ))}
-          </div>
-
-          <div class="model-detail">
-            <Icon name="chip" size={15} />
-            <p data-model-detail aria-live="polite">{t.models.details[models[0].id]}</p>
-          </div>
-        </div>
-
-        <div role="tabpanel" id="cloud-model-panel" aria-labelledby="cloud-model-tab" hidden>
-          <div class="cloud-model-content">
-            <Icon name="globe" size={28} />
-            <h4>{t.models.cloud.title}</h4>
-            <p>{t.models.cloud.text}</p>
-            <p class="muted">{t.models.cloud.note}</p>
-            <a class="inline-link" href={LINKS.docs}>
-              {t.models.cloud.link}<Icon name="external" size={14} />
-            </a>
-          </div>
-        </div>
-
-        <div class="model-manager-footer"><span class="tiny-dot" />{t.models.footnote}</div>
-      </div>
-    </div>
+<section id="models" class="section container" data-screen-label="04 Models">
+  <div class="section-head" data-reveal>
+    <p class="section-label">{m.eyebrow}</p>
+    <h2 class="section-title">{m.title}</h2>
+    <p class="section-lede">{m.description}</p>
   </div>
+
+  <ul class="model-featured">
+    {featured.map((model, index) => (
+      <li class="model-pick">
+        <p class="model-purpose">{m.purposes[index]}</p>
+        <h3>{model.name}</h3>
+        <p class="model-pick-meta">{model.size} <span aria-hidden="true">·</span> {model.languages.join(', ')}</p>
+      </li>
+    ))}
+  </ul>
+
+  <details class="model-catalog">
+  <summary>{format(m.allModels, { total })}</summary>
+  {/* The filters narrow a list that is complete without them, so they appear
+      only once the script is there to drive them. */}
+  <div class="model-toolbar js-only" data-model-filters>
+    <div class="model-chips" role="group" aria-label={m.filterLabel}>
+      {filters.map(([id, label], index) => (
+        <button type="button" class="chip" data-filter={id} aria-pressed={index === 0 ? 'true' : 'false'}>{label}</button>
+      ))}
+      <button type="button" class="chip chip-dashed" data-streaming-filter aria-pressed="false">
+        {m.streamingOnly}
+      </button>
+    </div>
+    <span class="model-count mono" role="status" data-model-count>{format(m.count, { shown: total, total })}</span>
+  </div>
+
+  <ul class="model-grid">
+    {models.map((model) => (
+      <li
+        class="card model-card"
+        data-groups={model.groups.join(' ')}
+        data-streaming={model.streaming ? '' : undefined}
+      >
+        <div class="model-card-head">
+          <div class="model-name">
+            <strong>{model.name}</strong>
+            <span class="mono">{model.engine}</span>
+          </div>
+          <span class="model-size mono">{model.size}</span>
+        </div>
+        <div class="model-tags mono">
+          {model.languages.map((language) => <span class="tag">{language}</span>)}
+          {model.streaming && <span class="tag tag-outline">{m.streaming}</span>}
+          {model.punctuation && <span class="tag tag-outline">{m.punctuation}</span>}
+        </div>
+      </li>
+    ))}
+  </ul>
+  <p class="model-empty mono" data-model-empty hidden>{m.empty}</p>
+  <span class="section-note">{m.note} <a href={LINKS.models}>models.md ↗</a></span>
+  </details>
 </section>

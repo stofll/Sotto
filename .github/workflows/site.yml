@@ -1,9 +1,7 @@
 name: Site
 
-# The mirror image of paths-ignore in rust-ci.yml and ui-tests.yml: those
-# ignore site/, this workflow looks at nothing else. That way a landing page
-# edit does not start the three-OS matrix, and a Rust change does not build
-# Astro.
+# Site edits avoid the app's three-OS matrix. Pull requests also run it for the
+# native model manifest, which its catalog checks compare the site against.
 #
 # Deployment hangs off two triggers. Push to main, because the landing page
 # lives on its own cycle: a typo in the copy should not wait for the next
@@ -23,6 +21,9 @@ on:
     branches: [main]
     paths:
       - 'site/**'
+      # Catalog regression tests compare the site with the native manifest.
+      # A merged manifest change alone does not alter the deployed page.
+      - 'desktop/src-tauri/src/model.rs'
       - '.node-version'
       - '.github/workflows/site.yml'
   workflow_dispatch:
@@ -49,7 +50,7 @@ defaults:
 
 jobs:
   build:
-    name: Typecheck and build
+    name: Typecheck, build and test
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     outputs:
@@ -78,6 +79,7 @@ jobs:
         run: pnpm audit --prod=false --audit-level moderate
       - run: pnpm typecheck
       - run: pnpm build
+      - run: pnpm test
 
   deploy:
     name: Deploy to Cloudflare

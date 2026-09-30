@@ -1,7 +1,9 @@
 ---
 import '../styles/global.css';
-import interLatin from '@fontsource-variable/inter/files/inter-latin-wght-normal.woff2?url';
-import interCyrillic from '@fontsource-variable/inter/files/inter-cyrillic-wght-normal.woff2?url';
+import onestLatin from '@fontsource-variable/onest/files/onest-latin-wght-normal.woff2?url';
+import onestCyrillic from '@fontsource-variable/onest/files/onest-cyrillic-wght-normal.woff2?url';
+import unboundedLatin from '@fontsource/unbounded/files/unbounded-latin-500-normal.woff2?url';
+import unboundedCyrillic from '@fontsource/unbounded/files/unbounded-cyrillic-500-normal.woff2?url';
 import RuntimeStrings from '../components/RuntimeStrings.astro';
 import PageSchema from '../components/PageSchema.astro';
 import StructuredData from '../components/StructuredData.astro';
@@ -26,14 +28,16 @@ const { slug = '', title, description, noindex = false } = Astro.props;
 const { locale, t } = translationsFor(Astro.currentLocale);
 
 const canonical = new URL(localePath(locale, slug), Astro.site);
-const ogImage = new URL(OG_IMAGE.path, Astro.site);
+const ogImage = new URL(OG_IMAGE.path(locale), Astro.site);
 
 const pageTitle = title ? `${title} — Sotto` : t.meta.title;
 const pageDescription = description ?? t.meta.description;
 
-// The two Inter subsets are split by unicode-range, so each page needs exactly
-// one of them. Preloading both would pull a file the page can never paint with.
-const bodyFont = locale === 'ru' ? interCyrillic : interLatin;
+// Each family is split by unicode-range: the heading face, which sets the
+// largest text first, and the body face. Every page paints spaces, digits,
+// punctuation and product names from the Latin subset; only Russian pages also
+// need the Cyrillic one. The monospace labels can wait for the stylesheet.
+const preloadFonts = locale === 'ru' ? [unboundedCyrillic, onestCyrillic, unboundedLatin, onestLatin] : [unboundedLatin, onestLatin];
 ---
 
 <!doctype html>
@@ -41,14 +45,14 @@ const bodyFont = locale === 'ru' ? interCyrillic : interLatin;
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#061014" />
+    <meta name="theme-color" content="#0c0b0a" />
 
-    {/* The font is referenced from the stylesheet, so it is discovered only
-        after the CSS parses. Preloading starts it alongside the CSS instead and
+    {/* The fonts are referenced from the stylesheet, so they are discovered only
+        after the CSS parses. Preloading starts them alongside the CSS instead and
         shortens the window in which `font-display: swap` reflows the text.
         `crossorigin` is required: fonts are fetched in CORS mode, and without it
-        the preloaded file is not reused and downloads twice. */}
-    <link rel="preload" href={bodyFont} as="font" type="font/woff2" crossorigin />
+        the preloaded files are not reused and download twice. */}
+    {preloadFonts.map((font) => <link rel="preload" href={font} as="font" type="font/woff2" crossorigin />)}
 
     <title>{pageTitle}</title>
     <meta name="description" content={pageDescription} />
@@ -61,11 +65,13 @@ const bodyFont = locale === 'ru' ? interCyrillic : interLatin;
       <meta name="robots" content="noindex, follow" />
     ) : (
       <Fragment>
+        <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
         <link rel="canonical" href={canonical} />
         {locales.map((other) => (
           <link rel="alternate" hreflang={other} href={new URL(localePath(other, slug), Astro.site)} />
         ))}
         <link rel="alternate" hreflang="x-default" href={new URL(localePath('en', slug), Astro.site)} />
+        {!slug && <link rel="alternate" type="text/plain" title={t.faq.factsLabel} href={new URL(`${localePath(locale)}llms.txt`, Astro.site)} />}
 
         <meta property="og:type" content="website" />
         <meta property="og:url" content={canonical} />
@@ -88,6 +94,20 @@ const bodyFont = locale === 'ru' ? interCyrillic : interLatin;
     )}
 
     <link rel="icon" href="/brand/sotto-icon.png" type="image/png" />
+
+    {/* Without scripts, expose every screenshot and keep navigation available. */}
+    <noscript>
+      <style is:inline>
+        .js-only, .menu-toggle { display: none !important; }
+        .screens { gap: 32px; }
+        .screens .screen-window { grid-area: auto; visibility: visible !important; opacity: 1 !important; pointer-events: auto !important; }
+        @media (max-width: 900px) {
+          .desktop-nav { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+          .header-inner { flex-wrap: wrap; }
+          .desktop-only { display: inline-flex; }
+        }
+      </style>
+    </noscript>
 
     {/* Structured data describes a real page at a real URL, so a noindex page
         has nothing truthful to declare and stays out of it. */}

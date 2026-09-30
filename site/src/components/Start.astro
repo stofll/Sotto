@@ -1,0 +1,39 @@
+---
+import { LINKS } from '../data/product';
+import { translationsFor } from '../i18n/context';
+
+const { t } = translationsFor(Astro.currentLocale);
+const s = t.start;
+---
+
+<section id="start" class="section start container" data-screen-label="07 Start">
+  <div class="section-head" data-reveal>
+    <p class="section-label">{s.eyebrow}</p>
+    <h2 class="section-title">{s.title}</h2>
+  </div>
+
+  <ol class="steps">
+    {s.steps.map((step, index) => (
+      <li>
+        <span class="step-number mono">{index + 1}</span>
+        <h3>{step.title}</h3>
+        <p>{step.text}</p>
+      </li>
+    ))}
+  </ol>
+
+  {/* `data-download` opens the setup dialog; without JavaScript, or with a
+      modified click, the link simply goes to the release page. The reader's
+      own platform is moved first and filled by scripts/platform.ts. */}
+  <div class="platforms" data-reveal="80" data-platforms>
+    <a class="platform" href={LINKS.releases} data-download="windows">
+      <strong>{s.windows}</strong>
+      <span class="mono">{s.windowsFormats}</span>
+    </a>
+    <a class="platform" href={LINKS.releases} data-download="macos">
+      <strong>{s.mac}</strong>
+      <span class="mono">.dmg</span>
+    </a>
+  </div>
+  <span class="section-note">{s.note}</span>
+</section>

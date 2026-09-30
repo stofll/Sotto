@@ -1,18 +1,26 @@
 ---
-import Glyph from '../assets/sotto-glyph.svg';
-
+/**
+ * The plated app icon and the lowercase wordmark, as the app itself shows them.
+ * With `href` it is the home link, whose accessible name starts with the
+ * visible word so voice control can target what it sees; without, it is
+ * decoration.
+ */
 interface Props {
-  /** Height of the mark. Its width follows from the ribbon's own proportions. */
-  height?: number;
-  /** Hides the wordmark; used inside the privacy diagram. */
-  iconOnly?: boolean;
-  class?: string;
+  href?: string;
+  label?: string;
 }
 
-const { height = 22, iconOnly = false, class: className = '' } = Astro.props;
+const { href, label } = Astro.props;
 ---
 
-<span class:list={['brand', className]}>
-  <Glyph class="brand-icon" height={height} aria-hidden="true" />
-  {!iconOnly && <span>Sotto</span>}
-</span>
+{href ? (
+  <a class="brand" href={href}>
+    <img class="brand-icon" src="/brand/sotto-icon-56.webp" alt="" width="28" height="28" />
+    <span>sotto</span>{label && <span class="sr-only">, {label}</span>}
+  </a>
+) : (
+  <span class="brand" aria-hidden="true">
+    <img class="brand-icon" src="/brand/sotto-icon-56.webp" alt="" width="28" height="28" />
+    <span>sotto</span>
+  </span>
+)}

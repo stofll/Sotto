@@ -16,12 +16,12 @@ const { t } = translationsFor(Astro.currentLocale);
   <div class="dialog-inner">
     <div class="dialog-top">
       <Brand />
-      <button type="button" class="icon-button" data-dialog-close aria-label={t.dialog.closeAria}>
+      <button type="button" class="dialog-close" data-dialog-close aria-label={t.dialog.closeAria}>
         <Icon name="close" size={20} />
       </button>
     </div>
 
-    <p class="eyebrow">{t.dialog.eyebrow}</p>
+    <p class="dialog-eyebrow">{t.dialog.eyebrow}</p>
     <h2 id="download-dialog-heading">{t.dialog.titleMac}</h2>
     <p id="download-dialog-description" data-download-description>{t.dialog.descriptionMac}</p>
 

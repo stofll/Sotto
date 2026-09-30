@@ -1,0 +1,96 @@
+---
+import type { ImageMetadata } from 'astro';
+import { screens, type ScreenId } from '../data/product';
+import { tourSteps } from '../data/screen-tour';
+import { translationsFor } from '../i18n/context';
+
+const shots = import.meta.glob<{ default: ImageMetadata }>('../assets/screens/*.webp', { eager: true });
+const { locale, t } = translationsFor(Astro.currentLocale);
+const s = t.screens;
+const themes = ['dark', 'light'] as const;
+const shot = (id: ScreenId, theme: typeof themes[number], density = 1) =>
+  shots[`../assets/screens/${id}-${locale}-${theme}${density === 2 ? '@2x' : ''}.webp`]!.default;
+---
+
+<section class="section container" data-screen-label="03 Interface">
+  <div class="screens-head" data-reveal>
+    <div class="section-head">
+      <p class="section-label">{s.eyebrow}</p>
+      <h2 class="section-title">{s.title}</h2>
+    </div>
+    <div class="screens-controls js-only">
+      <div class="segmented" role="tablist" aria-label={s.tablistLabel} data-screen-tabs>
+        {screens.map((id, index) => (
+          <button type="button" role="tab" id={`screen-tab-${id}`} aria-controls={`screen-${id}`}
+            aria-selected={index === 0 ? 'true' : 'false'} tabindex={index === 0 ? undefined : '-1'} data-screen-target={id}>
+            {s.tabs[id]}
+          </button>
+        ))}
+      </div>
+      <button type="button" class="tour-toggle" data-tour-toggle aria-pressed="false">{s.tourPlay}</button>
+    </div>
+  </div>
+  <div class="screens-toolbar">
+    <div class="segmented js-only" role="group" aria-label={s.themeLabel} data-screen-themes>
+      {themes.map((theme) => <button type="button" data-theme-target={theme} aria-pressed={theme === 'dark'}>{s.themes[theme]}</button>)}
+    </div>
+    <a class="text-link screen-enlarge" href={shot('settings', 'dark', 2).src} data-screen-zoom>{s.enlarge} <span aria-hidden="true">↗</span></a>
+  </div>
+  <div class="screens" data-reveal="80" data-screens data-theme="dark">
+    {screens.map((id) => (
+      <figure id={`screen-${id}`} class="screen-window" role="tabpanel" aria-labelledby={`screen-tab-${id}`} data-screen-panel={id}>
+        <div class="screen-image">
+          {themes.map((theme) => {
+            // Only the dark captures show without scripts; the gallery fetches a light one when it is chosen.
+            // Until then it points at a blank pixel, because an <img> must have a src.
+            const source = { src: shot(id, theme).src, srcset: `${shot(id, theme).src} 1x, ${shot(id, theme, 2).src} 2x` };
+            return <img {...(theme === 'dark' ? source : { src: '/blank.gif', 'data-src': source.src, 'data-srcset': source.srcset })}
+              width="1088" height="736" alt={s.alt[id]} loading="lazy" decoding="async"
+              data-theme-image={theme} data-full-src={shot(id, theme, 2).src} aria-hidden={theme !== 'dark' ? 'true' : undefined} />;
+          })}
+          <div class="screen-hotspots js-only">
+            {tourSteps.filter(step => step.screen === id).map((step, index) => {
+              const [x, y, width, height] = step.rect;
+              return <button type="button" class="screen-hotspot" data-step-target={step.id} aria-label={`${index + 1}. ${s.steps[step.id].title}`}
+                aria-pressed="false" aria-describedby={`tour-detail-${step.id}`}
+                style={`left:${x / 1088 * 100}%;top:${y / 736 * 100}%;width:${width / 1088 * 100}%;height:${height / 736 * 100}%`}>
+                  <span>{index + 1}</span>
+                </button>;
+            })}
+          </div>
+        </div>
+        <figcaption>
+          <div class="screen-topics js-only" role="group" aria-label={s.tabs[id]}>
+            {tourSteps.filter(step => step.screen === id).map((step, index) => (
+              <button type="button" data-step-target={step.id} aria-pressed="false"><span>{index + 1}</span>{s.steps[step.id].title}</button>
+            ))}
+          </div>
+          <p class="screen-fallback">{s.captions[id]} <a href={shot(id, 'dark', 2).src}>{s.enlarge}</a></p>
+        </figcaption>
+      </figure>
+    ))}
+  </div>
+  <div class="tour-guide js-only" data-tour-guide>
+    <div class="tour-descriptions" aria-live="polite" aria-atomic="true" data-tour-descriptions>
+      {tourSteps.map((step, index) => (
+        <div class="tour-description" id={`tour-detail-${step.id}`} data-step-description={step.id} hidden={index !== 0}>
+          <span class="tour-count">{s.stepLabel} {String(index + 1).padStart(2, '0')} / {tourSteps.length}</span>
+          <h3>{s.steps[step.id].title}</h3><p>{s.steps[step.id].text}</p>
+        </div>
+      ))}
+    </div>
+    <div class="tour-navigation">
+      <button class="tour-toggle" type="button" data-tour-previous aria-label={s.previous}>←</button>
+      <button class="tour-toggle" type="button" data-tour-next aria-label={s.next}>→</button>
+    </div>
+    <div class="tour-progress" aria-hidden="true"><span></span></div>
+  </div>
+  <p class="screen-error" role="status" data-screen-error hidden>{s.imageError}</p>
+  <dialog class="screen-dialog" data-screen-dialog aria-labelledby="screen-dialog-title">
+    <div class="screen-dialog-head">
+      <h3 id="screen-dialog-title"></h3>
+      <button class="tour-toggle" type="button" data-screen-close autofocus>{s.close}</button>
+    </div>
+    <div class="screen-dialog-body" tabindex="0" role="region" aria-label={s.enlarge}><img data-screen-full alt="" /></div>
+  </dialog>
+</section>

@@ -52,7 +52,7 @@ export const initHeader = ({ query, all, signal, strings }: Runtime): Behaviour 
     { signal },
   );
 
-  window.matchMedia('(min-width: 601px)').addEventListener(
+  window.matchMedia('(min-width: 901px)').addEventListener(
     'change',
     (event) => {
       if (event.matches) setMenu(false);

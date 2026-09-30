@@ -1,13 +1,14 @@
-import { ASSET_PREFIX, LINKS, RELEASES_API, REPO } from '../data/product';
+import { ASSET_PREFIX, LINKS, RELEASES_API } from '../data/product';
 import { createRuntime, type Behaviour } from './runtime';
-import { initClipboard } from './clipboard';
 import { initDownload } from './download';
+import { initFaq } from './faq';
 import { initHeader } from './header';
-import { initHero } from './hero';
 import { initModels } from './models';
-import { initPrivacyDiagram } from './privacy';
+import { initModes } from './modes';
+import { initPlatform } from './platform';
 import { initReveal } from './reveal';
-import { initWorkflow } from './workflow';
+import { initScreens } from './screens';
+import { initVoice } from './voice';
 
 /**
  * Progressive enhancement for markup Astro already rendered. Nothing here is
@@ -19,16 +20,16 @@ export const initLanding = (): (() => void) => {
   const { runtime, motion, setReduced, teardown } = createRuntime(abort);
   const { signal } = runtime;
 
-  document.documentElement.classList.add('js-enabled');
-
   const behaviours: Behaviour[] = [
     initHeader(runtime),
+    initFaq(runtime),
     initReveal(runtime),
-    initHero(runtime),
-    initWorkflow(runtime),
+    initVoice(runtime),
+    initModes(runtime),
+    initScreens(runtime),
     initModels(runtime),
-    initPrivacyDiagram(runtime),
-    initClipboard(runtime, REPO),
+    // Before the dialog, which binds the links this retargets.
+    initPlatform(runtime),
     initDownload(runtime, { api: RELEASES_API, assetPrefix: ASSET_PREFIX, releases: LINKS.releases }),
   ];
 
@@ -55,7 +56,6 @@ export const initLanding = (): (() => void) => {
   return () => {
     behaviours.forEach((behaviour) => behaviour.destroy?.());
     teardown();
-    document.documentElement.classList.remove('js-enabled');
     delete document.documentElement.dataset.pageHidden;
   };
 };

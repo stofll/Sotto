@@ -1,0 +1,9 @@
+.faq-list { border-top: 1px solid var(--border); }
+.faq-item { border-bottom: 1px solid var(--border); }
+.faq-item summary { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 20px 0; cursor: pointer; list-style: none; font: 500 1.0625rem/1.4 var(--font-display); letter-spacing: -0.01em; }
+.faq-item summary::-webkit-details-marker { display: none; }
+/* A plus that turns into a minus: drawn, so it needs no glyph from the font. */
+.faq-item summary::after { content: ''; flex: none; width: 12px; height: 12px; background: linear-gradient(var(--text-muted), var(--text-muted)) center / 12px 1.5px no-repeat, linear-gradient(var(--text-muted), var(--text-muted)) center / 1.5px 12px no-repeat; }
+.faq-item[open] summary::after { background: linear-gradient(var(--text-muted), var(--text-muted)) center / 12px 1.5px no-repeat; }
+.faq-item summary:hover { color: var(--text-secondary); }
+.faq-item p { padding-bottom: 22px; font-size: 0.9375rem; line-height: 1.7; color: var(--text-secondary); text-wrap: pretty; }
