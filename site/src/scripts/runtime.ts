@@ -27,17 +27,15 @@ export interface Behaviour {
 }
 
 export interface RuntimeStrings {
-  demo: {
-    phases: Record<string, string>;
-    prompt: string;
-    transcript: string[];
-    pause: string;
-    resume: string;
-    motionDisabled: string;
-  };
-  models: Record<string, string>;
-  workflow: Record<string, { app: string; destination: string; context: string; chunks: string[] }>;
-  copy: { copied: string; copiedTitle: string; copiedAria: string; manual: string; fallbackTitle: string; aria: string };
+  /** Typed out by the voice demo, in order. */
+  phrases: string[];
+  /** Download button labels once the reader's system is known. */
+  downloadWindows: string;
+  downloadMac: string;
+  /** `{shown}` of `{total}`, for the model filter. */
+  modelCount: string;
+  /** Labels of the screenshot tour's play/pause button. */
+  tour: { pause: string; play: string };
   /** The shape comes from the dictionary. An approximate Record would hide a
    *  mismatch until runtime, where `steps.map` would throw on undefined. */
   dialog: Dictionary['dialog'];

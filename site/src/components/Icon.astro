@@ -1,5 +1,5 @@
 ---
-import { icons, type IconName } from '../data/icons';
+import { icons, type IconName, type IconShape } from '../data/icons';
 
 interface Props {
   name: IconName;
@@ -10,9 +10,9 @@ interface Props {
 }
 
 const { name, size = 20, label, class: className = '' } = Astro.props;
-const shape = icons[name];
-const viewBox = 'viewBox' in shape ? shape.viewBox : '0 0 24 24';
-const strokeWidth = 'strokeWidth' in shape ? shape.strokeWidth : '1.6';
+const shape: IconShape = icons[name];
+const viewBox = shape.viewBox ?? '0 0 24 24';
+const strokeWidth = shape.strokeWidth ?? '1.6';
 
 // Non-square shapes (the download mark) keep their aspect ratio instead of
 // being squashed into a square box.

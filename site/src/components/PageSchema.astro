@@ -20,12 +20,14 @@ const { locale } = translationsFor(Astro.currentLocale);
 const schema = {
   '@context': 'https://schema.org',
   '@type': 'WebPage',
+  '@id': `${canonical.href}#webpage`,
   name: title,
   description,
   url: canonical.href,
   inLanguage: locale,
   isPartOf: {
     '@type': 'WebSite',
+    '@id': new URL('/#website', canonical).href,
     name: 'Sotto',
     url: new URL('/', canonical).href,
   },

@@ -77,5 +77,8 @@ export default defineConfig({
       },
     }),
   ],
-  build: { inlineStylesheets: 'auto' },
+  // The whole stylesheet is small enough to ship inside the page, which saves
+  // the render-blocking request Lighthouse measured at up to a second on a
+  // slow mobile connection.
+  build: { inlineStylesheets: 'always' },
 });

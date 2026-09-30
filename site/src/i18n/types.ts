@@ -1,4 +1,5 @@
-import type { ModelId, WorkflowId } from '../data/product';
+import type { LanguageGroup, ScreenId } from '../data/product';
+import type { TourStepId } from '../data/screen-tour';
 
 /**
  * The shape every locale must satisfy. Adding a string here makes TypeScript
@@ -8,19 +9,7 @@ import type { ModelId, WorkflowId } from '../data/product';
 
 export type Locale = 'en' | 'ru';
 
-export interface Scenario {
-  title: string;
-  sub: string;
-  app: string;
-  destination: string;
-  destinationSub: string;
-  context: string;
-  /** Spoken fragments, revealed one by one in the typing animation. */
-  chunks: string[];
-}
-
-export interface ListItem {
-  icon: string;
+export interface Card {
   title: string;
   text: string;
 }
@@ -36,112 +25,110 @@ export interface Dictionary {
     ogImageAlt: string;
   };
   nav: Record<
-    | 'home' | 'main' | 'mobile' | 'features' | 'models' | 'privacy' | 'docs' | 'docsLong'
-    | 'github' | 'githubAria' | 'download' | 'openMenu' | 'closeMenu' | 'backToTop' | 'footerNav'
-    | 'skipToContent' | 'noscript' | 'language',
+    | 'home' | 'main' | 'mobile' | 'features' | 'models' | 'privacy' | 'faq' | 'start' | 'download'
+    | 'openMenu' | 'closeMenu' | 'backToTop' | 'footerNav' | 'skipToContent' | 'noscript' | 'language',
     string
   >;
   hero: {
-    eyebrow: string[];
+    eyebrow: string;
     titleLine1: string;
     titleLine2: string;
-    subtitleLine1: string;
-    subtitleLine2: string;
-    downloadMac: string;
+    /** Typed out one by one in the demo, and in the overlay card. */
+    phrases: string[];
+    subtitle: string;
+    /** Shown when the reader's system is unknown; leads to both platforms. */
+    download: string;
     downloadWindows: string;
-    noSubscription: string;
-    viewOnGitHub: string;
-    demoAria: string;
-    demoDisclaimer: string;
-    caption: string;
-    captionExtra: string;
-    replay: string;
-    replayAria: string;
-    steps: { number: string; label: string }[];
-    editor: {
-      app: string;
-      workspace: string;
-      personal: string;
-      allNotes: string;
-      currentNote: string;
-      quickThoughts: string;
-      ideas: string;
-      breadcrumbRoot: string;
-      intro: string;
-      taskLead: string;
-      tasks: string[];
-      savedLocally: string;
-      format: string;
-    };
-    overlay: { local: string; exploreModels: string; hide: string; model: string; stopHint: string };
-    sideNoteLine1: string;
-    sideNoteLine2: string;
-  };
-  benefits: { label: string; items: ListItem[] };
-  workflow: {
-    eyebrow: string;
-    titleLine1: string;
-    titleLine2: string;
-    description: string;
-    tablistLabel: string;
-    caption: string;
-    overlayLabel: string;
-    scenarios: Record<WorkflowId, Scenario>;
-  };
-  works: { title: string; subtitle: string; listLabel: string; note: string };
-  models: {
-    eyebrow: string;
-    titleLine1: string;
-    titleLine2: string;
-    descriptionLine1: string;
-    descriptionLine2: string;
-    principles: string[];
-    guideLink: string;
-    windowTitle: string;
-    panelTitle: string;
-    panelSubtitle: string;
-    tablistLabel: string;
-    localTab: string;
-    cloudTab: string;
-    cloudTabBadge: string;
-    radiogroupLabel: string;
-    streamingBadge: string;
-    languageLabels: Record<'multilingual' | 'russian' | 'sizes', string>;
-    megabytes: string;
-    details: Record<ModelId, string>;
-    cloud: { title: string; text: string; note: string; link: string };
-    footnote: string;
-  };
-  privacy: {
-    eyebrow: string;
-    titleLine1: string;
-    titleLine2: string;
-    descriptionLine1: string;
-    descriptionLine2: string;
-    diagramAlt: string;
-    boundary: string;
-    nodes: Record<'microphone' | 'app' | 'model' | 'text', string>;
-    noCloud: string;
-    points: { number: string; title: string; text: string }[];
-    footnote: string;
-    footnoteLink: string;
+    downloadMac: string;
+    /** Shown instead of a download on phones and tablets. */
+    mobileNote: string;
+    meta: string;
+    /** `{version}` of the latest release, resolved at build time. */
+    version: string;
   };
   features: {
     eyebrow: string;
     title: string;
-    subtitleLine1: string;
-    subtitleLine2: string;
-    items: (ListItem & { overline: string })[];
-    footnote: string;
+    modesLabel: string;
+    toggle: string;
+    pushToTalk: string;
+    toggleHint: string;
+    pushToTalkHint: string;
+    /** Misheard word, then the replacement that fixes it. */
+    replacements: [string, string][];
+    /** Time and text of sample history entries. */
+    historyRows: [string, string][];
+    anywhere: Card;
+    offline: Card;
+    live: Card;
+    custom: Card;
+    files: Card;
+    history: Card;
   };
-  openSource: Record<
-    | 'eyebrow' | 'titleLine1' | 'titleLine2' | 'manifesto' | 'descriptionLine1' | 'descriptionLine2'
-    | 'viewOnGitHub' | 'repoPublic' | 'repoOpenAria' | 'readmeName' | 'readmeTitle' | 'readmeText'
-    | 'tagLocal' | 'tagLicense' | 'copyAria' | 'copied' | 'copiedTitle' | 'copyManual'
-    | 'copyFallbackTitle' | 'copiedAria',
-    string
-  >;
-  download: Record<'eyebrow' | 'title' | 'subtitle' | 'mac' | 'windows' | 'linux' | 'setupNotes', string>;
+  screens: {
+    eyebrow: string;
+    title: string;
+    tablistLabel: string;
+    enlarge: string;
+    close: string;
+    captions: Record<ScreenId, string>;
+    tourPause: string;
+    tourPlay: string;
+    themeLabel: string;
+    themes: { dark: string; light: string };
+    previous: string;
+    next: string;
+    stepLabel: string;
+    imageError: string;
+    steps: Record<TourStepId, Card>;
+    tabs: Record<ScreenId, string>;
+    alt: Record<ScreenId, string>;
+  };
+  models: {
+    eyebrow: string;
+    title: string;
+    description: string;
+    purposes: string[];
+    allModels: string;
+    filterLabel: string;
+    filters: Record<'all' | LanguageGroup, string>;
+    streamingOnly: string;
+    /** `{shown}` of `{total}` models. */
+    count: string;
+    empty: string;
+    streaming: string;
+    punctuation: string;
+    note: string;
+  };
+  privacy: {
+    eyebrow: string;
+    title: string;
+    description: string;
+    link: string;
+    logLabel: string;
+    /** Key, value, and whether the value is optional rather than a guarantee. */
+    log: [string, string, boolean?][];
+  };
+  start: {
+    eyebrow: string;
+    title: string;
+    steps: Card[];
+    windows: string;
+    windowsFormats: string;
+    mac: string;
+    note: string;
+  };
+  faq: {
+    eyebrow: string;
+    title: string;
+    factsLabel: string;
+    /** Short label and value; `{total}` is the model count. */
+    facts: [string, string][];
+    /** Questions and answers, also published as FAQPage structured data. */
+    items: { id: string; question: string; answer: string }[];
+  };
+  final: { title: string };
+  footer: Record<'docs' | 'privacy', string>;
   dialog: {
     eyebrow: string;
     closeAria: string;
@@ -164,7 +151,6 @@ export interface Dictionary {
     latestRelease: string;
     allReleases: string;
   };
-  footer: Record<'tagline' | 'docs' | 'privacy' | 'license' | 'freeSoftware' | 'builtInTheOpen', string>;
   notFound: {
     title: string;
     lede: string;
@@ -174,13 +160,5 @@ export interface Dictionary {
     /** Caption under the number, and the code itself for anyone who cannot see it. */
     caption: string;
     markAlt: string;
-  };
-  demo: {
-    phases: Record<'idle' | 'ready' | 'listening' | 'processing' | 'done' | 'reset', string>;
-    prompt: string;
-    transcript: string[];
-    pause: string;
-    resume: string;
-    motionDisabled: string;
   };
 }

@@ -1,0 +1,24 @@
+---
+import { translationsFor } from '../i18n/context';
+
+const { t } = translationsFor(Astro.currentLocale);
+const f = t.faq;
+---
+
+{/* Answers stay in the HTML even while collapsed. Stable anchors let readers
+    and agents link to an individual answer; the schema uses the same URLs. */}
+<section id="faq" class="section container faq" data-screen-label="06 FAQ">
+  <div class="section-head" data-reveal>
+    <p class="section-label">{f.eyebrow}</p>
+    <h2 class="section-title">{f.title}</h2>
+  </div>
+
+  <div class="faq-list" data-reveal>
+    {f.items.map((item) => (
+      <details class="faq-item" id={`faq-${item.id}`}>
+        <summary>{item.question}</summary>
+        <p>{item.answer}</p>
+      </details>
+    ))}
+  </div>
+</section>

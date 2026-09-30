@@ -16,7 +16,7 @@ const label: Record<string, string> = { en: 'EN', ru: 'RU' };
 const title: Record<string, string> = { en: 'English', ru: 'Русский' };
 ---
 
-<div class:list={['locale-switcher', className]} role="group" aria-label={t.nav.language}>
+<div class:list={['segmented', 'locale-switcher', className]} role="group" aria-label={t.nav.language}>
   {locales.map((other) =>
     other === locale ? (
       <span class="is-current" aria-current="true" lang={other} title={title[other]}>{label[other]}</span>

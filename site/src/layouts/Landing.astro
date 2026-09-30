@@ -1,0 +1,33 @@
+---
+import DownloadDialog from '../components/DownloadDialog.astro';
+import Faq from '../components/Faq.astro';
+import Features from '../components/Features.astro';
+import FinalCall from '../components/FinalCall.astro';
+import Footer from '../components/Footer.astro';
+import Header from '../components/Header.astro';
+import Hero from '../components/Hero.astro';
+import Models from '../components/Models.astro';
+import Screens from '../components/Screens.astro';
+import Start from '../components/Start.astro';
+import Base from './Base.astro';
+import { translationsFor } from '../i18n/context';
+
+/** The landing page. Each locale's route renders it; the locale comes from the URL. */
+const { t } = translationsFor(Astro.currentLocale);
+---
+
+<Base>
+  <Header />
+  <main id="main-content">
+    <noscript><p class="noscript-notice">{t.nav.noscript}</p></noscript>
+    <Hero />
+    <Features />
+    <Screens />
+    <Models />
+    <Faq />
+    <Start />
+    <FinalCall />
+  </main>
+  <Footer />
+  <DownloadDialog />
+</Base>

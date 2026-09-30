@@ -1,0 +1,13 @@
+---
+import { translationsFor } from '../i18n/context';
+
+const { t } = translationsFor(Astro.currentLocale);
+---
+
+<section class="final" data-screen-label="08 Final">
+  <canvas class="final-wave" data-voice-wave="ambient" aria-hidden="true"></canvas>
+  <div class="container final-inner">
+    <h2 data-reveal>{t.final.title}</h2>
+    <a class="button button-primary button-large" href="#start" data-platform-cta="long" data-reveal="100">{t.hero.download}</a>
+  </div>
+</section>

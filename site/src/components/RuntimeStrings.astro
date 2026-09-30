@@ -8,27 +8,11 @@ import { translationsFor } from '../i18n/context';
 const { t } = translationsFor(Astro.currentLocale);
 
 const runtime = {
-  demo: t.demo,
-  models: t.models.details,
-  workflow: Object.fromEntries(
-    Object.entries(t.workflow.scenarios).map(([id, scenario]) => [
-      id,
-      {
-        app: scenario.app,
-        destination: scenario.destination,
-        context: scenario.context,
-        chunks: scenario.chunks,
-      },
-    ]),
-  ),
-  copy: {
-    copied: t.openSource.copied,
-    copiedTitle: t.openSource.copiedTitle,
-    copiedAria: t.openSource.copiedAria,
-    manual: t.openSource.copyManual,
-    fallbackTitle: t.openSource.copyFallbackTitle,
-    aria: t.openSource.copyAria,
-  },
+  phrases: t.hero.phrases,
+  downloadWindows: t.hero.downloadWindows,
+  downloadMac: t.hero.downloadMac,
+  modelCount: t.models.count,
+  tour: { pause: t.screens.tourPause, play: t.screens.tourPlay },
   dialog: t.dialog,
   nav: { openMenu: t.nav.openMenu, closeMenu: t.nav.closeMenu },
 };
