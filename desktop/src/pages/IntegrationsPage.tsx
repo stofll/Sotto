@@ -217,6 +217,7 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
         const activeId = patch.active_profile_id ?? currentAi.active_profile_id;
         const active = nextProfiles.find((profile) => profile.id === activeId) ?? nextProfiles[0];
         if (active) Object.assign(patch, routeFields(currentAi, active, nextProfiles));
+        else if (patch.profiles?.length === 0) Object.assign(patch, { active_profile_id: "", profile_id: "", profile_name: "" });
         return { ai_processing: patch };
       }, onError);
       if (!saved) {

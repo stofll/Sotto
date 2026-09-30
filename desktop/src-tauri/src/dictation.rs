@@ -1,5 +1,6 @@
-//! Shared hotkey/IPC capture lifecycle. Reservations and worker submission are
-//! ordered together; native device operations never run on the caller's thread.
+//! Hotkey capture lifecycle; IPC can only cancel a session. Reservations and
+//! worker submission are ordered together; native device operations never run
+//! on the caller's thread. Start and stop report their outcome through events.
 
 use crate::{
     config::Config,
@@ -13,8 +14,6 @@ use std::sync::{
 use std::time::Instant;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::oneshot;
-
-pub type Reply = oneshot::Receiver<Result<u64, String>>;
 
 pub fn finish(state: &AppState, session_id: u64) {
     if state.owns_dictation(session_id) {
@@ -54,7 +53,7 @@ fn native_call<T>(f: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).map_err(crate::panic_msg)?
 }
 
-pub fn start(app: &AppHandle, state: &AppState) -> Result<Reply, String> {
+pub fn start(app: &AppHandle, state: &AppState) -> Result<(), String> {
     let requested = Instant::now();
     if let Some(refusal) = crate::refuse_dictation_start(app, state) {
         return Err(refusal.message);
@@ -71,7 +70,6 @@ pub fn start(app: &AppHandle, state: &AppState) -> Result<Reply, String> {
         config.get_string("recording_mode").as_deref() != Some("push_to_talk"),
         Ordering::Release,
     );
-    let (tx, rx) = oneshot::channel();
     let worker_app = app.clone();
     let worker_state = state.clone();
     if let Err(error) = state.audio.submit(move || {
@@ -80,7 +78,6 @@ pub fn start(app: &AppHandle, state: &AppState) -> Result<Reply, String> {
         if state.is_cancelled(session_id) {
             // The queued cancel owns terminal cleanup, including a start that
             // was cancelled before the device had even opened.
-            let _ = tx.send(Ok(session_id));
             return;
         }
         let queued_ms = requested.elapsed().as_millis();
@@ -97,7 +94,6 @@ pub fn start(app: &AppHandle, state: &AppState) -> Result<Reply, String> {
                 app.state::<telemetry::Telemetry>()
                     .begin_usage_session(telemetry::SessionTrigger::Microphone);
                 let _ = app.emit("recording-started", session_id);
-                let _ = tx.send(Ok(session_id));
             }
             Err(error) => {
                 // A panic may leave a partially opened stream. Teardown stays
@@ -105,17 +101,16 @@ pub fn start(app: &AppHandle, state: &AppState) -> Result<Reply, String> {
                 let _ = native_call(|| state.recorder.stop());
                 crate::record_recorder_start_failure(&app);
                 failed(&app, &state, session_id, &error);
-                let _ = tx.send(Err(error));
             }
         }
     }) {
         failed(app, state, session_id, &error);
         return Err(error);
     }
-    Ok(rx)
+    Ok(())
 }
 
-pub fn stop(app: &AppHandle, state: &AppState) -> Result<Reply, String> {
+pub fn stop(app: &AppHandle, state: &AppState) -> Result<(), String> {
     let _commands = crate::mutex_recover::lock(&state.capture_commands);
     let session_id = state.current_session_id.swap(0, Ordering::AcqRel);
     state.toggle_armed.store(false, Ordering::Release);
@@ -124,11 +119,7 @@ pub fn stop(app: &AppHandle, state: &AppState) -> Result<Reply, String> {
 
 /// Stop `session_id` only while it is still the live recording, so a decision
 /// made about one recording cannot stop the one started after it.
-pub fn stop_if_current(
-    app: &AppHandle,
-    state: &AppState,
-    session_id: u64,
-) -> Result<Reply, String> {
+pub fn stop_if_current(app: &AppHandle, state: &AppState, session_id: u64) -> Result<(), String> {
     let _commands = crate::mutex_recover::lock(&state.capture_commands);
     let claimed = state.claim_live_session(session_id);
     if claimed {
@@ -138,35 +129,33 @@ pub fn stop_if_current(
 }
 
 /// Queue the stop of a session already taken from `current_session_id`; 0
-/// replies at once. The caller holds `capture_commands`.
-fn submit_stop(app: &AppHandle, state: &AppState, session_id: u64) -> Result<Reply, String> {
-    let (tx, rx) = oneshot::channel();
+/// means there is nothing to stop. The caller holds `capture_commands`.
+fn submit_stop(app: &AppHandle, state: &AppState, session_id: u64) -> Result<(), String> {
     if session_id == 0 {
-        let _ = tx.send(Ok(0));
-        return Ok(rx);
+        return Ok(());
     }
     let worker_app = app.clone();
     let worker_state = state.clone();
     if let Err(error) = state.audio.submit(move || {
-        let result = stop_on_worker(&worker_app, &worker_state, session_id);
-        let _ = tx.send(result.map(|()| session_id));
+        stop_on_worker(&worker_app, &worker_state, session_id);
     }) {
         failed(app, state, session_id, &error);
         return Err(error);
     }
-    Ok(rx)
+    Ok(())
 }
 
-fn stop_on_worker(app: &AppHandle, state: &AppState, session_id: u64) -> Result<(), String> {
+/// Every failure is reported through `failed`, which emits the terminal event.
+fn stop_on_worker(app: &AppHandle, state: &AppState, session_id: u64) {
     // A failed start already emitted its terminal event. Its queued stop must
     // not stop a later recording or produce a second failure.
     if !state.is_session_active(session_id) {
-        return Ok(());
+        return;
     }
     let stopped = native_call(|| state.recorder.stop());
     if state.is_cancelled(session_id) {
         cancelled(app, state, session_id);
-        return Ok(());
+        return;
     }
     let audio = match stopped {
         Ok(Some(audio)) if !audio.is_empty() => audio,
@@ -174,7 +163,7 @@ fn stop_on_worker(app: &AppHandle, state: &AppState, session_id: u64) -> Result<
             crate::abandon_dictation(app, state, session_id, telemetry::FailureReason::NoAudio);
             let _ = app.emit("whisper-empty", session_id);
             finish(state, session_id);
-            return Ok(());
+            return;
         }
         Err(error) => {
             app.state::<telemetry::Telemetry>().record_failed(
@@ -184,7 +173,7 @@ fn stop_on_worker(app: &AppHandle, state: &AppState, session_id: u64) -> Result<
                 telemetry::FailureReason::RecorderStop,
             );
             failed(app, state, session_id, &error);
-            return Err(error);
+            return;
         }
     };
     crate::on_recording_stopped(app, session_id, Some(&audio));
@@ -203,7 +192,7 @@ fn stop_on_worker(app: &AppHandle, state: &AppState, session_id: u64) -> Result<
         Ok(command) => command,
         Err(error) => {
             failed(app, state, session_id, &error);
-            return Err(error);
+            return;
         }
     };
     crate::state::set_app_fsm(&state.app_fsm, AppFsm::Processing);
@@ -212,9 +201,7 @@ fn stop_on_worker(app: &AppHandle, state: &AppState, session_id: u64) -> Result<
         crate::record_engine_queue_failure(app, config.as_ref());
         let message = format!("engine: {error}");
         failed(app, state, session_id, &message);
-        return Err(message);
     }
-    Ok(())
 }
 
 pub async fn cancel(app: &AppHandle, state: &AppState, session_id: u64) -> Result<bool, String> {

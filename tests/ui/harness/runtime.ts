@@ -71,7 +71,6 @@ export function install(seed: any = {}) {
   const queues: Record<string, any[]> = structuredClone(seed.responses ?? {});
   const pending = new Map<string, { resolve: (value: any) => void; reject: (error: Error) => void }>();
   const subscriptions: Record<string, number> = {};
-  let session = 0;
   const persist = () => sessionStorage.setItem('sotto-test-state', JSON.stringify(state));
   mockWindows(location.pathname.includes('overlay') ? 'overlay' : 'main');
   mockIPC(async (command, args: any = {}) => {

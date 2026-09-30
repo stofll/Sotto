@@ -246,6 +246,13 @@ def test_queued_profile_deletions_keep_both_key_slots(app, page):
     # Each deleted profile's key stays registered; neither write drops the other's.
     refs = {slot["ref"] for slot in ui.state()["config"]["ai_processing"]["key_slots"]}
     assert refs == {"key_synthetic", "key_second"}
+    ai = ui.state()["config"]["ai_processing"]
+    # Like a direct delete of the last profile, nothing points at a deleted one.
+    assert (ai["active_profile_id"], ai["profile_id"], ai["profile_name"]) == (
+        "",
+        "",
+        "",
+    )
 
 
 def test_api_key_create_reveal_replace_delete(app, page):
