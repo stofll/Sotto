@@ -158,7 +158,7 @@ gh api repos/<owner>/<repo>/commits/<tag> --jq .sha
 
 Replace the SHA in the workflow and update the trailing comment to the tag you just resolved. Read the action's changelog between the old and new version before you do — a pin exists so that a new version is a decision, not an event.
 
-`dtolnay/rust-toolchain` publishes no releases, so its pin tracks the `stable` branch head and its comment records the date it was taken.
+For `dtolnay/rust-toolchain`, resolve and review the intended `stable` branch revision before changing the pinned SHA; the comment records the date it was selected.
 
 ## Dependency updates and audit
 
@@ -168,11 +168,11 @@ The lockfile audit lives in `.github/actions/dependency-audit`. The required `De
 
 ## Dependency inventory
 
-`.github/workflows/sbom.yml` produces a CycloneDX SBOM for the Rust and npm dependency graphs plus a readable license report, and uploads them as a run artifact.
+`.github/workflows/sbom.yml` produces separate CycloneDX SBOMs for the application Rust graph, Windows setup Rust graph and desktop npm graph, plus a readable license report, and uploads them as a run artifact.
 
 On a release tag `release.yml` calls the same workflow after the draft exists, so the files land on the release itself.
 
-The Rust SBOM is generated with `--target all --all-features`: most of the graph arrives through `[target.'cfg(...)']` blocks and optional GPU features, and a Linux-only inventory would describe a build we do not ship.
+The application Rust SBOM is generated with `--target all --all-features`: most of the graph arrives through `[target.'cfg(...)']` blocks and optional GPU features, and a Linux-only inventory would describe a build we do not ship. The separate setup Rust SBOM uses `--target all` to include its Windows-specific dependencies.
 
 On the npm side, platform binaries for operating systems other than the runner's are listed but carry no license — they are named in the lockfile and never installed, so there is no manifest to read. The job's summary step prints how many components lack a license so that number stays visible.
 
