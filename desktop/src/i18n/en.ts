@@ -14,6 +14,8 @@
 // tPlural picks the right one by the array's length.
 
 export const en: Record<string, string | string[]> = {
+  "Не удалось завершить удаление ключа. Повторите попытку.": "Could not finish deleting the key. Try again.",
+  "Не удалось сохранить профиль. Проверьте ошибку и повторите попытку.": "Could not save the profile. Check the error and try again.",
   "Мысли становятся текстом.": "Thoughts become text.",
   "Параметры установки": "Installation options",
   "Папка приложения": "Application folder",
@@ -675,7 +677,6 @@ export const en: Record<string, string | string[]> = {
   "Проверяю…": "Checking…",
   "Проверяем…": "Checking…",
   "Создаю…": "Creating…",
-  "В доработке": "Work in progress",
 
   // ── Overview and page subtitles ────────────────────────────────────────
   "Только локально": "Local only",
@@ -1176,10 +1177,6 @@ export const en: Record<string, string | string[]> = {
   "Выключена": "Off",
   "Выключено": "Off",
   "выключено": "off",
-  "Раздел не монтируется в MVP, поэтому связанные команды backend не вызываются.":
-    "This section is not mounted in the MVP, so its backend commands are never called.",
-  "Раздел статистики загружается как часть MVP.": "The statistics section ships as part of the MVP.",
-  "Справочный раздел будет подключен позже.": "The help section will be wired up later.",
   "{p0} копия": "{p0} copy",
   "LLM не настроена, вставлен локальный текст": "LLM is not set up, local text pasted",
   "LLM не ответила, вставлен локальный текст": "The LLM did not answer; local text was pasted",
@@ -1246,6 +1243,7 @@ export const en: Record<string, string | string[]> = {
   "Выключен": "Disabled",
   "Не удалось проверить набор. Повторите попытку.": "Could not check the set. Please try again.",
   "Выберите написание для каждого конфликта.": "Choose a spelling for each conflict.",
+  "Не удалось сохранить набор: {p0} Введённые данные сохранены в редакторе.": "Could not save the set: {p0} Your input is kept in the editor.",
   "Не удалось сохранить набор. Введённые данные сохранены в редакторе; попробуйте ещё раз.": "Could not save the set. Your input is still in the editor; please try again.",
   "{name} — копия": "{name} — copy",
   "Выберите написание": "Choose a spelling",

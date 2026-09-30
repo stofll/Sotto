@@ -292,6 +292,7 @@ export function HistoryPage() {
 
   const seenIdsRef = useRef<Set<number>>(new Set());
   const initializedRef = useRef(false);
+  const refreshGeneration = useRef(0);
 
   const reportPlaybackError = useCallback((message: string) => {
     setError(t("Не удалось воспроизвести запись: {p0}", { p0: message }));
@@ -301,11 +302,13 @@ export function HistoryPage() {
   const stopPlayer = player.stop;
 
   const refresh = useCallback(async () => {
+    const generation = ++refreshGeneration.current;
     try {
       const [result, config] = await Promise.all([
         listHistory(),
         invoke<ConfigResult>("get_config"),
       ]);
+      if (generation !== refreshGeneration.current) return;
       const nextEntries = result.entries ?? [];
       setEntries(nextEntries);
       setMaxAgeSeconds(result.max_age_seconds ?? 30 * 24 * 3600);
@@ -338,13 +341,14 @@ export function HistoryPage() {
         }
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      if (generation === refreshGeneration.current) setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setLoading(false);
+      if (generation === refreshGeneration.current) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
+    const generation = refreshGeneration;
     void refresh();
     const unlisten = subscribe<unknown>("history-updated", () => { void refresh(); });
     // No polling: entries that aged out while the window sat hidden in the
@@ -352,6 +356,7 @@ export function HistoryPage() {
     const onVisible = () => { if (document.visibilityState === "visible") void refresh(); };
     document.addEventListener("visibilitychange", onVisible);
     return () => {
+      generation.current++;
       unlisten();
       document.removeEventListener("visibilitychange", onVisible);
     };

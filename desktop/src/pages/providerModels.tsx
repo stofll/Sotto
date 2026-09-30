@@ -11,7 +11,7 @@
 // with the user's key. The field stays free for typing: ids entered by hand
 // earlier must keep working even if the provider no longer lists them.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { Icon } from "../components/Icon";
 import { Hint } from "../components/Hint";
@@ -44,7 +44,12 @@ export interface ProviderModelsState {
     /// back cleared the second one's spinner and re-enabled its button.
     loadingKeys: Set<string>;
     errors: Record<string, string>;
-    load: (cacheKey: string, query: ProviderModelsQuery) => Promise<void>;
+    queries: Record<string, string>;
+    load: (cacheKey: string, query: ProviderModelsQuery) => Promise<boolean>;
+}
+
+function queryKey(query: ProviderModelsQuery): string {
+    return JSON.stringify([query.provider, query.baseUrl ?? "", query.apiKeyRef ?? "", query.apiKey ?? ""]);
 }
 
 export function useProviderModels(): ProviderModelsState {
@@ -52,8 +57,13 @@ export function useProviderModels(): ProviderModelsState {
     const [loadedAt, setLoadedAt] = useState<Record<string, number>>({});
     const [loadingKeys, setLoadingKeys] = useState<Set<string>>(() => new Set());
     const [errors, setErrors] = useState<Record<string, string>>({});
+    const [queries, setQueries] = useState<Record<string, string>>({});
+    const requests = useRef(new Map<string, number>());
 
     const load = useCallback(async (cacheKey: string, query: ProviderModelsQuery) => {
+        const request = (requests.current.get(cacheKey) ?? 0) + 1;
+        requests.current.set(cacheKey, request);
+        setQueries((current) => ({ ...current, [cacheKey]: queryKey(query) }));
         setLoadingKeys((current) => new Set(current).add(cacheKey));
         setErrors((current) => {
             const next = { ...current };
@@ -73,6 +83,12 @@ export function useProviderModels(): ProviderModelsState {
             delete next[cacheKey];
             return next;
         });
+        setLoadedAt((current) => {
+            if (!(cacheKey in current)) return current;
+            const next = { ...current };
+            delete next[cacheKey];
+            return next;
+        });
         try {
             const list = await tauriInvoke<string[]>("fetch_provider_models", {
                 provider: query.provider,
@@ -80,21 +96,28 @@ export function useProviderModels(): ProviderModelsState {
                 api_key_ref: query.apiKeyRef ?? null,
                 api_key: query.apiKey ?? null,
             });
+            if (requests.current.get(cacheKey) !== request) return false;
             setModels((current) => ({ ...current, [cacheKey]: list }));
             setLoadedAt((current) => ({ ...current, [cacheKey]: Date.now() }));
+            return true;
         } catch (e) {
-            setErrors((current) => ({ ...current, [cacheKey]: e instanceof Error ? e.message : String(e) }));
+            if (requests.current.get(cacheKey) === request) {
+                setErrors((current) => ({ ...current, [cacheKey]: e instanceof Error ? e.message : String(e) }));
+            }
+            return false;
         } finally {
-            setLoadingKeys((current) => {
-                if (!current.has(cacheKey)) return current;
-                const next = new Set(current);
-                next.delete(cacheKey);
-                return next;
-            });
+            if (requests.current.get(cacheKey) === request) {
+                setLoadingKeys((current) => {
+                    if (!current.has(cacheKey)) return current;
+                    const next = new Set(current);
+                    next.delete(cacheKey);
+                    return next;
+                });
+            }
         }
     }, []);
 
-    return { models, loadedAt, loadingKeys, errors, load };
+    return { models, loadedAt, loadingKeys, errors, queries, load };
 }
 
 export function ModelField({ cacheKey, value, onChange, onCommit, fallbackSuggestions, query, state, inputStyle, placeholder }: {
@@ -116,14 +139,15 @@ export function ModelField({ cacheKey, value, onChange, onCommit, fallbackSugges
     placeholder?: string;
 }) {
     const [openSignal, setOpenSignal] = useState(0);
-    const fetched = state.models[cacheKey];
-    const error = state.errors[cacheKey];
-    const loading = state.loadingKeys.has(cacheKey);
+    const currentQuery = state.queries[cacheKey] === queryKey(query);
+    const fetched = currentQuery ? state.models[cacheKey] : undefined;
+    const error = currentQuery ? state.errors[cacheKey] : undefined;
+    const loading = currentQuery && state.loadingKeys.has(cacheKey);
 
     // The caption is shown for `COUNT_TTL_MS` from the moment the list arrived.
     // `now` only moves when the timer fires: one re-render, at the moment the
     // line has to go.
-    const loadedAt = state.loadedAt[cacheKey];
+    const loadedAt = currentQuery ? state.loadedAt[cacheKey] : undefined;
     const [now, setNow] = useState(() => Date.now());
     useEffect(() => {
         if (loadedAt === undefined) return;
@@ -155,7 +179,7 @@ export function ModelField({ cacheKey, value, onChange, onCommit, fallbackSugges
                     <button
                         className="btn btn--ghost model-field__reload"
                         type="button"
-                        onClick={() => { void state.load(cacheKey, query).then(() => setOpenSignal((n) => n + 1)); }}
+                        onClick={() => { void state.load(cacheKey, query).then((latest) => { if (latest) setOpenSignal((n) => n + 1); }); }}
                         disabled={loading}
                         aria-label={t("Запросить список моделей у провайдера")}
                     >

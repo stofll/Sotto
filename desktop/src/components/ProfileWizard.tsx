@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Icon } from "./Icon";
 import { CustomSelect, type SelectOption } from "./CustomSelect";
 import { Hint } from "./Hint";
@@ -93,6 +93,7 @@ export function ProfileWizard({ apiKeys, existingProfiles, seed, onClose, onCrea
   onClose: () => void;
   onCreate: (next: ProfileWizardResult) => Promise<void>;
 }) {
+  const createId = useRef<string | null>(null);
   const [state, setState] = useState<WizardState>(() => initialState(seed));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -209,7 +210,9 @@ export function ProfileWizard({ apiKeys, existingProfiles, seed, onClose, onCrea
 
     setSubmitting(true);
     try {
-      const id = `profile_${Date.now().toString(36)}`;
+      // A failed config write leaves the wizard open. Reusing the id also
+      // reuses the key ref already written to the OS store on the first try.
+      const id = createId.current ??= `profile_${Date.now().toString(36)}`;
       const taken = new Set(existingProfiles.map((p) => p.name));
       const finalName = (() => {
         const base = state.name.trim()

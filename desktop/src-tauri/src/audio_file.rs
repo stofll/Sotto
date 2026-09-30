@@ -9,7 +9,10 @@
 //! thread would stall every other task.
 
 use std::path::Path;
-use std::sync::{atomic::AtomicBool, Arc};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 
 use symphonia::core::audio::GenericAudioBufferRef;
 use symphonia::core::codecs::audio::AudioDecoderOptions;
@@ -50,6 +53,7 @@ pub struct DecodedAudio {
 /// Errors are localized and meant to be shown verbatim — the caller has no
 /// more context to add, and symphonia's own messages ("unsupported codec")
 /// tell a person nothing about which of their files is the problem.
+#[cfg(test)]
 pub fn decode_to_pcm16k_mono(path: &Path) -> Result<DecodedAudio, String> {
     decode_with_limit(path, MAX_DURATION_SECONDS)
 }
@@ -60,7 +64,24 @@ pub fn decode_to_pcm16k_mono(path: &Path) -> Result<DecodedAudio, String> {
 /// only honest test of it would need a 10-hour file. Taking the limit as an
 /// argument lets a test use a fraction of a second instead — the guard is
 /// the same code either way.
+#[cfg(test)]
 fn decode_with_limit(path: &Path, max_seconds: f64) -> Result<DecodedAudio, String> {
+    decode_cancellable(path, max_seconds, || false)
+}
+
+fn decode_cancellable(
+    path: &Path,
+    max_seconds: f64,
+    mut cancelled: impl FnMut() -> bool,
+) -> Result<DecodedAudio, String> {
+    let check_cancelled = |cancelled: &mut dyn FnMut() -> bool| {
+        if cancelled() {
+            Err(crate::ui_text::t("Транскрипция отменена."))
+        } else {
+            Ok(())
+        }
+    };
+    check_cancelled(&mut cancelled)?;
     let file = std::fs::File::open(path).map_err(|e| {
         crate::ui_text::t("Не удалось открыть файл: {p0}").replace("{p0}", &e.to_string())
     })?;
@@ -112,6 +133,7 @@ fn decode_with_limit(path: &Path, max_seconds: f64) -> Result<DecodedAudio, Stri
     let mut source_rate: Option<u32> = None;
 
     loop {
+        check_cancelled(&mut cancelled)?;
         let packet = match format.next_packet() {
             Ok(Some(packet)) => packet,
             // End of stream.
@@ -148,6 +170,7 @@ fn decode_with_limit(path: &Path, max_seconds: f64) -> Result<DecodedAudio, Stri
             Err(e) => return Err(describe_symphonia_error(&e)),
         };
 
+        check_cancelled(&mut cancelled)?;
         let rate = decoded.spec().rate();
         if let Some(refusal) = rate_refusal(rate, source_rate) {
             return Err(refusal);
@@ -176,6 +199,7 @@ fn decode_with_limit(path: &Path, max_seconds: f64) -> Result<DecodedAudio, Stri
         );
     }
 
+    check_cancelled(&mut cancelled)?;
     if source_frames == 0 {
         return Err(crate::ui_text::t("В файле нет звука."));
     }
@@ -281,8 +305,8 @@ fn describe_symphonia_error(error: &SymphoniaError) -> String {
 /// Open the system file picker and return the chosen audio file's path.
 ///
 /// The dialog lives in Rust rather than in the webview so the extension
-/// filter and the picker permission stay on this side: the frontend can
-/// ask for a file, but it cannot ask for an arbitrary one.
+/// filter stays on this side. The transcription command also accepts paths
+/// from native drag-and-drop events.
 ///
 /// `Ok(None)` means the user closed the dialog — a normal outcome, not an
 /// error, and the panel must not show anything for it.
@@ -541,43 +565,48 @@ async fn transcribe_file_inner(
         }
     }
 
-    // 4. Decode off the async runtime: symphonia and the resampler are
-    //    CPU-bound, and an hour of MP3 would stall every other task.
+    // Register before decoding so cancellation covers the entire file operation.
+    let session_id = state.next_session_id();
+    let cancel_flag = Arc::new(AtomicBool::new(false));
+    let session_guard = state.claim_file_session(session_id, Arc::clone(&cancel_flag));
+    let _ = app.emit(
+        "file-transcription-started",
+        serde_json::json!({ "session_id": session_id, "stage": "decoding" }),
+    );
     let decode_path = std::path::PathBuf::from(path);
-    let decode_failed = |message: String| {
+    let decode_cancel = Arc::clone(&cancel_flag);
+    let decoded = tokio::task::spawn_blocking(move || {
+        decode_cancellable(&decode_path, MAX_DURATION_SECONDS, || {
+            decode_cancel.load(Ordering::Acquire)
+        })
+    })
+    .await
+    .map_err(|error| {
+        log::error!("transcribe_audio_file: decode task panicked: {error}");
+        FileFailure::new(
+            crate::telemetry::FailureStage::Decode,
+            crate::telemetry::FailureReason::Decode,
+            crate::ui_text::t("Не удалось прочитать звук из файла — возможно, он повреждён."),
+        )
+    })?;
+    if cancel_flag.load(Ordering::Acquire) {
+        return Err(file_cancelled(crate::telemetry::FailureStage::Decode));
+    }
+    let decoded = decoded.map_err(|message| {
         FileFailure::new(
             crate::telemetry::FailureStage::Decode,
             crate::telemetry::FailureReason::Decode,
             message,
         )
-    };
-    let decoded = tokio::task::spawn_blocking(move || decode_to_pcm16k_mono(&decode_path))
-        .await
-        .map_err(|e| {
-            log::error!("transcribe_audio_file: decode task panicked: {e}");
-            decode_failed(crate::ui_text::t(
-                "Не удалось прочитать звук из файла — возможно, он повреждён.",
-            ))
-        })?
-        .map_err(decode_failed)?;
-
+    })?;
     log::info!(
-        "file transcription: {:.1}s of audio decoded from {path}",
+        "file transcription: {:.1}s of audio decoded",
         decoded.audio_seconds
     );
-
-    let session_id = state.next_session_id();
     let audio = Arc::new(decoded.samples);
-    let cancel_flag = Arc::new(AtomicBool::new(false));
-
-    // 5. Claimed before the command is queued; the guard releases on every
-    //    exit path below.
-    let session_guard = state.claim_file_session(session_id, Arc::clone(&cancel_flag));
-    // The frontend needs the id to be able to cancel; the result carries it
-    // too late to be useful.
     let _ = app.emit(
         "file-transcription-started",
-        serde_json::json!({ "session_id": session_id }),
+        serde_json::json!({ "session_id": session_id, "stage": "transcribing" }),
     );
 
     // The same queue orders restoration before file transcription as well.
@@ -706,7 +735,7 @@ async fn await_file_processing<T>(
     }
 }
 
-/// Cancel an active file session during STT or optional post-processing.
+/// Cancel an active file session during decoding, STT or post-processing.
 /// The file guard keeps its registration alive after releasing the engine,
 /// so this can stop the LLM request without affecting another dictation.
 #[tauri::command(rename_all = "snake_case")]
@@ -1003,6 +1032,32 @@ mod tests {
                 decoded.samples.len()
             );
         }
+    }
+
+    #[test]
+    fn decoding_honors_cancellation_before_open_and_between_packets() {
+        let missing = Path::new("/synthetic/nonexistent/cancelled.wav");
+        let expected = crate::ui_text::t("Транскрипция отменена.");
+        assert_eq!(
+            decode_cancellable(missing, 10.0, || true).unwrap_err(),
+            expected
+        );
+        let path = write_temp(
+            "cancel-decode.wav",
+            &wav_bytes(&sine(16_000, 1.0, 440.0), 16_000, 1),
+        );
+        let mut checks = 0;
+        let error = decode_cancellable(&path, 10.0, || {
+            checks += 1;
+            checks >= 4
+        })
+        .unwrap_err();
+        assert_eq!(error, expected);
+        assert_eq!(checks, 4);
+        assert_eq!(
+            decode_with_limit(&path, 10.0).unwrap().samples.len(),
+            16_000
+        );
     }
 
     #[test]

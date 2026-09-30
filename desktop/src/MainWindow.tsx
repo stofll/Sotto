@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { emit } from "@tauri-apps/api/event";
 import { invoke, subscribe, onRecordingStateChange, type RecordingState } from "./bridge";
 import { getStats } from "./bridge/stats";
-import type { ApiKeyStatus, AppVersionResult, ConfigResult, MicrophoneResult, ModelInfo, RuntimeStatusResult, StatsResult } from "./bridge/types";
-import { Card, Sidebar, TitleBar, type TabId, type DownloadProgress } from "./components/Shell";
+import type { ApiKeyStatus, AppVersionResult, ConfigChange, ConfigResult, MicrophoneResult, ModelInfo, RuntimeStatusResult, StatsResult } from "./bridge/types";
+import { Sidebar, TitleBar, type TabId, type DownloadProgress } from "./components/Shell";
 import { Icon } from "./components/Icon";
 import { WhatsNewDialog } from "./components/WhatsNewDialog";
 import { AccessibilityNotice } from "./components/AccessibilityNotice";
@@ -20,12 +20,6 @@ import { StatsPage } from "./pages/StatsPage";
 import { TextPage } from "./pages/TextPage";
 import { actualModelLabel } from "./pages/runtimePresentation";
 import { applyLocaleFromConfig, t, useLocale } from "./i18n";
-
-const MVP_TABS: TabId[] = ["settings", "models", "text", "ai", "integrations", "history", "stats", "info"];
-
-function isMvpTab(tab: TabId) {
-  return MVP_TABS.includes(tab);
-}
 
 // macOS URL schemes that deep-link into Privacy & Security panes. Opening one
 // via System Settings' `x-apple.systempreferences:` handler opens the section
@@ -51,7 +45,7 @@ function pageFor(tab: TabId, data: {
   models: ModelInfo[];
   runtime: RuntimeStatusResult | null;
   apiKeys: ApiKeyStatus;
-  onConfigChanged: (partial: Partial<ConfigResult>) => Promise<ConfigResult | null>;
+  onConfigChanged: (change: ConfigChange, onError?: (message: string) => void) => Promise<ConfigResult | null>;
   onNavigate: (tab: TabId) => void;
   onApiKeysChanged: (next: ApiKeyStatus) => void;
   onModelsChanged: (models: ModelInfo[]) => void;
@@ -100,6 +94,8 @@ export function MainWindow() {
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [version, setVersion] = useState<string | null>(null);
   const [config, setConfig] = useState<ConfigResult | null>(null);
+  const configRef = useRef<ConfigResult | null>(null);
+  const configWrites = useRef<Promise<void>>(Promise.resolve());
   const [stats, setStats] = useState<StatsResult | null>(null);
   const [microphones, setMicrophones] = useState<MicrophoneResult[]>([]);
   const [models, setModels] = useState<ModelInfo[]>([]);
@@ -162,32 +158,44 @@ export function MainWindow() {
     const previousTheme = theme;
     setTheme(nextTheme);
     setConfig((current) => current ? { ...current, theme: nextTheme } : current);
-    try {
-      const result = await invoke<ConfigResult>("save_config", { patch: { theme: nextTheme } });
-      if (result) { setConfig(result); void emit("config-updated", result).catch(() => {}); }
-    } catch (e) {
+    const result = await onConfigChanged({ theme: nextTheme });
+    if (!result) {
       setTheme(previousTheme);
       setConfig((current) => current ? { ...current, theme: previousTheme } : current);
-      setError(e instanceof Error ? e.message : String(e));
     }
   }
 
-  async function onConfigChanged(partial: Partial<ConfigResult>): Promise<ConfigResult | null> {
-    try {
-      const result = await invoke<ConfigResult>("save_config", { patch: partial });
-      if (result) {
+  /** `onError` receives a failed write's message instead of the window banner,
+   *  for callers that show the reason next to their own controls. */
+  function onConfigChanged(change: ConfigChange, onError?: (message: string) => void): Promise<ConfigResult | null> {
+    // Rust merges each patch with the persisted config, but full profile arrays
+    // need the result of the preceding write before the next patch is formed.
+    const write = async (): Promise<ConfigResult | null> => {
+      try {
+        const current = configRef.current;
+        if (!current) return null;
+        const partial = typeof change === "function" ? change(current) : change;
+        const result = await invoke<ConfigResult>("save_config", { patch: partial });
+        if (!result) return null;
+        configRef.current = result;
         setConfig(result);
-        void emit("config-updated", result).catch(() => {});
+        setTheme(result.theme ?? "dark");
+        applyLocaleFromConfig(result.ui_language);
+        // Keep cross-window config notifications in the same order as writes.
+        await emit("config-updated", result).catch(() => {});
         if ("model" in partial || "device" in partial) {
           invoke<ModelInfo[]>("list_models").then(setModels).catch(() => {});
         }
         return result;
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        if (onError) onError(message); else setError(message);
+        return null;
       }
-      return null;
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      return null;
-    }
+    };
+    const result = configWrites.current.then(write, write);
+    configWrites.current = result.then(() => {}, () => {});
+    return result;
   }
 
   async function refreshStats() {
@@ -214,6 +222,7 @@ export function MainWindow() {
     }));
     unlisteners.push(subscribe<ConfigResult>("config-updated", (next) => {
       if (!mounted) return;
+      configRef.current = next;
       setConfig(next);
       setTheme(next.theme ?? "dark");
       applyLocaleFromConfig(next.ui_language);
@@ -304,7 +313,7 @@ export function MainWindow() {
       try {
         const setters: Array<{ p: Promise<unknown>; set: (v: unknown) => void; name: string }> = [
           { p: invoke<AppVersionResult>("app_version"), set: (v) => { if (mounted) setVersion((v as AppVersionResult).version); }, name: "app_version" },
-          { p: invoke<ConfigResult>("get_config"), set: (v) => { if (mounted) { const cfg = v as ConfigResult; setConfig(cfg); setTheme(cfg.theme ?? "dark"); applyLocaleFromConfig(cfg.ui_language); } }, name: "get_config" },
+          { p: invoke<ConfigResult>("get_config"), set: (v) => { if (mounted) { const cfg = v as ConfigResult; configRef.current = cfg; setConfig(cfg); setTheme(cfg.theme ?? "dark"); applyLocaleFromConfig(cfg.ui_language); } }, name: "get_config" },
           { p: invoke<MicrophoneResult[]>("list_microphones"), set: (v) => { if (mounted) setMicrophones(v as MicrophoneResult[]); }, name: "list_microphones" },
           { p: invoke<ModelInfo[]>("list_models"), set: (v) => { if (mounted) setModels(v as ModelInfo[]); }, name: "list_models" },
           { p: getStats(), set: (v) => { if (mounted) setStats(v as StatsResult); }, name: "get_stats" },
@@ -392,83 +401,14 @@ export function MainWindow() {
               </div>
             )}
             {loading ? <LoadingState/> : (
-              <PageWithMvpGate tab={tab}>
-                {isMvpTab(tab)
-                  ? pageFor(tab, { config, version, stats, microphones, models, runtime, apiKeys, onConfigChanged, textPreviewDraft, onTextPreviewDraftChange: setTextPreviewDraft, onNavigate: setTab, onApiKeysChanged: setApiKeys, onModelsChanged: setModels, onStatsRefresh: refreshStats })
-                  : <DeferredPage tab={tab}/>}
-              </PageWithMvpGate>
+              <div data-testid={`page-${tab}`} style={{ position: "relative", flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
+                {pageFor(tab, { config, version, stats, microphones, models, runtime, apiKeys, onConfigChanged, textPreviewDraft, onTextPreviewDraftChange: setTextPreviewDraft, onNavigate: setTab, onApiKeysChanged: setApiKeys, onModelsChanged: setModels, onStatsRefresh: refreshStats })}
+              </div>
             )}
           </main>
         </div>
       </div>
     </div>
-  );
-}
-
-function PageWithMvpGate({ tab, children }: { tab: TabId; children: React.ReactNode }) {
-  const isMvpReady = isMvpTab(tab);
-  return (
-    <div data-testid={`page-${tab}`} style={{ position: "relative", flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
-      {children}
-      {!isMvpReady && (
-        <div
-          aria-hidden="true"
-          style={{
-            position: "absolute",
-            inset: 0,
-            zIndex: 50,
-            display: "grid",
-            placeItems: "center",
-            cursor: "not-allowed",
-            background: "color-mix(in srgb, var(--ink-faint) 34%, transparent)",
-            backdropFilter: "blur(1.5px) saturate(80%)",
-            WebkitBackdropFilter: "blur(1.5px) saturate(80%)",
-          }}
-        >
-          <span
-            className="tag"
-            style={{
-              height: 32,
-              padding: "0 16px",
-              fontSize: 12,
-              background: "var(--bg-4)",
-              color: "var(--ink-mute)",
-              borderColor: "var(--line-strong)",
-              boxShadow: "var(--shadow-pop)",
-            }}
-          >
-             {t("В доработке")} </span>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function DeferredPage({ tab }: { tab: TabId }) {
-  const labels: Record<TabId, { title: string; detail: string }> = {
-    settings: { title: t("Настройки"), detail: "" },
-    models: { title: t("Модели"), detail: "" },
-    text: { title: t("Текст"), detail: "" },
-    ai: { title: t("LLM-обработка"), detail: "" },
-    integrations: { title: t("Провайдеры и ключи"), detail: "" },
-    history: { title: t("История"), detail: "" },
-    stats: { title: t("Статистика"), detail: t("Раздел статистики загружается как часть MVP.") },
-    info: { title: t("Справка"), detail: t("Справочный раздел будет подключен позже.") },
-  };
-  const item = labels[tab];
-  return (
-    <>
-      <header className="main-header">
-        <div>
-          <h1>{item.title}</h1>
-          <p>{item.detail}</p>
-        </div>
-      </header>
-      <div className="main-body">
-        <Card style={{ color: "var(--ink-dim)", font: "500 13px/1.45 var(--font-sans)" }}>
-           {t("Раздел не монтируется в MVP, поэтому связанные команды backend не вызываются.")} </Card>
-      </div>
-    </>
   );
 }
 

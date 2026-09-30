@@ -150,7 +150,7 @@ export function install(seed: any = {}) {
       case 'start_microphone_test': case 'stop_microphone_test': case 'set_microphone_test_monitor':
       case 'preview_sound_cue': case 'preview_output_duck': case 'open_diagnostics_folder':
       case 'open_recordings_folder':
-      case 'suspend_hotkey': case 'resume_hotkey': return null;
+      case 'suspend_hotkey': case 'resume_hotkey': case 'cancel_audio_file': return null;
       default:
         unknown.push(command);
         sessionStorage.setItem('sotto-test-unknown', JSON.stringify(unknown));

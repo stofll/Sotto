@@ -136,6 +136,28 @@ def test_dictionary_unsaved_changes_and_focus_restore(app, page):
     assert ui.state()["config"]["text_formatting"]["dictionary_sets"] == []
 
 
+def test_dictionary_rejected_save_shows_reason_in_editor(app, page):
+    ui = app()
+    ui.nav("text")
+    page.get_by_role("button", name=re.compile(r"^Словари")).click()
+    page.get_by_role("button", name="Создать", exact=True).click()
+    dialog = page.get_by_role("dialog", name="Редактор набора")
+    dialog.get_by_label("Название набора", exact=True).fill("Synthetic limits")
+    dialog.get_by_label("Термины", exact=True).fill("Playwright")
+    reason = "Синтетический отказ: слишком много терминов."
+    ui.queue("save_config", {"error": reason})
+    dialog.get_by_role("button", name="Сохранить", exact=True).click()
+    # The modal covers the window banner, so the reason belongs in the editor.
+    expect(dialog.get_by_role("alert")).to_contain_text(reason)
+    expect(page.get_by_role("alert").filter(has_text=reason)).to_have_count(1)
+    expect(dialog.get_by_label("Термины", exact=True)).to_have_value("Playwright")
+    dialog.get_by_role("button", name="Сохранить", exact=True).click()
+    expect(dialog).not_to_be_visible()
+    assert ui.state()["config"]["text_formatting"]["dictionary_sets"][0]["words"] == [
+        "Playwright"
+    ]
+
+
 def test_replacement_save_failure_keeps_retry_available(app, page):
     ui = app()
     ui.nav("text")
@@ -343,6 +365,7 @@ def test_two_quick_switches_do_not_overwrite_each_other(app, page):
     dialog = page.get_by_role("dialog", name="Слова-паразиты")
 
     # The first write hangs, so the second one is composed while it is in flight.
+    before = len(ui.calls("save_config"))
     ui.queue("save_config", {"hold": True})
     korotche = dialog.get_by_role("button", name="короче", exact=True)
     korotche.click()
@@ -351,13 +374,17 @@ def test_two_quick_switches_do_not_overwrite_each_other(app, page):
     expect(korotche).to_have_attribute("aria-pressed", "false")
 
     dialog.get_by_role("button", name="типа", exact=True).click()
+    # Writes are serialized, while both requested changes are visible in the
+    # draft. The second patch starts only after the first answer arrives.
+    assert len(ui.calls("save_config")) == before + 1
+    first_result = ui.state()["config"]
+    first_result["text_formatting"]["disabled_parasite_words"] = ["короче"]
+    ui.settle("save_config", result=first_result)
     page.wait_for_function(
         "JSON.stringify(window.__sottoTest.state.config.text_formatting"
         '.disabled_parasite_words) === \'["короче","типа"]\''
     )
-    # Let the held write finish, with what the backend now actually holds. Both
-    # words must still read as off once the draft is gone.
-    ui.settle("save_config", result=ui.state()["config"])
+    # Both words remain off after the draft has been cleared.
     expect(korotche).to_have_attribute("aria-pressed", "false")
     expect(dialog.get_by_role("button", name="типа", exact=True)).to_have_attribute(
         "aria-pressed", "false"

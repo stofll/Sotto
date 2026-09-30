@@ -1,4 +1,3 @@
-import { rustInvoke } from "./rustInvoke";
 import { on } from "./events";
 import { sessionIdOf } from "./sessionEvents";
 
@@ -131,12 +130,4 @@ function ensureSubscribed() {
     if (!isRustActive()) setState("error");
     console.warn("hotkey error:", msg);
   });
-}
-
-export async function startRecording(): Promise<number> {
-  return await rustInvoke<number>("start_recording");
-}
-
-export async function stopRecording(): Promise<number> {
-  return await rustInvoke<number>("stop_recording");
 }

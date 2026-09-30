@@ -186,6 +186,14 @@ export interface ConfigResult {
   };
 }
 
+/** The backend merges nested settings objects; callers can send a single field. */
+export type ConfigPatch = Partial<Omit<ConfigResult, "ai_processing">> & {
+  ai_processing?: Partial<ConfigResult["ai_processing"]>;
+};
+
+/** Evaluated when the preceding settings write has completed. */
+export type ConfigChange = ConfigPatch | ((current: ConfigResult) => ConfigPatch);
+
 export type ReplacementMatchMode = "word" | "phrase" | "contains" | "regex";
 
 export interface ReplacementRule {

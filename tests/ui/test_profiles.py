@@ -68,6 +68,35 @@ def test_create_local_profile(app, page):
     assert profiles[0]["model"] == "synthetic-model"
 
 
+def test_wizard_config_failure_keeps_draft_and_key_ref_for_retry(app, page):
+    ui = app()
+    dialog = wizard(ui, page)
+    dialog.get_by_role("button", name="Своя конфигурация", exact=False).click()
+    dialog.get_by_label("Base URL", exact=True).fill("http://localhost:1234/v1")
+    dialog.get_by_role("button", name="Далее", exact=True).click()
+    dialog.get_by_role(
+        "checkbox", name="Ключ не нужен — сервер локальный", exact=False
+    ).check()
+    dialog.get_by_role("button", name="Далее", exact=True).click()
+    dialog.get_by_label("Название профиля", exact=True).fill("Retried profile")
+    dialog.get_by_placeholder("например: gpt-oss-120b").fill("synthetic-model")
+    ui.queue("save_config", {"error": "Synthetic config failure"})
+    dialog.get_by_role("button", name="Создать профиль", exact=True).click()
+    expect(dialog).to_be_visible()
+    expect(dialog).to_contain_text("Не удалось сохранить профиль.")
+    expect(dialog.get_by_label("Название профиля", exact=True)).to_have_value(
+        "Retried profile"
+    )
+    assert ui.state()["config"]["ai_processing"]["profiles"] == []
+    first_ref = ui.calls("save_api_key")[-1]["args"]["key_id"]
+    dialog.get_by_role("button", name="Создать профиль", exact=True).click()
+    expect(dialog).not_to_be_visible()
+    assert ui.calls("save_api_key")[-1]["args"]["key_id"] == first_ref
+    assert (
+        ui.state()["config"]["ai_processing"]["profiles"][0]["api_key_ref"] == first_ref
+    )
+
+
 PROFILE = {
     "id": "synthetic",
     "name": "Synthetic profile",
@@ -159,6 +188,113 @@ def test_api_key_save_failure_is_visible_and_retryable(app, page):
     expect(dialog).to_be_visible()
     dialog.get_by_role("button", name="Сохранить ключ", exact=True).click()
     expect(dialog).not_to_be_visible()
+
+
+def test_key_slot_config_failure_preserves_add_draft_and_ref(app, page):
+    ui = app()
+    ui.nav("integrations")
+    page.get_by_role("button", name="Добавить ключ", exact=True).click()
+    dialog = page.get_by_role("dialog", name="Новый API-ключ")
+    dialog.get_by_label("Метка (опционально)", exact=True).fill("Retried key")
+    dialog.get_by_placeholder("sk-...", exact=True).fill("synthetic-secret")
+    ui.queue("save_config", {"error": "Synthetic config failure"})
+    dialog.get_by_role("button", name="Сохранить ключ", exact=True).click()
+    expect(dialog).to_be_visible()
+    expect(dialog.get_by_role("alert")).to_contain_text("Не удалось сохранить ключ.")
+    expect(
+        page.get_by_text("Ключ сохранён. Привяжите его к профилю в поле «Key ref».")
+    ).to_have_count(0)
+    first_ref = ui.calls("save_api_key")[-1]["args"]["key_id"]
+    dialog.get_by_role("button", name="Сохранить ключ", exact=True).click()
+    expect(dialog).not_to_be_visible()
+    assert ui.calls("save_api_key")[-1]["args"]["key_id"] == first_ref
+    assert ui.state()["config"]["ai_processing"]["key_slots"][0]["ref"] == first_ref
+
+
+def test_key_slot_delete_config_failure_can_retry_without_key(app, page):
+    ui = app(
+        config={
+            "ai_processing": {
+                "key_slots": [
+                    {
+                        "ref": "synthetic-key",
+                        "label": "Synthetic key",
+                        "provider": "openai",
+                    }
+                ]
+            }
+        },
+        keys={
+            "synthetic-key": {
+                "available": True,
+                "label": "Synthetic key",
+                "masked": "test-***",
+            }
+        },
+    )
+    ui.nav("integrations")
+    row = page.get_by_test_id("key-synthetic-key")
+    ui.queue("save_config", {"error": "Synthetic config failure"})
+    row.get_by_role("button", name="Действия с ключом", exact=True).click()
+    page.get_by_role("menuitem", name="Удалить", exact=True).click()
+    page.get_by_role("alertdialog").get_by_role(
+        "button", name="Удалить", exact=True
+    ).click()
+    expect(row).to_be_visible()
+    expect(page.get_by_role("status")).to_contain_text(
+        "Не удалось завершить удаление ключа."
+    )
+    assert not ui.state()["keys"].get("synthetic-key", {}).get("available", False)
+    row.get_by_role("button", name="Действия с ключом", exact=True).click()
+    page.get_by_role("menuitem", name="Удалить", exact=True).click()
+    page.get_by_role("alertdialog").get_by_role(
+        "button", name="Удалить", exact=True
+    ).click()
+    expect(row).to_have_count(0)
+    assert len(ui.calls("delete_api_key")) == 1
+
+
+def test_key_slot_edit_config_failure_keeps_editor_open(app, page):
+    ui = app(
+        config={
+            "ai_processing": {
+                "key_slots": [
+                    {
+                        "ref": "synthetic-key",
+                        "label": "Synthetic key",
+                        "provider": "openai",
+                    }
+                ]
+            }
+        },
+        keys={
+            "synthetic-key": {
+                "available": True,
+                "label": "Synthetic key",
+                "masked": "test-***",
+            }
+        },
+    )
+    ui.nav("integrations")
+    row = page.get_by_test_id("key-synthetic-key")
+    row.get_by_role("button", name="Действия с ключом", exact=True).click()
+    page.get_by_role("menuitem", name="Заменить ключ", exact=True).click()
+    row.get_by_placeholder("Метка ключа (опционально)").fill("Renamed key")
+    field = row.get_by_placeholder("Новое значение ключа", exact=True)
+    field.fill("synthetic-replacement")
+    ui.queue("save_config", {"error": "Synthetic config failure"})
+    row.get_by_role("button", name="Сохранить", exact=True).click()
+    expect(field).to_have_value("synthetic-replacement")
+    expect(page.get_by_role("status")).to_contain_text("Не удалось сохранить ключ.")
+    assert (
+        ui.state()["config"]["ai_processing"]["key_slots"][0]["label"]
+        == "Synthetic key"
+    )
+    row.get_by_role("button", name="Сохранить", exact=True).click()
+    expect(field).to_have_count(0)
+    assert (
+        ui.state()["config"]["ai_processing"]["key_slots"][0]["label"] == "Renamed key"
+    )
 
 
 def test_key_replace_and_delete_failure_preserve_key(app, page):

@@ -213,7 +213,7 @@ def test_file_transcription_loading_result_and_retry(app, page, failure):
     ui.queue("pick_audio_file", {"result": "/synthetic/sample.wav"})
     ui.queue("transcribe_audio_file", {"hold": True})
     page.get_by_role("button", name="Выбрать файл").click()
-    expect(page.get_by_role("button", name="Выбрать файл")).to_be_disabled()
+    expect(page.get_by_role("button", name="Отменить", exact=True)).to_be_visible()
     ui.emit("file-transcription-started", {"session_id": 7})
     expect(page.get_by_role("button", name="Отменить", exact=True)).to_be_visible()
     ui.settle(
@@ -255,3 +255,78 @@ def test_file_cancellation(app, page):
     ui.settle("transcribe_audio_file", error="cancelled")
     expect(page.get_by_role("button", name="Выбрать файл")).to_be_enabled()
     expect(page.get_by_text("Synthetic file result", exact=True)).not_to_be_visible()
+
+
+@pytest.mark.parametrize("cancel_before_event", [False, True])
+def test_file_can_cancel_during_decode(app, page, cancel_before_event):
+    ui = app()
+    ui.nav("ai")
+    ui.queue("pick_audio_file", {"result": "/synthetic/sample.wav"})
+    ui.queue("transcribe_audio_file", {"hold": True})
+    page.get_by_role("button", name="Выбрать файл").click()
+    page.wait_for_function(
+        "window.__sottoTest.calls.some(x=>x.command==='transcribe_audio_file')"
+    )
+    if cancel_before_event:
+        page.get_by_role("button", name="Отменить", exact=True).click()
+    ui.emit("file-transcription-started", {"session_id": 31, "stage": "decoding"})
+    if not cancel_before_event:
+        expect(page.get_by_text("Читаю файл…", exact=True)).to_be_visible()
+        page.get_by_role("button", name="Отменить", exact=True).click()
+    page.wait_for_function(
+        "window.__sottoTest.calls.some(x=>x.command==='cancel_audio_file')"
+    )
+    assert ui.calls("cancel_audio_file")[-1]["args"]["session_id"] == 31
+    ui.settle("transcribe_audio_file", error="cancelled")
+    expect(page.get_by_role("button", name="Выбрать файл")).to_be_enabled()
+
+
+@pytest.mark.parametrize("early_event", [False, True])
+def test_leaving_ai_cancels_file_session(app, page, early_event):
+    ui = app()
+    ui.nav("ai")
+    ui.queue("pick_audio_file", {"result": "/synthetic/sample.wav"})
+    ui.queue("transcribe_audio_file", {"hold": True})
+    page.get_by_role("button", name="Выбрать файл").click()
+    page.wait_for_function(
+        "window.__sottoTest.calls.some(x=>x.command==='transcribe_audio_file')"
+    )
+    if early_event:
+        ui.emit("file-transcription-started", {"session_id": 32, "stage": "decoding"})
+    ui.nav("settings")
+    if not early_event:
+        ui.emit("file-transcription-started", {"session_id": 32, "stage": "decoding"})
+    page.wait_for_function(
+        "window.__sottoTest.calls.some(x=>x.command==='cancel_audio_file')"
+    )
+    assert ui.calls("cancel_audio_file")[-1]["args"]["session_id"] == 32
+    ui.settle("transcribe_audio_file", error="cancelled")
+    ui.nav("ai")
+    expect(page.get_by_role("button", name="Выбрать файл")).to_be_enabled()
+
+
+def test_file_subscription_failure_allows_retry(app, page):
+    ui = app()
+    ui.nav("ai")
+    page.evaluate("""() => {
+      const internals = window.__TAURI_INTERNALS__;
+      const original = internals.invoke;
+      internals.invoke = (command, args) => {
+        if (command === 'plugin:event|listen' && args.event === 'file-transcription-started') {
+          internals.invoke = original;
+          return Promise.reject(new Error('Synthetic subscription failure'));
+        }
+        return original(command, args);
+      };
+    }""")
+    ui.queue("pick_audio_file", {"result": "/synthetic/sample.wav"})
+    page.get_by_role("button", name="Выбрать файл").click()
+    expect(
+        page.get_by_text("Synthetic subscription failure", exact=True)
+    ).to_be_visible()
+    expect(page.get_by_role("button", name="Выбрать файл")).to_be_enabled()
+    assert not ui.calls("transcribe_audio_file")
+    ui.queue("pick_audio_file", {"result": "/synthetic/sample.wav"})
+    ui.queue("transcribe_audio_file", {"result": FILE_RESULT})
+    page.get_by_role("button", name="Выбрать файл").click()
+    expect(page.get_by_text("Synthetic file result", exact=True)).to_be_visible()
