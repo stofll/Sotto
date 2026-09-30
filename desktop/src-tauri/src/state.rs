@@ -58,7 +58,7 @@ pub struct AppState {
     cancel_notify: Arc<tokio::sync::Notify>,
     /// Dictation/file sessions that have started and have not reached their
     /// terminal delivery path yet.  `current_session_id` alone is not enough:
-    /// `stop_recording` clears it before the audio worker finishes, which used
+    /// `dictation::stop` clears it before the audio worker finishes, which used
     /// to leave a cancellation click with no session it could claim.
     pub active_sessions: Arc<Mutex<HashSet<u64>>>,
     /// Sessions that have atomically entered final delivery (stats/history +
@@ -98,8 +98,8 @@ pub struct AppState {
     /// behind an hour-long file would look frozen rather than rejected.
     pub engine_busy: Arc<AtomicBool>,
     /// cpal audio capture. Lives in AppState symmetric to the
-    /// whisper engine. Held by `Arc` so Tauri commands (`start_recording`,
-    /// `stop_recording`, `get_audio_level`) can borrow it cheaply, and so
+    /// whisper engine. Held by `Arc` so the dictation path and Tauri commands
+    /// (`get_audio_level`) can borrow it cheaply, and so
     /// the engine-dispatcher task could in future subscribe to audio-level
     /// events without paying a clone cost. `AudioRecorder: Send + Sync`
     /// because every internal field is `Mutex<_>` / `Atomic_` /
@@ -314,7 +314,7 @@ impl AppState {
     }
 
     /// Mark a newly allocated session as live before any async capture/queue
-    /// work begins.  This is what lets a cancel click win while `stop_recording`
+    /// work begins.  This is what lets a cancel click win while `dictation::stop`
     /// is still waiting for the audio worker.
     pub fn begin_session(&self, session_id: u64) {
         if session_id != 0 {
@@ -614,9 +614,9 @@ mod tests {
     fn app_state_clone_shares_session_counter() {
         // The hotkey closure captures an AppState clone.
         // session_id allocations MUST be coordinated across clones — a
-        // hotkey-pressed session (allocated by the cloned state) and a
-        // start_recording Tauri command session (allocated by the original
-        // state) must not collide on the same id.
+        // hotkey-pressed session (allocated by the cloned state) and a file
+        // transcription session (allocated by the original state) must not
+        // collide on the same id.
         let state = AppState::new(
             tokio::sync::mpsc::channel(1).0,
             test_recorder(),
@@ -701,7 +701,7 @@ mod tests {
 
     #[test]
     fn claiming_a_stale_session_puts_a_newer_one_back() {
-        // A `start_recording` that published its id while the cancel was in
+        // A recording start that published its id while the cancel was in
         // flight must survive: losing it strands the new recording with no
         // stop path able to find it.
         let state = test_state();

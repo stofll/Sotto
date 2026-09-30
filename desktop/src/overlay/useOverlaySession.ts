@@ -42,6 +42,7 @@ export const isOverlayBody = (target: EventTarget | Element | null) =>
   target instanceof Element && target.closest(OVERLAY_BODY) !== null;
 
 export function useOverlaySession() {
+  const liveStateVersion = useRef(0);
   const sessionId = useRef<number | null>(null);
   const initialConfig = useRef<Promise<void> | null>(null);
   const [config, setConfig] = useState<ConfigResult | null>(null);
@@ -182,12 +183,16 @@ export function useOverlaySession() {
     let disposed = false;
     const unlistenState = win.listen<string>("overlay-state", (e) => {
       if (disposed || !isOverlayState(e.payload)) return;
+      liveStateVersion.current++;
       applyOverlayState(e.payload);
     });
     // Rust emits this right before window.hide() so the next window.show()
     // doesn't flash the previous-recording UI before a fresh state arrives.
     const unlistenReset = win.listen("overlay-reset", () => {
-      if (!disposed) resetOverlayState();
+      if (!disposed) {
+        liveStateVersion.current++;
+        resetOverlayState();
+      }
     });
     // Native hit-test after show: the overlay can appear under the cursor,
     // which never fires pointerenter. CSS :hover on an inactive WKWebView
@@ -199,7 +204,10 @@ export function useOverlaySession() {
       setHovered(at !== null && isOverlayBody(document.elementFromPoint(at.x, at.y)));
     });
     const unlistenLeaving = win.listen("overlay-leaving", () => {
-      if (!disposed) setLeaving(true);
+      if (!disposed) {
+        liveStateVersion.current++;
+        setLeaving(true);
+      }
     });
     const registrations = [unlistenState, unlistenReset, unlistenPointer, unlistenLeaving];
     const stops: Array<() => void> = [];
@@ -213,8 +221,9 @@ export function useOverlaySession() {
       if (disposed) return;
       await tauriInvoke("overlay_ready");
       if (disposed) return;
+      const version = liveStateVersion.current;
       const current = await tauriInvoke<string | null>("current_state");
-      if (disposed) return;
+      if (disposed || version !== liveStateVersion.current) return;
       if (isOverlayState(current)) applyOverlayState(current);
       else if (!current) void tauriInvoke("hide").catch(() => {});
     }).catch(() => {});
@@ -249,6 +258,7 @@ export function useOverlaySession() {
         setArmedSession(payload?.armed ? (payload.session_id ?? null) : null);
       }),
       subscribe<number>("recording-started", (payload) => {
+        liveStateVersion.current++;
         sessionId.current = payload;
         setDictationKey(payload);
         setPreviewText("");
@@ -265,6 +275,7 @@ export function useOverlaySession() {
       }),
       subscribe<number>("recording-stopped", (payload) => {
         if (!belongsToCurrentSession(payload)) return;
+        liveStateVersion.current++;
         setPreviewText("");
         setArmedSession(null);
         setState("processing");
@@ -272,6 +283,7 @@ export function useOverlaySession() {
       }),
       subscribe<number>("whisper-started", (payload) => {
         if (!belongsToCurrentSession(payload)) return;
+        liveStateVersion.current++;
         setState("processing");
         setRecordingStoppedAt((current) => current ?? Date.now());
       }),
@@ -280,6 +292,7 @@ export function useOverlaySession() {
       // here may claim a length or an outcome. `paste-done` does that.
       subscribe<TranscriptionPayload>("whisper-done", (payload) => {
         if (!belongsToCurrentSession(payload)) return;
+        liveStateVersion.current++;
         setState("done");
         setPastedLength(null);
         setAiProblem("");
@@ -289,6 +302,7 @@ export function useOverlaySession() {
       // true, and the first moment the LLM outcome is known.
       subscribe<PastePayload>("paste-done", (payload) => {
         if (!belongsToCurrentSession(payload)) return;
+        liveStateVersion.current++;
         sessionId.current = null;
         setState("pasted");
         setPastedLength(typeof payload?.length === "number" ? payload.length : null);
@@ -300,6 +314,7 @@ export function useOverlaySession() {
       // for an insertion that will never come.
       subscribe<ErrorPayload>("paste-failed", (payload) => {
         if (!belongsToCurrentSession(payload)) return;
+        liveStateVersion.current++;
         sessionId.current = null;
         setState("error");
         setDecodedAt(null);
@@ -307,6 +322,7 @@ export function useOverlaySession() {
       }),
       subscribe<ErrorPayload>("whisper-failed", (payload) => {
         if (!belongsToCurrentSessionOrIsUnscoped(payload)) return;
+        liveStateVersion.current++;
         sessionId.current = null;
         setState("error");
         setErrorText(
@@ -315,6 +331,7 @@ export function useOverlaySession() {
         );
       }),
       subscribe<ErrorPayload>("whisper-load-failed", (payload) => {
+        liveStateVersion.current++;
         setState("error");
         setErrorText(
           payload?.message
@@ -323,12 +340,14 @@ export function useOverlaySession() {
       }),
       subscribe<unknown>("whisper-empty", (payload) => {
         if (!belongsToCurrentSession(payload)) return;
+        liveStateVersion.current++;
         sessionId.current = null;
         setState(null);
         // Overlay hides via Rust's hide() call (subscribe_engine_events).
       }),
       subscribe<unknown>("whisper-cancelled", (payload) => {
         if (!belongsToCurrentSession(payload)) return;
+        liveStateVersion.current++;
         sessionId.current = null;
         setState(null);
         // Overlay will hide via Rust's hide() call on cancellation.

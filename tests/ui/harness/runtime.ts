@@ -61,7 +61,7 @@ export function install(seed: any = {}) {
   if ((window as any).__sottoTest) return;
   const saved = sessionStorage.getItem('sotto-test-state');
   const state = saved ? JSON.parse(saved) : {
-    config: { ...config, ...seed.config, text_formatting: { ...config.text_formatting, ...seed.config?.text_formatting }, ai_processing: { ...config.ai_processing, ...seed.config?.ai_processing } },
+    config: { ...config, ...seed.config, text_formatting: { ...config.text_formatting, ...seed.config?.text_formatting }, ai_processing: seed.config?.ai_processing === null ? undefined : { ...config.ai_processing, ...seed.config?.ai_processing } },
     whats_new: seed.whats_new ?? null,
     models: seed.models ?? models, stats: { ...stats, ...seed.stats }, history: seed.history ?? [],
     keys: seed.keys ?? {}, assessments: seed.assessments ?? [], runtime: { model_loaded: true, loaded_model: 'tiny', model: 'tiny', device: 'cpu', engine: 'whisper.cpp', recording: false, state: 'idle', os: 'windows', ...seed.runtime },
@@ -71,7 +71,6 @@ export function install(seed: any = {}) {
   const queues: Record<string, any[]> = structuredClone(seed.responses ?? {});
   const pending = new Map<string, { resolve: (value: any) => void; reject: (error: Error) => void }>();
   const subscriptions: Record<string, number> = {};
-  let session = 0;
   const persist = () => sessionStorage.setItem('sotto-test-state', JSON.stringify(state));
   mockWindows(location.pathname.includes('overlay') ? 'overlay' : 'main');
   mockIPC(async (command, args: any = {}) => {
@@ -93,7 +92,10 @@ export function install(seed: any = {}) {
           ...state.config, ...args.patch,
           overlay: { ...state.config.overlay, ...args.patch.overlay },
           text_formatting: { ...state.config.text_formatting, ...args.patch.text_formatting },
-          ai_processing: { ...state.config.ai_processing, ...args.patch.ai_processing },
+          // Like Rust's merge patch, a write that omits the section keeps it absent.
+          ai_processing: state.config.ai_processing || args.patch.ai_processing
+            ? { ...state.config.ai_processing, ...args.patch.ai_processing }
+            : undefined,
         };
         state.models.forEach((m: ModelInfo) => { m.selected = m.id === state.config.model; });
         persist(); return structuredClone(state.config);
@@ -137,8 +139,6 @@ export function install(seed: any = {}) {
       case 'get_public_logs': return 'Public diagnostic log\n2026-09-14T12:00:00Z INFO app: [message omitted]';
       case 'save_public_logs': return true;
       case 'current_state': return seed.overlay_state ?? null;
-      case 'start_recording': await emit('recording-started', ++session); return session;
-      case 'stop_recording': await emit('recording-stopped', session); return session;
       case 'cancel_recording': await emit('whisper-cancelled', args.sessionId); return true;
       case 'pick_audio_file': return null;
       case 'set_model': return null;
@@ -150,7 +150,7 @@ export function install(seed: any = {}) {
       case 'start_microphone_test': case 'stop_microphone_test': case 'set_microphone_test_monitor':
       case 'preview_sound_cue': case 'preview_output_duck': case 'open_diagnostics_folder':
       case 'open_recordings_folder':
-      case 'suspend_hotkey': case 'resume_hotkey': return null;
+      case 'suspend_hotkey': case 'resume_hotkey': case 'cancel_audio_file': return null;
       default:
         unknown.push(command);
         sessionStorage.setItem('sotto-test-unknown', JSON.stringify(unknown));

@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { invoke, on } from "../bridge";
+import { invoke } from "../bridge";
 import { Card, CardHead, PageHeader, Segmented } from "../components/Shell";
 import { Icon } from "../components/Icon";
 import { Hint } from "../components/Hint";
 import {
   activeConfigFromProfile,
+  activeProfileOf,
   effectiveSystemPrompt,
   gapReason,
   mergeAi,
@@ -17,6 +18,7 @@ import {
   llmRouteBlocker,
   profilesForAi,
   PROVIDERS,
+  routeFields,
   SYSTEM_PROMPT_PRESETS,
   textProfileFor,
   type AiConfig,
@@ -26,8 +28,9 @@ import { CustomSelect } from "../components/CustomSelect";
 import { confirmAction } from "../components/ConfirmDialog";
 import { isLocalBaseUrl } from "./baseUrlFormat";
 import { NumberField } from "../components/NumberField";
-import type { ApiKeyStatus, ConfigResult } from "../bridge/types";
+import type { ApiKeyStatus, ConfigChange, ConfigResult } from "../bridge/types";
 import { t } from "../i18n";
+import { useFileTranscription, type FileStage, type TranscribeFileResult } from "./useFileTranscription";
 
 type AiRunResult = {
   available: boolean;
@@ -43,28 +46,6 @@ type AiRunResult = {
    *  and the screen. */
   response_snippet?: string;
   ai_processing?: { attempted?: boolean; used?: boolean; skipped_reason?: string };
-};
-
-/** The processing stage of an attached file. The engine reports no progress, so
- *  all we can show is which of the three steps we are on. */
-type FileStage = null | "decoding" | "transcribing";
-
-/** The response of `transcribe_audio_file`. A different shape from
- *  `AiRunResult`: that is the result of one LLM call, this is the entire
- *  recognition pipeline. */
-type TranscribeFileResult = {
-  text: string;
-  raw_text: string;
-  formatted_text: string;
-  ai_status: {
-    used?: boolean;
-    fallback?: boolean;
-    attempted?: boolean;
-    skipped_reason?: string;
-  } | null;
-  audio_seconds: number;
-  inference_time_ms: number;
-  language: string | null;
 };
 
 /** The status pill for a file result.
@@ -124,7 +105,7 @@ function GapNote({ gap, consequence }: { gap: LlmRouteBlocker; consequence?: str
 type Props = {
   config: AiConfig | null;
   apiKeys: ApiKeyStatus;
-  onConfigChanged: (partial: Partial<ConfigResult>) => Promise<ConfigResult | null>;
+  onConfigChanged: (change: ConfigChange) => Promise<ConfigResult | null>;
   onNavigate: (tab: "integrations") => void;
 };
 
@@ -144,8 +125,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
   // derived from the flat active config, purely to keep the editors below
   // bound to something. It is NOT offered in the profile picker, so a clean
   // install shows the empty state rather than a phantom OpenAI profile.
-  const fallbackProfile = useMemo(() => normalizeProfile(baseAi, {}), [baseAi]);
-  const activeProfile = profiles.find((item) => item.id === baseAi.active_profile_id) ?? profiles[0] ?? fallbackProfile;
+  const activeProfile = useMemo(() => activeProfileOf(baseAi, profiles), [baseAi, profiles]);
   const ai = useMemo(() => activeConfigFromProfile(baseAi, activeProfile, profiles), [baseAi, activeProfile, profiles]);
   const provider = PROVIDERS.find((item) => item.id === ai.provider) ?? PROVIDERS[0];
   // A mode with an LLM that cannot be reached is a silent mode: Rust sets a
@@ -191,12 +171,10 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
   const [manualText, setManualText] = useState("");
   const [manualLoading, setManualLoading] = useState(false);
   const [manualResult, setManualResult] = useState<AiRunResult | null>(null);
-  const [fileStage, setFileStage] = useState<FileStage>(null);
-  const [fileResult, setFileResult] = useState<TranscribeFileResult | null>(null);
-  const [fileError, setFileError] = useState("");
-  // It arrives as an event at the start of a session rather than in the result:
-  // by the time there is a result there is nothing left to cancel.
-  const fileSessionId = useRef<number | null>(null);
+  const {
+    fileStage, fileResult, fileError, setFileResult, setFileError,
+    transcribeFile, cancelFileTranscription, runFileTranscription,
+  } = useFileTranscription();
   const [fileDragActive, setFileDragActive] = useState(false);
   // The drop subscription is installed once, so busyness is read from refs: a
   // closure over state would freeze the values of the first render.
@@ -249,9 +227,11 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
     }).then((fn) => {
       if (disposed) { fn(); return; }
       unlisten = fn;
+    }).catch((error) => {
+      if (!disposed) setFileError(error instanceof Error ? error.message : String(error));
     });
     return () => { disposed = true; unlisten?.(); };
-  }, []);
+  }, [setFileError, setFileResult, transcribeFile]);
 
   useEffect(() => { fileStageRef.current = fileStage; }, [fileStage]);
   useEffect(() => { manualLoadingRef.current = manualLoading; }, [manualLoading]);
@@ -262,26 +242,32 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
   }
 
   async function saveAi(patch: Partial<AiConfig>) {
-    if (patch.active_profile_id) {
-      const nextActive = profiles.find((profile) => profile.id === patch.active_profile_id) ?? activeProfile;
-      return onConfigChanged({ ai_processing: activeConfigFromProfile(baseAi, nextActive, profiles) });
-    }
-    const updatedProfile = normalizeProfile(ai, {
-      ...activeProfile,
-      model: patch.model ?? activeProfile.model,
-      base_url: patch.base_url ?? activeProfile.base_url,
-      api_key_ref: patch.api_key_ref ?? activeProfile.api_key_ref ?? activeKeyRef,
-      prompt_preset: patch.prompt_preset ?? activeProfile.prompt_preset,
-      system_prompt: patch.system_prompt ?? activeProfile.system_prompt,
-      llm_min_duration_seconds: patch.llm_min_duration_seconds ?? activeProfile.llm_min_duration_seconds,
-      llm_timeout_seconds: patch.llm_timeout_seconds ?? activeProfile.llm_timeout_seconds,
+    const editedProfileId = activeProfile.id;
+    return onConfigChanged((current) => {
+      const currentAi = mergeAi(current.ai_processing ?? null, {});
+      const currentProfiles = profilesForAi(currentAi);
+      if (patch.active_profile_id) {
+        const nextActive = currentProfiles.find((profile) => profile.id === patch.active_profile_id);
+        return nextActive ? { ai_processing: activeConfigFromProfile(currentAi, nextActive, currentProfiles) } : {};
+      }
+      const profileFields = ["model", "base_url", "api_key_ref", "prompt_preset", "system_prompt", "llm_min_duration_seconds", "llm_timeout_seconds"] as const;
+      if (!profileFields.some((field) => field in patch)) {
+        return { ai_processing: { ...routeFields(currentAi, activeProfileOf(currentAi, currentProfiles), currentProfiles), ...patch } };
+      }
+      const currentProfile = currentProfiles.find((profile) => profile.id === editedProfileId)
+        ?? normalizeProfile(currentAi, { ...activeProfile, id: editedProfileId });
+      const updatedProfile = normalizeProfile(currentAi, { ...currentProfile, ...patch });
+      const nextProfiles = currentProfiles.map((profile) => profile.id === editedProfileId ? updatedProfile : profile);
+      const editsRoute = currentProfiles.length === 0 || currentAi.active_profile_id === editedProfileId;
+      const profilePatch: Partial<AiConfig> = {
+        ...routeFields(currentAi, editsRoute ? updatedProfile : activeProfileOf(currentAi, nextProfiles), nextProfiles),
+        profiles: nextProfiles,
+      };
+      if (editsRoute && patch.model) {
+        profilePatch.provider_models = { ...(currentAi.provider_models ?? {}), [currentProfile.provider]: patch.model };
+      }
+      return { ai_processing: profilePatch };
     });
-    const nextProfiles = profiles.map((profile) => profile.id === updatedProfile.id ? updatedProfile : profile);
-    const nextPatch = patch.model
-      ? { ...patch, provider_models: { ...(ai.provider_models ?? {}), [ai.provider]: patch.model }, profiles: nextProfiles }
-      : { ...patch, profiles: nextProfiles };
-    const next = mergeAi(activeConfigFromProfile(ai, updatedProfile, nextProfiles), nextPatch);
-    return onConfigChanged({ ai_processing: next });
   }
 
   async function savePrompt() {
@@ -382,55 +368,6 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
       setManualResult({ available: false, message: e instanceof Error ? e.message : String(e) });
     } finally {
       setManualLoading(false);
-    }
-  }
-
-  async function runFileTranscription() {
-    setFileError("");
-    setFileResult(null);
-    let path: string | null = null;
-    try {
-      path = await invoke<string | null>("pick_audio_file");
-    } catch (e) {
-      setFileError(e instanceof Error ? e.message : String(e));
-      return;
-    }
-    // The user closed the dialog — that is not an error and there is nothing to
-    // show.
-    if (!path) return;
-    await transcribeFile(path);
-  }
-
-  async function transcribeFile(path: string) {
-    setFileError("");
-    setFileResult(null);
-    setFileStage("decoding");
-    // The event arrives after decoding, but the subscription is installed before
-    // the call: otherwise there is a race between `emit` in Rust and `listen`
-    // here.
-    const unlisten = await on<{ session_id: number }>("file-transcription-started", (payload) => {
-      fileSessionId.current = payload.session_id;
-      setFileStage("transcribing");
-    });
-    try {
-      const result = await invoke<TranscribeFileResult>("transcribe_audio_file", { path });
-      setFileResult(result);
-    } catch (e) {
-      setFileError(e instanceof Error ? e.message : String(e));
-    } finally {
-      unlisten();
-      fileSessionId.current = null;
-      setFileStage(null);
-    }
-  }
-
-  async function cancelFileTranscription() {
-    const sessionId = fileSessionId.current;
-    if (sessionId === null) return;
-    try {
-      await invoke("cancel_audio_file", { session_id: sessionId });
-    } catch (e) {
-      setFileError(e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -756,7 +693,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
                   const itemProvider = PROVIDERS.find((item) => item.id === profile.provider) ?? PROVIDERS[0];
                   return { value: profile.id, label: profile.name, meta: `${itemProvider.name} · ${profile.model}` };
                 })}
-                onChange={(next) => void onConfigChanged({ ai_processing: mergeAi(baseAi, { text_profile_id: next === activeProfile.id ? "" : next }) })}
+                onChange={(next) => void onConfigChanged({ ai_processing: { text_profile_id: next === activeProfile.id ? "" : next } })}
                 className="custom-select--grow"
               />
             </div>
@@ -783,13 +720,10 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
               <span className="audio-drop__formats">{fileStage === null ? AUDIO_EXTENSIONS.join(", ") : t("Файл распознаётся локальной моделью")}</span>
             </div>
             <div className="audio-drop__actions">
-              {fileStage === "transcribing"
-                /* Cancellation exists only during the recognition stage: before
-                   it there is no session yet, and decoding is short by
-                   definition. */
+              {fileStage !== null
                 ? <button className="btn btn--ghost" onClick={() => void cancelFileTranscription()}>{t("Отменить")}</button>
                 : (
-                  <button className="btn btn--ghost" onClick={() => void runFileTranscription()} disabled={fileStage !== null || manualLoading}>
+                  <button className="btn btn--ghost" onClick={() => void runFileTranscription()} disabled={manualLoading}>
                     <Icon name="folder" size={12}/>{t("Выбрать файл")}
                   </button>
                 )}

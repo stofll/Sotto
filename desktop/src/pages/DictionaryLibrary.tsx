@@ -10,7 +10,7 @@ import { dictionaryName, dictionaryPatch, parseDictionaryWords, replaceDictionar
 
 type Entry = DictionarySet & { builtin?: boolean };
 type Session = { entry?: Entry; draft?: TextFormattingConfig; create?: boolean; baseline: string };
-type Save = (patch: Partial<TextFormattingConfig>) => Promise<boolean>;
+type Save = (patch: Partial<TextFormattingConfig>, onError?: (message: string) => void) => Promise<boolean>;
 
 const signature = (formatting: TextFormattingConfig) => JSON.stringify(dictionaryPatch(formatting));
 const termCount = (count: number) => `${count} ${tPlural(count, ["термин", "термина", "терминов"])}`;
@@ -52,8 +52,8 @@ export function DictionaryLibrary({ open, onToggle, formatting, onSave }: { open
     description: set.id === "development" ? t("Термины разработки: инструменты, языки и рабочие процессы.") : "",
     enabled: formatting.enabled_presets.includes(set.id) }))];
 
-  async function save(next: TextFormattingConfig): Promise<boolean> {
-    return onSave(dictionaryPatch(next));
+  async function save(next: TextFormattingConfig, onError?: (message: string) => void): Promise<boolean> {
+    return onSave(dictionaryPatch(next), onError);
   }
 
   async function toggle(entry: Entry) {
@@ -98,7 +98,7 @@ export function DictionaryLibrary({ open, onToggle, formatting, onSave }: { open
   </>;
 }
 
-function DictionaryDialog({ session, formatting, onSave, onClose }: { session: Session; formatting: TextFormattingConfig; onSave: (next: TextFormattingConfig) => Promise<boolean>; onClose: () => void }) {
+function DictionaryDialog({ session, formatting, onSave, onClose }: { session: Session; formatting: TextFormattingConfig; onSave: (next: TextFormattingConfig, onError?: (message: string) => void) => Promise<boolean>; onClose: () => void }) {
   const [entry, setEntry] = useState<Entry>(() => session.entry ?? { id: crypto.randomUUID(), name: "", description: "", words: [], enabled: false });
   const [editing, setEditing] = useState(Boolean(session.create));
   const [words, setWords] = useState(entry.words.join("\n"));
@@ -148,7 +148,10 @@ function DictionaryDialog({ session, formatting, onSave, onClose }: { session: S
     try {
       const checked = await analyzeDictionary(next);
       if (checked.conflicts.some((conflict) => !conflict.selected)) { setAnalysis(checked); setError(t("Выберите написание для каждого конфликта.")); return; }
-      if (await onSave(next)) onClose(); else setError(t("Не удалось сохранить набор. Введённые данные сохранены в редакторе; попробуйте ещё раз."));
+      // A rejection such as a term limit is shown here: the modal covers the window banner.
+      let reason = "";
+      if (await onSave(next, (message) => { reason = message; })) onClose();
+      else setError(reason ? t("Не удалось сохранить набор: {p0} Введённые данные сохранены в редакторе.", { p0: reason }) : t("Не удалось сохранить набор. Введённые данные сохранены в редакторе; попробуйте ещё раз."));
     } catch { setError(t("Не удалось сохранить набор. Введённые данные сохранены в редакторе; попробуйте ещё раз.")); }
     finally { busyRef.current = false; setBusy(false); }
   }

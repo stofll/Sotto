@@ -29,15 +29,15 @@ describe("rustInvoke()", () => {
     };
     tauriMock.mockResolvedValueOnce("ok");
     const { rustInvoke } = await import("./rustInvoke");
-    const result = await rustInvoke<string>("start_recording");
+    const result = await rustInvoke<string>("app_version");
     expect(result).toBe("ok");
-    expect(tauriMock).toHaveBeenCalledWith("start_recording", undefined);
+    expect(tauriMock).toHaveBeenCalledWith("app_version", undefined);
   });
 
   it("throws when called outside the Tauri runtime", async () => {
     delete (globalThis as { window?: unknown }).window;
     const { rustInvoke } = await import("./rustInvoke");
-    await expect(rustInvoke("start_recording")).rejects.toThrow(
+    await expect(rustInvoke("app_version")).rejects.toThrow(
       /requires Tauri runtime/,
     );
   });
@@ -48,7 +48,7 @@ describe("rustInvoke()", () => {
     };
     tauriMock.mockRejectedValueOnce(new Error("cpal: device busy"));
     const { rustInvoke } = await import("./rustInvoke");
-    await expect(rustInvoke("start_recording")).rejects.toThrow(
+    await expect(rustInvoke("app_version")).rejects.toThrow(
       "cpal: device busy",
     );
   });

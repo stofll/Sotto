@@ -143,7 +143,7 @@ const TEXT_FOLDS_KEY = "sotto.text.folds.v2";
  * `preview_format` already applied the replacements — that is, the preview on
  * «Форматирование» showed a result its own switches did not explain. Here there
  * is one pass and one preview. */
-export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraftChange }: { config: ConfigResult | null; onConfigChanged: (partial: Partial<ConfigResult>) => Promise<ConfigResult | null>; previewDraft: string | null; onPreviewDraftChange: (text: string) => void }) {
+export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraftChange }: { config: ConfigResult | null; onConfigChanged: (partial: Partial<ConfigResult>, onError?: (message: string) => void) => Promise<ConfigResult | null>; previewDraft: string | null; onPreviewDraftChange: (text: string) => void }) {
   // ── Cleanup and dictionaries: saved immediately, no draft ──────────────
   const formatting = normalizeTextFormatting(config);
   const [newParasite, setNewParasite] = useState("");
@@ -601,7 +601,7 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
             </div>
           </Foldable>
 
-          <DictionaryLibrary open={Boolean(folds.dict)} onToggle={() => toggleFold("dict")} formatting={formatting} onSave={async (patch) => Boolean(await onConfigChanged({ text_formatting: patch as TextFormattingConfig }))}/>
+          <DictionaryLibrary open={Boolean(folds.dict)} onToggle={() => toggleFold("dict")} formatting={formatting} onSave={async (patch, onError) => Boolean(await onConfigChanged({ text_formatting: patch as TextFormattingConfig }, onError))}/>
         </div>
 
         {/* The heading and the explanation live inside the first card rather

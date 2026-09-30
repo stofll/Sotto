@@ -429,9 +429,9 @@ fn handle_shortcut_event(app: AppHandle, state: AppState, event: ShortcutEvent) 
     }
 }
 
-/// Submit through the same lifecycle as IPC, without waiting on the UI thread.
+/// Submit to the capture lifecycle without waiting on the audio worker.
 fn hotkey_do_start(app: &AppHandle, state: &AppState) {
-    if let Err(message) = crate::dictation::start(app, state, true) {
+    if let Err(message) = crate::dictation::start(app, state) {
         if !state.recorder.is_recording() {
             state.toggle_armed.store(false, Ordering::Release);
         }
