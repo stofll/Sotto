@@ -4,6 +4,7 @@ This is the public documentation index for Sotto. Start with the guides below; d
 
 ## Using Sotto
 
+- [First launch](onboarding.md) — introduction, model download, skip and resume.
 - [Platform support](platforms.md) — supported, experimental, and CI-only targets.
 - [Models](models.md) — local model families, storage, and platform limits.
 - [Portable version](portable.md) — the Windows ZIP that keeps its data next to the executable.

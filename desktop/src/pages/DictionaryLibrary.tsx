@@ -80,7 +80,7 @@ export function DictionaryLibrary({ open, onToggle, formatting, onSave }: { open
       aside={<button ref={createRef} type="button" className="btn btn--ghost btn--sm" disabled={busy || !analysis} onClick={() => setSession({ create: true, baseline: configKey })}><Icon name="plus" size={12}/>{t("Создать")}</button>}>
       <div className="dictionary-library">
         {!formatting.enabled && <p className="dictionary-note">{t("Форматирование выключено: словари не исправляют текст. Подсказка Whisper продолжает работать.")}</p>}
-        {error && <div className="dictionary-error" role="alert">{t("Не удалось загрузить или сохранить словари. Изменения не применены.")} <button type="button" className="btn btn--ghost" onClick={() => setRevision((value) => value + 1)}>{t("Повторить")}</button></div>}
+        {error && <div className="inline-error" role="alert">{t("Не удалось загрузить или сохранить словари. Изменения не применены.")} <button type="button" className="btn btn--ghost" onClick={() => setRevision((value) => value + 1)}>{t("Повторить")}</button></div>}
         {analysis && entries.length === 0 && <p className="dictionary-note">{t("Наборов пока нет. Создайте набор для своих имён и терминов.")}</p>}
         <fieldset className="dictionary-fieldset" disabled={busy}>
           {entries.map((entry) => <div className="dictionary-row" key={`${entry.builtin ? "builtin" : "user"}:${entry.id}`}>
@@ -176,7 +176,7 @@ function DictionaryDialog({ session, formatting, onSave, onClose }: { session: S
   return <Modal title={discarding ? t("Закрыть без сохранения изменений?") : title} busy={busy} onClose={close} showHeader={!discarding} closeRef={editing ? returnRef : undefined} className={shell}>
     <div className="modal__body dictionary-body">
       {discarding ? <><p>{t("Закрыть без сохранения изменений?")}</p><div className="dictionary-toolbar dictionary-confirm-actions"><button ref={confirmationRef} type="button" className="btn btn--ghost btn--sm" onClick={() => setDiscarding(false)}>{t("Вернуться")}</button><button type="button" className="btn btn--ghost btn--sm" onClick={onClose}>{t("Не сохранять")}</button></div></> : <>
-        {stale && <p className="dictionary-error" role="alert">{t("Словари изменились в другом окне. Скопируйте несохранённый текст и откройте набор заново.")}</p>}
+        {stale && <p className="inline-error" role="alert">{t("Словари изменились в другом окне. Скопируйте несохранённый текст и откройте набор заново.")}</p>}
         <fieldset className="dictionary-fieldset dictionary-body" disabled={busy}>
           {editing ? <>
             <label className="dictionary-label">{t("Название набора")}<input autoFocus className="field" value={entry.name} onChange={(event) => setEntry({ ...entry, name: event.target.value })}/></label>
@@ -198,7 +198,7 @@ function DictionaryDialog({ session, formatting, onSave, onClose }: { session: S
           {(editing || session.draft || deleting) && Boolean(analysis?.conflicts.length) && <p className="dictionary-note">{t("Выбранное написание используется во всех активных наборах. Регистр результата также зависит от исходного текста.")}</p>}
           {deleting && <div role="alert" className="dictionary-body"><p>{t("Удалить набор «{name}»? Его содержимое будет потеряно.", { name: dictionaryName(entry) })}</p><div className="dictionary-toolbar"><button ref={confirmationRef} type="button" className="btn btn--ghost" onClick={() => setDeleting(false)}>{t("Отмена")}</button><button type="button" className="btn btn--primary" disabled={stale || checking || !analysis || analysis.conflicts.some((conflict) => !conflict.selected)} onClick={() => void persist(candidate)}>{t("Удалить")}</button></div></div>}
         </fieldset>
-        {error && <div className="dictionary-error" role="alert">{error} {checking && <button type="button" className="btn btn--ghost" onClick={() => setRevision((value) => value + 1)}>{t("Повторить")}</button>}</div>}
+        {error && <div className="inline-error" role="alert">{error} {checking && <button type="button" className="btn btn--ghost" onClick={() => setRevision((value) => value + 1)}>{t("Повторить")}</button>}</div>}
       </>}
     </div>
     {!discarding && !deleting && <div className="modal__foot dictionary-actions">

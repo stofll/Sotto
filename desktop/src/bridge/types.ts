@@ -73,6 +73,11 @@ export interface TextFormattingConfig {
 }
 
 export interface ConfigResult {
+  /** Initialized by Rust before any startup settings writes. */
+  onboarding_completed?: boolean;
+  onboarding_step?: number;
+  /** The pending choice must not replace a working model before download/load succeeds. */
+  onboarding_model?: string;
   overlay?: Partial<import("../overlay/overlayPreferences").OverlayPreferences>;
   ui_accent?: import("../accent").AccentValue;
   theme: "dark" | "light";

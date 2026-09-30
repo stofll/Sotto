@@ -7,7 +7,7 @@ import type { ConfigResult } from "../../bridge/types";
 /** What a settings control calls to persist one change: the page's own saver,
  *  which answers with the config as Rust wrote it. Every section takes it, so
  *  it is declared once here rather than per file. */
-export type ConfigChanged = (patch: Partial<ConfigResult>) => Promise<ConfigResult | null>;
+export type ConfigChanged = (patch: Partial<ConfigResult>, onError?: (message: string) => void) => Promise<ConfigResult | null>;
 
 export function HintIcon({ text }: { text: string }) {
   return <Hint text={text}/>;

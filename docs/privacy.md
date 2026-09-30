@@ -6,6 +6,8 @@ Sotto performs local transcription by default. Cloud speech-to-text and LLM form
 
 Telemetry is enabled by default and can be disabled in **Settings → Advanced → Telemetry**.
 
+The [first-launch introduction](onboarding.md) offers the same switch. Turning it off opens an explanation of the events; closing that explanation accepts the opt-out. Skipping the introduction leaves the setting as it is.
+
 The Rust process sends a small allow-listed set of de-identified usage events directly to PostHog Cloud EU. Events use a random installation ID; they are not derived from an account, username, hostname, MAC address, path, or hardware fingerprint.
 
 Events include the application version and release channel. Known cloud service names are classified locally from the request endpoint; unknown services are reported as `custom`, without transmitting the endpoint.

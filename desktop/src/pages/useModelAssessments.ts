@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getModelAssessments, type ModelAssessment } from "../bridge/modelAssessments";
 
-export function useModelAssessments(context: unknown) {
+/** `enabled: false` keeps a mounted but hidden caller from fetching. */
+export function useModelAssessments(context: unknown, enabled = true) {
   const [values, setValues] = useState<Record<string, ModelAssessment>>({});
   const generation = useRef(0);
   const refresh = useCallback(() => {
@@ -12,14 +13,16 @@ export function useModelAssessments(context: unknown) {
   }, []);
   useEffect(() => {
     setValues({});
+    if (!enabled) return;
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a request generation counter, not a DOM node: cleanup must bump the current value.
     return () => { generation.current++; };
-  }, [context, refresh]);
+  }, [context, enabled, refresh]);
   useEffect(() => {
+    if (!enabled) return;
     window.addEventListener("focus", refresh);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a request generation counter, as above.
     return () => { window.removeEventListener("focus", refresh); generation.current++; };
-  }, [refresh]);
+  }, [enabled, refresh]);
   return { values };
 }

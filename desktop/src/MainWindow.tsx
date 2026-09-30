@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { emit } from "@tauri-apps/api/event";
 import { invoke, subscribe, onRecordingStateChange, type RecordingState } from "./bridge";
 import { getStats } from "./bridge/stats";
@@ -20,6 +20,38 @@ import { StatsPage } from "./pages/StatsPage";
 import { TextPage } from "./pages/TextPage";
 import { actualModelLabel } from "./pages/runtimePresentation";
 import { applyLocaleFromConfig, t, useLocale } from "./i18n";
+import type { OnboardingProps } from "./onboarding/Onboarding";
+import { onboardingExitTab } from "./onboarding/modelChoices";
+
+const Onboarding = lazy(() => import("./onboarding/Onboarding").catch(() => ({ default: OnboardingLoadError })));
+
+function OnboardingLoadError({ active, config, models, onConfigChanged, onNavigate, onEnd }: OnboardingProps) {
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState<string | null>(null);
+  useEffect(() => { if (!active) onEnd(); }, [active, onEnd]);
+  if (!active) return null;
+  async function skip() {
+    setBusy(true);
+    setFailed(null);
+    let reason = "";
+    const saved = await onConfigChanged({ onboarding_completed: true }, (message) => { reason = message; });
+    setBusy(false);
+    if (saved) onNavigate(onboardingExitTab(config, models, false));
+    else setFailed(reason);
+  }
+  return <div className="loading-state" role="alert">
+    <div className="onboarding-fallback">
+      <p>{t("Не удалось открыть введение.")}</p>
+      <div className="onboarding-fallback__actions">
+        <button className="btn btn--primary" type="button" disabled={busy} onClick={() => window.location.reload()}>{t("Перезагрузить")}</button>
+        <button className="btn btn--ghost" type="button" disabled={busy} onClick={() => void skip()}>{t("Пропустить введение")}</button>
+      </div>
+      {failed !== null && <p className="inline-error">{t("Не удалось сохранить настройку: {p0}", { p0: failed })}</p>}
+    </div>
+  </div>;
+}
+
+
 
 // macOS URL schemes that deep-link into Privacy & Security panes. Opening one
 // via System Settings' `x-apple.systempreferences:` handler opens the section
@@ -50,6 +82,7 @@ function pageFor(tab: TabId, data: {
   onApiKeysChanged: (next: ApiKeyStatus) => void;
   onModelsChanged: (models: ModelInfo[]) => void;
   onStatsRefresh: () => Promise<void>;
+  onStartOnboarding: () => void;
 }) {
   switch (tab) {
     case "settings": return <SettingsPage config={data.config} microphones={data.microphones} models={data.models} portable={data.runtime?.portable} onConfigChanged={data.onConfigChanged}/>;
@@ -59,7 +92,7 @@ function pageFor(tab: TabId, data: {
     case "integrations": return <IntegrationsPage config={data.config?.ai_processing ?? null} apiKeys={data.apiKeys} onConfigChanged={data.onConfigChanged} onApiKeysChanged={data.onApiKeysChanged}/>;
     case "history": return <HistoryPageLoader/>;
     case "stats": return <StatsPage stats={data.stats} typingSpeedCpm={data.config?.typing_speed_cpm} onRefresh={data.onStatsRefresh}/>;
-    case "info": return <InfoPage version={data.version} config={data.config} onConfigChanged={data.onConfigChanged}/>;
+    case "info": return <InfoPage version={data.version} config={data.config} onConfigChanged={data.onConfigChanged} onStartOnboarding={data.onStartOnboarding}/>;
   }
 }
 
@@ -106,6 +139,11 @@ export function MainWindow() {
   const [runtime, setRuntime] = useState<RuntimeStatusResult | null>(null);
   const [apiKeys, setApiKeys] = useState<ApiKeyStatus>({});
   const [loading, setLoading] = useState(true);
+  const [onboardingSession, setOnboardingSession] = useState(false);
+  const endOnboarding = useCallback(() => setOnboardingSession(false), []);
+  const [onboardingCard, setOnboardingCard] = useState(false);
+  // Release notes wait for the next launch once the introduction was shown.
+  const [introductionShown, setIntroductionShown] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [recordingState, setRecordingState] = useState<RecordingState>("idle");
   const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(null);
@@ -215,6 +253,13 @@ export function MainWindow() {
     setStats(next);
   }
 
+  async function startOnboarding() {
+    const saved = await onConfigChanged((current) => ({
+      onboarding_completed: false, onboarding_step: 0, onboarding_model: current.model ?? "turbo",
+    }));
+    if (saved) { setOnboardingSession(true); setIntroductionShown(true); setTab("settings"); }
+  }
+
   useEffect(() => {
     let mounted = true;
     const unlisteners: Array<() => void> = [];
@@ -259,7 +304,9 @@ export function MainWindow() {
       if (!mounted) return;
       setRecordingState("loading");
       setRuntime((current) => ({
+        ...current,
         model_loaded: false,
+        model_loads_on_demand: false,
         model: name,
         loaded_model: null,
         device: null,
@@ -325,7 +372,7 @@ export function MainWindow() {
       try {
         const setters: Array<{ p: Promise<unknown>; set: (v: unknown) => void; name: string }> = [
           { p: invoke<AppVersionResult>("app_version"), set: (v) => { if (mounted) setVersion((v as AppVersionResult).version); }, name: "app_version" },
-          { p: invoke<ConfigResult>("get_config"), set: (v) => { if (mounted) { const cfg = v as ConfigResult; configRef.current = cfg; setConfig(cfg); setTheme(cfg.theme ?? "dark"); applyLocaleFromConfig(cfg.ui_language); } }, name: "get_config" },
+          { p: invoke<ConfigResult>("get_config"), set: (v) => { if (mounted) { const cfg = v as ConfigResult; configRef.current = cfg; setConfig(cfg); setOnboardingSession(cfg.onboarding_completed === false); setIntroductionShown(cfg.onboarding_completed === false); setTheme(cfg.theme ?? "dark"); applyLocaleFromConfig(cfg.ui_language); } }, name: "get_config" },
           { p: invoke<MicrophoneResult[]>("list_microphones"), set: (v) => { if (mounted) setMicrophones(v as MicrophoneResult[]); }, name: "list_microphones" },
           { p: invoke<ModelInfo[]>("list_models"), set: (v) => { if (mounted) setModels(v as ModelInfo[]); }, name: "list_models" },
           { p: getStats(), set: (v) => { if (mounted) setStats(v as StatsResult); }, name: "get_stats" },
@@ -378,16 +425,17 @@ export function MainWindow() {
     && pipelineMode !== "cloud"
     && !runtime?.loaded_model?.trim()
     && !selectedModel?.downloaded;
+  const onboardingActive = config?.onboarding_completed === false;
 
   return (
     <div className="app-frame" style={{ width: "100%", height: "100%", padding: 0 }}>
-      <WhatsNewDialog ready={!loading && recordingState === "idle"}/>
-      <div className={`win${collapsed ? " collapsed" : ""}`}>
-        <TitleBar collapsed={collapsed} onToggleCollapse={toggleSidebarCollapse}/>
-        <div className={`win__layout${collapsed ? " collapsed" : ""}`}>
-          <Sidebar tab={tab} onTab={setTab} recordingState={recordingState} pipelineMode={config?.ai_processing?.pipeline_mode} loadedModel={actualModelLabel(runtime, "")} loadsOnDemand={runtime?.model_loads_on_demand} theme={theme} onToggleTheme={() => void toggleTheme()} downloadProgress={downloadProgress} collapsed={collapsed}/>
+      {!loading && !introductionShown && !onboardingActive && <WhatsNewDialog ready={recordingState === "idle"}/>}
+      <div className={`win${collapsed && !onboardingActive ? " collapsed" : ""}`}>
+        <TitleBar collapsed={collapsed && !onboardingActive} fullWidth={onboardingActive} onToggleCollapse={onboardingActive ? undefined : toggleSidebarCollapse}/>
+        <div className={`win__layout${onboardingActive ? " win__layout--onboarding" : collapsed ? " collapsed" : ""}`}>
+          {!onboardingActive && <Sidebar tab={tab} onTab={setTab} recordingState={recordingState} pipelineMode={config?.ai_processing?.pipeline_mode} loadedModel={actualModelLabel(runtime, "")} loadsOnDemand={runtime?.model_loads_on_demand} theme={theme} onToggleTheme={() => void toggleTheme()} downloadProgress={downloadProgress} collapsed={collapsed}/>}
           <main className="win__main" data-testid="main-content">
-            <AccessibilityNotice/>
+            {!loading && !onboardingActive && <AccessibilityNotice/>}
             {permissions.length > 0 && permissions.map((p) => (
               <div key={p.permission} role="alert" className="permission-notice">
                 <Icon name="info" size={14}/>
@@ -403,7 +451,7 @@ export function MainWindow() {
               </div>
             ))}
             {error && <div role="alert" style={{ margin: "14px 32px 0", padding: "10px 12px", borderRadius: 8, background: "var(--err-soft)", border: "1px solid color-mix(in srgb, var(--err) 35%, transparent)", color: "var(--err)", font: "500 12px/1.35 var(--font-sans)" }}>{error}</div>}
-            {sttUnavailable && (
+            {sttUnavailable && !onboardingCard && !onboardingActive && (
               <div role="status" style={{ margin: "14px 32px 0", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", padding: "12px 14px", borderRadius: 8, background: "var(--warn-soft)", border: "1px solid color-mix(in srgb, var(--warn) 30%, transparent)", color: "var(--warn)", font: "500 12.5px/1.4 var(--font-sans)" }}>
                 <Icon name="info" size={14}/>
                 <span style={{ flex: "1 1 240px", minWidth: 240 }}>
@@ -412,9 +460,12 @@ export function MainWindow() {
                   <Icon name="settings" size={12}/>  {t("Скачать модель")} </button>
               </div>
             )}
-            {loading ? <LoadingState/> : (
+            {(onboardingSession || onboardingActive) && config && !loading && <Suspense fallback={null}>
+              <Onboarding active={onboardingActive} config={config} models={models} microphones={microphones} runtime={runtime} progress={downloadProgress} onConfigChanged={onConfigChanged} onModelsChanged={setModels} onNavigate={setTab} onToggleTheme={() => void toggleTheme()} onCardShown={setOnboardingCard} onEnd={endOnboarding}/>
+            </Suspense>}
+            {loading ? <LoadingState/> : !onboardingActive && (
               <div data-testid={`page-${tab}`} style={{ position: "relative", flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
-                {pageFor(tab, { config, version, stats, microphones, models, runtime, apiKeys, onConfigChanged, textPreviewDraft, onTextPreviewDraftChange: setTextPreviewDraft, onNavigate: setTab, onApiKeysChanged: setApiKeys, onModelsChanged: setModels, onStatsRefresh: refreshStats })}
+                {pageFor(tab, { config, version, stats, microphones, models, runtime, apiKeys, onConfigChanged, textPreviewDraft, onTextPreviewDraftChange: setTextPreviewDraft, onNavigate: setTab, onApiKeysChanged: setApiKeys, onModelsChanged: setModels, onStatsRefresh: refreshStats, onStartOnboarding: () => void startOnboarding() })}
               </div>
             )}
           </main>
