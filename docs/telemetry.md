@@ -6,9 +6,9 @@ Sotto sends privacy-minimized product events from the Rust process directly to P
 
 Telemetry is enabled by default and can be disabled in **Settings → Advanced → Telemetry**. Disabling takes effect immediately for new capture and delivery.
 
-The first-launch introduction and Advanced settings share an explanation dialog when telemetry is switched off. Dismissing the dialog accepts the opt-out; **Keep enabled** cancels it. Neither skipping a step nor skipping the introduction changes this setting.
-
 It does not remove already delivered events or delete the durable local outbox. Re-enabling resumes delivery of pending rows.
+
+The first-launch introduction and Advanced settings share an explanation dialog when telemetry is switched off. Dismissing the dialog accepts the opt-out; **Keep enabled** cancels it. Neither skipping a step nor skipping the introduction changes this setting.
 
 Both settings live in `config.json` (`telemetry_enabled`, `telemetry_session_timeout_minutes`) and are written through the ordinary `save_config` merge patch, which re-syncs the live capture gate before it returns — there is no separate telemetry command and no restart is needed.
 

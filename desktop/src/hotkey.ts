@@ -2,6 +2,12 @@
 // `src-tauri/src/config.rs`. Persisted config still takes precedence.
 export const DEFAULT_HOTKEY = "ctrl+shift+space";
 
+/** Key caps for showing a shortcut to the user. */
+export function hotkeyParts(hotkey?: string): string[] {
+  const labels: Record<string, string> = { ctrl: "Ctrl", control: "Ctrl", shift: "Shift", alt: "Alt", win: "Win", cmd: "Win", super: "Win", space: "Space", enter: "Enter", esc: "Esc", tab: "Tab" };
+  return (hotkey || DEFAULT_HOTKEY).split("+").map((part) => labels[part.trim().toLowerCase()] ?? part.trim().toUpperCase()).filter(Boolean);
+}
+
 // Windows reports these as navigation keys (Insert, End, …) while Num Lock is
 // off, so the shortcut only fires with Num Lock on.
 export function dependsOnNumLock(hotkey: string): boolean {

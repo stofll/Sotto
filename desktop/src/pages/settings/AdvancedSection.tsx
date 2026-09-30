@@ -12,7 +12,7 @@ import { recordingLimitMinutes, recordingLimitOptions } from "../recordingLimitS
 import { recordingKeepCount, recordingKeepOptions } from "../recordingKeepSettings";
 import { formatFileSize } from "../fileSize";
 import { invoke } from "../../bridge";
-import { TelemetryControl } from "../../components/TelemetryControl";
+import { TelemetryControl } from "./TelemetryControl";
 import { HintIcon, SetLabel, type ConfigChanged } from "./controls";
 
 // Changing the device reloads the model on the Rust side — that is the only

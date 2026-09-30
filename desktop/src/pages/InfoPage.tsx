@@ -8,14 +8,9 @@ import { confirmDestructive } from "../components/ConfirmDialog";
 import { CustomSelect, type SelectOption } from "../components/CustomSelect";
 import { t } from "../i18n";
 import { FeedbackCard } from "./FeedbackCard";
-import { DEFAULT_HOTKEY } from "../hotkey";
+import { hotkeyParts } from "../hotkey";
 import { WhatsNewDialog } from "../components/WhatsNewDialog";
 import { formatFileSize } from "./fileSize";
-
-function hotkeyParts(hotkey?: string): string[] {
-  const labels: Record<string, string> = { ctrl: "Ctrl", control: "Ctrl", shift: "Shift", alt: "Alt", win: "Win", cmd: "Win", super: "Win", space: "Space", enter: "Enter", esc: "Esc", tab: "Tab" };
-  return (hotkey || DEFAULT_HOTKEY).split("+").map((part) => labels[part.trim().toLowerCase()] ?? part.trim().toUpperCase()).filter(Boolean);
-}
 
 function KbdSequence({ keys }: { keys: string[] }) {
   return <span style={{ display: "inline-flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>{keys.map((key, i) => <span key={`${key}-${i}`} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><span className="kbd">{key}</span>{i < keys.length - 1 && <span style={{ color: "var(--ink-mute)" }}>+</span>}</span>)}</span>;

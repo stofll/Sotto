@@ -1636,7 +1636,13 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .dictionary-modal.modal--ask .modal__body { padding: var(--pad-4); }
 .dictionary-confirm-actions { justify-content: flex-end; flex-wrap: nowrap; gap: var(--pad-2); }
 .dictionary-confirm-actions .btn { white-space: nowrap; }
-.dictionary-error { color: var(--err); font: 400 12px/1.5 var(--font-sans); }
+.inline-error { color: var(--err); font: 400 12px/1.5 var(--font-sans); }
+.telemetry-explanation p { margin: 0 0 var(--pad-4); }
+.telemetry-explanation dl { margin: 0 0 var(--pad-5); }
+.telemetry-explanation dt { color: var(--ink); font-weight: 600; }
+.telemetry-explanation dd { margin: var(--pad-2) 0 var(--pad-4); color: var(--ink-dim); }
+.onboarding-fallback { display: grid; justify-items: center; gap: var(--pad-3); text-align: center; }
+.onboarding-fallback__actions { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--pad-3); }
 .dictionary-actions { flex-wrap: wrap; }
 
 .preset-grid {

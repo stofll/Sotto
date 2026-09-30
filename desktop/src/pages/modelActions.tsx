@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { invoke, subscribe } from "../bridge";
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
@@ -18,6 +18,20 @@ export type ModelOperationStatus = {
   /** The model id, if this operation can be interrupted. */
   cancelModel?: string;
 };
+
+// Downloads in flight across hook instances: the Models page and the
+// introduction each run their own, and a download started in one must keep the
+// other's card busy rather than offer a second download the backend rejects.
+let sharedDownloads: readonly string[] = [];
+const sharedListeners = new Set<() => void>();
+function setSharedDownload(id: string, active: boolean) {
+  sharedDownloads = active ? [...sharedDownloads, id] : sharedDownloads.filter((item) => item !== id);
+  sharedListeners.forEach((listener) => listener());
+}
+function subscribeSharedDownloads(listener: () => void) {
+  sharedListeners.add(listener);
+  return () => { sharedListeners.delete(listener); };
+}
 
 type Params = {
   models: ModelInfo[];
@@ -54,6 +68,11 @@ export function useModelActions({ models, value, language, onConfigChanged, onMo
   // next frame, while two quick clicks on one button happen within a single
   // frame.
   const inFlight = useRef<Set<string>>(new Set());
+  const activeDownloads = useSyncExternalStore(subscribeSharedDownloads, () => sharedDownloads);
+  // A download outlives the render that started it: activating the model on
+  // completion must roll back to the model selected by then, not at the start.
+  const latest = useRef({ value, language });
+  useEffect(() => { latest.current = { value, language }; }, [value, language]);
 
   function clearToastTimers() {
     if (toastDismissTimer.current != null) window.clearTimeout(toastDismissTimer.current);
@@ -112,7 +131,7 @@ export function useModelActions({ models, value, language, onConfigChanged, onMo
   // that saves the model itself: a separate write would leave a window in which
   // the config points at an impossible pair.
   function persistWithLanguageRule(model: ModelInfo) {
-    const next = fallbackLanguage(model, language);
+    const next = fallbackLanguage(model, latest.current.language);
     return (patch: Partial<ConfigResult>) => onConfigChanged(
       next ? { ...patch, language: next } : patch,
     );
@@ -130,7 +149,7 @@ export function useModelActions({ models, value, language, onConfigChanged, onMo
     // Its own download is running — a click on the card stays silent: offering
     // to download what is already downloading means opening a dialog whose
     // button will do nothing.
-    if (inFlight.current.has(model.id)) return;
+    if (inFlight.current.has(model.id) || sharedDownloads.includes(model.id)) return;
     // A click on an already selected model changes nothing — there is nothing
     // to ask about.
     if (model.id === value) return;
@@ -212,8 +231,9 @@ export function useModelActions({ models, value, language, onConfigChanged, onMo
     // A second download of the same model would write the same `*.part`; the
     // backend rejects it too, but explaining to the user an error we allowed
     // ourselves is a poor way of not allowing it.
-    if (inFlight.current.has(model.id)) return;
+    if (inFlight.current.has(model.id) || sharedDownloads.includes(model.id)) return;
     inFlight.current.add(model.id);
+    setSharedDownload(model.id, true);
     cancelRequested.current.delete(model.id);
     setDownloading((current) => (current.includes(model.id) ? current : [...current, model.id]));
     showStatus({ kind: "loading", text: t("Скачиваю {p0}", { p0: model.label }), detail: model.size, progress: null, cancelModel: model.id });
@@ -231,7 +251,7 @@ export function useModelActions({ models, value, language, onConfigChanged, onMo
       try {
         await loadThenPersistModel(
           model.id,
-          value,
+          latest.current.value,
           (modelId) => tauriInvoke("set_model", { model: modelId }),
           persistWithLanguageRule(model),
         );
@@ -245,6 +265,7 @@ export function useModelActions({ models, value, language, onConfigChanged, onMo
       showStatus({ kind: "error", text: t("Не удалось скачать модель: {p0}", { p0: e instanceof Error ? e.message : String(e) }) }, 9000);
     } finally {
       inFlight.current.delete(model.id);
+      setSharedDownload(model.id, false);
       cancelRequested.current.delete(model.id);
       setDownloading((current) => current.filter((id) => id !== model.id));
     }
@@ -256,7 +277,7 @@ export function useModelActions({ models, value, language, onConfigChanged, onMo
     deleting,
     downloading,
     /** Whether this model's card is busy with an operation of its own. */
-    isBusy: (id: string) => downloading.includes(id) || deleting.includes(id),
+    isBusy: (id: string) => downloading.includes(id) || activeDownloads.includes(id) || deleting.includes(id),
     pendingDownload,
     pendingDelete,
     setPendingDownload,

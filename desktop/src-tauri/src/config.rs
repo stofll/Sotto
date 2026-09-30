@@ -102,6 +102,31 @@ pub fn config_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir.join("config.json"))
 }
 
+/// Check the introduction's progress fields a patch writes. Only the patch is
+/// checked: the window tolerates a hand-edited value (an invalid step reads as
+/// the first one), so such a value must not make unrelated settings unsavable.
+fn validate_onboarding_patch(patch: &Value) -> Result<(), String> {
+    if patch
+        .get("onboarding_model")
+        .is_some_and(|value| !value.is_string())
+    {
+        return Err("Invalid onboarding_model".into());
+    }
+    if patch
+        .get("onboarding_completed")
+        .is_some_and(|value| !value.is_boolean())
+    {
+        return Err("Invalid onboarding_completed".into());
+    }
+    if patch
+        .get("onboarding_step")
+        .is_some_and(|value| !value.as_u64().is_some_and(|step| step < 4))
+    {
+        return Err("Invalid onboarding_step".into());
+    }
+    Ok(())
+}
+
 /// Classify the installation before startup migrations or UI preferences write
 /// to an empty config. An explicit unfinished introduction survives updates.
 pub fn initialize_onboarding(app: &AppHandle) -> Result<(), String> {
@@ -383,24 +408,6 @@ fn migrate_legacy_device_config(cfg: &mut Config, path: &Path) -> Result<bool, S
 /// writes through it to *repair* an old config, and a repair must not be
 /// blocked by the very invariant it may be fixing.
 pub fn validate(candidate: &Value) -> Result<(), String> {
-    if candidate
-        .get("onboarding_model")
-        .is_some_and(|value| !value.is_string())
-    {
-        return Err("Invalid onboarding_model".into());
-    }
-    if candidate
-        .get("onboarding_completed")
-        .is_some_and(|value| !value.is_boolean())
-    {
-        return Err("Invalid onboarding_completed".into());
-    }
-    if candidate
-        .get("onboarding_step")
-        .is_some_and(|value| !value.as_u64().is_some_and(|step| step < 4))
-    {
-        return Err("Invalid onboarding_step".into());
-    }
     // The interface colour is free-form — the presets in the UI are shortcuts,
     // not the permitted set — so only the notation is checked here.
     if let Some(accent) = candidate.get("ui_accent") {
@@ -442,6 +449,7 @@ fn validate_speech_route(candidate: &Value) -> Result<(), String> {
 #[cfg(test)]
 fn save_with_merge_patch_at(path: &Path, patch: Value) -> Result<Value, String> {
     with_locked_config(path, |cfg, path| {
+        validate_onboarding_patch(&patch)?;
         let previous = cfg.as_value().clone();
         cfg.apply_merge_patch(&patch)?;
         validate(cfg.as_value())?;
@@ -463,6 +471,7 @@ fn persist_patch(
     check: impl FnOnce(&Config) -> Result<(), String>,
     replace_binding: impl FnOnce(&str, &str) -> Result<crate::hotkey::BindingRollback, String>,
 ) -> Result<Config, String> {
+    validate_onboarding_patch(patch)?;
     let mut candidate = current.clone();
     candidate.apply_merge_patch(patch)?;
     check(&candidate)?;
@@ -497,14 +506,6 @@ fn persist_with_hotkey(
 #[tauri::command]
 pub(crate) fn get_config(app: AppHandle) -> Result<Value, String> {
     let cfg = Config::load(&app)?;
-    // Keep the window usable for diagnostics when startup cannot persist the
-    // classification, rather than treating failed initialization as an upgrade.
-    if cfg.get("onboarding_completed").is_none() {
-        return Err(
-            "Could not initialize first-run settings. Check config permissions and restart Sotto."
-                .into(),
-        );
-    }
     Ok(cfg.as_value().clone())
 }
 
@@ -729,17 +730,32 @@ mod tests {
     }
 
     #[test]
-    fn onboarding_rejects_invalid_steps_and_does_not_overwrite_corrupt_configs() {
+    fn onboarding_checks_written_progress_and_tolerates_hand_edits() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        fs::write(&path, json!({"onboarding_completed": false}).to_string()).unwrap();
         for patch in [
             json!({"onboarding_step": -1}),
             json!({"onboarding_step": 4}),
             json!({"onboarding_step": "2"}),
             json!({"onboarding_completed": "true"}),
+            json!({"onboarding_model": 3}),
         ] {
-            assert!(validate(&patch).is_err());
+            assert!(save_with_merge_patch_at(&path, patch).is_err());
         }
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("config.json");
+        for step in 0..4 {
+            save_with_merge_patch_at(&path, json!({"onboarding_step": step})).unwrap();
+        }
+        save_with_merge_patch_at(&path, json!({"onboarding_model": "gigaam-v3"})).unwrap();
+
+        // Hand-edited values already on disk block no other write.
+        fs::write(
+            &path,
+            json!({"onboarding_completed": "yes", "onboarding_step": 7}).to_string(),
+        )
+        .unwrap();
+        save_with_merge_patch_at(&path, json!({"theme": "light"})).unwrap();
+
         fs::write(&path, "broken json").unwrap();
         assert!(initialize_onboarding_at(&path, || false).is_err());
         assert_eq!(fs::read_to_string(path).unwrap(), "broken json");

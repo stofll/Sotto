@@ -1,19 +1,19 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { ConfigChange, ConfigPatch, ConfigResult, MicrophoneResult, ModelInfo, RuntimeStatusResult } from "../bridge/types";
 import { Card, type DownloadProgress, type TabId } from "../components/Shell";
 import { Icon } from "../components/Icon";
 import { AccessibilityNotice } from "../components/AccessibilityNotice";
-import { TelemetryControl } from "../components/TelemetryControl";
+import { TelemetryControl } from "../pages/settings/TelemetryControl";
 import { HotkeyDisplay, RecordingModeSegmented } from "../pages/settings/CaptureSection";
 import { MicPicker } from "../pages/settings/MicrophoneSection";
 import { UiLanguagePicker } from "../pages/settings/LanguageSection";
 import { ModelActionOverlays, useModelActions } from "../pages/modelActions";
 import { downloadSpaceText } from "../pages/modelAssessment";
 import { useModelAssessments } from "../pages/useModelAssessments";
-import { DEFAULT_HOTKEY } from "../hotkey";
+import { DEFAULT_HOTKEY, hotkeyParts } from "../hotkey";
 import { invoke } from "../bridge";
-import { t } from "../i18n";
-import { onboardingModels, onboardingStep } from "./modelChoices";
+import { t, useLocale } from "../i18n";
+import { onboardingExitTab, onboardingModels, onboardingStep } from "./modelChoices";
 import "./onboarding.css";
 
 export type OnboardingProps = {
@@ -23,43 +23,76 @@ export type OnboardingProps = {
   microphones: MicrophoneResult[];
   runtime: RuntimeStatusResult | null;
   progress: DownloadProgress | null;
-  onConfigChanged: (change: ConfigChange) => Promise<ConfigResult | null>;
+  onConfigChanged: (change: ConfigChange, onError?: (message: string) => void) => Promise<ConfigResult | null>;
   onModelsChanged: (models: ModelInfo[]) => void;
   onNavigate: (tab: TabId) => void;
   onToggleTheme: () => void;
+  /** Whether the post-introduction card is on screen; it stands in for the
+   *  window's missing-model warning. */
+  onCardShown?: (shown: boolean) => void;
+  /** Nothing is left to show or finish: the window may unmount the introduction. */
+  onEnd: () => void;
 };
 
 function modelDescription(model: ModelInfo) {
   if (model.id === "gigaam-v3") return t("Для русской речи. Сама ставит знаки, текст приходит в конце фразы.");
   if (model.streaming) return t("Потоковая: слова появляются, пока вы говорите. Русский и английский.");
-  return t("Если языков много. Может распознавать на видеокарте.");
+  if (model.id === "turbo") return t("Если языков много. Может распознавать на видеокарте.");
+  return t("Модель, которой вы пользуетесь сейчас.");
 }
 
-/** Remains mounted after completion so a background download can activate its model. */
+function ModelChoice({ model, selected, disabled, onChoose }: { model: ModelInfo; selected: boolean; disabled: boolean; onChoose: () => void }) {
+  const id = useId();
+  return <Card pad="rows" className={`onboarding__model${selected ? " onboarding__model--selected" : ""}`}>
+    <label>
+      <input type="radio" name="onboarding-model" value={model.id} checked={selected} disabled={disabled} aria-labelledby={`${id}-name`} aria-describedby={`${id}-about`} onChange={onChoose}/>
+      <h2 id={`${id}-name`}>{model.label}</h2>
+      <span className="mono">{model.size}</span>
+      <p id={`${id}-about`}>{modelDescription(model)}</p>
+      {model.downloaded && <span className="tag">{t("Скачана")}</span>}
+    </label>
+  </Card>;
+}
+
+/** Remains mounted after completion while its banner or a background download
+ *  still has something to show, then ends the session through `onEnd`. */
 export default function Onboarding(props: OnboardingProps) {
-  const { active, config, models, microphones, runtime, progress, onConfigChanged, onModelsChanged, onNavigate, onToggleTheme } = props;
+  const { active, config, models, microphones, runtime, progress, onConfigChanged, onModelsChanged, onNavigate, onToggleTheme, onCardShown, onEnd } = props;
+  const locale = useLocale();
   const step = onboardingStep(config.onboarding_step);
-  const choices = onboardingModels(models, config.language ?? "ru", runtime?.os);
+  const cloud = config.ai_processing?.pipeline_mode === "cloud";
+  // A fresh installation has no speech language yet; the interface language is
+  // the best guess of what the user will dictate.
+  const choices = onboardingModels(models, config.language ?? (locale === "en" ? "en" : "ru"), runtime?.os, config.model);
   const chosen = choices.find((model) => model.id === (config.onboarding_model ?? config.model)) ?? choices[0];
   const [busy, setBusy] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [failed, setFailed] = useState<string | null>(null);
   const [catalogFailed, setCatalogFailed] = useState(false);
   const [banner, setBanner] = useState(false);
   const [moving, setMoving] = useState(() => document.hasFocus() && document.visibilityState !== "hidden");
   const saving = useRef(false);
   const heading = useRef<HTMLHeadingElement>(null);
-  const assessmentContext = `${active}:${models.map((model) => `${model.id}:${model.downloaded}`).join(",")}`;
-  const assessments = useModelAssessments(assessmentContext);
+  const bannerCopy = useRef<HTMLDivElement>(null);
+  const assessments = useModelAssessments(models.map((model) => `${model.id}:${model.downloaded}`).join(","), active && step === 1);
   const actions = useModelActions({
     models, value: config.model, language: config.language, onModelsChanged, trackOwnDownloadsOnly: true,
     onConfigChanged: (patch) => onConfigChanged({
       ...patch,
-      ...(config.ai_processing?.pipeline_mode === "cloud" ? { ai_processing: { pipeline_mode: "local" } } : {}),
+      ...(cloud ? { ai_processing: { pipeline_mode: "local" } } : {}),
     }),
   });
+  const downloading = actions.downloading.length > 0;
+  const idle = !active && !banner && !downloading && !actions.status;
 
   useEffect(() => { if (active) heading.current?.focus(); }, [active, step]);
+  useEffect(() => { if (!active && banner) bannerCopy.current?.focus(); }, [active, banner]);
+  useEffect(() => { if (idle) onEnd(); }, [idle, onEnd]);
   useEffect(() => {
+    onCardShown?.(!active && banner);
+    return () => onCardShown?.(false);
+  }, [active, banner, onCardShown]);
+  useEffect(() => {
+    if (!active) return;
     const pause = () => setMoving(false);
     const resume = () => setMoving(document.hasFocus() && document.visibilityState !== "hidden");
     document.addEventListener("visibilitychange", resume);
@@ -70,26 +103,27 @@ export default function Onboarding(props: OnboardingProps) {
       window.removeEventListener("blur", pause);
       window.removeEventListener("focus", resume);
     };
-  }, []);
+  }, [active]);
 
   async function save(patch: ConfigPatch) {
     if (saving.current) return null;
     saving.current = true;
     setBusy(true);
-    setFailed(false);
-    try {
-      const result = await onConfigChanged(patch);
-      if (!result) setFailed(true);
-      return result;
-    } catch { setFailed(true); return null; }
-    finally { saving.current = false; setBusy(false); }
+    setFailed(null);
+    let reason = "";
+    const result = await onConfigChanged(patch, (message) => { reason = message; });
+    if (!result) setFailed(reason);
+    saving.current = false;
+    setBusy(false);
+    return result;
   }
 
   async function finish() {
-    if (!await save({ onboarding_completed: true })) return;
+    // Shown before the write lands, so the finished flow never renders a frame
+    // with neither the introduction nor its banner.
     setBanner(true);
-    const selected = models.find((model) => model.id === config.model);
-    onNavigate(selected?.downloaded || actions.downloading.length > 0 || config.ai_processing?.pipeline_mode === "cloud" ? "settings" : "models");
+    if (!await save({ onboarding_completed: true })) { setBanner(false); return; }
+    onNavigate(onboardingExitTab(config, models, downloading));
   }
 
   async function next() {
@@ -98,18 +132,24 @@ export default function Onboarding(props: OnboardingProps) {
   }
 
   async function choose(model: ModelInfo) {
-    await save({ onboarding_model: model.id });
+    setFailed(null);
+    // Not `save`: disabling the radios mid-write would drop keyboard focus.
+    let reason = "";
+    if (!await onConfigChanged({ onboarding_model: model.id }, (message) => { reason = message; })) setFailed(reason);
   }
 
   async function begin() {
     if (!chosen || saving.current) return;
     if (chosen.downloaded) {
-      saving.current = true;
-      setBusy(true);
-      const ok = await actions.selectModel(chosen, true);
-      saving.current = false;
-      setBusy(false);
-      if (!ok) return;
+      // The current local model already works; reloading it only costs time.
+      if (chosen.id !== config.model || cloud) {
+        saving.current = true;
+        setBusy(true);
+        const ok = await actions.selectModel(chosen, cloud);
+        saving.current = false;
+        setBusy(false);
+        if (!ok) return;
+      }
     } else if (!actions.downloading.includes(chosen.id)) {
       // Persist the choice before launching. The download itself does not hold
       // navigation and continues if the window is hidden or the flow is skipped.
@@ -120,14 +160,13 @@ export default function Onboarding(props: OnboardingProps) {
   }
 
   if (!active) {
-    if (!banner) return null;
+    if (!banner) return <ModelActionOverlays actions={actions}/>;
     const model = models.find((item) => item.id === (actions.downloading[0] ?? config.model));
-    const downloading = actions.downloading.length > 0;
     const ready = runtime?.active_engine === "cloud-stt"
       || (model?.downloaded && (runtime?.loaded_model === model.id || runtime?.model_loads_on_demand));
     const downloadFailed = actions.status?.kind === "error";
     return <Card pad="rows" className="onboarding-banner">
-      <div className="onboarding-banner__copy" role={downloadFailed ? "alert" : "status"}>
+      <div className="onboarding-banner__copy" role={downloadFailed ? "alert" : "status"} ref={bannerCopy} tabIndex={-1}>
         <strong>{downloading ? t("Скачивается {p0}", { p0: model?.label ?? "" }) : ready ? t("Можно диктовать") : t("Для диктовки нужна модель")}</strong>
         <p>{downloadFailed ? actions.status?.text : downloading
           ? t("Пока модель скачивается, поставьте курсор в любое текстовое поле. После загрузки нажмите {p0}.", { p0: config.hotkey || DEFAULT_HOTKEY })
@@ -142,20 +181,26 @@ export default function Onboarding(props: OnboardingProps) {
   }
 
   const titles = [t("Нажали. Сказали. Текст уже там."), t("Одна модель, чтобы начать"), t("Ваше сочетание"), t("Можно не трогать")];
-  const cloud = config.ai_processing?.pipeline_mode === "cloud";
+  const cloudNote = t("У вас настроено облачное распознавание: запись отправляется выбранному сервису. Выбор локальной модели вернёт распознавание на этот компьютер.");
   const leads = [
-    cloud ? t("У вас настроено облачное распознавание: запись отправляется выбранному сервису. Выбор локальной модели вернёт распознавание на этот компьютер.") : t("Речь распознаётся на этом компьютере. Готовый текст вставляется в поле, где стоит курсор."),
+    cloud ? cloudNote : t("Речь распознаётся на этом компьютере. Готовый текст вставляется в поле, где стоит курсор."),
     t("Выберите модель для своего языка. Модель не того языка может распознать бессмыслицу. Остальные модели останутся в каталоге."),
     t("Сочетание уже работает. Можно оставить его или выбрать своё."),
     t("Всё это можно поменять позже в настройках."),
   ];
   const disk = chosen ? assessments.values[chosen.id] : undefined;
   const insufficient = !chosen?.downloaded && disk?.download?.insufficient;
+  const chosenDownloading = !!chosen && actions.downloading.includes(chosen.id);
+  const primary = busy ? t("Сохранение…")
+    : step === 3 ? t("Начать диктовать")
+    : step !== 1 || chosenDownloading ? t("Дальше")
+    : !chosen?.downloaded ? (cloud ? t("Скачать и перейти на локальную") : t("Скачать и продолжить"))
+    : cloud ? t("Перейти на локальную модель") : t("Дальше");
   return <div className="onboarding" data-moving={moving} data-testid="onboarding">
     <div className="onboarding__toolbar">
       <UiLanguagePicker value={config.ui_language} onConfigChanged={onConfigChanged}/>
       <button className="btn btn--ghost btn--icon" type="button" aria-label={t("Переключить тему")} onClick={onToggleTheme}><Icon name={config.theme === "light" ? "sun" : "moon"} size={15}/></button>
-      <button className="btn btn--ghost" type="button" disabled={busy} onClick={() => void finish()}>{t("Пропустить онбординг")}</button>
+      <button className="btn btn--ghost" type="button" disabled={busy} onClick={() => void finish()}>{t("Пропустить введение")}</button>
     </div>
     <div className="onboarding__stage" key={step}>
       <header className="onboarding__heading">
@@ -164,23 +209,22 @@ export default function Onboarding(props: OnboardingProps) {
         <p>{leads[step]}</p>
       </header>
       {step === 0 && <div className="onboarding__grid">
-        <Card pad="rows"><Icon name="play" size={28}/><h2>{t("Сочетание")}</h2><div className="onboarding__keys">{(config.hotkey || DEFAULT_HOTKEY).split("+").map((key, index) => <kbd className="kbd" key={index}>{key}</kbd>)}</div><p>{config.recording_mode === "push_to_talk" ? t("Говорите, удерживая сочетание. Отпустите, чтобы закончить.") : t("Одно нажатие начинает запись, второе заканчивает.")}</p></Card>
+        <Card pad="rows"><Icon name="play" size={28}/><h2>{t("Сочетание")}</h2><div className="onboarding__keys">{hotkeyParts(config.hotkey).map((key, index) => <kbd className="kbd" key={index}>{key}</kbd>)}</div><p>{config.recording_mode === "push_to_talk" ? t("Говорите, удерживая сочетание. Отпустите, чтобы закончить.") : t("Одно нажатие начинает запись, второе заканчивает.")}</p></Card>
         <Card pad="rows"><div className="onboarding__speech" aria-hidden="true">{[2, 4, 6, 8, 6, 4, 2].map((height, index) => <i key={index} style={{ height: height * 4 }}/>)}</div><h2>{t("Речь")}</h2><p>{cloud ? t("Сейчас запись отправляется выбранному облачному сервису.") : t("Говорите как обычно. При локальном распознавании голос никуда не отправляется.")}</p></Card>
         <Card pad="rows"><Icon name="text" size={28}/><h2>{t("Текст в поле")}</h2><p>{t("Готовый текст появляется там, где курсор.")}</p></Card>
       </div>}
       {step === 1 && <>
         <div className="onboarding__grid" role="radiogroup" aria-label={t("Модель распознавания")}>
-          {choices.map((model) => <Card pad="rows" key={model.id} className={`onboarding__model${chosen?.id === model.id ? " onboarding__model--selected" : ""}`}>
-            <label><input type="radio" name="onboarding-model" value={model.id} checked={chosen?.id === model.id} disabled={busy || actions.downloading.length > 0} onChange={() => void choose(model)}/><h2>{model.label}</h2><span className="mono">{model.size}</span><p>{modelDescription(model)}</p>{model.downloaded && <span className="tag">{t("Скачана")}</span>}</label>
-          </Card>)}
+          {choices.map((model) => <ModelChoice key={model.id} model={model} selected={chosen?.id === model.id} disabled={downloading} onChoose={() => void choose(model)}/>)}
         </div>
         {!choices.length && <div>
-          <p role="alert">{t("Не удалось получить список моделей. Откройте каталог или попробуйте ещё раз.")}</p>
+          <p className="inline-error" role="alert">{t("Не удалось получить список моделей. Откройте каталог или попробуйте ещё раз.")}</p>
           <button className="btn btn--ghost" type="button" onClick={() => { setCatalogFailed(false); void invoke<ModelInfo[]>("list_models").then(onModelsChanged).catch(() => setCatalogFailed(true)); }}>{t("Повторить")}</button>
-          {catalogFailed && <p role="alert">{t("Не удалось загрузить модели.")}</p>}
+          {catalogFailed && <p className="inline-error" role="alert">{t("Не удалось загрузить модели.")}</p>}
         </div>}
+        {cloud && <p className="onboarding__note">{cloudNote}</p>}
         <p className="onboarding__note">{t("Скачивание пойдёт в фоне. «Пропустить шаг» не начинает загрузку.")}</p>
-        {insufficient && <p role="alert">{downloadSpaceText(disk)}</p>}
+        {insufficient && <p className="inline-error" role="alert">{downloadSpaceText(disk)}</p>}
       </>}
       {step === 2 && <div className="card-stack">
         <Card pad="rows"><div className="capture-row"><div className="set-cell"><span className="set-label">{t("Горячая клавиша")}</span><HotkeyDisplay hotkey={config.hotkey} onConfigChanged={onConfigChanged}/></div><div className="vrule"/><div className="set-cell"><span className="set-label">{t("Режим записи")}</span><RecordingModeSegmented value={config.recording_mode ?? "toggle"} onConfigChanged={onConfigChanged}/></div></div></Card>
@@ -193,11 +237,11 @@ export default function Onboarding(props: OnboardingProps) {
         <div><strong>{t("LLM-обработка")}</strong><p>{t("Необязательная обработка текста требует своего ключа. Настроить её можно позже в разделе «Провайдеры и ключи».")}</p></div>
         <div><TelemetryControl value={config.telemetry_enabled} onConfigChanged={onConfigChanged}/><p>{t("При выключении покажем состав событий. Записи и текст не отправляются.")}</p></div>
       </Card>}
-      {failed && <p role="alert">{t("Не удалось сохранить настройку. Попробуйте ещё раз.")}</p>}
+      {failed !== null && <p className="inline-error" role="alert">{t("Не удалось сохранить настройку: {p0}", { p0: failed })}</p>}
       <footer className="onboarding__actions">
         {step > 0 && <button className="btn btn--ghost" type="button" disabled={busy} onClick={() => void save({ onboarding_step: step - 1 })}>{t("Назад")}</button>}
         <button className="btn btn--ghost" type="button" disabled={busy} onClick={() => void next()}>{t("Пропустить шаг")}</button>
-        <button className="btn btn--primary" type="button" disabled={busy || (step === 1 && (!chosen || !!insufficient))} onClick={() => void (step === 1 ? begin() : next())}>{busy ? t("Сохранение…") : step === 3 ? t("Начать диктовать") : step === 1 && !chosen?.downloaded ? t("Скачать и продолжить") : t("Дальше")}</button>
+        <button className="btn btn--primary" type="button" disabled={busy || (step === 1 && (!chosen || !!insufficient))} onClick={() => void (step === 1 ? begin() : next())}>{primary}</button>
       </footer>
     </div>
     <svg className="onboarding__waves" viewBox="0 0 1440 600" preserveAspectRatio="none" aria-hidden="true">

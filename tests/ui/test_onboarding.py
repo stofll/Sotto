@@ -83,11 +83,13 @@ def test_failed_step_save_stays_put_and_can_retry(app, page):
     expect(
         page.get_by_role("heading", name="Нажали. Сказали. Текст уже там.")
     ).to_be_visible()
-    expect(
-        page.get_by_text("Не удалось сохранить настройку. Попробуйте ещё раз.")
-    ).to_be_visible()
+    # The reason appears once, next to the step, not also in the window banner.
+    expect(page.get_by_role("alert")).to_have_text(
+        "Не удалось сохранить настройку: Synthetic disk full"
+    )
     page.get_by_role("button", name="Дальше", exact=True).click()
     ui.saved("onboarding_step", 1)
+    expect(page.get_by_role("alert")).to_have_count(0)
     expect(
         page.get_by_role("heading", name="Одна модель, чтобы начать")
     ).to_be_visible()
@@ -97,7 +99,7 @@ def test_download_continues_after_skip_and_activates_model(app, page):
     ui = first_run(app, 1, responses={"download_model": [{"hold": True}]})
     page.get_by_role("button", name="Скачать и продолжить", exact=True).click()
     ui.saved("onboarding_step", 2)
-    page.get_by_role("button", name="Пропустить онбординг", exact=True).click()
+    page.get_by_role("button", name="Пропустить введение", exact=True).click()
     ui.saved("onboarding_completed", True)
     expect(page.get_by_test_id("page-settings")).to_be_visible()
     expect(page.get_by_text("Скачивается Whisper turbo", exact=True)).to_be_visible()
@@ -118,6 +120,32 @@ def test_download_continues_after_skip_and_activates_model(app, page):
     assert len(ui.calls("download_model")) == 1
     page.get_by_role("button", name="Закрыть подсказку", exact=True).click()
     expect(page.get_by_text("Можно диктовать", exact=True)).to_have_count(0)
+
+
+def test_skipped_download_keeps_models_page_busy_and_warns_after_banner(app, page):
+    ui = first_run(app, 1, responses={"download_model": [{"hold": True}]})
+    page.get_by_role("button", name="Скачать и продолжить", exact=True).click()
+    ui.saved("onboarding_step", 2)
+    page.get_by_role("button", name="Пропустить введение", exact=True).click()
+    ui.saved("onboarding_completed", True)
+    expect(page.locator(".onboarding-banner__copy")).to_be_focused()
+    ui.nav("models")
+    expect(
+        page.get_by_test_id("model-turbo").get_by_role(
+            "button", name="Скачать модель", exact=True
+        )
+    ).to_be_disabled()
+    page.get_by_test_id("model-turbo").click()
+    expect(page.get_by_role("dialog")).to_have_count(0)
+    ui.settle("download_model", error="Synthetic offline")
+    expect(page.get_by_text("Модель распознавания не скачана.")).to_have_count(0)
+    page.get_by_role("button", name="Закрыть подсказку", exact=True).click()
+    # With the card gone, the download's failure and the missing model are still reported.
+    expect(
+        page.get_by_role("alert").filter(has_text="Synthetic offline")
+    ).to_be_visible()
+    expect(page.get_by_text("Модель распознавания не скачана.")).to_be_visible()
+    assert len(ui.calls("download_model")) == 1
 
 
 def test_download_failure_can_be_retried_without_leaving_introduction(app, page):
@@ -184,12 +212,62 @@ def test_downloaded_model_activation_failure_preserves_current_model_and_retries
     ui.saved("onboarding_model", "gigaam-v3")
     ui.queue("set_model", {"error": "Synthetic engine unavailable"})
     page.get_by_role("button", name="Дальше", exact=True).click()
+    expect(page.get_by_role("alert")).to_have_count(1)
     expect(page.get_by_role("alert")).to_contain_text("Synthetic engine unavailable")
     assert ui.state()["config"]["model"] == "turbo"
     assert ui.state()["config"]["onboarding_step"] == 1
     page.get_by_role("button", name="Дальше", exact=True).click()
     ui.saved("model", "gigaam-v3")
     ui.saved("onboarding_step", 2)
+    assert not ui.calls("download_model")
+
+
+def test_model_radios_keep_keyboard_focus_and_name_only_the_model(app, page):
+    ui = first_run(app, 1)
+    turbo = page.get_by_role("radio", name="Whisper turbo", exact=True)
+    expect(turbo).to_be_checked()
+    turbo.focus()
+    page.keyboard.press("ArrowRight")
+    ui.saved("onboarding_model", "gigaam-v3")
+    page.keyboard.press("ArrowRight")
+    ui.saved("onboarding_model", "nemotron-streaming")
+    expect(page.get_by_role("radio", name="Nemotron 3.5", exact=True)).to_be_focused()
+
+
+def test_english_interface_offers_models_for_english(app, page):
+    # A fresh installation has no speech language yet.
+    first_run(app, 1, config={"ui_language": "en", "language": None})
+    expect(page.get_by_role("radio")).to_have_count(2)
+    expect(page.get_by_role("radio", name="GigaAM v3", exact=True)).to_have_count(0)
+
+
+@pytest.mark.parametrize(
+    "current, label", [("turbo", "Whisper turbo"), ("large-v3", "Whisper large-v3")]
+)
+def test_replay_keeps_a_working_model_without_reloading_it(app, page, current, label):
+    working = [{**model, "downloaded": model["id"] == "turbo"} for model in MODELS] + [
+        {
+            **MODELS[0],
+            "id": "large-v3",
+            "label": "Whisper large-v3",
+            "downloaded": True,
+            "selected": False,
+        }
+    ]
+    ui = app(
+        config={"model": current},
+        runtime={"model_loaded": True, "loaded_model": current},
+        models=working,
+    )
+    ui.nav("info")
+    page.get_by_role("button", name="Пройти введение ещё раз", exact=True).click()
+    ui.saved("onboarding_model", current)
+    page.get_by_role("button", name="Дальше", exact=True).click()
+    ui.saved("onboarding_step", 1)
+    expect(page.get_by_role("radio", name=label, exact=True)).to_be_checked()
+    page.get_by_role("button", name="Дальше", exact=True).click()
+    ui.saved("onboarding_step", 2)
+    assert not ui.calls("set_model")
     assert not ui.calls("download_model")
 
 
@@ -203,7 +281,7 @@ def test_replay_from_help_and_release_notes_are_deferred(app, page):
         },
     )
     expect(page.get_by_role("dialog", name="Что нового")).to_have_count(0)
-    page.get_by_role("button", name="Пропустить онбординг", exact=True).click()
+    page.get_by_role("button", name="Пропустить введение", exact=True).click()
     ui.saved("onboarding_completed", True)
     expect(page.get_by_role("dialog", name="Что нового")).to_have_count(0)
     assert not ui.calls("get_whats_new")
@@ -245,7 +323,10 @@ def test_telemetry_keep_enabled_and_failed_opt_out_retry(app, page):
     ui.queue("save_config", {"error": "Synthetic disk full"})
     dialog = page.get_by_role("dialog", name="Что отправляет телеметрия")
     dialog.get_by_role("button", name="Выключить", exact=True).click()
-    expect(dialog.get_by_role("alert")).to_be_visible()
+    expect(dialog.get_by_role("alert")).to_have_text(
+        "Не удалось сохранить настройку: Synthetic disk full"
+    )
+    expect(page.get_by_role("alert")).to_have_count(1)
     assert ui.state()["config"]["telemetry_enabled"] is True
     dialog.get_by_role("button", name="Выключить", exact=True).click()
     ui.saved("telemetry_enabled", False)
@@ -260,7 +341,10 @@ def test_telemetry_dialog_is_shared_with_advanced_settings(app, page):
     page.get_by_role(
         "checkbox", name="Разрешить обезличенную телеметрию", exact=True
     ).uncheck()
-    expect(page.get_by_role("dialog", name="Что отправляет телеметрия")).to_be_visible()
+    dialog = page.get_by_role("dialog", name="Что отправляет телеметрия")
+    expect(dialog).to_be_visible()
+    # Styled without the introduction's module ever loading.
+    expect(dialog.locator("dd").first).to_have_css("margin-left", "0px")
     page.keyboard.press("Escape")
     ui.saved("telemetry_enabled", False)
 
@@ -294,7 +378,7 @@ def test_failed_introduction_module_can_reload_or_skip(
         expect(page.get_by_test_id("onboarding")).to_be_visible()
         assert ui.state()["config"]["onboarding_completed"] is False
     else:
-        page.get_by_role("button", name="Пропустить онбординг", exact=True).click()
+        page.get_by_role("button", name="Пропустить введение", exact=True).click()
         ui.saved("onboarding_completed", True)
         expect(page.get_by_test_id("page-settings")).to_be_visible()
 
@@ -306,10 +390,29 @@ def test_cloud_replay_explains_existing_route_and_skip_preserves_it(app, page):
             "Сейчас запись отправляется выбранному облачному сервису.", exact=True
         )
     ).to_be_visible()
-    page.get_by_role("button", name="Пропустить онбординг", exact=True).click()
+    page.get_by_role("button", name="Пропустить введение", exact=True).click()
     ui.saved("onboarding_completed", True)
     assert ui.state()["config"]["ai_processing"]["pipeline_mode"] == "cloud"
     assert not ui.calls("download_model")
+
+
+def test_cloud_route_switches_to_a_downloaded_model_only_when_asked(app, page):
+    ui = first_run(
+        app,
+        1,
+        config={"ai_processing": {"pipeline_mode": "cloud"}},
+        models=[{**model, "downloaded": model["id"] == "turbo"} for model in MODELS],
+    )
+    expect(page.get_by_role("button", name="Дальше", exact=True)).to_have_count(0)
+    page.get_by_role("button", name="Пропустить шаг", exact=True).click()
+    ui.saved("onboarding_step", 2)
+    assert ui.state()["config"]["ai_processing"]["pipeline_mode"] == "cloud"
+    page.get_by_role("button", name="Назад", exact=True).click()
+    ui.saved("onboarding_step", 1)
+    page.get_by_role("button", name="Перейти на локальную модель", exact=True).click()
+    ui.saved("onboarding_step", 2)
+    assert ui.calls("set_model")[-1]["args"] == {"model": "turbo"}
+    assert ui.state()["config"]["ai_processing"]["pipeline_mode"] == "local"
 
 
 def test_explicit_local_model_download_switches_cloud_route(app, page):
@@ -321,7 +424,9 @@ def test_explicit_local_model_download_switches_cloud_route(app, page):
         },
         responses={"download_model": [{"hold": True}]},
     )
-    page.get_by_role("button", name="Скачать и продолжить", exact=True).click()
+    page.get_by_role(
+        "button", name="Скачать и перейти на локальную", exact=True
+    ).click()
     ui.saved("onboarding_step", 2)
     assert ui.state()["config"]["ai_processing"]["pipeline_mode"] == "cloud"
     page.evaluate("window.__sottoTest.state.models[0].downloaded = true")

@@ -5,7 +5,7 @@
 .onboarding__counter { color: var(--accent-text); font: 500 12px/1.4 var(--font-mono); }
 .onboarding h1 { margin: var(--pad-3) 0 var(--pad-4); font: 600 clamp(28px, 4vw, 42px)/1.12 var(--font-sans); letter-spacing: -.03em; }
 .onboarding h1:focus { outline: none; }
-.onboarding p { margin: var(--pad-3) 0 0; color: var(--ink-dim); font: 400 13px/1.55 var(--font-sans); }
+:where(.onboarding) p { margin: var(--pad-3) 0 0; color: var(--ink-dim); font: 400 13px/1.55 var(--font-sans); }
 .onboarding__heading p { font-size: 15px; }
 .onboarding h2 { margin: var(--pad-4) 0 var(--pad-3); font: 600 17px/1.3 var(--font-sans); }
 .onboarding__grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--pad-4); }
@@ -33,10 +33,6 @@
 .onboarding-banner__copy { flex: 1; min-width: 0; }
 .onboarding-banner p { margin: var(--pad-2) 0 0; color: var(--ink-dim); font: 400 13px/1.5 var(--font-sans); }
 .onboarding-banner progress { width: 100%; height: var(--pad-2); margin-top: var(--pad-3); accent-color: var(--accent); }
-.telemetry-explanation p { margin: 0 0 var(--pad-4); }
-.telemetry-explanation dl { margin: 0 0 var(--pad-5); }
-.telemetry-explanation dt { color: var(--ink); font-weight: 600; }
-.telemetry-explanation dd { margin: var(--pad-2) 0 var(--pad-4); color: var(--ink-dim); }
 @keyframes onboarding-enter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes onboarding-speech { to { transform: scaleY(.5); } }
 @media (max-width: 800px) { .onboarding__stage { padding: var(--pad-5); } .onboarding__grid { gap: var(--pad-3); } .onboarding-banner { margin: var(--pad-4); flex-wrap: wrap; } }
