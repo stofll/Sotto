@@ -36,7 +36,7 @@ export type OnboardingProps = {
 
 function modelDescription(model: ModelInfo) {
   if (model.id === "gigaam-v3") return t("Для русской речи. Сама ставит знаки, текст приходит в конце фразы.");
-  if (model.streaming) return t("Потоковая: слова появляются, пока вы говорите. Русский и английский.");
+  if (model.id === "nemotron-streaming") return t("Потоковая: слова появляются, пока вы говорите. Русский и английский.");
   if (model.id === "turbo") return t("Если языков много. Может распознавать на видеокарте.");
   return t("Модель, которой вы пользуетесь сейчас.");
 }
@@ -64,7 +64,10 @@ export default function Onboarding(props: OnboardingProps) {
   // A fresh installation has no speech language yet; the interface language is
   // the best guess of what the user will dictate.
   const choices = onboardingModels(models, config.language ?? (locale === "en" ? "en" : "ru"), runtime?.os, config.model);
-  const chosen = choices.find((model) => model.id === (config.onboarding_model ?? config.model)) ?? choices[0];
+  // The choice shows and counts at once; its write may still be queued when
+  // the user presses the download button.
+  const [picked, setPicked] = useState<string | null>(null);
+  const chosen = choices.find((model) => model.id === (picked ?? config.onboarding_model ?? config.model)) ?? choices[0];
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
   const [catalogFailed, setCatalogFailed] = useState(false);
@@ -81,7 +84,9 @@ export default function Onboarding(props: OnboardingProps) {
       ...(cloud ? { ai_processing: { pipeline_mode: "local" } } : {}),
     }),
   });
-  const downloading = actions.downloading.length > 0;
+  // A download started on the Models page counts too; that page activates it.
+  const inFlight = actions.activeDownloads;
+  const downloading = inFlight.length > 0;
   const idle = !active && !banner && !downloading && !actions.status;
 
   useEffect(() => { if (active) heading.current?.focus(); }, [active, step]);
@@ -133,9 +138,13 @@ export default function Onboarding(props: OnboardingProps) {
 
   async function choose(model: ModelInfo) {
     setFailed(null);
+    setPicked(model.id);
     // Not `save`: disabling the radios mid-write would drop keyboard focus.
     let reason = "";
-    if (!await onConfigChanged({ onboarding_model: model.id }, (message) => { reason = message; })) setFailed(reason);
+    if (!await onConfigChanged({ onboarding_model: model.id }, (message) => { reason = message; })) {
+      setPicked(null);
+      setFailed(reason);
+    }
   }
 
   async function begin() {
@@ -150,7 +159,7 @@ export default function Onboarding(props: OnboardingProps) {
         setBusy(false);
         if (!ok) return;
       }
-    } else if (!actions.downloading.includes(chosen.id)) {
+    } else if (!inFlight.includes(chosen.id)) {
       // Persist the choice before launching. The download itself does not hold
       // navigation and continues if the window is hidden or the flow is skipped.
       if (!await save({ onboarding_model: chosen.id })) return;
@@ -161,7 +170,7 @@ export default function Onboarding(props: OnboardingProps) {
 
   if (!active) {
     if (!banner) return <ModelActionOverlays actions={actions}/>;
-    const model = models.find((item) => item.id === (actions.downloading[0] ?? config.model));
+    const model = models.find((item) => item.id === (inFlight[0] ?? config.model));
     const ready = runtime?.active_engine === "cloud-stt"
       || (model?.downloaded && (runtime?.loaded_model === model.id || runtime?.model_loads_on_demand));
     const downloadFailed = actions.status?.kind === "error";
@@ -174,7 +183,7 @@ export default function Onboarding(props: OnboardingProps) {
           : t("Скачайте модель в разделе «Модели», затем нажмите горячую клавишу.")}</p>
         {downloading && <progress aria-label={t("Скачивание модели")} max={progress?.total ?? undefined} value={progress?.total && progress.model === model?.id ? progress.downloaded : undefined}/>}
       </div>
-      {downloading ? <button className="btn btn--ghost" type="button" onClick={() => void actions.cancelDownload(actions.downloading[0])}>{t("Отменить скачивание")}</button>
+      {downloading ? <button className="btn btn--ghost" type="button" onClick={() => void actions.cancelDownload(inFlight[0])}>{t("Отменить скачивание")}</button>
         : (!ready || downloadFailed) && <button className="btn btn--primary" type="button" onClick={() => onNavigate("models")}>{t("Открыть модели")}</button>}
       <button className="btn btn--ghost btn--icon" type="button" aria-label={t("Закрыть подсказку")} onClick={() => setBanner(false)}><Icon name="x" size={14}/></button>
     </Card>;
@@ -190,7 +199,7 @@ export default function Onboarding(props: OnboardingProps) {
   ];
   const disk = chosen ? assessments.values[chosen.id] : undefined;
   const insufficient = !chosen?.downloaded && disk?.download?.insufficient;
-  const chosenDownloading = !!chosen && actions.downloading.includes(chosen.id);
+  const chosenDownloading = !!chosen && inFlight.includes(chosen.id);
   const primary = busy ? t("Сохранение…")
     : step === 3 ? t("Начать диктовать")
     : step !== 1 || chosenDownloading ? t("Дальше")

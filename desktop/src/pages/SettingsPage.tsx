@@ -8,6 +8,7 @@ import { HotkeyDisplay, RecordingModeSegmented } from "./settings/CaptureSection
 import { LanguagePicker, UiLanguagePicker } from "./settings/LanguageSection";
 import { MicPicker } from "./settings/MicrophoneSection";
 import { BehaviorSection } from "./settings/BehaviorSection";
+import type { ConfigChanged } from "./settings/controls";
 import { Icon } from "../components/Icon";
 import { OverlaySettings } from "./OverlaySettings";
 import { AdvancedSection } from "./settings/AdvancedSection";
@@ -22,7 +23,7 @@ type Props = {
   models: ModelInfo[];
   /** A portable copy does not manage autostart — see the row itself. */
   portable?: boolean;
-  onConfigChanged: (partial: Partial<ConfigResult>) => Promise<ConfigResult | null>;
+  onConfigChanged: ConfigChanged;
 };
 
 export function SettingsPage({ config, microphones, models, portable, onConfigChanged }: Props) {

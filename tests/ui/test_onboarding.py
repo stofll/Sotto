@@ -234,6 +234,43 @@ def test_model_radios_keep_keyboard_focus_and_name_only_the_model(app, page):
     expect(page.get_by_role("radio", name="Nemotron 3.5", exact=True)).to_be_focused()
 
 
+def test_download_uses_the_choice_even_while_its_save_is_queued(app, page):
+    ui = first_run(app, 1, responses={"download_model": [{"hold": True}]})
+    ui.queue("save_config", {"hold": True})
+    page.get_by_role("radio", name="GigaAM v3", exact=True).check()
+    page.get_by_role("button", name="Скачать и продолжить", exact=True).click()
+    ui.settle(
+        "save_config", result={**ui.state()["config"], "onboarding_model": "gigaam-v3"}
+    )
+    ui.saved("onboarding_step", 2)
+    assert ui.calls("download_model")[0]["args"] == {"model": "gigaam-v3"}
+    assert ui.state()["config"]["onboarding_model"] == "gigaam-v3"
+
+
+def test_replay_sees_a_download_started_on_the_models_page(app, page):
+    ui = app(
+        config={"model": "turbo"},
+        models=MODELS,
+        responses={"download_model": [{"hold": True}]},
+    )
+    ui.nav("models")
+    page.get_by_test_id("model-turbo").get_by_role(
+        "button", name="Скачать модель", exact=True
+    ).click()
+    page.wait_for_function("window.__sottoTest.pending('download_model')")
+    ui.nav("info")
+    page.get_by_role("button", name="Пройти введение ещё раз", exact=True).click()
+    page.get_by_role("button", name="Дальше", exact=True).click()
+    ui.saved("onboarding_step", 1)
+    expect(page.get_by_role("radio", name="Whisper turbo", exact=True)).to_be_disabled()
+    page.get_by_role("button", name="Дальше", exact=True).click()
+    ui.saved("onboarding_step", 2)
+    page.get_by_role("button", name="Пропустить введение", exact=True).click()
+    ui.saved("onboarding_completed", True)
+    expect(page.get_by_text("Скачивается Whisper turbo", exact=True)).to_be_visible()
+    assert len(ui.calls("download_model")) == 1
+
+
 def test_english_interface_offers_models_for_english(app, page):
     # A fresh installation has no speech language yet.
     first_run(app, 1, config={"ui_language": "en", "language": None})

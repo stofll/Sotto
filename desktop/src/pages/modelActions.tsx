@@ -276,6 +276,8 @@ export function useModelActions({ models, value, language, onConfigChanged, onMo
     dismissStatus,
     deleting,
     downloading,
+    /** Downloads in flight from any section of the window, this one included. */
+    activeDownloads,
     /** Whether this model's card is busy with an operation of its own. */
     isBusy: (id: string) => downloading.includes(id) || activeDownloads.includes(id) || deleting.includes(id),
     pendingDownload,

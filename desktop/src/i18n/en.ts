@@ -1349,5 +1349,5 @@ export const en: Record<string, string | string[]> = {
   "Модель, которой вы пользуетесь сейчас.": "The model you are using now.",
   "Скачать и перейти на локальную": "Download and switch to local",
   "Перейти на локальную модель": "Switch to local model",
-  "Полный перечень полей описан в документации Sotto о телеметрии.": "The full list of fields is described in Sotto's telemetry documentation.",
+  "Полный перечень полей приведён в документации Sotto о приватности.": "The full list of fields is in Sotto's privacy documentation.",
 };
