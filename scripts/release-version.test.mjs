@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { nextVersion, updateVersions, verifyReleaseCommit, versionFiles } from './release-version.mjs';
+import { compareReleaseVersions, nextVersion, releaseChannel, updateVersions, verifyReleaseCommit, versionFiles } from './release-version.mjs';
 
 const repo = fileURLToPath(new URL('../', import.meta.url));
 
@@ -42,6 +42,44 @@ test('uses the greatest stable tag or current version, including reserved draft 
 
 test('an exact stable version overrides the bump kind', () => {
   assert.equal(nextVersion('0.0.5', ['v0.0.6'], 'patch', ' 0.2.0 '), '0.2.0');
+});
+
+test('beta preparation starts and continues a numbered series, reserving draft tags', () => {
+  assert.equal(nextVersion('0.2.0', [], 'patch', '', 'beta'), '0.2.1-beta.1');
+  assert.equal(nextVersion('0.2.1-beta.1', ['v0.2.1-beta.9', 'v0.2.1-beta.10'], 'patch', '', 'beta'), '0.2.1-beta.11');
+  assert.equal(nextVersion('0.2.0', ['v0.2.1-beta.1'], 'patch', '', 'beta'), '0.2.1-beta.2');
+  assert.equal(nextVersion('0.2.0', ['v0.2.1-beta.001'], 'patch', '', 'beta'), '0.2.1-beta.1');
+  assert.equal(nextVersion('0.2.1', ['v0.2.1-beta.10'], 'patch', '', 'beta'), '0.2.2-beta.1');
+  assert.equal(nextVersion('0.2.1-beta.10', [], 'minor', '', 'beta'), '0.3.0-beta.1');
+  assert.equal(nextVersion('0.2.0', [], 'patch', '0.3.0', 'beta'), '0.3.0-beta.1');
+});
+
+test('stable preparation promotes a beta base, while minor and major selections still bump', () => {
+  assert.equal(nextVersion('0.2.1-beta.3', [], 'patch'), '0.2.1');
+  assert.equal(nextVersion('0.2.0', ['v0.3.0-beta.3'], 'patch'), '0.3.0');
+  assert.equal(nextVersion('0.2.1-beta.3', [], 'minor'), '0.3.0');
+  assert.equal(nextVersion('0.2.1-beta.3', [], 'major'), '1.0.0');
+  assert.throws(() => nextVersion('0.2.1', [], 'patch', '0.2.1', 'beta'));
+  assert.throws(() => nextVersion('0.2.0', [], 'patch', '', 'unknown'));
+});
+
+test('release channel and precedence distinguish beta numbers from the stable version', () => {
+  assert.equal(releaseChannel('0.2.1-beta.1'), 'beta');
+  assert.equal(releaseChannel('0.2.1'), 'stable');
+  assert.equal(compareReleaseVersions('0.2.1-beta.10', '0.2.1-beta.9'), 1);
+  assert.equal(compareReleaseVersions('0.2.1', '0.2.1-beta.10'), 1);
+  for (const value of ['0.2.1-beta.0', '0.2.1-beta.01', '0.2.1-beta', '0.2.1-rc.1']) assert.throws(() => releaseChannel(value));
+});
+
+test('all version sources can enter and leave beta without unrelated edits', (t) => {
+  const root = fixture(t);
+  const original = snapshot(root);
+  updateVersions(root, '0.0.6-beta.1');
+  execFileSync('sh', ['scripts/check-version.sh', 'v0.0.6-beta.1'], { cwd: root });
+  updateVersions(root, '0.0.6-beta.2');
+  updateVersions(root, '0.0.6');
+  updateVersions(root, '0.0.5');
+  assert.deepEqual(snapshot(root), original);
 });
 
 test('rejects reused versions, downgrades, prereleases, and malformed input', () => {
@@ -169,6 +207,30 @@ test('release commit guard rejects dependency edits, unrelated files, and mode c
     git(root, 'commit', '--amend', '--no-edit');
     assert.throws(() => verifyReleaseCommit(root, base, '0.0.6'));
   }
+});
+
+test('CLI prepares a beta tag and can promote the same source to stable metadata', (t) => {
+  const root = fixture(t);
+  git(root, 'init', '-q', '-b', 'main');
+  git(root, 'add', '.');
+  git(root, 'commit', '-qm', 'Source');
+  const source = git(root, 'rev-parse', 'HEAD');
+  const output = join(root, 'outputs');
+  const result = spawnSync(process.execPath, ['scripts/release-version.mjs'], {
+    cwd: root, encoding: 'utf8',
+    env: { ...process.env, RELEASE_KIND: 'patch', RELEASE_VERSION: '', RELEASE_CHANNEL: 'beta', GITHUB_OUTPUT: output },
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(readFileSync(output, 'utf8'), 'version=0.0.6-beta.1\ntag=v0.0.6-beta.1\n');
+  git(root, 'add', ...versionFiles);
+  git(root, 'commit', '-qm', 'Beta version');
+  assert.doesNotThrow(() => verifyReleaseCommit(root, source, '0.0.6-beta.1'));
+  git(root, 'tag', 'v0.0.6-beta.1');
+  const beta = git(root, 'rev-parse', 'HEAD');
+  updateVersions(root, nextVersion('0.0.6-beta.1', ['v0.0.6-beta.1'], 'patch'));
+  git(root, 'add', ...versionFiles);
+  git(root, 'commit', '-qm', 'Stable version');
+  assert.doesNotThrow(() => verifyReleaseCommit(root, beta, '0.0.6'));
 });
 
 test('atomic push publishes both refs or neither on concurrent main changes and tag collisions', (t) => {

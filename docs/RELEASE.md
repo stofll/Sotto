@@ -14,7 +14,11 @@ The repository's `.cargo/config.toml` selects `scripts/ggml-baseline.cmake` for 
 
 ### 1. Prepare the version in GitHub Actions
 
-Keep the application version unchanged during normal development. Once the intended changes are merged, open **Actions → Prepare Release → Run workflow**, leave the branch set to `main`, and select `patch`, `minor`, or `major`. An optional exact stable version such as `0.1.0` overrides that selection; enter it without a `v` prefix.
+Keep the application version unchanged during normal development. **Prepare Release** runs from `main` every Monday and Thursday at 21:00 Moscow time (18:00 UTC), preparing a beta when application or build changes exist since the greatest stable or beta tag in that commit's history. It skips unchanged sources and changes confined to `site/`, `docs/`, or root Markdown files; tags for drafts count as already prepared sources.
+
+For a release outside that schedule, open **Actions → Prepare Release → Run workflow**, leave the branch set to `main`, choose `stable` (the manual default) or `beta`, and select `patch`, `minor`, or `major`. An optional exact base version such as `0.3.0` overrides that selection; enter it without a `v` prefix or beta suffix. Manual runs remain available even when the scheduled change check would skip the source.
+
+The schedule is defined in `.github/workflows/prepare-release.yml`. GitHub runs scheduled workflows only from the default branch and may delay them under load, so this is the preparation start time rather than an artifact availability guarantee. In a public repository, GitHub disables schedules after 60 days without repository activity; re-enable the workflow in Actions if needed.
 
 | Selection | From `0.0.5` |
 |---|---|
@@ -23,11 +27,13 @@ Keep the application version unchanged during normal development. Once the inten
 | `major` | `1.0.0` |
 | Exact version `0.2.0` | `0.2.0` |
 
-The automatic bump starts from the greatest of the checked-in version and existing stable `vX.Y.Z` tags. Tags for unfinished drafts reserve their numbers too. An exact version must be greater than that baseline; this workflow accepts stable versions only.
+Version selection accounts for the checked-in version and existing stable and beta tags, including unfinished drafts. From `0.2.0`, scheduled preparation starts `0.2.1-beta.1`, then continues `0.2.1-beta.2` when new changes arrive. A manual stable patch promotes that pending base to `0.2.1`; minor and major selections still advance their respective components. Exact base versions must produce a version greater than all already reserved versions.
 
-Prepare Release reuses successful Rust CI and UI tests for the selected source tree. It accepts checks on the source commit itself or on the head of its merged PR when the resulting trees are identical. It does not create a version PR or repeat full application CI.
+Both scheduled and manual preparation run the full Rust CI and UI test workflows automatically against the pinned source commit before changing any version or tag. This also permits stable preparation immediately after a beta version commit or a site-only merge, without manually dispatching source CI. Neither path creates a version PR.
 
 The workflow runs the release-script tests, updates the version, and verifies the committed diff contains only the expected version replacements, with dependencies and file modes unchanged. The release bot pushes the new `main` commit and its tag atomically. The tag starts the release build, which creates a draft; publishing does not change the version.
+
+The build marks any SemVer prerelease as a GitHub prerelease. Publish beta drafts with that flag intact: they must never be marked as the latest stable release. To ship a stable version, prepare and build its stable tag separately; changing a beta's GitHub flag does not change its embedded version.
 
 The workflow updates these four sources together without updating dependencies:
 
@@ -46,13 +52,14 @@ Create a private GitHub App, install it only on Sotto, and grant it **Contents: 
 
 In **Settings → Rules → Rulesets**, add the App to the PR/required-check ruleset's bypass list with **Always allow**. Keep the deletion and force-push prohibitions in a separate active ruleset with no bypass actors. Bypass permissions apply to an entire ruleset, not to individual rules or version fields; the workflow's diff check enforces the version-only restriction. No permission to create or approve PRs is needed.
 
-The source workflows are listed in `scripts/check-release-source.mjs`. Add new release-gating workflows there when needed. Missing, pending, failed, or cancelled CI prevents the release; an API error also stops preparation. A workflow started outside `main`, or in a fork, skips preparation.
+The source workflows are called from `prepare-release.yml`. Add new release-gating workflows there when needed. Missing, pending, failed, or cancelled CI prevents version preparation. A workflow started outside `main`, or in a fork, skips preparation.
 
 An App token's tag push triggers Release automatically. Do not also call Release from Prepare Release, as that would build the same version twice. The release build uses its regular `GITHUB_TOKEN`, without the App's bypass permission.
 
 #### Failures and retries
 
-- If CI is incomplete, finish it before preparing the release. If the source cannot reuse a merged PR's identical checked tree (for example, after a direct commit), start both **Rust CI** and **UI tests** manually on `main`. The automatic Rust CI run for a push to `main` only builds and warms the cache, so it does not count. Preparation starts neither.
+- If source CI fails, fix the failure before rerunning preparation. Both manual and scheduled preparation start their own complete source checks; the build-only Rust CI run for a push to `main` does not substitute for them.
+- If scheduled source checks fail, fix the failure before the next run; no version commit or tag is created. If the source already has a draft tag, the unchanged scheduled run skips it: retry the existing **Release** build instead of reserving another patch version.
 - If `main` changes during preparation, start a new Prepare Release run. The push never force-updates refs: the release commit and tag are either both accepted or both rejected.
 - For an invalid version or missing App configuration, fix the reported problem and start again. If the push result was uncertain, inspect `main` and the tag before retrying; an already pushed tag reserves that version.
 - If the release build fails after tagging, rerun its failed jobs or run **Release** manually with the existing tag. The build and SBOM resolve that tag rather than the selected UI branch. Published releases cannot be rebuilt; issue a new version instead.
@@ -222,7 +229,7 @@ The release body is what the app shows as "what's new", so write it for users ra
 
 ### Tag Format
 
-Automated stable releases use `vX.Y.Z` (e.g., `v0.2.0`). The version checker also accepts pre-release tags such as `v0.2.0-rc.1`, but Prepare Release does not manage a pre-release channel. The manual stable tagging fallback requires synchronized versions already committed to `main`:
+Automated stable releases use `vX.Y.Z` (e.g., `v0.2.1`), and automated betas use `vX.Y.Z-beta.N` (e.g., `v0.2.1-beta.1`). The version checker also accepts other SemVer prerelease tags such as `v0.2.0-rc.1`; the build marks them as GitHub prereleases, while Prepare Release manages stable and numbered beta versions. The manual stable tagging fallback requires synchronized versions already committed to `main`:
 
 ```bash
 # After version bump commit is on main
@@ -357,7 +364,9 @@ The release itself already exists by this point: `tauri-action` opened it as a d
 3. Write the release description using the [template below](#whats-new-template). Review merged PRs or `git log --oneline <previous tag>..vX.Y.Z` as source material, then describe the changes in user-facing language.
 4. Publish the draft.
 
-Publishing is the release. `latest.json` is served from `releases/latest/download/`, so until the draft stops being a draft no installed copy sees anything; the moment it is published, eligible installed versions are offered the update. The manifest contains the notes captured during the build; the post-update dialog retrieves the published release description as described below.
+Publishing makes a release available to its update channel. Stable checks use `releases/latest/download/latest.json`; beta checks select the newest eligible published version from GitHub Releases and use that tag's manifest. Drafts are invisible to both channels. The manifest contains the notes captured during the build; the post-update dialog retrieves the published release description as described below.
+
+Installed copies receive stable versions by default, including copies installed from a beta installer. **Help → Updates → Receive beta builds** opts into newer beta and stable releases. Disabling it clears the displayed update and checks the stable channel again; it never downgrades an installed beta, which can return to stable when a newer stable version is published. Checking and installation both read the persisted choice, and every installation still verifies the updater signature.
 
 ### What's New Template
 
@@ -422,7 +431,7 @@ The source archives GitHub attaches on its own appear only once the draft is pub
 
 ### Rollback Procedure
 
-The endpoint is `releases/latest/download/latest.json`, so "latest" is whichever release GitHub currently marks as latest — that is the lever.
+The stable endpoint is `releases/latest/download/latest.json`, so "latest" is whichever stable release GitHub currently marks as latest — that is the lever. Beta subscribers also see eligible published prereleases; remove a withdrawn beta release to stop offering it on that channel.
 
 1. Mark the bad release as a pre-release (or delete it). GitHub then points "latest" at the previous release, and its `latest.json` takes over.
 2. Users who have not updated yet see nothing at all.

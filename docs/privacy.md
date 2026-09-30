@@ -27,6 +27,8 @@ The application may contact:
 
 The application UI uses system fonts and does not load font assets from a third-party CDN.
 
+Update checks use stable releases by default. Enabling **Help → Updates → Receive beta builds** also queries the public GitHub Releases list to find newer published betas; the choice is saved locally. Update checks send no audio, transcripts, provider credentials, or application history, and installation still requires an explicit click.
+
 Review provider settings before enabling a cloud workflow. Do not put secrets, transcripts, recordings, or provider responses into public bug reports.
 
 ## Local data

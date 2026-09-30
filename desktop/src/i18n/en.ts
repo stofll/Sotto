@@ -14,6 +14,8 @@
 // tPlural picks the right one by the array's length.
 
 export const en: Record<string, string | string[]> = {
+  "Получать бета-сборки": "Receive beta builds",
+  "По умолчанию доступны только стабильные версии. Бета-сборки позволяют раньше попробовать изменения и могут содержать ошибки.": "Only stable versions are available by default. Beta builds let you try changes earlier and may contain bugs.",
   "Не удалось завершить удаление ключа. Повторите попытку.": "Could not finish deleting the key. Try again.",
   "Не удалось сохранить профиль. Проверьте ошибку и повторите попытку.": "Could not save the profile. Check the error and try again.",
   "Не удалось сохранить профиль: {p0}": "Could not save the profile: {p0}",

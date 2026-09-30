@@ -10,43 +10,68 @@ export const versionFiles = [
   'desktop/src-tauri/Info.plist',
 ];
 
+function parsed(version) {
+  const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-beta\.([1-9]\d*))?$/.exec(version);
+  if (!match) throw new Error(`Expected X.Y.Z or X.Y.Z-beta.N, got '${version}'`);
+  return { parts: match.slice(1, 4).map(BigInt), beta: match[4] ? BigInt(match[4]) : null };
+}
+
 function parts(version) {
-  if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version)) {
-    throw new Error(`Expected a stable version X.Y.Z, got '${version}'`);
-  }
-  return version.split('.').map(BigInt);
+  return parsed(version).parts;
 }
 
-function compare(a, b) {
-  const left = parts(a);
-  const right = parts(b);
+export function releaseChannel(version) {
+  return parsed(version).beta === null ? 'stable' : 'beta';
+}
+
+export function compareReleaseVersions(a, b) {
+  const left = parsed(a);
+  const right = parsed(b);
   for (let i = 0; i < 3; i++) {
-    if (left[i] !== right[i]) return left[i] > right[i] ? 1 : -1;
+    if (left.parts[i] !== right.parts[i]) return left.parts[i] > right.parts[i] ? 1 : -1;
   }
-  return 0;
+  if (left.beta === right.beta) return 0;
+  if (left.beta === null) return 1;
+  if (right.beta === null) return -1;
+  return left.beta > right.beta ? 1 : -1;
 }
 
-export function nextVersion(current, tags, kind, exact = '') {
+export function nextVersion(current, tags, kind, exact = '', channel = 'stable') {
   parts(current);
+  if (!['stable', 'beta'].includes(channel)) throw new Error(`Unknown release channel '${channel}'`);
   if (!['patch', 'minor', 'major'].includes(kind)) {
     throw new Error(`Unknown release kind '${kind}'`);
   }
   let base = current;
   for (const tag of tags) {
-    if (/^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(tag)) {
+    if (/^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-beta\.[1-9]\d*)?$/.test(tag)) {
       const version = tag.slice(1);
-      if (compare(version, base) > 0) base = version;
+      if (compareReleaseVersions(version, base) > 0) base = version;
     }
   }
   let next = exact.trim();
+  if (next && releaseChannel(next) !== 'stable') throw new Error('Supply an exact version without a prerelease suffix');
   if (!next) {
     const values = parts(base);
     const index = { major: 0, minor: 1, patch: 2 }[kind];
-    values[index] += 1n;
-    for (let i = index + 1; i < 3; i++) values[i] = 0n;
+    // Patch preparation continues the pending beta series or promotes it.
+    if (kind !== 'patch' || releaseChannel(base) === 'stable') {
+      values[index] += 1n;
+      for (let i = index + 1; i < 3; i++) values[i] = 0n;
+    }
     next = values.join('.');
   }
-  if (compare(next, base) <= 0) {
+  if (channel === 'beta') {
+    let sequence = 0n;
+    for (const version of [current, ...tags.filter((tag) => tag.startsWith('v')).map((tag) => tag.slice(1))]) {
+      if (version.startsWith(`${next}-beta.`) && /^[1-9]\d*$/.test(version.slice(`${next}-beta.`.length))) {
+        const value = BigInt(version.slice(`${next}-beta.`.length));
+        if (value > sequence) sequence = value;
+      }
+    }
+    next += `-beta.${sequence + 1n}`;
+  }
+  if (compareReleaseVersions(next, base) <= 0) {
     throw new Error(`Release version ${next} must be greater than ${base}`);
   }
   return next;
@@ -122,7 +147,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     const root = fileURLToPath(new URL('../', import.meta.url));
     const current = JSON.parse(readFileSync(resolve(root, versionFiles[2]), 'utf8')).version;
     const tags = execFileSync('git', ['tag', '--list'], { cwd: root, encoding: 'utf8' }).trim().split('\n');
-    const next = nextVersion(current, tags, process.env.RELEASE_KIND ?? 'patch', process.env.RELEASE_VERSION ?? '');
+    const next = nextVersion(current, tags, process.env.RELEASE_KIND ?? 'patch', process.env.RELEASE_VERSION ?? '', process.env.RELEASE_CHANNEL ?? 'stable');
     updateVersions(root, next);
     execFileSync('sh', ['scripts/check-version.sh', `v${next}`], { cwd: root, stdio: ['ignore', 'inherit', 'inherit'] });
     if (process.env.GITHUB_OUTPUT) {

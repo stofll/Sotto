@@ -1,7 +1,7 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { invoke, subscribe } from "../bridge";
 import type { ConfigResult, UpdateDownloadProgress, UpdateInfo } from "../bridge/types";
-import { Card, CardHead, PageHeader, SectionLabel } from "../components/Shell";
+import { Card, CardHead, PageHeader, SectionLabel, Switch } from "../components/Shell";
 import { Icon } from "../components/Icon";
 import { Hint } from "../components/Hint";
 import { confirmDestructive } from "../components/ConfirmDialog";
@@ -63,23 +63,50 @@ function formatMb(bytes: number) {
 // silent (there is nothing to gain from showing a network error) and downloading
 // happens only on an explicit click. The user always sees exactly what is
 // coming: the version, the date and the release notes.
-function UpdatesCard({ version }: { version?: string | null }) {
+function UpdatesCard({ version, config, onConfigChanged }: { version?: string | null; config: ConfigResult | null; onConfigChanged?: (partial: Partial<ConfigResult>) => Promise<ConfigResult | null> }) {
   const [state, setState] = useState<UpdateState>({ kind: "idle" });
   const [showNotes, setShowNotes] = useState(false);
+  const [savingChannel, setSavingChannel] = useState(false);
+  const requestGeneration = useRef(0);
+  const receiveBeta = config?.receive_beta_updates === true;
+  const configReady = config !== null;
+  const invalidateCheck = useCallback(() => { requestGeneration.current++; }, []);
 
-  async function check(loud: boolean) {
+  const check = useCallback(async (loud: boolean) => {
+    const generation = ++requestGeneration.current;
     setState({ kind: "checking" });
     try {
       const info = await invoke<UpdateInfo>("check_update");
+      if (generation !== requestGeneration.current) return;
       setState(info.available ? { kind: "available", info } : { kind: "current" });
     } catch (e) {
+      if (generation !== requestGeneration.current) return;
       const message = e instanceof Error ? e.message : String(e);
       // A silent check on open must not shout about a missing network.
       setState(loud ? { kind: "error", message } : { kind: "idle" });
     }
-  }
+  }, []);
 
-  useEffect(() => { void check(false); }, []);
+  useEffect(() => {
+    if (!configReady) return;
+    void check(false);
+    return invalidateCheck;
+  }, [check, invalidateCheck, receiveBeta, configReady]);
+
+  async function changeChannel(beta: boolean) {
+    if (!onConfigChanged) return;
+    setSavingChannel(true);
+    invalidateCheck();
+    setState({ kind: "idle" });
+    try {
+      const saved = await onConfigChanged({ receive_beta_updates: beta });
+      if (!saved) void check(false);
+    } catch (e) {
+      setState({ kind: "error", message: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setSavingChannel(false);
+    }
+  }
 
   useEffect(() => {
     const unlisten = subscribe<UpdateDownloadProgress>("update-download-progress", (progress) => {
@@ -98,7 +125,7 @@ function UpdatesCard({ version }: { version?: string | null }) {
     }
   }
 
-  const busy = state.kind === "checking" || state.kind === "downloading";
+  const busy = savingChannel || state.kind === "checking" || state.kind === "downloading";
   const percent = state.kind === "downloading" && state.progress?.total
     ? Math.round((state.progress.downloaded / state.progress.total) * 100)
     : null;
@@ -107,9 +134,11 @@ function UpdatesCard({ version }: { version?: string | null }) {
     <HelpCard title={t("Обновления")} icon="download">
       <div style={{ display: "grid", gap: 0 }}>
         <InfoRow label={t("Установленная версия")} value={<span className="mono">{version ?? "0.0.0"}</span>}/>
+        <InfoRow label={t("Получать бета-сборки")} value={<Switch on={receiveBeta} label={t("Получать бета-сборки")} disabled={!config || !onConfigChanged || savingChannel || state.kind === "downloading"} onChange={(beta) => void changeChannel(beta)}/>}/>
         {state.kind === "available" && <InfoRow label={t("Доступна версия")} value={<span className="mono" style={{ color: "var(--accent-text)" }}>{state.info.version}</span>}/>}
         {state.kind === "available" && state.info.date && <InfoRow label={t("Опубликована")} value={state.info.date.slice(0, 10)}/>}
       </div>
+      <p style={{ margin: "12px 0 0", font: "400 11.5px/1.4 var(--font-sans)", color: "var(--ink-mute)" }}>{t("По умолчанию доступны только стабильные версии. Бета-сборки позволяют раньше попробовать изменения и могут содержать ошибки.")}</p>
 
       {state.kind === "available" && state.info.notes && (
         <div style={{ marginTop: 12 }}>
@@ -144,7 +173,7 @@ function UpdatesCard({ version }: { version?: string | null }) {
           <Icon name="refresh" size={13}/> {state.kind === "checking" ? t("Проверяем…") : t("Проверить обновления")}
         </button>
         {state.kind === "available" && (
-          <button className="btn btn--primary" type="button" onClick={() => void install(state.info)}>
+          <button className="btn btn--primary" type="button" disabled={busy} onClick={() => void install(state.info)}>
             <Icon name="download" size={13}/>  {t("Обновить до")} {state.info.version}
           </button>
         )}
@@ -350,7 +379,7 @@ export function InfoPage({ version, config, onConfigChanged }: { version?: strin
 
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(280px, .85fr)", gap: 14, marginTop: 14 }} className="help-top">
         <DiagnosticsCard config={config} onConfigChanged={onConfigChanged}/>
-        <UpdatesCard version={version}/>
+        <UpdatesCard version={version} config={config} onConfigChanged={onConfigChanged}/>
       </div>
 
       <style>{`
