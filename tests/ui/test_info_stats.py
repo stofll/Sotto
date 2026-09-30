@@ -72,8 +72,117 @@ def test_update_available_and_install_failure(app, page):
     expect(page.get_by_text("Synthetic release notes", exact=True)).to_be_visible()
     ui.queue("install_update", {"hold": True})
     page.get_by_role("button", name="Обновить до 0.0.6", exact=True).click()
+    expect(
+        page.get_by_role("button", name="Получать бета-сборки", exact=True)
+    ).to_be_disabled()
     ui.settle("install_update", error="Synthetic signature failure")
     expect(page.get_by_text("Synthetic signature failure", exact=False)).to_be_visible()
+
+
+@pytest.mark.parametrize("locale", ["ru", "en"])
+@pytest.mark.parametrize("theme", ["dark", "light"])
+def test_beta_preference_defaults_off_and_persists_with_keyboard(
+    app, page, locale, theme, output_path
+):
+    ui = app(config={"ui_language": locale, "theme": theme})
+    ui.nav("info")
+    label = "Получать бета-сборки" if locale == "ru" else "Receive beta builds"
+    toggle = page.get_by_role("button", name=label, exact=True)
+    expect(toggle).to_have_attribute("aria-pressed", "false")
+    toggle.focus()
+    expect(toggle).to_be_focused()
+    page.keyboard.press("Space")
+    ui.saved("receive_beta_updates", True)
+    expect(toggle).to_have_attribute("aria-pressed", "true")
+    page.reload()
+    ui.nav("info")
+    expect(toggle).to_have_attribute("aria-pressed", "true")
+    toggle.focus()
+    Path(output_path).mkdir(parents=True, exist_ok=True)
+    page.screenshot(
+        path=str(Path(output_path) / "beta-updates.png"), animations="disabled"
+    )
+    toggle.click()
+    ui.saved("receive_beta_updates", False)
+    expect(toggle).to_have_attribute("aria-pressed", "false")
+
+
+def test_disabling_beta_clears_the_available_beta_and_checks_stable(app, page):
+    ui = app()
+    ui.nav("info")
+    ui.queue(
+        "check_update",
+        {
+            "result": {
+                "available": True,
+                "current_version": "0.2.0",
+                "version": "0.2.1-beta.1",
+            }
+        },
+    )
+    toggle = page.get_by_role("button", name="Получать бета-сборки", exact=True)
+    toggle.click()
+    expect(
+        page.get_by_role("button", name="Обновить до 0.2.1-beta.1", exact=True)
+    ).to_be_visible()
+    toggle.click()
+    ui.saved("receive_beta_updates", False)
+    expect(
+        page.get_by_role("button", name="Обновить до 0.2.1-beta.1", exact=True)
+    ).not_to_be_visible()
+    expect(
+        page.get_by_text("Установлена последняя версия.", exact=True)
+    ).to_be_visible()
+
+
+def test_beta_save_failure_leaves_stable_selected_and_can_retry(app, page):
+    ui = app()
+    ui.nav("info")
+    ui.queue("save_config", {"error": "Synthetic channel save failure"})
+    toggle = page.get_by_role("button", name="Получать бета-сборки", exact=True)
+    toggle.click()
+    # The reason is shown on the updates card, next to the switch, not in the
+    # window banner.
+    expect(
+        page.get_by_text("Synthetic channel save failure", exact=False)
+    ).to_have_count(1)
+    expect(
+        page.get_by_role("alert").filter(has_text="Synthetic channel save failure")
+    ).to_have_count(0)
+    expect(toggle).to_have_attribute("aria-pressed", "false")
+    expect(toggle).to_be_enabled()
+    toggle.click()
+    ui.saved("receive_beta_updates", True)
+    expect(toggle).to_have_attribute("aria-pressed", "true")
+
+
+def test_late_beta_check_cannot_restore_an_update_after_opt_out(app, page):
+    ui = app(config={"receive_beta_updates": True})
+    ui.nav("info")
+    expect(
+        page.get_by_text("Установлена последняя версия.", exact=True)
+    ).to_be_visible()
+    ui.queue("check_update", {"hold": True})
+    page.get_by_role("button", name="Проверить обновления", exact=True).click()
+    page.get_by_role("button", name="Получать бета-сборки", exact=True).click()
+    ui.saved("receive_beta_updates", False)
+    expect(
+        page.get_by_text("Установлена последняя версия.", exact=True)
+    ).to_be_visible()
+    ui.settle(
+        "check_update",
+        result={
+            "available": True,
+            "current_version": "0.2.0",
+            "version": "0.2.1-beta.1",
+        },
+    )
+    expect(
+        page.get_by_role("button", name="Обновить до 0.2.1-beta.1", exact=True)
+    ).not_to_be_visible()
+    expect(
+        page.get_by_text("Установлена последняя версия.", exact=True)
+    ).to_be_visible()
 
 
 def test_clear_logs_confirmation_cancel_and_apply(app, page):

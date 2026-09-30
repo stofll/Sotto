@@ -1,16 +1,24 @@
 name: Prepare Release
-run-name: Prepare release (${{ inputs.version || inputs.kind }})
+run-name: Prepare release (${{ inputs.channel || 'beta' }}, ${{ inputs.version || inputs.kind || 'scheduled patch' }})
 
 on:
+  schedule:
+    # Monday and Thursday at 21:00 Moscow time (UTC+3).
+    - cron: '0 18 * * 1,4'
   workflow_dispatch:
     inputs:
+      channel:
+        description: Release channel (scheduled builds use beta)
+        type: choice
+        default: stable
+        options: [stable, beta]
       kind:
         description: Version bump (ignored when an exact version is supplied)
         type: choice
         default: patch
         options: [patch, minor, major]
       version:
-        description: Optional exact stable version, e.g. 0.1.0 (without v)
+        description: Optional base version, e.g. 0.3.0 (without v or beta suffix)
         type: string
         required: false
 
@@ -22,15 +30,13 @@ permissions:
   contents: read
 
 jobs:
-  prepare:
-    name: Commit and tag release version
+  plan:
+    name: Check release changes
     if: github.repository == 'stofll/Sotto' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    permissions:
-      contents: read
-      actions: read
-      pull-requests: read
+    outputs:
+      changed: ${{ steps.changes.outputs.changed }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -42,20 +48,67 @@ jobs:
         with:
           node-version-file: .node-version
 
-      - name: Verify existing source CI
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_SOURCE: ${{ github.sha }}
-        run: node scripts/check-release-source.mjs
+      - name: Test release preparation
+        run: node --test scripts/release-version.test.mjs scripts/check-release-changes.test.mjs
 
-      - name: Test version preparation
-        run: node --test scripts/release-version.test.mjs scripts/check-release-source.test.mjs
+      - name: Decide whether to prepare a release
+        id: changes
+        env:
+          RELEASE_EVENT: ${{ github.event_name }}
+          RELEASE_SOURCE: ${{ github.sha }}
+        run: |
+          if [ "$RELEASE_EVENT" = 'schedule' ]; then
+            node scripts/check-release-changes.mjs
+          else
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+          fi
+
+  source-rust:
+    name: Release source CI
+    needs: plan
+    if: needs.plan.outputs.changed == 'true'
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: ./.github/workflows/rust-ci.yml
+    with:
+      ref: ${{ github.sha }}
+
+  source-ui:
+    name: Release source UI tests
+    needs: plan
+    if: needs.plan.outputs.changed == 'true'
+    uses: ./.github/workflows/ui-tests.yml
+    with:
+      ref: ${{ github.sha }}
+
+  prepare:
+    name: Commit and tag release version
+    needs: [plan, source-rust, source-ui]
+    if: >-
+      ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.changed == 'true' &&
+          needs.source-rust.result == 'success' && needs.source-ui.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
 
       - name: Calculate and synchronize version
         id: version
         env:
-          RELEASE_KIND: ${{ inputs.kind }}
+          RELEASE_KIND: ${{ inputs.kind || 'patch' }}
           RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_CHANNEL: ${{ inputs.channel || 'beta' }}
         run: node scripts/release-version.mjs
 
       # Only this short-lived token can bypass the PR/CI ruleset. Its scope is
@@ -74,6 +127,7 @@ jobs:
           BOT_SLUG: ${{ steps.bot.outputs.app-slug }}
           RELEASE_TAG: ${{ steps.version.outputs.tag }}
           RELEASE_SOURCE: ${{ github.sha }}
+          RELEASE_EVENT: ${{ github.event_name }}
         run: |
           set -euo pipefail
           bot_id=$(gh api "users/${BOT_SLUG}[bot]" --jq .id)
@@ -89,6 +143,12 @@ jobs:
           sh scripts/check-version.sh "$RELEASE_TAG"
           git fetch origin main --tags
           if [ "$(git rev-parse origin/main)" != "$RELEASE_SOURCE" ]; then
+            # A scheduled run checks its source for about an hour; a merge in that
+            # window is ordinary, and the next scheduled run takes the new main.
+            if [ "$RELEASE_EVENT" = 'schedule' ]; then
+              echo '::notice::main changed during preparation; the next scheduled run prepares the new source.'
+              exit 0
+            fi
             echo '::error::main changed during preparation. Start a new Prepare Release run.'
             exit 1
           fi

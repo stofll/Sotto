@@ -10,7 +10,7 @@ assignees: ''
 
 ## Prepare
 
-- [ ] Prepare Release run started on `main` with the intended bump or exact stable version.
+- [ ] Prepare Release ran on `main` (scheduled beta or manual run) with the intended channel, bump or exact base version.
 - [ ] Dependency review and required checks completed: [release preparation](https://github.com/stofll/Sotto/blob/main/docs/RELEASE.md#pre-release) and [testing](https://github.com/stofll/Sotto/blob/main/docs/testing.md).
 - [ ] Source tree passed Rust CI and UI tests; the bot committed only version changes and pushed the intended tag.
 
@@ -25,7 +25,7 @@ assignees: ''
 
 - [ ] Release description follows the [release notes template](https://github.com/stofll/Sotto/blob/main/docs/RELEASE.md#whats-new-template); placeholders and empty sections removed, changelog link checked.
 - [ ] Required user actions and known limitations documented; release blockers resolved.
-- [ ] Draft published after verification. This makes the update available to existing installations.
+- [ ] Draft published after verification. A stable release reaches all existing installations; a beta keeps its GitHub prerelease flag and reaches only copies that opted into beta builds.
 
 ## Follow up
 

@@ -31,10 +31,14 @@ jobs:
     timeout-minutes: 5
     outputs:
       sha: ${{ steps.ref.outputs.sha }}
+      prerelease: ${{ steps.ref.outputs.prerelease }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: refs/tags/${{ inputs.tag || github.ref_name }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
       - name: Verify tag and refuse published releases
         id: ref
         env:
@@ -43,6 +47,11 @@ jobs:
         run: |
           set -euo pipefail
           sh scripts/check-version.sh "$RELEASE_TAG"
+          version=$(node -p "require('./desktop/package.json').version")
+          case "${version%%+*}" in
+            *-*) echo 'prerelease=true' >> "$GITHUB_OUTPUT" ;;
+            *) echo 'prerelease=false' >> "$GITHUB_OUTPUT" ;;
+          esac
           published=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases" --jq '.[] | select(.draft == false) | .tag_name')
           if printf '%s\n' "$published" | grep -Fxq "$RELEASE_TAG"; then
             echo '::error::Published releases cannot be rebuilt. Prepare a new version.'
@@ -301,7 +310,7 @@ jobs:
           # the moment the release stops being a draft — that is, after the
           # build has been checked by hand.
           releaseDraft: true
-          prerelease: false
+          prerelease: ${{ needs.resolve.outputs.prerelease == 'true' }}
           includeUpdaterJson: true
           updaterJsonPreferNsis: true
           args: ${{ matrix.args }}

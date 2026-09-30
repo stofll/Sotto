@@ -155,6 +155,7 @@ fn en(key: &str) -> Option<&'static str> {
             "updates work only in an installed build"
         }
         "обновление больше недоступно" => "the update is no longer available",
+        "Ответ сервера обновлений слишком большой." => "The update server response is too large.",
         // Feedback report and diagnostics.
         "Не удалось прочитать логи" => "Could not read the logs",
         "Отчёт слишком большой" => "The report is too large",

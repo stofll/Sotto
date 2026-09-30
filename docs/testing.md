@@ -41,7 +41,7 @@ Run the Python/Playwright suite for UI changes. [Browser UI testing](ui-testing.
 
 ## Release automation
 
-Run `node --test scripts/release-version.test.mjs scripts/check-release-source.test.mjs` from the repository root when changing version preparation. These tests use temporary Git repositories and metadata copies; they do not bump the working copy, push tags, or launch the application. PR CI also runs them and checks version consistency with `sh scripts/check-version.sh`.
+Run `node --test scripts/release-version.test.mjs scripts/check-release-changes.test.mjs` from the repository root when changing version preparation or scheduled release eligibility. These tests use temporary Git repositories and metadata copies; they do not bump the working copy, push tags, or launch the application. PR CI also runs them and checks version consistency with `sh scripts/check-version.sh`.
 
 On Windows, run these release tests from Git Bash or put Git for Windows' `bin` directory on `PATH`: the tests invoke `sh` to check version consistency.
 
