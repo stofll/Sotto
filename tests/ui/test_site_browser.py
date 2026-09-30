@@ -72,10 +72,12 @@ def test_gallery_catalog_and_layout(browser, locale, width, appearance):
     page.clock.run_for(6600)
     expect(page.locator('[data-step-description="recording"]')).to_be_visible()
     expect(page.get_by_role("tab").nth(0)).to_have_attribute("aria-selected", "true")
-    expect(page.locator('.screen-hotspot[data-step-target="recording"]')).to_have_attribute("aria-pressed", "true")
-    page.locator('[data-tour-next]').click()
+    expect(
+        page.locator('.screen-hotspot[data-step-target="recording"]')
+    ).to_have_attribute("aria-pressed", "true")
+    page.locator("[data-tour-next]").click()
     expect(page.locator('[data-step-description="microphone"]')).to_be_visible()
-    page.locator('[data-tour-next]').click()
+    page.locator("[data-tour-next]").click()
     expect(page.get_by_role("tab").nth(1)).to_have_attribute("aria-selected", "true")
     page.locator('[data-theme-target="light"]').click()
     expect(gallery).to_have_attribute("data-theme", "light")
@@ -83,8 +85,11 @@ def test_gallery_catalog_and_layout(browser, locale, width, appearance):
     light_image = page.get_by_role("tabpanel").locator('[data-theme-image="light"]')
     expect(light_image).to_have_css("opacity", "1")
     expect(light_image).to_have_js_property("complete", True)
-    page.locator('[data-screen-zoom]').click()
-    expect(page.locator('[data-screen-full]')).to_have_attribute("src", light_image.evaluate("el => new URL(el.dataset.fullSrc, location.href).href"))
+    page.locator("[data-screen-zoom]").click()
+    expect(page.locator("[data-screen-full]")).to_have_attribute(
+        "src",
+        light_image.evaluate("el => new URL(el.dataset.fullSrc, location.href).href"),
+    )
     page.keyboard.press("Escape")
     page.locator('[data-theme-target="dark"]').click()
     expect(gallery).to_have_attribute("data-theme", "dark")
@@ -100,7 +105,9 @@ def test_gallery_catalog_and_layout(browser, locale, width, appearance):
     if appearance == "dark":
         page.clock.resume()
         page.mouse.move(0, 0)
-        gallery.locator("..").screenshot(path=str(output / f"gallery-{locale}-{width}.png"))
+        gallery.locator("..").screenshot(
+            path=str(output / f"gallery-{locale}-{width}.png")
+        )
         page.screenshot(path=str(output / f"site-{locale}-{width}.png"), full_page=True)
 
     catalog = page.locator(".model-catalog")
@@ -125,33 +132,57 @@ def test_gallery_catalog_and_layout(browser, locale, width, appearance):
     expect(page.locator(".voice-label")).to_have_count(0)
     page.locator(".faq-item summary").first.click()
     answer = page.locator(".faq-item p").first
-    assert answer.bounding_box()["width"] > page.locator(".faq-item").first.bounding_box()["width"] * 0.9
+    assert (
+        answer.bounding_box()["width"]
+        > page.locator(".faq-item").first.bounding_box()["width"] * 0.9
+    )
     assert not errors
     context.close()
 
 
 @pytest.mark.parametrize("locale", ["ru", "en"])
 def test_feature_steps_and_crossfade(browser, locale):
-    context = browser.new_context(viewport={"width": 1440, "height": 1200}, device_scale_factor=1)
+    context = browser.new_context(
+        viewport={"width": 1440, "height": 1200}, device_scale_factor=1
+    )
     page = context.new_page()
     light_requests = []
-    page.on("request", lambda request: light_requests.append(request.url) if re.search(r"-light[.@]", request.url) else None)
+    page.on(
+        "request",
+        lambda request: (
+            light_requests.append(request.url)
+            if re.search(r"-light[.@]", request.url)
+            else None
+        ),
+    )
     page.goto(os.environ["SOTTO_SITE_URL"] + ("/ru/" if locale == "ru" else "/"))
     gallery = page.locator("[data-screens]")
     gallery.scroll_into_view_if_needed()
     expect(gallery).to_have_attribute("data-theme", "dark")
-    steps = ["shortcut", "recording", "microphone", "languages", "resources", "streaming", "search", "copy", "formatting"]
+    steps = [
+        "shortcut",
+        "recording",
+        "microphone",
+        "languages",
+        "resources",
+        "streaming",
+        "search",
+        "copy",
+        "formatting",
+    ]
     heights = []
     for index, step in enumerate(steps):
         expect(page.locator(f'[data-step-description="{step}"]')).to_be_visible()
-        expect(page.locator(f'.screen-hotspot[data-step-target="{step}"]')).to_have_attribute("aria-pressed", "true")
-        heights.append(page.locator('[data-tour-guide]').bounding_box()["height"])
+        expect(
+            page.locator(f'.screen-hotspot[data-step-target="{step}"]')
+        ).to_have_attribute("aria-pressed", "true")
+        heights.append(page.locator("[data-tour-guide]").bounding_box()["height"])
         image = page.get_by_role("tabpanel").locator('[data-theme-image="dark"]')
         expect(image).to_have_js_property("complete", True)
         assert "@2x" not in image.evaluate("el => el.currentSrc")
         if index < len(steps) - 1:
-            page.locator('[data-tour-next]').click()
-    expect(page.locator('[data-tour-next]')).to_be_disabled()
+            page.locator("[data-tour-next]").click()
+    expect(page.locator("[data-tour-next]")).to_be_disabled()
     assert max(heights) - min(heights) < 1
     # Hold the screen transitions as they start and step through them, so a slow
     # runner cannot skip past the fade: no point may hide both screens.
@@ -192,12 +223,12 @@ def test_failed_image_keeps_current_screen_and_can_retry(browser):
     page.route("**/*settings-ru-light*.webp*", lambda route: route.abort())
     page.goto(os.environ["SOTTO_SITE_URL"] + "/ru/")
     page.locator('[data-theme-target="light"]').click()
-    expect(page.locator('[data-screen-error]')).to_be_visible()
-    expect(page.locator('[data-screens]')).to_have_attribute("data-theme", "dark")
+    expect(page.locator("[data-screen-error]")).to_be_visible()
+    expect(page.locator("[data-screens]")).to_have_attribute("data-theme", "dark")
     page.unroute("**/*settings-ru-light*.webp*")
     page.locator('[data-theme-target="light"]').click()
-    expect(page.locator('[data-screens]')).to_have_attribute("data-theme", "light")
-    expect(page.locator('[data-screen-error]')).not_to_be_visible()
+    expect(page.locator("[data-screens]")).to_have_attribute("data-theme", "light")
+    expect(page.locator("[data-screen-error]")).not_to_be_visible()
     context.close()
 
 
@@ -208,7 +239,9 @@ def test_without_javascript(browser, locale):
     page.goto(os.environ["SOTTO_SITE_URL"] + ("/ru/" if locale == "ru" else "/"))
     expect(page.locator(".screen-window:visible")).to_have_count(3)
     page.locator(".model-catalog summary").click()
-    expect(page.locator(".model-card:visible")).to_have_count(page.locator(".model-card").count())
+    expect(page.locator(".model-card:visible")).to_have_count(
+        page.locator(".model-card").count()
+    )
     expect(page.locator(".screen-fallback a").first).to_have_attribute(
         "href", page.locator(".screen-image img").first.get_attribute("data-full-src")
     )

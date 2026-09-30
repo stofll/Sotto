@@ -48,7 +48,7 @@ To refresh the captures, use the isolated browser harness described in [`docs/ui
 
 The model section introduces four examples; the full catalog and its filters live in a native disclosure that also works without JavaScript. Privacy details live on the dedicated localized page, linked from the header and footer, with a short answer in the FAQ.
 
-For gallery, keyboard, zoom, model filtering, responsive layout and no-JavaScript regression checks, start `pnpm dev` or `pnpm preview`, set `SOTTO_SITE_URL` to its loopback URL, and run `uv run --locked --project tests/ui pytest site/tests/test_browser.py --browser chromium` from the repository root. Set `SOTTO_SITE_CHECKS_DIR` to a temporary directory for visual review captures. These checks cover both locales, both screenshot themes, system appearances, 1×/2× displays, normal and reduced motion, and image-loading failure/retry. The website itself uses a fixed dark theme.
+For gallery, keyboard, zoom, model filtering, responsive layout and no-JavaScript regression checks, start `pnpm dev` or `pnpm preview`, set `SOTTO_SITE_URL` to its loopback URL, and run `uv run --locked --project tests/ui pytest tests/ui/test_site_browser.py --browser chromium` from the repository root. Set `SOTTO_SITE_CHECKS_DIR` to a temporary directory for visual review captures. These checks cover both locales, both screenshot themes, system appearances, 1×/2× displays, normal and reduced motion, and image-loading failure/retry. The website itself uses a fixed dark theme.
 
 `src/components/` renders the markup. Sections read their strings through `translationsFor(Astro.currentLocale)` rather than receiving them as props.
 

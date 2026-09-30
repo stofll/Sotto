@@ -90,4 +90,7 @@ def test_capture_site_screenshots(app, page, locale, theme):
         page.mouse.move(0, 0)
         density = page.evaluate("devicePixelRatio")
         suffix = "@2x" if density == 2 else ""
-        page.screenshot(path=str(output / f"{screen}-{locale}-{theme}{suffix}.png"), animations="disabled")
+        page.screenshot(
+            path=str(output / f"{screen}-{locale}-{theme}{suffix}.png"),
+            animations="disabled",
+        )
