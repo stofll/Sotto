@@ -63,7 +63,7 @@ function formatMb(bytes: number) {
 // silent (there is nothing to gain from showing a network error) and downloading
 // happens only on an explicit click. The user always sees exactly what is
 // coming: the version, the date and the release notes.
-function UpdatesCard({ version, config, onConfigChanged }: { version?: string | null; config: ConfigResult | null; onConfigChanged?: (partial: Partial<ConfigResult>) => Promise<ConfigResult | null> }) {
+function UpdatesCard({ version, config, onConfigChanged }: { version?: string | null; config: ConfigResult | null; onConfigChanged?: (partial: Partial<ConfigResult>, onError?: (message: string) => void) => Promise<ConfigResult | null> }) {
   const [state, setState] = useState<UpdateState>({ kind: "idle" });
   const [showNotes, setShowNotes] = useState(false);
   const [savingChannel, setSavingChannel] = useState(false);
@@ -98,11 +98,11 @@ function UpdatesCard({ version, config, onConfigChanged }: { version?: string | 
     setSavingChannel(true);
     invalidateCheck();
     setState({ kind: "idle" });
+    let reason = "";
     try {
-      const saved = await onConfigChanged({ receive_beta_updates: beta });
-      if (!saved) void check(false);
-    } catch (e) {
-      setState({ kind: "error", message: e instanceof Error ? e.message : String(e) });
+      const saved = await onConfigChanged({ receive_beta_updates: beta }, (message) => { reason = message; });
+      // The saved choice starts its own check; after a failure the card says why.
+      if (!saved) setState({ kind: "error", message: reason || t("Не удалось сохранить настройку. Попробуйте ещё раз.") });
     } finally {
       setSavingChannel(false);
     }
@@ -191,7 +191,7 @@ const PASTE_TEST_DELAY_SECONDS = 3;
 // Diagnosing somebody else's problem rests on what they send you: the log level
 // and an environment summary. Saved recordings are a setting of their own,
 // kept out of the logs folder so a shared log never carries a voice.
-function DiagnosticsCard({ config, onConfigChanged }: { config: ConfigResult | null; onConfigChanged?: (partial: Partial<ConfigResult>) => Promise<ConfigResult | null> }) {
+function DiagnosticsCard({ config, onConfigChanged }: { config: ConfigResult | null; onConfigChanged?: (partial: Partial<ConfigResult>, onError?: (message: string) => void) => Promise<ConfigResult | null> }) {
   const [report, setReport] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [logsBytes, setLogsBytes] = useState<number | null>(null);
@@ -328,7 +328,7 @@ function DiagnosticsCard({ config, onConfigChanged }: { config: ConfigResult | n
   );
 }
 
-export function InfoPage({ version, config, onConfigChanged }: { version?: string | null; config: ConfigResult | null; onConfigChanged?: (partial: Partial<ConfigResult>) => Promise<ConfigResult | null> }) {
+export function InfoPage({ version, config, onConfigChanged }: { version?: string | null; config: ConfigResult | null; onConfigChanged?: (partial: Partial<ConfigResult>, onError?: (message: string) => void) => Promise<ConfigResult | null> }) {
   const pipelineMode = config?.ai_processing?.pipeline_mode ?? "local";
   const hotkey = hotkeyParts(config?.hotkey);
   const recordingMode = config?.recording_mode === "push_to_talk" ? t("Удержание клавиш") : t("Переключатель");

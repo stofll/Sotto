@@ -27,7 +27,7 @@ The schedule is defined in `.github/workflows/prepare-release.yml`. GitHub runs 
 | `major` | `1.0.0` |
 | Exact version `0.2.0` | `0.2.0` |
 
-Version selection accounts for the checked-in version and existing stable and beta tags, including unfinished drafts. From `0.2.0`, scheduled preparation starts `0.2.1-beta.1`, then continues `0.2.1-beta.2` when new changes arrive. A manual stable patch promotes that pending base to `0.2.1`; minor and major selections still advance their respective components. Exact base versions must produce a version greater than all already reserved versions.
+Version selection accounts for the checked-in version and existing stable and beta tags, including unfinished drafts. From `0.2.0`, scheduled preparation starts `0.2.1-beta.1`, then continues `0.2.1-beta.2` when new changes arrive. A manual stable patch promotes that pending base to `0.2.1`. Minor and major selections advance their components unless the pending beta already is that bump: after `0.3.0-beta.1`, a stable minor produces `0.3.0` and a beta minor `0.3.0-beta.2`. Exact base versions must produce a version greater than all already reserved versions.
 
 Both scheduled and manual preparation run the full Rust CI and UI test workflows automatically against the pinned source commit before changing any version or tag. This also permits stable preparation immediately after a beta version commit or a site-only merge, without manually dispatching source CI. Neither path creates a version PR.
 
@@ -52,7 +52,7 @@ Create a private GitHub App, install it only on Sotto, and grant it **Contents: 
 
 In **Settings → Rules → Rulesets**, add the App to the PR/required-check ruleset's bypass list with **Always allow**. Keep the deletion and force-push prohibitions in a separate active ruleset with no bypass actors. Bypass permissions apply to an entire ruleset, not to individual rules or version fields; the workflow's diff check enforces the version-only restriction. No permission to create or approve PRs is needed.
 
-The source workflows are called from `prepare-release.yml`. Add new release-gating workflows there when needed. Missing, pending, failed, or cancelled CI prevents version preparation. A workflow started outside `main`, or in a fork, skips preparation.
+The source workflows are called from `prepare-release.yml`. Add new release-gating workflows there when needed. A failed or cancelled source workflow stops preparation before any version change. A workflow started outside `main`, or in a fork, skips preparation.
 
 An App token's tag push triggers Release automatically. Do not also call Release from Prepare Release, as that would build the same version twice. The release build uses its regular `GITHUB_TOKEN`, without the App's bypass permission.
 
@@ -229,7 +229,7 @@ The release body is what the app shows as "what's new", so write it for users ra
 
 ### Tag Format
 
-Automated stable releases use `vX.Y.Z` (e.g., `v0.2.1`), and automated betas use `vX.Y.Z-beta.N` (e.g., `v0.2.1-beta.1`). The version checker also accepts other SemVer prerelease tags such as `v0.2.0-rc.1`; the build marks them as GitHub prereleases, while Prepare Release manages stable and numbered beta versions. The manual stable tagging fallback requires synchronized versions already committed to `main`:
+Automated stable releases use `vX.Y.Z` (e.g., `v0.2.1`), and automated betas use `vX.Y.Z-beta.N` (e.g., `v0.2.1-beta.1`). The version checker also accepts other SemVer prerelease tags such as `v0.2.0-rc.1`; the build marks them as GitHub prereleases, while Prepare Release manages stable and numbered beta versions. The in-app beta channel offers only `-beta.N` builds, so other prerelease tags do not reach installed copies through updates. The manual stable tagging fallback requires synchronized versions already committed to `main`:
 
 ```bash
 # After version bump commit is on main

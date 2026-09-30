@@ -54,8 +54,10 @@ export function nextVersion(current, tags, kind, exact = '', channel = 'stable')
   if (!next) {
     const values = parts(base);
     const index = { major: 0, minor: 1, patch: 2 }[kind];
-    // Patch preparation continues the pending beta series or promotes it.
-    if (kind !== 'patch' || releaseChannel(base) === 'stable') {
+    // A beta base whose lower components are already zero is the pending
+    // bump itself: continue that beta series or promote it, do not skip it.
+    const pending = releaseChannel(base) === 'beta' && values.slice(index + 1).every((value) => value === 0n);
+    if (!pending) {
       values[index] += 1n;
       for (let i = index + 1; i < 3; i++) values[i] = 0n;
     }

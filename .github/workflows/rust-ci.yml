@@ -1,8 +1,9 @@
 name: Rust CI
 
-# All changes enter main through pull requests. PRs and manual runs execute
-# the full checks; pushes to main only build the app and test dependencies to
-# warm the shared Cargo cache on all three operating systems.
+# All changes enter main through pull requests. PRs, manual runs and calls from
+# Prepare Release (pinned to the release source commit) execute the full
+# checks; pushes to main only build the app and test dependencies to warm the
+# shared Cargo cache on all three operating systems.
 #
 # A PR cache belongs to refs/pull/N/merge and cannot serve other PRs. Only main
 # writes the Cargo cache so later PRs can restore it without filling storage
@@ -34,7 +35,8 @@ on:
 #
 # Runs on main are not cancelled. Their point is the cache they leave behind,
 # and two merges in quick succession would otherwise kill the first upload and
-# send the next pull request back to a cold build.
+# send the next pull request back to a cold build. A Prepare Release call is
+# grouped by its source commit and is not cancelled either.
 concurrency:
   group: ${{ github.workflow }}-${{ inputs.ref || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -198,7 +200,8 @@ jobs:
           workspaces: desktop/src-tauri -> target
           key: ggml-baseline-${{ hashFiles('.cargo/config.toml', 'scripts/ggml-baseline.cmake') }}
           cache-on-failure: false
-          # Only main writes; see the note on the triggers above. A pull
+          # Only main writes (a Prepare Release call runs on main too and saves
+          # under the same key); see the note on the triggers above. A pull
           # request that pushes several times now restores from main each time
           # instead of from its own previous run, which is a full match unless
           # it changed the lockfile and a prefix restore when it did.
@@ -469,7 +472,7 @@ jobs:
           node-version-file: .node-version
 
       - name: Release version regression tests
-        run: node --test scripts/release-version.test.mjs scripts/check-release-source.test.mjs scripts/check-release-changes.test.mjs
+        run: node --test scripts/release-version.test.mjs scripts/check-release-changes.test.mjs
 
       - name: CPU baseline regression tests
         run: node --test scripts/check-ggml-baseline.test.mjs

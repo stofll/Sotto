@@ -15,6 +15,7 @@
 
 export const en: Record<string, string | string[]> = {
   "Получать бета-сборки": "Receive beta builds",
+  "Не удалось сохранить настройку. Попробуйте ещё раз.": "Could not save the setting. Please try again.",
   "По умолчанию доступны только стабильные версии. Бета-сборки позволяют раньше попробовать изменения и могут содержать ошибки.": "Only stable versions are available by default. Beta builds let you try changes earlier and may contain bugs.",
   "Не удалось завершить удаление ключа. Повторите попытку.": "Could not finish deleting the key. Try again.",
   "Не удалось сохранить профиль. Проверьте ошибку и повторите попытку.": "Could not save the profile. Check the error and try again.",

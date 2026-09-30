@@ -141,9 +141,14 @@ def test_beta_save_failure_leaves_stable_selected_and_can_retry(app, page):
     ui.queue("save_config", {"error": "Synthetic channel save failure"})
     toggle = page.get_by_role("button", name="Получать бета-сборки", exact=True)
     toggle.click()
+    # The reason is shown on the updates card, next to the switch, not in the
+    # window banner.
     expect(
         page.get_by_text("Synthetic channel save failure", exact=False)
-    ).to_be_visible()
+    ).to_have_count(1)
+    expect(
+        page.get_by_role("alert").filter(has_text="Synthetic channel save failure")
+    ).to_have_count(0)
     expect(toggle).to_have_attribute("aria-pressed", "false")
     expect(toggle).to_be_enabled()
     toggle.click()

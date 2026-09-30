@@ -22,7 +22,7 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 use tauri_plugin_updater::{Update, UpdaterExt};
 
-const RELEASES_URL: &str = "https://api.github.com/repos/stofll/Sotto/releases?per_page=100";
+const RELEASES_URL: &str = "https://api.github.com/repos/stofll/Sotto/releases?per_page=20";
 const UPDATE_TIMEOUT: Duration = Duration::from_secs(20);
 const MAX_RELEASE_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
 
@@ -50,6 +50,17 @@ struct GithubRelease {
     assets: Vec<ReleaseAsset>,
 }
 
+/// The beta channel carries `-beta.N` builds only; other SemVer prereleases
+/// (for example a manually tagged `-rc.1`) are not part of it.
+fn is_channel_version(version: &Version) -> bool {
+    version.pre.is_empty()
+        || version
+            .pre
+            .as_str()
+            .strip_prefix("beta.")
+            .is_some_and(|number| number.parse::<u64>().is_ok_and(|n| n > 0))
+}
+
 fn newest_release(releases: &[GithubRelease], current: &Version) -> Option<Version> {
     releases
         .iter()
@@ -65,6 +76,7 @@ fn newest_release(releases: &[GithubRelease], current: &Version) -> Option<Versi
             let version = Version::parse(release.tag_name.strip_prefix('v')?).ok()?;
             // Both the tag and GitHub flag must agree on the channel.
             if release.prerelease != !version.pre.is_empty()
+                || !is_channel_version(&version)
                 || !allowed_upgrade(current, &version, true)
             {
                 return None;
@@ -108,11 +120,21 @@ async fn available_update(app: &AppHandle) -> Result<Option<Update>, String> {
     // displayed beta must not bypass a subsequently disabled preference.
     let beta = beta_enabled(crate::config::Config::load(app)?.as_value());
     let selected = if beta {
-        let releases = fetch_releases(RELEASES_URL).await?;
-        let Some(version) = newest_release(&releases, &app.package_info().version) else {
-            return Ok(None);
-        };
-        Some(version)
+        match fetch_releases(RELEASES_URL).await {
+            Ok(releases) => {
+                let Some(version) = newest_release(&releases, &app.package_info().version) else {
+                    return Ok(None);
+                };
+                Some(version)
+            }
+            // The unauthenticated list is rate-limited per IP and may be blocked
+            // separately from release downloads. A stable update must still reach
+            // a beta subscriber then.
+            Err(error) => {
+                log::warn!("beta release list unavailable, checking stable: {error}");
+                None
+            }
+        }
     } else {
         None
     };
@@ -128,7 +150,7 @@ async fn available_update(app: &AppHandle) -> Result<Option<Update>, String> {
     }
     builder
         .version_comparator(move |current, release| {
-            allowed_upgrade(&current, &release.version, beta)
+            allowed_upgrade(&current, &release.version, selected.is_some())
                 && selected
                     .as_ref()
                     .is_none_or(|expected| expected == &release.version)
@@ -340,6 +362,8 @@ mod tests {
             release("0.3.0-beta.2", false, true, false),
             release("0.3.0-beta.3", false, false, true),
             release("0.3.0", false, true, true),
+            release("0.3.0-rc.1", false, true, true),
+            release("0.3.0-beta.0", false, true, true),
             release("invalid", false, true, true),
             release("0.1.0", false, false, true),
         ];

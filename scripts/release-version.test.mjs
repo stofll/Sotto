@@ -59,6 +59,12 @@ test('stable preparation promotes a beta base, while minor and major selections 
   assert.equal(nextVersion('0.2.0', ['v0.3.0-beta.3'], 'patch'), '0.3.0');
   assert.equal(nextVersion('0.2.1-beta.3', [], 'minor'), '0.3.0');
   assert.equal(nextVersion('0.2.1-beta.3', [], 'major'), '1.0.0');
+  // A pending minor or major beta series is continued or promoted, not skipped.
+  assert.equal(nextVersion('0.3.0-beta.1', [], 'minor'), '0.3.0');
+  assert.equal(nextVersion('0.3.0-beta.1', [], 'minor', '', 'beta'), '0.3.0-beta.2');
+  assert.equal(nextVersion('1.0.0-beta.2', [], 'major'), '1.0.0');
+  assert.equal(nextVersion('1.0.0-beta.2', [], 'major', '', 'beta'), '1.0.0-beta.3');
+  assert.equal(nextVersion('0.3.0-beta.1', [], 'major'), '1.0.0');
   assert.throws(() => nextVersion('0.2.1', [], 'patch', '0.2.1', 'beta'));
   assert.throws(() => nextVersion('0.2.0', [], 'patch', '', 'unknown'));
 });

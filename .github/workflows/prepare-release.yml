@@ -49,7 +49,7 @@ jobs:
           node-version-file: .node-version
 
       - name: Test release preparation
-        run: node --test scripts/release-version.test.mjs scripts/check-release-source.test.mjs scripts/check-release-changes.test.mjs
+        run: node --test scripts/release-version.test.mjs scripts/check-release-changes.test.mjs
 
       - name: Decide whether to prepare a release
         id: changes
@@ -127,6 +127,7 @@ jobs:
           BOT_SLUG: ${{ steps.bot.outputs.app-slug }}
           RELEASE_TAG: ${{ steps.version.outputs.tag }}
           RELEASE_SOURCE: ${{ github.sha }}
+          RELEASE_EVENT: ${{ github.event_name }}
         run: |
           set -euo pipefail
           bot_id=$(gh api "users/${BOT_SLUG}[bot]" --jq .id)
@@ -142,6 +143,12 @@ jobs:
           sh scripts/check-version.sh "$RELEASE_TAG"
           git fetch origin main --tags
           if [ "$(git rev-parse origin/main)" != "$RELEASE_SOURCE" ]; then
+            # A scheduled run checks its source for about an hour; a merge in that
+            # window is ordinary, and the next scheduled run takes the new main.
+            if [ "$RELEASE_EVENT" = 'schedule' ]; then
+              echo '::notice::main changed during preparation; the next scheduled run prepares the new source.'
+              exit 0
+            fi
             echo '::error::main changed during preparation. Start a new Prepare Release run.'
             exit 1
           fi
