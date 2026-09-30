@@ -44,11 +44,62 @@ def test_ai_changes_are_written_in_order_without_stale_fields(app, page):
     page.wait_for_function("window.delayedSaves.length === 2")
     patches = page.evaluate("window.delayedSaves.map(x => x.args.patch.ai_processing)")
     assert patches[0]["pipeline_mode"] == "hybrid"
-    assert set(patches[1]) == {"llm_timeout_seconds", "profiles"}
+    # The second patch carries the route from the confirmed config, not the
+    # pipeline mode the first write already changed.
+    assert "pipeline_mode" not in patches[1]
     assert patches[1]["llm_timeout_seconds"] == 20
+    assert patches[1]["model"] == "old-model"
+    assert patches[1]["system_prompt"] == "Synthetic prompt"
     assert patches[1]["profiles"][0]["llm_timeout_seconds"] == 20
     page.wait_for_function("""() => window.__sottoTest.state.config.ai_processing.pipeline_mode === 'hybrid'
       && window.__sottoTest.state.config.ai_processing.llm_timeout_seconds === 20""")
+
+
+def test_fresh_config_mode_change_writes_the_whole_route(app, page):
+    ui = app(config={"ai_processing": None})
+    ui.nav("ai")
+    page.get_by_role("radiogroup", name="Режим обработки").get_by_role("radio").nth(
+        1
+    ).click()
+    page.wait_for_function(
+        "window.__sottoTest.state.config.ai_processing?.pipeline_mode === 'hybrid'"
+    )
+    ai = ui.state()["config"]["ai_processing"]
+    # Rust reads these flat fields; an absent one is empty there, not a default.
+    assert ai["provider"] == "openai"
+    assert ai["model"] == "gpt-4o-mini"
+    assert ai["api_key_ref"] == "openai"
+    assert ai["system_prompt"].strip()
+
+
+def test_theme_toggle_survives_an_earlier_queued_write(app, page):
+    ui = app(config={"theme": "dark"})
+    ui.nav("ai")
+    page.evaluate("""() => {
+      const original = window.__TAURI_INTERNALS__.invoke;
+      window.delayedSaves = [];
+      window.__TAURI_INTERNALS__.invoke = (command, args) => {
+        if (command !== 'save_config') return original(command, args);
+        const call = { args, finish: null };
+        window.delayedSaves.push(call);
+        return new Promise(resolve => { call.finish = () => resolve(original(command, args)); });
+      };
+    }""")
+    page.get_by_role("radiogroup", name="Режим обработки").get_by_role("radio").nth(
+        1
+    ).click()
+    page.wait_for_function("window.delayedSaves.length === 1")
+    page.get_by_role("button", name="Включить светлую тему").click()
+    expect(page.locator("html")).to_have_attribute("data-theme", "light")
+    # The earlier write's result still says "dark"; the toggle must not flicker back.
+    page.evaluate("window.delayedSaves[0].finish()")
+    # The first result and its notification are applied before the second
+    # write starts, and the theme write is still unanswered here.
+    page.wait_for_function("window.delayedSaves.length === 2")
+    expect(page.locator("html")).to_have_attribute("data-theme", "light")
+    page.evaluate("window.delayedSaves[1].finish()")
+    page.wait_for_function("window.__sottoTest.state.config.theme === 'light'")
+    expect(page.locator("html")).to_have_attribute("data-theme", "light")
 
 
 def test_config_notifications_cannot_reorder_writes(app, page):
@@ -117,8 +168,12 @@ def test_profile_save_failure_keeps_rename_for_retry(app, page):
         ui.state()["config"]["ai_processing"]["profiles"][0]["name"]
         == "Synthetic profile"
     )
+    banner = page.get_by_role("alert").filter(has_text="Synthetic disk failure")
+    expect(banner).to_be_visible()
     field.press("Enter")
     expect(page.get_by_text("Профиль переименован.", exact=True)).to_be_visible()
+    # The retry succeeded, so the failure it replaced no longer shows.
+    expect(banner).to_have_count(0)
     assert (
         ui.state()["config"]["ai_processing"]["profiles"][0]["name"]
         == "New profile name"

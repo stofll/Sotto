@@ -869,10 +869,9 @@ mod transcription_route_tests {
 
 /// Message for a start refused by [`transcription_route_available`].
 ///
-/// A pure builder: it emits nothing. Both entry points already report the
-/// refusal themselves - `hotkey_do_start` emits `hotkey-error` and
-/// `start_recording` returns the text to its caller - so emitting here too
-/// delivered the same failure twice for every hotkey press.
+/// A pure builder: it emits nothing. `hotkey_do_start` already reports the
+/// refusal through `hotkey-error`, so emitting here too would deliver the same
+/// failure twice for every hotkey press.
 ///
 /// Deliberately not `whisper-failed` either: that drives the overlay, and
 /// the whole point of the refusal is that no overlay appears for a recording
@@ -892,11 +891,8 @@ pub(crate) struct DictationRefusal {
 
 /// The two refusals that guard the start of a dictation.
 ///
-/// Shared by the `start_recording` command and the global hotkey, which are
-/// otherwise independent implementations of the same sequence. Telemetry is
-/// recorded here rather than by each caller: the place that knows which
-/// refusal happened is the only one that can label it, and keeping that
-/// knowledge in two files is how the two paths drift apart.
+/// Telemetry is recorded here rather than by the caller: the place that knows
+/// which refusal happened is the only one that can label it.
 pub(crate) fn refuse_dictation_start(
     app: &AppHandle,
     state: &AppState,
@@ -1028,10 +1024,8 @@ pub(crate) fn build_dictation_command(
 /// Everything that should happen when capture begins, beyond starting the
 /// recorder itself.
 ///
-/// Exists because there are two ways to start a recording — the global
-/// hotkey (`hotkey::hotkey_do_start`) and the `start_recording` command —
-/// and the hotkey is the one people actually use. Anything hung off only
-/// the command silently does not exist in practice.
+/// Called by `dictation::start` once the recorder is running, for the global
+/// hotkey path (`hotkey::hotkey_do_start`).
 pub(crate) fn on_recording_started(app: &AppHandle) {
     crate::sounds::play(app, crate::sounds::Cue::Start);
     // Ducking skips our own audio session, so the cue stays audible even
@@ -1095,9 +1089,7 @@ pub(crate) fn on_recording_stopped(app: &AppHandle, session_id: u64, audio: Opti
 
 /// Tap audio into the loaded or queued model if it supports live text.
 ///
-/// Called from [`on_recording_started`] rather than from the `start_recording`
-/// command: dictation is launched by a hotkey, which has its own start path, and
-/// a preview hung on the command did not exist in real life.
+/// Called from [`on_recording_started`], once capture has begun.
 ///
 /// Forwarding is done by a separate thread rather than the engine thread: that
 /// one is busy with commands and cannot wait on two channels at once. Overflowing
@@ -1545,7 +1537,7 @@ pub fn run() {
             }
             // Wire the overlay to engine lifecycle events
             // (whisper-started/done/failed/cancelled/loading/load-failed +
-            // recording-started from the start_recording command). The
+            // recording-started from `dictation::start`). The
             // listener closure captures `app.handle()` and lives for the
             // lifetime of the app — there is no explicit unlisten.
             // Must come before the listeners: they only enqueue work, and ops
@@ -1589,8 +1581,6 @@ pub fn run() {
             ai::fetch_provider_models,
             model_download::cancel_model_download,
             crate::overlay::set_overlay_presentation,
-            dictation::start_recording,
-            dictation::stop_recording,
             dictation::cancel_recording,
             mic_test::start_microphone_test,
             mic_test::stop_microphone_test,

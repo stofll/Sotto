@@ -20,6 +20,7 @@ import {
   profilesForAi,
   PROVIDERS,
   PROVIDER_MODEL_OPTIONS,
+  routeFields,
   type AiConfig,
   type LlmProfile,
 } from "./aiShared";
@@ -29,7 +30,7 @@ import { ModelField, useProviderModels } from "./providerModels";
 type Props = {
   config: AiConfig | null;
   apiKeys: ApiKeyStatus;
-  onConfigChanged: (change: ConfigChange) => Promise<ConfigResult | null>;
+  onConfigChanged: (change: ConfigChange, onError?: (message: string) => void) => Promise<ConfigResult | null>;
   onApiKeysChanged: (next: ApiKeyStatus) => void;
 };
 
@@ -46,6 +47,23 @@ function testKeyFor(profileId: string): string {
  *  an unhandled rejection instead of a message the user can read. */
 function failureText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** Applies one render's slot edits (`before` → `next`) to the latest saved
+ *  list, so slots that another queued write added or removed are kept. */
+function mergeKeySlots(before: KeySlotRecord[], next: KeySlotRecord[], latest: KeySlotRecord[]): KeySlotRecord[] {
+  const beforeByRef = new Map(before.map((slot) => [slot.ref, slot]));
+  const desired = new Map(next.map((slot) => [slot.ref, slot]));
+  const removed = new Set(before.filter((slot) => !desired.has(slot.ref)).map((slot) => slot.ref));
+  const merged = latest.filter((slot) => !removed.has(slot.ref)).map((slot) => {
+    const replacement = desired.get(slot.ref);
+    const previous = beforeByRef.get(slot.ref);
+    return replacement && previous && JSON.stringify(previous) !== JSON.stringify(replacement) ? replacement : slot;
+  });
+  for (const slot of next) {
+    if (!beforeByRef.has(slot.ref) && !merged.some((item) => item.ref === slot.ref)) merged.push(slot);
+  }
+  return merged;
 }
 
 /** «Интеграции»: provider profiles on top, key slots below.
@@ -150,12 +168,14 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
     window.setTimeout(() => setMessage((current) => (current === text ? null : current)), 2500);
   }
 
-  async function saveAi(nextAi: AiConfig, text: string): Promise<boolean> {
+  /** `onError` takes a failed write's reason for callers inside a modal, which
+   *  covers the window banner. */
+  async function saveAi(nextAi: AiConfig, text: string, onError?: (message: string) => void): Promise<boolean> {
     setSaving(true);
     try {
+      const baseAi = mergeAi(ai, {});
       const saved = await onConfigChanged((current) => {
         const currentAi = mergeAi(current.ai_processing ?? null, {});
-        const baseAi = mergeAi(ai, {});
         const patch: Partial<AiConfig> = {};
         for (const key of Object.keys(nextAi) as Array<keyof AiConfig>) {
           if (key === "profiles" || key === "key_slots" || key === "provider_models") continue;
@@ -184,14 +204,23 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
           }
           patch.profiles = merged;
         }
-        if (JSON.stringify(baseAi.key_slots) !== JSON.stringify(nextAi.key_slots)) patch.key_slots = nextAi.key_slots;
+        if (JSON.stringify(baseAi.key_slots) !== JSON.stringify(nextAi.key_slots)) {
+          patch.key_slots = mergeKeySlots(baseAi.key_slots ?? [], nextAi.key_slots ?? [], currentAi.key_slots ?? []);
+        }
         if (JSON.stringify(baseAi.provider_models) !== JSON.stringify(nextAi.provider_models)) {
           patch.provider_models = { ...(currentAi.provider_models ?? {}), ...(nextAi.provider_models ?? {}) };
         }
+        // Write the whole flat route of the profile that ends up active, from
+        // the latest config: a field equal to the interface default is still
+        // absent from a fresh config.
+        const nextProfiles = patch.profiles ?? profilesForAi(currentAi);
+        const activeId = patch.active_profile_id ?? currentAi.active_profile_id;
+        const active = nextProfiles.find((profile) => profile.id === activeId) ?? nextProfiles[0];
+        if (active) Object.assign(patch, routeFields(currentAi, active, nextProfiles));
         return { ai_processing: patch };
-      });
+      }, onError);
       if (!saved) {
-        showMessage(t("Не удалось сохранить профиль. Проверьте ошибку и повторите попытку."));
+        if (!onError) showMessage(t("Не удалось сохранить профиль. Проверьте ошибку и повторите попытку."));
         return false;
       }
       showMessage(text);
@@ -264,11 +293,11 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
 
   /** Writes the whole list of profiles, keeping whichever one is active. */
   async function writeProfiles(next: LlmProfile[], text: string): Promise<boolean> {
-    if (!ai) return false;
-    const activeId = ai.active_profile_id || ai.profile_id || next[0]?.id;
+    const base = mergeAi(ai, {});
+    const activeId = base.active_profile_id || base.profile_id || next[0]?.id;
     const activeProfile = next.find((item) => item.id === activeId) ?? next[0];
     if (!activeProfile) return false;
-    return saveAi(activeConfigFromProfile(ai, activeProfile, next), text);
+    return saveAi(activeConfigFromProfile(base, activeProfile, next), text);
   }
 
   /** Commits a text field on blur. A profile without a model is not written:
@@ -292,9 +321,8 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
   }
 
   async function setActiveProfile(profile: LlmProfile) {
-    if (!ai) return;
     const target = profiles.find((item) => item.id === profile.id) ?? profile;
-    await saveAi(activeConfigFromProfile(ai, target, profiles), t("Профиль «{p0}» теперь активный.", { p0: target.name }));
+    await saveAi(activeConfigFromProfile(mergeAi(ai, {}), target, profiles), t("Профиль «{p0}» теперь активный.", { p0: target.name }));
   }
 
   function startRename(profile: LlmProfile) {
@@ -307,8 +335,7 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
   /// not drag it into the config along with the name.
   async function commitRename(profile: LlmProfile) {
     const next = renameDraft.trim();
-    if (!ai || !next) return;
-    if (next === profile.name) {
+    if (!next || next === profile.name) {
       setRenamingId(null);
       return;
     }
@@ -320,50 +347,50 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
   /// are made for a different model or prompt, and demanding the same key be
   /// entered again was a step too many.
   async function duplicateProfile(source: LlmProfile) {
-    if (!ai) return;
+    const base = mergeAi(ai, {});
     const id = `profile_${Date.now().toString(36)}`;
-    const copy = normalizeProfile(ai, {
+    const copy = normalizeProfile(base, {
       ...source,
       id,
       name: t("{p0} копия", { p0: source.name }),
       api_key_ref: profileKeyRef(source),
     });
     const nextProfiles = [...profiles, copy];
-    await saveAi(activeConfigFromProfile(ai, copy, nextProfiles), t("Профиль продублирован."));
+    await saveAi(activeConfigFromProfile(base, copy, nextProfiles), t("Профиль продублирован."));
     setExpandedProfiles((prev) => new Set([...prev, id]));
   }
 
   async function deleteProfile(target: LlmProfile) {
-    if (!ai) return;
+    const base = mergeAi(ai, {});
     if (!await confirmDestructive(t("Удалить профиль «{p0}»? Ключ останется в списке, не привязанным к профилю.", { p0: target.name }))) return;
     // The key is not deleted with the profile, so its ref has to survive the
     // profile it was created with — otherwise it is lost, see `withKeySlot`.
     // This covers profiles made before the wizard began registering them.
     const keyRef = profileKeyRef(target);
     const keySlots = apiKeys[keyRef]?.available
-      ? withKeySlot(ai.key_slots ?? [], {
+      ? withKeySlot(base.key_slots ?? [], {
           ref: keyRef,
           label: apiKeys[keyRef].label || target.name,
           provider: target.provider,
         })
-      : (ai.key_slots ?? []);
+      : (base.key_slots ?? []);
     const nextProfiles = profiles.filter((profile) => profile.id !== target.id);
     if (nextProfiles.length === 0) {
       // The last profile was deleted: the flat LLM fields stay operational and
       // only the reference to the active one goes out — the same state as on a
       // fresh install.
       await saveAi(
-        mergeAi(ai, { profiles: [], active_profile_id: "", profile_id: "", key_slots: keySlots }),
+        mergeAi(base, { profiles: [], active_profile_id: "", profile_id: "", key_slots: keySlots }),
         t("Профиль удалён."),
       );
       return;
     }
-    const nextActiveId = ai.active_profile_id === target.id
+    const nextActiveId = base.active_profile_id === target.id
       ? nextProfiles[0].id
-      : (ai.active_profile_id || nextProfiles[0].id);
+      : (base.active_profile_id || nextProfiles[0].id);
     const nextActive = nextProfiles.find((profile) => profile.id === nextActiveId) ?? nextProfiles[0];
     await saveAi(
-      { ...activeConfigFromProfile(ai, nextActive, nextProfiles), key_slots: keySlots },
+      { ...activeConfigFromProfile(base, nextActive, nextProfiles), key_slots: keySlots },
       t("Профиль удалён."),
     );
   }
@@ -394,7 +421,6 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
   }
 
   async function testProfile(profile: LlmProfile) {
-    if (!ai) return;
     const testKey = testKeyFor(profile.id);
     const model = profile.model?.trim();
     if (!model) {
@@ -413,12 +439,12 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
       model,
       api_key_ref: keyRef,
       base_url: profile.base_url ?? "",
-      system_prompt: profile.system_prompt ?? ai.system_prompt ?? "",
+      system_prompt: profile.system_prompt ?? ai?.system_prompt ?? "",
     });
   }
 
   async function createProfileFromWizard(payload: { profile: LlmProfile; newKey?: { ref: string; value: string; label: string } }) {
-    if (!ai) return;
+    const base = mergeAi(ai, {});
     if (payload.newKey) {
       const result = await invoke<{ saved: boolean; label: string; masked: string }>("save_api_key", {
         key_id: payload.newKey.ref,
@@ -429,21 +455,27 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
       onApiKeysChanged({ ...apiKeys, [payload.newKey.ref]: { available: true, label: result.label, masked: result.masked } });
     }
     const nextProfiles = [...profiles, payload.profile];
-    const nextConfig = activeConfigFromProfile(ai, payload.profile, nextProfiles);
+    const nextConfig = activeConfigFromProfile(base, payload.profile, nextProfiles);
     // The key is registered right away, not only once the profile goes: a ref
     // the app has not written down is a ref it can never ask the store about.
     const keySlots = payload.newKey
-      ? withKeySlot(ai.key_slots ?? [], {
+      ? withKeySlot(base.key_slots ?? [], {
           ref: payload.newKey.ref,
           label: payload.newKey.label,
           provider: payload.profile.provider,
         })
-      : (ai.key_slots ?? []);
+      : (base.key_slots ?? []);
+    let reason = "";
     const saved = await saveAi(
       { ...nextConfig, key_slots: keySlots },
       t("Профиль «{p0}» создан.", { p0: payload.profile.name }),
+      (message) => { reason = message; },
     );
-    if (!saved) throw new Error(t("Не удалось сохранить профиль. Проверьте ошибку и повторите попытку."));
+    if (!saved) {
+      throw new Error(reason
+        ? t("Не удалось сохранить профиль: {p0}", { p0: reason })
+        : t("Не удалось сохранить профиль. Проверьте ошибку и повторите попытку."));
+    }
     setExpandedProfiles((prev) => new Set([...prev, payload.profile.id]));
   }
 
@@ -452,24 +484,11 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
   /// Writes the list of profile-less slots into the config. The label is stored
   /// here rather than only in the OS store: a portable field for it exists only
   /// on Windows, and on macOS and Linux it would be lost on restart.
-  async function saveKeySlots(next: KeySlotRecord[]): Promise<boolean> {
-    if (!ai) return false;
-    const before = ai.key_slots ?? [];
-    const beforeByRef = new Map(before.map((slot) => [slot.ref, slot]));
-    const desired = new Map(next.map((slot) => [slot.ref, slot]));
-    const removed = new Set(before.filter((slot) => !desired.has(slot.ref)).map((slot) => slot.ref));
-    const saved = await onConfigChanged((current) => {
-      const latest = current.ai_processing?.key_slots ?? [];
-      const merged = latest.filter((slot) => !removed.has(slot.ref)).map((slot) => {
-        const replacement = desired.get(slot.ref);
-        const previous = beforeByRef.get(slot.ref);
-        return replacement && previous && JSON.stringify(previous) !== JSON.stringify(replacement) ? replacement : slot;
-      });
-      for (const slot of next) {
-        if (!beforeByRef.has(slot.ref) && !merged.some((item) => item.ref === slot.ref)) merged.push(slot);
-      }
-      return { ai_processing: { key_slots: merged } };
-    });
+  async function saveKeySlots(next: KeySlotRecord[], onError?: (message: string) => void): Promise<boolean> {
+    const before = ai?.key_slots ?? [];
+    const saved = await onConfigChanged((current) => ({
+      ai_processing: { key_slots: mergeKeySlots(before, next, current.ai_processing?.key_slots ?? []) },
+    }), onError);
     return Boolean(saved);
   }
 
@@ -538,8 +557,9 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
       return;
     }
     onApiKeysChanged({ ...apiKeys, [ref]: { available: true, label: result.label, masked: result.masked } });
-    if (!await saveKeySlots([...(ai?.key_slots ?? []), { ref, label, provider: newProvider }])) {
-      setNewKeyError(t("Не удалось сохранить ключ."));
+    let reason = "";
+    if (!await saveKeySlots([...(ai?.key_slots ?? []), { ref, label, provider: newProvider }], (message) => { reason = message; })) {
+      setNewKeyError(reason ? t("Не удалось сохранить ключ: {p0}", { p0: reason }) : t("Не удалось сохранить ключ."));
       return;
     }
     pendingNewKeyRef.current = null;

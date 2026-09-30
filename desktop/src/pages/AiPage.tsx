@@ -6,6 +6,7 @@ import { Icon } from "../components/Icon";
 import { Hint } from "../components/Hint";
 import {
   activeConfigFromProfile,
+  activeProfileOf,
   effectiveSystemPrompt,
   gapReason,
   mergeAi,
@@ -17,6 +18,7 @@ import {
   llmRouteBlocker,
   profilesForAi,
   PROVIDERS,
+  routeFields,
   SYSTEM_PROMPT_PRESETS,
   textProfileFor,
   type AiConfig,
@@ -123,8 +125,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
   // derived from the flat active config, purely to keep the editors below
   // bound to something. It is NOT offered in the profile picker, so a clean
   // install shows the empty state rather than a phantom OpenAI profile.
-  const fallbackProfile = useMemo(() => normalizeProfile(baseAi, {}), [baseAi]);
-  const activeProfile = profiles.find((item) => item.id === baseAi.active_profile_id) ?? profiles[0] ?? fallbackProfile;
+  const activeProfile = useMemo(() => activeProfileOf(baseAi, profiles), [baseAi, profiles]);
   const ai = useMemo(() => activeConfigFromProfile(baseAi, activeProfile, profiles), [baseAi, activeProfile, profiles]);
   const provider = PROVIDERS.find((item) => item.id === ai.provider) ?? PROVIDERS[0];
   // A mode with an LLM that cannot be reached is a silent mode: Rust sets a
@@ -250,21 +251,20 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
         return nextActive ? { ai_processing: activeConfigFromProfile(currentAi, nextActive, currentProfiles) } : {};
       }
       const profileFields = ["model", "base_url", "api_key_ref", "prompt_preset", "system_prompt", "llm_min_duration_seconds", "llm_timeout_seconds"] as const;
-      if (!profileFields.some((field) => field in patch)) return { ai_processing: patch };
+      if (!profileFields.some((field) => field in patch)) {
+        return { ai_processing: { ...routeFields(currentAi, activeProfileOf(currentAi, currentProfiles), currentProfiles), ...patch } };
+      }
       const currentProfile = currentProfiles.find((profile) => profile.id === editedProfileId)
         ?? normalizeProfile(currentAi, { ...activeProfile, id: editedProfileId });
       const updatedProfile = normalizeProfile(currentAi, { ...currentProfile, ...patch });
       const nextProfiles = currentProfiles.map((profile) => profile.id === editedProfileId ? updatedProfile : profile);
-      const profilePatch: Partial<AiConfig> = { profiles: nextProfiles };
-      if (currentProfiles.length === 0 || currentAi.active_profile_id === editedProfileId) {
-        Object.assign(profilePatch, patch);
-        if ("system_prompt" in patch || "prompt_preset" in patch) {
-          profilePatch.system_prompt = effectiveSystemPrompt(updatedProfile);
-        }
-        if ("api_key_ref" in patch) profilePatch.api_key_ref = profileKeyRef(updatedProfile);
-        if (patch.model) {
-          profilePatch.provider_models = { ...(currentAi.provider_models ?? {}), [currentProfile.provider]: patch.model };
-        }
+      const editsRoute = currentProfiles.length === 0 || currentAi.active_profile_id === editedProfileId;
+      const profilePatch: Partial<AiConfig> = {
+        ...routeFields(currentAi, editsRoute ? updatedProfile : activeProfileOf(currentAi, nextProfiles), nextProfiles),
+        profiles: nextProfiles,
+      };
+      if (editsRoute && patch.model) {
+        profilePatch.provider_models = { ...(currentAi.provider_models ?? {}), [currentProfile.provider]: patch.model };
       }
       return { ai_processing: profilePatch };
     });
@@ -723,7 +723,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
               {fileStage !== null
                 ? <button className="btn btn--ghost" onClick={() => void cancelFileTranscription()}>{t("Отменить")}</button>
                 : (
-                  <button className="btn btn--ghost" onClick={() => void runFileTranscription()} disabled={fileStage !== null || manualLoading}>
+                  <button className="btn btn--ghost" onClick={() => void runFileTranscription()} disabled={manualLoading}>
                     <Icon name="folder" size={12}/>{t("Выбрать файл")}
                   </button>
                 )}

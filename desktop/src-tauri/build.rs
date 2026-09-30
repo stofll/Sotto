@@ -15,8 +15,6 @@ const APP_COMMANDS: &[&str] = &[
     "fetch_provider_models",
     "cancel_model_download",
     "set_overlay_presentation",
-    "start_recording",
-    "stop_recording",
     "cancel_recording",
     "start_microphone_test",
     "stop_microphone_test",

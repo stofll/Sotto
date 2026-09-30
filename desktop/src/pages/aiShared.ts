@@ -456,6 +456,24 @@ export function activeConfigFromProfile(ai: AiConfig, profile: LlmProfile, profi
   });
 }
 
+/** The profile the flat route follows; a fresh install has none saved yet. */
+export function activeProfileOf(ai: AiConfig, profiles: LlmProfile[]): LlmProfile {
+  return profiles.find((item) => item.id === ai.active_profile_id) ?? profiles[0] ?? normalizeProfile(ai, {});
+}
+
+const ROUTE_FIELDS = [
+  "active_profile_id", "profile_id", "profile_name", "provider", "model", "api_key_ref",
+  "prompt_preset", "system_prompt", "base_url", "llm_min_duration_seconds", "llm_timeout_seconds",
+] as const satisfies ReadonlyArray<keyof AiConfig>;
+
+/** The flat fields Rust reads for the LLM route, with `profile` active. A write
+ *  that can affect the route sends all of them: Rust treats an absent field as
+ *  empty rather than as the interface default. */
+export function routeFields(ai: AiConfig, profile: LlmProfile, profiles: LlmProfile[]): Partial<AiConfig> {
+  const route = activeConfigFromProfile(ai, profile, profiles);
+  return Object.fromEntries(ROUTE_FIELDS.map((key) => [key, route[key]])) as Partial<AiConfig>;
+}
+
 export function LogoMark({ logo, fallback, color = "var(--ink-dim)", size = 16 }: { logo?: string; fallback: string; color?: string; size?: number }) {
   return createElement(
     "span",

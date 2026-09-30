@@ -54,7 +54,7 @@ fn native_call<T>(f: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).map_err(crate::panic_msg)?
 }
 
-pub fn start(app: &AppHandle, state: &AppState, from_hotkey: bool) -> Result<Reply, String> {
+pub fn start(app: &AppHandle, state: &AppState) -> Result<Reply, String> {
     let requested = Instant::now();
     if let Some(refusal) = crate::refuse_dictation_start(app, state) {
         return Err(refusal.message);
@@ -66,9 +66,7 @@ pub fn start(app: &AppHandle, state: &AppState, from_hotkey: bool) -> Result<Rep
         .try_begin_dictation()
         .ok_or_else(crate::engine_busy_message)?;
     crate::clipboard::clear_target();
-    if from_hotkey {
-        crate::clipboard::capture_target();
-    }
+    crate::clipboard::capture_target();
     state.toggle_armed.store(
         config.get_string("recording_mode").as_deref() != Some("push_to_talk"),
         Ordering::Release,
@@ -248,33 +246,6 @@ pub async fn cancel(app: &AppHandle, state: &AppState, session_id: u64) -> Resul
         .await
         .map_err(|_| "audio worker dropped cancellation".to_string())?;
     Ok(true)
-}
-
-/// Returns the `session_id` so any sync caller can immediately use it
-/// (e.g. for cancel). The frontend currently discards the return value
-/// (it reads session_id from the `recording-started` event payload).
-#[tauri::command]
-pub(crate) async fn start_recording(
-    app: AppHandle,
-    state: tauri::State<'_, AppState>,
-) -> Result<u64, String> {
-    start(&app, &state, false)?
-        .await
-        .map_err(|_| "audio worker dropped start".to_string())?
-}
-
-/// Stop the active recording session and send the captured audio to the
-/// whisper engine.
-///
-/// Returns the stopped `session_id`, or 0 when no recording was active.
-#[tauri::command]
-pub(crate) async fn stop_recording(
-    app: AppHandle,
-    state: tauri::State<'_, AppState>,
-) -> Result<u64, String> {
-    stop(&app, &state)?
-        .await
-        .map_err(|_| "audio worker dropped stop".to_string())?
 }
 
 /// Cancel an in-flight recording / transcription session.

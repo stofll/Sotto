@@ -16,6 +16,8 @@
 export const en: Record<string, string | string[]> = {
   "Не удалось завершить удаление ключа. Повторите попытку.": "Could not finish deleting the key. Try again.",
   "Не удалось сохранить профиль. Проверьте ошибку и повторите попытку.": "Could not save the profile. Check the error and try again.",
+  "Не удалось сохранить профиль: {p0}": "Could not save the profile: {p0}",
+  "Не удалось сохранить ключ: {p0}": "Could not save the key: {p0}",
   "Мысли становятся текстом.": "Thoughts become text.",
   "Параметры установки": "Installation options",
   "Папка приложения": "Application folder",

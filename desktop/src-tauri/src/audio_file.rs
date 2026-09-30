@@ -48,27 +48,22 @@ pub struct DecodedAudio {
     pub audio_seconds: f64,
 }
 
-/// Decode `path` into 16 kHz mono `f32`.
+/// Test shortcut: decode with the production cap and no cancellation.
+#[cfg(test)]
+pub fn decode_to_pcm16k_mono(path: &Path) -> Result<DecodedAudio, String> {
+    decode_cancellable(path, MAX_DURATION_SECONDS, || false)
+}
+
+/// Decode `path` into 16 kHz mono `f32`, checking `cancelled` between packets.
 ///
 /// Errors are localized and meant to be shown verbatim — the caller has no
 /// more context to add, and symphonia's own messages ("unsupported codec")
 /// tell a person nothing about which of their files is the problem.
-#[cfg(test)]
-pub fn decode_to_pcm16k_mono(path: &Path) -> Result<DecodedAudio, String> {
-    decode_with_limit(path, MAX_DURATION_SECONDS)
-}
-
-/// The body of [`decode_to_pcm16k_mono`], with the duration cap injected.
 ///
-/// The cap exists to stop a 10-hour file from exhausting memory, and the
-/// only honest test of it would need a 10-hour file. Taking the limit as an
-/// argument lets a test use a fraction of a second instead — the guard is
-/// the same code either way.
-#[cfg(test)]
-fn decode_with_limit(path: &Path, max_seconds: f64) -> Result<DecodedAudio, String> {
-    decode_cancellable(path, max_seconds, || false)
-}
-
+/// The duration cap exists to stop a 10-hour file from exhausting memory; it
+/// is a parameter so tests can exercise the same guard with a fraction of a
+/// second instead of a 10-hour fixture. A blocking read or codec call already
+/// in progress finishes before cancellation is observed.
 fn decode_cancellable(
     path: &Path,
     max_seconds: f64,
@@ -613,7 +608,7 @@ async fn transcribe_file_inner(
     crate::restore_unloaded_model(app, state);
 
     let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
-    // Same branch as `stop_recording`: a cloud-configured user has no local
+    // Same branch as dictation's stop path: a cloud-configured user has no local
     // model loaded, and sending `Transcribe` would fail with «модель не
     // загружена» for a reason that has nothing to do with their setup.
     let command = if pipeline_mode == "cloud" {
@@ -1055,7 +1050,10 @@ mod tests {
         assert_eq!(error, expected);
         assert_eq!(checks, 4);
         assert_eq!(
-            decode_with_limit(&path, 10.0).unwrap().samples.len(),
+            decode_cancellable(&path, 10.0, || false)
+                .unwrap()
+                .samples
+                .len(),
             16_000
         );
     }
@@ -1067,7 +1065,8 @@ mod tests {
         // without a three-hour fixture.
         let path = write_temp("long.wav", &wav_bytes(&sine(16_000, 1.0, 440.0), 16_000, 1));
 
-        let error = decode_with_limit(&path, 0.1).expect_err("a file over the cap must be refused");
+        let error = decode_cancellable(&path, 0.1, || false)
+            .expect_err("a file over the cap must be refused");
 
         assert!(
             error.contains("длиннее") || error.contains("longer"),
@@ -1085,7 +1084,8 @@ mod tests {
             &wav_bytes(&sine(16_000, 1.0, 440.0), 16_000, 1),
         );
 
-        let decoded = decode_with_limit(&path, 10.0).expect("a file under the cap must decode");
+        let decoded =
+            decode_cancellable(&path, 10.0, || false).expect("a file under the cap must decode");
 
         assert_eq!(decoded.samples.len(), 16_000);
     }

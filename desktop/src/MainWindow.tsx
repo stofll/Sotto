@@ -96,6 +96,10 @@ export function MainWindow() {
   const [config, setConfig] = useState<ConfigResult | null>(null);
   const configRef = useRef<ConfigResult | null>(null);
   const configWrites = useRef<Promise<void>>(Promise.resolve());
+  // An optimistic theme toggle wins over results of writes queued before it.
+  const pendingTheme = useRef<"dark" | "light" | null>(null);
+  // The banner text of the last failed write, cleared by the next successful one.
+  const configWriteError = useRef<string | null>(null);
   const [stats, setStats] = useState<StatsResult | null>(null);
   const [microphones, setMicrophones] = useState<MicrophoneResult[]>([]);
   const [models, setModels] = useState<ModelInfo[]>([]);
@@ -158,7 +162,9 @@ export function MainWindow() {
     const previousTheme = theme;
     setTheme(nextTheme);
     setConfig((current) => current ? { ...current, theme: nextTheme } : current);
+    pendingTheme.current = nextTheme;
     const result = await onConfigChanged({ theme: nextTheme });
+    if (pendingTheme.current === nextTheme) pendingTheme.current = null;
     if (!result) {
       setTheme(previousTheme);
       setConfig((current) => current ? { ...current, theme: previousTheme } : current);
@@ -177,9 +183,14 @@ export function MainWindow() {
         const partial = typeof change === "function" ? change(current) : change;
         const result = await invoke<ConfigResult>("save_config", { patch: partial });
         if (!result) return null;
+        const stale = configWriteError.current;
+        if (stale) {
+          configWriteError.current = null;
+          setError((shown) => (shown === stale ? null : shown));
+        }
         configRef.current = result;
         setConfig(result);
-        setTheme(result.theme ?? "dark");
+        setTheme(pendingTheme.current ?? result.theme ?? "dark");
         applyLocaleFromConfig(result.ui_language);
         // Keep cross-window config notifications in the same order as writes.
         await emit("config-updated", result).catch(() => {});
@@ -189,7 +200,8 @@ export function MainWindow() {
         return result;
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
-        if (onError) onError(message); else setError(message);
+        if (onError) onError(message);
+        else { configWriteError.current = message; setError(message); }
         return null;
       }
     };
@@ -224,7 +236,7 @@ export function MainWindow() {
       if (!mounted) return;
       configRef.current = next;
       setConfig(next);
-      setTheme(next.theme ?? "dark");
+      setTheme(pendingTheme.current ?? next.theme ?? "dark");
       applyLocaleFromConfig(next.ui_language);
     }));
     // `paste-done`, not `whisper-done`: stats and the history row are

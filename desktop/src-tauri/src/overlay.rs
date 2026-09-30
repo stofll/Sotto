@@ -923,7 +923,7 @@ fn apply_hide(app: &AppHandle) -> Result<(), String> {
 // The dispatcher (`engine_events`) emits `whisper-*` and the paste events;
 // this module turns them into overlay states:
 //
-//   `recording-started`       → Show("recording")   (from `start_recording`)
+//   `recording-started`       → Show("recording")   (from `dictation::start`)
 //   `whisper-started`         → Show("processing")  (InferenceStarted)
 //   `whisper-done`            → Show("done"), no auto-hide (paste pending)
 //   `paste-done`              → Show("pasted") + auto-hide after 1800ms
@@ -987,9 +987,8 @@ const STUCK_OVERLAY_TIMEOUT_MS: u64 = 180_000;
 /// what used to deadlock against React's own `invoke("hide")` on the main
 /// thread.
 pub fn subscribe_engine_events(app: &AppHandle) {
-    // recording-started: emitted by the `start_recording` Tauri command
-    // when the UI (not the hotkey) starts a session. Maps to "recording"
-    // overlay state.
+    // recording-started: emitted by `dictation::start` once capture begins.
+    // Maps to "recording" overlay state.
     app.listen("recording-started", move |_event| {
         post(OverlayOp::Show("recording".to_string()));
     });

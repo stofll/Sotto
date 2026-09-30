@@ -61,9 +61,10 @@ The executable test modules are the detailed scenario inventory. Extend the rele
 | Shell | `test_navigation.py` | All eight pages, RU/EN and themes, theme persistence/rollback, startup failure, permission banners |
 | Settings | `test_settings.py` | Preferences and reload, paste dependencies, recording mode, locale, microphone selection/test/meter, hotkey validation/cancel, portable autostart, telemetry |
 | Models | `test_models.py` | Search, selection/rollback, confirmations, download progress/cancellation/failure/success, deletion, missing-model guidance |
-| Text | `test_text.py` | Preview draft and error, replacement persistence, import/export and failed-save retry, dictionary creation/search/deletion and unsaved changes |
-| LLM and files | `test_ai.py` | Keyboard route selection, missing-key gate, manual result/fallback/error, file selection/loading/result/error/retry/cancellation |
-| Providers and keys | `test_profiles.py` | Wizard search, URL validation, unsaved guard, local profile creation, rename/delete, key masking/replacement/deletion, credential-store failures, connection retry |
+| Text | `test_text.py` | Preview draft and error, replacement persistence, import/export and failed-save retry, dictionary creation/search/deletion, unsaved changes and a rejected save's reason in the set editor |
+| LLM and files | `test_ai.py` | Keyboard route selection, missing-key gate, manual result/fallback/error, file selection/loading/result/error/retry, cancellation during decoding and on leaving the page |
+| Providers and keys | `test_profiles.py` | Wizard search, URL validation, unsaved guard, local profile creation including a fresh config, rename/delete, key masking/replacement/deletion, credential-store and config-write failures with retry, queued deletions, connection retry |
+| Delayed replies | `test_async_state.py` | Ordered settings writes and notifications, complete LLM route on a fresh config, theme toggle during a queued write, stale provider/history/overlay replies |
 | History | `test_history.py` | Empty/loading failure, refresh on show without polling, search including raw text, no results, single deletion/error, clear confirmation, selection/view mode, partial bulk-delete failure, raw details, reprocess preview/apply/retry |
 | Help and statistics | `test_info_stats.py` | Update checks/retry/install failure, log cleanup confirmation, statistics periods and refreshed totals |
 | Lightweight windows | `test_windows.py` | Overlay lifecycle, stale events, cancellation/silence/error recovery, streaming, initial-state handshake, glow style authorization and full-width processing travel across sizes and reduced motion |

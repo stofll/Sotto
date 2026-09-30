@@ -83,7 +83,9 @@ def test_wizard_config_failure_keeps_draft_and_key_ref_for_retry(app, page):
     ui.queue("save_config", {"error": "Synthetic config failure"})
     dialog.get_by_role("button", name="Создать профиль", exact=True).click()
     expect(dialog).to_be_visible()
-    expect(dialog).to_contain_text("Не удалось сохранить профиль.")
+    expect(dialog).to_contain_text("Не удалось сохранить профиль")
+    # The modal covers the window banner, so the reason is shown inside it.
+    expect(dialog).to_contain_text("Synthetic config failure")
     expect(dialog.get_by_label("Название профиля", exact=True)).to_have_value(
         "Retried profile"
     )
@@ -95,6 +97,43 @@ def test_wizard_config_failure_keeps_draft_and_key_ref_for_retry(app, page):
     assert (
         ui.state()["config"]["ai_processing"]["profiles"][0]["api_key_ref"] == first_ref
     )
+
+
+def test_fresh_install_wizard_writes_the_route(app, page):
+    ui = app(config={"ai_processing": None})
+    dialog = wizard(ui, page)
+    dialog.get_by_role("button", name="Своя конфигурация", exact=False).click()
+    dialog.get_by_label("Base URL", exact=True).fill("http://localhost:1234/v1")
+    dialog.get_by_role("button", name="Далее", exact=True).click()
+    dialog.get_by_role(
+        "checkbox", name="Ключ не нужен — сервер локальный", exact=False
+    ).check()
+    dialog.get_by_role("button", name="Далее", exact=True).click()
+    dialog.get_by_label("Название профиля", exact=True).fill("Fresh profile")
+    dialog.get_by_placeholder("например: gpt-oss-120b").fill("synthetic-model")
+    dialog.get_by_role("button", name="Создать профиль", exact=True).click()
+    expect(dialog).not_to_be_visible()
+    ai = ui.state()["config"]["ai_processing"]
+    assert [profile["name"] for profile in ai["profiles"]] == ["Fresh profile"]
+    assert ai["active_profile_id"] == ai["profiles"][0]["id"]
+    assert ai["provider"] == ai["profiles"][0]["provider"]
+    assert ai["model"] == "synthetic-model"
+    assert ai["base_url"] == "http://localhost:1234/v1"
+    assert ai["system_prompt"].strip()
+
+
+def test_fresh_install_can_add_a_key(app, page):
+    ui = app(config={"ai_processing": None})
+    ui.nav("integrations")
+    page.get_by_role("button", name="Добавить ключ", exact=True).click()
+    dialog = page.get_by_role("dialog", name="Новый API-ключ")
+    dialog.get_by_placeholder("sk-...", exact=True).fill("synthetic-secret")
+    dialog.get_by_role("button", name="Сохранить ключ", exact=True).click()
+    expect(dialog).not_to_be_visible()
+    ref = ui.calls("save_api_key")[-1]["args"]["key_id"]
+    assert [
+        slot["ref"] for slot in ui.state()["config"]["ai_processing"]["key_slots"]
+    ] == [ref]
 
 
 PROFILE = {
@@ -131,6 +170,82 @@ def test_profile_rename_and_delete(app, page):
     ).click()
     expect(row).not_to_be_visible()
     assert ui.state()["config"]["ai_processing"]["profiles"] == []
+
+
+def test_empty_rename_closes_the_editor_without_saving(app, page):
+    ui = app(
+        config={
+            "ai_processing": {"profiles": [PROFILE], "active_profile_id": "synthetic"}
+        }
+    )
+    ui.nav("integrations")
+    row = page.get_by_test_id("profile-synthetic")
+    row.get_by_role("button", name="Действия с профилем", exact=True).click()
+    page.get_by_role("menuitem", name="Переименовать", exact=True).click()
+    name = row.get_by_role("textbox", name="Название профиля")
+    before = len(ui.calls("save_config"))
+    name.fill("   ")
+    name.press("Enter")
+    expect(name).not_to_be_visible()
+    expect(row).to_contain_text("Synthetic profile")
+    assert len(ui.calls("save_config")) == before
+
+
+def test_queued_profile_deletions_keep_both_key_slots(app, page):
+    second = {
+        **PROFILE,
+        "id": "second",
+        "name": "Second profile",
+        "api_key_ref": "key_second",
+    }
+    first = {**PROFILE, "api_key_ref": "key_synthetic"}
+    ui = app(
+        config={
+            "ai_processing": {
+                "profiles": [first, second],
+                "active_profile_id": "synthetic",
+            }
+        },
+        keys={
+            "key_synthetic": {
+                "available": True,
+                "label": "First key",
+                "masked": "a-***",
+            },
+            "key_second": {"available": True, "label": "Second key", "masked": "b-***"},
+        },
+    )
+    ui.nav("integrations")
+    page.evaluate("""() => {
+      const original = window.__TAURI_INTERNALS__.invoke;
+      window.delayedSaves = [];
+      window.__TAURI_INTERNALS__.invoke = (command, args) => {
+        if (command !== 'save_config') return original(command, args);
+        const call = { args, finish: null };
+        window.delayedSaves.push(call);
+        if (window.delayedSaves.length === 1) {
+          return new Promise(resolve => { call.finish = () => resolve(original(command, args)); });
+        }
+        return original(command, args);
+      };
+    }""")
+    for profile_id in ["synthetic", "second"]:
+        row = page.get_by_test_id(f"profile-{profile_id}")
+        row.get_by_role("button", name="Действия с профилем", exact=True).click()
+        page.get_by_role("menuitem", name="Удалить", exact=True).click()
+        page.get_by_role("alertdialog").get_by_role(
+            "button", name="Удалить", exact=True
+        ).click()
+        if profile_id == "synthetic":
+            page.wait_for_function("window.delayedSaves.length === 1")
+    page.evaluate("window.delayedSaves[0].finish()")
+    page.wait_for_function("window.delayedSaves.length === 2")
+    page.wait_for_function(
+        "window.__sottoTest.state.config.ai_processing.profiles.length === 0"
+    )
+    # Each deleted profile's key stays registered; neither write drops the other's.
+    refs = {slot["ref"] for slot in ui.state()["config"]["ai_processing"]["key_slots"]}
+    assert refs == {"key_synthetic", "key_second"}
 
 
 def test_api_key_create_reveal_replace_delete(app, page):
@@ -200,7 +315,8 @@ def test_key_slot_config_failure_preserves_add_draft_and_ref(app, page):
     ui.queue("save_config", {"error": "Synthetic config failure"})
     dialog.get_by_role("button", name="Сохранить ключ", exact=True).click()
     expect(dialog).to_be_visible()
-    expect(dialog.get_by_role("alert")).to_contain_text("Не удалось сохранить ключ.")
+    expect(dialog.get_by_role("alert")).to_contain_text("Не удалось сохранить ключ")
+    expect(dialog.get_by_role("alert")).to_contain_text("Synthetic config failure")
     expect(
         page.get_by_text("Ключ сохранён. Привяжите его к профилю в поле «Key ref».")
     ).to_have_count(0)
