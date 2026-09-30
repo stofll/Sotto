@@ -182,6 +182,13 @@ fn en(key: &str) -> Option<&'static str> {
         "провайдер не отдаёт список моделей" => "the provider does not list its models",
         "провайдер ответил {p0}" => "the provider answered {p0}",
         "ответ не разобрался: {p0}" => "the response could not be parsed: {p0}",
+        "ответ провайдера слишком большой" => "provider response is too large",
+        "Термин словаря должен содержать не более 128 символов и 8 слов." => {
+            "A dictionary term may contain at most 128 characters and 8 words."
+        }
+        "В активных пользовательских словарях допускается не более 1000 разных терминов." => {
+            "Active personal dictionaries may contain at most 1,000 distinct terms."
+        }
         "провайдер вернул пустой список" => "the provider returned an empty list",
         _ => return None,
     })

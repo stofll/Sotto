@@ -440,10 +440,8 @@ async fn wait_download_io<T>(
 ///    the accumulated size and digest with the manifest.
 /// 5. Verify the final size and SHA-256 against the manifest.
 /// 6. Atomically rename `*.part` onto the final path. The final
-///    path is NOT touched on failure — the partial file remains
-///    so the user can retry without re-downloading from scratch
-///    (and so a corrupt run never silently overwrites a working
-///    model).
+///    path is NOT touched on failure. An oversized partial is discarded;
+///    other failures retain it for a later resume.
 ///
 /// Both callbacks take `&dyn Fn(...) + Send + Sync` because the
 /// Tauri command layer moves the download into a worker thread
@@ -530,6 +528,13 @@ pub async fn download_spec_to_dir(
     let total = response
         .content_length()
         .map(|length| length.saturating_add(offset));
+    if let Some(actual) = total.filter(|total| *total > spec.expected_bytes) {
+        remove_oversized_part(&part_path).await?;
+        return Err(ModelDownloadError::SizeMismatch {
+            expected: spec.expected_bytes,
+            actual,
+        });
+    }
 
     let mut hasher = Sha256::new();
     let mut file = if offset > 0 {
@@ -568,11 +573,20 @@ pub async fn download_spec_to_dir(
         }
         let chunk = chunk_result
             .map_err(|error| ModelDownloadError::Transport(format!("body: {error}")))?;
+        let next_size = downloaded.saturating_add(chunk.len() as u64);
+        if next_size > spec.expected_bytes {
+            drop(file);
+            remove_oversized_part(&part_path).await?;
+            return Err(ModelDownloadError::SizeMismatch {
+                expected: spec.expected_bytes,
+                actual: next_size,
+            });
+        }
         file.write_all(&chunk)
             .await
             .map_err(|error| ModelDownloadError::Transport(format!("write: {error}")))?;
         hasher.update(&chunk);
-        downloaded = downloaded.saturating_add(chunk.len() as u64);
+        downloaded = next_size;
         if let Some(progress_cb) = progress {
             progress_cb(DownloadProgress { downloaded, total });
         }
@@ -617,6 +631,16 @@ pub async fn download_spec_to_dir(
         path: final_path,
         bytes: downloaded,
     })
+}
+
+async fn remove_oversized_part(part_path: &Path) -> Result<(), ModelDownloadError> {
+    match tokio::fs::remove_file(part_path).await {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(ModelDownloadError::Transport(format!(
+            "remove oversized part: {error}"
+        ))),
+    }
 }
 
 /// A closed multi-file model bundle. Artifacts are downloaded into a private
@@ -957,6 +981,18 @@ mod tests {
         format!("http://{addr}/ggml-tiny.bin")
     }
 
+    fn serve_raw_once(response: Vec<u8>) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0_u8; 1024];
+            let _ = stream.read(&mut request);
+            let _ = stream.write_all(&response);
+        });
+        format!("http://{addr}/ggml-tiny.bin")
+    }
+
     /// How the one-shot server answers a `Range` request.
     #[derive(Clone, Copy)]
     enum RangeMode {
@@ -1210,6 +1246,80 @@ mod tests {
         assert_eq!(outcome.path(), final_path.as_path());
         assert_eq!(std::fs::read(&final_path).unwrap(), body);
         assert!(!part_path_for(&final_path).exists());
+    }
+
+    #[test]
+    fn oversized_declared_download_discards_existing_partial_before_writing() {
+        let response =
+            b"HTTP/1.1 200 OK\r\nContent-Length: 6\r\nConnection: close\r\n\r\nabcdef".to_vec();
+        let spec = tiny_spec(serve_raw_once(response), b"abc");
+        let dir = tempfile::tempdir().unwrap();
+        let part = part_path_for(&dir.path().join(&spec.file_name));
+        std::fs::write(&part, b"stale").unwrap();
+        let result = block_on(download_spec_to_dir(
+            &crate::http_client::client(),
+            &spec,
+            dir.path(),
+            &Arc::new(AtomicBool::new(false)),
+            None,
+            None,
+        ));
+        assert!(matches!(
+            result,
+            Err(ModelDownloadError::SizeMismatch { .. })
+        ));
+        assert!(!part.exists());
+        assert!(!dir.path().join(&spec.file_name).exists());
+    }
+
+    #[test]
+    fn oversized_chunked_download_discards_partial_before_writing_chunk() {
+        let response = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n6\r\nabcdef\r\n0\r\n\r\n".to_vec();
+        let spec = tiny_spec(serve_raw_once(response), b"abc");
+        let dir = tempfile::tempdir().unwrap();
+        let part = part_path_for(&dir.path().join(&spec.file_name));
+        let result = block_on(download_spec_to_dir(
+            &crate::http_client::client(),
+            &spec,
+            dir.path(),
+            &Arc::new(AtomicBool::new(false)),
+            None,
+            None,
+        ));
+        assert_eq!(
+            result.unwrap_err(),
+            ModelDownloadError::SizeMismatch {
+                expected: 3,
+                actual: 6,
+            }
+        );
+        assert!(!part.exists());
+    }
+
+    #[test]
+    fn oversized_resumed_tail_discards_preexisting_partial() {
+        let response = b"HTTP/1.1 206 Partial Content\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n5\r\ndefgh\r\n0\r\n\r\n".to_vec();
+        let spec = tiny_spec(serve_raw_once(response), b"abcdef");
+        let dir = tempfile::tempdir().unwrap();
+        let part = part_path_for(&dir.path().join(&spec.file_name));
+        std::fs::write(&part, b"abc").unwrap();
+        let result = block_on(download_spec_to_dir(
+            &crate::http_client::client(),
+            &spec,
+            dir.path(),
+            &Arc::new(AtomicBool::new(false)),
+            None,
+            None,
+        ));
+        assert_eq!(
+            result.unwrap_err(),
+            ModelDownloadError::SizeMismatch {
+                expected: 6,
+                actual: 8,
+            }
+        );
+        assert!(!part.exists());
+        assert!(!dir.path().join(&spec.file_name).exists());
     }
 
     #[test]
@@ -1611,8 +1721,17 @@ mod tests {
         let Some(available) = available_bytes(dir.path()) else {
             return;
         };
+        // Leave enough room for either artifact on its own, while requiring
+        // 75% more than the sampled free space for the pair. Background disk
+        // cleanup can change the free-space reading during this test.
+        if available < 16 * 1024 * 1024 {
+            return;
+        }
+        let each = available - available / 8;
+        assert!(free_space_verdict(Some(available), each).is_ok());
+        assert!(free_space_verdict(Some(available), each.saturating_mul(2)).is_err());
         let mut first = tiny_spec("http://127.0.0.1:1".into(), b"a");
-        first.expected_bytes = available / 2 + 1;
+        first.expected_bytes = each;
         let mut second = first.clone();
         second.file_name = "second.bin".into();
         let spec = BundleDownloadSpec {
@@ -1629,10 +1748,13 @@ mod tests {
             None,
         )
         .await;
-        assert!(matches!(
-            result,
-            Err(ModelDownloadError::InsufficientFreeSpace { .. })
-        ));
+        assert!(
+            matches!(
+                &result,
+                Err(ModelDownloadError::InsufficientFreeSpace { .. })
+            ),
+            "bundle must fail before the first request, got {result:?}"
+        );
         assert_eq!(
             std::fs::read_dir(stage_dir_for(dir.path(), "synthetic"))
                 .unwrap()

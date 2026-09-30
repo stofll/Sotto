@@ -145,6 +145,45 @@ async fn engine_cloud_cancellation_drops_stalled_request_without_waiting_for_res
 }
 
 #[tokio::test]
+async fn cancellation_stops_a_streamed_upload_when_server_stops_reading() {
+    use tokio::io::AsyncReadExt;
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let (headers_seen, received) = tokio::sync::oneshot::channel();
+    let server = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut request = Vec::new();
+        while find_double_crlf(&request).is_none() {
+            let mut chunk = [0u8; 4096];
+            let size = stream.read(&mut chunk).await.unwrap();
+            if size == 0 {
+                return;
+            }
+            request.extend_from_slice(&chunk[..size]);
+        }
+        let _ = headers_seen.send(());
+        tokio::time::sleep(Duration::from_secs(10)).await;
+    });
+    let cancel = Arc::new(AtomicBool::new(false));
+    let mut request = sample_request(url);
+    request.audio = Arc::new(vec![0.0; 1_000_000]);
+    let flag = cancel.clone();
+    let task = tokio::spawn(async move { transcribe_cancellable(request, &flag).await });
+    tokio::time::timeout(Duration::from_secs(3), received)
+        .await
+        .unwrap()
+        .unwrap();
+    cancel.store(true, Ordering::SeqCst);
+    let result = tokio::time::timeout(Duration::from_secs(1), task)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(result.unwrap_err().contains("cancelled"));
+    server.abort();
+}
+
+#[tokio::test]
 async fn cancelled_cloud_request_does_not_upload() {
     let server = delayed_server(Duration::ZERO).await;
     let cancel = AtomicBool::new(true);
@@ -168,7 +207,11 @@ struct Captured {
 
 type Shared = Arc<Mutex<Captured>>;
 
-fn spawn_mock(response_status_line: &'static str, response_body: &'static str) -> (String, Shared) {
+fn spawn_mock(
+    response_status_line: &'static str,
+    response_body: impl Into<String>,
+) -> (String, Shared) {
+    let response_body = response_body.into();
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
     let captured: Shared = Arc::new(Mutex::new(Captured::default()));
@@ -339,6 +382,20 @@ async fn transcribe_propagates_malformed_json() {
     let (base_url, _captured) = spawn_mock("HTTP/1.1 200 OK", "not json");
     let err = transcribe(sample_request(base_url)).await.unwrap_err();
     assert!(err.starts_with("malformed:"), "got: {err}");
+}
+
+#[tokio::test]
+async fn transcribe_rejects_oversized_success_and_recovers_on_next_request() {
+    let oversized = format!(r#"{{"text":"{}"}}"#, "x".repeat(4 * 1024 * 1024));
+    let (base_url, _) = spawn_mock("HTTP/1.1 200 OK", oversized);
+    let err = transcribe(sample_request(base_url)).await.unwrap_err();
+    assert!(err.contains("response too large"), "got: {err}");
+
+    let (base_url, _) = spawn_mock("HTTP/1.1 200 OK", r#"{"text":"recovered"}"#);
+    assert_eq!(
+        transcribe(sample_request(base_url)).await.unwrap().text,
+        "recovered"
+    );
 }
 
 #[tokio::test]

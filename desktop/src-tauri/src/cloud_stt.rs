@@ -27,7 +27,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use futures_util::{stream, StreamExt};
 use serde::Deserialize;
+
+const MAX_TRANSCRIPT_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
+const UPLOAD_CHUNK_SAMPLES: usize = 32 * 1024;
 
 /// Identifies the cloud STT provider. Currently only OpenAI-compatible
 /// is implemented; the field exists in config for forward-compat (a
@@ -110,22 +114,41 @@ pub fn transcribe_blocking(
 /// Matches the legacy Python `_audio_to_wav_bytes` so existing test
 /// WAV byte fixtures (header inspection, byte-rate sanity) still pass.
 pub fn audio_to_wav_bytes(samples: &[f32]) -> Vec<u8> {
-    // Clamp + scale to i16. NaN/Inf collapse to 0 to avoid producing
-    // undefined PCM samples (a real risk if a buggy upstream stage
-    // emits non-finite floats).
-    let pcm: Vec<i16> = samples
-        .iter()
-        .map(|&s| {
-            let clamped = if s.is_finite() {
-                s.clamp(-1.0, 1.0)
-            } else {
-                0.0
-            };
-            (clamped * 32_768.0) as i16
-        })
-        .collect();
-
+    let pcm: Vec<i16> = samples.iter().copied().map(pcm16_sample).collect();
     crate::wav::encode_pcm16_mono(&pcm, 16_000)
+}
+
+/// Clamp + scale to i16. NaN/Inf collapse to 0 to avoid producing undefined
+/// PCM samples (a real risk if a buggy upstream stage emits non-finite floats).
+fn pcm16_sample(sample: f32) -> i16 {
+    let clamped = if sample.is_finite() {
+        sample.clamp(-1.0, 1.0)
+    } else {
+        0.0
+    };
+    (clamped * 32_768.0) as i16
+}
+
+fn wav_header(sample_count: usize) -> Result<Vec<u8>, String> {
+    let data_bytes = sample_count
+        .checked_mul(2)
+        .and_then(|bytes| u32::try_from(bytes).ok())
+        .ok_or_else(|| "cloud STT audio exceeds WAV size limit".to_string())?;
+    let riff_bytes = data_bytes
+        .checked_add(36)
+        .ok_or_else(|| "cloud STT audio exceeds WAV size limit".to_string())?;
+    let mut header = crate::wav::encode_pcm16_mono(&[], 16_000);
+    header[4..8].copy_from_slice(&riff_bytes.to_le_bytes());
+    header[40..44].copy_from_slice(&data_bytes.to_le_bytes());
+    Ok(header)
+}
+
+fn wav_chunk(samples: &[f32]) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(samples.len() * 2);
+    for &sample in samples {
+        bytes.extend_from_slice(&pcm16_sample(sample).to_le_bytes());
+    }
+    bytes
 }
 
 /// Build the multipart/form-data body for an OpenAI-compatible
@@ -142,8 +165,15 @@ pub fn build_multipart_body(
     language: Option<&str>,
     file_bytes: &[u8],
 ) -> (Vec<u8>, String) {
+    let (mut body, suffix, content_type) = multipart_parts(model, language);
+    body.extend_from_slice(file_bytes);
+    body.extend_from_slice(&suffix);
+    (body, content_type)
+}
+
+fn multipart_parts(model: &str, language: Option<&str>) -> (Vec<u8>, Vec<u8>, String) {
     const BOUNDARY: &str = "----WhisperDesktopBoundary7MA4YWxkTrZu0gW";
-    let mut body = Vec::with_capacity(file_bytes.len() + 1024);
+    let mut body = Vec::with_capacity(1024);
     let crlf = b"\r\n";
 
     let push_field = |body: &mut Vec<u8>, name: &str, value: &str| {
@@ -168,13 +198,10 @@ pub fn build_multipart_body(
         b"Content-Disposition: form-data; name=\"file\"; filename=\"recording.wav\"\r\n",
     );
     body.extend_from_slice(b"Content-Type: audio/wav\r\n\r\n");
-    body.extend_from_slice(file_bytes);
-    body.extend_from_slice(crlf);
-
-    body.extend_from_slice(format!("--{BOUNDARY}--\r\n").as_bytes());
+    let suffix = format!("\r\n--{BOUNDARY}--\r\n").into_bytes();
 
     let content_type = format!("multipart/form-data; boundary={BOUNDARY}");
-    (body, content_type)
+    (body, suffix, content_type)
 }
 
 /// Send the audio to the configured provider and return the
@@ -199,9 +226,32 @@ pub async fn transcribe(req: CloudSttRequest) -> Result<CloudSttResult, String> 
     }
 
     let started = Instant::now();
-    let wav_bytes = audio_to_wav_bytes(&req.audio);
-    let (body, content_type) =
-        build_multipart_body(&req.model, req.language.as_deref(), &wav_bytes);
+    let wav_header = wav_header(req.audio.len())?;
+    let (prefix, suffix, content_type) = multipart_parts(&req.model, req.language.as_deref());
+    let content_length = prefix
+        .len()
+        .checked_add(wav_header.len())
+        .and_then(|size| size.checked_add(req.audio.len() * 2))
+        .and_then(|size| size.checked_add(suffix.len()))
+        .ok_or_else(|| "cloud STT upload exceeds size limit".to_string())?;
+    let chunks = stream::unfold(
+        (Arc::clone(&req.audio), 0usize),
+        |(audio, start)| async move {
+            if start == audio.len() {
+                None
+            } else {
+                let end = start.saturating_add(UPLOAD_CHUNK_SAMPLES).min(audio.len());
+                let bytes = wav_chunk(&audio[start..end]);
+                Some((Ok::<Vec<u8>, std::io::Error>(bytes), (audio, end)))
+            }
+        },
+    );
+    let upload = stream::iter([Ok::<Vec<u8>, std::io::Error>(prefix), Ok(wav_header)])
+        .chain(chunks)
+        .chain(stream::once(async move {
+            Ok::<Vec<u8>, std::io::Error>(suffix)
+        }));
+    let body = reqwest::Body::wrap_stream(upload);
 
     let url = format!(
         "{}/audio/transcriptions",
@@ -214,6 +264,7 @@ pub async fn transcribe(req: CloudSttRequest) -> Result<CloudSttResult, String> 
         .timeout(Duration::from_secs(req.timeout_seconds.max(1)))
         .header("Authorization", format!("Bearer {}", req.api_key))
         .header("Content-Type", content_type)
+        .header("Content-Length", content_length.to_string())
         .body(body)
         .send()
         .await
@@ -229,14 +280,9 @@ pub async fn transcribe(req: CloudSttRequest) -> Result<CloudSttResult, String> 
 
     let status = response.status();
     if !status.is_success() {
-        // The message reaches the overlay and the history entry, so it names
-        // only the status; the provider's own wording goes to the debug log.
-        let body = response.text().await.unwrap_or_default();
-        log::debug!(
-            "cloud STT http {}: {}",
-            status.as_u16(),
-            truncate(&body, 240)
-        );
+        // A provider can echo audio, transcript or credentials in its error
+        // body, so neither collect nor log it.
+        log::debug!("cloud STT http {}", status.as_u16());
         return Err(format!(
             "http {} {}",
             status.as_u16(),
@@ -246,13 +292,21 @@ pub async fn transcribe(req: CloudSttRequest) -> Result<CloudSttResult, String> 
         .to_string());
     }
 
-    let parsed: serde_json::Value = response.json().await.map_err(|error| {
-        if error.is_timeout() {
-            format!("timeout after {}s", req.timeout_seconds.max(1))
-        } else {
-            format!("malformed: invalid JSON: {error}")
-        }
-    })?;
+    let body = crate::http_client::read_bounded_body(response, MAX_TRANSCRIPT_RESPONSE_BYTES)
+        .await
+        .map_err(|error| match error {
+            crate::http_client::ResponseBodyError::TooLarge => {
+                "malformed: transcript response too large".to_string()
+            }
+            crate::http_client::ResponseBodyError::Read(error) if error.is_timeout() => {
+                format!("timeout after {}s", req.timeout_seconds.max(1))
+            }
+            crate::http_client::ResponseBodyError::Read(error) => {
+                format!("transport: {error}")
+            }
+        })?;
+    let parsed: serde_json::Value = serde_json::from_slice(&body)
+        .map_err(|error| format!("malformed: invalid JSON: {error}"))?;
 
     let text = parsed
         .get("text")
@@ -270,26 +324,9 @@ pub async fn transcribe(req: CloudSttRequest) -> Result<CloudSttResult, String> 
     })
 }
 
-fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        s.to_string()
-    } else {
-        let mut truncated = s[..s.floor_char_boundary(max)].to_string();
-        truncated.push('…');
-        truncated
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn error_body_truncation_preserves_utf8_boundaries() {
-        assert_eq!(truncate("Я🙂ошибка", 3), "Я…");
-        assert_eq!(truncate("Я🙂ошибка", 6), "Я🙂…");
-        assert_eq!(truncate("Я", 2), "Я");
-    }
 
     #[test]
     fn wav_wire_bytes_preserve_scaling_clipping_and_non_finite_silence() {
@@ -307,6 +344,18 @@ mod tests {
         ];
         let expected = b"\x52\x49\x46\x46\x38\x00\x00\x00\x57\x41\x56\x45\x66\x6d\x74\x20\x10\x00\x00\x00\x01\x00\x01\x00\x80\x3e\x00\x00\x00\x7d\x00\x00\x02\x00\x10\x00\x64\x61\x74\x61\x14\x00\x00\x00\x00\x00\x00\x80\xff\x7f\x00\x40\x00\xc0\x00\x00\x00\x00\x00\x00\xff\x7f\x00\x80";
         assert_eq!(audio_to_wav_bytes(&samples), expected);
+    }
+
+    #[test]
+    fn chunked_wav_encoder_matches_in_memory_bytes_across_chunk_boundary() {
+        let mut samples = vec![0.25_f32; UPLOAD_CHUNK_SAMPLES + 3];
+        samples[UPLOAD_CHUNK_SAMPLES - 1] = f32::NAN;
+        samples[UPLOAD_CHUNK_SAMPLES] = -2.0;
+        let mut streamed = wav_header(samples.len()).unwrap();
+        for chunk in samples.chunks(UPLOAD_CHUNK_SAMPLES) {
+            streamed.extend_from_slice(&wav_chunk(chunk));
+        }
+        assert_eq!(streamed, audio_to_wav_bytes(&samples));
     }
 
     #[test]

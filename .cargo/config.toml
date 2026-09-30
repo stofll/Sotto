@@ -1,3 +1,7 @@
 [env]
 # Cargo resolves relative env paths from the repository root, not the caller's cwd.
 CMAKE_TOOLCHAIN_FILE = { value = "scripts/ggml-baseline.cmake", relative = true }
+# The Sherpa build script otherwise downloads a native archive without a hash
+# check. This intentionally points to a file, so direct Cargo fails before a
+# download unless a verified fetch has set SHERPA_ONNX_LIB_DIR in the shell.
+SHERPA_ONNX_LIB_DIR = { value = "scripts/sherpa-runtime.lock", relative = true }

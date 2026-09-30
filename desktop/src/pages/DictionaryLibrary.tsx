@@ -180,6 +180,7 @@ function DictionaryDialog({ session, formatting, onSave, onClose }: { session: S
             <label className="dictionary-label">{t("Описание (необязательно)")}<input className="field" value={entry.description} onChange={(event) => setEntry({ ...entry, description: event.target.value })}/></label>
             <label className="dictionary-label"><span className="dictionary-term-heading"><span>{t("Термины")}</span><span className="dictionary-note" aria-hidden="true">{parseDictionaryWords(words).length}</span></span><textarea aria-label={t("Термины")} className="field mono dictionary-words" value={words} onChange={(event) => setWords(event.target.value)} placeholder={t("например: Tauri\nClaude Code")}/></label>
             <p className="dictionary-note">{t("По одному слову или фразе в строке. Также можно разделять запятыми.")}</p>
+            <p className="dictionary-note">{t("Термин — до 128 символов и 8 слов. Во всех активных пользовательских наборах — до 1000 разных терминов.")}</p>
           </> : !session.draft && <>
             <label className="dictionary-label">{t("Поиск по набору")}<input className="field" value={filter} onChange={(event) => setFilter(event.target.value)}/></label>
             <div className="dictionary-label"><div className="dictionary-term-heading"><span>{t("Термины")}</span><span className="dictionary-note">{entry.words.length}</span></div></div>

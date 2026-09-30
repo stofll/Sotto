@@ -396,8 +396,10 @@ fn validate_speech_route(candidate: &Value) -> Result<(), String> {
 #[cfg(test)]
 fn save_with_merge_patch_at(path: &Path, patch: Value) -> Result<Value, String> {
     with_locked_config(path, |cfg, path| {
+        let previous = cfg.as_value().clone();
         cfg.apply_merge_patch(&patch)?;
         validate(cfg.as_value())?;
+        crate::dictionaries::validate_change(&previous, cfg.as_value())?;
         cfg.save_at(path)?;
         Ok(cfg.as_value().clone())
     })
@@ -419,6 +421,7 @@ fn persist_patch(
     candidate.apply_merge_patch(patch)?;
     check(&candidate)?;
     validate(candidate.as_value())?;
+    crate::dictionaries::validate_change(current.as_value(), candidate.as_value())?;
     if patch.get("hotkey").is_some() {
         persist_with_hotkey(&candidate, path, &hotkey_from(current), replace_binding)?;
     } else {
@@ -1074,6 +1077,46 @@ mod tests {
             saved["text_formatting"]["enabled_presets"],
             json!(["development"])
         );
+    }
+
+    #[test]
+    fn legacy_oversized_dictionary_allows_unrelated_save_but_rejects_growth() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        let words: Vec<String> = (0..1_001).map(|index| format!("Term{index}")).collect();
+        fs::write(
+            &path,
+            json!({"text_formatting": {"custom_words": words}}).to_string(),
+        )
+        .unwrap();
+        let loaded = Config::load_at(&path).unwrap();
+        assert_eq!(
+            loaded.as_value()["text_formatting"]["dictionary_sets"][0]["words"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1_001
+        );
+        let saved = save_with_merge_patch_at(&path, json!({"theme": "light"})).unwrap();
+        assert_eq!(saved["theme"], "light");
+        assert_eq!(
+            saved["text_formatting"]["dictionary_sets"][0]["words"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1_001
+        );
+        let mut grown = saved["text_formatting"]["dictionary_sets"].clone();
+        grown[0]["words"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!("TermExtra"));
+        assert!(save_with_merge_patch_at(
+            &path,
+            json!({"text_formatting": {"dictionary_sets": grown}})
+        )
+        .is_err());
+        assert_eq!(Config::load_at(&path).unwrap().as_value(), &saved);
     }
 
     #[test]

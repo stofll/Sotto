@@ -23,7 +23,7 @@
     "test": "vitest run",
     "lint": "eslint .",
     "test:watch": "vitest",
-    "tauri": "tauri",
+    "tauri": "node ../scripts/verified-tauri.mjs",
     "i18n:check": "node check-i18n.mjs && node find-eager-t.mjs",
     "i18n:keys": "node check-i18n.mjs --keys",
     "bundle:check": "node check-bundle-size.mjs"

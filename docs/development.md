@@ -31,6 +31,8 @@ pnpm install --frozen-lockfile
 pnpm tauri dev
 ```
 
+The `pnpm tauri dev` and `pnpm tauri build` commands verify the pinned Sherpa native archive before Tauri starts Cargo. On supported Windows x64 and macOS arm64 hosts, an invalid archive stops the build; a direct Cargo invocation instead requires the verified `SHERPA_ONNX_LIB_DIR` setup below.
+
 On macOS, `pnpm tauri dev` runs `target/debug/Sotto` directly rather than an application bundle, which matters for anything that needs Accessibility — the hotkey and automatic paste. That binary is a separate TCC client from an installed `/Applications/Sotto.app`, and macOS attributes its request to the process that launched it, so the grant has to go to the terminal you run the build from. Granting it to the installed copy does nothing for a development run. Builds are signed ad hoc, which also means every rebuild changes the code hash and silently invalidates an existing grant while the switch in Settings stays on; `tccutil reset Accessibility com.sotto.app` clears the stale entry for the bundle, and [a stable identity](#keep-the-macos-permissions-across-builds) stops it from going stale at all.
 
 The frontend-only development server is available with `pnpm dev`, but application commands require Tauri; there is no HTTP backend fallback. Use the isolated [browser UI harness](ui-testing.md) to exercise synthetic states without launching the native application. A full Tauri build also requires the native prerequisites and model/runtime assets described in [Models](models.md).
@@ -39,7 +41,7 @@ On Windows there is also a launcher: `desktop\run_desktop.cmd`.
 
 ### Prepare native dependencies for direct Cargo checks
 
-Build the frontend first with `pnpm --dir desktop build`. On Windows, run the following from the repository root in a PowerShell session with MSVC, CMake and libclang available:
+Build the frontend first with `pnpm --dir desktop build`. Direct Cargo builds fail before the Sherpa dependency can download an unchecked archive unless `SHERPA_ONNX_LIB_DIR` names an existing directory. On Windows, run the following from the repository root in a PowerShell session with MSVC, CMake and libclang available:
 
 ```powershell
 $env:SHERPA_ONNX_LIB_DIR = ./scripts/fetch-sherpa-runtime.ps1 -Target win-x64-shared

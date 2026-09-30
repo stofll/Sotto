@@ -29,6 +29,87 @@ pub struct DictionaryAnalysis {
     pub unsupported_words: Vec<String>,
 }
 
+const MAX_ACTIVE_USER_TERMS: usize = 1_000;
+const MAX_TERM_CHARS: usize = 128;
+const MAX_TERM_WORDS: usize = 8;
+
+fn user_terms(config: &TextFormattingConfig) -> impl Iterator<Item = &str> {
+    config
+        .custom_words
+        .iter()
+        .chain(config.dictionary_sets.iter().flat_map(|set| &set.words))
+        .map(String::as_str)
+}
+
+fn oversized_terms(config: &TextFormattingConfig) -> HashSet<String> {
+    user_terms(config)
+        .map(str::trim)
+        .filter(|term| {
+            term.chars().count() > MAX_TERM_CHARS
+                || term.split_whitespace().count() > MAX_TERM_WORDS
+        })
+        .map(str::to_owned)
+        .collect()
+}
+
+fn active_user_term_count(config: &TextFormattingConfig) -> usize {
+    config
+        .custom_words
+        .iter()
+        .chain(
+            config
+                .dictionary_sets
+                .iter()
+                .filter(|set| set.enabled)
+                .flat_map(|set| &set.words),
+        )
+        .map(|term| term.trim().to_lowercase())
+        .filter(|term| !term.is_empty())
+        .collect::<HashSet<_>>()
+        .len()
+}
+
+/// Apply new limits at save time without invalidating old, already-loaded
+/// dictionaries. A legacy over-limit dictionary can still be reduced or saved
+/// alongside unrelated settings; an edit cannot introduce a new violation.
+pub fn validate_change(previous: &Value, candidate: &Value) -> Result<(), String> {
+    if ["custom_words", "dictionary_sets"].iter().all(|key| {
+        previous
+            .get("text_formatting")
+            .and_then(|formatting| formatting.get(key))
+            == candidate
+                .get("text_formatting")
+                .and_then(|formatting| formatting.get(key))
+    }) {
+        return Ok(());
+    }
+    let parse = |value: &Value| -> Result<TextFormattingConfig, String> {
+        match value.get("text_formatting") {
+            Some(formatting) => serde_json::from_value(formatting.clone())
+                .map_err(|_| "Invalid dictionary configuration".to_string()),
+            None => Ok(TextFormattingConfig::default()),
+        }
+    };
+    let previous = parse(previous)?;
+    let candidate = parse(candidate)?;
+    if oversized_terms(&candidate)
+        .difference(&oversized_terms(&previous))
+        .next()
+        .is_some()
+    {
+        return Err(crate::ui_text::t(
+            "Термин словаря должен содержать не более 128 символов и 8 слов.",
+        ));
+    }
+    let count = active_user_term_count(&candidate);
+    if count > MAX_ACTIVE_USER_TERMS && count > active_user_term_count(&previous) {
+        return Err(crate::ui_text::t(
+            "В активных пользовательских словарях допускается не более 1000 разных терминов.",
+        ));
+    }
+    Ok(())
+}
+
 fn variants(config: &TextFormattingConfig) -> BTreeMap<String, BTreeSet<String>> {
     let mut terms: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for word in config.custom_words.iter().chain(
@@ -268,6 +349,54 @@ mod tests {
             enabled,
             words: words.iter().map(|word| (*word).into()).collect(),
         }
+    }
+
+    #[test]
+    fn new_dictionary_limits_accept_boundaries_and_reject_excess() {
+        let prior = json!({});
+        let words: Vec<String> = (0..MAX_ACTIVE_USER_TERMS)
+            .map(|index| format!("Term{index}"))
+            .collect();
+        let candidate = |words: Vec<String>| json!({"text_formatting": {"custom_words": words, "dictionary_sets": []}});
+        assert!(validate_change(&prior, &candidate(words.clone())).is_ok());
+        let mut too_many = words;
+        too_many.push("OneMoreTerm".into());
+        assert!(validate_change(&prior, &candidate(too_many)).is_err());
+        assert!(validate_change(&prior, &candidate(vec!["x".repeat(MAX_TERM_CHARS)])).is_ok());
+        assert!(validate_change(&prior, &candidate(vec!["x".repeat(MAX_TERM_CHARS + 1)])).is_err());
+        assert!(validate_change(&prior, &candidate(vec!["word ".repeat(MAX_TERM_WORDS)])).is_ok());
+        assert!(
+            validate_change(&prior, &candidate(vec!["word ".repeat(MAX_TERM_WORDS + 1)])).is_err()
+        );
+    }
+
+    #[test]
+    fn old_oversized_dictionary_can_be_saved_and_reduced_but_not_grown() {
+        let words: Vec<String> = (0..MAX_ACTIVE_USER_TERMS + 2)
+            .map(|index| format!("Term{index}"))
+            .collect();
+        let prior = json!({"text_formatting": {"custom_words": words, "dictionary_sets": [
+            {"id": "old", "name": "Old", "enabled": false, "words": ["x".repeat(MAX_TERM_CHARS + 1)]}
+        ]}});
+        assert!(validate_change(&prior, &prior).is_ok());
+        let mut reduced = prior.clone();
+        reduced["text_formatting"]["custom_words"]
+            .as_array_mut()
+            .unwrap()
+            .pop();
+        assert!(validate_change(&prior, &reduced).is_ok());
+        let mut grown = prior.clone();
+        grown["text_formatting"]["custom_words"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!("AnotherTerm"));
+        assert!(validate_change(&prior, &grown).is_err());
+        let mut new_long_term = prior.clone();
+        new_long_term["text_formatting"]["dictionary_sets"][0]["words"] = json!([
+            "x".repeat(MAX_TERM_CHARS + 1),
+            "y".repeat(MAX_TERM_CHARS + 1)
+        ]);
+        assert!(validate_change(&prior, &new_long_term).is_err());
     }
 
     #[test]
