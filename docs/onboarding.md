@@ -4,7 +4,7 @@ A new installation opens a four-step introduction in the main window: how dictat
 
 **Download and continue** starts the existing verified model download in the background. You can configure the shortcut and microphone while it runs. After the introduction, a dismissible card shows download progress or explains how to dictate into another application's text field. Once it is dismissed, the usual download notification and the missing-model warning take over.
 
-**Skip step** advances without changing that step's settings or starting a model download. **Skip introduction** finishes the whole flow; if no model is available and no download is running, it opens Models. Closing the window hides it in the tray and preserves the current step. A download already started continues when the window is hidden or the introduction is skipped.
+The first step continues with **Next**. On later steps, **Skip step** advances without changing that step's settings or starting a model download. **Skip introduction** finishes the whole flow; if no model is available and no download is running, it opens Models. Closing the window hides it in the tray and preserves the current step. A download already started continues when the window is hidden or the introduction is skipped.
 
 Existing installations with saved settings or a downloaded model go straight to the regular interface after an update. An unfinished introduction resumes at its saved step. Use **Help → Repeat introduction** to open it again. Automatic release notes wait until the next launch when the introduction is shown.
 

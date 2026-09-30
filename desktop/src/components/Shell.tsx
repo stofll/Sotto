@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type Ref } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Icon } from "./Icon";
 import { Hint } from "./Hint";
@@ -38,13 +38,13 @@ export const NAV_GROUPS = (): NavGroup[] => ([
   { id: "help", label: t("Помощь"), items: [{ id: "info", label: t("Справка"), icon: "info" }] },
 ]);
 
-// macOS draws its own window buttons (the traffic lights) over the webview —
-// see `titleBarStyle: "Overlay"` in tauri.macos.conf.json. WKWebView reports
-// "Macintosh" in its user agent; it is read once, synchronously, so the first
-// frame already has the right layout.
-const IS_MACOS = typeof navigator !== "undefined" && /Macintosh/.test(navigator.userAgent);
+// Match the native window configuration on the first frame. Plain browser
+// previews have no Tauri target, so they fall back to the host's user agent.
+const IS_MACOS = import.meta.env.TAURI_ENV_PLATFORM
+  ? import.meta.env.TAURI_ENV_PLATFORM === "darwin"
+  : typeof navigator !== "undefined" && /Macintosh/.test(navigator.userAgent);
 
-export function TitleBar({ collapsed, onToggleCollapse, fullWidth }: { collapsed?: boolean; onToggleCollapse?: () => void; fullWidth?: boolean }) {
+export function TitleBar({ collapsed, onToggleCollapse, fullWidth, actionsRef }: { collapsed?: boolean; onToggleCollapse?: () => void; fullWidth?: boolean; actionsRef?: Ref<HTMLDivElement> }) {
   async function withWindow(action: "minimize" | "maximize" | "close") {
     const win = getCurrentWindow();
     if (action === "minimize") await win.minimize();
@@ -52,26 +52,15 @@ export function TitleBar({ collapsed, onToggleCollapse, fullWidth }: { collapsed
     if (action === "close") await win.close();
   }
 
-  // The bar is split exactly along the sidebar edge: on the left it continues
-  // the sidebar and carries the name with the collapse button, on the right it
-  // is the page background with the window buttons. It has no colour of its own,
-  // so there is no longer a "black stripe" across the top.
-  //
-  // On macOS the traffic lights take the left corner instead, and a collapsed
-  // rail is too narrow to hold them: there the bar spans the whole width and the
-  // collapse button stands right of the lights, as in Finder or Notes.
-  //
-  // Window dragging rests on `data-tauri-drag-region` rather than on
-  // `-webkit-app-region: drag`: only WebView2 understands the latter, so on
-  // macOS (WKWebView) the window resized but would not move. The `deep` value
-  // spreads the zone across the whole bar; Tauri excludes buttons itself — any
-  // `<button>` in the event path cancels the drag.
-  const toggleInBar = IS_MACOS && collapsed;
+  // macOS reserves a separate row for native window controls. Keep the sidebar
+  // toggle in the same DOM position when collapsing so keyboard focus survives.
+  // Tauri's drag region works in WKWebView and excludes buttons automatically.
   return (
     <div className={`titlebar${IS_MACOS ? " titlebar--macos" : ""}${fullWidth ? " titlebar--full" : ""}`} data-tauri-drag-region="deep">
-      <div className="titlebar__rail"><Brand collapsed={collapsed} onToggleCollapse={toggleInBar ? undefined : onToggleCollapse}/></div>
+      {IS_MACOS && <div className="titlebar__native" aria-hidden="true"/>}
+      <div className="titlebar__rail"><Brand collapsed={collapsed} onToggleCollapse={onToggleCollapse}/></div>
       <div className="titlebar__bar">
-        {toggleInBar && onToggleCollapse && <SidebarToggle collapsed={collapsed} onToggle={onToggleCollapse}/>}
+        {fullWidth && <div className="titlebar__actions" ref={actionsRef}/>}
         {!IS_MACOS && <>
           <button className="btn btn--ghost titlebar__button" onClick={() => void withWindow("minimize")} aria-label={t("Свернуть")}><svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 5h6" stroke="currentColor" strokeWidth="1"/></svg></button>
           <button className="btn btn--ghost titlebar__button" onClick={() => void withWindow("maximize")} aria-label={t("Развернуть")}><svg width="10" height="10" viewBox="0 0 10 10"><rect x="2" y="2" width="6" height="6" stroke="currentColor" strokeWidth="1" fill="none"/></svg></button>
@@ -82,10 +71,6 @@ export function TitleBar({ collapsed, onToggleCollapse, fullWidth }: { collapsed
   );
 }
 
-// The name lives in the title-bar rail rather than in the sidebar itself: the
-// row with the window buttons occupies the top of the window anyway, and keeping
-// another row with the name below it meant spending that height twice. Sections
-// now start at the very top of the sidebar.
 export function Brand({ collapsed, onToggleCollapse }: { collapsed?: boolean; onToggleCollapse?: () => void }) {
   return (
     <div className="sidebar-brand">

@@ -122,6 +122,7 @@ export function MainWindow() {
   // One language subscription at the root: t() reads module state, so
   // re-rendering the root is enough for the whole tree.
   useLocale();
+  const [onboardingToolbar, setOnboardingToolbar] = useState<HTMLDivElement | null>(null);
   const [textPreviewDraft, setTextPreviewDraft] = useState<string | null>(null);
   const [tab, setTab] = useState<TabId>("settings");
   const [theme, setTheme] = useState<"dark" | "light">("dark");
@@ -431,7 +432,7 @@ export function MainWindow() {
     <div className="app-frame" style={{ width: "100%", height: "100%", padding: 0 }}>
       {!loading && !introductionShown && !onboardingActive && <WhatsNewDialog ready={recordingState === "idle"}/>}
       <div className={`win${collapsed && !onboardingActive ? " collapsed" : ""}`}>
-        <TitleBar collapsed={collapsed && !onboardingActive} fullWidth={onboardingActive} onToggleCollapse={onboardingActive ? undefined : toggleSidebarCollapse}/>
+        <TitleBar actionsRef={setOnboardingToolbar} collapsed={collapsed && !onboardingActive} fullWidth={onboardingActive} onToggleCollapse={onboardingActive ? undefined : toggleSidebarCollapse}/>
         <div className={`win__layout${onboardingActive ? " win__layout--onboarding" : collapsed ? " collapsed" : ""}`}>
           {!onboardingActive && <Sidebar tab={tab} onTab={setTab} recordingState={recordingState} pipelineMode={config?.ai_processing?.pipeline_mode} loadedModel={actualModelLabel(runtime, "")} loadsOnDemand={runtime?.model_loads_on_demand} theme={theme} onToggleTheme={() => void toggleTheme()} downloadProgress={downloadProgress} collapsed={collapsed}/>}
           <main className="win__main" data-testid="main-content">
@@ -461,7 +462,7 @@ export function MainWindow() {
               </div>
             )}
             {(onboardingSession || onboardingActive) && config && !loading && <Suspense fallback={null}>
-              <Onboarding active={onboardingActive} config={config} models={models} microphones={microphones} runtime={runtime} progress={downloadProgress} onConfigChanged={onConfigChanged} onModelsChanged={setModels} onNavigate={setTab} onToggleTheme={() => void toggleTheme()} onCardShown={setOnboardingCard} onEnd={endOnboarding}/>
+              <Onboarding toolbarTarget={onboardingToolbar} active={onboardingActive} config={config} models={models} microphones={microphones} runtime={runtime} progress={downloadProgress} onConfigChanged={onConfigChanged} onModelsChanged={setModels} onNavigate={setTab} onToggleTheme={() => void toggleTheme()} onCardShown={setOnboardingCard} onEnd={endOnboarding}/>
             </Suspense>}
             {loading ? <LoadingState/> : !onboardingActive && (
               <div data-testid={`page-${tab}`} style={{ position: "relative", flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>

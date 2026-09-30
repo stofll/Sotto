@@ -23,6 +23,7 @@ license = {
 
 # Finder always draws icon labels in black, so the artwork stays light.
 background = defines["background"]
+hide = [".background.tiff", ".VolumeIcon.icns"]
 window_rect = ((200, 120), (660, 400))
 default_view = "icon-view"
 show_status_bar = False
@@ -36,6 +37,8 @@ show_sidebar = False
 icon_size = 100
 text_size = 13
 arrange_by = None
+# Finder rejects icon-view settings with the dmgbuild default of 100.
+grid_spacing = 80
 icon_locations = {
     os.path.basename(app): (180, 185),
     "Applications": (480, 185),

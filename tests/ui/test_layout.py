@@ -9,6 +9,69 @@ from test_navigation import TABS
 
 @pytest.mark.parametrize("locale", ["ru", "en"])
 @pytest.mark.parametrize("theme", ["dark", "light"])
+def test_titlebar_controls_and_sidebar(
+    app, page, pytestconfig, locale, theme, output_path
+):
+    page.set_viewport_size({"width": 1200, "height": 710})
+    app(config={"ui_language": locale, "theme": theme})
+    titlebar = page.locator(".titlebar")
+    macos = pytestconfig.getoption("--ui-build-platform") == "macos"
+    expect(titlebar.locator(".titlebar__button")).to_have_count(0 if macos else 3)
+    toggle = titlebar.locator(".sidebar-brand__toggle")
+    expect(toggle).to_be_visible()
+    native_row = titlebar.locator(".titlebar__native")
+    expect(native_row).to_have_count(1 if macos else 0)
+    if macos:
+        native = native_row.bounding_box()
+        name = titlebar.locator(".sidebar-brand__name").bounding_box()
+        assert native["y"] == 0 and native["height"] == 32
+        assert native["width"] == 1200
+        assert name["y"] >= native["y"] + native["height"]
+        assert toggle.bounding_box()["y"] >= native["y"] + native["height"]
+    shots = Path(output_path)
+    shots.mkdir(parents=True, exist_ok=True)
+    page.screenshot(path=str(shots / "titlebar-expanded.png"), animations="disabled")
+    toggle.focus()
+    page.keyboard.press("Enter")
+    page.set_viewport_size({"width": 1000, "height": 710})
+    expect(page.locator(".win")).to_have_class("win collapsed")
+    expect(toggle).to_be_visible()
+    expect(toggle).to_be_focused()
+    if macos:
+        page.wait_for_function(
+            "() => document.querySelector('.titlebar__rail').getBoundingClientRect().width <= 52"
+        )
+        native = native_row.bounding_box()
+        assert native["width"] == 1000 and native["height"] == 32
+        button = toggle.bounding_box()
+        assert button["y"] >= native["y"] + native["height"]
+        assert button["x"] + button["width"] <= 52
+    expect(toggle).to_have_css("outline-style", "solid")
+    page.screenshot(path=str(shots / "titlebar-collapsed.png"), animations="disabled")
+    page.keyboard.press("Enter")
+    expect(page.locator(".win")).to_have_class("win")
+    expect(toggle).to_be_visible()
+    expect(toggle).to_be_focused()
+
+
+@pytest.mark.parametrize("locale", ["ru", "en"])
+@pytest.mark.parametrize("theme", ["dark", "light"])
+def test_onboarding_titlebar(app, page, pytestconfig, locale, theme):
+    app(config={"onboarding_completed": False, "ui_language": locale, "theme": theme})
+    expect(page.get_by_test_id("onboarding")).to_be_visible()
+    titlebar = page.locator(".titlebar")
+    macos = pytestconfig.getoption("--ui-build-platform") == "macos"
+    expect(titlebar.locator(".titlebar__button")).to_have_count(0 if macos else 3)
+    expect(titlebar.locator(".sidebar-brand__toggle")).to_have_count(0)
+    if macos:
+        native = titlebar.locator(".titlebar__native").bounding_box()
+        name = titlebar.locator(".sidebar-brand__name").bounding_box()
+        assert native["y"] == 0 and native["height"] == 32
+        assert name["y"] >= native["y"] + native["height"]
+
+
+@pytest.mark.parametrize("locale", ["ru", "en"])
+@pytest.mark.parametrize("theme", ["dark", "light"])
 def test_minimum_window_layout(app, page, locale, theme, output_path):
     page.set_viewport_size({"width": 1000, "height": 710})
     ui = app(config={"ui_language": locale, "theme": theme})

@@ -75,7 +75,7 @@ fn newest_release(releases: &[GithubRelease], current: &Version) -> Option<Versi
             }
             let version = Version::parse(release.tag_name.strip_prefix('v')?).ok()?;
             // Both the tag and GitHub flag must agree on the channel.
-            if release.prerelease != !version.pre.is_empty()
+            if release.prerelease == version.pre.is_empty()
                 || !is_channel_version(&version)
                 || !allowed_upgrade(current, &version, true)
             {

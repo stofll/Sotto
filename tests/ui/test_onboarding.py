@@ -1,5 +1,6 @@
 """First-run UI with synthetic configuration; no native data or model downloads."""
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -477,21 +478,26 @@ def test_explicit_local_model_download_switches_cloud_route(app, page):
 def test_motion_pauses_when_window_loses_focus_and_respects_reduced_motion(app, page):
     first_run(app)
     region = page.get_by_test_id("onboarding")
+    waves = page.locator(".onboarding__waves path")
+    page.bring_to_front()
+    page.evaluate("window.dispatchEvent(new FocusEvent('focus'))")
+    expect(region).to_have_attribute("data-moving", "true")
+    initial = waves.first.evaluate("e => getComputedStyle(e).transform")
+    page.wait_for_function(
+        "initial => getComputedStyle(document.querySelector('.onboarding__waves path')).transform !== initial",
+        arg=initial,
+    )
     page.evaluate("window.dispatchEvent(new FocusEvent('blur'))")
     expect(region).to_have_attribute("data-moving", "false")
-    assert (
-        page.locator(".onboarding__speech i").first.evaluate(
-            "e => getComputedStyle(e).animationPlayState"
-        )
-        == "paused"
-    )
+    for element in [page.locator(".onboarding__speech i").first, *waves.all()]:
+        expect(element).to_have_css("animation-play-state", "paused")
+    page.evaluate("window.dispatchEvent(new FocusEvent('focus'))")
+    expect(region).to_have_attribute("data-moving", "true")
+    for wave in waves.all():
+        expect(wave).to_have_css("animation-play-state", "running")
     page.emulate_media(reduced_motion="reduce")
-    assert (
-        page.locator(".onboarding__speech i").first.evaluate(
-            "e => getComputedStyle(e).animationName"
-        )
-        == "none"
-    )
+    for element in [page.locator(".onboarding__speech i").first, *waves.all()]:
+        expect(element).to_have_css("animation-name", "none")
 
 
 def test_portable_and_macos_controls(app, page):
@@ -511,16 +517,38 @@ def test_portable_and_macos_controls(app, page):
 
 @pytest.mark.parametrize("locale", ["ru", "en"])
 @pytest.mark.parametrize("theme", ["dark", "light"])
-def test_onboarding_layout_and_keyboard_focus(app, page, locale, theme, output_path):
+def test_onboarding_layout_and_keyboard_focus(
+    app, page, locale, theme, output_path, browser_name
+):
+    # macOS WebKit uses Option-Tab to include buttons without changing the
+    # host's keyboard navigation preference.
+    tab_key = (
+        "Alt+Tab" if sys.platform == "darwin" and browser_name == "webkit" else "Tab"
+    )
     page.set_viewport_size({"width": 1000, "height": 710})
     first_run(app, config={"ui_language": locale, "theme": theme})
     region = page.get_by_test_id("onboarding")
+    expect(region.locator(".onboarding__heading p")).to_have_count(0)
+    expect(
+        region.get_by_role(
+            "button",
+            name="Пропустить шаг" if locale == "ru" else "Skip step",
+            exact=True,
+        )
+    ).to_have_count(0)
+    brand = page.locator(".sidebar-brand__name").bounding_box()
+    toolbar = page.locator(".onboarding__toolbar")
+    expect(toolbar).to_be_visible()
+    for control in toolbar.locator("button").all():
+        box = control.bounding_box()
+        assert abs(box["y"] + box["height"] / 2 - brand["y"] - brand["height"] / 2) <= 1
+        assert box["x"] >= brand["x"] + brand["width"]
     shots = Path(output_path)
     shots.mkdir(parents=True, exist_ok=True)
     for step in range(4):
         heading = region.get_by_role("heading", level=1)
         expect(heading).to_be_focused()
-        page.keyboard.press("Tab")
+        page.keyboard.press(tab_key)
         focused = page.evaluate("document.activeElement.tagName")
         assert focused in {"BUTTON", "INPUT"}
         page.evaluate("() => document.fonts.ready.then(() => true)")
@@ -532,13 +560,15 @@ def test_onboarding_layout_and_keyboard_focus(app, page, locale, theme, output_p
         if step < 3:
             region.get_by_role(
                 "button",
-                name="Пропустить шаг" if locale == "ru" else "Skip step",
+                name=("Дальше" if locale == "ru" else "Next")
+                if step == 0
+                else ("Пропустить шаг" if locale == "ru" else "Skip step"),
                 exact=True,
             ).click()
     region.get_by_role("checkbox").last.uncheck()
     dialog = page.get_by_role("dialog")
     expect(dialog).to_be_visible()
-    page.keyboard.press("Tab")
+    page.keyboard.press(tab_key)
     assert dialog.evaluate("e => e.contains(document.activeElement)")
     assert dialog.evaluate("e => e.scrollWidth - e.clientWidth") <= 1
     box = dialog.bounding_box()

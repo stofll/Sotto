@@ -273,7 +273,7 @@ jobs:
         run: node --test scripts/build-portable.test.mjs scripts/build-windows-installer.test.mjs scripts/build-setup.test.mjs
 
       # The release builds its disk image with dmgbuild only on a tag, so
-      # exercise the same script headlessly here with a stub bundle.
+      # exercise the same script headlessly with a signed synthetic bundle.
       - name: macOS disk image layout
         if: github.event_name != 'push' && runner.os == 'macOS'
         run: |
@@ -281,9 +281,7 @@ jobs:
           python3 -m venv "$RUNNER_TEMP/dmg-bootstrap"
           "$RUNNER_TEMP/dmg-bootstrap/bin/pip" install uv==0.12.17
           export PATH="$RUNNER_TEMP/dmg-bootstrap/bin:$PATH"
-          mkdir -p "$RUNNER_TEMP/stub/Sotto.app/Contents/MacOS"
-          sh scripts/build-dmg.sh "$RUNNER_TEMP/stub/Sotto.app" "$RUNNER_TEMP/layout-check.dmg"
-          hdiutil imageinfo "$RUNNER_TEMP/layout-check.dmg" > /dev/null
+          uv run --locked --project scripts/macos-dmg python scripts/macos-dmg/test_dmg.py
 
       # `sherpa-onnx-sys` downloads the native archive itself and does not
       # verify its hash. Download and check it here, then hand the build script
