@@ -17,7 +17,7 @@ export interface PrivacyPage {
 export const privacyEn: PrivacyPage = {
   title: 'Privacy',
   lede: 'What Sotto does with your voice, what it never touches, and what this website does. The short version: recognition runs on your computer unless you deliberately connect a cloud provider.',
-  updated: 'Summarised from the repository document on 29 September 2026.',
+  updated: 'Summarised from the repository document on 30 September 2026.',
   sections: [
     {
       heading: 'Your speech stays on your computer',
@@ -33,7 +33,8 @@ export const privacyEn: PrivacyPage = {
         'A cloud speech provider you connect yourself receives the audio you dictate, and only while you use it.',
         'Cloud text processing you configure yourself receives the text to be reformatted, never the audio.',
         'The model downloader contacts the model hosting endpoint when you download a model.',
-        'Installed release builds contact GitHub Releases to check for updates at startup and when you request a check. An update is downloaded and installed only after you request installation.',
+        'Installed release builds contact GitHub Releases to check for updates at startup and when you request a check, and to fetch release notes. An update is downloaded and installed only after you request installation.',
+        'If you turn on Help → Updates → Receive beta builds, the update check also reads the public list of GitHub releases to find newer betas.',
       ],
     },
     {
@@ -73,7 +74,7 @@ export const privacyEn: PrivacyPage = {
 export const privacyRu: PrivacyPage = {
   title: 'Приватность',
   lede: 'Что Sotto делает с вашим голосом, чего не касается никогда и как устроен этот сайт. Коротко: распознавание работает на вашем компьютере, пока вы сами не подключите облачного провайдера.',
-  updated: 'Составлено по документу из репозитория 29 сентября 2026 года.',
+  updated: 'Составлено по документу из репозитория 30 сентября 2026 года.',
   sections: [
     {
       heading: 'Речь остаётся на вашем компьютере',
@@ -89,7 +90,8 @@ export const privacyRu: PrivacyPage = {
         'Облачный провайдер распознавания, которого вы подключили сами, получает надиктованное аудио, и только пока вы им пользуетесь.',
         'Облачная обработка текста, настроенная вами, получает текст для переформатирования, но не аудио.',
         'Загрузчик моделей обращается к хранилищу моделей, когда вы скачиваете модель.',
-        'Установленная релизная версия обращается к GitHub Releases для проверки обновлений при запуске и по вашему запросу. Загрузка и установка обновления начинаются только после вашего запроса на установку.',
+        'Установленная релизная версия обращается к GitHub Releases для проверки обновлений при запуске и по вашему запросу, а также за описанием изменений. Загрузка и установка обновления начинаются только после вашего запроса на установку.',
+        'Если включить «Справка → Обновления → Получать бета-сборки», проверка обновлений также читает публичный список релизов на GitHub, чтобы найти новые бета-версии.',
       ],
     },
     {

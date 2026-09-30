@@ -24,7 +24,6 @@ export const en: Dictionary = {
     download: 'Download',
     openMenu: 'Open navigation',
     closeMenu: 'Close navigation',
-    backToTop: 'Back to top',
     footerNav: 'Footer navigation',
     language: 'Language',
     skipToContent: 'Skip to content',
@@ -145,20 +144,7 @@ export const en: Dictionary = {
   },
 
   privacy: {
-    eyebrow: 'Privacy',
-    title: 'Your voice stays yours',
-    description:
-      'Recognition is local by default. Audio goes to the cloud only if you set up a cloud provider yourself.',
     link: 'Privacy summary',
-    logLabel: 'Where your data goes',
-    log: [
-      ['Audio capture', 'on your computer'],
-      ['Recognition', 'on your computer'],
-      ['Text goes to', 'the active window'],
-      ['Account', 'not required'],
-      ['Cloud recognition', 'off, optional', true],
-      ['Telemetry', 'no audio or text, can be turned off', true],
-    ],
   },
 
   start: {

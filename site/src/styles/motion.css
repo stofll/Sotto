@@ -7,6 +7,5 @@
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
-  .file-job-progress { animation: none; width: 64%; }
   .lost-mark-digits > span { opacity: 1; animation: none; }
 }

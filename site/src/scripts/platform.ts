@@ -12,7 +12,7 @@ interface UserAgentData {
  * An iPad asks for the desktop site and reports itself as a Mac, which its
  * touch points give away. Apple Silicon and Intel Macs cannot be told apart
  * reliably (Safari reports Intel on both), so a Mac is offered the only build
- * there is and the label says which one it is.
+ * there is and the setup dialog says which one it is.
  */
 const detect = (): Platform | null => {
   const data = (navigator as Navigator & { userAgentData?: UserAgentData }).userAgentData;

@@ -1,6 +1,6 @@
 import type { Behaviour, Runtime } from './runtime';
 
-type WaveKind = 'stage' | 'ambient' | 'bars';
+type WaveKind = 'stage' | 'ambient';
 
 const ACCENT = '255,122,47';
 /** Milliseconds per typed character, the pause after a phrase, and before the next. */
@@ -11,8 +11,7 @@ const NEXT_DELAY_MS = 700;
 
 /**
  * The voice demo: a line that swells while a phrase is "spoken" and the words
- * typing out beside it, plus the overlay bars and the quieter line behind the
- * closing call. One animation loop drives all of them, and it runs only while
+ * typing out beside it, plus the quieter line behind the closing call. One animation loop drives all of them, and it runs only while
  * one of the canvases is on screen, the tab is visible and motion is allowed.
  * Otherwise visible canvases hold a single still frame and the first phrase
  * stays written out, which is also what the page shows without JavaScript.
@@ -97,30 +96,10 @@ export const initVoice = ({ all, signal, observe, reduced, strings }: Runtime): 
     }
   };
 
-  const bars = (canvas: HTMLCanvasElement, energy: number, time: number) => {
-    const { context, width, height } = fit(canvas);
-    if (!context || !width) return;
-    const count = 9;
-    const barWidth = 3;
-    const gap = (width - count * barWidth) / (count - 1);
-    context.fillStyle = `rgb(${ACCENT})`;
-    for (let index = 0; index < count; index += 1) {
-      const shape = (0.55 + 0.45 * Math.sin(time * 8.3 + index * 0.9)) * (0.6 + 0.4 * Math.sin(time * 13.1 + index * 2.1));
-      const barHeight = Math.max(3, height * (0.12 + 0.88 * energy * shape));
-      const x = index * (barWidth + gap);
-      const y = (height - barHeight) / 2;
-      context.beginPath();
-      if (context.roundRect) context.roundRect(x, y, barWidth, barHeight, 1.5);
-      else context.rect(x, y, barWidth, barHeight);
-      context.fill();
-    }
-  };
-
   const drawCanvas = (canvas: HTMLCanvasElement, time: number, energy: number) => {
     const kind = canvas.dataset.voiceWave as WaveKind;
     if (kind === 'stage') wave(canvas, energy, time, canvas.clientWidth * 0.5, false);
-    else if (kind === 'ambient') wave(canvas, 0.35 + 0.25 * Math.sin(time * 0.7), time * 0.6, canvas.clientWidth, true);
-    else bars(canvas, energy, time);
+    else wave(canvas, 0.35 + 0.25 * Math.sin(time * 0.7), time * 0.6, canvas.clientWidth, true);
   };
 
   const drawVisible = (time: number, energy: number) => {

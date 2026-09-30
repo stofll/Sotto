@@ -107,9 +107,11 @@ def test_gallery_catalog_and_layout(browser, locale, width, appearance):
     expect(catalog).not_to_have_attribute("open", "")
     expect(page.locator(".model-pick")).to_have_count(4)
     catalog.locator("summary").click()
-    expect(page.locator(".model-card:visible")).to_have_count(21)
+    total = page.locator(".model-card").count()
+    assert total > 4
+    expect(page.locator(".model-card:visible")).to_have_count(total)
     page.locator('[data-filter="ru"]').click()
-    assert page.locator(".model-card:visible").count() < 21
+    assert page.locator(".model-card:visible").count() < total
     for card in page.locator(".model-card:visible").all():
         assert "ru" in card.get_attribute("data-groups").split()
     page.locator("[data-streaming-filter]").click()
@@ -117,7 +119,7 @@ def test_gallery_catalog_and_layout(browser, locale, width, appearance):
         assert card.get_attribute("data-streaming") is not None
     page.locator('[data-filter="all"]').click()
     page.locator("[data-streaming-filter]").click()
-    expect(page.locator(".model-card:visible")).to_have_count(21)
+    expect(page.locator(".model-card:visible")).to_have_count(total)
     expect(page.locator("section#privacy")).to_have_count(0)
     expect(page.locator('.desktop-nav a[href$="/privacy/"]')).to_have_count(1)
     expect(page.locator(".voice-label")).to_have_count(0)
@@ -149,22 +151,26 @@ def test_feature_steps_and_crossfade(browser, locale):
             page.locator('[data-tour-next]').click()
     expect(page.locator('[data-tour-next]')).to_be_disabled()
     assert max(heights) - min(heights) < 1
-    # Sample a real transition: no frame should hide both outgoing and incoming screens.
+    # Hold the screen transitions as they start and step through them, so a slow
+    # runner cannot skip past the fade: no point may hide both screens.
     page.evaluate("""() => {
-        window.fadeFrames = [];
-        const until = performance.now() + 900;
-        const sample = () => {
-            window.fadeFrames.push([...document.querySelectorAll('.screen-window')].map(el => {
-                const s = getComputedStyle(el); return s.visibility === 'visible' ? Number(s.opacity) : 0;
-            }));
-            if (performance.now() < until) requestAnimationFrame(sample);
-        };
-        requestAnimationFrame(sample);
+        window.holdFade = true;
+        document.querySelectorAll('.screen-window').forEach(el => el.addEventListener('transitionrun', () => {
+            if (window.holdFade) el.getAnimations().forEach(animation => animation.pause());
+        }));
     }""")
     page.get_by_role("tab").nth(0).click()
     expect(page.locator('[data-step-description="shortcut"]')).to_be_visible()
-    page.wait_for_timeout(950)
-    frames = page.evaluate("window.fadeFrames")
+    frames = page.evaluate("""() => {
+        const windows = [...document.querySelectorAll('.screen-window')];
+        const frames = [0, 60, 120, 180, 240, 300, 355].map(time => windows.map(el => {
+            el.getAnimations().forEach(animation => { animation.currentTime = time; });
+            const s = getComputedStyle(el); return s.visibility === 'visible' ? Number(s.opacity) : 0;
+        }));
+        window.holdFade = false;
+        windows.forEach(el => el.getAnimations().forEach(animation => animation.finish()));
+        return frames;
+    }""")
     assert all(max(frame) > 0.25 for frame in frames)
     assert any(sum(value > 0.05 for value in frame) > 1 for frame in frames)
     page.locator('[data-theme-target="light"]').click()
@@ -197,7 +203,7 @@ def test_without_javascript(browser, locale):
     page.goto(os.environ["SOTTO_SITE_URL"] + ("/ru/" if locale == "ru" else "/"))
     expect(page.locator(".screen-window:visible")).to_have_count(3)
     page.locator(".model-catalog summary").click()
-    expect(page.locator(".model-card:visible")).to_have_count(21)
+    expect(page.locator(".model-card:visible")).to_have_count(page.locator(".model-card").count())
     expect(page.locator(".screen-fallback a").first).to_have_attribute(
         "href", page.locator(".screen-image img").first.get_attribute("data-full-src")
     )

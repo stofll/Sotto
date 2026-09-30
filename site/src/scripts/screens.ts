@@ -16,6 +16,7 @@ export const initScreens = ({ query, all, signal, observe, strings }: Runtime): 
   const themeButtons = all<HTMLButtonElement>('[data-theme-target]');
   const stepButtons = all<HTMLButtonElement>('[data-step-target]');
   const descriptions = all<HTMLElement>('[data-step-description]');
+  const live = query('[data-tour-descriptions]');
   const error = query('[data-screen-error]');
   if (!section || !panels.length) return {};
 
@@ -43,6 +44,8 @@ export const initScreens = ({ query, all, signal, observe, strings }: Runtime): 
   };
   const setTouring = (value: boolean) => {
     touring = value;
+    // An autoplaying tour would otherwise interrupt a screen reader every step.
+    live?.setAttribute('aria-live', touring ? 'off' : 'polite');
     if (toggle) {
       toggle.textContent = touring ? strings.tour.pause : strings.tour.play;
       toggle.setAttribute('aria-pressed', String(touring));
@@ -75,7 +78,13 @@ export const initScreens = ({ query, all, signal, observe, strings }: Runtime): 
     const pending = ++request;
     const img = imageFor(index, appearance);
     img.loading = 'eager';
-    if (img.complete && img.naturalWidth === 0) img.src = img.src;
+    if (img.dataset.src) {
+      img.srcset = img.dataset.srcset!;
+      img.src = img.dataset.src;
+      delete img.dataset.src;
+      delete img.dataset.srcset;
+    }
+    else if (img.complete && img.naturalWidth === 0) img.src = img.src;
     try { await img.decode(); }
     catch {
       if (pending === request && !signal.aborted) { if (error) error.hidden = false; setTouring(false); }
@@ -140,6 +149,7 @@ export const initScreens = ({ query, all, signal, observe, strings }: Runtime): 
       guide?.classList.remove('is-playing');
       if (dialog?.open) dialog.close();
       section.classList.remove('is-enhanced');
+      live?.setAttribute('aria-live', 'polite');
       panels.forEach(panel => { panel.inert = false; panel.removeAttribute('aria-hidden'); });
     },
   };

@@ -26,15 +26,15 @@ pnpm og          # regenerate the social preview images, one per locale
 
 `desktop/src-tauri/icons/icon-source-1024.png` is the only source of truth for the mark. `pnpm brand` copies the plated icon out of it twice: a 96 px PNG for the favicon and the social images, and a 56 px WebP for the header and the download dialog. Do not hand-place another copy: the site once drifted onto the previous icon exactly that way.
 
-The page is dark only, on a warm near-black, with three steps each for backgrounds, text and borders in `src/styles/base.css`. One hue, `--accent` (orange), is kept for the download buttons, the second line of the headline and live state: the voice line, the caret, the overlay bars and progress. Links in running text are underlined rather than coloured. Text colours clear WCAG AA against the page and the cards; `--text-muted` was lifted from the design draft's tone for exactly that reason.
+The page is dark only, on a warm near-black, with three steps each for backgrounds, text and borders in `src/styles/base.css`. One hue, `--accent` (orange), is kept for the download buttons, the second line of the headline and live state: the voice line, the caret and progress. Links in running text are underlined rather than coloured. Text colours clear WCAG AA against the page and the cards; `--text-muted` was lifted from the design draft's tone for exactly that reason.
 
 ## Download buttons
 
-`src/scripts/platform.ts` reads the platform the browser reports, locally, and points the download buttons at the reader's own system: they open the setup dialog for Windows or macOS, and that platform's card in the Start section moves first. Apple Silicon and Intel Macs cannot be told apart reliably, so a Mac is offered the Apple Silicon build and the label says so. On Linux, on a phone, or without JavaScript the buttons lead to the Start section with both platforms; phones also get a line saying Sotto is a desktop app.
+`src/scripts/platform.ts` reads the platform the browser reports, locally, and points the download buttons at the reader's own system: they open the setup dialog for Windows or macOS, and that platform's card in the Start section moves first. Apple Silicon and Intel Macs cannot be told apart reliably, so a Mac is offered the Apple Silicon build, and the setup dialog it opens says which build that is. On Linux, on a phone, or without JavaScript the buttons lead to the Start section with both platforms; phones also get a line saying Sotto is a desktop app.
 
 ## Type
 
-Two self-hosted families: Unbounded for headings, as the static 500 cut every heading uses, and Onest for running text, as one variable file for its three weights. Labels use the system's monospace face, which costs nothing to load. Only the Latin and Cyrillic subsets are loaded, and `Base.astro` preloads the heading and body subsets the page's locale needs.
+Two self-hosted families: Unbounded for headings, as the static 500 cut every heading uses, and Onest for running text, as one variable file for its three weights. Labels use the system's monospace face, which costs nothing to load. Only the Latin and Cyrillic subsets are loaded. `Base.astro` preloads the Latin heading and body files on every page, since spaces, digits and product names come from them, and the Cyrillic ones on Russian pages.
 
 Sizes are in rem and the root size is never pinned, so a reader who has enlarged their browser default gets a larger page. Page copy has a floor of 12px and labels a floor of 11px.
 
@@ -66,7 +66,7 @@ Each locale also has a 404 page, and getting it to the right place takes one bui
 
 Both 404 pages pass `noindex` to `Base.astro`, which drops the canonical link, the hreflang set and the structured data. All three describe a page at a known URL, and a 404 answers on every wrong URL there is.
 
-The number on that page is set, never drawn. Constructing the digits out of strokes was tried, and out of a waveform after that, and both read as a wireframe standing next to the type rather than as part of it. It is the heading face at its own tight tracking, one step larger than anything else on the site, in the accent.
+The number on that page is set, never drawn. Constructing the digits out of strokes was tried, and out of a waveform after that, and both read as a wireframe standing next to the type rather than as part of it. It is the heading face at its own tight tracking, one step larger than anything else on the site, in the text colour.
 
 The digits fade up in sequence over a third of a second. The reduced-motion block in `motion.css` kills that animation, which is why it also resets their opacity: without it the number would never appear at all.
 

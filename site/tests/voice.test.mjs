@@ -17,16 +17,20 @@ test('voice animation draws only visible canvases and repaints on entry or pause
     requestAnimationFrame: globalThis.requestAnimationFrame,
     cancelAnimationFrame: globalThis.cancelAnimationFrame,
   };
+  // The two kinds the page renders: the hero line and the closing call's backdrop.
+  const kinds = ['stage', 'ambient'];
   const paints = [0, 0];
-  const canvases = paints.map((_, index) => {
+  const strokes = [0, 0];
+  const canvases = kinds.map((voiceWave, index) => {
     const context = {
       setTransform() {},
       clearRect() { paints[index] += 1; },
-      beginPath() {}, rect() {}, roundRect() {}, fill() {},
+      createLinearGradient: () => ({ addColorStop() {} }),
+      beginPath() {}, moveTo() {}, lineTo() {}, stroke() { strokes[index] += 1; }, arc() {}, fill() {},
     };
     return {
       clientWidth: 90, clientHeight: 30, width: 0, height: 0,
-      dataset: { voiceWave: 'bars' },
+      dataset: { voiceWave },
       getContext: () => context,
     };
   });
@@ -70,10 +74,13 @@ test('voice animation draws only visible canvases and repaints on entry or pause
 
     enter(0);
     assert.deepEqual(paints, [1, 0]);
+    // Each frame strokes all seven strands of a line.
+    assert.deepEqual(strokes, [7, 0]);
     tick();
     assert.deepEqual(paints, [2, 0]);
     enter(1);
     assert.deepEqual(paints, [2, 1]);
+    assert.equal(strokes[1], 7);
     tick();
     assert.deepEqual(paints, [3, 2]);
     leave(0);

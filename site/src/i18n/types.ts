@@ -26,14 +26,14 @@ export interface Dictionary {
   };
   nav: Record<
     | 'home' | 'main' | 'mobile' | 'features' | 'models' | 'privacy' | 'faq' | 'start' | 'download'
-    | 'openMenu' | 'closeMenu' | 'backToTop' | 'footerNav' | 'skipToContent' | 'noscript' | 'language',
+    | 'openMenu' | 'closeMenu' | 'footerNav' | 'skipToContent' | 'noscript' | 'language',
     string
   >;
   hero: {
     eyebrow: string;
     titleLine1: string;
     titleLine2: string;
-    /** Typed out one by one in the demo, and in the overlay card. */
+    /** Typed out one by one in the demo. */
     phrases: string[];
     subtitle: string;
     /** Shown when the reader's system is unknown; leads to both platforms. */
@@ -101,13 +101,7 @@ export interface Dictionary {
     note: string;
   };
   privacy: {
-    eyebrow: string;
-    title: string;
-    description: string;
     link: string;
-    logLabel: string;
-    /** Key, value, and whether the value is optional rather than a guarantee. */
-    log: [string, string, boolean?][];
   };
   start: {
     eyebrow: string;

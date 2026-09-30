@@ -1,4 +1,3 @@
-.section-head + .model-toolbar { margin-top: -12px; }
 .model-featured { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 24px; list-style: none; margin-bottom: 32px; }
 .model-pick { padding-block: 22px; border-top: 1px solid var(--border-strong); }
 .model-purpose { font: 400 0.8125rem var(--font-mono); color: var(--text-secondary); margin-bottom: 16px; }

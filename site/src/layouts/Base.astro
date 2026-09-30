@@ -33,11 +33,11 @@ const ogImage = new URL(OG_IMAGE.path(locale), Astro.site);
 const pageTitle = title ? `${title} — Sotto` : t.meta.title;
 const pageDescription = description ?? t.meta.description;
 
-// Each family is split by unicode-range, so a page needs exactly one subset of
-// it: the heading face, which sets the largest text first, and the body face.
-// Preloading the other subset would pull a file the page can never paint with.
-// The monospace labels are small enough to wait for the stylesheet.
-const preloadFonts = locale === 'ru' ? [unboundedCyrillic, onestCyrillic] : [unboundedLatin, onestLatin];
+// Each family is split by unicode-range: the heading face, which sets the
+// largest text first, and the body face. Every page paints spaces, digits,
+// punctuation and product names from the Latin subset; only Russian pages also
+// need the Cyrillic one. The monospace labels can wait for the stylesheet.
+const preloadFonts = locale === 'ru' ? [unboundedCyrillic, onestCyrillic, unboundedLatin, onestLatin] : [unboundedLatin, onestLatin];
 ---
 
 <!doctype html>

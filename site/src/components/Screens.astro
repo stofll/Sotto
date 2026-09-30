@@ -40,15 +40,17 @@ const shot = (id: ScreenId, theme: typeof themes[number], density = 1) =>
     {screens.map((id) => (
       <figure id={`screen-${id}`} class="screen-window" role="tabpanel" aria-labelledby={`screen-tab-${id}`} data-screen-panel={id}>
         <div class="screen-image">
-          {themes.map((theme) => (
-            <img src={shot(id, theme).src} srcset={`${shot(id, theme).src} 1x, ${shot(id, theme, 2).src} 2x`}
+          {themes.map((theme) => {
+            // Only the dark captures show without scripts; the gallery fetches a light one when it is chosen.
+            const source = { src: shot(id, theme).src, srcset: `${shot(id, theme).src} 1x, ${shot(id, theme, 2).src} 2x` };
+            return <img {...(theme === 'dark' ? source : { 'data-src': source.src, 'data-srcset': source.srcset })}
               width="1088" height="736" alt={s.alt[id]} loading="lazy" decoding="async"
-              data-theme-image={theme} data-full-src={shot(id, theme, 2).src} aria-hidden={theme !== 'dark' ? 'true' : undefined} />
-          ))}
+              data-theme-image={theme} data-full-src={shot(id, theme, 2).src} aria-hidden={theme !== 'dark' ? 'true' : undefined} />;
+          })}
           <div class="screen-hotspots js-only">
             {tourSteps.filter(step => step.screen === id).map((step, index) => {
               const [x, y, width, height] = step.rect;
-              return <button type="button" class="screen-hotspot" data-step-target={step.id} aria-label={s.steps[step.id].title}
+              return <button type="button" class="screen-hotspot" data-step-target={step.id} aria-label={`${index + 1}. ${s.steps[step.id].title}`}
                 aria-pressed="false" aria-describedby={`tour-detail-${step.id}`}
                 style={`left:${x / 1088 * 100}%;top:${y / 736 * 100}%;width:${width / 1088 * 100}%;height:${height / 736 * 100}%`}>
                   <span>{index + 1}</span>
@@ -57,7 +59,7 @@ const shot = (id: ScreenId, theme: typeof themes[number], density = 1) =>
           </div>
         </div>
         <figcaption>
-          <div class="screen-topics js-only" aria-label={s.tabs[id]}>
+          <div class="screen-topics js-only" role="group" aria-label={s.tabs[id]}>
             {tourSteps.filter(step => step.screen === id).map((step, index) => (
               <button type="button" data-step-target={step.id} aria-pressed="false"><span>{index + 1}</span>{s.steps[step.id].title}</button>
             ))}
@@ -68,7 +70,7 @@ const shot = (id: ScreenId, theme: typeof themes[number], density = 1) =>
     ))}
   </div>
   <div class="tour-guide js-only" data-tour-guide>
-    <div class="tour-descriptions" aria-live="polite" aria-atomic="true">
+    <div class="tour-descriptions" aria-live="polite" aria-atomic="true" data-tour-descriptions>
       {tourSteps.map((step, index) => (
         <div class="tour-description" id={`tour-detail-${step.id}`} data-step-description={step.id} hidden={index !== 0}>
           <span class="tour-count">{s.stepLabel} {String(index + 1).padStart(2, '0')} / {tourSteps.length}</span>
