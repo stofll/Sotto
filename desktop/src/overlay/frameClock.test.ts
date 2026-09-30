@@ -40,6 +40,22 @@ describe("onFrame", () => {
     stop();
     expect(painted).toBe(60);
   });
+
+  it("paints the first frame even when it arrives right after subscribing", async () => {
+    const { onFrame } = await import("./frameClock");
+    clock = 10;
+    const seconds: number[] = [];
+    const stop = onFrame((_now, delta) => { seconds.push(delta); });
+    // Browsers time a frame by its start, which can precede the request made during it.
+    const [frame] = queued;
+    queued = [];
+    frame(8);
+    refresh(1, 5);
+    refresh(1, 1000 / 60);
+    stop();
+    expect(seconds[0]).toBe(0);
+    expect(seconds).toHaveLength(2);
+  });
 });
 
 describe("frameRunner", () => {

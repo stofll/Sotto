@@ -24,7 +24,8 @@ function loop(now: number) {
   slot = elapsed < FRAME_MS * 2 ? now - (elapsed % FRAME_MS) : now;
   // Exponential easing needs wall time, including delayed frames, because
   // frameRunner also ends its settling period against the wall clock.
-  const seconds = (now - painted) / 1000;
+  // A frame can be timed before the subscription that requested it.
+  const seconds = Math.max(0, now - painted) / 1000;
   painted = now;
   for (const tick of ticks) tick(now, seconds);
 }
@@ -32,7 +33,8 @@ function loop(now: number) {
 /** Call `tick` on every frame until the returned function is called. */
 export function onFrame(tick: FrameTick): () => void {
   ticks.add(tick);
-  if (!request) { slot = painted = performance.now(); request = requestAnimationFrame(loop); }
+  // The first frame always paints; only later ones are held to the grid.
+  if (!request) { slot = -Infinity; painted = performance.now(); request = requestAnimationFrame(loop); }
   return () => {
     ticks.delete(tick);
     if (!ticks.size && request) { cancelAnimationFrame(request); request = 0; }

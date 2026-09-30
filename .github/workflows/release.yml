@@ -402,6 +402,9 @@ jobs:
   sbom:
     name: Release SBOM
     needs: release
+    # A reused UI check leaves browser-ui skipped; without an explicit
+    # condition that transitive skip would also skip this job.
+    if: ${{ !cancelled() && needs.release.result == 'success' }}
     permissions:
       contents: write
     uses: ./.github/workflows/sbom.yml
@@ -416,6 +419,7 @@ jobs:
   checksums:
     name: Release checksums
     needs: [release, sbom]
+    if: ${{ !cancelled() && needs.release.result == 'success' && needs.sbom.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
