@@ -412,7 +412,12 @@ def app(page, ui_server, pytestconfig, monkeypatch, browser_name):
         expect(page.locator("html")).to_have_attribute("lang", locale)
         if window == "main":
             expect(page.get_by_test_id("startup-loading")).not_to_be_visible()
-            expect(page.get_by_test_id("page-settings")).to_be_visible()
+            initial_region = (
+                "onboarding"
+                if seed.get("config", {}).get("onboarding_completed") is False
+                else "page-settings"
+            )
+            expect(page.get_by_test_id(initial_region)).to_be_visible()
         return App(page, allowed_asset_failures)
 
     yield open_app

@@ -454,6 +454,9 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 .titlebar__rail { background: var(--bg-1); border-right: 1px solid var(--line); display: flex; align-items: center; min-width: 0; }
 .titlebar__bar { background: var(--bg-2); display: flex; align-items: flex-start; justify-content: flex-end; gap: 4px; padding: 6px 12px 0; color: var(--ink-mute); }
 .titlebar__button { height: 24px; width: 28px; padding: 0; }
+.titlebar.titlebar--full { grid-template-columns: auto 1fr; transition: none; }
+.titlebar--full .titlebar__rail { background: var(--bg-2); border: 0; }
+.win__layout.win__layout--onboarding { grid-template-columns: 1fr; transition: none; }
 .titlebar__button--close:hover:not(:disabled) { background: rgba(239,94,107,0.16); color: var(--err); }
 /* macOS: the native traffic lights sit at the left of the rail (their inset is
    `trafficLightPosition` in tauri.macos.conf.json), so the name starts after

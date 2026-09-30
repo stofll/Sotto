@@ -29,10 +29,11 @@ type Params = {
   /** Close the menu before showing the modal; on the catalog page there is
    *  nothing to close. */
   onBeforeDialog?: () => void;
+  trackOwnDownloadsOnly?: boolean;
 };
 
 /** Model catalog operations and their confirmation/progress state. */
-export function useModelActions({ models, value, language, onConfigChanged, onModelsChanged, onBeforeDialog }: Params) {
+export function useModelActions({ models, value, language, onConfigChanged, onModelsChanged, onBeforeDialog, trackOwnDownloadsOnly = false }: Params) {
   // Lists rather than a single id: several downloads may be running, and
   // finishing the first cleared the "busy" mark from all the rest — the second
   // one's card offered «Скачать» again in the middle of its own download.
@@ -82,6 +83,7 @@ export function useModelActions({ models, value, language, onConfigChanged, onMo
 
   useEffect(() => {
     const unlisten = subscribe<DownloadProgressEvent>("model-download-progress", (payload) => {
+      if (trackOwnDownloadsOnly && (!payload?.model || !inFlight.current.has(payload.model))) return;
       const modelLabel = models.find((item) => item.id === payload?.model)?.label ?? payload?.model ?? t("Модель");
       const others = [...inFlight.current].filter((id) => id !== payload?.model).length;
       const copy = downloadToastCopy(payload, modelLabel, [...cancelRequested.current], others);
@@ -90,7 +92,7 @@ export function useModelActions({ models, value, language, onConfigChanged, onMo
       setStatus({ kind: "loading", closing: false, ...copy });
     });
     return () => { unlisten(); };
-  }, [models]);
+  }, [models, trackOwnDownloadsOnly]);
 
   // Esc closes the confirmation. `useOutsideClose` is no help here: by the time
   // the modal is shown the menu is already closed and its listener removed.
@@ -144,9 +146,9 @@ export function useModelActions({ models, value, language, onConfigChanged, onMo
     setPendingSelect(model);
   }
 
-  async function selectModel(model: ModelInfo) {
+  async function selectModel(model: ModelInfo, force = false): Promise<boolean> {
     setPendingSelect(null);
-    if (model.id === value) return;
+    if (model.id === value && !force) return true;
     showStatus({ kind: "loading", text: t("Переключаю модель…") });
     try {
       await loadThenPersistModel(
@@ -156,9 +158,11 @@ export function useModelActions({ models, value, language, onConfigChanged, onMo
         persistWithLanguageRule(model),
       );
       showStatus({ kind: "ok", text: t("Модель активна: {p0}", { p0: model.label }) }, 5000);
+      return true;
     } catch (e) {
       console.warn("model selection failed; keeping the previous engine:", e);
       showStatus({ kind: "error", text: t("Не удалось активировать модель: {p0}", { p0: e instanceof Error ? e.message : String(e) }) }, 9000);
+      return false;
     }
   }
 

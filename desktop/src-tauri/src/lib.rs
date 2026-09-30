@@ -1354,6 +1354,9 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .on_window_event(crate::window_state::handle)
         .setup(|app| {
+            if let Err(error) = crate::config::initialize_onboarding(app.handle()) {
+                log::warn!("first-run initialization failed: {error}");
+            }
             crate::window_state::restore(app.handle());
             // Set the locale before creating the native tray menu.
             if let Ok(cfg) = crate::config::Config::load(app.handle()) {

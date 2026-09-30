@@ -1,0 +1,210 @@
+import { useEffect, useRef, useState } from "react";
+import type { ConfigChange, ConfigPatch, ConfigResult, MicrophoneResult, ModelInfo, RuntimeStatusResult } from "../bridge/types";
+import { Card, type DownloadProgress, type TabId } from "../components/Shell";
+import { Icon } from "../components/Icon";
+import { AccessibilityNotice } from "../components/AccessibilityNotice";
+import { TelemetryControl } from "../components/TelemetryControl";
+import { HotkeyDisplay, RecordingModeSegmented } from "../pages/settings/CaptureSection";
+import { MicPicker } from "../pages/settings/MicrophoneSection";
+import { UiLanguagePicker } from "../pages/settings/LanguageSection";
+import { ModelActionOverlays, useModelActions } from "../pages/modelActions";
+import { downloadSpaceText } from "../pages/modelAssessment";
+import { useModelAssessments } from "../pages/useModelAssessments";
+import { DEFAULT_HOTKEY } from "../hotkey";
+import { invoke } from "../bridge";
+import { t } from "../i18n";
+import { onboardingModels, onboardingStep } from "./modelChoices";
+import "./onboarding.css";
+
+export type OnboardingProps = {
+  active: boolean;
+  config: ConfigResult;
+  models: ModelInfo[];
+  microphones: MicrophoneResult[];
+  runtime: RuntimeStatusResult | null;
+  progress: DownloadProgress | null;
+  onConfigChanged: (change: ConfigChange) => Promise<ConfigResult | null>;
+  onModelsChanged: (models: ModelInfo[]) => void;
+  onNavigate: (tab: TabId) => void;
+  onToggleTheme: () => void;
+};
+
+function modelDescription(model: ModelInfo) {
+  if (model.id === "gigaam-v3") return t("Для русской речи. Сама ставит знаки, текст приходит в конце фразы.");
+  if (model.streaming) return t("Потоковая: слова появляются, пока вы говорите. Русский и английский.");
+  return t("Если языков много. Может распознавать на видеокарте.");
+}
+
+/** Remains mounted after completion so a background download can activate its model. */
+export default function Onboarding(props: OnboardingProps) {
+  const { active, config, models, microphones, runtime, progress, onConfigChanged, onModelsChanged, onNavigate, onToggleTheme } = props;
+  const step = onboardingStep(config.onboarding_step);
+  const choices = onboardingModels(models, config.language ?? "ru", runtime?.os);
+  const chosen = choices.find((model) => model.id === (config.onboarding_model ?? config.model)) ?? choices[0];
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [catalogFailed, setCatalogFailed] = useState(false);
+  const [banner, setBanner] = useState(false);
+  const [moving, setMoving] = useState(() => document.hasFocus() && document.visibilityState !== "hidden");
+  const saving = useRef(false);
+  const heading = useRef<HTMLHeadingElement>(null);
+  const assessmentContext = `${active}:${models.map((model) => `${model.id}:${model.downloaded}`).join(",")}`;
+  const assessments = useModelAssessments(assessmentContext);
+  const actions = useModelActions({
+    models, value: config.model, language: config.language, onModelsChanged, trackOwnDownloadsOnly: true,
+    onConfigChanged: (patch) => onConfigChanged({
+      ...patch,
+      ...(config.ai_processing?.pipeline_mode === "cloud" ? { ai_processing: { pipeline_mode: "local" } } : {}),
+    }),
+  });
+
+  useEffect(() => { if (active) heading.current?.focus(); }, [active, step]);
+  useEffect(() => {
+    const pause = () => setMoving(false);
+    const resume = () => setMoving(document.hasFocus() && document.visibilityState !== "hidden");
+    document.addEventListener("visibilitychange", resume);
+    window.addEventListener("blur", pause);
+    window.addEventListener("focus", resume);
+    return () => {
+      document.removeEventListener("visibilitychange", resume);
+      window.removeEventListener("blur", pause);
+      window.removeEventListener("focus", resume);
+    };
+  }, []);
+
+  async function save(patch: ConfigPatch) {
+    if (saving.current) return null;
+    saving.current = true;
+    setBusy(true);
+    setFailed(false);
+    try {
+      const result = await onConfigChanged(patch);
+      if (!result) setFailed(true);
+      return result;
+    } catch { setFailed(true); return null; }
+    finally { saving.current = false; setBusy(false); }
+  }
+
+  async function finish() {
+    if (!await save({ onboarding_completed: true })) return;
+    setBanner(true);
+    const selected = models.find((model) => model.id === config.model);
+    onNavigate(selected?.downloaded || actions.downloading.length > 0 || config.ai_processing?.pipeline_mode === "cloud" ? "settings" : "models");
+  }
+
+  async function next() {
+    if (step === 3) await finish();
+    else await save({ onboarding_step: step + 1 });
+  }
+
+  async function choose(model: ModelInfo) {
+    await save({ onboarding_model: model.id });
+  }
+
+  async function begin() {
+    if (!chosen || saving.current) return;
+    if (chosen.downloaded) {
+      saving.current = true;
+      setBusy(true);
+      const ok = await actions.selectModel(chosen, true);
+      saving.current = false;
+      setBusy(false);
+      if (!ok) return;
+    } else if (!actions.downloading.includes(chosen.id)) {
+      // Persist the choice before launching. The download itself does not hold
+      // navigation and continues if the window is hidden or the flow is skipped.
+      if (!await save({ onboarding_model: chosen.id })) return;
+      void actions.startDownload(chosen);
+    }
+    await save({ onboarding_step: 2 });
+  }
+
+  if (!active) {
+    if (!banner) return null;
+    const model = models.find((item) => item.id === (actions.downloading[0] ?? config.model));
+    const downloading = actions.downloading.length > 0;
+    const ready = runtime?.active_engine === "cloud-stt"
+      || (model?.downloaded && (runtime?.loaded_model === model.id || runtime?.model_loads_on_demand));
+    const downloadFailed = actions.status?.kind === "error";
+    return <Card pad="rows" className="onboarding-banner">
+      <div className="onboarding-banner__copy" role={downloadFailed ? "alert" : "status"}>
+        <strong>{downloading ? t("Скачивается {p0}", { p0: model?.label ?? "" }) : ready ? t("Можно диктовать") : t("Для диктовки нужна модель")}</strong>
+        <p>{downloadFailed ? actions.status?.text : downloading
+          ? t("Пока модель скачивается, поставьте курсор в любое текстовое поле. После загрузки нажмите {p0}.", { p0: config.hotkey || DEFAULT_HOTKEY })
+          : ready ? t("Поставьте курсор в любое текстовое поле и нажмите {p0}.", { p0: config.hotkey || DEFAULT_HOTKEY })
+          : t("Скачайте модель в разделе «Модели», затем нажмите горячую клавишу.")}</p>
+        {downloading && <progress aria-label={t("Скачивание модели")} max={progress?.total ?? undefined} value={progress?.total && progress.model === model?.id ? progress.downloaded : undefined}/>}
+      </div>
+      {downloading ? <button className="btn btn--ghost" type="button" onClick={() => void actions.cancelDownload(actions.downloading[0])}>{t("Отменить скачивание")}</button>
+        : (!ready || downloadFailed) && <button className="btn btn--primary" type="button" onClick={() => onNavigate("models")}>{t("Открыть модели")}</button>}
+      <button className="btn btn--ghost btn--icon" type="button" aria-label={t("Закрыть подсказку")} onClick={() => setBanner(false)}><Icon name="x" size={14}/></button>
+    </Card>;
+  }
+
+  const titles = [t("Нажали. Сказали. Текст уже там."), t("Одна модель, чтобы начать"), t("Ваше сочетание"), t("Можно не трогать")];
+  const cloud = config.ai_processing?.pipeline_mode === "cloud";
+  const leads = [
+    cloud ? t("У вас настроено облачное распознавание: запись отправляется выбранному сервису. Выбор локальной модели вернёт распознавание на этот компьютер.") : t("Речь распознаётся на этом компьютере. Готовый текст вставляется в поле, где стоит курсор."),
+    t("Выберите модель для своего языка. Модель не того языка может распознать бессмыслицу. Остальные модели останутся в каталоге."),
+    t("Сочетание уже работает. Можно оставить его или выбрать своё."),
+    t("Всё это можно поменять позже в настройках."),
+  ];
+  const disk = chosen ? assessments.values[chosen.id] : undefined;
+  const insufficient = !chosen?.downloaded && disk?.download?.insufficient;
+  return <div className="onboarding" data-moving={moving} data-testid="onboarding">
+    <div className="onboarding__toolbar">
+      <UiLanguagePicker value={config.ui_language} onConfigChanged={onConfigChanged}/>
+      <button className="btn btn--ghost btn--icon" type="button" aria-label={t("Переключить тему")} onClick={onToggleTheme}><Icon name={config.theme === "light" ? "sun" : "moon"} size={15}/></button>
+      <button className="btn btn--ghost" type="button" disabled={busy} onClick={() => void finish()}>{t("Пропустить онбординг")}</button>
+    </div>
+    <div className="onboarding__stage" key={step}>
+      <header className="onboarding__heading">
+        <span className="onboarding__counter">{t("Шаг {p0} из {p1}", { p0: step + 1, p1: 4 })}</span>
+        <h1 ref={heading} tabIndex={-1}>{titles[step]}</h1>
+        <p>{leads[step]}</p>
+      </header>
+      {step === 0 && <div className="onboarding__grid">
+        <Card pad="rows"><Icon name="play" size={28}/><h2>{t("Сочетание")}</h2><div className="onboarding__keys">{(config.hotkey || DEFAULT_HOTKEY).split("+").map((key, index) => <kbd className="kbd" key={index}>{key}</kbd>)}</div><p>{config.recording_mode === "push_to_talk" ? t("Говорите, удерживая сочетание. Отпустите, чтобы закончить.") : t("Одно нажатие начинает запись, второе заканчивает.")}</p></Card>
+        <Card pad="rows"><div className="onboarding__speech" aria-hidden="true">{[2, 4, 6, 8, 6, 4, 2].map((height, index) => <i key={index} style={{ height: height * 4 }}/>)}</div><h2>{t("Речь")}</h2><p>{cloud ? t("Сейчас запись отправляется выбранному облачному сервису.") : t("Говорите как обычно. При локальном распознавании голос никуда не отправляется.")}</p></Card>
+        <Card pad="rows"><Icon name="text" size={28}/><h2>{t("Текст в поле")}</h2><p>{t("Готовый текст появляется там, где курсор.")}</p></Card>
+      </div>}
+      {step === 1 && <>
+        <div className="onboarding__grid" role="radiogroup" aria-label={t("Модель распознавания")}>
+          {choices.map((model) => <Card pad="rows" key={model.id} className={`onboarding__model${chosen?.id === model.id ? " onboarding__model--selected" : ""}`}>
+            <label><input type="radio" name="onboarding-model" value={model.id} checked={chosen?.id === model.id} disabled={busy || actions.downloading.length > 0} onChange={() => void choose(model)}/><h2>{model.label}</h2><span className="mono">{model.size}</span><p>{modelDescription(model)}</p>{model.downloaded && <span className="tag">{t("Скачана")}</span>}</label>
+          </Card>)}
+        </div>
+        {!choices.length && <div>
+          <p role="alert">{t("Не удалось получить список моделей. Откройте каталог или попробуйте ещё раз.")}</p>
+          <button className="btn btn--ghost" type="button" onClick={() => { setCatalogFailed(false); void invoke<ModelInfo[]>("list_models").then(onModelsChanged).catch(() => setCatalogFailed(true)); }}>{t("Повторить")}</button>
+          {catalogFailed && <p role="alert">{t("Не удалось загрузить модели.")}</p>}
+        </div>}
+        <p className="onboarding__note">{t("Скачивание пойдёт в фоне. «Пропустить шаг» не начинает загрузку.")}</p>
+        {insufficient && <p role="alert">{downloadSpaceText(disk)}</p>}
+      </>}
+      {step === 2 && <div className="card-stack">
+        <Card pad="rows"><div className="capture-row"><div className="set-cell"><span className="set-label">{t("Горячая клавиша")}</span><HotkeyDisplay hotkey={config.hotkey} onConfigChanged={onConfigChanged}/></div><div className="vrule"/><div className="set-cell"><span className="set-label">{t("Режим записи")}</span><RecordingModeSegmented value={config.recording_mode ?? "toggle"} onConfigChanged={onConfigChanged}/></div></div></Card>
+        <Card pad="rows"><span className="set-label">{t("Микрофон")}</span><MicPicker microphone={config.microphone} microphones={microphones} onConfigChanged={onConfigChanged}/><p>{t("Проверьте микрофон сейчас, чтобы получить системное разрешение до первой диктовки.")}</p></Card>
+        {runtime?.os === "macos" && <AccessibilityNotice/>}
+      </div>}
+      {step === 3 && <Card pad="rows" className="onboarding__options">
+        {!runtime?.portable && <label className="checkbox-row"><input type="checkbox" className="checkbox" checked={config.auto_start ?? false} onChange={(event) => void onConfigChanged({ auto_start: event.target.checked })}/>{t("Запускать вместе с системой")}</label>}
+        <label className="checkbox-row"><input type="checkbox" className="checkbox" checked={config.sound_feedback ?? true} onChange={(event) => void onConfigChanged({ sound_feedback: event.target.checked })}/>{t("Звук начала и конца записи")}</label>
+        <div><strong>{t("LLM-обработка")}</strong><p>{t("Необязательная обработка текста требует своего ключа. Настроить её можно позже в разделе «Провайдеры и ключи».")}</p></div>
+        <div><TelemetryControl value={config.telemetry_enabled} onConfigChanged={onConfigChanged}/><p>{t("При выключении покажем состав событий. Записи и текст не отправляются.")}</p></div>
+      </Card>}
+      {failed && <p role="alert">{t("Не удалось сохранить настройку. Попробуйте ещё раз.")}</p>}
+      <footer className="onboarding__actions">
+        {step > 0 && <button className="btn btn--ghost" type="button" disabled={busy} onClick={() => void save({ onboarding_step: step - 1 })}>{t("Назад")}</button>}
+        <button className="btn btn--ghost" type="button" disabled={busy} onClick={() => void next()}>{t("Пропустить шаг")}</button>
+        <button className="btn btn--primary" type="button" disabled={busy || (step === 1 && (!chosen || !!insufficient))} onClick={() => void (step === 1 ? begin() : next())}>{busy ? t("Сохранение…") : step === 3 ? t("Начать диктовать") : step === 1 && !chosen?.downloaded ? t("Скачать и продолжить") : t("Дальше")}</button>
+      </footer>
+    </div>
+    <svg className="onboarding__waves" viewBox="0 0 1440 600" preserveAspectRatio="none" aria-hidden="true">
+      <path d="M-720 300 C-360 100 0 500 360 300 S1080 100 1440 300 S2160 500 2520 300 L2520 650 H-720Z"/>
+      <path d="M-720 360 C-360 180 0 540 360 360 S1080 180 1440 360 S2160 540 2520 360 L2520 650 H-720Z"/>
+      <path d="M-720 430 C-360 270 0 590 360 430 S1080 270 1440 430 S2160 590 2520 430 L2520 650 H-720Z"/>
+    </svg>
+    <ModelActionOverlays actions={actions}/>
+  </div>;
+}

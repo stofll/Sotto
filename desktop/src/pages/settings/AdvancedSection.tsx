@@ -12,7 +12,7 @@ import { recordingLimitMinutes, recordingLimitOptions } from "../recordingLimitS
 import { recordingKeepCount, recordingKeepOptions } from "../recordingKeepSettings";
 import { formatFileSize } from "../fileSize";
 import { invoke } from "../../bridge";
-import { isTelemetryEnabled } from "../telemetrySettings";
+import { TelemetryControl } from "../../components/TelemetryControl";
 import { HintIcon, SetLabel, type ConfigChanged } from "./controls";
 
 // Changing the device reloads the model on the Rust side — that is the only
@@ -369,15 +369,7 @@ export function AdvancedSection({ config, portable, cpuOnly, onConfigChanged }: 
             : t("Приложение запускается в фоне при входе в систему, горячая клавиша становится доступна сразу.")}/>
         </span>
         <span className="label-with-hint">
-          <label className="checkbox-row">
-            <input
-              className="checkbox"
-              type="checkbox"
-              checked={isTelemetryEnabled(config?.telemetry_enabled)}
-              onChange={(e) => void onConfigChanged({ telemetry_enabled: e.target.checked })}
-            />
-            {t("Разрешить обезличенную телеметрию")}
-          </label>
+          <TelemetryControl value={config?.telemetry_enabled} onConfigChanged={onConfigChanged}/>
           <HintIcon text={t("Собираются обезличенные события использования и технические сведения: режим обработки, длительность аудио и обработки, оценка сэкономленного времени, ОС, версия приложения, архитектура и сведения о сессии.")}/>
         </span>
       </div>

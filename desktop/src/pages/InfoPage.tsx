@@ -328,7 +328,7 @@ function DiagnosticsCard({ config, onConfigChanged }: { config: ConfigResult | n
   );
 }
 
-export function InfoPage({ version, config, onConfigChanged }: { version?: string | null; config: ConfigResult | null; onConfigChanged?: (partial: Partial<ConfigResult>, onError?: (message: string) => void) => Promise<ConfigResult | null> }) {
+export function InfoPage({ version, config, onConfigChanged, onStartOnboarding }: { version?: string | null; config: ConfigResult | null; onConfigChanged?: (partial: Partial<ConfigResult>, onError?: (message: string) => void) => Promise<ConfigResult | null>; onStartOnboarding?: () => void }) {
   const pipelineMode = config?.ai_processing?.pipeline_mode ?? "local";
   const hotkey = hotkeyParts(config?.hotkey);
   const recordingMode = config?.recording_mode === "push_to_talk" ? t("Удержание клавиш") : t("Переключатель");
@@ -347,6 +347,7 @@ export function InfoPage({ version, config, onConfigChanged }: { version?: strin
     <div className="page">
       <PageHeader
         title={t("Справка")}
+        actions={onStartOnboarding && <button type="button" className="btn btn--ghost" onClick={onStartOnboarding}>{t("Пройти введение ещё раз")}</button>}
       />
 
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.15fr) minmax(280px, .85fr)", gap: 14, marginBottom: 14 }} className="help-top">

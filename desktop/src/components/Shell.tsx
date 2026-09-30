@@ -44,7 +44,7 @@ export const NAV_GROUPS = (): NavGroup[] => ([
 // frame already has the right layout.
 const IS_MACOS = typeof navigator !== "undefined" && /Macintosh/.test(navigator.userAgent);
 
-export function TitleBar({ collapsed, onToggleCollapse }: { collapsed?: boolean; onToggleCollapse?: () => void }) {
+export function TitleBar({ collapsed, onToggleCollapse, fullWidth }: { collapsed?: boolean; onToggleCollapse?: () => void; fullWidth?: boolean }) {
   async function withWindow(action: "minimize" | "maximize" | "close") {
     const win = getCurrentWindow();
     if (action === "minimize") await win.minimize();
@@ -68,7 +68,7 @@ export function TitleBar({ collapsed, onToggleCollapse }: { collapsed?: boolean;
   // `<button>` in the event path cancels the drag.
   const toggleInBar = IS_MACOS && collapsed;
   return (
-    <div className={`titlebar${IS_MACOS ? " titlebar--macos" : ""}`} data-tauri-drag-region="deep">
+    <div className={`titlebar${IS_MACOS ? " titlebar--macos" : ""}${fullWidth ? " titlebar--full" : ""}`} data-tauri-drag-region="deep">
       <div className="titlebar__rail"><Brand collapsed={collapsed} onToggleCollapse={toggleInBar ? undefined : onToggleCollapse}/></div>
       <div className="titlebar__bar">
         {toggleInBar && onToggleCollapse && <SidebarToggle collapsed={collapsed} onToggle={onToggleCollapse}/>}
