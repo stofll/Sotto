@@ -91,7 +91,9 @@ The suite saves failure traces and screenshots under `test-results/`. The layout
 
 `.github/workflows/ui-tests.yml` runs Chromium and WebKit against both production and development servers on pull requests and supports manual dispatch. Production Chromium uses the Windows build target; production WebKit uses the macOS target. Each browser/mode job has a 25-minute limit and uploads its JUnit report and screenshots/traces in `ui-test-results-<browser>-<mode>` for seven days. The aggregate `browser-ui` check passes only when all four jobs succeed.
 
-The release workflow also calls this suite on the resolved release-tag commit before packaging. A successful compilation alone cannot pass this gate, and a manual release retry cannot substitute tests of a different branch.
+Release reuses successful Prepare Release UI checks only after verifying that the tagged commit changes solely the version relative to the checked source. Otherwise it calls this suite on the resolved release-tag commit before packaging. A successful compilation alone cannot pass this gate, and a manual release retry cannot substitute tests of a different branch.
+
+For layout assertions, wait for the relevant computed style or geometry rather than collecting every descendant animation's `finished` promise. Overlay regressions exercise delayed animation frames as well as regular refresh rates; their settling deadline must use the same elapsed time as easing.
 
 Use a different `--output` directory for concurrent local runs because pytest-playwright cleans its output directory at session start.
 

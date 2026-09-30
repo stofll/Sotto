@@ -35,13 +35,15 @@ All changes to `main` go through pull requests. Rust CI runs its full checks on 
 
 PRs read the Cargo cache; only runs on `main` save it. Pushes and PRs confined to `site/` skip the application checks.
 
+A verified version-only push from Prepare Release skips the cache builds because its source checks already populated the cache. Push builds are named `Build shared cache`; PR and preparation checks retain `Build + test`. Release also reuses the successful preparation's UI tests after verifying the version-only diff; missing proof falls back to the ordinary checks.
+
 ## Browser UI tests
 
 Run the Python/Playwright suite for UI changes. [Browser UI testing](ui-testing.md) documents setup, focused commands, test boundaries and failure artifacts; `.github/workflows/ui-tests.yml` runs Chromium and WebKit on pull requests. Keep the existing frontend checks above: browser tests complement their logic, IPC-contract, i18n and bundle checks.
 
 ## Release automation
 
-Run `node --test scripts/release-version.test.mjs scripts/check-release-changes.test.mjs` from the repository root when changing version preparation or scheduled release eligibility. These tests use temporary Git repositories and metadata copies; they do not bump the working copy, push tags, or launch the application. PR CI also runs them and checks version consistency with `sh scripts/check-version.sh`.
+Run `node --test scripts/release-version.test.mjs scripts/check-release-changes.test.mjs scripts/check-prepared-release.test.mjs` from the repository root when changing version preparation, scheduled release eligibility or reuse of source checks. These tests use temporary Git repositories and metadata copies; they do not bump the working copy, push tags, or launch the application. PR CI also runs them and checks version consistency with `sh scripts/check-version.sh`.
 
 On Windows, run these release tests from Git Bash or put Git for Windows' `bin` directory on `PATH`: the tests invoke `sh` to check version consistency.
 

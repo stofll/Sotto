@@ -1,6 +1,6 @@
 name: Release
 
-# Called by Prepare Release, by a tag push, or manually to retry a draft build.
+# Started by a tag push, a reusable call, or manually to retry a draft build.
 on:
   push:
     tags: ["v*"]
@@ -29,13 +29,18 @@ jobs:
     name: Resolve release tag
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
     outputs:
       sha: ${{ steps.ref.outputs.sha }}
       prerelease: ${{ steps.ref.outputs.prerelease }}
+      prepared: ${{ steps.preparation.outputs.prepared }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: refs/tags/${{ inputs.tag || github.ref_name }}
+          fetch-depth: 2
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .node-version
@@ -59,8 +64,20 @@ jobs:
           fi
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
+      - name: Check release preparation
+        id: preparation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -f scripts/check-prepared-release.mjs ]; then
+            node scripts/check-prepared-release.mjs
+          else
+            echo 'prepared=false' >> "$GITHUB_OUTPUT"
+          fi
+
   browser-ui:
     needs: resolve
+    if: needs.resolve.outputs.prepared != 'true'
     uses: ./.github/workflows/ui-tests.yml
     with:
       ref: ${{ needs.resolve.outputs.sha }}
@@ -68,6 +85,10 @@ jobs:
   release:
     name: Build and sign
     needs: [resolve, browser-ui]
+    if: >-
+      ${{ !cancelled() && needs.resolve.result == 'success' &&
+          (needs.browser-ui.result == 'success' ||
+           (needs.resolve.outputs.prepared == 'true' && needs.browser-ui.result == 'skipped')) }}
     permissions:
       # tauri-action creates the draft release and uploads artifacts into it.
       contents: write

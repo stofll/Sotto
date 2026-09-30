@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 import pytest
@@ -104,9 +105,8 @@ def test_native_pointer_tests_the_caption_chip_not_the_transparent_window(app, p
     chip = page.locator(".ovs-chip")
     expect(chip).to_be_visible()
     expect(page.locator(".ovs")).to_have_attribute("data-shown", "1")
-    page.locator(".ovs").evaluate(
-        "el => Promise.all(el.getAnimations({subtree: true}).filter(a => a.effect.getTiming().iterations !== Infinity).map(a => a.finished))"
-    )
+    # Read pointer coordinates only after the entrance transform has settled.
+    expect(page.locator(".ovs")).to_have_css("transform", "none")
     bounds = chip.bounding_box()
     ui.emit(
         "overlay-pointer",
@@ -148,8 +148,12 @@ def test_captions_long_error_keeps_close_inside_window(
     ui.emit("whisper-failed", {"session_id": 42, "message": message})
     expect(page.locator(".ovs")).to_have_attribute("data-phase", "error")
     expect(page.locator(".ovs")).to_have_attribute("data-shown", "1")
-    page.locator(".ovs").evaluate(
-        "el => Promise.all(el.getAnimations({subtree: true}).filter(a => a.effect.getTiming().iterations !== Infinity).map(a => a.finished))"
+    # Assert the visible end state without enumerating unrelated animations;
+    # awaiting their finished promises has crashed WebKit in this scenario.
+    expect(page.locator(".ovs")).to_have_css("transform", "none")
+    expect(page.locator(".ovs-stl")).to_have_css("opacity", "1")
+    expect(page.locator(".ovs-stl")).to_have_css(
+        "transform", re.compile(r"^(none|matrix\(1, 0, 0, 1, 0, 0\))$")
     )
     close = page.get_by_role(
         "button", name="Закрыть" if locale == "ru" else "Close", exact=True
