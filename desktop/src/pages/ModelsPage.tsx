@@ -60,17 +60,15 @@ export function ModelsPage({ models, config, onConfigChanged, onModelsChanged }:
   // what the models cover, not what somebody once typed in by hand. The filter
   // asks "will it transcribe my language", so a model passes when the language
   // is in its list.
-  const languageOptions = useMemo<Array<SelectOption<string>>>(
-    () => [
-      { value: "all", label: t("Все языки"), icon: "globe" },
-      ...catalogLanguages(visible).map((language) => ({
-        value: language.code,
-        label: language.name,
-        meta: language.code.toUpperCase(),
-      })),
-    ],
-    [visible],
-  );
+  // Built at render time: the labels follow the current interface language.
+  const languageOptions: Array<SelectOption<string>> = [
+    { value: "all", label: t("Все языки"), icon: "globe" },
+    ...catalogLanguages(visible).map((language) => ({
+      value: language.code,
+      label: language.name,
+      meta: language.code.toUpperCase(),
+    })),
+  ];
 
   const sections = useMemo(
     () => familySections(filterModels(visible, filters)),
