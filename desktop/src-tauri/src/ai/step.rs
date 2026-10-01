@@ -212,7 +212,7 @@ pub async fn ai_process_text_with_status(
     config: &AiConfig,
     api_key: Option<&str>,
 ) -> CallOutcome {
-    let mut status = AiStatus {
+    let status = AiStatus {
         telemetry_service: Some(match config.provider.as_str() {
             // The Gemini adapter ignores `base_url` and always calls the one
             // Google endpoint.
@@ -274,13 +274,35 @@ pub async fn ai_process_text_with_status(
         wrap_dictation(text)
     };
 
-    status.attempted = true;
     let provider = build_provider(config, api_key);
-    let attempt_timeout = attempt_timeout(config.llm_timeout_seconds);
-    let (result, info) = call_provider_with_retry(
+    finish_with_provider(
+        text,
+        config,
         provider.as_ref(),
         &rendered_system,
         &user_message,
+        status,
+    )
+    .await
+}
+
+/// Keep a tidy edit, and return the original dictation when the answer is
+/// empty, a remark about the text, or a retelling that dropped the author's
+/// words.
+async fn finish_with_provider(
+    text: &str,
+    config: &AiConfig,
+    provider: &dyn Provider,
+    rendered_system: &str,
+    user_message: &str,
+    mut status: AiStatus,
+) -> CallOutcome {
+    status.attempted = true;
+    let attempt_timeout = attempt_timeout(config.llm_timeout_seconds);
+    let (result, info) = call_provider_with_retry(
+        provider,
+        rendered_system,
+        user_message,
         attempt_timeout,
         Duration::from_secs(config.llm_timeout_seconds.clamp(1, 300)),
         &mut status,
@@ -1092,6 +1114,65 @@ mod tests {
             2,
             "the provider must have been called twice"
         );
+    }
+
+    /// 69 of 100 words is under the fidelity line. The paste must stay the
+    /// dictation, and the status must name this fallback.
+    #[tokio::test]
+    async fn a_shortened_answer_falls_back_to_the_dictation() {
+        let input = "слово ".repeat(100);
+        let provider = MockProvider {
+            outcomes: std::sync::Mutex::new(vec![Ok((
+                "слово ".repeat(69),
+                ProviderInfo::success("ignored", None, 0.1),
+            ))]),
+            calls: std::sync::atomic::AtomicUsize::new(0),
+        };
+        let outcome = finish_with_provider(
+            &input,
+            &base_config(),
+            &provider,
+            "system",
+            "user",
+            AiStatus::default(),
+        )
+        .await;
+        assert_eq!(outcome.text, input);
+        assert!(outcome.status.fallback);
+        assert!(!outcome.status.used);
+        assert_eq!(
+            outcome.status.error_type.as_deref(),
+            Some("summarised_response")
+        );
+        assert_eq!(outcome.status.skipped_reason, "model_dropped_text");
+    }
+
+    /// Punctuation at the same word count is the edit the prompt asks for.
+    #[tokio::test]
+    async fn punctuation_at_the_same_length_is_kept() {
+        let input = "слово ".repeat(40);
+        let tidied = format!("{},", input.trim().replace(' ', ", "));
+        let provider = MockProvider {
+            outcomes: std::sync::Mutex::new(vec![Ok((
+                tidied.clone(),
+                ProviderInfo::success("ignored", None, 0.1),
+            ))]),
+            calls: std::sync::atomic::AtomicUsize::new(0),
+        };
+        let outcome = finish_with_provider(
+            &input,
+            &base_config(),
+            &provider,
+            "system",
+            "user",
+            AiStatus::default(),
+        )
+        .await;
+        assert_eq!(outcome.text, tidied);
+        assert!(!outcome.status.fallback);
+        assert!(outcome.status.used);
+        assert!(outcome.status.error_type.is_none());
+        assert!(outcome.status.skipped_reason.is_empty());
     }
     struct SlowProvider;
     impl Provider for SlowProvider {

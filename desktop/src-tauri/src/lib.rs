@@ -1683,9 +1683,8 @@ pub(crate) struct ProcessedTranscription {
 ///
 /// Split out of the dispatcher because every branch here is a promise to the
 /// user: which one is chosen decides what the overlay shows, which sound plays,
-/// and whether the text is inserted at all. Inside the dispatcher this logic is
-/// out of reach for a test — it sits behind an `AppHandle`, a tokio task and a
-/// channel — and both bugs we had to learn about from users were right here.
+/// and whether the text is inserted at all. [`dictation_delivery`] is that
+/// choice. Paste, sounds and overlay events stay behind the `AppHandle`.
 ///
 /// `PartialEq` is deliberately absent: there is no reason to compare a whole
 /// `InferenceResult` in a test, and printing it via `Debug` would drag the entire
@@ -1723,6 +1722,54 @@ pub(crate) fn classify_completion(
         // nothing with a cheerful «Текст готов».
         Ok(inference) if inference.text.trim().is_empty() => Completion::Empty,
         Ok(inference) => Completion::Transcribed(inference),
+    }
+}
+
+/// What `engine_events::Dispatcher::complete` may do with a finished session
+/// before any paste, history write, or success statistic.
+///
+/// `PartialEq` is absent for the same reason as [`Completion`]: a failure
+/// must not print the transcript.
+#[derive(Debug)]
+pub(crate) enum DictationDelivery {
+    /// The session belongs to a file transcription, which awaits the engine
+    /// reply itself. Dictation must not paste it, record it, or count it.
+    IgnoredFile,
+    /// A late file reply or a retired recording. It does not own the overlay.
+    IgnoredForeign,
+    /// The user cancelled a live dictation. Nothing is inserted.
+    Cancelled,
+    /// Silence. The overlay shows an empty result, not a paste.
+    Empty,
+    /// The engine failed. The message goes to the overlay as is.
+    Failed(String),
+    /// There is text. Post-processing still re-checks cancellation before paste.
+    Ready(crate::whisper::InferenceResult),
+}
+
+/// The gate in front of dictation delivery.
+///
+/// A skipped file session stays a file session even when a cancel flag shares
+/// its id: the file path owns that reply. A session that does not own the
+/// live dictation never raises the overlay. Only then does cancellation
+/// outrank a transcript.
+pub(crate) fn dictation_delivery(
+    dispatch_skipped: bool,
+    owns_dictation: bool,
+    cancelled: bool,
+    result: Result<crate::whisper::InferenceResult, String>,
+) -> DictationDelivery {
+    if dispatch_skipped {
+        return DictationDelivery::IgnoredFile;
+    }
+    if !owns_dictation {
+        return DictationDelivery::IgnoredForeign;
+    }
+    match classify_completion(cancelled, result) {
+        Completion::Cancelled => DictationDelivery::Cancelled,
+        Completion::Empty => DictationDelivery::Empty,
+        Completion::Failed(message) => DictationDelivery::Failed(message),
+        Completion::Transcribed(inference) => DictationDelivery::Ready(inference),
     }
 }
 
@@ -2131,6 +2178,61 @@ mod completion_tests {
             Completion::Failed(message) => assert_eq!(message, "GigaAM v3 не умеет английский"),
             other => panic!("expected Failed, got {other:?}"),
         }
+    }
+
+    /// A file transcription owns its reply. Cancellation and a finished
+    /// transcript must not turn that session into a dictation paste.
+    #[test]
+    fn a_file_session_is_not_ready_to_paste() {
+        for cancelled in [false, true] {
+            assert!(
+                matches!(
+                    dictation_delivery(true, true, cancelled, Ok(inference("готовый текст"))),
+                    DictationDelivery::IgnoredFile
+                ),
+                "cancelled={cancelled}"
+            );
+        }
+    }
+
+    /// A reply that arrives after the dictation has moved on must not be pasted
+    /// under the new session.
+    #[test]
+    fn a_foreign_session_is_not_ready_to_paste() {
+        assert!(matches!(
+            dictation_delivery(false, false, true, Ok(inference("готовый текст"))),
+            DictationDelivery::IgnoredForeign
+        ));
+    }
+
+    /// Cancel wins over a transcript the engine already produced. Ready is the
+    /// only variant that continues into paste and history.
+    #[test]
+    fn a_cancelled_dictation_is_not_ready_to_paste() {
+        assert!(matches!(
+            dictation_delivery(false, true, true, Ok(inference("готовый текст"))),
+            DictationDelivery::Cancelled
+        ));
+        assert!(matches!(
+            dictation_delivery(false, true, true, Err("движок упал".to_string())),
+            DictationDelivery::Cancelled
+        ));
+    }
+
+    #[test]
+    fn a_live_transcript_is_ready_for_delivery() {
+        match dictation_delivery(false, true, false, Ok(inference("привет"))) {
+            DictationDelivery::Ready(result) => assert_eq!(result.text, "привет"),
+            other => panic!("expected Ready, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn silence_on_a_live_dictation_stays_empty() {
+        assert!(matches!(
+            dictation_delivery(false, true, false, Ok(inference(" \n"))),
+            DictationDelivery::Empty
+        ));
     }
 
     /// An error does not turn into an empty result even when it carries no text:

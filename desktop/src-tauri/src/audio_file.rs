@@ -465,6 +465,39 @@ pub(crate) async fn transcribe_audio_file(
     }
 }
 
+/// The success report for a file transcription.
+///
+/// The text stays in the file panel. There is no focused-window paste and no
+/// history row, so the outcome says so instead of borrowing the microphone
+/// delivery result.
+fn file_transcription_outcome<'a>(
+    pipeline_mode: &'a str,
+    config: Option<&crate::config::Config>,
+    inference: &'a crate::whisper::InferenceResult,
+    final_text: &'a str,
+    ai_status: Option<&'a crate::ai::step::AiStatus>,
+) -> crate::telemetry::Outcome<'a> {
+    let (formatting_enabled, replacement_rules) = config
+        .map(crate::telemetry_formatting)
+        .unwrap_or((false, 0));
+    crate::telemetry::Outcome {
+        source: crate::telemetry::Source::File,
+        pipeline_mode,
+        recording_mode: crate::telemetry::RecordingMode::NotApplicable,
+        stt_model: inference.model_id.as_deref(),
+        stt_service: inference.stt_service,
+        audio_seconds: inference.audio_seconds,
+        stt_millis: inference.inference_time_ms,
+        chars: final_text.chars().count(),
+        ai_status,
+        compute: config
+            .map(|config| crate::telemetry_compute(config, inference.model_id.as_deref())),
+        formatting_enabled,
+        replacement_rules,
+        paste_result: crate::telemetry::PasteResult::NotApplicable,
+    }
+}
+
 /// Emit the completed event for a run that produced text.
 ///
 /// An empty `final_text` is not an error the caller sees — the panel still
@@ -485,25 +518,13 @@ fn record_file_run(
         );
         return;
     }
-    let (formatting_enabled, replacement_rules) = config
-        .map(crate::telemetry_formatting)
-        .unwrap_or((false, 0));
-    telemetry.record_completed(crate::telemetry::Outcome {
-        source: crate::telemetry::Source::File,
+    telemetry.record_completed(file_transcription_outcome(
         pipeline_mode,
-        recording_mode: crate::telemetry::RecordingMode::NotApplicable,
-        stt_model: run.inference.model_id.as_deref(),
-        stt_service: run.inference.stt_service,
-        audio_seconds: run.inference.audio_seconds,
-        stt_millis: run.inference.inference_time_ms,
-        chars: run.processed.final_text.chars().count(),
-        ai_status: run.processed.ai_status.as_ref(),
-        compute: config
-            .map(|config| crate::telemetry_compute(config, run.inference.model_id.as_deref())),
-        formatting_enabled,
-        replacement_rules,
-        paste_result: crate::telemetry::PasteResult::NotApplicable,
-    });
+        config,
+        &run.inference,
+        &run.processed.final_text,
+        run.processed.ai_status.as_ref(),
+    ));
 }
 
 async fn transcribe_file_inner(
@@ -749,6 +770,34 @@ pub(crate) async fn cancel_audio_file(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A finished file stays in the file panel: the outcome that
+    /// `record_file_run` reports is not a paste and not a dictation.
+    #[test]
+    fn a_finished_file_is_not_pasted() {
+        let inference = crate::whisper::InferenceResult {
+            session_id: 7,
+            text: "готовый текст".to_string(),
+            language: Some("ru".to_string()),
+            model_id: Some("turbo".to_string()),
+            stt_service: None,
+            inference_time_ms: 500,
+            audio_seconds: 4.0,
+            speech_seconds: None,
+        };
+        let outcome = file_transcription_outcome("local", None, &inference, "готовый текст", None);
+        assert_eq!(outcome.source, crate::telemetry::Source::File);
+        assert!(matches!(
+            outcome.recording_mode,
+            crate::telemetry::RecordingMode::NotApplicable
+        ));
+        assert!(matches!(
+            outcome.paste_result,
+            crate::telemetry::PasteResult::NotApplicable
+        ));
+        assert_eq!(outcome.chars, "готовый текст".chars().count());
+        assert_eq!(outcome.stt_model, Some("turbo"));
+    }
 
     /// A joined recording and a damaged one need different answers: only one of
     /// them is fixed by re-encoding, and the message is the only place the user
