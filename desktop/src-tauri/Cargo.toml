@@ -13,7 +13,7 @@ tauri-build = { version = "2.6.3", features = [] }
 
 [dependencies]
 semver = "1"
-tauri = { version = "2.11.6", features = ["macos-private-api", "tray-icon", "image-png"] }
+tauri = { version = "2.12.0", features = ["macos-private-api", "tray-icon", "image-png"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 raw-window-handle = "0.6"
@@ -74,7 +74,7 @@ rusqlite = { version = "0.40", features = ["bundled"] }
 earshot = "1.2.1"
 symphonia = { version = "0.6.1", features = ["mp3", "isomp4", "aac", "alac"] }
 rubato = "5.0.0"
-tauri-plugin-dialog = "2"
+tauri-plugin-dialog = "2.8.0"
 sysinfo = { version = "=0.39.6", default-features = false, features = ["system"] }
 spellbook = "=0.4.2"
 
@@ -110,12 +110,14 @@ windows-sys = { version = "0.52", features = [
 ] }
 # Core Audio volume control for `output_volume.rs`. `windows-sys` exposes COM
 # interfaces as opaque pointers with no vtables, so it cannot call methods on
-# them; the `windows` crate can. Not a new build cost — Tauri already pulls
-# this exact version in through wry/tao.
+# them; the `windows` crate can.
 windows = { version = "0.61", features = [
     "Win32_Media_Audio",
     "Win32_Media_Audio_Endpoints",
     "Win32_System_Com",
+    # IMMDevice::Activate requires both features, independently of Tauri's.
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Variant",
 ] }
 
 [target.'cfg(unix)'.dependencies]
