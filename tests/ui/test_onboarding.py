@@ -128,7 +128,7 @@ def test_skipped_download_keeps_models_page_busy_and_warns_after_banner(app, pag
     ui.saved("onboarding_step", 2)
     page.get_by_role("button", name="Пропустить введение", exact=True).click()
     ui.saved("onboarding_completed", True)
-    expect(page.locator(".onboarding-banner__copy")).to_be_focused()
+    expect(page.locator(".window-banner__copy")).to_be_focused()
     ui.nav("models")
     expect(
         page.get_by_test_id("model-turbo").get_by_role(
@@ -329,61 +329,143 @@ def test_replay_from_help_and_release_notes_are_deferred(app, page):
     ui.saved("onboarding_step", 0)
 
 
-@pytest.mark.parametrize("dismiss", ["Выключить", "Закрыть", "escape", "outside"])
-def test_telemetry_opt_out_dismissal_saves_choice(app, page, dismiss):
-    ui = first_run(app, 3)
-    page.get_by_role(
-        "checkbox", name="Разрешить обезличенную телеметрию", exact=True
-    ).uncheck()
-    dialog = page.get_by_role("dialog", name="Что отправляет телеметрия")
+TELEMETRY = "Разрешить обезличенную телеметрию"
+EXPLANATION = "Что отправляет телеметрия"
+
+
+def telemetry_writes(ui):
+    return [
+        c for c in ui.calls("save_config") if "telemetry_enabled" in c["args"]["patch"]
+    ]
+
+
+@pytest.mark.parametrize("leave", ["Начать диктовать", "Пропустить шаг"])
+def test_last_step_records_an_unticked_telemetry_answer(app, page, leave):
+    ui = first_run(app, 3, config={"telemetry_enabled": None})
+    expect(page.get_by_role("checkbox", name=TELEMETRY, exact=True)).not_to_be_checked()
+    page.get_by_role("button", name=leave, exact=True).click()
+    ui.saved("telemetry_enabled", False)
+    ui.saved("onboarding_completed", True)
+
+
+def test_skipped_introduction_leaves_telemetry_unanswered(app, page):
+    ui = first_run(app, 1, config={"telemetry_enabled": None})
+    page.get_by_role("button", name="Пропустить введение", exact=True).click()
+    ui.saved("onboarding_completed", True)
+    assert ui.state()["config"]["telemetry_enabled"] is None
+
+
+@pytest.mark.parametrize("dismiss", ["Отмена", "Закрыть", "escape", "outside"])
+def test_telemetry_opt_in_needs_the_explanation(app, page, dismiss):
+    ui = first_run(app, 3, config={"telemetry_enabled": False})
+    control = page.get_by_role("checkbox", name=TELEMETRY, exact=True)
+    control.click()
+    dialog = page.get_by_role("dialog", name=EXPLANATION)
     expect(dialog).to_be_visible()
-    assert ui.state()["config"]["telemetry_enabled"] is True
     if dismiss == "escape":
         page.keyboard.press("Escape")
     elif dismiss == "outside":
         page.locator(".modal-overlay").click(position={"x": 2, "y": 2})
     else:
         dialog.get_by_role("button", name=dismiss, exact=True).click()
-    ui.saved("telemetry_enabled", False)
     expect(dialog).to_have_count(0)
-
-
-def test_telemetry_keep_enabled_and_failed_opt_out_retry(app, page):
-    ui = first_run(app, 3)
-    control = page.get_by_role(
-        "checkbox", name="Разрешить обезличенную телеметрию", exact=True
-    )
-    control.uncheck()
-    page.get_by_role("button", name="Оставить включённой", exact=True).click()
+    expect(control).not_to_be_checked()
+    assert not telemetry_writes(ui)
+    control.click()
+    dialog.get_by_role("button", name="Включить", exact=True).click()
+    ui.saved("telemetry_enabled", True)
+    expect(dialog).to_have_count(0)
     expect(control).to_be_checked()
-    control.uncheck()
+
+
+def test_telemetry_failed_opt_in_retries_and_opt_out_is_immediate(app, page):
+    ui = first_run(app, 3, config={"telemetry_enabled": False})
+    control = page.get_by_role("checkbox", name=TELEMETRY, exact=True)
+    control.click()
     ui.queue("save_config", {"error": "Synthetic disk full"})
-    dialog = page.get_by_role("dialog", name="Что отправляет телеметрия")
-    dialog.get_by_role("button", name="Выключить", exact=True).click()
+    dialog = page.get_by_role("dialog", name=EXPLANATION)
+    dialog.get_by_role("button", name="Включить", exact=True).click()
     expect(dialog.get_by_role("alert")).to_have_text(
         "Не удалось сохранить настройку: Synthetic disk full"
     )
     expect(page.get_by_role("alert")).to_have_count(1)
-    assert ui.state()["config"]["telemetry_enabled"] is True
-    dialog.get_by_role("button", name="Выключить", exact=True).click()
-    ui.saved("telemetry_enabled", False)
-    control.check()
+    assert ui.state()["config"]["telemetry_enabled"] is False
+    dialog.get_by_role("button", name="Включить", exact=True).click()
     ui.saved("telemetry_enabled", True)
+    control.uncheck()
+    ui.saved("telemetry_enabled", False)
     expect(dialog).to_have_count(0)
 
 
 def test_telemetry_dialog_is_shared_with_advanced_settings(app, page):
-    ui = app(config={"telemetry_enabled": True})
+    ui = app(config={"telemetry_enabled": False})
     page.get_by_text("Дополнительно", exact=True).click()
-    page.get_by_role(
-        "checkbox", name="Разрешить обезличенную телеметрию", exact=True
-    ).uncheck()
-    dialog = page.get_by_role("dialog", name="Что отправляет телеметрия")
+    page.get_by_role("checkbox", name=TELEMETRY, exact=True).click()
+    dialog = page.get_by_role("dialog", name=EXPLANATION)
     expect(dialog).to_be_visible()
     # Styled without the introduction's module ever loading.
     expect(dialog.locator("dd").first).to_have_css("margin-left", "0px")
-    page.keyboard.press("Escape")
-    ui.saved("telemetry_enabled", False)
+    dialog.get_by_role("button", name="Включить", exact=True).click()
+    ui.saved("telemetry_enabled", True)
+
+
+def test_unanswered_installation_is_asked_after_a_dictation(app, page):
+    ui = app(config={"telemetry_enabled": None})
+    expect(page.get_by_test_id("page-settings")).to_be_visible()
+    question = page.get_by_text("Помочь улучшить Sotto?", exact=True)
+    expect(question).to_have_count(0)
+    # Persisted like the harness's own writes, so the reload below keeps it.
+    page.evaluate(
+        "() => { const s = window.__sottoTest.state; s.stats.total_transcriptions = 1;"
+        " sessionStorage.setItem('sotto-test-state', JSON.stringify(s)); }"
+    )
+    ui.emit("paste-done")
+    expect(question).to_be_visible()
+    page.get_by_role("button", name="Закрыть подсказку", exact=True).click()
+    expect(question).to_have_count(0)
+    assert ui.state()["config"]["telemetry_enabled"] is None
+    page.reload()
+    expect(question).to_be_visible()
+
+
+@pytest.mark.parametrize(
+    "answer,value", [("Разрешить", True), ("Не отправлять", False)]
+)
+def test_telemetry_question_stores_the_answer_once(app, page, answer, value):
+    ui = app(config={"telemetry_enabled": None}, stats={"total_transcriptions": 3})
+    question = page.get_by_text("Помочь улучшить Sotto?", exact=True)
+    expect(question).to_be_visible()
+    ui.queue("save_config", {"error": "Synthetic disk full"})
+    page.get_by_role("button", name=answer, exact=True).click()
+    expect(page.get_by_role("alert")).to_have_text(
+        "Не удалось сохранить настройку: Synthetic disk full"
+    )
+    page.get_by_role("button", name=answer, exact=True).click()
+    ui.saved("telemetry_enabled", value)
+    expect(question).to_have_count(0)
+    page.reload()
+    expect(page.get_by_test_id("page-settings")).to_be_visible()
+    expect(question).to_have_count(0)
+
+
+def test_telemetry_question_explains_before_enabling(app, page):
+    ui = app(config={"telemetry_enabled": None}, stats={"total_transcriptions": 1})
+    page.get_by_role("button", name="Что отправляется", exact=True).click()
+    dialog = page.get_by_role("dialog", name=EXPLANATION)
+    dialog.get_by_role("button", name="Отмена", exact=True).click()
+    assert not telemetry_writes(ui)
+    page.get_by_role("button", name="Что отправляется", exact=True).click()
+    dialog.get_by_role("button", name="Включить", exact=True).click()
+    ui.saved("telemetry_enabled", True)
+    expect(page.get_by_text("Помочь улучшить Sotto?", exact=True)).to_have_count(0)
+
+
+def test_introduction_hides_the_telemetry_question(app, page):
+    first_run(
+        app, 0, config={"telemetry_enabled": None}, stats={"total_transcriptions": 2}
+    )
+    expect(page.get_by_test_id("onboarding")).to_be_visible()
+    expect(page.get_by_text("Помочь улучшить Sotto?", exact=True)).to_have_count(0)
 
 
 @pytest.mark.parametrize("recovery", ["reload", "skip"])
@@ -513,7 +595,9 @@ def test_portable_and_macos_controls(app, page):
 @pytest.mark.parametrize("theme", ["dark", "light"])
 def test_onboarding_layout_and_keyboard_focus(app, page, locale, theme, output_path):
     page.set_viewport_size({"width": 1000, "height": 710})
-    first_run(app, config={"ui_language": locale, "theme": theme})
+    first_run(
+        app, config={"ui_language": locale, "theme": theme, "telemetry_enabled": False}
+    )
     region = page.get_by_test_id("onboarding")
     shots = Path(output_path)
     shots.mkdir(parents=True, exist_ok=True)
@@ -535,7 +619,7 @@ def test_onboarding_layout_and_keyboard_focus(app, page, locale, theme, output_p
                 name="Пропустить шаг" if locale == "ru" else "Skip step",
                 exact=True,
             ).click()
-    region.get_by_role("checkbox").last.uncheck()
+    region.get_by_role("checkbox").last.click()
     dialog = page.get_by_role("dialog")
     expect(dialog).to_be_visible()
     page.keyboard.press("Tab")

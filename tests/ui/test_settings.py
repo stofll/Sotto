@@ -257,7 +257,6 @@ def test_sound_volume_and_disable(app, page):
     "label,field",
     [
         ("Запускать вместе с системой", "auto_start"),
-        ("Разрешить обезличенную телеметрию", "telemetry_enabled"),
         ("Enter после вставки", "paste_auto_submit"),
     ],
 )

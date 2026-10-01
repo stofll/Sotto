@@ -45,18 +45,18 @@ fn clamp_session_timeout(minutes: u64) -> u64 {
     )
 }
 
-/// Product policy: telemetry is enabled unless the user explicitly opts out.
+/// Product policy: send nothing until the user explicitly opts in.
 pub fn enabled_from_config(config: Option<&Config>) -> bool {
     config
         .map(|cfg| enabled_from_value(cfg.as_value()))
-        .unwrap_or(true)
+        .unwrap_or(false)
 }
 
 pub fn enabled_from_value(value: &Value) -> bool {
     value
         .get(TELEMETRY_ENABLED_KEY)
         .and_then(Value::as_bool)
-        .unwrap_or(true)
+        .unwrap_or(false)
 }
 
 /// Return the configured session timeout, clamped to the supported range.
@@ -1446,13 +1446,18 @@ mod tests {
     }
 
     #[test]
-    fn config_defaults_to_enabled_and_thirty_minutes() {
+    fn config_defaults_to_disabled_and_thirty_minutes() {
         let config = json!({});
-        assert!(enabled_from_value(&config));
+        assert!(!enabled_from_value(&config));
+        assert!(!enabled_from_config(None));
         assert_eq!(
             session_timeout_minutes_from_value(&config),
             DEFAULT_SESSION_TIMEOUT_MINUTES
         );
+        assert!(enabled_from_value(&json!({ TELEMETRY_ENABLED_KEY: true })));
+        assert!(!enabled_from_value(
+            &json!({ TELEMETRY_ENABLED_KEY: false })
+        ));
     }
 
     #[test]
