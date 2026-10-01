@@ -1,9 +1,30 @@
-import { defineConfig } from "vite";
+import { existsSync, readFileSync } from "node:fs";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { fileURLToPath } from "node:url";
 
+// The glow lab is a manual dev page. Its harness is not a public asset:
+// anything in `public/` is copied into the packaged app.
+function devOnlyHarness(): Plugin {
+  const harness = fileURLToPath(new URL("./overlay-lab-harness.js", import.meta.url));
+  return {
+    name: "dev-only-harness",
+    apply: "serve",
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        if (req.url?.split("?")[0] !== "/sotto-harness.js" || !existsSync(harness)) {
+          next();
+          return;
+        }
+        res.setHeader("Content-Type", "text/javascript; charset=utf-8");
+        res.end(readFileSync(harness));
+      });
+    },
+  };
+}
+
 export default defineConfig(async () => ({
-  plugins: [react()],
+  plugins: [devOnlyHarness(), react()],
   // Browser tests give each dev server its own dependency cache.
   cacheDir: process.env.SOTTO_VITE_CACHE_DIR,
   clearScreen: false,

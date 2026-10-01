@@ -13,9 +13,9 @@ use crate::state::AppState;
 use crate::telemetry::{self, Telemetry};
 use crate::whisper::{EngineEvent, EngineEventRx, InferenceResult};
 use crate::{
-    classify_completion, dictation, is_deliverable, post_process_transcription, telemetry_compute,
+    dictation, dictation_delivery, is_deliverable, post_process_transcription, telemetry_compute,
     telemetry_formatting, telemetry_pipeline_mode, telemetry_pipeline_mode_of,
-    telemetry_recording_mode, Completion, ProcessedTranscription,
+    telemetry_recording_mode, DictationDelivery, ProcessedTranscription,
 };
 
 /// Start the dispatcher on the async runtime. `events` is single-consumer,
@@ -94,28 +94,22 @@ impl Dispatcher {
     }
 
     async fn complete(&self, session_id: u64, result: Result<InferenceResult, String>) {
-        // The session belongs to a caller that awaits the engine's `oneshot`
-        // reply itself (file transcription). None of the dictation delivery
-        // applies to it: no paste, no history, no stats, no FSM transition.
-        // The file guard owns this marker through post-processing, which
-        // remains cancellable.
-        if crate::mutex_recover::lock(&self.state.dispatch_skipped).contains(&session_id) {
-            log::info!("session {session_id} dispatch skipped (file job)");
-            return;
-        }
-        // A file reply can retire its guard before this dispatcher consumes
-        // completion. Ownership, not that guard's lifetime, decides whether
-        // this result may touch dictation UI.
-        if !self.state.owns_dictation(session_id) {
-            return;
-        }
-        let cancelled = self.state.is_cancelled(session_id);
-        match classify_completion(cancelled, result) {
-            Completion::Cancelled => {
+        // Read the cancel flag only for a live dictation. A file job and a
+        // retired session leave before that lookup, so a shared id cannot
+        // turn a file reply into a cancelled dictation.
+        let dispatch_skipped = self.state.is_dispatch_skipped(session_id);
+        let owns_dictation = self.state.owns_dictation(session_id);
+        let cancelled = owns_dictation && !dispatch_skipped && self.state.is_cancelled(session_id);
+        match dictation_delivery(dispatch_skipped, owns_dictation, cancelled, result) {
+            DictationDelivery::IgnoredFile => {
+                log::info!("session {session_id} dispatch skipped (file job)");
+            }
+            DictationDelivery::IgnoredForeign => {}
+            DictationDelivery::Cancelled => {
                 log::info!("session {session_id} cancelled, skipping paste");
                 self.report_cancelled(session_id);
             }
-            Completion::Empty => {
+            DictationDelivery::Empty => {
                 log::info!("session {session_id} empty transcription");
                 let _ = self.app.emit("whisper-empty", session_id);
                 dictation::finish(&self.state, session_id);
@@ -125,7 +119,7 @@ impl Dispatcher {
                     telemetry::FailureReason::EmptyTranscript,
                 );
             }
-            Completion::Failed(message) => {
+            DictationDelivery::Failed(message) => {
                 crate::sounds::play(&self.app, crate::sounds::Cue::Error);
                 // The overlay's ErrorPayload is `{ message?: string }`; the
                 // real cause goes under that key instead of its fallback.
@@ -139,7 +133,7 @@ impl Dispatcher {
                     telemetry::FailureReason::EngineError,
                 );
             }
-            Completion::Transcribed(inference) => self.deliver(session_id, inference).await,
+            DictationDelivery::Ready(inference) => self.deliver(session_id, inference).await,
         }
     }
 

@@ -162,4 +162,21 @@ mod tests {
         let output = "слово ".repeat(70);
         assert!(!dropped_too_much(&input, &output));
     }
+
+    /// One word under the length threshold is still too short to judge, even
+    /// when most of those words are gone.
+    #[test]
+    fn thirty_nine_words_are_not_judged() {
+        let input = "слово ".repeat(39);
+        let output = "слово ".repeat(10);
+        assert_eq!(kept_word_ratio(&input, &output), None);
+        assert!(!dropped_too_much(&input, &output));
+    }
+
+    /// One word under the 70 % line is a retelling, not an allowed tidy-up.
+    #[test]
+    fn sixty_nine_of_a_hundred_words_is_dropped() {
+        let input = "слово ".repeat(100);
+        assert!(dropped_too_much(&input, &"слово ".repeat(69)));
+    }
 }

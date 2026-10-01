@@ -65,7 +65,7 @@ cargo test --locked --test test_whisper_engine -- --ignored --nocapture
 cargo test --locked --test test_sherpa_runtime -- --ignored --nocapture
 ```
 
-After changing the Parakeet unified export, run `cargo test --locked --test test_parakeet_streaming -- --ignored --nocapture`. This separate test downloads approximately 632 MB into a temporary directory, or copies weights from `SOTTO_TEST_PARAKEET_DIR` when supplied; both paths verify the catalog hashes. It checks repeated full-file recognition, chunked input, final words and reset after cancellation on public English speech.
+After changing the Parakeet unified export, run `cargo test --locked --test test_parakeet_streaming -- --ignored --nocapture`. This separate test downloads approximately 632 MB into a temporary directory, or copies weights from `SOTTO_TEST_PARAKEET_DIR` when supplied; both paths verify the catalog hashes. It checks repeated full-file recognition, chunked input, final words and reset on public English speech.
 
 These tests download verified weights into isolated temporary directories. Their public speech fixtures are pinned by source revision and SHA-256 in the test sources. Whisper tiny checks two recognizable English phrases from the upstream JFK sample and repeated inference with the same state. Sherpa checks loading, silence, reset/reload and the final word of a Russian streaming sample. These are inference regressions, not a broad accuracy benchmark or the full hotkey-to-paste flow.
 
