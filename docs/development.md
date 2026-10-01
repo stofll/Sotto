@@ -37,6 +37,8 @@ On macOS, `pnpm tauri dev` runs `target/debug/Sotto` directly rather than an app
 
 The frontend-only development server is available with `pnpm dev`, but application commands require Tauri; there is no HTTP backend fallback. Use the isolated [browser UI harness](ui-testing.md) to exercise synthetic states without launching the native application. A full Tauri build also requires the native prerequisites and model/runtime assets described in [Models](models.md).
 
+When updating Tauri, keep the JavaScript core API and the Rust `tauri` crate on the same minor version, and keep each JavaScript plugin on the exact version of its Rust counterpart, as required by [Tauri's compatibility guide](https://v2.tauri.app/develop/updating-dependencies/#sync-npm-packages-and-cargo-crates-versions). The application and Windows setup share frontend dependencies, so update and verify both Cargo lockfiles alongside `desktop/pnpm-lock.yaml`; the bridge tests check core and dialog version compatibility for both applications.
+
 On Windows there is also a launcher: `desktop\run_desktop.cmd`.
 
 ### Prepare native dependencies for direct Cargo checks
