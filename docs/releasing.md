@@ -7,7 +7,7 @@ Before proposing a release:
 1. Agree on the release scope and prepare user-facing release notes using the [release notes template](RELEASE.md#whats-new-template).
 2. Run the checks in [Testing](testing.md) and verify the affected platforms.
 3. Review model/runtime assets, privacy behavior, installer output, and release notes for the actual target matrix.
-4. Let **Prepare Release** prepare a beta from `main` on Monday or Thursday at 21:00 Moscow time, or run it manually to choose a stable or beta channel, another time, version bump, or exact base version. Scheduled runs skip sources without application/build changes. Both paths run full source CI, commit only version changes and push the commit and tag through the release App to start a draft build. See [preparation and repository permissions](RELEASE.md#1-prepare-the-version-in-github-actions).
+4. Let **Prepare Release** prepare a beta from `main` on Monday or Thursday at 21:00 Moscow time, or run it manually to choose a stable or beta channel, another time, version bump, or exact base version. Scheduled runs skip sources without application/build changes. Both paths reuse the green checks of the pull request that merged the exact source tree, or run full source CI when there is no such proof, then commit only version changes and push the commit and tag through the release App to start a draft build. See [preparation and repository permissions](RELEASE.md#1-prepare-the-version-in-github-actions).
 
 The prepared version commit links to its successful source checks. After verifying that only the version changed, CI skips duplicate cache builds and UI tests; tags without verified preparation keep the release UI tests.
 
