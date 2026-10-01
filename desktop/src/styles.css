@@ -454,22 +454,17 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 .titlebar__rail { background: var(--bg-1); border-right: 1px solid var(--line); display: flex; align-items: center; min-width: 0; }
 .titlebar__bar { background: var(--bg-2); display: flex; align-items: flex-start; justify-content: flex-end; gap: 4px; padding: 6px 12px 0; color: var(--ink-mute); }
 .titlebar__button { height: 24px; width: 28px; padding: 0; }
-.titlebar.titlebar--full { grid-template-columns: auto 1fr; transition: none; }
+.titlebar.titlebar--full { height: calc(var(--titlebar-h) + 2 * var(--pad-3)); grid-template-columns: var(--sidebar-w) 1fr; transition: none; }
+.titlebar--full .titlebar__bar { align-items: center; padding-top: 0; }
+.titlebar__actions { flex: 1; min-width: 0; }
 .titlebar--full .titlebar__rail { background: var(--bg-2); border: 0; }
 .win__layout.win__layout--onboarding { grid-template-columns: 1fr; transition: none; }
 .titlebar__button--close:hover:not(:disabled) { background: rgba(239,94,107,0.16); color: var(--err); }
-/* macOS: the native traffic lights sit at the left of the rail (their inset is
-   `trafficLightPosition` in tauri.macos.conf.json), so the name starts after
-   them. A collapsed rail cannot fit them: the rail folds away in the title bar
-   and the bar, with the collapse button, spans the width. */
-.titlebar--macos { --traffic-lights-w: 84px; }
-.titlebar--macos .titlebar__rail { overflow: hidden; }
-.titlebar--macos .sidebar-brand { padding-left: var(--traffic-lights-w); }
-.titlebar--macos .sidebar-brand__name { left: var(--traffic-lights-w); }
-.titlebar--macos .titlebar__bar { align-items: center; justify-content: flex-start; padding-top: 0; }
-.win.collapsed .titlebar--macos { grid-template-columns: 0 1fr; }
-.win.collapsed .titlebar--macos .titlebar__rail { border-right-color: transparent; }
-.win.collapsed .titlebar--macos .titlebar__bar { padding-left: var(--traffic-lights-w); }
+/* Native macOS controls retain their standard position in a dedicated row;
+   the sidebar's name and toggle stay below it in either sidebar state. */
+.titlebar--macos { --native-titlebar-h: 32px; height: calc(var(--native-titlebar-h) + var(--titlebar-h)); grid-template-rows: var(--native-titlebar-h) var(--titlebar-h); }
+.titlebar--macos.titlebar--full { height: calc(var(--native-titlebar-h) + var(--titlebar-h) + 2 * var(--pad-3)); grid-template-rows: var(--native-titlebar-h) 1fr; }
+.titlebar__native { grid-column: 1 / -1; background: var(--bg-1); border-bottom: 1px solid var(--line); }
 .sidebar-brand { position: relative; display: flex; align-items: center; gap: 8px; height: 100%; width: 100%; min-width: 0; padding: 0 8px 0 16px; transition: padding .4s cubic-bezier(.32,.72,0,1); }
 .sidebar-brand__name { position: absolute; left: 16px; top: 50%; transform: translateY(-50%); pointer-events: none; font: 600 17px/1 var(--font-sans); letter-spacing: -0.015em; white-space: nowrap; opacity: 1; transition: opacity .3s ease-out; }
 .nav { padding: 10px 8px 6px; display: flex; flex-direction: column; gap: 4px; overflow-y: auto; overflow-x: hidden; }
@@ -945,7 +940,9 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 .modal-overlay, .feedback-dialog::backdrop { background: rgba(0,0,0,0.55); backdrop-filter: blur(2px); }
 .modal-overlay { position: fixed; inset: 0; display: grid; place-items: center; z-index: 1000; padding: 20px; font-family: var(--font-sans); color: var(--ink); box-sizing: border-box; }
 .modal-overlay * { box-sizing: border-box; }
-.modal { width: min(560px, 100%); max-height: calc(100vh - 40px); display: flex; flex-direction: column; background: var(--bg-3); border: 1px solid var(--line-strong); border-radius: var(--radius-lg); box-shadow: var(--shadow-modal); overflow: hidden; }
+/* The container takes initial focus for reading; keyboard controls retain
+   their own focus-visible indicators. */
+.modal { width: min(560px, 100%); max-height: calc(100vh - 40px); display: flex; flex-direction: column; background: var(--bg-3); border: 1px solid var(--line-strong); border-radius: var(--radius-lg); box-shadow: var(--shadow-modal); overflow: hidden; outline: none; }
 /* The wizard shows a catalog, not a form: at 560px the cards were narrow
    enough that the logos read as decoration rather than as marks you pick by. */
 .modal--wide { width: min(820px, 100%); }

@@ -21,8 +21,13 @@ def test_whats_new_dismiss_persists(app, page, locale, theme, output_path):
     expect(dialog).to_contain_text("Sotto 0.2.0")
     expect(dialog.get_by_role("heading", name="Fixed", exact=True)).to_be_visible()
     expect(dialog.get_by_role("listitem")).to_have_count(3)
+    expect(dialog).to_be_focused()
+    expect(dialog).to_have_css("outline-style", "none")
+    Path(output_path).mkdir(parents=True, exist_ok=True)
+    page.screenshot(path=str(Path(output_path) / "whats-new-initial.png"))
     page.keyboard.press("Tab")
     expect(dialog.get_by_role("button").first).to_be_focused()
+    expect(dialog.get_by_role("button").first).to_have_css("outline-style", "solid")
     page.keyboard.press("Shift+Tab")
     expect(dialog.get_by_role("button").last).to_be_focused()
     dialog.screenshot(path=str(Path(output_path) / f"whats-new-{locale}-{theme}.png"))
@@ -38,6 +43,8 @@ def test_whats_new_dismiss_persists(app, page, locale, theme, output_path):
     page.keyboard.press("Enter")
     expect(dialog).to_contain_text("Sotto 0.2.0")
     expect(dialog.get_by_role("listitem")).to_have_count(3)
+    expect(dialog).to_be_focused()
+    expect(dialog).to_have_css("outline-style", "none")
     assert ui.calls("get_whats_new")[-1]["args"] == {"manual": True}
     dialog.screenshot(
         path=str(Path(output_path) / f"manual-notes-{locale}-{theme}.png")

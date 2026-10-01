@@ -15,3 +15,7 @@ The editable artwork is `desktop/src-tauri/installer/macos/background.svg`. Run 
 The disk image is built by `scripts/build-dmg.sh` with dmgbuild, pinned in `scripts/macos-dmg/uv.lock`, rather than by the Tauri bundler. The bundler lays out the window by driving Finder through AppleScript: on macOS 26 Finder kept the icon positions but dropped the background and icon size, and a headless CI runner cannot drive Finder at all. dmgbuild writes the window settings into `.DS_Store` itself. The script combines both PNGs into a multi-resolution TIFF so Retina displays get the @2x artwork, attaches the license, and signs the image when `APPLE_SIGNING_IDENTITY` is set.
 
 Do not hide the `.app` extension through dmgbuild: it sets Finder information on the bundle, and `codesign --verify --strict` then rejects the application. Before publishing, open the release DMG on a Mac and check the layout in both system appearances.
+
+Keep icon-view grid spacing below 100: Finder rejects the saved settings at dmgbuild's default of 100. Mark the background and volume icon as invisible; they are installation artwork, not user-facing files. Finder's “Show hidden files” option can still reveal these and `.DS_Store`.
+
+The artwork and the saved Finder window are 660 × 400 points. Finder displays a fixed-size background; enlarging the window or opening the volume in an existing Finder tab can leave space beyond it. Verify the layout in a separate window at its initial size, and with hidden files turned off (`⌘⇧.`).

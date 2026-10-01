@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { ConfigChange, ConfigPatch, ConfigResult, MicrophoneResult, ModelInfo, RuntimeStatusResult } from "../bridge/types";
 import { Card, type DownloadProgress, type TabId } from "../components/Shell";
 import { Icon } from "../components/Icon";
@@ -19,6 +20,7 @@ import "./onboarding.css";
 
 export type OnboardingProps = {
   active: boolean;
+  toolbarTarget: HTMLDivElement | null;
   config: ConfigResult;
   models: ModelInfo[];
   microphones: MicrophoneResult[];
@@ -58,7 +60,7 @@ function ModelChoice({ model, selected, disabled, onChoose }: { model: ModelInfo
 /** Remains mounted after completion while its banner or a background download
  *  still has something to show, then ends the session through `onEnd`. */
 export default function Onboarding(props: OnboardingProps) {
-  const { active, config, models, microphones, runtime, progress, onConfigChanged, onModelsChanged, onNavigate, onToggleTheme, onCardShown, onEnd } = props;
+  const { active, toolbarTarget, config, models, microphones, runtime, progress, onConfigChanged, onModelsChanged, onNavigate, onToggleTheme, onCardShown, onEnd } = props;
   const locale = useLocale();
   const step = onboardingStep(config.onboarding_step);
   const cloud = config.ai_processing?.pipeline_mode === "cloud";
@@ -195,7 +197,7 @@ export default function Onboarding(props: OnboardingProps) {
   const titles = [t("Нажали. Сказали. Текст уже там."), t("Одна модель, чтобы начать"), t("Ваше сочетание"), t("Можно не трогать")];
   const cloudNote = t("У вас настроено облачное распознавание: запись отправляется выбранному сервису. Выбор локальной модели вернёт распознавание на этот компьютер.");
   const leads = [
-    cloud ? cloudNote : t("Речь распознаётся на этом компьютере. Готовый текст вставляется в поле, где стоит курсор."),
+    cloud ? cloudNote : null,
     t("Выберите модель для своего языка. Модель не того языка может распознать бессмыслицу. Остальные модели останутся в каталоге."),
     t("Сочетание уже работает. Можно оставить его или выбрать своё."),
     t("Всё это можно поменять позже в настройках."),
@@ -209,16 +211,16 @@ export default function Onboarding(props: OnboardingProps) {
     : !chosen?.downloaded ? (cloud ? t("Скачать и перейти на локальную") : t("Скачать и продолжить"))
     : cloud ? t("Перейти на локальную модель") : t("Дальше");
   return <div className="onboarding" data-moving={moving} data-testid="onboarding">
-    <div className="onboarding__toolbar">
+    {toolbarTarget && createPortal(<div className="onboarding__toolbar">
       <UiLanguagePicker value={config.ui_language} onConfigChanged={onConfigChanged}/>
       <button className="btn btn--ghost btn--icon" type="button" aria-label={t("Переключить тему")} onClick={onToggleTheme}><Icon name={config.theme === "light" ? "sun" : "moon"} size={15}/></button>
       <button className="btn btn--ghost" type="button" disabled={busy} onClick={() => void finish()}>{t("Пропустить введение")}</button>
-    </div>
+    </div>, toolbarTarget)}
     <div className="onboarding__stage" key={step}>
       <header className="onboarding__heading">
         <span className="onboarding__counter">{t("Шаг {p0} из {p1}", { p0: step + 1, p1: 4 })}</span>
         <h1 ref={heading} tabIndex={-1}>{titles[step]}</h1>
-        <p>{leads[step]}</p>
+        {leads[step] && <p>{leads[step]}</p>}
       </header>
       {step === 0 && <div className="onboarding__grid">
         <Card pad="rows"><Icon name="play" size={28}/><h2>{t("Сочетание")}</h2><div className="onboarding__keys">{hotkeyParts(config.hotkey).map((key, index) => <kbd className="kbd" key={index}>{key}</kbd>)}</div><p>{config.recording_mode === "push_to_talk" ? t("Говорите, удерживая сочетание. Отпустите, чтобы закончить.") : t("Одно нажатие начинает запись, второе заканчивает.")}</p></Card>
@@ -252,7 +254,7 @@ export default function Onboarding(props: OnboardingProps) {
       {failed !== null && <p className="inline-error" role="alert">{t("Не удалось сохранить настройку: {p0}", { p0: failed })}</p>}
       <footer className="onboarding__actions">
         {step > 0 && <button className="btn btn--ghost" type="button" disabled={busy} onClick={() => void save({ onboarding_step: step - 1 })}>{t("Назад")}</button>}
-        <button className="btn btn--ghost" type="button" disabled={busy} onClick={() => void next()}>{t("Пропустить шаг")}</button>
+        {step > 0 && <button className="btn btn--ghost" type="button" disabled={busy} onClick={() => void next()}>{t("Пропустить шаг")}</button>}
         <button className="btn btn--primary" type="button" disabled={busy || (step === 1 && (!chosen || !!insufficient))} onClick={() => void (step === 1 ? begin() : next())}>{primary}</button>
       </footer>
     </div>

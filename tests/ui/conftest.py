@@ -125,7 +125,8 @@ def build_env(pytestconfig=None):
     # A developer's debug environment must not silently disable minification.
     env.pop("TAURI_ENV_DEBUG", None)
     if pytestconfig is not None:
-        env["TAURI_ENV_PLATFORM"] = pytestconfig.getoption("--ui-build-platform")
+        platform = pytestconfig.getoption("--ui-build-platform")
+        env["TAURI_ENV_PLATFORM"] = "darwin" if platform == "macos" else platform
     return env
 
 

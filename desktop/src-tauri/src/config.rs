@@ -120,7 +120,7 @@ fn validate_onboarding_patch(patch: &Value) -> Result<(), String> {
     }
     if patch
         .get("onboarding_step")
-        .is_some_and(|value| !value.as_u64().is_some_and(|step| step < 4))
+        .is_some_and(|value| value.as_u64().is_none_or(|step| step >= 4))
     {
         return Err("Invalid onboarding_step".into());
     }

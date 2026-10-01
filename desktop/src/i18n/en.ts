@@ -1335,7 +1335,6 @@ export const en: Record<string, string | string[]> = {
   "Пропустить введение": "Skip introduction",
   "Пропустить шаг": "Skip step",
   "Речь": "Speech",
-  "Речь распознаётся на этом компьютере. Готовый текст вставляется в поле, где стоит курсор.": "Speech is recognized on this computer. The finished text is pasted at your cursor.",
   "Сбой и отмена": "Failure and cancellation",
   "Сессия": "Session",
   "Скачайте модель в разделе «Модели», затем нажмите горячую клавишу.": "Download a model in Models, then press the shortcut.",
