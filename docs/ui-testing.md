@@ -71,8 +71,8 @@ The executable test modules are the detailed scenario inventory. Extend the rele
 | Area | Test module | Covered behavior |
 | --- | --- | --- |
 | Shell | `test_navigation.py` | All eight pages, RU/EN and themes, theme persistence/rollback, startup failure, permission banners |
-| First launch | `test_onboarding.py` | Step persistence, skip, background download and recovery, optional settings, telemetry explanation, replay and themes/locales |
-| Settings | `test_settings.py` | Preferences and reload, paste dependencies, recording mode, locale, microphone selection/test/meter, hotkey validation/cancel, portable autostart, telemetry |
+| First launch | `test_onboarding.py` | Step persistence, skip, background download and recovery, optional settings, telemetry opt-in and the one-time question, replay and themes/locales |
+| Settings | `test_settings.py` | Preferences and reload, paste dependencies, recording mode, locale, microphone selection/test/meter, hotkey validation/cancel, portable autostart |
 | Models | `test_models.py` | Search, selection/rollback, confirmations, download progress/cancellation/failure/success, deletion, missing-model guidance |
 | Text | `test_text.py` | Preview draft and error, replacement persistence, import/export and failed-save retry, dictionary creation/search/deletion, unsaved changes and a rejected save's reason in the set editor |
 | LLM and files | `test_ai.py` | Keyboard route selection, missing-key gate, manual result/fallback/error, file selection/loading/result/error/retry, cancellation during decoding and on leaving the page |

@@ -17,7 +17,7 @@ export interface PrivacyPage {
 export const privacyEn: PrivacyPage = {
   title: 'Privacy',
   lede: 'What Sotto does with your voice, what it never touches, and what this website does. The short version: recognition runs on your computer unless you deliberately connect a cloud provider.',
-  updated: 'Summarised from the repository document on 30 September 2026.',
+  updated: 'Summarised from the repository document on 1 October 2026.',
   sections: [
     {
       heading: 'Your speech stays on your computer',
@@ -40,7 +40,7 @@ export const privacyEn: PrivacyPage = {
     {
       heading: 'Product telemetry',
       paragraphs: [
-        'Telemetry is on by default and can be switched off in Settings → Advanced → Telemetry. It sends a small, fixed list of de-identified usage events to PostHog Cloud EU, keyed by a random installation identifier that is not derived from your account, username, hostname, MAC address, file paths, or any hardware fingerprint.',
+        'Telemetry is off until you allow it. The first-launch introduction offers it, and if you skip that, the app asks once after a successful dictation; before it is turned on you see the list of events, and Settings → Advanced → Telemetry changes your answer later. It sends a small, fixed list of de-identified usage events to PostHog Cloud EU, keyed by a random installation identifier that is not derived from your account, username, hostname, MAC address, file paths, or any hardware fingerprint.',
         'It never sends transcripts, formatted output, prompts, clipboard contents, audio, filenames, filesystem paths, usernames, hostnames, API keys, provider responses, microphone names, details of the focused window, or raw error text.',
         'Switching it off stops further capture and delivery immediately. It does not retract events already delivered.',
       ],
@@ -74,7 +74,7 @@ export const privacyEn: PrivacyPage = {
 export const privacyRu: PrivacyPage = {
   title: 'Приватность',
   lede: 'Что Sotto делает с вашим голосом, чего не касается никогда и как устроен этот сайт. Коротко: распознавание работает на вашем компьютере, пока вы сами не подключите облачного провайдера.',
-  updated: 'Составлено по документу из репозитория 30 сентября 2026 года.',
+  updated: 'Составлено по документу из репозитория 1 октября 2026 года.',
   sections: [
     {
       heading: 'Речь остаётся на вашем компьютере',
@@ -97,7 +97,7 @@ export const privacyRu: PrivacyPage = {
     {
       heading: 'Продуктовая телеметрия',
       paragraphs: [
-        'Телеметрия включена по умолчанию и отключается в «Настройки → Дополнительно → Телеметрия». Она отправляет небольшой фиксированный набор обезличенных событий в PostHog Cloud EU. В качестве ключа используется случайный идентификатор установки. Он не выводится из аккаунта, имени пользователя, имени компьютера, MAC-адреса, путей к файлам или характеристик железа.',
+        'Телеметрия выключена, пока вы её не разрешите. Её предлагает введение при первом запуске, а если вы его пропустили, приложение один раз спросит после успешной диктовки. Перед включением показывается список событий; изменить ответ можно в «Настройки → Дополнительно → Телеметрия». Она отправляет небольшой фиксированный набор обезличенных событий в PostHog Cloud EU. В качестве ключа используется случайный идентификатор установки. Он не выводится из аккаунта, имени пользователя, имени компьютера, MAC-адреса, путей к файлам или характеристик железа.',
         'В неё никогда не попадают расшифровки, отформатированный текст, промпты, содержимое буфера обмена, аудио, имена файлов, пути, имена пользователя и компьютера, ключи API, ответы провайдеров, названия микрофонов, сведения об активном окне и текст ошибок.',
         'Отключение немедленно останавливает сбор и отправку. Уже доставленные события оно не отзывает.',
       ],

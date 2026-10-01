@@ -115,7 +115,7 @@ Place the cursor in a text field and use your configured hotkey:
 
 Local recognition is the default. Audio is sent to a cloud speech provider only when you configure and use one; cloud LLM processing sends text to your chosen provider.
 
-Product telemetry is enabled by default and can be disabled in **Settings → Advanced**. It contains no audio, transcripts, or dictated text. See [Privacy](docs/privacy.md) and [Telemetry](docs/telemetry.md) for details.
+Product telemetry is off until you allow it: the introduction offers it, and **Settings → Advanced** can change it later. It contains no audio, transcripts, or dictated text. See [Privacy](docs/privacy.md) and [Telemetry](docs/telemetry.md) for details.
 
 ## Documentation and contributing
 

@@ -7,6 +7,8 @@ import { Sidebar, TitleBar, type TabId, type DownloadProgress } from "./componen
 import { Icon } from "./components/Icon";
 import { WhatsNewDialog } from "./components/WhatsNewDialog";
 import { AccessibilityNotice } from "./components/AccessibilityNotice";
+import { TelemetryConsentCard } from "./pages/settings/TelemetryControl";
+import { shouldOfferTelemetryConsent } from "./pages/telemetrySettings";
 import { applyAccent, resolveAccent, storedAccent } from "./accent";
 
 const COLLAPSE_STORAGE_KEY = "sotto.ui.sidebarCollapsed";
@@ -142,6 +144,8 @@ export function MainWindow() {
   const [onboardingSession, setOnboardingSession] = useState(false);
   const endOnboarding = useCallback(() => setOnboardingSession(false), []);
   const [onboardingCard, setOnboardingCard] = useState(false);
+  // Hiding the telemetry question without answering lasts until the next launch.
+  const [telemetryQuestionHidden, setTelemetryQuestionHidden] = useState(false);
   // Release notes wait for the next launch once the introduction was shown.
   const [introductionShown, setIntroductionShown] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -426,6 +430,8 @@ export function MainWindow() {
     && !runtime?.loaded_model?.trim()
     && !selectedModel?.downloaded;
   const onboardingActive = config?.onboarding_completed === false;
+  const askTelemetry = !loading && !onboardingCard && !telemetryQuestionHidden
+    && shouldOfferTelemetryConsent(config, stats?.total_transcriptions ?? 0);
 
   return (
     <div className="app-frame" style={{ width: "100%", height: "100%", padding: 0 }}>
@@ -460,6 +466,7 @@ export function MainWindow() {
                   <Icon name="settings" size={12}/>  {t("Скачать модель")} </button>
               </div>
             )}
+            {askTelemetry && <TelemetryConsentCard onConfigChanged={onConfigChanged} onDismiss={() => setTelemetryQuestionHidden(true)}/>}
             {(onboardingSession || onboardingActive) && config && !loading && <Suspense fallback={null}>
               <Onboarding active={onboardingActive} config={config} models={models} microphones={microphones} runtime={runtime} progress={downloadProgress} onConfigChanged={onConfigChanged} onModelsChanged={setModels} onNavigate={setTab} onToggleTheme={() => void toggleTheme()} onCardShown={setOnboardingCard} onEnd={endOnboarding}/>
             </Suspense>}

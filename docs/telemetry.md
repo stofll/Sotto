@@ -4,11 +4,11 @@
 
 Sotto sends privacy-minimized product events from the Rust process directly to PostHog Cloud EU. There is no browser analytics SDK, UI autocapture, session replay, exception capture, or click tracking.
 
-Telemetry is enabled by default and can be disabled in **Settings → Advanced → Telemetry**. Disabling takes effect immediately for new capture and delivery.
+Telemetry is opt-in: a missing `telemetry_enabled` key means off. Enabling or disabling takes effect immediately for new capture and delivery.
 
-It does not remove already delivered events or delete the durable local outbox. Re-enabling resumes delivery of pending rows.
+Disabling does not remove already delivered events or delete the durable local outbox. Enabling resumes delivery of pending rows, including rows captured before an update made telemetry opt-in.
 
-The first-launch introduction and Advanced settings share an explanation dialog when telemetry is switched off. Dismissing the dialog accepts the opt-out; **Keep enabled** cancels it. Neither skipping a step nor skipping the introduction changes this setting.
+The first-launch introduction and Advanced settings share an explanation dialog shown before telemetry is switched on; only **Turn on** saves the opt-in. Leaving the introduction's last step writes `false` when no answer is stored. Without a stored answer and outside the introduction, the main window asks once after the first successful transcription, using the same dialog for details. See [Privacy](privacy.md) for the user-facing flow.
 
 Both settings live in `config.json` (`telemetry_enabled`, `telemetry_session_timeout_minutes`) and are written through the ordinary `save_config` merge patch, which re-syncs the live capture gate before it returns — there is no separate telemetry command and no restart is needed.
 
