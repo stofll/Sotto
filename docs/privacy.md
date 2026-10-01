@@ -4,9 +4,9 @@ Sotto performs local transcription by default. Cloud speech-to-text and LLM form
 
 ## Product telemetry
 
-Telemetry is enabled by default and can be disabled in **Settings → Advanced → Telemetry**.
+Telemetry is off until you allow it. Turning it on in **Settings → Advanced → Telemetry** or in the [first-launch introduction](onboarding.md) first shows an explanation of the events; only **Turn on** in that explanation enables it. Turning it off takes effect at once.
 
-The [first-launch introduction](onboarding.md) offers the same switch. Turning it off opens an explanation of the events; closing that explanation accepts the opt-out. Skipping the introduction leaves the setting as it is.
+Leaving the introduction's last step records your answer, even if the box stays unticked. An installation without an answer, such as one that skipped the introduction or was installed before telemetry became opt-in, sends nothing and is asked once in the main window after a successful dictation. **Allow** and **Don't send** store the answer; closing the card hides it until the next launch.
 
 The Rust process sends a small allow-listed set of de-identified usage events directly to PostHog Cloud EU. Events use a random installation ID; they are not derived from an account, username, hostname, MAC address, path, or hardware fingerprint.
 
@@ -25,7 +25,7 @@ The application may contact:
 - the configured cloud STT or LLM provider, sending the audio/text required by that provider;
 - the model hosting endpoint used by the model downloader;
 - GitHub Releases for the startup/manual update check in installed release builds, for an update download after the user requests installation, and for release notes before installation or after an upgrade when they are not cached;
-- PostHog Cloud EU for telemetry, when telemetry is enabled in the build.
+- PostHog Cloud EU for telemetry, when the build includes an ingest token and you have allowed telemetry.
 
 The application UI uses system fonts and does not load font assets from a third-party CDN.
 

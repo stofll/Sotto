@@ -14,4 +14,4 @@ With a cloud route, the model step's button reads **Switch to local model** or *
 
 Autostart is omitted in portable mode; macOS shows the existing Accessibility check alongside microphone setup.
 
-Turning off telemetry opens an explanation shared with **Settings → Advanced**. **Turn off**, the close button, Escape and clicking outside the dialog save the opt-out; **Keep enabled** preserves the previous setting. Skipping the introduction does not change telemetry. See [Privacy](privacy.md) for storage and network details.
+Telemetry is unticked unless you allowed it earlier. Ticking it opens an explanation shared with **Settings → Advanced**; only **Turn on** enables it. **Start dictating** and **Skip step** on the last step record the answer as it stands. **Skip introduction** records nothing, so the main window asks once after a successful dictation. See [Privacy](privacy.md) for storage and network details.

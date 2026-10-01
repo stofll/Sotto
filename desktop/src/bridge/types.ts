@@ -117,7 +117,7 @@ export interface ConfigResult {
   recording_limit_minutes?: number;
   /** Log verbosity. Default "info". */
   log_level: "error" | "warn" | "info" | "debug" | "trace";
-  /** Allow collecting and sending product telemetry. Absent means true. */
+  /** Allow collecting and sending product telemetry. Absent means off and not yet answered. */
   telemetry_enabled?: boolean;
   /** Include published beta updates. Absent means false, even in a beta build. */
   receive_beta_updates?: boolean;

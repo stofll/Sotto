@@ -30,12 +30,8 @@
 .onboarding__speech i { width: 4px; background: var(--accent); border-radius: var(--radius-sm); animation: onboarding-speech 2s ease-in-out infinite alternate; }
 .onboarding__speech i:nth-child(even) { animation-delay: -.7s; }
 .onboarding[data-moving="false"] .onboarding__speech i, .onboarding[data-moving="false"] .onboarding__waves path { animation-play-state: paused; }
-.onboarding-banner { margin: var(--pad-4) var(--pad-8) 0; display: flex; align-items: center; gap: var(--pad-4); }
-.onboarding-banner__copy { flex: 1; min-width: 0; }
-.onboarding-banner p { margin: var(--pad-2) 0 0; color: var(--ink-dim); font: 400 13px/1.5 var(--font-sans); }
-.onboarding-banner progress { width: 100%; height: var(--pad-2); margin-top: var(--pad-3); accent-color: var(--accent); }
 @keyframes onboarding-enter { from { opacity: 0; transform: translateY(var(--pad-3)); } to { opacity: 1; transform: translateY(0); } }
 @keyframes onboarding-speech { to { transform: scaleY(.5); } }
 @keyframes onboarding-wave { from { transform: translateX(-240px); } to { transform: translateX(240px); } }
-@media (max-width: 800px) { .onboarding__stage { padding: var(--pad-5); } .onboarding__grid { gap: var(--pad-3); } .onboarding-banner { margin: var(--pad-4); flex-wrap: wrap; } }
+@media (max-width: 800px) { .onboarding__stage { padding: var(--pad-5); } .onboarding__grid { gap: var(--pad-3); } }
 @media (prefers-reduced-motion: reduce) { .onboarding__stage, .onboarding__speech i, .onboarding__waves path { animation: none; } }

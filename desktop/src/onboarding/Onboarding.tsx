@@ -5,6 +5,7 @@ import { Card, type DownloadProgress, type TabId } from "../components/Shell";
 import { Icon } from "../components/Icon";
 import { AccessibilityNotice } from "../components/AccessibilityNotice";
 import { TelemetryControl } from "../pages/settings/TelemetryControl";
+import { hasTelemetryDecision } from "../pages/telemetrySettings";
 import { HotkeyDisplay, RecordingModeSegmented } from "../pages/settings/CaptureSection";
 import { MicPicker } from "../pages/settings/MicrophoneSection";
 import { UiLanguagePicker } from "../pages/settings/LanguageSection";
@@ -134,8 +135,10 @@ export default function Onboarding(props: OnboardingProps) {
   }
 
   async function next() {
-    if (step === 3) await finish();
-    else await save({ onboarding_step: step + 1 });
+    if (step !== 3) await save({ onboarding_step: step + 1 });
+    // Leaving the last step answers its telemetry question, even unticked, so
+    // the main window does not ask it again.
+    else if (hasTelemetryDecision(config.telemetry_enabled) || await save({ telemetry_enabled: false })) await finish();
   }
 
   async function choose(model: ModelInfo) {
@@ -176,8 +179,8 @@ export default function Onboarding(props: OnboardingProps) {
     const ready = runtime?.active_engine === "cloud-stt"
       || (model?.downloaded && (runtime?.loaded_model === model.id || runtime?.model_loads_on_demand));
     const downloadFailed = actions.status?.kind === "error";
-    return <Card pad="rows" className="onboarding-banner">
-      <div className="onboarding-banner__copy" role={downloadFailed ? "alert" : "status"} ref={bannerCopy} tabIndex={-1}>
+    return <Card pad="rows" className="window-banner">
+      <div className="window-banner__copy" role={downloadFailed ? "alert" : "status"} ref={bannerCopy} tabIndex={-1}>
         <strong>{downloading ? t("Скачивается {p0}", { p0: model?.label ?? "" }) : ready ? t("Можно диктовать") : t("Для диктовки нужна модель")}</strong>
         <p>{downloadFailed ? actions.status?.text : downloading
           ? t("Пока модель скачивается, поставьте курсор в любое текстовое поле. После загрузки нажмите {p0}.", { p0: config.hotkey || DEFAULT_HOTKEY })
@@ -246,7 +249,7 @@ export default function Onboarding(props: OnboardingProps) {
         {!runtime?.portable && <label className="checkbox-row"><input type="checkbox" className="checkbox" checked={config.auto_start ?? false} onChange={(event) => void onConfigChanged({ auto_start: event.target.checked })}/>{t("Запускать вместе с системой")}</label>}
         <label className="checkbox-row"><input type="checkbox" className="checkbox" checked={config.sound_feedback ?? true} onChange={(event) => void onConfigChanged({ sound_feedback: event.target.checked })}/>{t("Звук начала и конца записи")}</label>
         <div><strong>{t("LLM-обработка")}</strong><p>{t("Необязательная обработка текста требует своего ключа. Настроить её можно позже в разделе «Провайдеры и ключи».")}</p></div>
-        <div><TelemetryControl value={config.telemetry_enabled} onConfigChanged={onConfigChanged}/><p>{t("При выключении покажем состав событий. Записи и текст не отправляются.")}</p></div>
+        <div><TelemetryControl value={config.telemetry_enabled} onConfigChanged={onConfigChanged}/><p>{t("Перед включением покажем состав событий. Записи и текст не отправляются.")}</p></div>
       </Card>}
       {failed !== null && <p className="inline-error" role="alert">{t("Не удалось сохранить настройку: {p0}", { p0: failed })}</p>}
       <footer className="onboarding__actions">

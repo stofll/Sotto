@@ -71,8 +71,8 @@ The executable test modules are the detailed scenario inventory. Extend the rele
 | Area | Test module | Covered behavior |
 | --- | --- | --- |
 | Shell | `test_navigation.py` | All eight pages, RU/EN and themes, theme persistence/rollback, startup failure, permission banners |
-| First launch | `test_onboarding.py` | Step persistence, skip, background download and recovery, optional settings, telemetry explanation, replay and themes/locales |
-| Settings | `test_settings.py` | Preferences and reload, paste dependencies, recording mode, locale, microphone selection/test/meter, hotkey validation/cancel, portable autostart, telemetry |
+| First launch | `test_onboarding.py` | Step persistence, skip, background download and recovery, optional settings, telemetry opt-in and the one-time question, replay and themes/locales |
+| Settings | `test_settings.py` | Preferences and reload, paste dependencies, recording mode, locale, microphone selection/test/meter, hotkey validation/cancel, portable autostart |
 | Models | `test_models.py` | Search, selection/rollback, confirmations, download progress/cancellation/failure/success, deletion, missing-model guidance |
 | Text | `test_text.py` | Preview draft and error, replacement persistence, import/export and failed-save retry, dictionary creation/search/deletion, unsaved changes and a rejected save's reason in the set editor |
 | LLM and files | `test_ai.py` | Keyboard route selection, missing-key gate, manual result/fallback/error, file selection/loading/result/error/retry, cancellation during decoding and on leaving the page |
@@ -89,9 +89,9 @@ The layout overflow check depends on font metrics, which differ between a develo
 
 The suite saves failure traces and screenshots under `test-results/`. The layout suite also saves screenshots on success for visual review; these are not approved pixel-diff baselines. Open an individual trace with `uv run --locked --project tests/ui playwright show-trace <path-to-trace.zip>`. Keep generated reports and screenshots out of commits.
 
-`.github/workflows/ui-tests.yml` runs Chromium and WebKit against both production and development servers on pull requests and supports manual dispatch. Production Chromium uses the Windows build target; production WebKit uses the macOS target. Each browser/mode job has a 25-minute limit and uploads its JUnit report and screenshots/traces in `ui-test-results-<browser>-<mode>` for seven days. The aggregate `browser-ui` check passes only when all four jobs succeed.
+`.github/workflows/ui-tests.yml` runs Chromium and WebKit against both production and development servers on pull requests and supports manual dispatch. Production Chromium uses the Windows build target; production WebKit uses the macOS target. Browser installation and the test run have separate 15- and 22-minute limits within a 45-minute job, so a slow package mirror cannot consume the test budget. Each job uploads its JUnit report and screenshots/traces in `ui-test-results-<browser>-<mode>` for seven days. The aggregate `browser-ui` check passes only when all four jobs succeed.
 
-Release reuses successful Prepare Release UI checks only after verifying that the tagged commit changes solely the version relative to the checked source. Otherwise it calls this suite on the resolved release-tag commit before packaging. A successful compilation alone cannot pass this gate, and a manual release retry cannot substitute tests of a different branch.
+Prepare Release reuses this suite's result from the pull request that merged the identical tree; see [Release](RELEASE.md#1-prepare-the-version-in-github-actions). Release reuses successful Prepare Release UI checks only after verifying that the tagged commit changes solely the version relative to the checked source. Otherwise it calls this suite on the resolved release-tag commit before packaging. A successful compilation alone cannot pass this gate, and a manual release retry cannot substitute tests of a different branch.
 
 For layout assertions, wait for the relevant computed style or geometry rather than collecting every descendant animation's `finished` promise. Overlay regressions exercise delayed animation frames as well as regular refresh rates; their settling deadline must use the same elapsed time as easing.
 

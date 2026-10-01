@@ -499,7 +499,7 @@ jobs:
           node-version-file: .node-version
 
       - name: Release version regression tests
-        run: node --test scripts/release-version.test.mjs scripts/check-release-changes.test.mjs scripts/check-prepared-release.test.mjs
+        run: node --test scripts/release-version.test.mjs scripts/check-release-changes.test.mjs scripts/check-prepared-release.test.mjs scripts/check-merged-pull-request.test.mjs
 
       - name: CPU baseline regression tests
         run: node --test scripts/check-ggml-baseline.test.mjs

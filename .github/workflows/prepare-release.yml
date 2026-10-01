@@ -35,8 +35,13 @@ jobs:
     if: github.repository == 'stofll/Sotto' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
     outputs:
       changed: ${{ steps.changes.outputs.changed }}
+      reused: ${{ steps.reuse.outputs.reused }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -49,7 +54,7 @@ jobs:
           node-version-file: .node-version
 
       - name: Test release preparation
-        run: node --test scripts/release-version.test.mjs scripts/check-release-changes.test.mjs scripts/check-prepared-release.test.mjs
+        run: node --test scripts/release-version.test.mjs scripts/check-release-changes.test.mjs scripts/check-prepared-release.test.mjs scripts/check-merged-pull-request.test.mjs
 
       - name: Decide whether to prepare a release
         id: changes
@@ -63,10 +68,20 @@ jobs:
             echo 'changed=true' >> "$GITHUB_OUTPUT"
           fi
 
+      # The pull request that merged this exact tree already ran the same Rust
+      # and browser checks. Without that proof, the source jobs below run.
+      - name: Reuse checks from the merged pull request
+        id: reuse
+        if: steps.changes.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SOURCE: ${{ github.sha }}
+        run: node scripts/check-merged-pull-request.mjs
+
   source-rust:
     name: Release source CI
     needs: plan
-    if: needs.plan.outputs.changed == 'true'
+    if: needs.plan.outputs.changed == 'true' && needs.plan.outputs.reused != 'true'
     permissions:
       actions: read
       contents: read
@@ -78,7 +93,7 @@ jobs:
   source-ui:
     name: Release source UI tests
     needs: plan
-    if: needs.plan.outputs.changed == 'true'
+    if: needs.plan.outputs.changed == 'true' && needs.plan.outputs.reused != 'true'
     uses: ./.github/workflows/ui-tests.yml
     with:
       ref: ${{ github.sha }}
@@ -88,7 +103,8 @@ jobs:
     needs: [plan, source-rust, source-ui]
     if: >-
       ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.changed == 'true' &&
-          needs.source-rust.result == 'success' && needs.source-ui.result == 'success' }}
+          (needs.plan.outputs.reused == 'true' ||
+           (needs.source-rust.result == 'success' && needs.source-ui.result == 'success')) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:

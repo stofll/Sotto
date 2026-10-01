@@ -29,7 +29,9 @@ The schedule is defined in `.github/workflows/prepare-release.yml`. GitHub runs 
 
 Version selection accounts for the checked-in version and existing stable and beta tags, including unfinished drafts. From `0.2.0`, scheduled preparation starts `0.2.1-beta.1`, then continues `0.2.1-beta.2` when new changes arrive. A manual stable patch promotes that pending base to `0.2.1`. Minor and major selections advance their components unless the pending beta already is that bump: after `0.3.0-beta.1`, a stable minor produces `0.3.0` and a beta minor `0.3.0-beta.2`. Exact base versions must produce a version greater than all already reserved versions.
 
-Both scheduled and manual preparation run the full Rust CI and UI test workflows automatically against the pinned source commit before changing any version or tag. This also permits stable preparation immediately after a beta version commit or a site-only merge, without manually dispatching source CI. Neither path creates a version PR.
+Before changing any version or tag, both scheduled and manual preparation need passing Rust CI and UI tests for the pinned source commit. When that commit is the merge of a pull request whose head has the identical tree, and that head's latest Rust CI and UI test runs passed every job, including real Rust tests on all three operating systems, preparation reuses those results. Otherwise, for example after a direct version commit, a site-only merge or a failed or missing check, it runs both workflows against the source automatically. Neither path creates a version PR.
+
+Keep `browser-ui` among the required status checks for `main` so that every merged application change has UI test results to reuse. The tree comparison, not the merge method or branch freshness setting, establishes that the checks tested what landed.
 
 The workflow runs the release-script tests, updates the version, and verifies the committed diff contains only the expected version replacements, with dependencies and file modes unchanged. The release bot pushes the new `main` commit and its tag atomically. The tag starts the release build, which creates a draft; publishing does not change the version.
 
@@ -62,7 +64,7 @@ An App token's tag push triggers Release automatically. Do not also call Release
 
 #### Failures and retries
 
-- If source CI fails, fix the failure before rerunning preparation. Both manual and scheduled preparation start their own complete source checks; the build-only Rust CI run for a push to `main` does not substitute for them.
+- If source CI fails, fix the failure before rerunning preparation. Only the merged pull request's checks can replace the source checks; the build-only Rust CI run for a push to `main` does not substitute for them.
 - If scheduled source checks fail, fix the failure before the next run; no version commit or tag is created. If the source already has a draft tag, the unchanged scheduled run skips it: retry the existing **Release** build instead of reserving another patch version.
 - If `main` changes during preparation, start a new Prepare Release run. The push never force-updates refs: the release commit and tag are either both accepted or both rejected.
 - For an invalid version or missing App configuration, fix the reported problem and start again. If the push result was uncertain, inspect `main` and the tag before retrying; an already pushed tag reserves that version.

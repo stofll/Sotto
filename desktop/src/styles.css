@@ -2184,6 +2184,14 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .permission-notice { margin: 14px 32px 0; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 12px 14px; border-radius: var(--radius); background: var(--accent-soft); border: 1px solid var(--accent-soft-2); color: var(--accent-text); font: 500 12.5px/1.4 var(--font-sans); }
 .permission-notice__text { flex: 1 1 400px; min-width: 0; }
 .permission-notice__text p { margin: 8px 0 0; }
+/* A dismissible card under the title bar: the introduction's follow-up and
+   the one-time telemetry question. Lives here because the main window shows
+   it without loading the introduction's module. */
+.window-banner { margin: var(--pad-4) var(--pad-8) 0; display: flex; align-items: center; gap: var(--pad-4); }
+.window-banner__copy { flex: 1; min-width: 0; }
+.window-banner p { margin: var(--pad-2) 0 0; color: var(--ink-dim); font: 400 13px/1.5 var(--font-sans); }
+.window-banner progress { width: 100%; height: var(--pad-2); margin-top: var(--pad-3); accent-color: var(--accent); }
+@media (max-width: 800px) { .window-banner { margin: var(--pad-4); flex-wrap: wrap; } }
 
 .release-notes { font: 400 13px/1.6 var(--font-sans); overflow-wrap: anywhere; }
 .release-notes > :not(:first-child) { margin-top: var(--pad-3); }
