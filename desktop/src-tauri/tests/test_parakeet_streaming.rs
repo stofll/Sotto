@@ -72,7 +72,7 @@ async fn parakeet_buffered_streaming_preserves_tail_and_resets() {
         online.feed(16_000, chunk).unwrap();
     }
     check_speech(&online.finish().unwrap());
-    // A cancelled partial phrase must not leak into the next dictation.
+    // Reset drops a partial phrase so it cannot leak into the next dictation.
     online.reset();
     online.feed(16_000, &speech[..16_000]).unwrap();
     online.reset();

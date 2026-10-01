@@ -7,7 +7,6 @@
  * events instead of opening a Web Audio graph.
  */
 
-import { acquireAnalyser } from './audio';
 import { voiceLobes, LOBE_SPAN } from './styles';
 
 /**
@@ -15,9 +14,9 @@ import { voiceLobes, LOBE_SPAN } from './styles';
  *
  * Every registered instance is stepped from a SINGLE requestAnimationFrame
  * loop (capped at ~60 fps so 120 Hz displays do not double the paint work).
- * Each frame the driver reads the instance's source — an AnalyserNode on a
- * MediaStream, or a plain level getter — shapes the raw level (gain, noise
- * gate, soft saturation), follows it with an attack/release envelope,
+ * Each frame the driver reads the instance's level getter, shapes the raw
+ * level (gain, noise gate, soft saturation), follows it with an attack/release
+ * envelope,
  * advances the flow (the lobes sliding sideways at a speed set by the
  * level, so the spectrum travels while a voice is heard and rests when it
  * stops), carries the gathered beam across the range while processing,
@@ -99,8 +98,6 @@ export interface VoiceDriverConfig {
 }
 
 export interface VoiceSource {
-  /** Audio to analyse; wins over `getLevel`. */
-  stream?: MediaStream | null;
   /** Manual 0–1 level, sampled every frame. */
   getLevel?: () => number;
 }
@@ -144,11 +141,6 @@ interface VoiceInstance {
   filter: SVGFilterElement | null;
   /** The filter region's top last written, as a fraction of the host's height (-1 before the first). */
   filterTop: number;
-  // Analyser (when a stream is attached) and its scratch buffers.
-  analyser: AnalyserNode | null;
-  releaseAnalyser: (() => void) | null;
-  time: Float32Array<ArrayBuffer> | null;
-  freq: Uint8Array<ArrayBuffer> | null;
   s: VoiceState;
   /** The config last painted, so a paused instance repaints only when it changes. */
   paintedConfig: VoiceDriverConfig | null;
@@ -192,19 +184,6 @@ let paceSkip = false;
 let slowSince = 0;
 let probeAt = 0;
 const TWO_PI = Math.PI * 2;
-
-// Gain applied before the user's `sensitivity`: a laptop microphone at
-// conversational distance gives an RMS of roughly 0.03–0.2, which this lifts
-// into the 0.15–1 range the shaping curve expects.
-const BASE_GAIN = 5;
-const BAND_GAIN = 1.7;
-
-// Voice bands in Hz: fundamentals and chest, vowels and presence, sibilance.
-const BANDS: ReadonlyArray<readonly [number, number]> = [
-  [80, 300],
-  [300, 2000],
-  [2000, 6000],
-];
 
 function clamp01(v: number): number {
   return v < 0 ? 0 : v > 1 ? 1 : v;
@@ -572,29 +551,6 @@ function pingPong(phase: number): number {
   return (1 - Math.cos(TWO_PI * phase)) / 2;
 }
 
-function readAnalyser(inst: VoiceInstance, out: { level: number; bands: [number, number, number] }): void {
-  const analyser = inst.analyser!;
-  const time = inst.time!;
-  const freq = inst.freq!;
-
-  analyser.getFloatTimeDomainData(time);
-  let sum = 0;
-  for (let i = 0; i < time.length; i++) sum += time[i] * time[i];
-  out.level = Math.sqrt(sum / time.length) * BASE_GAIN * inst.config.sensitivity;
-
-  analyser.getByteFrequencyData(freq);
-  const binHz = analyser.context.sampleRate / analyser.fftSize;
-  for (let b = 0; b < 3; b++) {
-    const [lo, hi] = BANDS[b];
-    const from = Math.max(0, Math.floor(lo / binHz));
-    const to = Math.min(freq.length - 1, Math.ceil(hi / binHz));
-    let acc = 0;
-    for (let i = from; i <= to; i++) acc += freq[i];
-    const avg = to >= from ? acc / (to - from + 1) / 255 : 0;
-    out.bands[b] = avg * BAND_GAIN * inst.config.sensitivity;
-  }
-}
-
 const scratch = { level: 0, bands: [0, 0, 0] as [number, number, number] };
 
 function frame(ts: number): void {
@@ -639,11 +595,7 @@ function frame(ts: number): void {
     const tSec = s.t;
 
     // ── Raw level and bands from the source ─────────────────────────
-    if (paused) {
-      // Hold the last level; nothing to read.
-    } else if (inst.analyser) {
-      readAnalyser(inst, scratch);
-    } else {
+    if (!paused) {
       const raw = source.getLevel ? clamp01(source.getLevel()) : 0;
       scratch.level = raw;
       // No spectrum to read, so give the bands a little independent life —
@@ -820,8 +772,8 @@ function stopLoopIfIdle(): void {
 /**
  * Register an element to be driven by the shared voice loop.
  *
- * @returns a cleanup function that unregisters the instance, releases its
- *          analyser, and stops the shared loop once no instances remain.
+ * @returns a cleanup function that unregisters the instance and stops the
+ *          shared loop once no instances remain.
  */
 export function registerVoiceInstance(
   el: HTMLElement,
@@ -834,10 +786,6 @@ export function registerVoiceInstance(
     config,
     source,
     onLevel,
-    analyser: null,
-    releaseAnalyser: null,
-    time: null,
-    freq: null,
     canvas: null,
     ctx: null,
     haloCanvas: null,
@@ -870,22 +818,11 @@ export function registerVoiceInstance(
   // A fresh registration after a pause must not integrate the gap.
   inst.s.lastTs = 0;
 
-  if (source.stream) {
-    const lease = acquireAnalyser(source.stream);
-    if (lease) {
-      inst.analyser = lease.analyser;
-      inst.releaseAnalyser = lease.release;
-      inst.time = new Float32Array(lease.analyser.fftSize);
-      inst.freq = new Uint8Array(lease.analyser.frequencyBinCount);
-    }
-  }
-
   instances.add(inst);
   startLoop();
 
   return () => {
     instances.delete(inst);
-    inst.releaseAnalyser?.();
     stopLoopIfIdle();
   };
 }

@@ -165,7 +165,10 @@ def test_captions_long_error_keeps_close_inside_window(
     # Assert the visible end state without enumerating unrelated animations;
     # awaiting their finished promises has crashed WebKit in this scenario.
     expect(page.locator(".ovs")).to_have_css("transform", "none")
-    expect(page.locator(".ovs-stl")).to_have_css("opacity", "1")
+    # WebKit can retain 0.999999 at the end of the opacity animation.
+    page.wait_for_function(
+        "Math.abs(Number(getComputedStyle(document.querySelector('.ovs-stl')).opacity) - 1) < 1e-5"
+    )
     expect(page.locator(".ovs-stl")).to_have_css(
         "transform", re.compile(r"^(none|matrix\(1, 0, 0, 1, 0, 0\))$")
     )

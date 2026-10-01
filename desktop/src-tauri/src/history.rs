@@ -1282,42 +1282,6 @@ mod tests {
     }
 
     #[test]
-    fn append_collision_in_same_ms_yields_unique_ids() {
-        // Two appends in the same millisecond must not collide.
-        // We force the collision by pre-seeding two rows with the same id
-        // we expect (timestamp*1000) to fall back to.
-        let db = fresh_db();
-        // Force a collision: seed an entry at id 1_700_000_000_000 (approx
-        // 2023-11-14). Then monkey-patch SystemTime... actually, we can't
-        // easily. So we directly test the collision logic by inserting two
-        // rows with deliberately-equal timestamps and verifying both end up
-        // with unique ids.
-        let base_ts = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs_f64();
-        let base_id = (base_ts * 1000.0) as i64;
-        // Pre-seed with the EXACT id our first append will compute.
-        db.lock()
-            .unwrap()
-            .execute(
-                "INSERT INTO history (id, timestamp, text, length) VALUES (?1, ?2, 'pre', 3)",
-                rusqlite::params![base_id, base_ts],
-            )
-            .unwrap();
-        // Now append — should detect collision and bump id by 1.
-        let new_id = append(&db, "after", None, None, 0, 0.0).unwrap();
-        assert_ne!(new_id as i64, base_id, "must skip past the pre-seeded id");
-        assert_eq!(new_id as i64, base_id + 1);
-        let count: i64 = db
-            .lock()
-            .unwrap()
-            .query_row("SELECT COUNT(*) FROM history", [], |r| r.get(0))
-            .unwrap();
-        assert_eq!(count, 2, "both rows should be present");
-    }
-
-    #[test]
     fn clear_history_removes_all_entries() {
         let db = fresh_db();
         append(&db, "a", None, None, 0, 0.0).unwrap();
@@ -1334,9 +1298,8 @@ mod tests {
 
     #[test]
     fn collision_retry_bumps_id_forward_not_backward() {
-        // Deterministic version of `append_collision_in_same_ms_yields_unique_ids`:
-        // seed the exact id we pass in, then verify the retry loop bumps the
-        // id FORWARD by one and never re-inserts over the pre-seeded row.
+        // Seed the exact id we pass in, then verify the retry loop bumps the
+        // id forward by one and never re-inserts over the pre-seeded row.
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         crate::db::run_migrations(&conn).unwrap();
         conn.execute(
