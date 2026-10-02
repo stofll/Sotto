@@ -336,6 +336,31 @@ jobs:
           updaterJsonPreferNsis: true
           args: ${{ matrix.args }}
 
+      - name: Build, sign and upload Windows setup
+        if: runner.os == 'Windows'
+        working-directory: desktop
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          $version = node -p "require('./package.json').version"
+          $payload = Join-Path $env:CARGO_TARGET_DIR "$env:CARGO_BUILD_TARGET/release/bundle/nsis/Sotto_${version}_x64-setup.exe"
+          $setup = Join-Path $env:RUNNER_TEMP "Sotto_${version}_x64-setup-ui.exe"
+          $digest = (Get-FileHash -LiteralPath $payload -Algorithm SHA256).Hash
+          pnpm setup:package --payload $payload --sha256 $digest --output $setup
+          if ($LASTEXITCODE -ne 0) { throw "Setup build failed" }
+          pnpm setup:check
+          if ($LASTEXITCODE -ne 0) { throw "Setup bundle budget failed" }
+          pnpm tauri signer sign --app-version $version $setup
+          if ($LASTEXITCODE -ne 0) { throw "Setup signing failed" }
+          python ../scripts/check-build-paths.py $setup
+          if ($LASTEXITCODE -ne 0) { throw "Setup contains build machine paths" }
+          gh release upload $env:RELEASE_TAG $setup "$setup.sig" --clobber
+          if ($LASTEXITCODE -ne 0) { throw "Setup upload failed" }
+
       # The disk image comes from dmgbuild rather than the bundler: Tauri lays
       # out the Finder window through AppleScript, which a headless runner
       # cannot drive and current macOS does not persist. The bundler still
@@ -417,7 +442,7 @@ jobs:
   # everything in the draft, whereas one computed inside the matrix would only
   # know about its own platform.
   checksums:
-    name: Release checksums
+    name: Finalize updater and release checksums
     needs: [release, sbom]
     if: ${{ !cancelled() && needs.release.result == 'success' && needs.sbom.result == 'success' }}
     runs-on: ubuntu-24.04
@@ -425,6 +450,12 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ inputs.tag || github.ref_name }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
       - name: Compute SHA-256 and attach to the draft
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -436,6 +467,11 @@ jobs:
           # The draft is only visible to a token with contents: write — there
           # is no public link to it yet.
           gh release download "$RELEASE_TAG" --clobber
+          # Both tauri-action matrix jobs have finished writing latest.json.
+          # Finalize it here so a later macOS upload cannot restore the old NSIS URL.
+          version=$(node -p "require('../desktop/package.json').version")
+          node ../scripts/finalize-windows-updater.mjs . "$version" "$GH_REPO"
+          gh release upload "$RELEASE_TAG" latest.json --clobber
           # The format is exactly what `sha256sum -c` understands, so the file
           # carries no headers or comments: the explanation lives in
           # docs/verifying-downloads.md and the file stays machine-verifiable.

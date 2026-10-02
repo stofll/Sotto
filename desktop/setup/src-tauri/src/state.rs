@@ -16,6 +16,7 @@ pub struct Status {
     pub revision: u64,
     pub version: &'static str,
     pub preview: bool,
+    pub update: bool,
     pub error: Option<String>,
 }
 
@@ -26,6 +27,7 @@ impl Status {
             revision: 0,
             version: env!("SOTTO_APP_VERSION"),
             preview,
+            update: false,
             error: None,
         }
     }

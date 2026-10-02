@@ -49,7 +49,7 @@ On Windows, run these release tests from Git Bash or put Git for Windows' `bin` 
 
 Validate workflow edits with `actionlint`. A local pass cannot verify GitHub repository permissions, the release App’s bypass permission, or signed artifact publication; those require a real Prepare Release run after the workflow is merged.
 
-For Windows packaging changes, run `node --test scripts/build-portable.test.mjs scripts/build-windows-installer.test.mjs` on Windows. These use temporary fixtures to verify ZIP cleanup and native preparation order, cache recovery and failure handling; they do not build or install a signed application. Run `node --test scripts/generate-native-inventory.test.mjs` when changing native dependency inventory or its locks.
+For Windows packaging changes, run `node --test scripts/build-portable.test.mjs scripts/build-windows-installer.test.mjs scripts/build-setup.test.mjs scripts/finalize-windows-updater.test.mjs` on Windows. These use temporary fixtures to verify ZIP cleanup and native preparation order, cache recovery and failure handling; they do not build or install a signed application. Also run `node scripts/test-nsis-bundle.mjs` on Windows: it compiles the production NSIS template with the pinned bundler around an inert executable, then checks shortcut options and silent update arguments using temporary files without application registration or launch. Run `node --test scripts/generate-native-inventory.test.mjs` when changing native dependency inventory or its locks.
 
 ## Prepared speech and real models
 

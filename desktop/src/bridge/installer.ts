@@ -7,6 +7,7 @@ export interface SetupStatus {
   revision: number;
   version: string;
   preview: boolean;
+  update: boolean;
   error: string | null;
 }
 export interface SetupInstallOptions {
@@ -22,6 +23,7 @@ export const setupStatus = () => invoke<SetupStatus>("setup_status");
 export const setupOptions = () => invoke<SetupDefaults>("setup_options");
 export const chooseSetupDirectory = (directory: string) => invoke<string | null>("setup_choose_directory", { directory });
 export const installSotto = (options: SetupInstallOptions) => invoke<void>("setup_install", { options });
+export const updateSotto = () => invoke<void>("setup_update");
 export const launchSotto = () => invoke<void>("setup_launch");
 export const closeSetup = () => invoke<void>("setup_close");
 export const onSetupStatus = (handler: (state: SetupStatus) => void) => on("setup-status", handler);

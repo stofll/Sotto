@@ -1,5 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod installation_lock;
+mod invocation;
 mod options;
 mod payload;
 mod state;
@@ -23,10 +25,11 @@ fn setup_status(state: tauri::State<'_, Setup>) -> Status {
 }
 
 #[tauri::command]
-async fn setup_install(
-    app: tauri::AppHandle,
-    options: options::InstallOptions,
-) -> Result<(), String> {
+async fn setup_update(app: tauri::AppHandle) -> Result<(), String> {
+    let invocation = app.state::<invocation::Invocation>().inner().clone();
+    if !invocation.update {
+        return Err("invalid_arguments".into());
+    }
     {
         let state = app.state::<Setup>();
         let mut status = state.0.lock().unwrap();
@@ -35,6 +38,41 @@ async fn setup_install(
     }
     let worker_app = app.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
+        let _installation = installation_lock::InstallationLock::acquire()?;
+        options::registered_directory().ok_or("install_failed")?;
+        options::prevent_downgrade()?;
+        let (_directory, path) = payload::stage()?;
+        publish(&worker_app, Phase::Installing, None);
+        payload::update(&path, &invocation, true)?;
+        installed_binary()?;
+        Ok::<_, &'static str>(())
+    })
+    .await;
+    match result {
+        Ok(Ok(())) => app.exit(0), // NSIS honors /R and the original /ARGS after replacing files.
+        Ok(Err(error)) => publish(&app, Phase::Failed, Some(error)),
+        Err(_) => publish(&app, Phase::Failed, Some("install_failed")),
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn setup_install(
+    app: tauri::AppHandle,
+    options: options::InstallOptions,
+) -> Result<(), String> {
+    if app.state::<invocation::Invocation>().update {
+        return Err("invalid_arguments".into());
+    }
+    {
+        let state = app.state::<Setup>();
+        let mut status = state.0.lock().unwrap();
+        status.begin().map_err(str::to_owned)?;
+        let _ = app.emit("setup-status", status.clone());
+    }
+    let worker_app = app.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let _installation = installation_lock::InstallationLock::acquire()?;
         let default = options::default_directory(&worker_app)?;
         let destination = options::validate_directory(
             &options,
@@ -164,18 +202,17 @@ fn setup_close(app: tauri::AppHandle, state: tauri::State<'_, Setup>) -> Result<
 }
 
 #[cfg(windows)]
-fn fallback_message() {
+fn native_message(russian: &str, english: &str) {
     use windows_sys::Win32::Globalization::GetUserDefaultUILanguage;
     use windows_sys::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONINFORMATION, MB_OK};
     // Without WebView2 the frontend translations are unavailable; 0x19 is LANG_RUSSIAN.
-    let russian = unsafe { GetUserDefaultUILanguage() } & 0x3ff == 0x19;
-    let message = if russian {
-        "WebView2 недоступен. Sotto откроет стандартный установщик, чтобы установить нужные компоненты.\0"
+    let message = if unsafe { GetUserDefaultUILanguage() } & 0x3ff == 0x19 {
+        russian
     } else {
-        "WebView2 is unavailable. Sotto will open the standard installer to install the required components.\0"
+        english
     };
     let title: Vec<u16> = "Sotto Setup\0".encode_utf16().collect();
-    let message: Vec<u16> = message.encode_utf16().collect();
+    let message: Vec<u16> = message.encode_utf16().chain(Some(0)).collect();
     unsafe {
         MessageBoxW(
             0,
@@ -187,29 +224,46 @@ fn fallback_message() {
 }
 
 fn main() {
-    let preview = payload::BYTES.is_empty() || std::env::args().any(|arg| arg == "--preview");
+    let invocation = invocation::Invocation::current().unwrap_or_else(|_| std::process::exit(2));
+    let preview = payload::BYTES.is_empty() || invocation.preview;
     #[cfg(windows)]
     if !preview && tauri::webview_version().is_err() {
-        fallback_message();
-        match payload::stage().and_then(|(_directory, path)| payload::install(&path, None)) {
+        match installation_lock::InstallationLock::acquire().and_then(|_installation| {
+            native_message(
+                "WebView2 недоступен. Sotto откроет стандартный установщик, чтобы установить нужные компоненты.",
+                "WebView2 is unavailable. Sotto will open the standard installer to install the required components.",
+            );
+            let (_directory, path) = payload::stage()?;
+            if invocation.update {
+                options::prevent_downgrade()?;
+                payload::update(&path, &invocation, false)
+            } else {
+                payload::install(&path, None)
+            }
+        }) {
             Ok(()) => std::process::exit(0),
+            Err("installation_running") => {
+                native_message(
+                    "Другая установка Sotto уже выполняется. Дождитесь её завершения и откройте этот установщик снова.",
+                    "Another Sotto installation is running. Wait for it to finish and open this installer again.",
+                );
+                std::process::exit(1);
+            }
             Err(_) => std::process::exit(1),
         }
     }
+    let mut status = Status::new(preview);
+    status.update = invocation.update;
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.unminimize();
-                let _ = window.set_focus();
-            }
-        }))
-        .manage(Setup(Mutex::new(Status::new(preview))))
+        .manage(Setup(Mutex::new(status)))
+        .manage(invocation)
         .invoke_handler(tauri::generate_handler![
             setup_status,
             setup_options,
             setup_choose_directory,
             setup_install,
+            setup_update,
             setup_launch,
             setup_close,
         ])

@@ -39,7 +39,7 @@ MOCK = r"""
   let id = 0, finish = null;
   const callbacks = new Map();
   const listeners = new Map();
-  const state = { phase: "ready", revision: 0, version: "1.2.3", preview: false, error: null };
+  const state = { phase: "ready", revision: 0, version: "1.2.3", preview: false, update: new URLSearchParams(location.search).has("update"), error: null };
   const calls = [];
   function update(phase, error = null) {
     Object.assign(state, { phase, error, revision: state.revision + 1 });
@@ -64,8 +64,8 @@ MOCK = r"""
       if (command === "setup_options") return structuredClone(window.__setupTest.defaults);
       if (command === "setup_choose_directory") return window.__setupTest.selectedDirectory;
       calls.push(command);
-      if (command === "setup_install") {
-        window.__setupTest.installOptions = structuredClone(args.options);
+      if (command === "setup_install" || command === "setup_update") {
+        window.__setupTest.installOptions = args?.options ? structuredClone(args.options) : null;
         update("installing");
         return new Promise(resolve => { finish = resolve; });
       }
@@ -330,3 +330,74 @@ def test_browser_preview_cannot_install(page, setup_server):
     page.get_by_role("button", name="Запустить Sotto").click()
     expect(page.get_by_role("alert")).to_contain_text("Файлы приложения не изменяются")
     assert page.evaluate("typeof window.__TAURI_INTERNALS__") == "undefined"
+
+
+@pytest.mark.parametrize("theme", ["dark", "light"])
+@pytest.mark.parametrize("locale", ["ru", "en"])
+@pytest.mark.parametrize("failure", ["install_failed", "installation_running"])
+def test_update_starts_automatically_and_can_retry(
+    setup_app, page, setup_server, theme, locale, failure, output_path
+):
+    page.emulate_media(color_scheme=theme, reduced_motion="reduce")
+    page.goto(setup_server + "/?update")
+    if locale == "en":
+        page.get_by_role("button", name="Сменить язык").click()
+    expect(
+        page.get_by_role(
+            "heading", name="Updating Sotto" if locale == "en" else "Обновляем Sotto"
+        )
+    ).to_be_visible()
+    expect(page.get_by_role("progressbar")).to_be_visible()
+    assert (
+        page.evaluate(
+            "window.__setupTest.calls.filter(c => c === 'setup_update').length"
+        )
+        == 1
+    )
+    assert page.evaluate("window.__setupTest.installOptions") is None
+    expect(
+        page.get_by_role(
+            "button",
+            name="Installation options" if locale == "en" else "Параметры установки",
+            exact=True,
+        )
+    ).to_have_count(0)
+    Path(output_path).mkdir(parents=True, exist_ok=True)
+    page.screenshot(
+        path=str(Path(output_path) / "setup-update.png"), animations="disabled"
+    )
+    page.evaluate("error => window.__setupTest.finish(error)", failure)
+    if failure == "installation_running":
+        expect(
+            page.locator(".setup-main").get_by_text(
+                "Another Sotto installation is running. Wait for it to finish and try again."
+                if locale == "en"
+                else "Другая установка Sotto уже выполняется. Дождитесь её завершения и повторите попытку."
+            )
+        ).to_be_visible()
+        page.screenshot(
+            path=str(Path(output_path) / "setup-update-busy.png"), animations="disabled"
+        )
+    expect(
+        page.get_by_role(
+            "heading",
+            name="Could not update Sotto"
+            if locale == "en"
+            else "Не удалось обновить Sotto",
+        )
+    ).to_be_focused()
+    retry = page.get_by_role(
+        "button",
+        name="Try again" if locale == "en" else "Повторить попытку",
+        exact=True,
+    )
+    retry.focus()
+    page.keyboard.press("Enter")
+    expect(page.get_by_role("progressbar")).to_be_visible()
+    assert (
+        page.evaluate(
+            "window.__setupTest.calls.filter(c => c === 'setup_update').length"
+        )
+        == 2
+    )
+    assert "setup_install" not in page.evaluate("window.__setupTest.calls")
