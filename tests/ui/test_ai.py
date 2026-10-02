@@ -96,7 +96,9 @@ def test_startup_refreshes_only_a_stale_built_in_prompt(app, page, custom):
         keys=KEYS,
     )
     ui.nav("ai")
-    shown = page.get_by_role("textbox", name="Системный промпт", exact=True).input_value()
+    shown = page.get_by_role(
+        "textbox", name="Системный промпт", exact=True
+    ).input_value()
     assert (shown == "Prompt A") == custom
     page.wait_for_function(
         "expected => window.__sottoTest.state.config.ai_processing.system_prompt === expected",
