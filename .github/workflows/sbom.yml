@@ -167,6 +167,4 @@ jobs:
         if: inputs.release_tag != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        # The Windows setup shell is not released yet, so its inventory stays a
-        # run artifact until it is (docs/windows-setup.md).
-        run: gh release upload "${{ inputs.release_tag }}" $(ls sbom/* | grep -v '/sbom-rust-setup\.cdx\.json$') --clobber
+        run: gh release upload "${{ inputs.release_tag }}" sbom/* --clobber

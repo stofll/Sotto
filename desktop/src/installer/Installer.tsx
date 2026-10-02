@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { chooseSetupDirectory, closeSetup, installSotto, launchSotto, newestSetupStatus, onSetupStatus, setupOptions, setupStatus, type SetupInstallOptions, type SetupStatus } from "../bridge/installer";
+import { chooseSetupDirectory, closeSetup, installSotto, launchSotto, newestSetupStatus, onSetupStatus, setupOptions, setupStatus, updateSotto, type SetupInstallOptions, type SetupStatus } from "../bridge/installer";
 import { setLocale, t, useLocale } from "../i18n";
 import { Icon } from "../components/Icon";
 import { Hint } from "../components/Hint";
@@ -13,6 +13,7 @@ function errorText(code: string | null): string {
     case "payload_invalid": return t("Установочный пакет повреждён. Скачайте установщик заново.");
     case "prepare_failed": return t("Не удалось подготовить файлы. Проверьте свободное место и повторите попытку.");
     case "install_failed": return t("Установка не завершена. Закройте Sotto и повторите попытку.");
+    case "installation_running": return t("Другая установка Sotto уже выполняется. Дождитесь её завершения и повторите попытку.");
     case "installed_version_newer": return t("Уже установлена более новая версия Sotto. Скачайте актуальный установщик.");
     case "installed_version_unavailable": return t("Не удалось определить версию установленной Sotto. Установка остановлена, чтобы сохранить данные.");
     case "launch_failed": return t("Не удалось запустить Sotto. Откройте приложение через меню «Пуск».");
@@ -28,7 +29,7 @@ function errorText(code: string | null): string {
 export function Installer() {
   const locale = useLocale();
   const [status, setStatus] = useState<SetupStatus | null>(native ? null : {
-    phase: "ready", revision: 0, version: "", preview: true, error: null,
+    phase: "ready", revision: 0, version: "", preview: true, update: new URLSearchParams(location.search).has("update"), error: null,
   });
   const [connectionError, setConnectionError] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -59,6 +60,7 @@ export function Installer() {
   const phase = status?.phase ?? "ready";
   const busy = pending || phase === "preparing" || phase === "installing";
   const preview = status?.preview ?? false;
+  const updating = status?.update ?? false;
   const showingOptions = screen === "options" && !busy && phase !== "complete";
 
   useEffect(() => {
@@ -83,7 +85,15 @@ export function Installer() {
         if (disposed) { stop(); return; }
         const [snapshot, defaults] = await Promise.all([setupStatus(), setupOptions()]);
         update(snapshot);
-        if (!disposed) { setOptions(defaults.options); setDirectoryLocked(defaults.directory_locked); }
+        if (!disposed) {
+          setOptions(defaults.options); setDirectoryLocked(defaults.directory_locked);
+          if (snapshot.update && !snapshot.preview && snapshot.phase === "ready") {
+            setPending(true);
+            try { await updateSotto(); }
+            catch { if (!disposed) setActionError("install_failed"); }
+            finally { if (!disposed) setPending(false); }
+          }
+        }
       } catch {
         if (!disposed) setConnectionError(true);
       }
@@ -117,7 +127,7 @@ export function Installer() {
 
   async function start() {
     if (actionInFlight.current || busy || choosingDirectory || !options) return;
-    if (!/^[a-zA-Z]:[\\/].+/.test(options.install_dir) || /["<>|?*\u0000-\u001f]/.test(options.install_dir)) {
+    if (!updating && (!/^[a-zA-Z]:[\\/].+/.test(options.install_dir) || /["<>|?*\u0000-\u001f]/.test(options.install_dir))) {
       setOptionsError("invalid_install_directory"); openOptions(); directoryInput.current?.focus(); return;
     }
     setOptionsError(null);
@@ -137,7 +147,7 @@ export function Installer() {
       }, 3600));
       return;
     }
-    try { await installSotto(options); }
+    try { if (updating) await updateSotto(); else await installSotto(options); }
     // Installation failures arrive through setup-status; a rejected call means it never started.
     catch { setActionError("install_failed"); }
     finally { setPending(false); actionInFlight.current = false; }
@@ -167,21 +177,21 @@ export function Installer() {
     </header>
     <section className="setup-content" aria-busy={busy} data-screen={showingOptions ? "options" : "welcome"}>
       <div className="setup-main setup-view" inert={showingOptions} aria-hidden={showingOptions}>
-      <h1 ref={heading} tabIndex={-1} className={phase === "ready" && !busy ? "setup-welcome-title" : undefined}>{phase === "complete" ? t("Sotto установлено") : phase === "failed" ? t("Не удалось установить Sotto") : busy ? t("Устанавливаем Sotto") : "Sotto"}</h1>
-      <p className="setup-description">{phase === "complete" ? t("Всё готово. Можно начинать.") : phase === "failed" ? errorText(status?.error ?? null) : busy ? t("Подготавливаем приложение для вашего компьютера.") : t("Мысли становятся текстом.")}</p>
+      <h1 ref={heading} tabIndex={-1} className={phase === "ready" && !busy ? "setup-welcome-title" : undefined}>{phase === "complete" ? (updating ? t("Sotto обновлено") : t("Sotto установлено")) : phase === "failed" ? (updating ? t("Не удалось обновить Sotto") : t("Не удалось установить Sotto")) : busy ? (updating ? t("Обновляем Sotto") : t("Устанавливаем Sotto")) : "Sotto"}</h1>
+      <p className="setup-description">{phase === "complete" ? t("Всё готово. Можно начинать.") : phase === "failed" ? errorText(status?.error ?? null) : busy ? (updating ? t("После обновления Sotto запустится автоматически.") : t("Подготавливаем приложение для вашего компьютера.")) : t("Мысли становятся текстом.")}</p>
       {(connectionError || actionError) && <p role="alert" className="setup-error">{errorText(actionError)}</p>}
       {busy ? <div className="setup-progress" role="status" aria-live="polite">
-        <div className="setup-progress-track" role="progressbar" aria-label={t("Установка Sotto")} />
-        <p>{phase === "preparing" ? t("Подготовка файлов") : t("Установка приложения и ярлыков")}</p>
+        <div className="setup-progress-track" role="progressbar" aria-label={updating ? t("Обновление Sotto") : t("Установка Sotto")} />
+        <p>{phase === "preparing" ? t("Подготовка файлов") : (updating ? t("Обновление файлов приложения") : t("Установка приложения и ярлыков"))}</p>
         <span className="setup-caption">{t("Дождитесь завершения. Это окно можно свернуть.")}</span>
       </div> : <div className="setup-actions">
         {phase === "complete"
           ? <button className="btn btn--primary" onClick={() => void launch()} disabled={pending}>{t("Запустить Sotto")}</button>
-          : <button className="btn btn--primary" onClick={() => void start()} disabled={!status || !options || connectionError}>{phase === "failed" ? t("Повторить попытку") : t("Установить")}</button>}
-        {phase !== "complete" && <button ref={optionsTrigger} className="btn btn--ghost setup-navigation" onClick={openOptions} disabled={!options || connectionError}>{t("Параметры установки")}</button>}
+          : <button className="btn btn--primary" onClick={() => void start()} disabled={!status || !options || connectionError}>{phase === "failed" ? t("Повторить попытку") : updating ? t("Обновить") : t("Установить")}</button>}
+        {!updating && phase !== "complete" && <button ref={optionsTrigger} className="btn btn--ghost setup-navigation" onClick={openOptions} disabled={!options || connectionError}>{t("Параметры установки")}</button>}
         {native && phase === "complete" && <button className="btn btn--ghost" onClick={() => void closeSetup().catch(() => setActionError("connection_failed"))}>{t("Закрыть")}</button>}
       </div>}
-      <div className="setup-status-announcement" role="status" aria-live="polite">{phase === "complete" ? t("Sotto установлено") : ""}</div>
+      <div className="setup-status-announcement" role="status" aria-live="polite">{phase === "complete" ? (updating ? t("Sotto обновлено") : t("Sotto установлено")) : ""}</div>
       </div>
       <form className="setup-options setup-view" inert={!showingOptions} aria-hidden={!showingOptions} onSubmit={(event) => { event.preventDefault(); void start(); }}>
         <h2 ref={optionsHeading} tabIndex={-1}>{t("Параметры установки")}</h2>

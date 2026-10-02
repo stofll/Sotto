@@ -2,7 +2,7 @@
 
 The Windows installer uses a separate setup application so installation UI and animation do not enter the dictation, overlay or tray startup paths. The welcome screen has the application name, one installation button and quiet animated background waves. The original icon appears only in the native title bar. Theme and language controls sit at the top right, the version at the bottom right, and installation details open in a dismissible popover without shifting the layout. Respect reduced motion and stop decorative animation while the window is hidden.
 
-The setup application embeds the existing NSIS package. That package remains responsible for application files, native libraries, shortcuts, migration and uninstall registration. The updater continues to consume the original signed NSIS artifact; the visual setup executable is a separate download.
+The setup application embeds the existing NSIS package. That package remains responsible for application files, native libraries, shortcuts, migration and uninstall registration. The updater consumes the signed setup executable. In update mode the setup shows progress automatically and delegates silent file replacement and restart to its embedded NSIS package. The standard NSIS executable remains a fallback download.
 
 Use a large Sotto wordmark with the subtitle «Мысли становятся текстом.». Installation options sit below the primary button and open a separate view in the same window. Keep the folder and two shortcut choices out of the welcome screen; animate opening and Back without changing window height or adding page scrolling. Show the actual Windows-resolved folder instead of environment-variable notation, and preserve choices when navigating back.
 

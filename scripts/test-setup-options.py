@@ -42,6 +42,7 @@ SilentInstall silent
 !include FileFunc.nsh
 !include "Win\COM.nsh"
 !include "Win\Propkey.nsh"
+!include "Win\RestartManager.nsh"
 !include "@UTILS@"
 !define MAINBINARYNAME "Sotto-fixture"
 !define PRODUCTNAME "Sotto-fixture"
@@ -59,12 +60,34 @@ Var FixtureDesktop
 Var FixtureStartMenu
 Function .onInit
   !insertmacro SottoReadSetupOptions
+  ReadEnvStr $0 "SOTTO_TEST_NSIS_DESTINATION"
+  ${If} $0 != ""
+    StrCpy $INSTDIR $0
+  ${EndIf}
 FunctionEnd
 Section
+  CreateDirectory "$INSTDIR"
+  StrCpy $UpdateMode 0
+  ${GetOptions} $CMDLINE "/UPDATE" $0
+  ${IfNot} ${Errors}
+    StrCpy $UpdateMode 1
+    IfFileExists "$INSTDIR\fail" 0 +3
+      SetErrorLevel 5
+      Quit
+    IfSilent +2 0
+      Abort "Updates must be silent under the setup UI"
+    FileOpen $0 "$INSTDIR\update-args.txt" w
+    ${GetOptions} $CMDLINE "/R" $1
+    ${IfNot} ${Errors}
+      FileWrite $0 "restart$\r$\n"
+    ${EndIf}
+    ${GetOptions} $CMDLINE "/ARGS" $1
+    FileWrite $0 "$1"
+    FileClose $0
+  ${EndIf}
   StrCpy $OldMainBinaryName "Sotto-old.exe"
   StrCpy $AppStartMenuFolder ""
   StrCpy $WixMode 0
-  StrCpy $UpdateMode 0
   StrCpy $NoShortcutMode 0
   StrCpy $FixtureDesktop "$INSTDIR\desktop"
   StrCpy $FixtureStartMenu "$INSTDIR\startmenu"

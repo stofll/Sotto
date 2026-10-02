@@ -305,7 +305,7 @@ describe("Tauri command surface", () => {
   it("keeps installer commands in the separate setup runtime", () => {
     const setupCommands = commandRegistry(setupRs).all;
     const invoked = invokedCommands(true);
-    expect(invoked.size).toBe(6);
+    expect(invoked.size).toBe(7);
     expect([...invoked].filter((name) => !setupCommands.has(name))).toEqual([]);
     expect([...invoked].filter((name) => all.has(name))).toEqual([]);
   });

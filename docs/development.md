@@ -172,7 +172,7 @@ The lockfile audit lives in `.github/actions/dependency-audit`. The required `De
 
 `.github/workflows/sbom.yml` produces separate CycloneDX SBOMs for the application Rust graph, Windows setup Rust graph and desktop npm graph, plus a readable license report, and uploads them as a run artifact.
 
-On a release tag `release.yml` calls the same workflow after the draft exists, so the files land on the release itself. The Windows setup SBOM stays a run artifact until the setup shell is released, as described in [Windows setup](windows-setup.md).
+On a release tag `release.yml` calls the same workflow after the draft exists, so the files land on the release itself. This includes the Windows setup shell inventory, as described in [Windows setup](windows-setup.md).
 
 The application Rust SBOM is generated with `--target all --all-features`: most of the graph arrives through `[target.'cfg(...)']` blocks and optional GPU features, and a Linux-only inventory would describe a build we do not ship. The separate setup Rust SBOM uses `--target all` to include its Windows-specific dependencies.
 

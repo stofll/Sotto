@@ -265,8 +265,8 @@ pub async fn install(app: &AppHandle) -> Result<(), String> {
         .await
         .map_err(|e| e.to_string())?;
 
-    // On Windows installMode = passive: the installer is already running and
-    // will ask to close the application. We exit ourselves so it does not wait.
+    // The Windows plugin exits after launching the signed setup with /UPDATE /R;
+    // setup runs NSIS silently and NSIS restarts Sotto. Other platforms restart here.
     app.restart();
 }
 

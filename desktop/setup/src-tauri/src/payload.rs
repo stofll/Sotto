@@ -61,6 +61,30 @@ pub fn install(
     }
     // Keep the NSIS process attached until completion so its payload is not
     // removed early. No forced cancellation during file replacement.
+    run(&mut command)
+}
+
+pub fn update(
+    path: &Path,
+    invocation: &crate::invocation::Invocation,
+    silent: bool,
+) -> Result<(), &'static str> {
+    let mut command = Command::new(path);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.raw_arg(invocation.nsis_arguments(silent));
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (invocation.nsis_arguments(silent), &mut command);
+        return Err("unsupported_platform");
+    }
+    #[cfg(windows)]
+    run(&mut command)
+}
+
+fn run(command: &mut Command) -> Result<(), &'static str> {
     let status = command.status().map_err(|_| "install_failed")?;
     if status.success() {
         Ok(())
@@ -123,6 +147,27 @@ mod tests {
             .unwrap()
             .success());
         assert!(!invalid_dir.exists());
+        // The child fixture writes only into this test directory and never launches Sotto.
+        let update_dir = temporary.path().join("update");
+        std::env::set_var("SOTTO_TEST_NSIS_DESTINATION", &update_dir);
+        let invocation = crate::invocation::Invocation::parse(
+            r#"setup.exe /P /R /UPDATE /ARGS "hello world" --flag"#,
+        )
+        .unwrap();
+        let result = update(&fixture, &invocation, true);
+        std::env::remove_var("SOTTO_TEST_NSIS_DESTINATION");
+        result.unwrap();
+        assert_eq!(
+            std::fs::read_to_string(update_dir.join("update-args.txt")).unwrap(),
+            "restart\r\n\"hello world\" --flag"
+        );
+        assert!(!update_dir.join("desktop/Sotto-fixture.lnk").exists());
+        assert!(!update_dir.join("startmenu/Sotto-fixture.lnk").exists());
+        std::fs::write(update_dir.join("fail"), b"synthetic failure").unwrap();
+        std::env::set_var("SOTTO_TEST_NSIS_DESTINATION", &update_dir);
+        let result = update(&fixture, &invocation, true);
+        std::env::remove_var("SOTTO_TEST_NSIS_DESTINATION");
+        assert_eq!(result, Err("install_failed"));
     }
     #[test]
     fn rejects_corruption_before_writing() {

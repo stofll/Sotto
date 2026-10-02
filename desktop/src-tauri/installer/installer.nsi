@@ -21,6 +21,7 @@
 ;   2. diff the old upstream installer.nsi against the new one
 ;   3. port the changes here, keeping the "Sotto:" blocks
 ; The bundler version is in the Cargo.lock inside tauri-cli-<ver>.crate.
+; Restart Manager includes and executable paths are synced with tauri-cli 2.12.0.
 
 Unicode true
 ManifestDPIAware true
@@ -51,6 +52,7 @@ ManifestDPIAwareness PerMonitorV2
 !include "FileAssociation.nsh"
 !include "Win\COM.nsh"
 !include "Win\Propkey.nsh"
+!include "Win\RestartManager.nsh"
 !include "StrFunc.nsh"
 ${StrCase}
 ${StrLoc}
@@ -729,7 +731,7 @@ Section Install
     !insertmacro NSIS_HOOK_PREINSTALL
   !endif
 
-  !insertmacro CheckIfAppIsRunning "${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
+  !insertmacro CheckIfAppIsRunning "$INSTDIR\${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
 
   ; Copy main executable
   File "${MAINBINARYSRCPATH}"
@@ -866,7 +868,7 @@ Section Uninstall
     !insertmacro NSIS_HOOK_PREUNINSTALL
   !endif
 
-  !insertmacro CheckIfAppIsRunning "${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
+  !insertmacro CheckIfAppIsRunning "$INSTDIR\${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
 
   ; Data removal starts while the executable still exists: the application
   ; resolves its own data, model and pre-rename directories and deletes the API

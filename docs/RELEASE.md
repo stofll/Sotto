@@ -68,7 +68,7 @@ An App token's tag push triggers Release automatically. Do not also call Release
 - If scheduled source checks fail, fix the failure before the next run; no version commit or tag is created. If the source already has a draft tag, the unchanged scheduled run skips it: retry the existing **Release** build instead of reserving another patch version.
 - If `main` changes during preparation, start a new Prepare Release run. The push never force-updates refs: the release commit and tag are either both accepted or both rejected.
 - For an invalid version or missing App configuration, fix the reported problem and start again. If the push result was uncertain, inspect `main` and the tag before retrying; an already pushed tag reserves that version.
-- If the release build fails after tagging, rerun its failed jobs or run **Release** manually with the existing tag. The build and SBOM resolve that tag rather than the selected UI branch. Published releases cannot be rebuilt; issue a new version instead.
+- If a failure requires source changes, merge the fix and prepare a new version; rerunning an old tag still uses its old source. For transient failures after tagging, rerun its failed jobs or run **Release** manually with the existing tag. The build and SBOM resolve that tag rather than the selected UI branch. Published releases cannot be rebuilt; issue a new version instead.
 
 For local inspection, `sh scripts/check-version.sh [vX.Y.Z]` checks metadata without modifying it. `sh scripts/release.sh` remains an optional dry run for the manual tagging path; it is not a step in automated preparation.
 
@@ -227,7 +227,7 @@ Losing the private key means shipped installations can no longer be updated: the
 
 ## Tag & Build
 
-Prepare Release pushes its tag with the App token, automatically triggering `.github/workflows/release.yml`. A manually pushed tag also starts that build. It builds Windows and macOS arm64, signs the artifacts, generates `latest.json` and attaches everything to a **draft** release.
+Prepare Release pushes its tag with the App token, automatically triggering `.github/workflows/release.yml`. A manually pushed tag also starts that build. It builds Windows and macOS arm64, signs the artifacts, generates `latest.json` and attaches everything to a **draft** release. Windows also builds and signs the custom setup around the NSIS payload. After both platform jobs finish, `checksums` points the Windows manifest entries to that setup before computing hashes; this avoids concurrent manifest uploads restoring the fallback NSIS URL.
 
 Publishing that draft is what makes the update visible to users, so check the build before you press it.
 
@@ -416,10 +416,11 @@ Everything below is uploaded by CI. A missing entry means a job failed or was sk
 |---|---|
 | `Sotto_X.Y.Z_aarch64.dmg` | `release` job, macOS |
 | `Sotto_aarch64.app.tar.gz` + `.sig` | `release` job, macOS — the updater artifact |
-| `Sotto_X.Y.Z_x64-setup.exe` + `.sig` | `release` job, Windows |
+| `Sotto_X.Y.Z_x64-setup.exe` + `.sig` | `release` job, Windows — fallback NSIS package |
+| `Sotto_X.Y.Z_x64-setup-ui.exe` + `.sig` | `release` job, Windows — custom setup and updater artifact |
 | `Sotto-<tag>-windows-x64-portable.zip` | `release` job, Windows — manual-update portable build |
-| `latest.json` | `release` job (`includeUpdaterJson`) — the updater manifest |
-| `sbom-rust.cdx.json`, `sbom-npm.cdx.json` | `sbom` job |
+| `latest.json` | `release` job, then Windows setup selection in `checksums` after both builds finish |
+| `sbom-rust.cdx.json`, `sbom-rust-setup.cdx.json`, `sbom-npm.cdx.json` | `sbom` job |
 | `licenses-npm-prod.json`, `licenses-npm-dev.json` | `sbom` job |
 | `SHA256SUMS.txt` | `checksums` job, hashed over the draft's own assets |
 
