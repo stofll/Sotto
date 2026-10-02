@@ -14,6 +14,9 @@
 // tPlural picks the right one by the array's length.
 
 export const en: Record<string, string | string[]> = {
+  "Доступна новая версия Sotto {p0}": "Sotto {p0} is available",
+  "Обновитесь, когда будет удобно.": "Update whenever it suits you.",
+  "Закрыть уведомление": "Dismiss notification",
   "Получать бета-сборки": "Receive beta builds",
   "Не удалось сохранить настройку. Попробуйте ещё раз.": "Could not save the setting. Please try again.",
   "По умолчанию доступны только стабильные версии. Бета-сборки позволяют раньше попробовать изменения и могут содержать ошибки.": "Only stable versions are available by default. Beta builds let you try changes earlier and may contain bugs.",
