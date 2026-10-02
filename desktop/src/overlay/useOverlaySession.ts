@@ -25,7 +25,7 @@ function shortAiProblem(payload?: TranscriptionPayload) {
   // An unconfigured provider is not a fallback: no request was made at all, and
   // before this line such a dictation arrived without a single word about why
   // unprocessed text was inserted in a mode with an LLM.
-  if (ai?.skipped_reason === "missing_provider" || ai?.skipped_reason === "missing_api_key") {
+  if (ai?.skipped_reason === "missing_provider" || ai?.skipped_reason === "missing_api_key" || ai?.skipped_reason === "missing_system_prompt") {
     return t("LLM не настроена, вставлен локальный текст");
   }
   if (!ai?.fallback) return "";

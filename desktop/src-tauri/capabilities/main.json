@@ -29,7 +29,6 @@
     "allow-fetch-provider-models",
     "allow-get-config",
     "allow-get-diagnostics",
-    "allow-get-output-contract",
     "allow-get-public-diagnostics",
     "allow-get-public-logs",
     "allow-get-runtime-status",

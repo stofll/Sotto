@@ -954,7 +954,7 @@ fn pasted_note_warns(payload: &serde_json::Value) -> bool {
         || ai["fallback"].as_bool() == Some(true)
         || matches!(
             ai["skipped_reason"].as_str(),
-            Some("missing_provider" | "missing_api_key")
+            Some("missing_provider" | "missing_api_key" | "missing_system_prompt")
         )
 }
 
@@ -1142,6 +1142,9 @@ mod tests {
         assert!(pasted_note_warns(&json!({"ai_problem":"LLM is down"})));
         assert!(pasted_note_warns(
             &json!({"ai_processing":{"skipped_reason":"missing_api_key"}})
+        ));
+        assert!(pasted_note_warns(
+            &json!({"ai_processing":{"skipped_reason":"missing_system_prompt"}})
         ));
         assert!(!pasted_note_warns(
             &json!({"length":23,"ai_processing":{"fallback":false}})

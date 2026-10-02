@@ -158,12 +158,6 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
   const promptCustom = promptIsCustom(activeProfile);
   const [promptDraft, setPromptDraft] = useState(effectiveSystemPrompt(activeProfile));
   const [promptSaving, setPromptSaving] = useState(false);
-  // The tail Rust appends to any prompt, including a hand-written one. We read
-  // it from the backend rather than keep a copy here: a copy would diverge from
-  // the original on the very first edit, and then "what goes to the model" would
-  // lie in exactly the place it is shown for.
-  const [outputContract, setOutputContract] = useState("");
-  const [contractShown, setContractShown] = useState(false);
   const [advancedShown, setAdvancedShown] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [testLoading, setTestLoading] = useState(false);
@@ -185,12 +179,6 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
     setPromptDraft(effectiveSystemPrompt(activeProfile));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by the fields the prompt comes from; the profile object is new on every render.
   }, [activeProfile.id, activeProfile.system_prompt, activeProfile.prompt_preset]);
-
-  useEffect(() => {
-    // It does not block the page: until it arrives the block simply is not
-    // shown.
-    invoke<string>("get_output_contract").then(setOutputContract).catch(() => {});
-  }, []);
 
   // Dragging a file into the window.
   //
@@ -573,7 +561,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
               each other. */}
           <CardHead
             title={t("Системный промпт")}
-            hint={t("Инструкции, которые отправляются модели перед каждым запросом. Шаблон поддерживает плейсхолдеры {{language}} и {{transcript}}. Выбери пресет, сохрани и протестируй на длинной записи через «Обработать через LLM» в истории.")}
+            hint={t("Все инструкции для модели редактируются здесь. Приложение не добавляет обязательных правил. Исходный текст передаётся отдельно в блоке <dictation>. Сохрани промпт перед проверкой.")}
             actions={
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <span className="picker-label">{t("Пресет")}</span>
@@ -613,6 +601,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
                   below it off the bottom edge. */}
               <textarea
                 className="field mono scroll-visible"
+                aria-label={t("Системный промпт")}
                 value={promptDraft}
                 disabled={promptSaving}
                 onChange={(e) => setPromptDraft(e.target.value)}
@@ -636,36 +625,8 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
                     <Icon name="refresh" size={12}/>{t("Вернуть встроенный")}</button>
                 </Hint>
                 <span style={{ marginLeft: "auto", font: "500 11px/1 var(--font-mono)", color: "var(--ink-mute)" }}>
-                  {promptDraft.length}{outputContract ? ` + ${outputContract.length}` : ""}  {t("симв.")}</span>
+                  {promptDraft.length}  {t("симв.")}</span>
               </div>
-
-              {outputContract ? (
-                <div style={{ borderTop: "1px solid var(--line)", paddingTop: 10, display: "grid", gap: 8 }}>
-                  <button
-                    className="btn btn--ghost"
-                    type="button"
-                    onClick={() => setContractShown((current) => !current)}
-                    style={{ justifySelf: "start" }}
-                  >
-                    <Icon name={contractShown ? "chev-up" : "chev-down"} size={12}/>
-                    {t("Что приложение дописывает к промпту")}</button>
-                  {contractShown ? (
-                    <>
-                      <p style={{ margin: 0, font: "400 11.5px/1.45 var(--font-sans)", color: "var(--ink-mute)" }}>
-                         {t("Эти правила отправляются после твоего промпта при каждом запросе — они одинаковы для всех пресетов и профилей, и их нельзя отредактировать. Показаны, чтобы было видно, что модель получает целиком.")} </p>
-                      <textarea
-                        className="field mono"
-                        value={outputContract}
-                        readOnly
-                        rows={10}
-                        style={{ width: "100%", resize: "vertical", fontSize: 12, opacity: 0.75, cursor: "default" }}
-                        spellCheck={false}
-                        aria-label={t("Что приложение дописывает к промпту")}
-                      />
-                    </>
-                  ) : null}
-                </div>
-              ) : null}
             </div>
           </div>
         </Card>

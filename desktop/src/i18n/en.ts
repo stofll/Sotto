@@ -812,6 +812,7 @@ export const en: Record<string, string | string[]> = {
   "LLM: пропущено · короче {p0} сек": "LLM: skipped · shorter than {p0} s",
   "LLM: пропущено · нет ключа": "LLM: skipped · no key",
   "LLM: пропущено · нет провайдера": "LLM: skipped · no provider",
+  "LLM: пропущено · пустой промпт": "LLM: skipped · empty prompt",
   "ошибка ключа": "key error",
   "лимит": "rate limit",
   "сеть": "network",
@@ -982,10 +983,8 @@ export const en: Record<string, string | string[]> = {
     "This mode uses neither the profile nor the prompt: the LLM is never called.",
   "Панель работает на профиле «{p0}».": "This panel runs on the “{p0}” profile.",
   "Сохранить промпт": "Save prompt",
-  "Что приложение дописывает к промпту": "What the app appends to your prompt",
-  "Эти правила отправляются после твоего промпта при каждом запросе — они одинаковы для всех пресетов и профилей, и их нельзя отредактировать. Показаны, чтобы было видно, что модель получает целиком.": "These rules are sent after your prompt on every request. They are the same for every preset and profile and cannot be edited — shown here so you can see everything the model receives.",
-  "Инструкции, которые отправляются модели перед каждым запросом. Шаблон поддерживает плейсхолдеры {{language}} и {{transcript}}. Выбери пресет, сохрани и протестируй на длинной записи через «Обработать через LLM» в истории.":
-    "Instructions sent to the model with every request. The template supports the {{language}} and {{transcript}} placeholders. Pick a preset, save it, then try it on a long recording with “Process with the LLM” in the history.",
+  "Все инструкции для модели редактируются здесь. Приложение не добавляет обязательных правил. Исходный текст передаётся отдельно в блоке <dictation>. Сохрани промпт перед проверкой.":
+    "All instructions for the model are editable here. The app adds no mandatory rules. The source text is sent separately in a <dictation> block. Save the prompt before testing.",
   "Только абзацы. Безопасно для любых текстовых полей.": "Paragraphs only. Safe for any text field.",
   "Абзацы + маркированные/нумерованные списки при явном перечислении.":
     "Paragraphs plus bulleted and numbered lists when the speech clearly enumerates.",
@@ -1061,6 +1060,7 @@ export const en: Record<string, string | string[]> = {
   "Использовать существующий слот:": "Use an existing slot:",
   "Ключ": "Key",
   "нет ключа": "no key",
+  "пустой системный промпт": "empty system prompt",
   "не задан": "not set",
   "не выбран провайдер": "no provider selected",
   "Распознано": "Decoded",

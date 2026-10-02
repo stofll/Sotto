@@ -88,6 +88,7 @@ function aiStatusText(entry: HistoryEntry): string {
   if (ai.skipped_reason === "duration_below_threshold") return t("LLM: пропущено · короче {p0} сек", { p0: Math.round(ai.min_duration_seconds ?? 0) });
   if (ai.skipped_reason === "missing_api_key") return t("LLM: пропущено · нет ключа");
   if (ai.skipped_reason === "missing_provider") return t("LLM: пропущено · нет провайдера");
+  if (ai.skipped_reason === "missing_system_prompt") return t("LLM: пропущено · пустой промпт");
   return t("LLM: пропущено");
 }
 
@@ -112,6 +113,7 @@ function aiSkipLabel(code: string): string {
   if (code === "local_mode") return t("режим «локально» — LLM выключена");
   if (code === "missing_provider") return t("не выбран провайдер");
   if (code === "missing_api_key") return t("нет ключа");
+  if (code === "missing_system_prompt") return t("пустой системный промпт");
   if (code === "duration_below_threshold") return t("запись короче порога");
   const label = aiFallbackLabel(undefined, code);
   // An unmapped code is more useful raw than as the word "fallback".

@@ -33,6 +33,16 @@ Update checks use stable releases by default. Enabling **Help → Updates → Re
 
 Review provider settings before enabling a cloud workflow. Do not put secrets, transcripts, recordings, or provider responses into public bug reports.
 
+## LLM prompts
+
+The System prompt field on the AI page contains all instructions Sotto sends to the selected LLM profile. You can edit every rule; Sotto does not append mandatory instructions. The source text is sent separately inside a `<dictation>` block. The built-in presets use English instructions and preserve the language of each source passage, including mixed-language text.
+
+Save your prompt before testing it. Saved custom prompts survive updates unchanged; **Restore the built-in** replaces a custom prompt with the current preset and resumes receiving preset updates. The paragraph and list presets are starting points, and all their rules remain editable.
+
+Versions up to 0.3.2-beta.1 appended fixed response and data-boundary rules to every prompt. A custom prompt saved in those versions no longer receives them, so copy the relevant rules from a preset if you need them.
+
+Custom templates can still use `{{language}}`, `{{app}}` and `{{datetime}}`. Legacy `{{text}}` and `{{transcript}}` markers are removed from the system prompt; the source text is always sent in the separate message. An empty prompt skips LLM processing and inserts the local transcript. Response handling still removes reasoning blocks and falls back to the source text for empty responses, comments about the text or excessive word loss; changing the prompt does not disable these checks.
+
 ## Local data
 
 History, settings, telemetry outbox data, and optional audio recordings are stored locally by the application. To request help, share only the minimum redacted logs needed to reproduce a problem.

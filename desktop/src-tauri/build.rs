@@ -51,7 +51,6 @@ const APP_COMMANDS: &[&str] = &[
     "test_paste",
     "preview_sound_cue",
     "preview_output_duck",
-    "get_output_contract",
     "get_diagnostics",
     "get_public_diagnostics",
     "get_public_logs",
