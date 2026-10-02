@@ -21,6 +21,7 @@ import { InfoPage } from "./pages/InfoPage";
 import { StatsPage } from "./pages/StatsPage";
 import { TextPage } from "./pages/TextPage";
 import { actualModelLabel } from "./pages/runtimePresentation";
+import { staleBuiltInPrompt } from "./pages/aiShared";
 import { applyLocaleFromConfig, t, useLocale } from "./i18n";
 import type { OnboardingProps } from "./onboarding/Onboarding";
 import { onboardingExitTab } from "./onboarding/modelChoices";
@@ -403,6 +404,12 @@ export function MainWindow() {
         }
         // Determine which config we actually got (or fall back to null)
         const appConfig = results[1].status === "fulfilled" ? results[1].value as ConfigResult : null;
+        if (mounted && staleBuiltInPrompt(appConfig?.ai_processing)) {
+          void onConfigChanged((current) => {
+            const system_prompt = staleBuiltInPrompt(current.ai_processing);
+            return system_prompt ? { ai_processing: { system_prompt } } : {};
+          });
+        }
         const keyStatuses = await loadApiKeys(appConfig);
         if (!mounted) return;
         setApiKeys(keyStatuses);

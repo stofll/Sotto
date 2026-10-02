@@ -1,11 +1,8 @@
 //! Guard against an LLM that retells the dictation instead of tidying it up.
 //!
-//! The prompt forbids paraphrasing, shortening and dropping the author's
-//! lexis in the strongest terms it can (`PROMPT_EDIT_SCOPE` in the presets,
-//! repeated in `step::OUTPUT_CONTRACT`). Nothing checked that the model
-//! obeyed, so a summary reached the clipboard looking exactly like a clean-up:
-//! a real 3758-character transcript came back at 1957 characters with whole
-//! passages missing from the middle, and the pipeline reported success.
+//! The built-in presets ask the model to preserve the author's words. This
+//! independent response check also applies to custom prompts, so an answer
+//! that drops large passages cannot silently reach the clipboard as a clean-up.
 //!
 //! Comparing characters would be wrong here. Tidying up *adds* characters —
 //! commas, full stops, capitals, dashes, paragraph breaks — so the character

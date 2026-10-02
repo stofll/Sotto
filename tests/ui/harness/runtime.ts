@@ -130,7 +130,6 @@ export function install(seed: any = {}) {
       case 'preview_format': return { original: args.text, formatted: args.text };
       case 'preview_replacements': return { original: args.text, result: args.text, applied_count: 0, matched_rules: [] };
       case 'fetch_provider_models': return ['synthetic-model'];
-      case 'get_output_contract': return 'Return only the processed text.';
       case 'check_update': return { available: false, current_version: '0.0.5-test' };
       case 'logs_size': return 1024;
       case 'clear_logs': return 0;

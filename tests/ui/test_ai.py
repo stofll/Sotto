@@ -26,6 +26,84 @@ PROMPT_PROFILES = [
 ]
 
 
+@pytest.mark.parametrize("locale", ["ru", "en"])
+@pytest.mark.parametrize("theme", ["light", "dark"])
+def test_complete_prompt_editor(app, page, locale, theme):
+    page.set_viewport_size({"width": 1200, "height": 900})
+    ui = app(
+        config={
+            "ui_language": locale,
+            "theme": theme,
+            "ai_processing": {
+                "profiles": [{**PROMPT_PROFILES[0], "system_prompt": ""}],
+                "active_profile_id": "A",
+            },
+        },
+        keys=KEYS,
+    )
+    ui.nav("ai")
+    prompt = page.get_by_role(
+        "textbox",
+        name="Системный промпт" if locale == "ru" else "System prompt",
+        exact=True,
+    )
+    save = page.get_by_role(
+        "button",
+        name="Сохранить промпт" if locale == "ru" else "Save prompt",
+        exact=True,
+    )
+    expect(prompt).to_be_editable()
+    builtin = prompt.input_value()
+    assert "Preserve the source language" in builtin
+    assert "return the source text unchanged" in builtin
+    assert not any("\u0400" <= char <= "\u04ff" for char in builtin)
+    expect(page.locator("textarea[readonly]")).to_have_count(0)
+    prompt.focus()
+    prompt.press("Tab")
+    expect(save).to_be_focused()
+    prompt.fill("")
+    expect(save).to_be_disabled()
+    custom = "Follow these custom instructions only.\nPreserve every sentence."
+    prompt.fill(custom)
+    save.click()
+    page.wait_for_function(
+        "expected => window.__sottoTest.state.config.ai_processing.system_prompt === expected",
+        arg=custom,
+    )
+    page.reload()
+    ui.nav("ai")
+    expect(prompt).to_have_value(custom)
+    page.get_by_role(
+        "button",
+        name="Вернуть встроенный" if locale == "ru" else "Restore the built-in",
+        exact=True,
+    ).last.click()
+    expect(prompt).to_have_value(builtin)
+    assert ui.state()["config"]["ai_processing"]["profiles"][0]["system_prompt"] == ""
+
+
+@pytest.mark.parametrize("custom", [False, True])
+def test_startup_refreshes_only_a_stale_built_in_prompt(app, page, custom):
+    profile = {**PROMPT_PROFILES[0], "system_prompt": "Prompt A" if custom else ""}
+    ui = app(
+        config={
+            "ai_processing": {
+                "profiles": [profile],
+                "active_profile_id": "A",
+                "system_prompt": "Prompt A" if custom else "Old built-in prompt.",
+            },
+        },
+        keys=KEYS,
+    )
+    ui.nav("ai")
+    shown = page.get_by_role("textbox", name="Системный промпт", exact=True).input_value()
+    assert (shown == "Prompt A") == custom
+    page.wait_for_function(
+        "expected => window.__sottoTest.state.config.ai_processing.system_prompt === expected",
+        arg=shown,
+    )
+
+
 @pytest.mark.parametrize("failure", [False, True])
 def test_profile_prompt_resets_after_unrelated_save(app, page, failure):
     ui = app(

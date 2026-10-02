@@ -5,9 +5,8 @@
 //! [`run`] names them by path. What stays here is what has no single domain:
 //!
 //! - `run()` and `setup()`: window, tray, hotkey, engine and worker wiring.
-//! - The app-level commands (`app_version`, `get_runtime_status`,
-//!   `get_output_contract`) — they answer for the application, not for one
-//!   of its parts.
+//! - The app-level commands (`app_version`, `get_runtime_status`) — they
+//!   answer for the application, not for one of its parts.
 //! - The dictation pipeline, from `on_recording_started` to
 //!   `post_process_transcription`. It is the app's main flow rather than a
 //!   module's, and its post-processing half is shared: `audio_file` runs the
@@ -169,17 +168,6 @@ mod db_op_tests {
         .expect("read after poisoning should succeed");
         assert_eq!(count, 0);
     }
-}
-
-/// The rules appended to every system prompt, verbatim.
-///
-/// The settings page shows this read-only under the prompt editor. Without it
-/// the character counter under the textarea understates what the model is
-/// given by the length of this block, and a user debugging the LLM's
-/// behaviour is reading only half of its instructions.
-#[tauri::command]
-fn get_output_contract() -> String {
-    crate::ai::step::output_contract().to_string()
 }
 
 /// Return the app version string (from Cargo.toml).
@@ -1632,7 +1620,6 @@ pub fn run() {
             clipboard::test_paste,
             sounds::preview_sound_cue,
             output_volume::preview_output_duck,
-            get_output_contract,
             debug::get_diagnostics,
             feedback::get_public_diagnostics,
             feedback::get_public_logs,
