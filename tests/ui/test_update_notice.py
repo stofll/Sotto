@@ -151,6 +151,7 @@ def test_dismissed_notice_reappears_after_a_day(app, page):
     "finish", ["whisper-empty", "whisper-cancelled", "paste-done", "whisper-failed"]
 )
 def test_notice_waits_for_dictation(app, page, finish):
+    page.clock.install()
     ui = app(responses={"check_update": [{"hold": True}]})
     ui.emit("recording-started", 1)
     ui.settle("check_update", result=UPDATE)
@@ -158,6 +159,11 @@ def test_notice_waits_for_dictation(app, page, finish):
     ui.emit("recording-stopped", 1)
     expect(page.get_by_test_id("update-notice")).not_to_be_visible()
     ui.emit(finish, 1)
+    if finish in {"paste-done", "whisper-failed"}:
+        expect(page.get_by_test_id("update-notice")).not_to_be_visible()
+        assert "update_reminder_shown_at" not in ui.state()["config"]
+        # Settle transient completion/error feedback without wall-clock races.
+        page.clock.fast_forward(6_000)
     expect(page.get_by_test_id("update-notice")).to_be_visible()
 
 
