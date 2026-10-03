@@ -1,0 +1,8 @@
+# Redirects for the static assets, read by Cloudflare Workers at deploy time.
+# The file itself is never served.
+#
+# Crawlers and browsers ask for these conventional paths whether or not a page
+# links to them. The real files keep the names Astro and `pnpm brand` give them.
+
+/sitemap.xml  /sitemap-index.xml  301
+/favicon.ico  /brand/sotto-icon.png  301
