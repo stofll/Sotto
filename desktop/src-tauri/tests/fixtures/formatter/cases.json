@@ -742,5 +742,119 @@
         ]
       }
     }
+  },
+  {
+    "id": "capitalized-hesitations",
+    "category": "fillers",
+    "input": "А-а, проверим схему. Хмм, затем сохраним результат.",
+    "expected": "Проверим схему. Затем сохраним результат."
+  },
+  {
+    "id": "capitalized-eh-after-period",
+    "category": "fillers",
+    "input": "Проверка завершена.Э теперь сохраним результат.",
+    "expected": "Проверка завершена. Теперь сохраним результат."
+  },
+  {
+    "id": "capitalized-held-sounds",
+    "category": "fillers",
+    "input": "Э-э, М-м-м, О-о, Ааа, всё готово.",
+    "expected": "Всё готово."
+  },
+  {
+    "id": "drawn-conjunction",
+    "category": "fillers",
+    "input": "И-и-и проверим схему и-и-и сохраним результат.",
+    "expected": "И проверим схему и сохраним результат."
+  },
+  {
+    "id": "single-letter-words",
+    "category": "fillers",
+    "input": "Речь о проекте, а затем и о тестировании.",
+    "expected": "Речь о проекте, а затем и о тестировании."
+  },
+  {
+    "id": "initials-and-acronyms",
+    "category": "fillers",
+    "input": "Доклад подготовили М. А. Иванов и Э. Р. Соколов для АА и ММ.",
+    "expected": "Доклад подготовили М. А. Иванов и Э. Р. Соколов для АА и ММ."
+  },
+  {
+    "id": "hesitations-in-code",
+    "category": "fillers",
+    "input": "Пример: `А-а, Хмм, И-и-и`.",
+    "expected": "Пример: `А-а, Хмм, И-и-и`."
+  },
+  {
+    "id": "hesitations-disabled",
+    "category": "fillers",
+    "input": "А-а, Хмм, И-и-и проверим схему.",
+    "expected": "А-а, Хмм, И-и-и проверим схему.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "remove_fillers": false
+      }
+    }
+  },
+  {
+    "id": "hesitation-replacement-priority",
+    "category": "fillers",
+    "input": "Хмм, проверим схему.",
+    "expected": "Маркер, проверим схему.",
+    "config": {
+      "language": "ru",
+      "replacement_rules": [
+        {
+          "find": "Хмм",
+          "replace": "маркер",
+          "match": "word",
+          "enabled": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "capitalized-sound-only",
+    "category": "fillers",
+    "input": "А-а",
+    "expected": "",
+    "transcription_expected": "А-а"
+  },
+  {
+    "id": "conjunction-only",
+    "category": "fillers",
+    "input": "И-и-и",
+    "expected": "И."
+  },
+  {
+    "id": "hesitation-inside-compound",
+    "category": "fillers",
+    "input": "Это Хмм-тест и-и-и-тест.",
+    "expected": "Это Хмм-тест и-и-и-тест."
+  },
+  {
+    "id": "capital-letter-name",
+    "category": "fillers",
+    "input": "Сравни букву Э и букву М.",
+    "expected": "Сравни букву Э и букву М."
+  },
+  {
+    "id": "nonbreaking-hyphen-fillers",
+    "category": "fillers",
+    "input": "Это Хмм‑тест и-и-и‑тест.",
+    "expected": "Это Хмм‑тест и-и-и‑тест."
+  },
+  {
+    "id": "filler-preserves-clause-comma",
+    "category": "fillers",
+    "input": "Изменим описание А-а, чтобы его было проще прочитать.",
+    "expected": "Изменим описание, чтобы его было проще прочитать."
+  },
+  {
+    "id": "filler-between-commas",
+    "category": "fillers",
+    "input": "Продолжим, Хмм, после проверки.",
+    "expected": "Продолжим, после проверки."
   }
 ]

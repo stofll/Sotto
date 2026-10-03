@@ -12,6 +12,8 @@
 //! `Send + Sync`, so the wrappers here opt back out with a `PhantomData` — the
 //! single-thread rule is checked by the compiler rather than by convention.
 
+mod stitching;
+
 #[cfg(any(windows, target_os = "macos"))]
 use std::marker::PhantomData;
 #[cfg(any(windows, target_os = "macos"))]
@@ -488,6 +490,64 @@ mod tests {
         assert!(result.unwrap_err().contains("cancelled"));
     }
 
+    #[test]
+    fn longform_rechecks_the_seam_without_replacing_recognized_words() {
+        let audio = vec![0.0; 26 * 16_000];
+        for (context, expected) in [
+            (
+                Ok("Остались новые записи для проверки"),
+                "Остались новые записи для проверки.",
+            ),
+            (
+                Ok("Остались старые записи для проверки"),
+                "Остались новые Записи для проверки.",
+            ),
+            (
+                Err("synthetic context failure"),
+                "Остались новые Записи для проверки.",
+            ),
+        ] {
+            let mut responses =
+                [Ok("Остались новые"), Ok("Записи для проверки."), context].into_iter();
+            let text = transcribe_gigaam_segments(
+                &audio,
+                || false,
+                |_| {
+                    responses
+                        .next()
+                        .unwrap()
+                        .map(str::to_owned)
+                        .map_err(str::to_owned)
+                },
+            )
+            .unwrap();
+            assert_eq!(text, expected);
+        }
+    }
+
+    #[test]
+    fn cancellation_during_boundary_recheck_discards_the_entire_result() {
+        let cancelled = std::cell::Cell::new(false);
+        let audio = vec![0.0; 26 * 16_000];
+        let mut calls = 0;
+        let result = transcribe_gigaam_segments(
+            &audio,
+            || cancelled.get(),
+            |_| {
+                calls += 1;
+                match calls {
+                    1 => Ok("Остались новые".into()),
+                    2 => Ok("Записи для проверки.".into()),
+                    _ => {
+                        cancelled.set(true);
+                        Ok("Остались новые записи для проверки".into())
+                    }
+                }
+            },
+        );
+        assert!(result.unwrap_err().contains("cancelled"));
+    }
+
     #[cfg(any(windows, target_os = "macos"))]
     #[test]
     fn rejects_invalid_thread_count_before_ffi() {
@@ -811,12 +871,34 @@ fn transcribe_gigaam_segments(
         if cancelled() {
             return Err(cancel_error());
         }
-        let fragment = decode(&samples[range])?;
+        let fragment = decode(&samples[range.clone()])?;
         if cancelled() {
             return Err(cancel_error());
         }
         let fragment = fragment.trim();
         if !fragment.is_empty() {
+            if stitching::needs_context(&text, fragment) {
+                if cancelled() {
+                    return Err(cancel_error());
+                }
+                // Independent fragments lose sentence context at their edges.
+                // Recheck only the seam; a disagreement must never replace words.
+                let start = range.start.saturating_sub(4 * 16_000);
+                let end = (range.start + 4 * 16_000).min(range.end);
+                let context = decode(&samples[start..end]);
+                if cancelled() {
+                    return Err(cancel_error());
+                }
+                if let Ok(context) = context {
+                    if let Some(boundary) = stitching::recover(&text, fragment, &context) {
+                        text.push_str(boundary.punctuation);
+                        text.push(' ');
+                        text.push(boundary.initial);
+                        text.push_str(&fragment[fragment.chars().next().unwrap().len_utf8()..]);
+                        continue;
+                    }
+                }
+            }
             if !text.is_empty() {
                 text.push(' ');
             }

@@ -155,16 +155,20 @@ pub const PARASITE_PRESETS: &[ParasitePreset] = &[
 /// vowels, run together or split by a hyphen or a space. Written as a single
 /// letter it is left alone, so «речь о том, а потом мы всё переделали» keeps its
 /// preposition and its conjunction instead of collapsing into «речь том что
-/// потом». «Э» and «м» need no such guard: neither is a Russian word.
+/// потом». Capitalized sounds accept a lowercase continuation, preserving
+/// uppercase abbreviations. A single capital «Э» is removed only at a sentence
+/// start without a following dot; elsewhere it can be a letter name or initial.
 ///
 /// These are applied to every dictation, whatever the language: Cyrillic cannot
 /// match a text written in any other alphabet, so there is nothing to gate.
 const RUSSIAN_FILLER_PATTERNS: &[&str] = &[
-    r"\b(э+[-\s]*)+\b",
+    r"\b[Ээ]э*(?:[-\s]+э+)*\b",
     r"\b(м+[-\s]*)+\b",
-    r"\bа+(?:[-\s]*а+)+\b",
-    r"\bо+(?:[-\s]*о+)+\b",
-    r"\bну-+у*\b",
+    r"\bМ(?:м+|[-\s]+м+)(?:[-\s]+м+)*\b",
+    r"\b[Аа]а*(?:[-\s]*а+)+\b",
+    r"\b[Оо]о*(?:[-\s]*о+)+\b",
+    r"\b[Хх]мм+\b",
+    r"\b[Нн]у-+у*\b",
     r"\bмм-+\b",
 ];
 
@@ -191,10 +195,7 @@ const RUSSIAN_FILLER_PATTERNS: &[&str] = &[
 /// than the setting) counts as not-English: failing to strip a filler costs a
 /// word of noise, stripping a pronoun costs the sentence.
 ///
-/// `(?i)` is here because an engine capitalises the first word of a sentence
-/// and a filler is very often that word. The Cyrillic patterns have never had
-/// it and still miss a capitalised «Ну» — a separate gap, not one this list
-/// should fix quietly.
+/// Case-insensitive because a filler often starts a sentence.
 const ENGLISH_FILLER_PATTERNS: &[&str] = &[
     r"(?i)\buh+m*\b",
     r"(?i)\bum+\b",
@@ -210,7 +211,10 @@ fn default_filler_patterns(language: Option<&str>) -> &'static [Regex] {
     fn compile(sets: &[&[&str]]) -> Vec<Regex> {
         sets.iter()
             .flat_map(|set| set.iter())
-            .map(|pattern| Regex::new(pattern).expect("valid filler pattern"))
+            .map(|pattern| {
+                Regex::new(&format!(r"(?P<sound>{pattern})(?:[ \t]*,)?"))
+                    .expect("valid filler pattern")
+            })
             .collect()
     }
     static RUSSIAN: LazyLock<Vec<Regex>> = LazyLock::new(|| compile(&[RUSSIAN_FILLER_PATTERNS]));
@@ -994,6 +998,11 @@ pub struct FillerWordsRemover {
     patterns: &'static [Regex],
 }
 
+// A drawn-out conjunction still connects clauses; keep one letter rather
+// than treating it as a sound to delete. Do not match all-capital identifiers.
+static DRAWN_CONJUNCTION: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b[Ии](?:-и){2,}\b").expect("valid conjunction pattern"));
+
 impl FillerWordsRemover {
     /// `language` is the dictation language, and decides whether the English
     /// sounds are in force — see [`ENGLISH_FILLER_PATTERNS`].
@@ -1021,19 +1030,43 @@ impl FormatStep for FillerWordsRemover {
             out = pattern
                 .replace_all(&out, |caps: &regex::Captures| {
                     let matched = caps.get(0).unwrap();
+                    let sound = caps.name("sound").unwrap();
                     let before = out[..matched.start()].chars().next_back();
-                    let after = out[matched.end()..].chars().next();
-                    if before == Some('-')
-                        || (matched.as_str().ends_with('-')
-                            && after.is_some_and(char::is_alphabetic))
+                    let after = out[sound.end()..].chars().next();
+                    let prefix = out[..sound.start()].trim_end();
+                    if before.is_some_and(|c| matches!(c, '-' | '‑' | '–' | '\''))
+                        || after.is_some_and(|c| matches!(c, '-' | '‑' | '–' | '\''))
+                        || (sound.as_str() == "Э"
+                            && (after == Some('.')
+                                || (!prefix.is_empty() && !prefix.ends_with(['.', '!', '?', '…']))))
+                        || (sound.as_str().ends_with('-') && after.is_some_and(char::is_alphabetic))
                     {
                         matched.as_str().to_string()
+                    } else if matched.end() > sound.end()
+                        && !prefix.is_empty()
+                        && !prefix.ends_with(['.', '!', '?', '…', ','])
+                    {
+                        // Inside a clause the comma may belong to its grammar,
+                        // e.g. a hesitation immediately before «чтобы».
+                        ",".to_owned()
                     } else {
                         String::new()
                     }
                 })
                 .into_owned();
         }
+        out = DRAWN_CONJUNCTION
+            .replace_all(&out, |caps: &regex::Captures| {
+                let matched = caps.get(0).unwrap();
+                if out[..matched.start()].ends_with(['-', '‑', '–', '\''])
+                    || out[matched.end()..].starts_with(['-', '‑', '–', '\''])
+                {
+                    matched.as_str().to_owned()
+                } else {
+                    matched.as_str().chars().next().unwrap().to_string()
+                }
+            })
+            .into_owned();
         out = MULTI_SPACE.replace_all(&out, " ").into_owned();
         out.trim().to_string()
     }
