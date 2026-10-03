@@ -13,3 +13,10 @@ allowBuilds:
   # on any unreviewed build script. workerd's script sets up the binary behind
   # `wrangler dev`, which a static-assets deploy never starts.
   workerd: false
+
+auditConfig:
+  ignoreGhsas:
+    # http-cache-semantics <= 4.2.0 via astro; 4.2.1 is not on npm yet. Astro
+    # uses it only for its build-time remote-image cache, and this static site
+    # has no runtime cache to leak. Remove with the lockfile update in #86.
+    - GHSA-ch52-4w7c-c8xp
