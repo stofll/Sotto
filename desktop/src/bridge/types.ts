@@ -121,6 +121,8 @@ export interface ConfigResult {
   telemetry_enabled?: boolean;
   /** Include published beta updates. Absent means false, even in a beta build. */
   receive_beta_updates?: boolean;
+  /** Last update reminder shown, in Unix milliseconds. Absent means never shown. */
+  update_reminder_shown_at?: number;
   /** Product session inactivity timeout, in minutes. Default 30.
    *  It has no control in the UI: the value is managed by Rust, and the field is
    *  described here so that `save_config` does not drop it when saving. */

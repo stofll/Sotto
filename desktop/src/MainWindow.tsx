@@ -7,6 +7,7 @@ import { Sidebar, TitleBar, type TabId, type DownloadProgress } from "./componen
 import { Icon } from "./components/Icon";
 import { WhatsNewDialog } from "./components/WhatsNewDialog";
 import { AccessibilityNotice } from "./components/AccessibilityNotice";
+import { UpdateNotice } from "./components/UpdateNotice";
 import { TelemetryConsentCard } from "./pages/settings/TelemetryControl";
 import { shouldOfferTelemetryConsent } from "./pages/telemetrySettings";
 import { applyAccent, resolveAccent, storedAccent } from "./accent";
@@ -444,6 +445,13 @@ export function MainWindow() {
   return (
     <div className="app-frame" style={{ width: "100%", height: "100%", padding: 0 }}>
       {!loading && !introductionShown && !onboardingActive && <WhatsNewDialog ready={recordingState === "idle"}/>}
+      {!loading && config && !onboardingActive && <UpdateNotice
+        receiveBeta={config.receive_beta_updates === true}
+        ready={recordingState === "idle" && tab !== "info"}
+        lastShownAt={config.update_reminder_shown_at}
+        onShown={(timestamp) => { void onConfigChanged({ update_reminder_shown_at: timestamp }, () => {}); }}
+        onDetails={() => setTab("info")}
+      />}
       <div className={`win${collapsed && !onboardingActive ? " collapsed" : ""}`}>
         <TitleBar actionsRef={setOnboardingToolbar} collapsed={collapsed && !onboardingActive} fullWidth={onboardingActive} onToggleCollapse={onboardingActive ? undefined : toggleSidebarCollapse}/>
         <div className={`win__layout${onboardingActive ? " win__layout--onboarding" : collapsed ? " collapsed" : ""}`}>
