@@ -238,7 +238,10 @@ class App:
         self.allowed_asset_failures.append(pattern)
 
     def nav(self, tab):
-        group = self.page.get_by_test_id(f"nav-group-{NAV_GROUPS[tab]}")
+        # Collapsing group labels can briefly remain visible during the transition.
+        group = self.page.locator(".win__layout:not(.collapsed)").get_by_test_id(
+            f"nav-group-{NAV_GROUPS[tab]}"
+        )
         if group.is_visible() and group.get_attribute("aria-expanded") == "false":
             group.click()
             # The items slide open under `overflow: hidden`; a click during that

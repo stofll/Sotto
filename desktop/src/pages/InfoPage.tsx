@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { invoke, subscribe } from "../bridge";
+import { checkUpdate } from "../bridge/updates";
 import type { ConfigResult, UpdateDownloadProgress, UpdateInfo } from "../bridge/types";
 import { Card, CardHead, PageHeader, SectionLabel, Switch } from "../components/Shell";
 import { Icon } from "../components/Icon";
@@ -71,7 +72,7 @@ function UpdatesCard({ version, config, onConfigChanged }: { version?: string | 
     const generation = ++requestGeneration.current;
     setState({ kind: "checking" });
     try {
-      const info = await invoke<UpdateInfo>("check_update");
+      const info = await checkUpdate(receiveBeta);
       if (generation !== requestGeneration.current) return;
       setState(info.available ? { kind: "available", info } : { kind: "current" });
     } catch (e) {
@@ -80,7 +81,7 @@ function UpdatesCard({ version, config, onConfigChanged }: { version?: string | 
       // A silent check on open must not shout about a missing network.
       setState(loud ? { kind: "error", message } : { kind: "idle" });
     }
-  }, []);
+  }, [receiveBeta]);
 
   useEffect(() => {
     if (!configReady) return;

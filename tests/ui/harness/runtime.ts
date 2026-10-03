@@ -143,6 +143,9 @@ export function install(seed: any = {}) {
       case 'set_model': return null;
       case 'delete_model': state.models.forEach((m: ModelInfo) => { if (m.id === args.model) m.downloaded = false; }); persist(); return null;
       case 'plugin:window|is_maximized': return false;
+      case 'plugin:window|is_visible': return seed.window_visible ?? true;
+      case 'plugin:window|is_minimized': return seed.window_minimized ?? false;
+      case 'plugin:window|is_focused': return seed.window_focused ?? true;
       case 'plugin:window|minimize': case 'plugin:window|toggle_maximize': case 'plugin:window|close':
       case 'plugin:window|start_dragging': case 'overlay_ready': case 'hide':
       case 'set_overlay_presentation': case 'open_url':
