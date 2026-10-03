@@ -1080,9 +1080,8 @@ fn definition(model_id: &str) -> Result<&'static ModelDefinition, String> {
         .ok_or_else(|| format!("UNKNOWN_MODEL: {model_id}"))
 }
 
-/// The cache directory from before the app was renamed to Sotto. It exists only
-/// for the migration: those who installed early builds have already-downloaded
-/// models here — gigabytes of them, and losing those to a rename is not on.
+/// Retained for the Windows uninstaller only.
+#[cfg(windows)]
 const LEGACY_CACHE_DIR: &str = "whisper-desktop";
 const CACHE_DIR: &str = "sotto";
 
@@ -1097,7 +1096,7 @@ pub fn models_dir() -> Result<PathBuf, String> {
     }
     let cache =
         dirs::cache_dir().ok_or_else(|| "MODEL_CACHE_UNAVAILABLE: no cache dir".to_string())?;
-    Ok(migrate_legacy_cache(&cache).join("models"))
+    Ok(cache.join(CACHE_DIR).join("models"))
 }
 
 /// The model directories this app creates when neither the portable folder
@@ -1112,31 +1111,6 @@ pub(crate) fn default_models_dirs() -> Vec<PathBuf> {
         .iter()
         .map(|name| cache.join(name).join("models"))
         .collect()
-}
-
-/// Return the cache directory, migrating the old one along the way if it has
-/// not been migrated yet.
-///
-/// A rename is a single move within one volume, so no copy and no half-state
-/// arises. If the rename failed (permissions, an open file, a read-only volume)
-/// we return the old path: working models matter more than a tidy directory
-/// name, and the attempt can be repeated on the next launch.
-fn migrate_legacy_cache(cache: &Path) -> PathBuf {
-    let current = cache.join(CACHE_DIR);
-    let legacy = cache.join(LEGACY_CACHE_DIR);
-    if current.exists() || !legacy.is_dir() {
-        return current;
-    }
-    match std::fs::rename(&legacy, &current) {
-        Ok(()) => {
-            log::info!("model cache moved from {LEGACY_CACHE_DIR} to {CACHE_DIR}");
-            current
-        }
-        Err(error) => {
-            log::warn!("model cache stays at {LEGACY_CACHE_DIR}: {error}");
-            legacy
-        }
-    }
 }
 
 pub fn model_path(model_id: &str) -> Result<PathBuf, String> {
@@ -1724,50 +1698,6 @@ pub(crate) async fn delete_model(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// A broken cache migration costs gigabytes of traffic: a user of earlier
-    /// builds has already-downloaded models in the old directory.
-    mod cache_migration {
-        use super::*;
-
-        #[test]
-        fn a_legacy_directory_moves_to_the_new_name() {
-            let root = tempfile::tempdir().unwrap();
-            let legacy = root.path().join(LEGACY_CACHE_DIR).join("models");
-            std::fs::create_dir_all(&legacy).unwrap();
-            std::fs::write(legacy.join("ggml-turbo.bin"), b"weights").unwrap();
-
-            let resolved = migrate_legacy_cache(root.path());
-
-            assert_eq!(resolved, root.path().join(CACHE_DIR));
-            assert!(resolved.join("models").join("ggml-turbo.bin").is_file());
-            assert!(!root.path().join(LEGACY_CACHE_DIR).exists());
-        }
-
-        /// An already-migrated directory must not be touched: the old one may
-        /// be left over from a build installed alongside, and its contents would
-        /// overwrite the new.
-        #[test]
-        fn an_existing_new_directory_wins_over_the_legacy_one() {
-            let root = tempfile::tempdir().unwrap();
-            std::fs::create_dir_all(root.path().join(CACHE_DIR).join("models")).unwrap();
-            std::fs::create_dir_all(root.path().join(LEGACY_CACHE_DIR).join("models")).unwrap();
-
-            let resolved = migrate_legacy_cache(root.path());
-
-            assert_eq!(resolved, root.path().join(CACHE_DIR));
-            assert!(root.path().join(LEGACY_CACHE_DIR).exists());
-        }
-
-        #[test]
-        fn a_clean_install_just_gets_the_new_path() {
-            let root = tempfile::tempdir().unwrap();
-            assert_eq!(
-                migrate_legacy_cache(root.path()),
-                root.path().join(CACHE_DIR)
-            );
-        }
-    }
 
     #[test]
     fn turbo_aliases_resolve_to_public_id() {

@@ -315,7 +315,7 @@ const TOTAL_TO_DAILY_COLUMN: &[(&str, &str)] = &[
 /// A lifetime total can legitimately EXCEED the sum of retained daily rows —
 /// `stats_daily` keeps a year, the counters keep everything. It can never be
 /// smaller: every write bumps both in one transaction. Where it is smaller, the
-/// counter was overwritten by the legacy import (see `db::migrate_from_json`),
+/// counter may have been overwritten by a legacy import in an older build,
 /// and the daily sum is the better of the two numbers we have.
 ///
 /// Only ever raises a counter, so a user with more than a year of history keeps

@@ -36,7 +36,9 @@ pnpm exec tsc -p ../tests/ui/tsconfig.json
 
 ## Refresh README screenshots
 
-`test_readme_screenshots.py` renders Settings and Models in both locales and themes using synthetic configuration, model state and speed indicators. It is skipped during ordinary runs and never starts the native application or reads user data. On Windows, generate candidates from the repository root:
+`test_readme_screenshots.py` renders Settings, Models and History in both locales and themes. `readme_models.py` reads the Windows/macOS catalog metadata from the Rust manifests in `model.rs` and matches speed references from `model_reference.json`; unsupported manifest syntax fails the capture instead of silently retaining a partial catalog. Installation, selection, configuration and localized example transcripts are synthetic. Three history entries have saved-recording metadata so the playback controls appear; a fourth illustrates an entry without audio.
+
+The capture is skipped during ordinary runs and never starts the native application or reads user data. On Windows, generate candidates from the repository root:
 
 ```powershell
 $env:SOTTO_README_SHOTS_DIR = Join-Path $env:TEMP "sotto-readme-shots"
@@ -44,7 +46,28 @@ uv run --locked --project tests/ui pytest tests/ui/test_readme_screenshots.py --
 Remove-Item Env:SOTTO_README_SHOTS_DIR
 ```
 
-Review all eight generated PNGs before copying them to `docs/images/` with the same filenames. Settings uses a 1200×680 viewport and Models uses 1280×930, both at device scale 2. The screenshots illustrate current UI; their synthetic model state does not establish native performance.
+Review all twelve generated PNGs before copying them to `docs/images/` with the same filenames. Settings uses a 1200×680 viewport, Models uses 1280×930, and History uses 1200×780, all at device scale 2. The test checks the complete catalog before collapsing Whisper for the Models capture; models below the viewport remain available by scrolling. History uses a fixed clock to keep relative dates consistent. The screenshots illustrate current UI; they do not establish native performance or audio playback.
+
+## Refresh the README overlay demos
+
+`test_readme_overlay_demo.py` records the actual constructor in Russian and English using the same isolated harness and the constructor's built-in simulated voice. It creates a graphite matrix bead and a light overlay with a streaming draft, previews processing and insertion, saves both templates, and switches between them. The application stays in its dark theme throughout. No native application, microphone, transcription or user configuration is involved. It is skipped unless an output directory is supplied.
+
+With the browser dependencies above and FFmpeg on `PATH`, run from the repository root:
+
+```powershell
+$env:SOTTO_OVERLAY_DEMO_DIR = Join-Path $env:TEMP "sotto-overlay-readme"
+uv run --locked --project tests/ui pytest tests/ui/test_readme_overlay_demo.py --browser chromium
+if ($LASTEXITCODE -ne 0) { throw "Overlay capture failed" }
+foreach ($locale in @("ru", "en")) {
+    $video = Get-Content (Join-Path $env:SOTTO_OVERLAY_DEMO_DIR "overlay-$locale-video.txt")
+    $gif = Join-Path $env:SOTTO_OVERLAY_DEMO_DIR "overlay-constructor-$locale.gif"
+    ffmpeg -y -ss 1 -i $video -vf "fps=8,scale=1000:-1:flags=lanczos,hqdn3d=3:3:4:4,split[a][b];[a]palettegen=max_colors=96:stats_mode=diff[p];[b][p]paletteuse=dither=none:diff_mode=rectangle" -loop 0 $gif
+    if ($LASTEXITCODE -ne 0) { throw "GIF conversion failed" }
+}
+Remove-Item Env:SOTTO_OVERLAY_DEMO_DIR
+```
+
+Review both GIFs and the captured PNG checkpoints for readable text, the expected templates and colors, and clean transitions before copying only `overlay-constructor-ru.gif` and `overlay-constructor-en.gif` into `docs/images/`. Keep the raw videos and checkpoints outside the repository. These are recordings of browser-rendered product UI with synthetic state, not evidence of native dictation or window behavior.
 
 ## Test boundary and isolation
 

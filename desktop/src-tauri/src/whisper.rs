@@ -810,10 +810,8 @@ use std::path::PathBuf;
 /// Resolve the on-disk path for a model by name.
 ///
 /// Convention: `<cache_dir>/sotto/models/ggml-<name>.bin`. The directory
-/// itself — including the move from the pre-rename `whisper-desktop` — is
-/// decided by [`crate::model::models_dir`]. This function used to spell the
-/// same path out a second time, which is exactly the copy that the rename
-/// would have left behind pointing at the old directory.
+/// itself is decided by [`crate::model::models_dir`], so the path is spelled
+/// out in one place only.
 pub fn resolve_model_path(model_name: &str) -> Result<PathBuf, String> {
     let models_dir = crate::model::models_dir()?;
     std::fs::create_dir_all(&models_dir).map_err(|e| format!("create models dir: {e}"))?;

@@ -13,15 +13,11 @@
 //! - `username` = key slot ref (legacy slots used the provider id)
 //! - `password` = the raw API key
 //!
-//! Builds up to 0.1.3 stored keys under the pre-rename service
-//! `"speech-to-text"`. A key found only there is moved to the current service
-//! the first time it is read, so no one has to enter their keys again.
-//! stofll/Sotto#40 tracks removing the move.
-//!
 //! Labels are not persisted by this module; save commands echo the label
 //! supplied by the caller, while metadata reads return an empty label.
 
 const SERVICE: &str = "sotto";
+#[cfg(any(windows, test))]
 const LEGACY_SERVICE: &str = "speech-to-text";
 
 /// Characters the long mask keeps from each end of the key, and the prefix the
@@ -30,13 +26,7 @@ const HEAD: usize = 6;
 const TAIL: usize = 4;
 const SHORT_HEAD: usize = 2;
 
-/// Held for the whole of every save, read and delete. Moving a legacy key
-/// writes a value read a step earlier, so a save or delete landing in between
-/// would be overwritten or undone.
-static STORE: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-/// The operations this module needs from a credential store, so the move from
-/// the legacy service can be tested without touching the real one.
+/// Credential operations, injectable so tests never touch the real store.
 trait Vault {
     fn get(&self, service: &str, slot: &str) -> Result<Option<String>, String>;
     fn set(&self, service: &str, slot: &str, secret: &str) -> Result<(), String>;
@@ -106,12 +96,7 @@ fn save_key_in(vault: &impl Vault, slot: &str, key: &str) -> Result<bool, String
     if key.trim().is_empty() {
         return Err("SECRET_STORE_EMPTY_KEY: refusing to save an empty key".to_string());
     }
-    let _store = crate::mutex_recover::lock(&STORE);
     vault.set(SERVICE, slot, key)?;
-    // A replaced key must not survive under the old name.
-    if let Err(error) = vault.delete(LEGACY_SERVICE, slot) {
-        log::warn!("legacy API key {slot} not removed: {error}");
-    }
     Ok(true)
 }
 
@@ -120,28 +105,7 @@ pub fn get_key(provider: &str) -> Result<Option<String>, String> {
 }
 
 fn get_key_in(vault: &impl Vault, slot: &str) -> Result<Option<String>, String> {
-    let _store = crate::mutex_recover::lock(&STORE);
-    if let Some(key) = vault.get(SERVICE, slot)? {
-        return Ok(Some(key));
-    }
-    let Some(key) = vault.get(LEGACY_SERVICE, slot)? else {
-        return Ok(None);
-    };
-    // The legacy entry goes only once the copy reads back: a failed move keeps
-    // the key readable from the old service and is retried on the next read.
-    let copied = vault
-        .set(SERVICE, slot, &key)
-        .and_then(|()| vault.get(SERVICE, slot));
-    match copied {
-        Ok(Some(copy)) if copy == key => {
-            if let Err(error) = vault.delete(LEGACY_SERVICE, slot) {
-                log::warn!("legacy API key {slot} not removed: {error}");
-            }
-        }
-        Ok(_) => log::warn!("API key {slot} did not read back after the move"),
-        Err(error) => log::warn!("API key {slot} not moved: {error}"),
-    }
-    Ok(Some(key))
+    vault.get(SERVICE, slot)
 }
 
 pub fn get_key_meta(provider: &str) -> Result<Option<KeyMeta>, String> {
@@ -168,10 +132,7 @@ pub fn delete_key(provider: &str) -> Result<bool, String> {
 }
 
 fn delete_key_in(vault: &impl Vault, slot: &str) -> Result<bool, String> {
-    let _store = crate::mutex_recover::lock(&STORE);
-    let current = vault.delete(SERVICE, slot)?;
-    let legacy = vault.delete(LEGACY_SERVICE, slot)?;
-    Ok(current || legacy)
+    vault.delete(SERVICE, slot)
 }
 
 /// Delete every API key Sotto stored, under either service name. Run by the
@@ -447,41 +408,20 @@ mod tests {
     }
 
     #[test]
-    fn a_legacy_key_moves_to_the_current_service_on_first_read() {
+    fn a_legacy_key_is_neither_read_nor_moved() {
         let vault = MemoryVault::with(LEGACY_SERVICE, "openai", "sk-legacy");
-
-        assert_eq!(
-            get_key_in(&vault, "openai").unwrap().as_deref(),
-            Some("sk-legacy")
-        );
-
-        assert!(vault.has(SERVICE, "openai"));
-        assert!(!vault.has(LEGACY_SERVICE, "openai"));
-        assert_eq!(
-            get_key_in(&vault, "openai").unwrap().as_deref(),
-            Some("sk-legacy")
-        );
-    }
-
-    #[test]
-    fn a_failed_move_keeps_the_legacy_key_readable() {
-        let vault = MemoryVault {
-            failing_set: true,
-            ..MemoryVault::with(LEGACY_SERVICE, "openai", "sk-legacy")
-        };
-
-        assert_eq!(
-            get_key_in(&vault, "openai").unwrap().as_deref(),
-            Some("sk-legacy")
-        );
+        assert_eq!(get_key_in(&vault, "openai").unwrap(), None);
+        assert!(!vault.has(SERVICE, "openai"));
         assert!(vault.has(LEGACY_SERVICE, "openai"));
     }
 
     #[test]
-    fn the_current_key_wins_over_a_stale_legacy_one() {
-        let vault = MemoryVault::with(SERVICE, "openai", "sk-current");
-        vault.put(LEGACY_SERVICE, "openai", "sk-stale");
-
+    fn a_failed_save_preserves_the_current_key() {
+        let vault = MemoryVault {
+            failing_set: true,
+            ..MemoryVault::with(SERVICE, "openai", "sk-current")
+        };
+        assert!(save_key_in(&vault, "openai", "sk-new").is_err());
         assert_eq!(
             get_key_in(&vault, "openai").unwrap().as_deref(),
             Some("sk-current")
@@ -489,10 +429,10 @@ mod tests {
     }
 
     #[test]
-    fn saving_and_deleting_cover_both_service_names() {
+    fn saving_and_deleting_leave_legacy_keys_untouched() {
         let vault = MemoryVault::with(LEGACY_SERVICE, "openai", "sk-old");
         save_key_in(&vault, "openai", "sk-new").unwrap();
-        assert!(!vault.has(LEGACY_SERVICE, "openai"));
+        assert!(vault.has(LEGACY_SERVICE, "openai"));
         assert_eq!(
             get_key_in(&vault, "openai").unwrap().as_deref(),
             Some("sk-new")
@@ -501,82 +441,9 @@ mod tests {
         vault.put(LEGACY_SERVICE, "openai", "sk-old");
         assert!(delete_key_in(&vault, "openai").unwrap());
         assert!(!vault.has(SERVICE, "openai"));
-        assert!(!vault.has(LEGACY_SERVICE, "openai"));
+        assert!(vault.has(LEGACY_SERVICE, "openai"));
+        assert_eq!(get_key_in(&vault, "openai").unwrap(), None);
         assert!(!delete_key_in(&vault, "openai").unwrap());
-    }
-
-    /// Pauses a read right after it finds the legacy key, the step before the
-    /// move writes it, and runs `interleave` there.
-    struct PausedMove<'a, F> {
-        vault: &'a MemoryVault,
-        interleave: F,
-    }
-
-    impl<F: Fn()> Vault for PausedMove<'_, F> {
-        fn get(&self, service: &str, slot: &str) -> Result<Option<String>, String> {
-            let value = self.vault.get(service, slot)?;
-            if service == LEGACY_SERVICE {
-                (self.interleave)();
-            }
-            Ok(value)
-        }
-
-        fn set(&self, service: &str, slot: &str, secret: &str) -> Result<(), String> {
-            self.vault.set(service, slot, secret)
-        }
-
-        fn delete(&self, service: &str, slot: &str) -> Result<bool, String> {
-            self.vault.delete(service, slot)
-        }
-    }
-
-    /// Start `command` on another thread while a read is moving a legacy key,
-    /// and give it time to finish before the move goes on. Unserialized, the
-    /// command completes inside the move; serialized, it waits the move out.
-    fn move_racing_with(command: impl Fn(&MemoryVault) + Sync) -> MemoryVault {
-        let vault = MemoryVault::with(LEGACY_SERVICE, "openai", "sk-old");
-        let (vault_ref, command) = (&vault, &command);
-        std::thread::scope(|scope| {
-            let paused = PausedMove {
-                vault: vault_ref,
-                interleave: || {
-                    let (done, finished) = std::sync::mpsc::channel();
-                    scope.spawn(move || {
-                        command(vault_ref);
-                        let _ = done.send(());
-                    });
-                    let _ = finished.recv_timeout(std::time::Duration::from_millis(200));
-                },
-            };
-            assert_eq!(
-                get_key_in(&paused, "openai").unwrap().as_deref(),
-                Some("sk-old")
-            );
-        });
-        vault
-    }
-
-    #[test]
-    fn a_key_saved_during_a_move_is_not_overwritten() {
-        let vault = move_racing_with(|vault| {
-            save_key_in(vault, "openai", "sk-new").unwrap();
-        });
-
-        assert_eq!(
-            get_key_in(&vault, "openai").unwrap().as_deref(),
-            Some("sk-new")
-        );
-        assert!(!vault.has(LEGACY_SERVICE, "openai"));
-    }
-
-    #[test]
-    fn a_key_deleted_during_a_move_stays_deleted() {
-        let vault = move_racing_with(|vault| {
-            assert!(delete_key_in(vault, "openai").unwrap());
-        });
-
-        assert!(!vault.has(SERVICE, "openai"));
-        assert!(!vault.has(LEGACY_SERVICE, "openai"));
     }
 
     #[test]

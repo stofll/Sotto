@@ -72,7 +72,9 @@ Model cards take their speed from measurements bundled with the application and 
 
 A portable copy keeps everything except API keys in the `data` folder next to `Sotto.exe`; see [Portable version](portable.md).
 
-Builds up to 0.1.3 kept the database, logs and recordings in `~/.speech_to_text` and API keys under the service name `speech-to-text`. A newer build moves the folder on its first launch and moves each key the first time it is used; nothing has to be done by hand. If the database is still open in another copy of the app, the move waits for the next launch.
+Automatic migration from builds up to 0.1.3 has been retired. The app no longer discovers or moves `~/.speech_to_text` automatically, imports Python-era `stats.json` / `history.json`, or retrieves keys from the `speech-to-text` service. Those sources remain untouched during normal startup; existing data in the current locations continues to work.
+
+If you still use one of those old builds, first launch [v0.3.1](https://github.com/stofll/Sotto/releases/tag/v0.3.1), which includes the migration. Check that your history and downloaded models are available, and open provider settings to verify each stored key: keys migrate when read. Then upgrade to this build. Otherwise, transfer data manually and enter your API keys again; see [Models](models.md#models-directory) for reusing old downloads.
 
 ### Removing all data
 

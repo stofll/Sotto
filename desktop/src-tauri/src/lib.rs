@@ -1303,15 +1303,9 @@ fn spawn_idle_watchdog(app: AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Before the logger opens its file: the log directory moves with the
-    // data. The outcome is logged once the logger exists.
-    let data_migration = crate::user_data::migrate_legacy();
     // Installs before any other setup so every later log line reaches
     // `<data dir>/logs/app.log`, with API keys and bearer tokens redacted.
     let _ = crate::structured_log::install();
-    if let Some(migration) = &data_migration {
-        migration.log();
-    }
     crate::user_data::log_renamed_env();
 
     tauri::Builder::default()
@@ -1441,24 +1435,11 @@ pub fn run() {
             // the test can start/stop audio capture and poll levels.
             let microphone_test = crate::mic_test::MicrophoneTest::new();
 
-            // Open the SQLite data layer (stats + history)
-            // and seed it from legacy `stats.json` / `history.json` if those
-            // exist. Each file is imported once, guarded by a DB marker, and
-            // this runs synchronously in setup() so the dispatcher
-            // can rely on a fully-migrated DB by the time the first
-            // transcription completes.
-            //
-            // Migration failures are NON-FATAL (warn + continue) — a broken
-            // JSON file shouldn't prevent app startup. The DB connection
-            // itself IS fatal (we can't run without it).
+            // Open and upgrade the database before accepting transcriptions.
             let db = crate::db::open().map_err(|e| format!("db open: {e}"))?;
             let db_arc = std::sync::Arc::new(db);
             {
                 let conn = crate::mutex_recover::lock(&db_arc);
-                let config_dir = crate::user_data::data_dir();
-                if let Err(e) = crate::db::migrate_from_json(&conn, &config_dir) {
-                    log::warn!("migration from JSON failed (non-fatal): {e}");
-                }
                 // Repairs counters rolled back by re-importing stats.json.
                 // Does nothing on a healthy database.
                 match crate::stats::reconcile_totals_with_daily(&conn) {
