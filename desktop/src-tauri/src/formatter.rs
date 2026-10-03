@@ -32,6 +32,7 @@
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashSet;
 use std::sync::LazyLock;
 
 mod paragraphs;
@@ -159,11 +160,12 @@ pub const PARASITE_PRESETS: &[ParasitePreset] = &[
 /// потом». Capitalized sounds accept a lowercase continuation, preserving
 /// uppercase abbreviations. A single capital «Э» is removed only at a sentence
 /// start without a following dot; elsewhere it can be a letter name or initial.
+/// A cut-off «э-» before a space or punctuation is a hesitation as well.
 ///
 /// These are applied to every dictation, whatever the language: Cyrillic cannot
 /// match a text written in any other alphabet, so there is nothing to gate.
 const RUSSIAN_FILLER_PATTERNS: &[&str] = &[
-    r"\b[Ээ]э*(?:[-\s]+э+)*\b",
+    r"\b[Ээ]э*(?:[-\s]+э+)*(?:-+|\b)",
     r"\b(м+[-\s]*)+\b",
     r"\bМ(?:м+|[-\s]+м+)(?:[-\s]+м+)*\b",
     r"\b[Аа]а*(?:[-\s]*а+)+\b",
@@ -213,8 +215,10 @@ fn default_filler_patterns(language: Option<&str>) -> &'static [Regex] {
         sets.iter()
             .flat_map(|set| set.iter())
             .map(|pattern| {
-                Regex::new(&format!(r"(?P<sound>{pattern})(?:[ \t]*,)?"))
-                    .expect("valid filler pattern")
+                Regex::new(&format!(
+                    r"(?P<sound>{pattern})(?P<punct>[ \t]*(?:,|\.+|…|[!?]+))?"
+                ))
+                .expect("valid filler pattern")
             })
             .collect()
     }
@@ -1043,13 +1047,13 @@ impl FormatStep for FillerWordsRemover {
                         || (sound.as_str().ends_with('-') && after.is_some_and(char::is_alphabetic))
                     {
                         matched.as_str().to_string()
-                    } else if matched.end() > sound.end()
-                        && !prefix.is_empty()
-                        && !prefix.ends_with(['.', '!', '?', '…', ','])
-                    {
-                        // Inside a clause the comma may belong to its grammar,
-                        // e.g. a hesitation immediately before «чтобы».
-                        ",".to_owned()
+                    } else if let Some(punct) = caps.name("punct").filter(|_| {
+                        !prefix.is_empty() && !prefix.ends_with(['.', '!', '?', '…', ','])
+                    }) {
+                        // Inside a clause the mark may belong to its grammar,
+                        // e.g. a comma before «чтобы» or a sentence end. After
+                        // a closed sentence it would double the punctuation.
+                        punct.as_str().trim_start().to_owned()
                     } else {
                         String::new()
                     }
@@ -1241,6 +1245,13 @@ const PRESET_DEVELOPMENT: &[&str] = &[
     "GitHub",
     "GitLab",
     "Cloudflare",
+    "Vercel",
+    "Supabase",
+    "Netlify",
+    "Firebase",
+    "DigitalOcean",
+    "AWS",
+    "Azure",
     "PostHog",
     "Whisper",
     "Wispr Flow",
@@ -1279,11 +1290,98 @@ const PRESET_DEVELOPMENT: &[&str] = &[
     "drag and drop",
 ];
 
-/// The sets the frontend offers to add to the dictionary.
-pub const DICTIONARY_PRESETS: &[DictionaryPreset] = &[DictionaryPreset {
-    id: "development",
-    words: PRESET_DEVELOPMENT,
-}];
+const PRESET_AI_VOICE: &[&str] = &[
+    "OpenAI",
+    "ChatGPT",
+    "Codex",
+    "Anthropic",
+    "Claude",
+    "Claude Code",
+    "Claude Opus",
+    "Claude Sonnet",
+    "Claude Haiku",
+    "Google",
+    "Google DeepMind",
+    "Gemini",
+    "Meta",
+    "Meta AI",
+    "Llama",
+    "Microsoft",
+    "Microsoft Copilot",
+    "GitHub Copilot",
+    "NVIDIA",
+    "Nemotron",
+    "Mistral",
+    "Mistral AI",
+    "DeepSeek",
+    "Qwen",
+    "Alibaba",
+    "MiniMax",
+    "Moonshot AI",
+    "Kimi",
+    "xAI",
+    "Grok",
+    "Groq",
+    "Perplexity",
+    "Ollama",
+    "LM Studio",
+    "OpenRouter",
+    "Hugging Face",
+    "ElevenLabs",
+    "Deepgram",
+    "AssemblyAI",
+    "Speechmatics",
+    "Whisper",
+    "Wispr Flow",
+    "Parakeet",
+    "GigaAM",
+    "Sotto",
+];
+
+const PRESET_WORK_APPS: &[&str] = &[
+    "Notion",
+    "Obsidian",
+    "Figma",
+    "Slack",
+    "Zoom",
+    "Telegram",
+    "WhatsApp",
+    "Discord",
+    "Microsoft Teams",
+    "Microsoft Outlook",
+    "Microsoft Excel",
+    "Microsoft Word",
+    "Google Docs",
+    "Google Drive",
+    "Google Sheets",
+    "Google Meet",
+    "Google Chrome",
+    "Mozilla Firefox",
+    "Dropbox",
+    "Trello",
+    "Linear",
+    "Canva",
+    "Miro",
+    "Adobe",
+    "Apple",
+    "Cursor",
+];
+
+/// The sets the frontend offers to add to the dictionary. New sets are opt-in.
+pub const DICTIONARY_PRESETS: &[DictionaryPreset] = &[
+    DictionaryPreset {
+        id: "development",
+        words: PRESET_DEVELOPMENT,
+    },
+    DictionaryPreset {
+        id: "ai_voice",
+        words: PRESET_AI_VOICE,
+    },
+    DictionaryPreset {
+        id: "work_apps",
+        words: PRESET_WORK_APPS,
+    },
+];
 
 /// How many edits are forgiven a term of this length for it still to count as a
 /// distortion of the dictionary form.
@@ -1562,7 +1660,7 @@ struct CustomTerm {
 }
 
 pub(crate) fn custom_word_supported(word: &str) -> bool {
-    term_aliases::supported(word)
+    term_aliases::has_aliases(word)
         || word
             .split_whitespace()
             .map(fold_for_match)
@@ -1575,6 +1673,13 @@ pub(crate) fn custom_word_supported(word: &str) -> bool {
 
 impl CustomWordsCorrector {
     pub fn new(enabled: bool, words: Vec<String>) -> Self {
+        Self::with_builtin(enabled, words, &HashSet::new())
+    }
+
+    /// `builtin` holds lower-cased terms supplied only by built-in sets. Those
+    /// catalog terms match through reviewed aliases alone; a term the person
+    /// wrote themselves keeps fuzzy matching.
+    pub fn with_builtin(enabled: bool, words: Vec<String>, builtin: &HashSet<String>) -> Self {
         let terms: Vec<CustomTerm> = words
             .into_iter()
             .filter_map(|word| {
@@ -1593,7 +1698,8 @@ impl CustomWordsCorrector {
                 }
                 let acronym = canonical.chars().all(|c| c.is_ascii_uppercase());
                 Some(CustomTerm {
-                    exact_only: term_aliases::exact_only(&canonical),
+                    exact_only: builtin.contains(&canonical.to_lowercase())
+                        && term_aliases::exact_only(&canonical),
                     canonical,
                     key: key.chars().collect(),
                     acronym,
@@ -2846,7 +2952,11 @@ impl Formatter {
             // spaces rather than on random clumps. And before the replacement
             // rules: a user rule must see the already-corrected term rather than
             // what the engine thought it heard.
-            Box::new(CustomWordsCorrector::new(!words.is_empty(), words)),
+            Box::new(CustomWordsCorrector::with_builtin(
+                !words.is_empty(),
+                words,
+                &crate::dictionaries::builtin_only_words(fmt),
+            )),
             Box::new(crate::spelling::RussianSpellingCorrector::new(
                 fmt.correct_spelling,
                 config.language.as_deref(),
@@ -4341,6 +4451,12 @@ mod custom_words_tests {
         "передай телефон, там звонили из поликлиники",
     ];
 
+    fn preset_corrector(id: &str) -> CustomWordsCorrector {
+        let words = preset(id);
+        let builtin = words.iter().map(|word| word.to_lowercase()).collect();
+        CustomWordsCorrector::with_builtin(true, words, &builtin)
+    }
+
     fn preset(id: &str) -> Vec<String> {
         DICTIONARY_PRESETS
             .iter()
@@ -4395,7 +4511,7 @@ mod custom_words_tests {
     #[test]
     fn a_preset_leaves_ordinary_russian_alone() {
         for set in DICTIONARY_PRESETS {
-            let corrector = CustomWordsCorrector::new(true, preset(set.id));
+            let corrector = preset_corrector(set.id);
             for line in PLAIN_RUSSIAN {
                 assert_eq!(
                     corrector.apply(line),
@@ -4411,7 +4527,7 @@ mod custom_words_tests {
     /// line entered by hand.
     #[test]
     fn the_development_preset_fixes_real_dictation() {
-        let corrector = CustomWordsCorrector::new(true, preset("development"));
+        let corrector = preset_corrector("development");
         assert_eq!(corrector.apply("открой пул реквест"), "открой pull request");
         assert_eq!(corrector.apply("поправь карга томол"), "поправь Cargo.toml");
         assert_eq!(corrector.apply("прогони клипи"), "прогони clippy");
@@ -4419,7 +4535,7 @@ mod custom_words_tests {
 
     #[test]
     fn explicit_brand_aliases_do_not_relax_unrelated_fuzzy_matches() {
-        let corrector = CustomWordsCorrector::new(true, preset("development"));
+        let corrector = preset_corrector("development");
         for input in ["получили буст", "скли запрос"] {
             assert_eq!(corrector.apply(input), input);
         }
@@ -4436,7 +4552,7 @@ mod custom_words_tests {
 
     #[test]
     fn catalog_aliases_restore_spoken_names_without_guessing_at_prose() {
-        let corrector = CustomWordsCorrector::new(true, preset("development"));
+        let corrector = preset_corrector("development");
         for (input, expected) in [
             ("файл ритми", "файл README"),
             ("файл Aжиnc MD", "файл AGENTS.md"),

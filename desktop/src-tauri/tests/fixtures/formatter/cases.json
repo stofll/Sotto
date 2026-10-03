@@ -945,7 +945,7 @@
     "id": "brands-worktree",
     "category": "term-aliases",
     "input": "Проверь vork-tри, Workри и ветку мейн",
-    "expected": "Проверь worktree, worktree и ветку main.",
+    "expected": "Проверь worktree, worktree и ветку мейн.",
     "config": {
       "language": "ru",
       "text_formatting": {
@@ -1186,6 +1186,412 @@
           "development"
         ]
       }
+    }
+  },
+  {
+    "id": "thematic-companies",
+    "category": "thematic-dictionaries",
+    "input": "Сравни мета, антропик и опен аи",
+    "expected": "Сравни мета, Anthropic и OpenAI.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development",
+          "ai_voice",
+          "work_apps"
+        ]
+      }
+    }
+  },
+  {
+    "id": "thematic-assistants",
+    "category": "thematic-dictionaries",
+    "input": "Сравни чат джипити, джемини и клод",
+    "expected": "Сравни ChatGPT, Gemini и клод.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development",
+          "ai_voice",
+          "work_apps"
+        ]
+      }
+    }
+  },
+  {
+    "id": "thematic-compound-names",
+    "category": "thematic-dictionaries",
+    "input": "Открой мета эй ай, клод и гитхаб копайлот",
+    "expected": "Открой Meta AI, клод и GitHub Copilot.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development",
+          "ai_voice",
+          "work_apps"
+        ]
+      }
+    }
+  },
+  {
+    "id": "thematic-claude-models",
+    "category": "thematic-dictionaries",
+    "input": "Сравни клод опус и клод соннет",
+    "expected": "Сравни Claude Opus и Claude Sonnet.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development",
+          "ai_voice",
+          "work_apps"
+        ]
+      }
+    }
+  },
+  {
+    "id": "thematic-models",
+    "category": "thematic-dictionaries",
+    "input": "Сравни дипсик, квен и немотрон",
+    "expected": "Сравни DeepSeek, Qwen и Nemotron.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development",
+          "ai_voice",
+          "work_apps"
+        ]
+      }
+    }
+  },
+  {
+    "id": "thematic-local-tools",
+    "category": "thematic-dictionaries",
+    "input": "Открой оллама, эл эм студио и опн роутер",
+    "expected": "Открой Ollama, LM Studio и OpenRouter.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development",
+          "ai_voice",
+          "work_apps"
+        ]
+      }
+    }
+  },
+  {
+    "id": "thematic-speech-services",
+    "category": "thematic-dictionaries",
+    "input": "Проверь элевен лабс, дипграм и ассембли эй ай",
+    "expected": "Проверь ElevenLabs, Deepgram и AssemblyAI.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development",
+          "ai_voice",
+          "work_apps"
+        ]
+      }
+    }
+  },
+  {
+    "id": "thematic-apps",
+    "category": "thematic-dictionaries",
+    "input": "Открой ноушен, фигму и телеграм",
+    "expected": "Открой Notion, Figma и Telegram.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development",
+          "ai_voice",
+          "work_apps"
+        ]
+      }
+    }
+  },
+  {
+    "id": "thematic-documents",
+    "category": "thematic-dictionaries",
+    "input": "Открой гугл докс и майкрософт эксель",
+    "expected": "Открой Google Docs и Microsoft Excel.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development",
+          "ai_voice",
+          "work_apps"
+        ]
+      }
+    }
+  },
+  {
+    "id": "thematic-infrastructure",
+    "category": "thematic-dictionaries",
+    "input": "Сравни версел, супабейс и нетлифай",
+    "expected": "Сравни Vercel, Supabase и Netlify.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development",
+          "ai_voice",
+          "work_apps"
+        ]
+      }
+    }
+  },
+  {
+    "id": "thematic-acronyms",
+    "category": "thematic-dictionaries",
+    "input": "Проверь эй дабл ю эс и икс эй ай",
+    "expected": "Проверь AWS и xAI.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development",
+          "ai_voice",
+          "work_apps"
+        ]
+      }
+    }
+  },
+  {
+    "id": "thematic-homophones",
+    "category": "thematic-dictionaries",
+    "input": "Сравни грок и Groq",
+    "expected": "Сравни грок и Groq.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development",
+          "ai_voice",
+          "work_apps"
+        ]
+      }
+    }
+  },
+  {
+    "id": "thematic-ordinary-russian",
+    "category": "thematic-dictionaries",
+    "input": "Смета, метаданные, лампа, лама, кодекс, курсор и обсидиан",
+    "expected": "Смета, метаданные, лампа, лама, кодекс, курсор и обсидиан.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development",
+          "ai_voice",
+          "work_apps"
+        ]
+      }
+    }
+  },
+  {
+    "id": "thematic-ordinary-english",
+    "category": "thematic-dictionaries",
+    "input": "An apple, a notion, a linear graph and a cursor. Zoom in and slack off.",
+    "expected": "An apple, a notion, a linear graph and a cursor. Zoom in and slack off.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development",
+          "ai_voice",
+          "work_apps"
+        ]
+      }
+    }
+  },
+  {
+    "id": "thematic-protected",
+    "category": "thematic-dictionaries",
+    "input": "Проверь `мета ноушен` и https://meta.test, затем ноушен",
+    "expected": "Проверь `мета ноушен` и https://meta.test, затем Notion.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development",
+          "ai_voice",
+          "work_apps"
+        ]
+      }
+    }
+  },
+  {
+    "id": "thematic-sentence-boundary",
+    "category": "thematic-dictionaries",
+    "input": "Сравни мета. Эй ай и гугл, докс",
+    "expected": "Сравни мета. Эй ай и Google, докс.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development",
+          "ai_voice",
+          "work_apps"
+        ]
+      }
+    }
+  },
+  {
+    "id": "thematic-disabled",
+    "category": "preservation",
+    "input": "Открой мета и ноушен",
+    "expected": "Открой мета и ноушен.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development"
+        ]
+      }
+    }
+  },
+  {
+    "id": "thematic-dropbox-control",
+    "category": "preservation",
+    "input": "Настрой чекбокс и дропбокс",
+    "expected": "Настрой чекбокс и дропбокс.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development",
+          "ai_voice",
+          "work_apps"
+        ]
+      }
+    }
+  },
+  {
+    "id": "thematic-provider-companies",
+    "category": "thematic-dictionaries",
+    "input": "Сравни мистрал, мистрал эй ай и монашот",
+    "expected": "Сравни Mistral, Mistral AI и Moonshot AI.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development",
+          "ai_voice",
+          "work_apps"
+        ]
+      }
+    }
+  },
+  {
+    "id": "thematic-weather",
+    "category": "preservation",
+    "input": "Холодный ветер мистраль",
+    "expected": "Холодный ветер мистраль.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development",
+          "ai_voice",
+          "work_apps"
+        ]
+      }
+    }
+  },
+  {
+    "id": "thematic-ordinary-homonyms",
+    "category": "thematic-dictionaries",
+    "input": "Мы ездили в штат Мейн смотреть картины Клод Моне, а мета этого текста простая",
+    "expected": "Мы ездили в штат Мейн смотреть картины Клод Моне, а мета этого текста простая.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development",
+          "ai_voice",
+          "work_apps"
+        ]
+      }
+    }
+  },
+  {
+    "id": "personal-terms-keep-fuzzy-matching",
+    "category": "thematic-dictionaries",
+    "input": "Запусти клоуд код и открой нотион",
+    "expected": "Запусти Claude Code и открой Notion.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development",
+          "work_apps"
+        ],
+        "dictionary_sets": [
+          {
+            "id": "mine",
+            "name": "Мои",
+            "description": "",
+            "enabled": true,
+            "words": [
+              "Claude Code",
+              "Notion"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "filler-cut-off-before-word",
+    "category": "fillers",
+    "input": "Как думаешь, э- через неделю успеем",
+    "expected": "Как думаешь, через неделю успеем.",
+    "config": {
+      "language": "ru"
+    }
+  },
+  {
+    "id": "filler-cut-off-before-comma",
+    "category": "fillers",
+    "input": "Я сделал свой э-, свою версию",
+    "expected": "Я сделал свой, свою версию.",
+    "config": {
+      "language": "ru"
+    }
+  },
+  {
+    "id": "filler-after-sentence-keeps-single-dot",
+    "category": "fillers",
+    "input": "Раз, два. А-а-а. Это проверка",
+    "expected": "Раз, два. Это проверка.",
+    "config": {
+      "language": "ru"
+    }
+  },
+  {
+    "id": "filler-trailing-ellipsis",
+    "category": "fillers",
+    "input": "Шесть, семь. А-а-а..",
+    "expected": "Шесть, семь.",
+    "config": {
+      "language": "ru"
+    }
+  },
+  {
+    "id": "filler-before-sentence-end-keeps-dot",
+    "category": "fillers",
+    "input": "Ещё добавлено А-а. Дальше проверим",
+    "expected": "Ещё добавлено. Дальше проверим.",
+    "config": {
+      "language": "ru"
     }
   }
 ]
