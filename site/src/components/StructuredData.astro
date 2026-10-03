@@ -44,7 +44,8 @@ const application = {
   downloadUrl: LINKS.releases,
   author: { '@type': 'Person', name: AUTHOR.name, url: AUTHOR.url },
   ...(version ? { softwareVersion: version } : {}),
-  ...(release?.published ? { datePublished: release.published } : {}),
+  // The latest release is when the app last changed, not when it first shipped.
+  ...(release?.published ? { dateModified: release.published } : {}),
   featureList: [f.anywhere, f.offline, f.live, f.custom, f.files, f.history].map((card) => card.title),
 };
 
