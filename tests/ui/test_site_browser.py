@@ -13,10 +13,17 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+STEPS = ["catalog", "cleanup", "profile", "overlay", "history", "file"]
+
+
+def site_url(locale):
+    return os.environ["SOTTO_SITE_URL"] + ("/ru/" if locale == "ru" else "/")
+
+
 @pytest.mark.parametrize("locale", ["ru", "en"])
 @pytest.mark.parametrize("width", [390, 1440])
 @pytest.mark.parametrize("appearance", ["light", "dark"])
-def test_gallery_catalog_and_layout(browser, locale, width, appearance):
+def test_tour_catalog_and_layout(browser, locale, width, appearance):
     context = browser.new_context(
         viewport={"width": width, "height": 1000},
         device_scale_factor=2,
@@ -26,76 +33,64 @@ def test_gallery_catalog_and_layout(browser, locale, width, appearance):
     page = context.new_page()
     errors = []
     page.on("pageerror", lambda error: errors.append(str(error)))
-    page.goto(os.environ["SOTTO_SITE_URL"] + ("/ru/" if locale == "ru" else "/"))
+    page.goto(site_url(locale))
     page.evaluate("() => document.fonts.ready")
-    gallery = page.locator("[data-screens]")
-    expect(gallery).to_have_class(re.compile(r"\bis-enhanced\b"))
-    assert page.evaluate(
-        "document.documentElement.scrollWidth <= document.documentElement.clientWidth"
-    )
+    tour = page.locator("[data-tour]")
+    expect(tour).to_have_class(re.compile(r"\bis-enhanced\b"))
     if width >= 960:
         # The orange phrase is one line; text ranges detect wrapping directly.
         assert page.locator(".hero-title > span").evaluate(
             "el => { const r = document.createRange(); r.selectNodeContents(el); return r.getClientRects().length === 1; }"
         )
-    page.clock.install()
-    gallery.scroll_into_view_if_needed()
-    page.clock.run_for(12000)
-    expect(page.get_by_role("tab").nth(0)).to_have_attribute("aria-selected", "true")
+    tour.scroll_into_view_if_needed()
     sizes = []
-    for index in range(3):
-        tab = page.get_by_role("tab").nth(index)
+    for index, step in enumerate(STEPS):
+        tab = page.locator(f"#feature-tab-{step}")
         tab.click()
         expect(tab).to_have_attribute("aria-selected", "true")
-        panel = page.get_by_role("tabpanel")
-        expect(panel).to_be_visible()
-        img = panel.locator('[data-theme-image="dark"]')
-        expect(img).to_have_js_property("complete", True)
-        expect(img).to_have_js_property("naturalWidth", 1088)
-        sizes.append(gallery.bounding_box())
-        closer = page.locator("[data-screen-zoom]")
-        closer.click()
-        expect(page.get_by_role("dialog")).to_be_visible()
-        expect(page.locator("[data-screen-full]")).to_have_attribute(
-            "src", img.evaluate("el => new URL(el.dataset.fullSrc, location.href).href")
+        expect(page.get_by_role("tabpanel")).to_have_count(1)
+        expect(page.get_by_role("tabpanel")).to_have_attribute("data-scene", step)
+        expect(page.locator(f"#feature-{step}")).to_be_visible()
+        sizes.append(page.locator(".tour-scenes").bounding_box())
+        # Every step fits the page width, including the overlay's widest state.
+        assert page.evaluate(
+            "document.documentElement.scrollWidth <= document.documentElement.clientWidth"
         )
-        page.keyboard.press("Escape")
-        expect(page.get_by_role("dialog")).not_to_be_visible()
-        expect(closer).to_be_focused()
+    # Overlapping scenes reserve the tallest one, so switching never moves the page.
     assert max(box["height"] for box in sizes) - min(box["height"] for box in sizes) < 1
-    assert max(box["width"] for box in sizes) - min(box["width"] for box in sizes) < 1
-    page.get_by_role("tab").nth(2).focus()
-    page.keyboard.press("ArrowRight")
-    expect(page.get_by_role("tab").nth(0)).to_be_focused()
-    page.locator("[data-tour-toggle]").click()
-    expect(page.locator('[data-step-description="shortcut"]')).to_be_visible()
-    page.clock.run_for(6600)
-    expect(page.locator('[data-step-description="recording"]')).to_be_visible()
-    expect(page.get_by_role("tab").nth(0)).to_have_attribute("aria-selected", "true")
-    expect(
-        page.locator('.screen-hotspot[data-step-target="recording"]')
-    ).to_have_attribute("aria-pressed", "true")
-    page.locator("[data-tour-next]").click()
-    expect(page.locator('[data-step-description="microphone"]')).to_be_visible()
-    page.locator("[data-tour-next]").click()
-    expect(page.get_by_role("tab").nth(1)).to_have_attribute("aria-selected", "true")
-    page.locator('[data-theme-target="light"]').click()
-    expect(gallery).to_have_attribute("data-theme", "light")
-    expect(page.locator('[data-step-description="languages"]')).to_be_visible()
-    light_image = page.get_by_role("tabpanel").locator('[data-theme-image="light"]')
-    expect(light_image).to_have_css("opacity", "1")
-    expect(light_image).to_have_js_property("complete", True)
-    page.locator("[data-screen-zoom]").click()
-    expect(page.locator("[data-screen-full]")).to_have_attribute(
-        "src",
-        light_image.evaluate("el => new URL(el.dataset.fullSrc, location.href).href"),
+
+    for step, region in [("catalog", "resources"), ("history", "formatting")]:
+        page.locator(f"#feature-tab-{step}").click()
+        scene = page.locator(f"#feature-{step}")
+        image = scene.locator("[data-shot] img")
+        expect(image).to_have_js_property("complete", True)
+        expect(image).to_have_js_property("naturalWidth", 2176)
+        detail = scene.locator(f'[data-region="{region}"]')
+        detail.click()
+        expect(detail).to_have_attribute("aria-pressed", "true")
+        expect(scene.locator(f'[data-shot-ring="{region}"]')).to_have_class(
+            re.compile(r"\bis-on\b")
+        )
+        assert scene.locator("[data-shot-layer]").evaluate(
+            "el => el.style.transform.includes('scale')"
+        )
+        detail.click()
+        expect(detail).to_have_attribute("aria-pressed", "false")
+        assert scene.locator("[data-shot-layer]").evaluate(
+            "el => el.style.transform === ''"
+        )
+
+    page.locator("#feature-tab-catalog").focus()
+    page.keyboard.press("ArrowDown")
+    expect(page.locator("#feature-tab-cleanup")).to_be_focused()
+    expect(page.locator("#feature-tab-cleanup")).to_have_attribute(
+        "aria-selected", "true"
     )
-    page.keyboard.press("Escape")
-    page.locator('[data-theme-target="dark"]').click()
-    expect(gallery).to_have_attribute("data-theme", "dark")
-    page.get_by_role("tab").nth(0).click()
-    expect(page.locator("[data-tour-toggle]")).to_have_attribute(
-        "aria-pressed", "false"
+    page.keyboard.press("End")
+    expect(page.locator("#feature-tab-file")).to_be_focused()
+    page.keyboard.press("ArrowRight")
+    expect(page.locator("#feature-tab-catalog")).to_have_attribute(
+        "aria-selected", "true"
     )
 
     output = Path(
@@ -103,11 +98,9 @@ def test_gallery_catalog_and_layout(browser, locale, width, appearance):
     )
     output.mkdir(parents=True, exist_ok=True)
     if appearance == "dark":
-        page.clock.resume()
+        page.locator("#feature-tab-overlay").click()
         page.mouse.move(0, 0)
-        gallery.locator("..").screenshot(
-            path=str(output / f"gallery-{locale}-{width}.png")
-        )
+        tour.screenshot(path=str(output / f"tour-{locale}-{width}.png"))
         page.screenshot(path=str(output / f"site-{locale}-{width}.png"), full_page=True)
 
     catalog = page.locator(".model-catalog")
@@ -141,94 +134,73 @@ def test_gallery_catalog_and_layout(browser, locale, width, appearance):
 
 
 @pytest.mark.parametrize("locale", ["ru", "en"])
-def test_feature_steps_and_crossfade(browser, locale):
-    context = browser.new_context(
-        viewport={"width": 1440, "height": 1200}, device_scale_factor=1
-    )
+def test_overlay_scene_switches_and_plays(browser, locale):
+    context = browser.new_context(viewport={"width": 1440, "height": 1000})
     page = context.new_page()
-    light_requests = []
-    page.on(
-        "request",
-        lambda request: (
-            light_requests.append(request.url)
-            if re.search(r"-light[.@]", request.url)
-            else None
-        ),
+    page.clock.install()
+    page.goto(site_url(locale))
+    page.locator("[data-tour]").scroll_into_view_if_needed()
+    page.locator("#feature-tab-overlay").click()
+    scene = page.locator("#feature-overlay")
+    # Selecting the step restarts the cycle from a new recording.
+    page.clock.run_for(100)
+    expect(scene).to_have_attribute("data-phase", "rec")
+    page.clock.run_for(2500)
+    expect(scene).to_have_attribute("data-phase", "stream")
+
+    page.locator('[data-ov-template="bead"]').click()
+    expect(scene).to_have_attribute("data-template", "bead")
+    expect(scene.locator('.tour-detail-value[data-for="bead"]').first).to_be_visible()
+    expect(scene.locator('.tour-detail-value[data-for="pill"]').first).to_be_hidden()
+    expect(scene.locator(".ov-note")).to_be_visible()
+    page.locator('[data-ov-palette="lagoon"]').click()
+    assert (
+        scene.locator("[data-ov-stage]").evaluate(
+            "el => el.style.getPropertyValue('--ov-hue')"
+        )
+        == "195"
     )
-    page.goto(os.environ["SOTTO_SITE_URL"] + ("/ru/" if locale == "ru" else "/"))
-    gallery = page.locator("[data-screens]")
-    gallery.scroll_into_view_if_needed()
-    expect(gallery).to_have_attribute("data-theme", "dark")
-    steps = [
-        "shortcut",
-        "recording",
-        "microphone",
-        "languages",
-        "resources",
-        "streaming",
-        "search",
-        "copy",
-        "formatting",
-    ]
-    heights = []
-    for index, step in enumerate(steps):
-        expect(page.locator(f'[data-step-description="{step}"]')).to_be_visible()
-        expect(
-            page.locator(f'.screen-hotspot[data-step-target="{step}"]')
-        ).to_have_attribute("aria-pressed", "true")
-        heights.append(page.locator("[data-tour-guide]").bounding_box()["height"])
-        image = page.get_by_role("tabpanel").locator('[data-theme-image="dark"]')
-        expect(image).to_have_js_property("complete", True)
-        assert "@2x" not in image.evaluate("el => el.currentSrc")
-        if index < len(steps) - 1:
-            page.locator("[data-tour-next]").click()
-    expect(page.locator("[data-tour-next]")).to_be_disabled()
-    assert max(heights) - min(heights) < 1
-    # Hold the screen transitions as they start and step through them, so a slow
-    # runner cannot skip past the fade: no point may hide both screens.
-    page.evaluate("""() => {
-        window.holdFade = true;
-        document.querySelectorAll('.screen-window').forEach(el => el.addEventListener('transitionrun', () => {
-            if (window.holdFade) el.getAnimations().forEach(animation => animation.pause());
-        }));
-    }""")
-    page.get_by_role("tab").nth(0).click()
-    expect(page.locator('[data-step-description="shortcut"]')).to_be_visible()
-    frames = page.evaluate("""() => {
-        const windows = [...document.querySelectorAll('.screen-window')];
-        const frames = [0, 60, 120, 180, 240, 300, 355].map(time => windows.map(el => {
-            el.getAnimations().forEach(animation => { animation.currentTime = time; });
-            const s = getComputedStyle(el); return s.visibility === 'visible' ? Number(s.opacity) : 0;
-        }));
-        window.holdFade = false;
-        windows.forEach(el => el.getAnimations().forEach(animation => animation.finish()));
-        return frames;
-    }""")
-    assert all(max(frame) > 0.25 for frame in frames)
-    assert any(sum(value > 0.05 for value in frame) > 1 for frame in frames)
-    # The whole dark tour ran without fetching a light capture.
-    assert light_requests == []
-    page.locator('[data-theme-target="light"]').click()
-    expect(gallery).to_have_attribute("data-theme", "light")
-    assert light_requests
-    page.locator('.screen-hotspot[data-step-target="recording"]').click()
-    expect(page.locator('[data-step-description="recording"]')).to_be_visible()
-    expect(gallery).to_have_attribute("data-theme", "light")
+
+    # A chosen state holds instead of cycling on.
+    page.locator('[data-ov-phase="proc"]').click()
+    page.clock.run_for(8000)
+    expect(scene).to_have_attribute("data-phase", "proc")
+    expect(scene.locator(".ov-status")).to_be_visible()
+
+    # Another step stops the animation.
+    level = lambda: scene.locator("[data-ov]").evaluate(
+        "el => el.style.getPropertyValue('--level')"
+    )
+    page.locator('[data-ov-phase="rec"]').click()
+    page.clock.run_for(500)
+    before = level()
+    page.clock.run_for(500)
+    assert level() != before
+    page.locator("#feature-tab-file").click()
+    page.clock.run_for(100)
+    before = level()
+    page.clock.run_for(1000)
+    assert level() == before
     context.close()
 
 
-def test_failed_image_keeps_current_screen_and_can_retry(browser):
-    context = browser.new_context()
+def test_file_scene_walks_through_states(browser):
+    context = browser.new_context(viewport={"width": 1440, "height": 1000})
     page = context.new_page()
-    page.route("**/*settings-ru-light*.webp*", lambda route: route.abort())
-    page.goto(os.environ["SOTTO_SITE_URL"] + "/ru/")
-    page.locator('[data-theme-target="light"]').click()
-    expect(page.locator("[data-screen-error]")).to_be_visible()
-    expect(page.locator("[data-screens]")).to_have_attribute("data-theme", "dark")
-    page.unroute("**/*settings-ru-light*.webp*")
-    page.locator('[data-theme-target="light"]').click()
-    expect(page.locator("[data-screens]")).to_have_attribute("data-theme", "light")
-    expect(page.locator("[data-screen-error]")).not_to_be_visible()
+    page.clock.install()
+    page.goto(site_url("ru"))
+    page.locator("[data-tour]").scroll_into_view_if_needed()
+    scene = page.locator("#feature-file")
+    expect(scene).to_have_attribute("data-state", "done")
+    page.locator("#feature-tab-file").click()
+    expect(scene).to_have_attribute("data-state", "idle")
+    page.clock.run_for(1500)
+    expect(scene).to_have_attribute("data-state", "reading")
+    page.clock.run_for(1200)
+    expect(scene).to_have_attribute("data-state", "transcribing")
+    page.clock.run_for(2700)
+    expect(scene).to_have_attribute("data-state", "done")
+    expect(scene.locator(".file-result")).to_be_visible()
     context.close()
 
 
@@ -236,13 +208,13 @@ def test_failed_image_keeps_current_screen_and_can_retry(browser):
 def test_without_javascript(browser, locale):
     context = browser.new_context(java_script_enabled=False)
     page = context.new_page()
-    page.goto(os.environ["SOTTO_SITE_URL"] + ("/ru/" if locale == "ru" else "/"))
-    expect(page.locator(".screen-window:visible")).to_have_count(3)
+    page.goto(site_url(locale))
+    expect(page.locator(".tour-scene:visible")).to_have_count(len(STEPS))
+    expect(page.locator(".tour-steps")).to_be_hidden()
+    expect(page.locator("#feature-overlay .ov-draft")).to_be_visible()
+    expect(page.locator("#feature-file .file-result")).to_be_visible()
     page.locator(".model-catalog summary").click()
     expect(page.locator(".model-card:visible")).to_have_count(
         page.locator(".model-card").count()
-    )
-    expect(page.locator(".screen-fallback a").first).to_have_attribute(
-        "href", page.locator(".screen-image img").first.get_attribute("data-full-src")
     )
     context.close()

@@ -1,4 +1,4 @@
-"""Opt-in website captures: one viewport and sidebar state across every screen."""
+"""Opt-in website captures for the feature tour: the dark 2× models and history screens."""
 
 import os
 from datetime import UTC, datetime
@@ -14,14 +14,14 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-@pytest.fixture(params=[1, 2])
-def browser_context_args(browser_context_args, request):
-    return {**browser_context_args, "device_scale_factor": request.param}
+@pytest.fixture
+def browser_context_args(browser_context_args):
+    # The tour zooms into regions, so the site ships only 2x originals.
+    return {**browser_context_args, "device_scale_factor": 2}
 
 
 @pytest.mark.parametrize("locale", ["ru", "en"])
-@pytest.mark.parametrize("theme", ["dark", "light"])
-def test_capture_site_screenshots(app, page, locale, theme):
+def test_capture_site_screenshots(app, page, locale):
     page.set_viewport_size({"width": 1088, "height": 736})
     captured_at = datetime(2026, 9, 30, 17, 30, tzinfo=UTC)
     page.clock.set_fixed_time(captured_at)
@@ -40,7 +40,7 @@ def test_capture_site_screenshots(app, page, locale, theme):
     ui = app(
         config={
             "ui_language": locale,
-            "theme": theme,
+            "theme": "dark",
             "model": "nemotron-streaming",
             "language": "auto",
         },
@@ -72,25 +72,19 @@ def test_capture_site_screenshots(app, page, locale, theme):
 
     output = Path(os.environ["SOTTO_SITE_SHOTS_DIR"])
     output.mkdir(parents=True, exist_ok=True)
-    for screen in ["settings", "models", "history"]:
+    for screen in ["models", "history"]:
         ui.nav(screen)
         if screen == "models":
             page.get_by_role("button", name="Whisper", exact=True).click()
             expect(page.get_by_test_id("model-gigaam-v3")).to_be_visible()
-        elif screen == "history":
-            expect(page.get_by_test_id("history-entry-1")).to_be_visible()
         else:
-            expect(
-                page.get_by_test_id("overlay-disclosure").locator("summary")
-            ).to_be_visible()
+            expect(page.get_by_test_id("history-entry-1")).to_be_visible()
         page.evaluate("() => document.fonts.ready.then(() => true)")
         page.get_by_test_id("main-content").evaluate(
             "el => { el.scrollTop = 0; for (const child of el.querySelectorAll('*')) child.scrollTop = 0; }"
         )
         page.mouse.move(0, 0)
-        density = page.evaluate("devicePixelRatio")
-        suffix = "@2x" if density == 2 else ""
         page.screenshot(
-            path=str(output / f"{screen}-{locale}-{theme}{suffix}.png"),
+            path=str(output / f"{screen}-{locale}-dark@2x.png"),
             animations="disabled",
         )
