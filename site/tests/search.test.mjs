@@ -113,3 +113,14 @@ for (const [locale, t] of Object.entries({ en, ru })) {
 test('FAQ translations preserve the same link identifiers', () => {
   assert.deepEqual(en.faq.items.map((item) => item.id), ru.faq.items.map((item) => item.id));
 });
+
+test('conventional crawler paths redirect to files the build emits', async () => {
+  const rules = (await read('_redirects')).split('\n').filter((line) => line.trim() && !line.startsWith('#'))
+    .map((line) => line.trim().split(/\s+/));
+  assert.deepEqual(rules.map(([from]) => from).sort(), ['/favicon.ico', '/sitemap.xml']);
+  for (const [from, to, status] of rules) {
+    assert.equal(status, '301', `${from}: permanent redirect`);
+    await assert.rejects(stat(join(dist, from.slice(1))), `${from}: a real file would shadow the redirect`);
+    assert.ok((await stat(join(dist, to.slice(1)))).size > 0, `${from}: target ${to} is missing from the build`);
+  }
+});
