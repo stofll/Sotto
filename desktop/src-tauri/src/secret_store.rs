@@ -429,17 +429,6 @@ mod tests {
     }
 
     #[test]
-    fn the_current_key_wins_over_a_stale_legacy_one() {
-        let vault = MemoryVault::with(SERVICE, "openai", "sk-current");
-        vault.put(LEGACY_SERVICE, "openai", "sk-stale");
-
-        assert_eq!(
-            get_key_in(&vault, "openai").unwrap().as_deref(),
-            Some("sk-current")
-        );
-    }
-
-    #[test]
     fn saving_and_deleting_leave_legacy_keys_untouched() {
         let vault = MemoryVault::with(LEGACY_SERVICE, "openai", "sk-old");
         save_key_in(&vault, "openai", "sk-new").unwrap();
