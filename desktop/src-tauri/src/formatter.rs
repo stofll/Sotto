@@ -35,6 +35,7 @@ use serde_json::Value;
 use std::sync::LazyLock;
 
 mod paragraphs;
+mod term_aliases;
 
 // ---------------------------------------------------------------------------
 // Defaults
@@ -1190,7 +1191,8 @@ mod localized_preview_tests {
 /// 1. A term must survive folding and stay no shorter than
 ///    [`CUSTOM_WORD_MIN_CHARS`]. `Vite` folds to `vit` (the silent `e` is
 ///    dropped), `Node` to `nod`: the dictionary silently ignores such words, and
-///    promising them to the user is dishonest.
+///    promising them to the user is dishonest. Reviewed literal aliases are
+///    the only exception; short catalog terms never participate in fuzzy matching.
 /// 2. A term must not land on an ordinary Russian word within the edit budget.
 ///    `buffer` folds to `bufer` and differs from «буфет» by exactly one edit —
 ///    the person dictating about lunch pays for that substitution.
@@ -1208,6 +1210,9 @@ const PRESET_DEVELOPMENT: &[&str] = &[
     "squash",
     "stash",
     "changelog",
+    "worktree",
+    "main",
+    "origin/main",
     // Build and release
     "pipeline",
     "deploy",
@@ -1235,6 +1240,21 @@ const PRESET_DEVELOPMENT: &[&str] = &[
     "Vitest",
     "GitHub",
     "GitLab",
+    "Cloudflare",
+    "PostHog",
+    "Whisper",
+    "Wispr Flow",
+    "Parakeet",
+    "GigaAM",
+    "Sotto",
+    "Claude Code",
+    "Playwright",
+    "Selenium",
+    "JUnit",
+    "REST Assured",
+    "LLM",
+    "UI",
+    "SQL",
     "Postgres",
     "SQLite",
     "Redis",
@@ -1242,6 +1262,7 @@ const PRESET_DEVELOPMENT: &[&str] = &[
     "package.json",
     "tsconfig.json",
     "README",
+    "AGENTS.md",
     "Markdown",
     // Concepts
     "backend",
@@ -1527,6 +1548,7 @@ fn apply_case_of(matched: &str, canonical: &str) -> String {
 pub struct CustomWordsCorrector {
     enabled: bool,
     terms: Vec<CustomTerm>,
+    aliases: term_aliases::TermAliases,
     /// Lower-cased terms ending in «й», whose inflected forms stay as spoken.
     inflecting: Vec<String>,
     max_window: usize,
@@ -1536,16 +1558,19 @@ struct CustomTerm {
     canonical: String,
     key: Vec<char>,
     acronym: bool,
+    exact_only: bool,
 }
 
 pub(crate) fn custom_word_supported(word: &str) -> bool {
-    word.split_whitespace()
-        .map(fold_for_match)
-        .collect::<String>()
-        .chars()
-        .filter(|c| c.is_alphanumeric())
-        .count()
-        >= CUSTOM_WORD_MIN_CHARS
+    term_aliases::supported(word)
+        || word
+            .split_whitespace()
+            .map(fold_for_match)
+            .collect::<String>()
+            .chars()
+            .filter(|c| c.is_alphanumeric())
+            .count()
+            >= CUSTOM_WORD_MIN_CHARS
 }
 
 impl CustomWordsCorrector {
@@ -1563,23 +1588,26 @@ impl CustomWordsCorrector {
                 // the joined form removes the question entirely rather than
                 // guessing how many words the text will contain.
                 let key: String = canonical.split_whitespace().map(fold_for_match).collect();
-                if key.chars().filter(|c| c.is_alphanumeric()).count() < CUSTOM_WORD_MIN_CHARS {
+                if !custom_word_supported(&canonical) {
                     return None;
                 }
                 let acronym = canonical.chars().all(|c| c.is_ascii_uppercase());
                 Some(CustomTerm {
+                    exact_only: term_aliases::exact_only(&canonical),
                     canonical,
                     key: key.chars().collect(),
                     acronym,
                 })
             })
             .collect();
-        let max_window = terms
+        let aliases = term_aliases::TermAliases::new(&terms);
+        let max_window = (terms
             .iter()
             .map(|term| term.canonical.split_whitespace().count())
             .max()
             .unwrap_or(0)
-            + 1;
+            + 1)
+        .max(aliases.max_window);
         let inflecting = terms
             .iter()
             .map(|term| term.canonical.to_lowercase())
@@ -1588,6 +1616,7 @@ impl CustomWordsCorrector {
         Self {
             enabled,
             terms,
+            aliases,
             inflecting,
             max_window,
         }
@@ -1654,6 +1683,9 @@ impl CustomWordsCorrector {
         scratch: &mut DistanceScratch,
     ) -> Option<(usize, &str)> {
         let limit = self.max_window().min(words.len() - start);
+        if let Some((n, target)) = self.aliases.find(&words[start..start + limit]) {
+            return target.map(|index| (n, self.terms[index].canonical.as_str()));
+        }
         let mut best: Option<(f64, usize, &str)> = None;
         let mut ambiguous = false;
         // Keep inflected Russian terms rather than flattening them to the
@@ -1732,7 +1764,12 @@ impl CustomWordsCorrector {
                     canonical,
                     key,
                     acronym,
+                    exact_only,
                 } = term;
+                // Short catalog terms support exact aliases, never fuzzy guesses.
+                if *exact_only || key.len() < CUSTOM_WORD_MIN_CHARS {
+                    continue;
+                }
                 let budget = edit_budget(key.len());
                 if folded.len().abs_diff(key.len()) > budget {
                     continue;
@@ -1883,7 +1920,11 @@ impl FormatStep for CustomWordsCorrector {
                     out.push_str(first.gap);
                     out.push_str(leading_punctuation(first.raw));
                     let matched = raws[i..i + n].join(" ");
-                    out.push_str(&apply_case_of(&matched, canonical));
+                    if term_aliases::supported(canonical) {
+                        out.push_str(canonical);
+                    } else {
+                        out.push_str(&apply_case_of(&matched, canonical));
+                    }
                     out.push_str(trailing_punctuation(last.raw));
                     i += n;
                 }
@@ -4324,7 +4365,7 @@ mod custom_words_tests {
                 let key: String = word.split_whitespace().map(fold_for_match).collect();
                 let len = key.chars().filter(|c| c.is_alphanumeric()).count();
                 assert!(
-                    len >= CUSTOM_WORD_MIN_CHARS,
+                    len >= CUSTOM_WORD_MIN_CHARS || term_aliases::supported(word),
                     "«{word}» из набора {} сворачивается в «{key}» ({len} симв.) и никогда не совпадёт",
                     set.id
                 );
@@ -4377,24 +4418,62 @@ mod custom_words_tests {
     }
 
     #[test]
-    fn short_unrelated_terms_and_ambiguous_brands_are_preserved() {
+    fn explicit_brand_aliases_do_not_relax_unrelated_fuzzy_matches() {
         let corrector = CustomWordsCorrector::new(true, preset("development"));
-        for input in [
-            "получили буст",
-            "Rest Asuret",
-            "скли запрос",
-            "гитхаб",
-            "Githabe",
-        ] {
+        for input in ["получили буст", "скли запрос"] {
             assert_eq!(corrector.apply(input), input);
         }
         for terms in [["GitHub", "GitLab"], ["GitLab", "GitHub"]] {
-            assert_eq!(correct(&terms, "гитхаб"), "гитхаб");
+            assert_eq!(correct(&terms, "гитхаб"), "GitHub");
             assert_eq!(correct(&terms, "GitHub"), "GitHub");
             assert_eq!(correct(&terms, "GitLab"), "GitLab");
         }
         assert_eq!(corrector.apply("код на Rust"), "код на Rust");
+        assert_eq!(corrector.apply("Rest Asuret"), "REST Assured");
+        assert_eq!(corrector.apply("Githabe"), "GitHub");
         assert_eq!(corrector.apply("гитлаб"), "GitLab");
+    }
+
+    #[test]
+    fn catalog_aliases_restore_spoken_names_without_guessing_at_prose() {
+        let corrector = CustomWordsCorrector::new(true, preset("development"));
+        for (input, expected) in [
+            ("файл ритми", "файл README"),
+            ("файл Aжиnc MD", "файл AGENTS.md"),
+            ("файл эдженс эмди", "файл AGENTS.md"),
+            ("тест Playrit", "тест Playwright"),
+            ("модель виспера", "модель Whisper"),
+            ("запуск в ллм", "запуск в LLM"),
+            ("проверь эс кью эл", "проверь SQL"),
+            ("тесты в мaйn", "тесты в main"),
+            ("тесты в maйн", "тесты в main"),
+        ] {
+            assert_eq!(corrector.apply(input), expected, "{input}");
+            assert_eq!(corrector.apply(expected), expected, "{expected}");
+        }
+        for input in [
+            "a whisper and a parakeet; rest assured",
+            "Maine and a main road",
+            "юань, соты, кодекс, в ритме музыки",
+            "GidhapSuffix Gidhap_id `Gidhap` https://Gidhap.test",
+            "пост, хог; пост. Хог; cloud (flayer)",
+            "пост\nхог и cloud\r\nflayer",
+            "Wispr Flow and Whisper Turbo",
+        ] {
+            assert_eq!(corrector.apply(input), input, "{input}");
+        }
+    }
+
+    #[test]
+    fn catalog_aliases_follow_active_terms_and_explicit_spelling() {
+        assert_eq!(correct(&["GitLab"], "Gidhap"), "Gidhap");
+        assert_eq!(correct(&["Github"], "Gidhap"), "Github");
+        assert_eq!(correct(&["Whisper", "Wisper"], "Wisper"), "Wisper");
+        assert_eq!(correct(&["Whisper"], "Wisper Flow"), "Wisper Flow");
+        assert_eq!(correct(&["Wispr Flow"], "Wisper Turbo"), "Wisper Turbo");
+        assert_eq!(correct(&["Whisper"], "Wisper  Turbo"), "Whisper  Turbo");
+        assert_eq!(correct(&["Wispr Flow"], "Wisper  Flow"), "Wispr Flow");
+        assert_eq!(correct(&["UI", "SQL", "LLM"], "SQA LLN UJ"), "SQA LLN UJ");
     }
 
     // ── Enabling and disabling sets ─────────────────────────────────────

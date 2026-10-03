@@ -22,11 +22,15 @@ User terms take precedence over built-in terms when they differ only in letter c
 
 The dictionary corrects similar spellings after recognition. Whisper additionally receives enabled terms as recognition hints; disabling local formatting stops text correction but leaves these Whisper hints active. Other engines do not necessarily support recognition hints, and dictionary entries do not guarantee that a term will be recognized or corrected.
 
+The development set also includes hosting, analytics, speech and testing names such as Cloudflare, PostHog, Whisper, Wispr Flow, Parakeet, GigaAM, Sotto, Playwright and REST Assured, plus AGENTS.md, worktree, main and short technical acronyms. Reviewed recognition variants are matched literally: `Gidhap` becomes `GitHub`, `Ridmi` becomes `README`, and `постхоg` becomes `PostHog`. These variants work only while their target term is enabled, including in a personal set or a copy, and use the selected spelling of that term. They require no cloud service or LLM.
+
+Longer variants take priority: `Wisper Flow` becomes `Wispr Flow`, while `Wisper Turbo` becomes `Whisper Turbo`. Disabling Wispr Flow does not turn its name into Whisper Flow. New catalog terms use these exact variants instead of fuzzy guesses; correctly spelled English words retain their original case. Ambiguous ordinary words such as «ритме» and `Maine` are left unchanged. Explicit replacement rules still take priority, and code, paths and links remain protected.
+
 Fuzzy term matching preserves words and phrases recognised by the built-in Russian spelling dictionary. Exact phonetic matches can still restore transliterated terms; use an explicit replacement rule when you intentionally want to replace an ordinary word. Matching does not join terms across sentence punctuation.
 
 Equally close dictionary terms leave the original text unchanged. Terms or recognised fragments of four normalized characters require an exact phonetic match, except dictionary acronyms written entirely in capitals. This prevents short words such as `REST` and «буст» from becoming `Rust`, at the cost of leaving some recognition errors uncorrected.
 
-The editor identifies terms that are too short for the local corrector after its matching normalization. They remain stored and available to Whisper hints. Use the existing text preview to check post-processing; evaluating speech recognition itself requires an audio recording.
+The editor identifies terms that are too short for the local corrector after its matching normalization. They remain stored and available to Whisper hints. Reviewed aliases are an exception: `LLМ` or «ллм» can become `LLM`, «юай» can become `UI`, and `SQEL` can become `SQL`, without enabling fuzzy matching for short terms. Use the existing text preview to check post-processing; evaluating speech recognition itself requires an audio recording.
 
 The initial text preview, suggested replacement rules and input examples follow the interface language. Once you edit or clear the preview, your text stays unchanged when switching languages or visiting another settings page during the same app session. Changing the interface language does not translate saved rules or dictionary contents, and it does not change which verbal tics are removed: those follow their own switches and the dictation language.
 
