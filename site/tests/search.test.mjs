@@ -83,6 +83,8 @@ for (const [locale, t] of Object.entries({ en, ru })) {
     assert.equal(Number(app.offers.price), 0);
     assert.ok(!app.aggregateRating && !app.review, 'Do not invent reviews for a rich result');
     assert.ok(!('codeRepository' in app), 'codeRepository belongs to SoftwareSourceCode');
+    assert.ok(!('datePublished' in app), 'The latest release date is a modification date, not first publication');
+    if ('dateModified' in app) assert.ok(!Number.isNaN(Date.parse(app.dateModified)));
 
     const questions = [...html.matchAll(/<details\b[^>]*id="(faq-[^"]+)"[^>]*>\s*<summary>([\s\S]*?)<\/summary>\s*<p>([\s\S]*?)<\/p>/g)];
     assert.equal(questions.length, t.faq.items.length);
