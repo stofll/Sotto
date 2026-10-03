@@ -15,6 +15,15 @@ type Save = (patch: Partial<TextFormattingConfig>, onError?: (message: string) =
 const signature = (formatting: TextFormattingConfig) => JSON.stringify(dictionaryPatch(formatting));
 const termCount = (count: number) => `${count} ${tPlural(count, ["термин", "термина", "терминов"])}`;
 
+function presetLabel(id: string): { name: string; description: string } {
+  switch (id) {
+    case "development": return { name: t("Разработка"), description: t("Термины разработки: инструменты, языки и рабочие процессы.") };
+    case "ai_voice": return { name: t("ИИ и голос"), description: t("Компании, модели, ассистенты и сервисы распознавания речи.") };
+    case "work_apps": return { name: t("Приложения и работа"), description: t("Приложения для общения, документов, дизайна и совместной работы.") };
+    default: return { name: id, description: "" };
+  }
+}
+
 /** The fold header's one line: how many terms the enabled sets actually apply. */
 function librarySummary(analysis: DictionaryAnalysis | null, error: boolean): string {
   if (!analysis) return error ? t("Ошибка") : t("Загрузка…");
@@ -48,8 +57,7 @@ export function DictionaryLibrary({ open, onToggle, formatting, onSave }: { open
   }, [configKey, revision]);
 
   const entries: Entry[] = [...(formatting.dictionary_sets ?? []), ...presets.map((set) => ({ ...set,
-    name: set.id === "development" ? t("Разработка") : set.id,
-    description: set.id === "development" ? t("Термины разработки: инструменты, языки и рабочие процессы.") : "",
+    ...presetLabel(set.id),
     enabled: formatting.enabled_presets.includes(set.id) }))];
 
   async function save(next: TextFormattingConfig, onError?: (message: string) => void): Promise<boolean> {

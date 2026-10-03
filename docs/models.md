@@ -31,6 +31,8 @@ All of them run on the CPU provider of ONNX Runtime. The CPU/GPU switch only app
 
 GigaAM recordings longer than 25 seconds are decoded in consecutive fragments. Sotto prefers a speech-detector pause near 20 seconds and keeps each fragment within 25 seconds; continuous speech falls back to a nearby low-energy boundary. All samples are retained without overlap, so joining results does not remove intentional repeated words. Short recordings take the original single-pass path. This applies to microphone and file transcription, and cancellation is checked between fragments; an in-progress native decode still has to finish. A boundary without a pause can cut a word, so segmentation does not guarantee perfect long-form recognition.
 
+When an unfinished fragment is followed by a capitalized Russian word, Sotto rechecks up to four seconds of audio on each side of the boundary using the same local model. If two words on each side match uniquely and their surrounding punctuation agrees, only the boundary punctuation and the next word's initial case can change. Words, existing sentence endings, initials, uppercase abbreviations and technical text are preserved. A disagreement or a failed recheck keeps the original join; cancellation discards the complete transcription. These short rechecks add processing time to long recordings and do not infer paragraph topics or repair missing words.
+
 Quantization is shown by the catalog next to the size: `int8` for sherpa bundles, `q8_0` for some Whisper builds. It explains why a model weighs less than expected, and it lives next to the size rather than in the name.
 
 ### Languages are a closed list

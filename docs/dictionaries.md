@@ -4,6 +4,16 @@ Open **Processing → Text → Dictionaries** to manage names, brands and specia
 
 Several sets can be enabled together. Sotto combines their terms without repeating identical entries; disabling or deleting one set does not remove a term that remains in another enabled set.
 
+## Built-in sets
+
+**AI and voice** covers AI companies, assistants, model families and speech services, including Meta, Meta AI, OpenAI, Anthropic, Google DeepMind, Microsoft, NVIDIA, DeepSeek, Ollama, OpenRouter and ElevenLabs. **Apps and work** covers communication, documents, design and collaboration, including Notion, Figma, Slack, Telegram, Microsoft and Google apps. Both sets are initially disabled; enable the ones you need in the library. They do not change existing settings automatically.
+
+**Development** also includes infrastructure, analytics, speech and testing names such as Vercel, Cloudflare, PostHog, Whisper, GigaAM, Playwright and REST Assured, plus AGENTS.md, worktree, main and short technical acronyms. Existing terms stay in this set even when they also appear in another set, so an update does not require enabling a new set to retain earlier corrections. There is no separate testing set.
+
+Built-in catalog terms are corrected only through reviewed recognition variants, for example «опн роутер» → `OpenRouter` and «ноушен» → `Notion`; canonical spellings also serve as Whisper hints. Names that coincide with ordinary words or names are left unchanged: «мета», «клод», «мейн», «кодекс», «лама», «курсор», «обсидиан» and «дропбокс», which may refer to a UI control. `Grok` and `Groq` share the spoken variant «грок», which stays unchanged when both terms are enabled. Already-spelled English text keeps its case.
+
+A term you add to your own set or to **My words**, including a copy of a built-in set, keeps the ordinary fuzzy matching described below in addition to its reviewed variants. Add a brand such as `Codex` to a personal set, or create a replacement rule, when you always mean it.
+
 ## Create and customize
 
 Choose **Create** in the Dictionaries header, enter a name and optionally a description, and paste terms on separate lines or separated by commas. A term can contain spaces, such as `Claude Code`. Empty lines and exact duplicates are removed when saving. A set may contain no terms, but its name cannot be empty.
@@ -22,11 +32,15 @@ User terms take precedence over built-in terms when they differ only in letter c
 
 The dictionary corrects similar spellings after recognition. Whisper additionally receives enabled terms as recognition hints; disabling local formatting stops text correction but leaves these Whisper hints active. Other engines do not necessarily support recognition hints, and dictionary entries do not guarantee that a term will be recognized or corrected.
 
+Reviewed recognition variants are matched literally: `Gidhap` becomes `GitHub`, `Ridmi` becomes `README`, and `постхоg` becomes `PostHog`. These variants work only while their target term is enabled, including in a personal set or a copy, and use the selected spelling of that term. They require no cloud service or LLM.
+
+Longer variants take priority: `Wisper Flow` becomes `Wispr Flow`, while `Wisper Turbo` becomes `Whisper Turbo`. Disabling Wispr Flow does not turn its name into Whisper Flow. Correctly spelled English words retain their original case. Ambiguous ordinary words such as «ритме» and `Maine` are left unchanged. Explicit replacement rules still take priority, and code, paths and links remain protected.
+
 Fuzzy term matching preserves words and phrases recognised by the built-in Russian spelling dictionary. Exact phonetic matches can still restore transliterated terms; use an explicit replacement rule when you intentionally want to replace an ordinary word. Matching does not join terms across sentence punctuation.
 
 Equally close dictionary terms leave the original text unchanged. Terms or recognised fragments of four normalized characters require an exact phonetic match, except dictionary acronyms written entirely in capitals. This prevents short words such as `REST` and «буст» from becoming `Rust`, at the cost of leaving some recognition errors uncorrected.
 
-The editor identifies terms that are too short for the local corrector after its matching normalization. They remain stored and available to Whisper hints. Use the existing text preview to check post-processing; evaluating speech recognition itself requires an audio recording.
+The editor identifies terms that are too short for the local corrector after its matching normalization. They remain stored and available to Whisper hints. Reviewed aliases are an exception: `LLМ` or «ллм» can become `LLM`, «юай» can become `UI`, and `SQEL` can become `SQL`, without enabling fuzzy matching for short terms. Use the existing text preview to check post-processing; evaluating speech recognition itself requires an audio recording.
 
 The initial text preview, suggested replacement rules and input examples follow the interface language. Once you edit or clear the preview, your text stays unchanged when switching languages or visiting another settings page during the same app session. Changing the interface language does not translate saved rules or dictionary contents, and it does not change which verbal tics are removed: those follow their own switches and the dictation language.
 
@@ -69,3 +83,5 @@ The built-in words come in sets, one per language, and the set for the language 
 Your own words are added below the sets and work in any language, whichever sets are enabled. Type a word or phrase and press Enter, or separate several with commas to add them at once; each one becomes a chip with its own remove button. Everything in this dialog is saved as you change it.
 
 Filler sounds are a separate switch, **Remove fillers**. The Russian sounds apply to every dictation, because Cyrillic cannot match text written in another alphabet. The English sounds — `uh`, `umm`, `hmm` — apply only when the dictation language is set to English, since `er` and `um` are ordinary words in German and Dutch; a dictation language of **Auto** does not enable them.
+
+Sound cleanup recognizes capitalized hesitations such as «А-а», «Э-э» and «Хмм», and a cut-off «э-». Punctuation right after a hesitation is removed at the start of a sentence or after another comma, so «два. А-а-а. Это» becomes «два. Это»; inside a clause the comma or sentence end is preserved because it may belong to the grammar. A drawn-out «И-и-и» becomes «И», preserving the conjunction. Single «а», «о» and «и», uppercase abbreviations, initials, protected code and explicit replacement matches are preserved; disabling **Remove fillers** also disables these corrections.

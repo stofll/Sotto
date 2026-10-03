@@ -120,6 +120,114 @@ def test_dictionary_create_read_search_delete(app, page):
     assert ui.state()["config"]["text_formatting"]["dictionary_sets"] == []
 
 
+@pytest.mark.parametrize("locale", ["ru", "en"])
+@pytest.mark.parametrize("theme", ["dark", "light"])
+def test_thematic_dictionary_catalog_toggle_search_and_copy(
+    app, page, locale, theme, output_path
+):
+    from pathlib import Path
+
+    # Use the shipped word lists; the browser harness supplies the IPC boundary.
+    source = (
+        Path(__file__).resolve().parents[2] / "desktop/src-tauri/src/formatter.rs"
+    ).read_text(encoding="utf-8")
+    presets = []
+    for name, key in [
+        ("PRESET_DEVELOPMENT", "development"),
+        ("PRESET_AI_VOICE", "ai_voice"),
+        ("PRESET_WORK_APPS", "work_apps"),
+    ]:
+        body = re.search(rf"const {name}:.*?= &\[(.*?)\];", source, re.DOTALL)
+        assert body is not None
+        words = re.findall(r'"([^"\n]+)"', body.group(1))
+        assert len(words) >= 20
+        presets.append([key, words])
+    ru = locale == "ru"
+    names = (
+        ["Разработка", "ИИ и голос", "Приложения и работа"]
+        if ru
+        else ["Development", "AI and voice", "Apps and work"]
+    )
+    page.set_viewport_size({"width": 1000, "height": 710})
+    ui = app(
+        config={
+            "ui_language": locale,
+            "theme": theme,
+            "text_formatting": {"enabled_presets": ["development"]},
+        },
+        responses={"dictionary_presets": [{"result": presets}] * 12},
+    )
+    ui.nav("text")
+    page.get_by_role(
+        "button", name=re.compile(r"^Словари" if ru else r"^Dictionaries")
+    ).click()
+    expect(page.locator(".dictionary-open")).to_have_count(3)
+    for name in names:
+        expect(
+            page.get_by_role("button", name=re.compile("^" + re.escape(name) + " "))
+        ).to_be_visible()
+    ai = page.get_by_role(
+        "button", name=f"{names[1]}: {'Выключен' if ru else 'Disabled'}", exact=True
+    )
+    expect(ai).to_have_attribute("aria-pressed", "false")
+    ai.focus()
+    expect(ai).to_be_focused()
+    page.keyboard.press("Space")
+    page.wait_for_function(
+        "window.__sottoTest.state.config.text_formatting.enabled_presets.includes('ai_voice')"
+    )
+    assert "work_apps" not in ui.state()["config"]["text_formatting"]["enabled_presets"]
+    page.get_by_role("button", name=re.compile("^" + re.escape(names[1]) + " ")).click()
+    dialog = page.get_by_role("dialog", name=names[1], exact=True)
+    expect(dialog.get_by_text("Meta", exact=True)).to_be_visible()
+    search = dialog.get_by_label(
+        "Поиск по набору" if ru else "Search this set", exact=True
+    )
+    search.fill("meta")
+    expect(dialog.locator(".dictionary-term-list li")).to_have_count(2)
+    expect(dialog.get_by_text("Meta AI", exact=True)).to_be_visible()
+    search.fill("")
+    search.focus()
+    expect(search).to_be_focused()
+    Path(output_path).mkdir(parents=True, exist_ok=True)
+    page.screenshot(path=str(Path(output_path) / "ai-voice.png"), animations="disabled")
+    dialog.get_by_role(
+        "button", name="Создать копию" if ru else "Create copy", exact=True
+    ).click()
+    dialog = page.get_by_role("dialog")
+    dialog.get_by_role("button", name="Сохранить" if ru else "Save", exact=True).click()
+    expect(dialog).not_to_be_visible()
+    copy = ui.state()["config"]["text_formatting"]["dictionary_sets"][0]
+    assert copy["enabled"] is False
+    assert "Meta" in copy["words"]
+    page.reload()
+    ui.nav("text")
+    heading = page.get_by_role(
+        "button", name=re.compile(r"^Словари" if ru else r"^Dictionaries")
+    )
+    if heading.get_attribute("aria-expanded") != "true":
+        heading.click()
+    expect(
+        page.get_by_role(
+            "button", name=f"{names[1]}: {'Включён' if ru else 'Enabled'}", exact=True
+        )
+    ).to_have_attribute("aria-pressed", "true")
+    expect(
+        page.get_by_role(
+            "button", name=f"{names[2]}: {'Выключен' if ru else 'Disabled'}", exact=True
+        )
+    ).to_have_attribute("aria-pressed", "false")
+    assert (
+        page.get_by_test_id("main-content").evaluate(
+            "e => e.scrollWidth - e.clientWidth"
+        )
+        <= 1
+    )
+    page.screenshot(
+        path=str(Path(output_path) / "dictionary-library.png"), animations="disabled"
+    )
+
+
 def test_dictionary_unsaved_changes_and_focus_restore(app, page):
     ui = app()
     ui.nav("text")

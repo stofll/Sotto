@@ -370,7 +370,7 @@
     "id": "short-terms",
     "category": "dictionary",
     "input": "Rest буст сотто",
-    "expected": "Rest буст сотто.",
+    "expected": "Rest буст Sotto.",
     "config": {
       "language": "ru",
       "text_formatting": {
@@ -384,7 +384,7 @@
     "id": "ambiguous-brands",
     "category": "dictionary",
     "input": "гитхаб и гитлаб",
-    "expected": "Гитхаб и GitLab.",
+    "expected": "GitHub и GitLab.",
     "config": {
       "language": "ru",
       "text_formatting": {
@@ -399,7 +399,7 @@
     "id": "dictionary-order",
     "category": "dictionary",
     "input": "гитхаб и гитлаб",
-    "expected": "Гитхаб и GitLab.",
+    "expected": "GitHub и GitLab.",
     "config": {
       "language": "ru",
       "text_formatting": {
@@ -741,6 +741,857 @@
           "development"
         ]
       }
+    }
+  },
+  {
+    "id": "capitalized-hesitations",
+    "category": "fillers",
+    "input": "А-а, проверим схему. Хмм, затем сохраним результат.",
+    "expected": "Проверим схему. Затем сохраним результат."
+  },
+  {
+    "id": "capitalized-eh-after-period",
+    "category": "fillers",
+    "input": "Проверка завершена.Э теперь сохраним результат.",
+    "expected": "Проверка завершена. Теперь сохраним результат."
+  },
+  {
+    "id": "capitalized-held-sounds",
+    "category": "fillers",
+    "input": "Э-э, М-м-м, О-о, Ааа, всё готово.",
+    "expected": "Всё готово."
+  },
+  {
+    "id": "drawn-conjunction",
+    "category": "fillers",
+    "input": "И-и-и проверим схему и-и-и сохраним результат.",
+    "expected": "И проверим схему и сохраним результат."
+  },
+  {
+    "id": "single-letter-words",
+    "category": "fillers",
+    "input": "Речь о проекте, а затем и о тестировании.",
+    "expected": "Речь о проекте, а затем и о тестировании."
+  },
+  {
+    "id": "initials-and-acronyms",
+    "category": "fillers",
+    "input": "Доклад подготовили М. А. Иванов и Э. Р. Соколов для АА и ММ.",
+    "expected": "Доклад подготовили М. А. Иванов и Э. Р. Соколов для АА и ММ."
+  },
+  {
+    "id": "hesitations-in-code",
+    "category": "fillers",
+    "input": "Пример: `А-а, Хмм, И-и-и`.",
+    "expected": "Пример: `А-а, Хмм, И-и-и`."
+  },
+  {
+    "id": "hesitations-disabled",
+    "category": "fillers",
+    "input": "А-а, Хмм, И-и-и проверим схему.",
+    "expected": "А-а, Хмм, И-и-и проверим схему.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "remove_fillers": false
+      }
+    }
+  },
+  {
+    "id": "hesitation-replacement-priority",
+    "category": "fillers",
+    "input": "Хмм, проверим схему.",
+    "expected": "Маркер, проверим схему.",
+    "config": {
+      "language": "ru",
+      "replacement_rules": [
+        {
+          "find": "Хмм",
+          "replace": "маркер",
+          "match": "word",
+          "enabled": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "capitalized-sound-only",
+    "category": "fillers",
+    "input": "А-а",
+    "expected": "",
+    "transcription_expected": "А-а"
+  },
+  {
+    "id": "conjunction-only",
+    "category": "fillers",
+    "input": "И-и-и",
+    "expected": "И."
+  },
+  {
+    "id": "hesitation-inside-compound",
+    "category": "fillers",
+    "input": "Это Хмм-тест и-и-и-тест.",
+    "expected": "Это Хмм-тест и-и-и-тест."
+  },
+  {
+    "id": "capital-letter-name",
+    "category": "fillers",
+    "input": "Сравни букву Э и букву М.",
+    "expected": "Сравни букву Э и букву М."
+  },
+  {
+    "id": "nonbreaking-hyphen-fillers",
+    "category": "fillers",
+    "input": "Это Хмм‑тест и-и-и‑тест.",
+    "expected": "Это Хмм‑тест и-и-и‑тест."
+  },
+  {
+    "id": "filler-preserves-clause-comma",
+    "category": "fillers",
+    "input": "Изменим описание А-а, чтобы его было проще прочитать.",
+    "expected": "Изменим описание, чтобы его было проще прочитать."
+  },
+  {
+    "id": "filler-between-commas",
+    "category": "fillers",
+    "input": "Продолжим, Хмм, после проверки.",
+    "expected": "Продолжим, после проверки."
+  },
+  {
+    "id": "brands-hosting",
+    "category": "term-aliases",
+    "input": "Открой Cloud flayer и Gidhap Pages",
+    "expected": "Открой Cloudflare и GitHub Pages.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development"
+        ]
+      }
+    }
+  },
+  {
+    "id": "brands-github",
+    "category": "term-aliases",
+    "input": "Проверь гидхабе, гитхапе и Githabe",
+    "expected": "Проверь GitHub, GitHub и GitHub.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development"
+        ]
+      }
+    }
+  },
+  {
+    "id": "brands-analytics",
+    "category": "term-aliases",
+    "input": "Проверь постхоg, пост хок и пост хоги",
+    "expected": "Проверь PostHog, PostHog и PostHog.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development"
+        ]
+      }
+    }
+  },
+  {
+    "id": "brands-whisper-flow",
+    "category": "term-aliases",
+    "input": "Сравни Wisper Turbo, Wisper Flow и Wиспер",
+    "expected": "Сравни Whisper Turbo, Wispr Flow и Whisper.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development"
+        ]
+      }
+    }
+  },
+  {
+    "id": "brands-models",
+    "category": "term-aliases",
+    "input": "Сравни паракита, парокит и Гига АМ",
+    "expected": "Сравни Parakeet, Parakeet и GigaAM.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development"
+        ]
+      }
+    }
+  },
+  {
+    "id": "brands-files",
+    "category": "term-aliases",
+    "input": "Обнови Ridmi и файл AgencMD",
+    "expected": "Обнови README и файл AGENTS.md.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development"
+        ]
+      }
+    }
+  },
+  {
+    "id": "brands-worktree",
+    "category": "term-aliases",
+    "input": "Проверь vork-tри, Workри и ветку мейн",
+    "expected": "Проверь worktree, worktree и ветку мейн.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development"
+        ]
+      }
+    }
+  },
+  {
+    "id": "brands-origin",
+    "category": "term-aliases",
+    "input": "Сверь Origin Mane и Originl mane",
+    "expected": "Сверь origin/main и origin/main.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development"
+        ]
+      }
+    }
+  },
+  {
+    "id": "brands-testing",
+    "category": "term-aliases",
+    "input": "Проверь Playrihte, GUnit и Rest Asuret",
+    "expected": "Проверь Playwright, JUnit и REST Assured.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development"
+        ]
+      }
+    }
+  },
+  {
+    "id": "brands-rest",
+    "category": "term-aliases",
+    "input": "Сравни ресташуред, реста шурад и ресташурт",
+    "expected": "Сравни REST Assured, REST Assured и REST Assured.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development"
+        ]
+      }
+    }
+  },
+  {
+    "id": "brands-assistant",
+    "category": "term-aliases",
+    "input": "Открой клауд код и обнови селениум",
+    "expected": "Открой Claude Code и обнови Selenium.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development"
+        ]
+      }
+    }
+  },
+  {
+    "id": "brands-acronyms",
+    "category": "term-aliases",
+    "input": "Проверь LLМ, юай и SQEL",
+    "expected": "Проверь LLM, UI и SQL.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development"
+        ]
+      }
+    }
+  },
+  {
+    "id": "brands-app",
+    "category": "term-aliases",
+    "input": "Обнови логотип сотто",
+    "expected": "Обнови логотип Sotto.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development"
+        ]
+      }
+    }
+  },
+  {
+    "id": "brands-prose",
+    "category": "term-aliases",
+    "input": "Трудовой кодекс, соты, пост охраны и танец в ритме музыки",
+    "expected": "Трудовой кодекс, соты, пост охраны и танец в ритме музыки.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development"
+        ]
+      }
+    }
+  },
+  {
+    "id": "brands-english",
+    "category": "term-aliases",
+    "input": "Maine has a cloud cover. Tell me a story about a whisper and a main road.",
+    "expected": "Maine has a cloud cover. Tell me a story about a whisper and a main road.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development"
+        ]
+      }
+    }
+  },
+  {
+    "id": "brands-boundaries",
+    "category": "term-aliases",
+    "input": "Проверь myGidhap, GidhapExtra, пост. Хог и cloud, flayer",
+    "expected": "Проверь myGidhap, GidhapExtra, пост. Хог и cloud, flayer.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development"
+        ]
+      }
+    }
+  },
+  {
+    "id": "brands-protected",
+    "category": "term-aliases",
+    "input": "Проверь `Gidhap Wisper` и https://Gidhap.test/Wisper, затем Gidhap",
+    "expected": "Проверь `Gidhap Wisper` и https://Gidhap.test/Wisper, затем GitHub.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development"
+        ]
+      }
+    }
+  },
+  {
+    "id": "brands-disabled",
+    "category": "term-aliases",
+    "input": "Проверь Gidhap и Wisper",
+    "expected": "Проверь Gidhap и Wisper.",
+    "config": {
+      "language": "ru"
+    }
+  },
+  {
+    "id": "brands-formatting-disabled",
+    "category": "term-aliases",
+    "input": "Проверь Gidhap и Wisper",
+    "expected": "Проверь Gidhap и Wisper",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled": false,
+        "enabled_presets": [
+          "development"
+        ]
+      }
+    }
+  },
+  {
+    "id": "brands-user-spelling",
+    "category": "term-aliases",
+    "input": "Проверь Gidhap",
+    "expected": "Проверь Github.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development"
+        ],
+        "custom_words": [
+          "Github"
+        ]
+      }
+    }
+  },
+  {
+    "id": "brands-longer-disabled",
+    "category": "term-aliases",
+    "input": "Сравни Wisper Flow и Wisper Turbo",
+    "expected": "Сравни Wisper Flow и Whisper Turbo.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "custom_words": [
+          "Whisper"
+        ]
+      }
+    }
+  },
+  {
+    "id": "brands-replacement-priority",
+    "category": "term-aliases",
+    "input": "Проверь Gidhap и Wisper",
+    "expected": "Проверь внутренний портал и Whisper.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development"
+        ]
+      },
+      "replacement_rules": [
+        {
+          "id": "brand",
+          "find": "Gidhap",
+          "replace": "внутренний портал",
+          "enabled": true,
+          "match": "word",
+          "stage": "pre_llm"
+        }
+      ]
+    }
+  },
+  {
+    "id": "brands-en-identifiers",
+    "category": "term-aliases",
+    "input": "Keep Gidhap_id, `Wisper` and GitHub.com unchanged.",
+    "expected": "Keep Gidhap_id, `Wisper` and GitHub.com unchanged.",
+    "config": {
+      "language": "en",
+      "text_formatting": {
+        "enabled_presets": [
+          "development"
+        ]
+      }
+    }
+  },
+  {
+    "id": "thematic-companies",
+    "category": "thematic-dictionaries",
+    "input": "Сравни мета, антропик и опен аи",
+    "expected": "Сравни мета, Anthropic и OpenAI.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development",
+          "ai_voice",
+          "work_apps"
+        ]
+      }
+    }
+  },
+  {
+    "id": "thematic-assistants",
+    "category": "thematic-dictionaries",
+    "input": "Сравни чат джипити, джемини и клод",
+    "expected": "Сравни ChatGPT, Gemini и клод.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development",
+          "ai_voice",
+          "work_apps"
+        ]
+      }
+    }
+  },
+  {
+    "id": "thematic-compound-names",
+    "category": "thematic-dictionaries",
+    "input": "Открой мета эй ай, клод и гитхаб копайлот",
+    "expected": "Открой Meta AI, клод и GitHub Copilot.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development",
+          "ai_voice",
+          "work_apps"
+        ]
+      }
+    }
+  },
+  {
+    "id": "thematic-claude-models",
+    "category": "thematic-dictionaries",
+    "input": "Сравни клод опус и клод соннет",
+    "expected": "Сравни Claude Opus и Claude Sonnet.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development",
+          "ai_voice",
+          "work_apps"
+        ]
+      }
+    }
+  },
+  {
+    "id": "thematic-models",
+    "category": "thematic-dictionaries",
+    "input": "Сравни дипсик, квен и немотрон",
+    "expected": "Сравни DeepSeek, Qwen и Nemotron.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development",
+          "ai_voice",
+          "work_apps"
+        ]
+      }
+    }
+  },
+  {
+    "id": "thematic-local-tools",
+    "category": "thematic-dictionaries",
+    "input": "Открой оллама, эл эм студио и опн роутер",
+    "expected": "Открой Ollama, LM Studio и OpenRouter.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development",
+          "ai_voice",
+          "work_apps"
+        ]
+      }
+    }
+  },
+  {
+    "id": "thematic-speech-services",
+    "category": "thematic-dictionaries",
+    "input": "Проверь элевен лабс, дипграм и ассембли эй ай",
+    "expected": "Проверь ElevenLabs, Deepgram и AssemblyAI.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development",
+          "ai_voice",
+          "work_apps"
+        ]
+      }
+    }
+  },
+  {
+    "id": "thematic-apps",
+    "category": "thematic-dictionaries",
+    "input": "Открой ноушен, фигму и телеграм",
+    "expected": "Открой Notion, Figma и Telegram.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development",
+          "ai_voice",
+          "work_apps"
+        ]
+      }
+    }
+  },
+  {
+    "id": "thematic-documents",
+    "category": "thematic-dictionaries",
+    "input": "Открой гугл докс и майкрософт эксель",
+    "expected": "Открой Google Docs и Microsoft Excel.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development",
+          "ai_voice",
+          "work_apps"
+        ]
+      }
+    }
+  },
+  {
+    "id": "thematic-infrastructure",
+    "category": "thematic-dictionaries",
+    "input": "Сравни версел, супабейс и нетлифай",
+    "expected": "Сравни Vercel, Supabase и Netlify.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development",
+          "ai_voice",
+          "work_apps"
+        ]
+      }
+    }
+  },
+  {
+    "id": "thematic-acronyms",
+    "category": "thematic-dictionaries",
+    "input": "Проверь эй дабл ю эс и икс эй ай",
+    "expected": "Проверь AWS и xAI.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development",
+          "ai_voice",
+          "work_apps"
+        ]
+      }
+    }
+  },
+  {
+    "id": "thematic-homophones",
+    "category": "thematic-dictionaries",
+    "input": "Сравни грок и Groq",
+    "expected": "Сравни грок и Groq.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development",
+          "ai_voice",
+          "work_apps"
+        ]
+      }
+    }
+  },
+  {
+    "id": "thematic-ordinary-russian",
+    "category": "thematic-dictionaries",
+    "input": "Смета, метаданные, лампа, лама, кодекс, курсор и обсидиан",
+    "expected": "Смета, метаданные, лампа, лама, кодекс, курсор и обсидиан.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development",
+          "ai_voice",
+          "work_apps"
+        ]
+      }
+    }
+  },
+  {
+    "id": "thematic-ordinary-english",
+    "category": "thematic-dictionaries",
+    "input": "An apple, a notion, a linear graph and a cursor. Zoom in and slack off.",
+    "expected": "An apple, a notion, a linear graph and a cursor. Zoom in and slack off.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development",
+          "ai_voice",
+          "work_apps"
+        ]
+      }
+    }
+  },
+  {
+    "id": "thematic-protected",
+    "category": "thematic-dictionaries",
+    "input": "Проверь `мета ноушен` и https://meta.test, затем ноушен",
+    "expected": "Проверь `мета ноушен` и https://meta.test, затем Notion.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development",
+          "ai_voice",
+          "work_apps"
+        ]
+      }
+    }
+  },
+  {
+    "id": "thematic-sentence-boundary",
+    "category": "thematic-dictionaries",
+    "input": "Сравни мета. Эй ай и гугл, докс",
+    "expected": "Сравни мета. Эй ай и Google, докс.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development",
+          "ai_voice",
+          "work_apps"
+        ]
+      }
+    }
+  },
+  {
+    "id": "thematic-disabled",
+    "category": "preservation",
+    "input": "Открой мета и ноушен",
+    "expected": "Открой мета и ноушен.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development"
+        ]
+      }
+    }
+  },
+  {
+    "id": "thematic-dropbox-control",
+    "category": "preservation",
+    "input": "Настрой чекбокс и дропбокс",
+    "expected": "Настрой чекбокс и дропбокс.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development",
+          "ai_voice",
+          "work_apps"
+        ]
+      }
+    }
+  },
+  {
+    "id": "thematic-provider-companies",
+    "category": "thematic-dictionaries",
+    "input": "Сравни мистрал, мистрал эй ай и монашот",
+    "expected": "Сравни Mistral, Mistral AI и Moonshot AI.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development",
+          "ai_voice",
+          "work_apps"
+        ]
+      }
+    }
+  },
+  {
+    "id": "thematic-weather",
+    "category": "preservation",
+    "input": "Холодный ветер мистраль",
+    "expected": "Холодный ветер мистраль.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development",
+          "ai_voice",
+          "work_apps"
+        ]
+      }
+    }
+  },
+  {
+    "id": "thematic-ordinary-homonyms",
+    "category": "thematic-dictionaries",
+    "input": "Мы ездили в штат Мейн смотреть картины Клод Моне, а мета этого текста простая",
+    "expected": "Мы ездили в штат Мейн смотреть картины Клод Моне, а мета этого текста простая.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development",
+          "ai_voice",
+          "work_apps"
+        ]
+      }
+    }
+  },
+  {
+    "id": "personal-terms-keep-fuzzy-matching",
+    "category": "thematic-dictionaries",
+    "input": "Запусти клоуд код и открой нотион",
+    "expected": "Запусти Claude Code и открой Notion.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development",
+          "work_apps"
+        ],
+        "dictionary_sets": [
+          {
+            "id": "mine",
+            "name": "Мои",
+            "description": "",
+            "enabled": true,
+            "words": [
+              "Claude Code",
+              "Notion"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "filler-cut-off-before-word",
+    "category": "fillers",
+    "input": "Как думаешь, э- через неделю успеем",
+    "expected": "Как думаешь, через неделю успеем.",
+    "config": {
+      "language": "ru"
+    }
+  },
+  {
+    "id": "filler-cut-off-before-comma",
+    "category": "fillers",
+    "input": "Я сделал свой э-, свою версию",
+    "expected": "Я сделал свой, свою версию.",
+    "config": {
+      "language": "ru"
+    }
+  },
+  {
+    "id": "filler-after-sentence-keeps-single-dot",
+    "category": "fillers",
+    "input": "Раз, два. А-а-а. Это проверка",
+    "expected": "Раз, два. Это проверка.",
+    "config": {
+      "language": "ru"
+    }
+  },
+  {
+    "id": "filler-trailing-ellipsis",
+    "category": "fillers",
+    "input": "Шесть, семь. А-а-а..",
+    "expected": "Шесть, семь.",
+    "config": {
+      "language": "ru"
+    }
+  },
+  {
+    "id": "filler-before-sentence-end-keeps-dot",
+    "category": "fillers",
+    "input": "Ещё добавлено А-а. Дальше проверим",
+    "expected": "Ещё добавлено. Дальше проверим.",
+    "config": {
+      "language": "ru"
     }
   }
 ]

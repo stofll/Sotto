@@ -199,6 +199,29 @@ pub fn effective_words(config: &TextFormattingConfig) -> Vec<String> {
     out
 }
 
+/// Lower-cased terms of enabled built-in sets that no personal term repeats.
+pub fn builtin_only_words(config: &TextFormattingConfig) -> HashSet<String> {
+    let personal: HashSet<String> = config
+        .custom_words
+        .iter()
+        .chain(
+            config
+                .dictionary_sets
+                .iter()
+                .filter(|set| set.enabled)
+                .flat_map(|set| &set.words),
+        )
+        .map(|word| word.trim().to_lowercase())
+        .collect();
+    DICTIONARY_PRESETS
+        .iter()
+        .filter(|set| config.enabled_presets.iter().any(|id| id == set.id))
+        .flat_map(|set| set.words.iter())
+        .map(|word| word.to_lowercase())
+        .filter(|word| !personal.contains(word))
+        .collect()
+}
+
 #[tauri::command]
 pub fn analyze_dictionary(formatting: TextFormattingConfig) -> DictionaryAnalysis {
     let unsupported_words = formatting
@@ -496,6 +519,78 @@ mod tests {
             "собрано в таури"
         );
         assert_eq!(effective_words(&config.text_formatting), ["Tauri"]);
+    }
+
+    #[test]
+    fn thematic_presets_are_opt_in_and_share_terms_without_duplicates() {
+        let mut config = FormatterConfig::default();
+        assert!(!config
+            .text_formatting
+            .enabled_presets
+            .contains(&"ai_voice".into()));
+        assert!(!config
+            .text_formatting
+            .enabled_presets
+            .contains(&"work_apps".into()));
+        config.text_formatting.enabled_presets =
+            vec!["development".into(), "ai_voice".into(), "work_apps".into()];
+        let words = effective_words(&config.text_formatting);
+        assert_eq!(words.iter().filter(|word| *word == "Whisper").count(), 1);
+        assert_eq!(
+            words.iter().filter(|word| *word == "Claude Code").count(),
+            1
+        );
+        assert!(words.contains(&"Meta".into()));
+        assert!(words.contains(&"Notion".into()));
+        assert!(analyze_dictionary(config.text_formatting.clone())
+            .unsupported_words
+            .is_empty());
+        // Built-in catalog terms use reviewed aliases only: «мета», «кодекс»
+        // and «клоуд код» are not among them.
+        assert_eq!(
+            Formatter::from_config(&config).process("Сравни мета и ноушен"),
+            "Сравни мета и Notion."
+        );
+        assert_eq!(
+            Formatter::from_config(&config).process("Запусти кодекс и клоуд код"),
+            "Запусти кодекс и клоуд код."
+        );
+        config.text_formatting.enabled_presets = vec!["development".into()];
+        assert_eq!(
+            Formatter::from_config(&config).process("Сравни мета и ноушен"),
+            "Сравни мета и ноушен."
+        );
+        config.text_formatting.dictionary_sets = vec![set("copy", &["Notion"], true)];
+        assert_eq!(
+            Formatter::from_config(&config).process("Сравни мета и ноушен"),
+            "Сравни мета и Notion."
+        );
+    }
+
+    #[test]
+    fn personal_terms_keep_fuzzy_matching_when_the_catalog_knows_them() {
+        let mut config = FormatterConfig::default();
+        config.text_formatting.enabled_presets = vec!["development".into(), "ai_voice".into()];
+        config.text_formatting.dictionary_sets =
+            vec![set("mine", &["Codex", "Claude Code", "Notion"], true)];
+        assert_eq!(
+            Formatter::from_config(&config).process("Запусти кодекс и клоуд код в нотион"),
+            "Запусти Codex и Claude Code в Notion."
+        );
+        config.text_formatting.dictionary_sets[0].enabled = false;
+        assert_eq!(
+            Formatter::from_config(&config).process("Запусти кодекс и клоуд код в нотион"),
+            "Запусти кодекс и клоуд код в нотион."
+        );
+    }
+
+    #[test]
+    fn catalog_terms_without_aliases_follow_the_ordinary_length_limit() {
+        let config = TextFormattingConfig {
+            dictionary_sets: vec![set("mine", &["Zoom", "UI", "Codex"], true)],
+            ..FormatterConfig::default().text_formatting
+        };
+        assert_eq!(analyze_dictionary(config).unsupported_words, ["Zoom"]);
     }
 
     #[test]

@@ -390,9 +390,10 @@ mod tests {
     /// are read by developers and stay in English.
     #[test]
     fn russian_text_reaches_the_user_only_through_t() {
-        const SPEECH_MODULES: [&str; 4] = [
+        const SPEECH_MODULES: [&str; 5] = [
             "formatter.rs",
             "formatter/paragraphs.rs",
+            "formatter/term_aliases.rs",
             "spelling.rs",
             "ui_text.rs",
         ];
