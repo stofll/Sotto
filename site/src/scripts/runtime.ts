@@ -34,8 +34,6 @@ export interface RuntimeStrings {
   downloadMac: string;
   /** `{shown}` of `{total}`, for the model filter. */
   modelCount: string;
-  /** Labels of the screenshot tour's play/pause button. */
-  tour: { pause: string; play: string };
   /** The shape comes from the dictionary. An approximate Record would hide a
    *  mismatch until runtime, where `steps.map` would throw on undefined. */
   dialog: Dictionary['dialog'];

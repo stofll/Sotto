@@ -4,10 +4,9 @@ import { initDownload } from './download';
 import { initFaq } from './faq';
 import { initHeader } from './header';
 import { initModels } from './models';
-import { initModes } from './modes';
 import { initPlatform } from './platform';
 import { initReveal } from './reveal';
-import { initScreens } from './screens';
+import { initTour } from './tour';
 import { initVoice } from './voice';
 
 /**
@@ -25,8 +24,7 @@ export const initLanding = (): (() => void) => {
     initFaq(runtime),
     initReveal(runtime),
     initVoice(runtime),
-    initModes(runtime),
-    initScreens(runtime),
+    initTour(runtime),
     initModels(runtime),
     // Before the dialog, which binds the links this retargets.
     initPlatform(runtime),

@@ -12,8 +12,8 @@
   --border-subtle: #1e1c1a;
   --border: #2a2724;
   --border-strong: #3a3530;
-  /* The one hue: the download buttons, the second line of the headline, and
-     live state (the voice line, the caret, progress). */
+  /* The one hue: the download buttons, the second line of the headline, live
+     state (the voice line, the caret, progress) and the tour's current choice. */
   --accent: #ff7a2f;
   --accent-hover: #ff9b5e;
   --on-accent: #0c0b0a;

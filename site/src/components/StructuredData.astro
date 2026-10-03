@@ -1,4 +1,5 @@
 ---
+import { featureSteps } from '../data/feature-tour';
 import { AUTHOR, LINKS, OG_IMAGE, REPO } from '../data/product';
 import { latestRelease } from '../data/release';
 import { translationsFor } from '../i18n/context';
@@ -24,7 +25,6 @@ const version = release?.version.replace(/^v/, '');
  * Describes the real app without inventing ratings to qualify for a rich
  * result. Both translations identify the same application and website.
  */
-const f = t.features;
 const application = {
   '@type': 'SoftwareApplication',
   '@id': applicationId,
@@ -45,7 +45,7 @@ const application = {
   author: { '@type': 'Person', name: AUTHOR.name, url: AUTHOR.url },
   ...(version ? { softwareVersion: version } : {}),
   ...(release?.published ? { datePublished: release.published } : {}),
-  featureList: [f.anywhere, f.offline, f.live, f.custom, f.files, f.history].map((card) => card.title),
+  featureList: featureSteps.map((id) => t.features.steps[id].title),
 };
 
 /** The questions the page answers in its FAQ section, word for word. */

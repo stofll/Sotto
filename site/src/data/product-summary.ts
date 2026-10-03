@@ -1,3 +1,4 @@
+import { featureSteps } from './feature-tour';
 import { LINKS, llmProviders, models } from './product';
 import { format, localePath, useTranslations, type Locale } from '../i18n';
 
@@ -18,12 +19,11 @@ export const productSummary = (locale: Locale, site: URL): string => {
     `## ${t.faq.factsLabel}`,
     '',
     ...t.faq.facts.map(([label, value]) => `- ${label}: ${format(value, { total })}`),
-    `- ${t.features.custom.title}: ${llmProviders.join(', ')}`,
+    `- ${t.features.steps.profile.name}: ${llmProviders.join(', ')}`,
     '',
     `## ${t.features.eyebrow}`,
     '',
-    ...[t.features.anywhere, t.features.offline, t.features.live, t.features.custom, t.features.files, t.features.history]
-      .map((card) => `- ${card.title}: ${card.text}`),
+    ...featureSteps.map((id) => `- ${t.features.steps[id].title}: ${t.features.steps[id].text}`),
     '',
     `## ${t.models.eyebrow}`,
     '',

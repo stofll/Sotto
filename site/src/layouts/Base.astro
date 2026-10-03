@@ -95,12 +95,12 @@ const preloadFonts = locale === 'ru' ? [unboundedCyrillic, onestCyrillic, unboun
 
     <link rel="icon" href="/brand/sotto-icon.png" type="image/png" />
 
-    {/* Without scripts, expose every screenshot and keep navigation available. */}
+    {/* Without scripts, list every feature scene and keep navigation available. */}
     <noscript>
       <style is:inline>
         .js-only, .menu-toggle { display: none !important; }
-        .screens { gap: 32px; }
-        .screens .screen-window { grid-area: auto; visibility: visible !important; opacity: 1 !important; pointer-events: auto !important; }
+        .tour-scenes { gap: 24px; }
+        .tour-scene { grid-area: auto; visibility: visible !important; opacity: 1 !important; pointer-events: auto !important; }
         @media (max-width: 900px) {
           .desktop-nav { display: flex; flex-wrap: wrap; gap: 8px 18px; }
           .header-inner { flex-wrap: wrap; }

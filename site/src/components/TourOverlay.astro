@@ -1,0 +1,54 @@
+---
+import { overlayPalettes, overlayPhases, overlayTemplates, type OverlayPalette } from '../data/feature-tour';
+import { translationsFor } from '../i18n/context';
+
+const { t } = translationsFor(Astro.currentLocale);
+const o = t.features.overlay;
+const palettes = Object.keys(overlayPalettes) as OverlayPalette[];
+const initialPalette: OverlayPalette = 'copper';
+const [hue, chroma] = overlayPalettes[initialPalette];
+const swatch = (palette: OverlayPalette) => {
+  const [h, c] = overlayPalettes[palette];
+  return `--ov-hue:${h};--ov-chroma:${c}`;
+};
+---
+
+{/* The stage is a picture of the overlay; the list beside it says the same in words.
+    Without JavaScript it holds the pill mid-sentence. */}
+<div class="tour-stage-wrap">
+  <div class="tour-stage overlay-stage" style={`--ov-hue:${hue};--ov-chroma:${chroma}`} data-ov-stage aria-hidden="true">
+    <span class="ov-anchors">{Array.from({ length: 9 }, () => <i></i>)}</span>
+    <div class="ov" data-ov>
+      <span class="ov-timer" data-ov-timer>0:12</span>
+      <span class="ov-bars">{Array.from({ length: 14 }, () => <i data-ov-bar></i>)}</span>
+      <span class="ov-ring"></span>
+      <span class="ov-orb"></span>
+      <span class="ov-beam"></span>
+      <span class="ov-draft" data-ov-draft>{o.draft}</span>
+      <span class="ov-status"><span class="ov-dots"><i></i><i></i><i></i></span><span class="ov-label">{o.processing}</span></span>
+      <span class="ov-done">✓<span class="ov-count">{o.draft.length}</span></span>
+      <span class="ov-cancel">×</span>
+    </div>
+    <p class="ov-note">{o.hiddenDraft}</p>
+  </div>
+  <div class="ov-controls js-only">
+    <div class="segmented" role="group" aria-label={o.templateLabel}>
+      {overlayTemplates.map((id) => <button type="button" data-ov-template={id} aria-pressed={id === 'pill' ? 'true' : 'false'}>{o.templates[id]}</button>)}
+    </div>
+    <div class="ov-swatches" role="group" aria-label={o.paletteLabel}>
+      {palettes.map((id) => <button type="button" class="ov-swatch" data-ov-palette={id} style={swatch(id)}
+        aria-label={o.palettes[id]} title={o.palettes[id]} aria-pressed={id === initialPalette ? 'true' : 'false'}></button>)}
+    </div>
+    <div class="segmented" role="group" aria-label={o.phaseLabel}>
+      {overlayPhases.map((id) => <button type="button" data-ov-phase={id} aria-pressed={id === 'stream' ? 'true' : 'false'}>{o.phases[id]}</button>)}
+    </div>
+  </div>
+</div>
+<ul class="tour-details">
+  {o.rowLabels.map((label, row) => (
+    <li class="tour-detail">
+      <span>{label}</span>
+      {overlayTemplates.map((id) => <span class="tour-detail-value" data-for={id}>{o.rowValues[id][row]}</span>)}
+    </li>
+  ))}
+</ul>

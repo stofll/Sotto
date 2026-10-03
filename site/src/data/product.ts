@@ -83,6 +83,5 @@ export const models: Model[] = [
 /** LLM providers the formatting step ships presets for. */
 export const llmProviders = ['OpenAI', 'Anthropic', 'Gemini', 'Ollama', 'LM Studio'];
 
-/** Screens of the app's settings window, captured for the site in both locales and themes. */
-export type ScreenId = 'settings' | 'models' | 'history';
-export const screens: ScreenId[] = ['settings', 'models', 'history'];
+/** Screens of the app's settings window captured for the feature tour, one per locale. */
+export type ScreenId = 'models' | 'history';

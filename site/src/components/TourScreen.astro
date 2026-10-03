@@ -1,0 +1,41 @@
+---
+import type { ImageMetadata } from 'astro';
+import { CAPTURE, screenRegions } from '../data/feature-tour';
+import type { ScreenId } from '../data/product';
+import type { ScreenScene } from '../i18n/types';
+import { translationsFor } from '../i18n/context';
+
+interface Props {
+  screen: ScreenId;
+  scene: ScreenScene<ScreenId>;
+}
+
+const { screen, scene } = Astro.props;
+const { locale } = translationsFor(Astro.currentLocale);
+const shots = import.meta.glob<{ default: ImageMetadata }>('../assets/screens/*.webp', { eager: true });
+// Only the 2× capture ships: zooming into a region needs the extra pixels on any display.
+const shot = shots[`../assets/screens/${screen}-${locale}-dark@2x.webp`]!.default;
+const rects: Record<string, readonly [number, number, number, number]> = screenRegions[screen];
+const regions = Object.entries(scene.regions) as [string, [string, string]][];
+const percent = (value: number, total: number) => `${(value / total) * 100}%`;
+---
+
+<div class="tour-stage shot" data-shot>
+  <div class="shot-layer" data-shot-layer>
+    <img src={shot.src} width={CAPTURE.width} height={CAPTURE.height} alt={scene.alt} loading="lazy" decoding="async" />
+    {regions.map(([id]) => {
+      const [x, y, width, height] = rects[id]!;
+      return <span class="shot-ring" data-shot-ring={id} data-rect={`${x} ${y} ${width} ${height}`} aria-hidden="true"
+        style={`left:${percent(x, CAPTURE.width)};top:${percent(y, CAPTURE.height)};width:${percent(width, CAPTURE.width)};height:${percent(height, CAPTURE.height)}`}></span>;
+    })}
+  </div>
+</div>
+<ul class="tour-details">
+  {regions.map(([id, [label, value]]) => (
+    <li>
+      <button type="button" class="tour-detail" data-region={id} aria-pressed="false">
+        <span>{label}</span><span class="tour-detail-value">{value}</span>
+      </button>
+    </li>
+  ))}
+</ul>

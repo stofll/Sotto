@@ -1,5 +1,5 @@
+import type { FeatureStepId, OverlayPalette, OverlayPhase, OverlayTemplate, ScreenRegion } from '../data/feature-tour';
 import type { LanguageGroup, ScreenId } from '../data/product';
-import type { TourStepId } from '../data/screen-tour';
 
 /**
  * The shape every locale must satisfy. Adding a string here makes TypeScript
@@ -13,6 +13,24 @@ export interface Card {
   title: string;
   text: string;
 }
+
+/** A label and its value in a scene's detail list. */
+export type Detail = [string, string];
+
+export interface FeatureStep {
+  /** Short name in the step list. */
+  name: string;
+  title: string;
+  text: string;
+}
+
+/** A screenshot step: the capture's description and the regions it can zoom into. */
+export interface ScreenScene<S extends ScreenId> {
+  alt: string;
+  regions: Record<ScreenRegion<S>, Detail>;
+}
+
+export type CleanupKind = 'term' | 'rule' | 'tic' | 'finish';
 
 export interface Dictionary {
   meta: {
@@ -49,40 +67,55 @@ export interface Dictionary {
   features: {
     eyebrow: string;
     title: string;
-    modesLabel: string;
-    toggle: string;
-    pushToTalk: string;
-    toggleHint: string;
-    pushToTalkHint: string;
-    /** Misheard word, then the replacement that fixes it. */
-    replacements: [string, string][];
-    /** Time and text of sample history entries. */
-    historyRows: [string, string][];
-    anywhere: Card;
-    offline: Card;
-    live: Card;
-    custom: Card;
-    files: Card;
-    history: Card;
-  };
-  screens: {
-    eyebrow: string;
-    title: string;
-    tablistLabel: string;
-    enlarge: string;
-    close: string;
-    captions: Record<ScreenId, string>;
-    tourPause: string;
-    tourPlay: string;
-    themeLabel: string;
-    themes: { dark: string; light: string };
-    previous: string;
-    next: string;
-    stepLabel: string;
-    imageError: string;
-    steps: Record<TourStepId, Card>;
-    tabs: Record<ScreenId, string>;
-    alt: Record<ScreenId, string>;
+    stepsLabel: string;
+    /** `{n}` of `{total}` steps. */
+    stepCount: string;
+    steps: Record<FeatureStepId, FeatureStep>;
+    catalog: ScreenScene<'models'>;
+    history: ScreenScene<'history'>;
+    cleanup: {
+      beforeLabel: string;
+      afterLabel: string;
+      /** Plain text, or what was recognised, what came out (`''` when removed) and the step that did it. */
+      sample: (string | [string, string, CleanupKind])[];
+      rows: Record<CleanupKind, Detail>;
+    };
+    profile: {
+      name: string;
+      fields: { name: string; provider: string; model: string; address: string; prompt: string };
+      model: string;
+      address: string;
+      prompt: string;
+      rows: Detail[];
+    };
+    overlay: {
+      templateLabel: string;
+      paletteLabel: string;
+      phaseLabel: string;
+      templates: Record<OverlayTemplate, string>;
+      palettes: Record<OverlayPalette, string>;
+      phases: Record<OverlayPhase, string>;
+      processing: string;
+      /** The words a streaming model shows while you speak. */
+      draft: string;
+      /** Shown under the bead and the orb while streaming, which hide the draft. */
+      hiddenDraft: string;
+      rowLabels: string[];
+      /** One value per row label, for each template. */
+      rowValues: Record<OverlayTemplate, string[]>;
+    };
+    file: {
+      title: string;
+      dragNote: string;
+      pick: string;
+      cancel: string;
+      reading: string;
+      transcribing: string;
+      local: string;
+      name: string;
+      result: string;
+      rows: Detail[];
+    };
   };
   models: {
     eyebrow: string;
