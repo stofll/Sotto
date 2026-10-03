@@ -87,9 +87,7 @@ The downloader checks the remaining size of a whole bundle before requesting its
 
 The default location is `%LOCALAPPDATA%/sotto/models` (Linux/macOS use the system cache directory). The path can be overridden with the `SOTTO_MODELS_DIR` environment variable.
 
-Before the app was renamed, the directory was called `whisper-desktop`. If it is left over from earlier builds, the app migrates it on the first access to models: nothing downloaded is lost.
-
-If the rename fails (permissions, an open file), work continues with the old directory and the attempt is retried on the next launch.
+The old `whisper-desktop/models` cache is no longer discovered or moved automatically. To reuse those downloads, close Sotto and copy the model files into the current models directory without replacing existing files, or download the models again in the app. The Windows uninstaller still includes the old cache when removing application data.
 
 For Whisper, a compatible `*.bin` file may be placed directly in this directory. For example, a file named `ggml-large-v3-turbo-q5_0.bin` shows up as a user model. Files whose identifiers collide with built-in catalog entries are not published again.
 

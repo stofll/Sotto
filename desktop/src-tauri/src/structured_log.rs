@@ -43,11 +43,6 @@ const MAX_LOG_BYTES: u64 = 5 * 1024 * 1024;
 /// what happened.
 const KEEP_ROTATED: usize = 3;
 
-/// Log files the removed Python sidecar left behind in the config
-/// directory. Nothing has read or trimmed them since; one was
-/// 6 MB. Swept once per launch, by exact name.
-const LEGACY_LOG_NAMES: [&str; 2] = ["sidecar.log", "app.log"];
-
 #[derive(Debug, Clone, Serialize)]
 struct LogRecord {
     ts: String,
@@ -101,14 +96,10 @@ pub fn install() -> Result<(), String> {
         .spawn(move || run_writer(receiver, writer))
         .map_err(|error| format!("spawn log writer: {error}"))?;
     *guard = Some(State { sender });
-    // Bridge `log` → our channel.
+    // Bridge `log` → our channel. Do not log while holding `guard`:
+    // BridgeLogger::log needs the same non-reentrant lock.
     let _ = log::set_logger(&BridgeLogger).map_err(|error| format!("set logger: {error}"));
     log::set_max_level(log::LevelFilter::Info);
-    // Nothing above this line may log: `BridgeLogger::log` takes the same
-    // lock `guard` is holding, and it is not a reentrant one. Release it
-    // first, then sweep — the sweep reports what it deleted.
-    drop(guard);
-    sweep_legacy_logs(&crate::user_data::data_dir(), &path);
     Ok(())
 }
 
@@ -289,40 +280,6 @@ fn total_bytes(path: &Path, keep: usize) -> u64 {
         .filter_map(|candidate| fs::metadata(candidate).ok())
         .map(|meta| meta.len())
         .sum()
-}
-
-/// Delete the log files the removed Python sidecar left in the config
-/// directory. Best-effort, once per launch.
-///
-/// Matched by exact name, never by glob, and guarded against `active`: the
-/// legacy `app.log` sits in `<config dir>` while the live one sits in
-/// `<config dir>/logs`, so the two differ only by directory. If
-/// `SOTTO_LOG_DIR` ever points the live log at the config
-/// directory itself, that guard is the only thing standing between this
-/// sweep and the file we are writing to.
-fn sweep_legacy_logs(legacy_dir: &Path, active: &Path) {
-    for name in LEGACY_LOG_NAMES {
-        let candidate = legacy_dir.join(name);
-        if same_file(&candidate, active) {
-            continue;
-        }
-        match fs::remove_file(&candidate) {
-            Ok(()) => log::info!("removed legacy log {}", candidate.display()),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => log::warn!("remove legacy log {}: {error}", candidate.display()),
-        }
-    }
-}
-
-/// Compares paths after canonicalising, so a `logs/../app.log` spelling
-/// cannot slip past the guard. Falls back to a literal comparison when a
-/// path does not resolve — a file that does not exist is nothing to
-/// protect.
-fn same_file(left: &Path, right: &Path) -> bool {
-    match (left.canonicalize(), right.canonicalize()) {
-        (Ok(left), Ok(right)) => left == right,
-        _ => left == right,
-    }
 }
 
 /// Best-effort redaction of common credential shapes. The set is
@@ -660,50 +617,5 @@ mod tests {
         write_log(dir.path(), "recordings.wav", &"x".repeat(4096));
 
         assert_eq!(total_bytes(&path, 3), 5);
-    }
-
-    #[test]
-    fn legacy_sweep_removes_the_python_sidecar_leftovers() {
-        let config_dir = tempfile::tempdir().unwrap();
-        let logs_dir = config_dir.path().join("logs");
-        fs::create_dir_all(&logs_dir).unwrap();
-        let active = write_log(&logs_dir, "app.log", "live\n");
-        write_log(config_dir.path(), "sidecar.log", "python\n");
-        write_log(config_dir.path(), "app.log", "pre-Phase-4\n");
-
-        sweep_legacy_logs(config_dir.path(), &active);
-
-        assert!(!config_dir.path().join("sidecar.log").exists());
-        assert!(!config_dir.path().join("app.log").exists());
-        assert_eq!(read_log(&active), "live\n", "the live log must survive");
-    }
-
-    #[test]
-    fn legacy_sweep_spares_the_active_log_when_the_paths_collide() {
-        // SOTTO_LOG_DIR can point the live log at the config
-        // directory itself, where it shares a name with the legacy file.
-        let config_dir = tempfile::tempdir().unwrap();
-        let active = write_log(config_dir.path(), "app.log", "live\n");
-        write_log(config_dir.path(), "sidecar.log", "python\n");
-
-        sweep_legacy_logs(config_dir.path(), &active);
-
-        assert_eq!(read_log(&active), "live\n", "deleted the log in use");
-        assert!(!config_dir.path().join("sidecar.log").exists());
-    }
-
-    #[test]
-    fn legacy_sweep_leaves_unrelated_files_alone() {
-        let config_dir = tempfile::tempdir().unwrap();
-        let logs_dir = config_dir.path().join("logs");
-        fs::create_dir_all(&logs_dir).unwrap();
-        let active = write_log(&logs_dir, "app.log", "live\n");
-        write_log(config_dir.path(), "sotto.db", "database\n");
-        write_log(config_dir.path(), "config.json", "{}\n");
-
-        sweep_legacy_logs(config_dir.path(), &active);
-
-        assert_eq!(read_log(&config_dir.path().join("sotto.db")), "database\n");
-        assert_eq!(read_log(&config_dir.path().join("config.json")), "{}\n");
     }
 }
