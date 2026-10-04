@@ -71,6 +71,10 @@ These tests download verified weights into isolated temporary directories. Their
 
 For GigaAM segmentation, set `SOTTO_TEST_GIGAAM_DIR` to an installed GigaAM bundle and run `cargo test --locked --test test_gigaam_longform -- --ignored --nocapture`. The test copies and verifies the model in a temporary directory, downloads a checksum-pinned public Russian sample, and checks short-input parity, twelve repeated phrases across fragment boundaries, cancellation and reuse. It does not read or save user recordings. Continuous speech without clear pauses still needs separate accuracy evaluation on representative audio.
 
+For Parakeet Ultra, GigaAM Multilingual/Multilingual Large and Qwen3, run `cargo test --locked --test test_catalog_expansion -- --ignored --nocapture`. It downloads about 2.5 GB into an isolated temporary directory, or copies the four bundle folders from `SOTTO_TEST_CATALOG_DIR`, and verifies all hashes. Set `SOTTO_TEST_CATALOG_MODEL` to one catalog ID to test just that model.
+
+The test covers prepared Russian/English speech, long-input boundaries, cancellation and reload. Ultra and GigaAM check repeated phrases; Qwen3 checks distinct phrases before and after a long pause, tokenizer integrity, large dictionaries and silence. These checks are not a full WER benchmark or packaged native UI verification; Qwen3's known tendency to omit repeated speech remains an accuracy limitation.
+
 ## Formatter corpus tests
 
 `cargo test --locked --test formatter_corpus` runs the reviewed synthetic examples in [the formatter fixture](../desktop/src-tauri/tests/fixtures/formatter/cases.json). Each case declares its input, settings, expected output and category. The test checks the full formatter, preview, dictation/file delivery and repeated processing. A separate delivery expectation covers intentional differences such as restoring raw text after incidental empty cleanup; a case may explicitly opt out of repeated-processing checks when its configured replacement produces a result that later cleanup can change. This corpus also runs in the ordinary Cargo test suite.

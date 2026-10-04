@@ -363,7 +363,14 @@ impl Engine {
         let decoded = if job.cancelled() {
             Err("transcribe cancelled before .full()".to_string())
         } else if let Some(recognizer) = self.sherpa.as_mut() {
-            decode_sherpa(recognizer, &job, audio, language, model_id.as_deref())
+            decode_sherpa(
+                recognizer,
+                &job,
+                audio,
+                language,
+                model_id.as_deref(),
+                initial_prompt,
+            )
         } else {
             self.decode_whisper(&job, audio, language, initial_prompt, started)
         };
@@ -712,18 +719,19 @@ impl Engine {
     }
 }
 
-/// Sherpa has no segment-level cancellation. The flag is honoured before and
-/// after the blocking call; an in-flight call cannot be interrupted safely.
+/// Segmented models check cancellation between fragments. An in-flight native
+/// decode cannot be interrupted safely; its result is discarded if cancelled.
 fn decode_sherpa(
     recognizer: &mut crate::sherpa::SherpaRecognizer,
     job: &Job,
     audio: &[f32],
     language: Option<&str>,
     model_id: Option<&str>,
+    initial_prompt: Option<&str>,
 ) -> Decoded {
-    // A monolingual bundle asked for another language does not fail, it
-    // mis-decodes — so refuse the pair here. Multilingual bundles impose no
-    // rule and detect the language themselves.
+    // Reject languages outside the bundle's declared list before native decode.
+    // Qwen can condition decoding on the chosen language; other multilingual
+    // bundles still detect it themselves.
     let languages = model_id.and_then(crate::model::model_languages);
     let requested = language.filter(|value| !value.is_empty() && *value != "auto");
     if let (Some(id), Some(asked)) = (model_id, requested) {
@@ -740,8 +748,12 @@ fn decode_sherpa(
         _ => requested.map(str::to_string),
     };
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        if model_id == Some("gigaam-v3") {
+        if model_id.and_then(|id| crate::model::model_engine(id).ok())
+            == Some(crate::model::ModelEngine::SherpaNemoCtc)
+        {
             recognizer.transcribe_gigaam(audio, || job.cancelled())
+        } else if matches!(model_id, Some("parakeet-ultra" | "qwen3-asr-0.6b")) {
+            recognizer.transcribe_segmented(audio, requested, initial_prompt, || job.cancelled())
         } else {
             recognizer.transcribe(16_000, audio)
         }

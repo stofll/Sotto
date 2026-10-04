@@ -16,6 +16,8 @@ The engine is selected from the manifest, not from the file name: `ModelEngine` 
 | Family | Model | Engine | Languages | Size |
 |---|---|---|---|---|
 | GigaAM | GigaAM v3 | NeMo CTC | ru | 214 MB |
+| GigaAM | GigaAM Multilingual | NeMo CTC | ru, en, kk, ky, uz | 214 MB |
+| GigaAM | GigaAM Multilingual Large | NeMo CTC | ru, en, kk, ky, uz | 564 MB |
 | Omnilingual | Omnilingual 300M | Omnilingual CTC | multilingual, 1600+ | 348 MB |
 | Nemotron | Nemotron 3.5 | streaming transducer | multilingual list | 651 MB |
 | Canary | Canary 180M Flash | Canary | en | 198 MB |
@@ -26,12 +28,22 @@ The engine is selected from the manifest, not from the file name: `ModelEngine` 
 | Parakeet | Parakeet unified | streaming transducer | en | 632 MB |
 | Parakeet | Parakeet TDT v2 | transducer | en | 631 MB |
 | Parakeet | Parakeet TDT v3 | transducer | multilingual list | 639 MB |
+| Parakeet | Parakeet Ultra | transducer | same 25 languages as TDT v3 | 600 MB |
+| Qwen3 | Qwen3 ASR 0.6B | Qwen3 ASR | 30 languages, including ru/en; no uk | 941 MB |
 
 All of them run on the CPU provider of ONNX Runtime. The CPU/GPU switch only applies to Whisper, and the UI does not show it for sherpa models.
 
-GigaAM recordings longer than 25 seconds are decoded in consecutive fragments. Sotto prefers a speech-detector pause near 20 seconds and keeps each fragment within 25 seconds; continuous speech falls back to a nearby low-energy boundary. All samples are retained without overlap, so joining results does not remove intentional repeated words. Short recordings take the original single-pass path. This applies to microphone and file transcription, and cancellation is checked between fragments; an in-progress native decode still has to finish. A boundary without a pause can cut a word, so segmentation does not guarantee perfect long-form recognition.
+All GigaAM variants, Parakeet Ultra and Qwen3 decode recordings longer than 25 seconds in consecutive fragments. Sotto prefers a speech-detector pause near 20 seconds and keeps each fragment within 25 seconds; continuous speech falls back to a nearby low-energy boundary. All samples are retained without overlap, so joining results does not remove intentional repeated words. Short recordings take the single-pass path. This applies to microphone and file transcription, and cancellation is checked between fragments; an in-progress native decode still has to finish. A boundary without a pause can cut a word, so segmentation does not guarantee perfect long-form recognition.
 
-When an unfinished fragment is followed by a capitalized Russian word, Sotto rechecks up to four seconds of audio on each side of the boundary using the same local model. If two words on each side match uniquely and their surrounding punctuation agrees, only the boundary punctuation and the next word's initial case can change. Words, existing sentence endings, initials, uppercase abbreviations and technical text are preserved. A disagreement or a failed recheck keeps the original join; cancellation discards the complete transcription. These short rechecks add processing time to long recordings and do not infer paragraph topics or repair missing words.
+For GigaAM, when an unfinished fragment is followed by a capitalized Russian word, Sotto rechecks up to four seconds of audio on each side of the boundary using the same local model. If two words on each side match uniquely and their surrounding punctuation agrees, only the boundary punctuation and the next word's initial case can change. Words, existing sentence endings, initials, uppercase abbreviations and technical text are preserved. A disagreement or a failed recheck keeps the original join; cancellation discards the complete transcription. These short rechecks add processing time to long recordings and do not infer paragraph topics or repair missing words.
+
+Parakeet Ultra is an additional model, not a replacement for TDT v3. The catalog uses the [mldecode int8 export](https://huggingface.co/mldecode/parakeet-ultra-onnx-int8) of [Moondream's model based on NVIDIA Parakeet](https://huggingface.co/moondream/parakeet-ultra), under CC-BY-4.0. Its graphs must remain together; they are not interchangeable with v3. The upstream Photon benchmarks and built-in VAD do not describe this CPU integration: Sotto uses its own segmentation and does not run Photon.
+
+GigaAM Multilingual and Large use the [fussraider exports](https://huggingface.co/fussraider/GigaAM-Multilingual-sherpa-onnx-ctc) of [Sber's MIT-licensed models](https://huggingface.co/ai-sage/GigaAM-Multilingual). They extend language coverage rather than replacing the punctuating Russian v3 model. Their English recognition is weaker than their Russian recognition in the upstream evaluation; compare models on your own speech before changing the default.
+
+Qwen3 uses the [Sherpa-maintained export](https://huggingface.co/csukuangfj2/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25) of [Qwen3-ASR-0.6B](https://huggingface.co/Qwen/Qwen3-ASR-0.6B). An explicit language conditions its decoder; Auto leaves detection to the model. Enabled dictionary terms are passed as recognition hints for each fragment. To leave room for audio and output in the finite context, only the leading whole terms fitting 1,024 UTF-8 bytes are included; the complete dictionary remains available to local text correction. Changing the dictionary does not reload the model. None of these four additions provides live overlay text.
+
+The pinned Qwen3 int8 export makes word errors even on its supplied Russian sample and can omit deliberately repeated phrases, also reproduced when running Sherpa directly. It is an optional alternative, not a recommended replacement for the existing Russian models; upstream full-precision quality numbers do not establish the accuracy of this export.
 
 Quantization is shown by the catalog next to the size: `int8` for sherpa bundles, `q8_0` for some Whisper builds. It explains why a model weighs less than expected, and it lives next to the size rather than in the name.
 
@@ -61,7 +73,7 @@ Its language list holds only what the model card calls transcription-ready and b
 
 GigaAM v3 comes from the punctuating export upstream publishes alongside the plain one: the same graph, a token table with punctuation marks and capital letters instead of bare lowercase.
 
-Nemotron 3.5 punctuates and capitalises natively as well. For the rest, punctuation is the LLM cleanup step's job.
+GigaAM Multilingual and Large produce lowercase text without punctuation. Parakeet Ultra retains the source Parakeet model's punctuation and casing conventions; Qwen3 and Nemotron 3.5 can also produce punctuated text. Output varies with the model and recording, and optional LLM formatting remains a separate step.
 
 ### Artifact verification
 
@@ -75,9 +87,9 @@ A stalled download remains cancellable while waiting for the server or the next 
 
 Model cards show one thin speed bar with three fixed fills: one third, two thirds, or full. Higher fill means faster reference throughput; missing measurements use hatching. Hover or keyboard focus explains the relative speed without opening a detail panel. The thresholds are processing taking more than the audio duration, up to the audio duration, and at most a quarter of the audio duration. These categories do not rate accuracy or live-preview latency.
 
-The bundled reference catalog covers all 21 built-in models on a Ryzen 7 5800X CPU with eight threads. Cards use the CPU reference for the exact artifact revision, measured under the language selected in Settings; a language the catalog does not hold falls back to the automatic-detection measurement. The device is always the processor, regardless of the current GPU setting. The reference is a comparative guide, not a predicted duration on the user's hardware. Short prepared-speech samples do not predict all accents, recording lengths or GPU performance.
+The bundled reference catalog contains measurements on a Ryzen 7 5800X CPU with eight threads. Parakeet Ultra, both GigaAM Multilingual variants and Qwen3 initially show unknown speed until comparable measurements are added. Cards use the CPU reference for the exact artifact revision, measured under the language selected in Settings; a language the catalog does not hold falls back to the automatic-detection measurement. The device is always the processor, regardless of the current GPU setting. The reference is a comparative guide, not a predicted duration on the user's hardware. Short prepared-speech samples do not predict all accents, recording lengths or GPU performance.
 
-The language is not cosmetic. Whisper runs a detection pass for `auto`, which costs it roughly twice the processing time of an explicit language, and moves `base` and `base.en` a whole level down the bar. Sherpa models do not run that pass and their measurements agree within a few percent. Selecting a language therefore changes what the Whisper cards claim, and the claim follows the setting so the two engine families stay on one honest scale.
+The language is not cosmetic. In the bundled reference measurements, Whisper's detection pass for `auto` costs it roughly twice the processing time of an explicit language, and moves `base` and `base.en` a whole level down the bar. The measured Sherpa models do not run that pass and their measurements agree within a few percent; these measurements do not cover Qwen3's language-conditioned decoder. Selecting a language therefore changes what the Whisper cards claim, and the claim follows the setting so the two engine families stay on one honest scale.
 
 The download button remains available when disk space is sufficient or unknown. When known free space is below the full model download size plus the downloader's 1 MiB reserve, the card instead shows “Not enough space”, with required and available disk space on hover or keyboard focus. Free space is checked on the filesystem that will hold the models directory — the nearest existing ancestor answers before the first download creates the directory itself. RAM is not download capacity. Return focus to the app after freeing space to refresh the hint. Already installed models remain selectable. The downloader also performs its own preflight checks because free space may change.
 

@@ -57,6 +57,12 @@ const PARAKEET_V3_LANGUAGES: &[&str] = &[
     "pl", "pt", "ro", "sk", "sl", "es", "sv", "ru", "uk",
 ];
 
+#[cfg(any(windows, target_os = "macos"))]
+const QWEN3_LANGUAGES: &[&str] = &[
+    "zh", "en", "yue", "ar", "de", "fr", "es", "pt", "id", "it", "ko", "ru", "th", "vi", "ja",
+    "tr", "hi", "ms", "nl", "sv", "da", "fi", "pl", "cs", "fil", "fa", "el", "hu", "mk", "ro",
+];
+
 /// Authoritative manifest entry for one GGML model. The Rust
 /// downloader treats this struct as the only source of truth
 /// for `url`, `expected_bytes`, and `sha256`. The public `id` is
@@ -94,6 +100,10 @@ pub enum ArtifactRole {
     CachedDecoder,
     UncachedDecoder,
     Tokens,
+    ConvFrontend,
+    TokenizerVocab,
+    TokenizerMerges,
+    TokenizerConfig,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -489,7 +499,169 @@ const PARAKEET_STREAMING_EN_ARTIFACTS: &[BundleArtifactManifestEntry] = &[
 ];
 
 #[cfg(any(windows, target_os = "macos"))]
+const PARAKEET_ULTRA_ARTIFACTS: &[BundleArtifactManifestEntry] = &[
+    BundleArtifactManifestEntry {
+        role: ArtifactRole::Decoder,
+        file_name: "decoder.int8.onnx",
+        download_url: "https://huggingface.co/mldecode/parakeet-ultra-onnx-int8/resolve/3282a6e32885b431c1543d58c7710e6e3412eac0/decoder.int8.onnx",
+        expected_bytes: 12_257_685,
+        sha256: "0ba8ace2de04bb2d9a6b20ed2d67138c23df4a385f268438df0ff200502de77a",
+    },
+    BundleArtifactManifestEntry {
+        role: ArtifactRole::Encoder,
+        file_name: "encoder.int8.onnx",
+        download_url: "https://huggingface.co/mldecode/parakeet-ultra-onnx-int8/resolve/3282a6e32885b431c1543d58c7710e6e3412eac0/encoder.int8.onnx",
+        expected_bytes: 611_879_344,
+        sha256: "181382735a719c75076d13658dc4418de4b566aef39935ca0f8f55da16928f4e",
+    },
+    BundleArtifactManifestEntry {
+        role: ArtifactRole::Joiner,
+        file_name: "joiner.int8.onnx",
+        download_url: "https://huggingface.co/mldecode/parakeet-ultra-onnx-int8/resolve/3282a6e32885b431c1543d58c7710e6e3412eac0/joiner.int8.onnx",
+        expected_bytes: 5_281_747,
+        sha256: "20ae4350c2484ba607d94f08ef25ae3ead762d8aaf70753758ffcc504e255ebb",
+    },
+    BundleArtifactManifestEntry {
+        role: ArtifactRole::Tokens,
+        file_name: "tokens.txt",
+        download_url: "https://huggingface.co/mldecode/parakeet-ultra-onnx-int8/resolve/3282a6e32885b431c1543d58c7710e6e3412eac0/tokens.txt",
+        expected_bytes: 93_939,
+        sha256: "d58544679ea4bc6ac563d1f545eb7d474bd6cfa467f0a6e2c1dc1c7d37e3c35d",
+    },
+];
+
+#[cfg(any(windows, target_os = "macos"))]
+const GIGAAM_MULTILINGUAL_ARTIFACTS: &[BundleArtifactManifestEntry] = &[
+    BundleArtifactManifestEntry {
+        role: ArtifactRole::Model,
+        file_name: "model.int8.onnx",
+        download_url: "https://huggingface.co/fussraider/GigaAM-Multilingual-sherpa-onnx-ctc/resolve/9f5a77e8975211abe8511693accd3a63ee1e9f43/model.int8.onnx",
+        expected_bytes: 224_762_524,
+        sha256: "2d94f93ffd4ef58e7899c9de885c25bbbc8c9f1073618868d118a674450ba5f7",
+    },
+    BundleArtifactManifestEntry {
+        role: ArtifactRole::Tokens,
+        file_name: "tokens.txt",
+        download_url: "https://huggingface.co/fussraider/GigaAM-Multilingual-sherpa-onnx-ctc/resolve/9f5a77e8975211abe8511693accd3a63ee1e9f43/tokens.txt",
+        expected_bytes: 391,
+        sha256: "9b5df7987cb4ca52c1a468649ce897fab1cd182067416e29fef49dfaa7a856c2",
+    },
+];
+
+#[cfg(any(windows, target_os = "macos"))]
+const GIGAAM_MULTILINGUAL_LARGE_ARTIFACTS: &[BundleArtifactManifestEntry] = &[
+    BundleArtifactManifestEntry {
+        role: ArtifactRole::Model,
+        file_name: "model.int8.onnx",
+        download_url: "https://huggingface.co/fussraider/GigaAM-Multilingual-sherpa-onnx-ctc/resolve/9f5a77e8975211abe8511693accd3a63ee1e9f43/large/model.int8.onnx",
+        expected_bytes: 591_645_642,
+        sha256: "6b6f195026b0f90721cd4593c664becf009a71131550b664eec71446ec351c81",
+    },
+    BundleArtifactManifestEntry {
+        role: ArtifactRole::Tokens,
+        file_name: "tokens.txt",
+        download_url: "https://huggingface.co/fussraider/GigaAM-Multilingual-sherpa-onnx-ctc/resolve/9f5a77e8975211abe8511693accd3a63ee1e9f43/large/tokens.txt",
+        expected_bytes: 391,
+        sha256: "9b5df7987cb4ca52c1a468649ce897fab1cd182067416e29fef49dfaa7a856c2",
+    },
+];
+
+#[cfg(any(windows, target_os = "macos"))]
+const QWEN3_ASR_0_6B_ARTIFACTS: &[BundleArtifactManifestEntry] = &[
+    BundleArtifactManifestEntry {
+        role: ArtifactRole::ConvFrontend,
+        file_name: "conv_frontend.onnx",
+        download_url: "https://huggingface.co/csukuangfj2/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25/resolve/68818b2313fe77bd06f6a7c5068ff3ef59d02b8a/conv_frontend.onnx",
+        expected_bytes: 44_148_281,
+        sha256: "d22dc4423e0940e49884e903d2ea2f7e5567c14fc1aed97e4e26d6b8f208ef9e",
+    },
+    BundleArtifactManifestEntry {
+        role: ArtifactRole::Decoder,
+        file_name: "decoder.int8.onnx",
+        download_url: "https://huggingface.co/csukuangfj2/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25/resolve/68818b2313fe77bd06f6a7c5068ff3ef59d02b8a/decoder.int8.onnx",
+        expected_bytes: 755_914_231,
+        sha256: "4f6885be5959ae26af3089d38ee7972c5fafbeeb1cf8d5e76eab6d8b61ca5771",
+    },
+    BundleArtifactManifestEntry {
+        role: ArtifactRole::Encoder,
+        file_name: "encoder.int8.onnx",
+        download_url: "https://huggingface.co/csukuangfj2/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25/resolve/68818b2313fe77bd06f6a7c5068ff3ef59d02b8a/encoder.int8.onnx",
+        expected_bytes: 182_491_662,
+        sha256: "60748d3e6744a57c9c91e1b17424a6c2990567e8adceb0783940c03ed98fa9d9",
+    },
+    BundleArtifactManifestEntry {
+        role: ArtifactRole::TokenizerMerges,
+        file_name: "merges.txt",
+        download_url: "https://huggingface.co/csukuangfj2/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25/resolve/68818b2313fe77bd06f6a7c5068ff3ef59d02b8a/tokenizer/merges.txt",
+        expected_bytes: 1_671_853,
+        sha256: "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5",
+    },
+    BundleArtifactManifestEntry {
+        role: ArtifactRole::TokenizerConfig,
+        file_name: "tokenizer_config.json",
+        download_url: "https://huggingface.co/csukuangfj2/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25/resolve/68818b2313fe77bd06f6a7c5068ff3ef59d02b8a/tokenizer/tokenizer_config.json",
+        expected_bytes: 12_487,
+        sha256: "4942d005604266809309cabc9f4e9cb89ce855d59b14681fdc0e1cc62ea26c4c",
+    },
+    BundleArtifactManifestEntry {
+        role: ArtifactRole::TokenizerVocab,
+        file_name: "vocab.json",
+        download_url: "https://huggingface.co/csukuangfj2/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25/resolve/68818b2313fe77bd06f6a7c5068ff3ef59d02b8a/tokenizer/vocab.json",
+        expected_bytes: 2_776_833,
+        sha256: "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910",
+    },
+];
+
+#[cfg(any(windows, target_os = "macos"))]
 pub const BUNDLE_MODEL_MANIFEST: &[BundleModelManifestEntry] = &[
+    BundleModelManifestEntry {
+        public_id: "parakeet-ultra",
+        directory_name: "parakeet-ultra",
+        artifacts: PARAKEET_ULTRA_ARTIFACTS,
+        engine: ModelEngine::SherpaTransducer,
+        family: "Parakeet",
+        languages: Some(PARAKEET_V3_LANGUAGES),
+        label: "Parakeet Ultra",
+        size: "600 MB",
+        ram_mib: 1536,
+        recommended: false,
+    },
+    BundleModelManifestEntry {
+        public_id: "gigaam-multilingual",
+        directory_name: "gigaam-multilingual",
+        artifacts: GIGAAM_MULTILINGUAL_ARTIFACTS,
+        engine: ModelEngine::SherpaNemoCtc,
+        family: "GigaAM",
+        languages: Some(&["ru", "en", "kk", "ky", "uz"]),
+        label: "GigaAM Multilingual",
+        size: "214 MB",
+        ram_mib: 768,
+        recommended: false,
+    },
+    BundleModelManifestEntry {
+        public_id: "gigaam-multilingual-large",
+        directory_name: "gigaam-multilingual-large",
+        artifacts: GIGAAM_MULTILINGUAL_LARGE_ARTIFACTS,
+        engine: ModelEngine::SherpaNemoCtc,
+        family: "GigaAM",
+        languages: Some(&["ru", "en", "kk", "ky", "uz"]),
+        label: "GigaAM Multilingual Large",
+        size: "564 MB",
+        ram_mib: 1536,
+        recommended: false,
+    },
+    BundleModelManifestEntry {
+        public_id: "qwen3-asr-0.6b",
+        directory_name: "qwen3-asr-0.6b",
+        artifacts: QWEN3_ASR_0_6B_ARTIFACTS,
+        engine: ModelEngine::SherpaQwen3Asr,
+        family: "Qwen3",
+        languages: Some(QWEN3_LANGUAGES),
+        label: "Qwen3 ASR 0.6B",
+        size: "941 MB",
+        ram_mib: 4096,
+        recommended: false,
+    },
     BundleModelManifestEntry {
         public_id: "gigaam-v3",
         directory_name: "gigaam-v3",
@@ -929,6 +1101,7 @@ pub enum ModelEngine {
     SherpaMoonshine,
     SherpaSenseVoice,
     SherpaOmnilingualCtc,
+    SherpaQwen3Asr,
     /// A streaming transducer: the only family that can return text as speech
     /// goes rather than after the recording stops.
     SherpaStreamingTransducer,
@@ -980,6 +1153,14 @@ impl ModelEngine {
                 ArtifactRole::UncachedDecoder,
                 ArtifactRole::CachedDecoder,
                 ArtifactRole::Tokens,
+            ],
+            Self::SherpaQwen3Asr => &[
+                ArtifactRole::ConvFrontend,
+                ArtifactRole::Encoder,
+                ArtifactRole::Decoder,
+                ArtifactRole::TokenizerVocab,
+                ArtifactRole::TokenizerMerges,
+                ArtifactRole::TokenizerConfig,
             ],
             Self::SherpaStreamingTransducer => &[
                 ArtifactRole::Encoder,
@@ -1918,6 +2099,61 @@ mod tests {
             assert!(
                 artifact_named(entry, role).is_ok(),
                 "the transducer needs {role:?}"
+            );
+        }
+    }
+
+    #[cfg(any(windows, target_os = "macos"))]
+    #[test]
+    fn new_bundles_keep_languages_artifacts_and_existing_models_separate() {
+        for id in ["gigaam-multilingual", "gigaam-multilingual-large"] {
+            for language in ["ru", "en", "kk", "ky", "uz", "auto"] {
+                assert!(model_supports_language(id, language), "{id}/{language}");
+            }
+            assert!(!model_supports_language(id, "uk"));
+            assert_eq!(model_engine(id).unwrap(), ModelEngine::SherpaNemoCtc);
+        }
+        assert!(model_supports_language("parakeet-ultra", "uk"));
+        assert!(!model_supports_language("parakeet-ultra", "ja"));
+        assert!(model_supports_language("qwen3-asr-0.6b", "ja"));
+        assert!(!model_supports_language("qwen3-asr-0.6b", "uk"));
+        assert_eq!(model_languages("qwen3-asr-0.6b").unwrap().len(), 30);
+        assert!(!model_supports_language("gigaam-v3", "en"));
+        let ultra = bundle_manifest_entry("parakeet-ultra").unwrap();
+        let v3 = bundle_manifest_entry("parakeet-tdt-v3").unwrap();
+        assert_ne!(ultra.directory_name, v3.directory_name);
+        for role in [
+            ArtifactRole::Encoder,
+            ArtifactRole::Decoder,
+            ArtifactRole::Joiner,
+        ] {
+            assert_ne!(
+                ultra
+                    .artifacts
+                    .iter()
+                    .find(|a| a.role == role)
+                    .unwrap()
+                    .sha256,
+                v3.artifacts.iter().find(|a| a.role == role).unwrap().sha256
+            );
+        }
+        let root = tempfile::tempdir().unwrap();
+        let _env = crate::test_support::EnvGuard::set("SOTTO_MODELS_DIR", root.path());
+        let ModelLoadSpec::Sherpa { engine, files } =
+            model_load_spec("qwen3-asr-0.6b", true).unwrap()
+        else {
+            panic!("expected sherpa")
+        };
+        assert_eq!(engine, ModelEngine::SherpaQwen3Asr);
+        assert!(!engine.is_streaming());
+        for (role, name) in [
+            (ArtifactRole::TokenizerVocab, "vocab.json"),
+            (ArtifactRole::TokenizerMerges, "merges.txt"),
+            (ArtifactRole::TokenizerConfig, "tokenizer_config.json"),
+        ] {
+            assert_eq!(
+                files.path(role).unwrap(),
+                root.path().join("qwen3-asr-0.6b").join(name)
             );
         }
     }
