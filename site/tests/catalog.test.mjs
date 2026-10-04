@@ -65,3 +65,11 @@ test('CJK streaming search includes Nemotron, consistent with its native languag
   assert.ok(nemotron, 'CJK + streaming must not hide Nemotron');
   for (const language of cjkLanguages) assert.ok(nemotron.languages.includes(language));
 });
+
+test('Multilingual GigaAM cards do not promise punctuation', () => {
+  for (const name of ['GigaAM Multilingual', 'GigaAM Multilingual Large']) {
+    const model = models.find((item) => item.name === name);
+    assert.ok(model, `${name}: missing card`);
+    assert.equal(Boolean(model.punctuation), false, `${name}: lowercase output without punctuation`);
+  }
+});

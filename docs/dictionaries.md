@@ -30,7 +30,7 @@ New or edited user terms may contain at most 128 characters and 8 words. Up to 1
 
 User terms take precedence over built-in terms when they differ only in letter case. If enabled user sets contain multiple spellings of the same term after trimming surrounding whitespace and ignoring case, choose the desired spelling before saving. Phonetically similar terms are not spelling conflicts. The choice applies while that spelling is present in an enabled user set; output capitalization also follows the existing correction rules and the source text.
 
-The dictionary corrects similar spellings after recognition. Whisper additionally receives enabled terms as recognition hints; disabling local formatting stops text correction but leaves these Whisper hints active. Other engines do not necessarily support recognition hints, and dictionary entries do not guarantee that a term will be recognized or corrected.
+The dictionary corrects similar spellings after recognition. Whisper and Qwen3 additionally receive enabled terms as recognition hints; disabling local formatting stops text correction but leaves these hints active. Qwen3 includes only the leading whole terms fitting 1,024 UTF-8 bytes to preserve space for audio in its context. Other engines do not necessarily support recognition hints, and dictionary entries do not guarantee that a term will be recognized or corrected.
 
 Reviewed recognition variants are matched literally: `Gidhap` becomes `GitHub`, `Ridmi` becomes `README`, and `постхоg` becomes `PostHog`. These variants work only while their target term is enabled, including in a personal set or a copy, and use the selected spelling of that term. They require no cloud service or LLM.
 

@@ -1948,7 +1948,7 @@ pub(crate) async fn post_process_transcription(
 /// to `TextFormattingConfig::default()` (everything on) when the key is
 /// absent or malformed — same resolution `format_with_config_value` does
 /// internally, so the two can't disagree about which steps are active.
-/// The custom vocabulary as one prompt line for the whisper decoder.
+/// The custom vocabulary as one prompt line for Whisper and Qwen3 decoders.
 ///
 /// Comma-separated, which is the form whisper.cpp's own examples use and
 /// what Handy feeds it too — the prompt is conditioning context, not a

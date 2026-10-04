@@ -58,8 +58,12 @@ const englishWhisper = (name: string, size: string): Model => ({
 /** The built-in catalog, in the order the page lists it. */
 export const models: Model[] = [
   { name: 'GigaAM v3', engine: 'sherpa-onnx · NeMo CTC', languages: ['ru'], groups: ['ru'], size: '214 MB', punctuation: true },
+  { name: 'GigaAM Multilingual', engine: 'sherpa-onnx · NeMo CTC', languages: ['ru', 'en', 'kk', 'ky', 'uz'], groups: ['ru', 'en'], size: '214 MB' },
+  { name: 'GigaAM Multilingual Large', engine: 'sherpa-onnx · NeMo CTC', languages: ['ru', 'en', 'kk', 'ky', 'uz'], groups: ['ru', 'en'], size: '564 MB' },
   { name: 'Nemotron 3.5', engine: 'sherpa-onnx · transducer', languages: ['ru', 'en', 'zh', 'ja', 'ko', '+'], groups: ['ru', 'en', 'cjk'], size: '651 MB', streaming: true, punctuation: true },
   { name: 'Parakeet TDT v3', engine: 'sherpa-onnx · transducer', languages: ['ru', 'en', 'de', 'fr', '+'], groups: ['ru', 'en'], size: '639 MB' },
+  { name: 'Parakeet Ultra', engine: 'sherpa-onnx · transducer', languages: ['ru', 'en', 'de', 'fr', '+'], groups: ['ru', 'en'], size: '600 MB', punctuation: true },
+  { name: 'Qwen3 ASR 0.6B', engine: 'sherpa-onnx · Qwen3 ASR', languages: ['ru', 'en', 'zh', 'ja', 'ko', '+'], groups: ['ru', 'en', 'cjk'], size: '941 MB', punctuation: true },
   multilingualWhisper('Whisper large-v3', '≈3.1 GB'),
   multilingualWhisper('Whisper turbo', '≈874 MB'),
   { name: 'Omnilingual 300M', engine: 'sherpa-onnx · Omnilingual CTC', languages: ['1600+'], groups: ['ru', 'en', 'cjk'], size: '348 MB' },

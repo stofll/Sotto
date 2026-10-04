@@ -83,11 +83,11 @@ export function DictionaryLibrary({ open, onToggle, formatting, onSave }: { open
 
   return <>
     <Foldable open={open} onToggle={onToggle} title={t("Словари")}
-      hint={t("Помогает исправлять похожие написания имён, брендов и терминов после распознавания. Активные наборы работают вместе; Whisper также использует их как подсказку. Это не точная замена текста.")}
+      hint={t("Помогает исправлять похожие написания имён, брендов и терминов после распознавания. Активные наборы работают вместе; Whisper и Qwen3 также используют их как подсказку. Это не точная замена текста.")}
       summary={<span className="dictionary-note" role="status">{librarySummary(analysis, error)}</span>}
       aside={<button ref={createRef} type="button" className="btn btn--ghost btn--sm" disabled={busy || !analysis} onClick={() => setSession({ create: true, baseline: configKey })}><Icon name="plus" size={12}/>{t("Создать")}</button>}>
       <div className="dictionary-library">
-        {!formatting.enabled && <p className="dictionary-note">{t("Форматирование выключено: словари не исправляют текст. Подсказка Whisper продолжает работать.")}</p>}
+        {!formatting.enabled && <p className="dictionary-note">{t("Форматирование выключено: словари не исправляют текст. Подсказки для Whisper и Qwen3 продолжают работать.")}</p>}
         {error && <div className="inline-error" role="alert">{t("Не удалось загрузить или сохранить словари. Изменения не применены.")} <button type="button" className="btn btn--ghost" onClick={() => setRevision((value) => value + 1)}>{t("Повторить")}</button></div>}
         {analysis && entries.length === 0 && <p className="dictionary-note">{t("Наборов пока нет. Создайте набор для своих имён и терминов.")}</p>}
         <fieldset className="dictionary-fieldset" disabled={busy}>
@@ -197,7 +197,7 @@ function DictionaryDialog({ session, formatting, onSave, onClose }: { session: S
             <div className="dictionary-label"><div className="dictionary-term-heading"><span>{t("Термины")}</span><span className="dictionary-note">{entry.words.length}</span></div></div>
             <ul className="dictionary-term-list">{shownWords.map((word, index) => <li key={`${index}:${word}`}>{word}</li>)}</ul>{!shownWords.length && <p className="dictionary-note">{entry.words.length ? t("Ничего не найдено") : t("В наборе пока нет терминов")}</p>}
           </>}
-          {unsupported.length > 0 && <p className="dictionary-note">{t("Эти термины слишком короткие для коррекции текста, но остаются в подсказке Whisper:")} <span className="mono">{unsupported.join(", ")}</span></p>}
+          {unsupported.length > 0 && <p className="dictionary-note">{t("Эти термины слишком короткие для коррекции текста, но могут использоваться как подсказки распознавания:")} <span className="mono">{unsupported.join(", ")}</span></p>}
           {(editing || session.draft || deleting) && analysis?.conflicts.map((conflict) => <div className="dictionary-label" role="group" aria-label={t("Написание термина «{term}»", { term: conflict.key })} key={conflict.key}>
             <span>{t("Написание термина «{term}»", { term: conflict.key })}</span>
             <div className="dictionary-toolbar">{conflict.variants.map((word) => <button type="button" className={conflict.selected === word ? "btn btn--primary" : "btn btn--ghost"} key={word} aria-pressed={conflict.selected === word}

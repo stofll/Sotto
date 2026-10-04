@@ -322,7 +322,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             model::ModelLoadSpec::Sherpa { engine, files } => {
                 let mut recognizer = sherpa::SherpaRecognizer::open(engine, &files, threads)?;
-                Box::new(move |_| recognizer.transcribe(16000, speech))
+                Box::new(move |language| {
+                    if engine == model::ModelEngine::SherpaQwen3Asr {
+                        recognizer.transcribe_segmented(speech, Some(language), None, || false)
+                    } else {
+                        recognizer.transcribe(16000, speech)
+                    }
+                })
             }
         };
         let load_ms = load_start.elapsed().as_secs_f64() * 1000.0;

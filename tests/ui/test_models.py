@@ -2,6 +2,41 @@ from pathlib import Path
 
 import pytest
 from playwright.sync_api import expect
+from readme_models import catalog
+
+
+@pytest.mark.parametrize("locale", ["ru", "en"])
+@pytest.mark.parametrize(
+    "model_id",
+    [
+        "parakeet-ultra",
+        "gigaam-multilingual",
+        "gigaam-multilingual-large",
+        "qwen3-asr-0.6b",
+    ],
+)
+def test_expanded_catalog_selection_preserves_russian_and_keyboard_access(
+    app, page, locale, model_id
+):
+    models, _ = catalog()
+    for model in models:
+        model["downloaded"] = True
+        model["selected"] = model["id"] == "gigaam-v3"
+    ui = app(
+        config={"ui_language": locale, "model": "gigaam-v3", "language": "ru"},
+        models=models,
+    )
+    ui.nav("models")
+    card = page.get_by_test_id(f"model-{model_id}")
+    card.focus()
+    expect(card).to_be_focused()
+    card.press("Enter")
+    page.get_by_role("dialog").get_by_role(
+        "button", name="Выбрать" if locale == "ru" else "Use", exact=True
+    ).click()
+    ui.saved("model", model_id)
+    expect(card).to_have_attribute("aria-pressed", "true")
+    assert ui.state()["config"]["language"] == "ru"
 
 
 def test_unknown_speed_uses_hatching(app, page):

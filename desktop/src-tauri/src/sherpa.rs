@@ -12,6 +12,7 @@
 //! `Send + Sync`, so the wrappers here opt back out with a `PhantomData` — the
 //! single-thread rule is checked by the compiler rather than by convention.
 
+mod qwen3;
 mod stitching;
 
 #[cfg(any(windows, target_os = "macos"))]
@@ -31,6 +32,7 @@ const LANG_AUTO: &str = "auto";
 #[cfg(any(windows, target_os = "macos"))]
 pub struct OfflineRecognizer {
     recognizer: sherpa_onnx::OfflineRecognizer,
+    qwen3: bool,
     _not_send: PhantomData<*const ()>,
 }
 
@@ -99,6 +101,7 @@ impl OfflineRecognizer {
             ModelEngine::SherpaOmnilingualCtc => {
                 Self::omnilingual(files.path(R::Model)?, files.path(R::Tokens)?, num_threads)
             }
+            ModelEngine::SherpaQwen3Asr => Self::qwen3(files, num_threads),
             ModelEngine::SherpaStreamingTransducer => {
                 Err("SHERPA_WRONG_ENGINE: streaming models need the online recognizer".to_string())
             }
@@ -215,6 +218,39 @@ impl OfflineRecognizer {
         Self::create(model_config, None)
     }
 
+    fn qwen3(files: &crate::model::BundleFiles, num_threads: i32) -> Result<Self, String> {
+        use crate::model::ArtifactRole as R;
+        check_threads(num_threads)?;
+        // The tokenizer lives alongside the graphs. Keeping the bundle flat
+        // preserves the downloader's verified staging and atomic publication.
+        let tokenizer = files
+            .path(R::TokenizerVocab)?
+            .parent()
+            .ok_or_else(|| "SHERPA_INVALID_PATH: tokenizer has no parent".to_string())?;
+        for role in [R::TokenizerMerges, R::TokenizerConfig] {
+            if files.path(role)?.parent() != Some(tokenizer) {
+                return Err("SHERPA_INVALID_PATH: tokenizer files must share a directory".into());
+            }
+        }
+        let model_config = sherpa_onnx::OfflineModelConfig {
+            qwen3_asr: sherpa_onnx::OfflineQwen3ASRModelConfig {
+                conv_frontend: Some(path_string(files.path(R::ConvFrontend)?)?),
+                encoder: Some(path_string(files.path(R::Encoder)?)?),
+                decoder: Some(path_string(files.path(R::Decoder)?)?),
+                tokenizer: Some(path_string(tokenizer)?),
+                // This pinned decoder has a dynamic KV-cache axis. Leave room
+                // for 25 s of audio, bounded hints and generated text together.
+                max_total_len: 2048,
+                max_new_tokens: 512,
+                ..Default::default()
+            },
+            num_threads,
+            provider: Some(PROVIDER_CPU.to_string()),
+            ..Default::default()
+        };
+        Self::create(model_config, Some((16_000, 128)))
+    }
+
     /// NeMo transducer (Parakeet TDT): three graphs — encoder, decoder and
     /// joiner — over the shared token table.
     ///
@@ -238,9 +274,8 @@ impl OfflineRecognizer {
             },
             ..common_model_config(path_string(tokens_path)?, num_threads)
         };
-        // Unlike the CTC path, the transducer wants its feature extractor
-        // spelled out: 80-dim log-mel at 16 kHz, which is what every NeMo
-        // export expects.
+        // Zipformer defaults to 80 bins. NeMo overrides this from feat_dim
+        // metadata (128 for Parakeet TDT/Ultra) in the pinned runtime.
         Self::create(model_config, Some((16_000, 80)))
     }
 
@@ -250,6 +285,7 @@ impl OfflineRecognizer {
         model_config: sherpa_onnx::OfflineModelConfig,
         feat_config: Option<(i32, i32)>,
     ) -> Result<Self, String> {
+        let qwen3 = model_config.qwen3_asr.conv_frontend.is_some();
         let mut config = sherpa_onnx::OfflineRecognizerConfig {
             model_config,
             decoding_method: Some(DECODING_GREEDY.to_string()),
@@ -268,11 +304,22 @@ impl OfflineRecognizer {
             .ok_or_else(|| "SHERPA_CREATE_FAILED: offline recognizer returned null".to_string())?;
         Ok(Self {
             recognizer,
+            qwen3,
             _not_send: PhantomData,
         })
     }
 
     pub fn transcribe(&mut self, sample_rate: u32, samples: &[f32]) -> Result<String, String> {
+        self.transcribe_with_context(sample_rate, samples, None, None)
+    }
+
+    fn transcribe_with_context(
+        &mut self,
+        sample_rate: u32,
+        samples: &[f32],
+        language: Option<&str>,
+        hotwords: Option<&str>,
+    ) -> Result<String, String> {
         validate_audio(sample_rate, samples)?;
         if samples.is_empty() {
             return Ok(String::new());
@@ -284,6 +331,14 @@ impl OfflineRecognizer {
         // gone — not dropped by choice. If the C call ever does return null,
         // the next line dereferences it inside the DLL instead of reporting it.
         let stream = self.recognizer.create_stream();
+        if self.qwen3 {
+            if let Some(language) = language.and_then(qwen3::language_name) {
+                stream.set_option("language", language);
+            }
+            if let Some(hotwords) = hotwords {
+                stream.set_option("hotwords", hotwords);
+            }
+        }
         stream.accept_waveform(sample_rate as i32, samples);
         self.recognizer.decode(&stream);
         stream
@@ -438,11 +493,55 @@ impl OfflineRecognizer {
     pub fn transcribe(&mut self, _sample_rate: u32, _samples: &[f32]) -> Result<String, String> {
         Err(UNSUPPORTED.to_string())
     }
+
+    fn transcribe_with_context(
+        &mut self,
+        _sample_rate: u32,
+        _samples: &[f32],
+        _language: Option<&str>,
+        _hotwords: Option<&str>,
+    ) -> Result<String, String> {
+        Err(UNSUPPORTED.to_string())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bounded_offline_decode_keeps_all_samples_and_does_not_recheck_punctuation() {
+        let audio = vec![0.01; 51 * 16_000 + 17];
+        let mut seen = 0;
+        let mut calls = 0;
+        let text = transcribe_segments(
+            &audio,
+            false,
+            || false,
+            |fragment| {
+                assert!(fragment.len() <= 25 * 16_000);
+                seen += fragment.len();
+                calls += 1;
+                Ok("Остались новые Записи для проверки".into())
+            },
+        )
+        .unwrap();
+        assert_eq!(seen, audio.len());
+        assert_eq!(calls, 3);
+        assert_eq!(text.matches("Записи").count(), 3);
+        let mut decoded = false;
+        assert!(transcribe_segments(
+            &audio,
+            false,
+            || true,
+            |_| {
+                decoded = true;
+                Ok(String::new())
+            }
+        )
+        .is_err());
+        assert!(!decoded);
+    }
 
     #[test]
     fn longform_keeps_repeated_words_and_discards_partial_results_on_failure() {
@@ -779,6 +878,26 @@ pub enum SherpaRecognizer {
 }
 
 impl SherpaRecognizer {
+    /// Shared bounded path for new offline models. Options belong to a fresh
+    /// stream, so changing a dictionary never reloads weights or leaks hints.
+    pub fn transcribe_segmented(
+        &mut self,
+        samples: &[f32],
+        language: Option<&str>,
+        prompt: Option<&str>,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<String, String> {
+        let hotwords = prompt.map(qwen3::bounded_hotwords);
+        transcribe_segments(samples, false, cancelled, |fragment| match self {
+            Self::Offline(recognizer) => {
+                recognizer.transcribe_with_context(16_000, fragment, language, hotwords.as_deref())
+            }
+            Self::Online(_) => {
+                Err("SHERPA_WRONG_ENGINE: segmentation requires an offline model".into())
+            }
+        })
+    }
+
     /// Bounded GigaAM recognition shared by microphone and file transcription.
     /// Each fragment uses a fresh offline stream; cancellation never returns
     /// the successfully decoded prefix as if it were the full recording.
@@ -859,6 +978,15 @@ impl SherpaRecognizer {
 fn transcribe_gigaam_segments(
     samples: &[f32],
     cancelled: impl Fn() -> bool,
+    decode: impl FnMut(&[f32]) -> Result<String, String>,
+) -> Result<String, String> {
+    transcribe_segments(samples, true, cancelled, decode)
+}
+
+fn transcribe_segments(
+    samples: &[f32],
+    recover_boundary: bool,
+    cancelled: impl Fn() -> bool,
     mut decode: impl FnMut(&[f32]) -> Result<String, String>,
 ) -> Result<String, String> {
     let cancel_error = || "sherpa transcribe cancelled between fragments".to_owned();
@@ -877,7 +1005,7 @@ fn transcribe_gigaam_segments(
         }
         let fragment = fragment.trim();
         if !fragment.is_empty() {
-            if stitching::needs_context(&text, fragment) {
+            if recover_boundary && stitching::needs_context(&text, fragment) {
                 if cancelled() {
                     return Err(cancel_error());
                 }
