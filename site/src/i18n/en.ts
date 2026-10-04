@@ -192,7 +192,7 @@ export const en: Dictionary = {
       {
         id: 'languages',
         question: 'Which languages does it recognize?',
-        answer: 'That depends on the model. Whisper covers about a hundred languages and Omnilingual more than 1600. GigaAM v3 is built for Russian. Nemotron 3.5 supports 28 languages, including Russian, English, Chinese, Japanese and Korean; Parakeet TDT v3 supports 25 European languages. Parakeet TDT v2, Parakeet unified, Canary and Moonshine are English-only in Sotto. SenseVoice supports Chinese, English, Japanese, Korean and Cantonese.',
+        answer: 'That depends on the model. Whisper covers about a hundred languages and Omnilingual more than 1600. GigaAM v3 is built for Russian; GigaAM Multilingual and GigaAM Multilingual Large support Russian, English, Kazakh, Kyrgyz and Uzbek. Nemotron 3.5 supports 28 languages, including Russian, English, Chinese, Japanese and Korean; Parakeet TDT v3 and Parakeet Ultra support 25 European languages. Qwen3 ASR 0.6B supports 30 languages, including Russian, English, Chinese, Japanese and Korean. Parakeet TDT v2, Parakeet unified, Canary and Moonshine are English-only in Sotto. SenseVoice supports Chinese, English, Japanese, Korean and Cantonese.',
       },
       {
         id: 'hardware',

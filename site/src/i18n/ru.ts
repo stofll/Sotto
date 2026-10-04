@@ -197,7 +197,7 @@ export const ru: Dictionary = {
       {
         id: 'languages',
         question: 'Какие языки распознаёт Sotto?',
-        answer: 'Зависит от модели. Whisper знает около сотни языков, Omnilingual больше 1600. GigaAM v3 сделана для русского. Nemotron 3.5 поддерживает 28 языков, включая русский, английский, китайский, японский и корейский; Parakeet TDT v3 — 25 европейских языков. Parakeet TDT v2, Parakeet unified, Canary и Moonshine в Sotto работают только с английским. SenseVoice поддерживает китайский, английский, японский, корейский и кантонский.',
+        answer: 'Зависит от модели. Whisper знает около сотни языков, Omnilingual больше 1600. GigaAM v3 сделана для русского; GigaAM Multilingual и GigaAM Multilingual Large поддерживают русский, английский, казахский, киргизский и узбекский. Nemotron 3.5 поддерживает 28 языков, включая русский, английский, китайский, японский и корейский; Parakeet TDT v3 и Parakeet Ultra — 25 европейских языков. Qwen3 ASR 0.6B поддерживает 30 языков, включая русский, английский, китайский, японский и корейский. Parakeet TDT v2, Parakeet unified, Canary и Moonshine в Sotto работают только с английским. SenseVoice поддерживает китайский, английский, японский, корейский и кантонский.',
       },
       {
         id: 'hardware',
