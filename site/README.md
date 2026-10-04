@@ -80,7 +80,7 @@ See [Search and agent discovery](SEARCH.md) for indexing checks, the Cloudflare 
 
 ## Hosting
 
-The site is served by Cloudflare Workers Static Assets on the free plan, deployed by the `deploy` job in `.github/workflows/site.yml`. `wrangler.jsonc` is the whole deployment contract: `dist/` is uploaded as-is, there is no Worker code, and `public/_headers` travels with it as the response-header policy.
+The site is served by Cloudflare Workers Static Assets on the free plan, deployed by the `deploy` job in `.github/workflows/site.yml`. `wrangler.jsonc` is the whole deployment contract: `dist/` is uploaded as-is, there is no Worker code, and `public/_headers` travels with it as the response-header policy. `public/_redirects` answers the conventional `/sitemap.xml` and `/favicon.ico` that crawlers and browsers request unprompted, so those requests reach the real files instead of a 404.
 
 The custom domain is the only address the site answers on. `workers_dev` and `preview_urls` are both off, because a landing page exists to be found and a second origin serving the same HTML is what undermines that.
 
