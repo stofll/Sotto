@@ -71,6 +71,11 @@ impl OutputLimit {
         }
     }
 
+    /// The same cap whatever the text, so a refused value need not be retried.
+    pub fn is_fixed(self) -> bool {
+        !matches!(self, Self::Auto)
+    }
+
     /// The cap to send for `text`, or `None` to send none.
     pub fn tokens(self, text: &str) -> Option<u32> {
         match self {
@@ -109,10 +114,13 @@ impl Fallback {
     }
 
     /// A token limit: `limit`, then smaller standard caps a model may hold to.
+    /// Remembered only when `fixed`: a limit sized to each text would replay
+    /// a position computed for another length.
     pub fn limit(
         path: &'static [&'static str],
         keywords: &'static [&'static str],
         limit: u32,
+        fixed: bool,
     ) -> Self {
         let mut values = vec![Value::from(limit)];
         values.extend(
@@ -125,7 +133,7 @@ impl Fallback {
             path,
             keywords,
             values,
-            remember: false,
+            remember: fixed,
         }
     }
 }
@@ -283,14 +291,14 @@ mod tests {
 
     #[test]
     fn a_limit_steps_down_through_smaller_standard_caps() {
-        let values: Vec<u64> = Fallback::limit(&["max_tokens"], &["max_tokens"], 20_000)
+        let values: Vec<u64> = Fallback::limit(&["max_tokens"], &["max_tokens"], 20_000, false)
             .values
             .iter()
             .filter_map(Value::as_u64)
             .collect();
         assert_eq!(values, [20_000, 16_384, 8_192, 4_096]);
         assert_eq!(
-            Fallback::limit(&["max_tokens"], &["max_tokens"], 2_048)
+            Fallback::limit(&["max_tokens"], &["max_tokens"], 2_048, false)
                 .values
                 .len(),
             1

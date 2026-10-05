@@ -28,9 +28,6 @@ function shortAiProblem(payload?: TranscriptionPayload) {
   if (ai?.skipped_reason === "missing_provider" || ai?.skipped_reason === "missing_api_key" || ai?.skipped_reason === "missing_system_prompt") {
     return t("LLM не настроена, вставлен локальный текст");
   }
-  // Not a fallback either: the text was past what one answer can hold, so it
-  // was never sent.
-  if (ai?.skipped_reason === "text_too_long") return t("Текст слишком длинный для LLM, вставлен локальный текст");
   if (!ai?.fallback) return "";
   // Still running: the answer, if it comes, goes into the history entry.
   if (ai.skipped_reason === "provider_timeout" && ai.late_pending) return t("LLM не успела — ответ появится в истории");

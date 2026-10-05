@@ -62,9 +62,11 @@ pub fn dropped_too_much(input: &str, output: &str) -> bool {
 ///
 /// The word ratio cannot see these: dropping one «never» from a ten-word
 /// prompt, or renumbering a list that started at 5, leaves the length intact
-/// and inverts what the user asked for. Each check is narrow enough that an
-/// edit the prompt permits does not trip it, and a false alarm only costs the
-/// punctuation the local transcript lacks.
+/// and inverts what the user asked for. The checks tolerate stutters, changes
+/// of form and number formatting, but they compare words, not meaning: an
+/// abandoned false start or a spoken self-correction that removes a negation
+/// or a number also trips them. A false alarm costs only the punctuation the
+/// local transcript lacks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Alteration {
     /// Fewer negations came back than were dictated.
@@ -93,11 +95,7 @@ pub fn altered_meaning(input: &str, output: &str) -> Option<Alteration> {
     if negation_count(output) < negation_count(input) {
         return Some(Alteration::Negation);
     }
-    let kept_numbers = numbers(output);
-    if numbers(input)
-        .iter()
-        .any(|number| !kept_numbers.contains(number))
-    {
+    if !digits_survive(input, output) {
         return Some(Alteration::Numbers);
     }
     if mostly_cyrillic(input) {
@@ -129,37 +127,58 @@ fn word_tokens(text: &str) -> Vec<String> {
 const RUSSIAN_NEGATIONS: &[&str] = &["не", "нет", "ни", "никогда", "нельзя"];
 const ENGLISH_NEGATIONS: &[&str] = &["not", "no", "never", "cannot", "nothing", "nobody", "none"];
 
-/// Negations, counting `n't` contractions and ignoring back-to-back repeats:
-/// «не не надо» → «не надо» is a removed stutter the prompt allows.
+/// Negations, counting `n't` contractions. A negation that repeats one of
+/// the two words before it is a stutter the prompt lets the model remove —
+/// «не не надо», «не ну не надо» — and counts once; «не хочу и не буду»
+/// keeps both.
 fn negation_count(text: &str) -> usize {
-    let mut tokens = word_tokens(text);
-    tokens.dedup();
+    let tokens = word_tokens(text);
+    let is_negation = |token: &str| {
+        RUSSIAN_NEGATIONS.contains(&token)
+            || ENGLISH_NEGATIONS.contains(&token)
+            || token.ends_with("n't")
+    };
     tokens
         .iter()
-        .filter(|token| {
-            RUSSIAN_NEGATIONS.contains(&token.as_str())
-                || ENGLISH_NEGATIONS.contains(&token.as_str())
-                || token.ends_with("n't")
+        .enumerate()
+        .filter(|(index, token)| {
+            is_negation(token) && !tokens[index.saturating_sub(2)..*index].contains(token)
         })
         .count()
 }
 
-/// Digit sequences, with thousands groups and decimal separators folded away
-/// so `1500`, `1 500` and `1,500` compare equal.
-fn numbers(text: &str) -> std::collections::HashSet<String> {
-    static NUMBER: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
-        regex::Regex::new(r"\d+(?:[ \u{00A0}\u{202F}.,]\d{3})*(?:[.,]\d+)?").expect("valid regex")
-    });
-    NUMBER
-        .find_iter(text)
-        .map(|found| {
-            found
-                .as_str()
-                .chars()
-                .filter(char::is_ascii_digit)
-                .collect()
-        })
+/// Maximal runs of ASCII digits, in order.
+fn digit_runs(text: &str) -> Vec<&str> {
+    text.split(|c: char| !c.is_ascii_digit())
+        .filter(|run| !run.is_empty())
         .collect()
+}
+
+/// Every digit of `input`, in order, is spelled by whole numbers of `output`.
+///
+/// Grouping, phone formatting, ranges and decimal commas move separators
+/// between digits, so the digits of the source are compared as one stream:
+/// `8 900 123 45 67` matches `8 (900) 123-45-67`, `1500` matches `1 500`.
+/// That stream must be the concatenation of some of the answer's numbers,
+/// taken whole and in order, so `1500` → `15000` and a list renumbered from
+/// `5, 6` to `1, 2` fail. Numbers the answer adds — «пять» written as `5` —
+/// are skipped.
+fn digits_survive(input: &str, output: &str) -> bool {
+    let source: String = digit_runs(input).concat();
+    if source.is_empty() {
+        return true;
+    }
+    // Offsets into `source` that a prefix of the answer's numbers can reach.
+    let mut reached = vec![false; source.len() + 1];
+    reached[0] = true;
+    for run in digit_runs(output) {
+        for start in (0..source.len()).rev() {
+            if reached[start] && source[start..].starts_with(run) {
+                reached[start + run.len()] = true;
+            }
+        }
+    }
+    reached[source.len()]
 }
 
 /// In Russian dictation a Latin word is a name, a brand or a term — the words
@@ -320,6 +339,7 @@ mod tests {
             ("I don't understand", "I understand."),
             ("я не хочу это мержить", "Я хочу это мержить."),
             ("это никогда не сработает", "Это не сработает."),
+            ("я не хочу и не буду", "Я хочу и не буду."),
         ] {
             assert_eq!(
                 altered_meaning(input, output),
@@ -335,6 +355,7 @@ mod tests {
             ("I don't understand", "I do not understand."),
             ("we can not ship it", "We cannot ship it."),
             ("ну не не надо так делать", "Не надо так делать."),
+            ("не ну не надо так делать", "Ну не надо так делать."),
             ("no no no wait", "No, wait."),
         ] {
             assert_eq!(altered_meaning(input, output), None, "{input} → {output}");
@@ -362,6 +383,34 @@ mod tests {
         assert_eq!(
             altered_meaning(input, "Переведи 1 500 рублей до 3,5 процентов."),
             None
+        );
+    }
+
+    #[test]
+    fn number_formatting_is_allowed() {
+        for (input, output) in [
+            (
+                "позвони на 8 900 123 45 67",
+                "Позвони на 8 (900) 123-45-67.",
+            ),
+            ("с 2019 2020 года", "С 2019–2020 года."),
+            ("купи 100 200 300 штук", "Купи 100, 200, 300 штук."),
+            ("встреча в 10.30", "Встреча в 10:30."),
+            ("версия 0 3 2", "Версия 0.3.2."),
+        ] {
+            assert_eq!(altered_meaning(input, output), None, "{input} → {output}");
+        }
+    }
+
+    #[test]
+    fn a_reordered_or_merged_number_is_caught() {
+        assert_eq!(
+            altered_meaning("сначала 5 потом 6", "Сначала 6, потом 5."),
+            Some(Alteration::Numbers)
+        );
+        assert_eq!(
+            altered_meaning("ровно 1500", "Ровно 15000."),
+            Some(Alteration::Numbers)
         );
     }
 

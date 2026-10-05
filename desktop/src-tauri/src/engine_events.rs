@@ -172,7 +172,7 @@ impl Dispatcher {
         let processed = tokio::select! {
             biased;
             _ = self.state.wait_cancelled(session_id) => None,
-            result = post_process_transcription(&self.app, &inference, true) => Some(result),
+            result = post_process_transcription(&self.app, &inference, false) => Some(result),
         };
         if self.state.is_cancelled(session_id) {
             self.report_cancelled(session_id);

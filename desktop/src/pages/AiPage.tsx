@@ -29,13 +29,13 @@ import { confirmAction } from "../components/ConfirmDialog";
 import { isLocalBaseUrl } from "./baseUrlFormat";
 import { NumberField } from "../components/NumberField";
 import type { ApiKeyStatus, ConfigChange, ConfigResult, LateAnswerMode, ReasoningMode } from "../bridge/types";
+import { t } from "../i18n";
+import { useFileTranscription, type FileStage, type TranscribeFileResult } from "./useFileTranscription";
 
 /** Mirrors `MIN_CUSTOM_OUTPUT_TOKENS` in ai/model_params.rs: below it Rust treats the limit as unset. */
 const MIN_OUTPUT_LIMIT = 256;
 /** Where a newly chosen custom limit starts. */
 const CUSTOM_OUTPUT_LIMIT_DEFAULT = 8192;
-import { t } from "../i18n";
-import { useFileTranscription, type FileStage, type TranscribeFileResult } from "./useFileTranscription";
 
 type AiRunResult = {
   available: boolean;

@@ -82,9 +82,9 @@ async fn run_ai_prompt(
         late_answer: step::LateAnswerMode::Off,
         reasoning: model_params::ReasoningMode::parse(options.reasoning.as_deref()),
         output_limit: model_params::OutputLimit::parse(options.output_limit.as_ref()),
-        // A pasted text is not a dictation the overlay waits on, and may be
-        // as long as a transcript.
-        waits_to_paste: false,
+        // The text page cannot cancel, so a long paste keeps the dictation's
+        // budget; parts not done by then stay as pasted.
+        may_run_long: false,
     };
     let api_key = if api_key_ref.is_empty() {
         None

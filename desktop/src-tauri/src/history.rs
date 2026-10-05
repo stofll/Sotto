@@ -598,8 +598,6 @@ async fn run_history_entry_ai(
     let mut ai_cfg = crate::ai::step::AiConfig::from_ai_processing(ai);
     ai_cfg.language = crate::speech_language(Some(&config));
     ai_cfg.pipeline_mode = manual_llm_mode(&ai_cfg.pipeline_mode).to_string();
-    // The history page waits on this itself; no overlay guard bounds it.
-    ai_cfg.waits_to_paste = false;
     apply_ai_profile(&mut ai_cfg, ai, profile_id.as_deref())?;
     // Rust is handed finished prompt text here exactly as it is on the
     // dictation path — it knows nothing about presets. The caller resolves the

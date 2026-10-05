@@ -72,12 +72,7 @@ fn mock_server_sequence(responses: &[(&str, &str)]) -> (String, CapturedRequests
             requests_for_thread.lock().unwrap().push(captured);
             // Send canned response.
             let response = format!(
-                "{status}
-Content-Type: application/json
-Content-Length: {}
-Connection: close
-
-{body}",
+                "{status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                 body.len()
             );
             stream.write_all(response.as_bytes()).unwrap();
@@ -258,7 +253,7 @@ fn local_mode_does_not_call_provider() {
         late_answer: LateAnswerMode::Off,
         reasoning: ReasoningMode::Minimal,
         output_limit: OutputLimit::Auto,
-        waits_to_paste: true,
+        may_run_long: false,
     };
     let outcome = block_on(ai_process_text_with_status(
         "hello",
@@ -289,7 +284,7 @@ fn missing_api_key_short_circuits_before_http() {
         late_answer: LateAnswerMode::Off,
         reasoning: ReasoningMode::Minimal,
         output_limit: OutputLimit::Auto,
-        waits_to_paste: true,
+        may_run_long: false,
     };
     let outcome = block_on(ai_process_text_with_status("hello", &config, None));
     assert_eq!(outcome.status.skipped_reason, "missing_api_key");
@@ -467,7 +462,7 @@ fn profile_kind_chooses_the_request_dialect() {
             late_answer: LateAnswerMode::Off,
             reasoning: ReasoningMode::Minimal,
             output_limit: OutputLimit::Auto,
-            waits_to_paste: true,
+            may_run_long: false,
         };
         let outcome = block_on(ai_process_text_with_status(
             "hello",

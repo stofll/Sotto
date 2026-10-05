@@ -126,10 +126,10 @@ pub struct AiConfig {
     pub late_answer: LateAnswerMode,
     pub reasoning: ReasoningMode,
     pub output_limit: OutputLimit,
-    /// A dictation waits on this result to paste it, under the overlay's
-    /// stuck guard. A file transcription or a pasted text does not, so a long
-    /// text may take as long as its parts need.
-    pub waits_to_paste: bool,
+    /// A file transcription, which can be cancelled from its panel and has
+    /// no overlay waiting on it: a long text in parts may take up to
+    /// [`FILE_PARTS_MAX_SECS`]. Everything else keeps the dictation's budget.
+    pub may_run_long: bool,
 }
 
 /// What happens to an answer that arrives after the timeout, when the local
@@ -216,7 +216,7 @@ impl AiConfig {
                 v.get("llm_reasoning").and_then(serde_json::Value::as_str),
             ),
             output_limit: OutputLimit::parse(v.get("llm_output_limit")),
-            waits_to_paste: true,
+            may_run_long: false,
         }
     }
 }
@@ -382,7 +382,18 @@ pub async fn ai_process_text_with_status(
         return skipped(text, status, "missing_system_prompt");
     }
     if text.chars().count() > long_text::SPLIT_ABOVE_CHARS {
-        return process_in_parts(text, config, api_key, &rendered_system, status).await;
+        let parts = long_text::split(text, long_text::PART_TARGET_CHARS);
+        let longest = parts
+            .iter()
+            .map(|part| part.text)
+            .max_by_key(|part| part.len())
+            .unwrap_or_default();
+        let provider: Arc<dyn Provider> = Arc::from(build_provider(
+            config,
+            api_key,
+            attempt_budget(config, longest),
+        ));
+        return process_in_parts(&parts, config, provider, &rendered_system, status).await;
     }
     let user_message = wrap_dictation(text);
 
@@ -412,7 +423,8 @@ pub async fn ai_process_text_with_status(
 const PARTS_IN_FLIGHT: usize = 3;
 
 /// How long a file transcription may wait for its parts in total. Nobody is
-/// waiting to paste, so an hour-long recording gets the time it needs.
+/// waiting to paste and the panel can cancel it, so an hour-long recording
+/// gets the time it needs.
 const FILE_PARTS_MAX_SECS: u64 = 30 * 60;
 
 /// Tidy a long text in parts and join them back. Each part is judged on its
@@ -420,20 +432,26 @@ const FILE_PARTS_MAX_SECS: u64 = 30 * 60;
 /// the others keep their tidy-up. A dictation keeps its usual total budget —
 /// the overlay waits on it — and a part not done by then stays local.
 async fn process_in_parts(
-    text: &str,
+    parts: &[long_text::Part<'_>],
     config: &AiConfig,
-    api_key: &str,
+    provider: Arc<dyn Provider>,
     rendered_system: &str,
     mut status: AiStatus,
 ) -> CallOutcome {
     use futures_util::StreamExt;
 
-    let parts = long_text::split(text, long_text::PART_TARGET_CHARS);
+    let text = long_text::join(
+        parts,
+        &parts
+            .iter()
+            .map(|part| part.text.to_string())
+            .collect::<Vec<_>>(),
+    );
     let started = tokio::time::Instant::now();
-    let total = if !config.waits_to_paste {
+    let total = if config.may_run_long {
         Duration::from_secs(FILE_PARTS_MAX_SECS)
     } else {
-        attempt_budget(config, text)
+        attempt_budget(config, &text)
     };
     let deadline = started + total;
     // A part's answer is never late: past the deadline its local text stands.
@@ -441,23 +459,12 @@ async fn process_in_parts(
         late_answer: LateAnswerMode::Off,
         ..config.clone()
     };
-    let longest = parts
-        .iter()
-        .map(|part| part.text)
-        .max_by_key(|part| part.len())
-        .unwrap_or_default();
-    let provider: Arc<dyn Provider> = Arc::from(build_provider(
-        &part_config,
-        api_key,
-        attempt_budget(&part_config, longest),
-    ));
-
     // Boxed one by one: futures built in an iterator closure lose the proof
     // that they are `Send`, which the dictation's spawned task needs.
     let mut jobs: Vec<
         std::pin::Pin<Box<dyn std::future::Future<Output = CallOutcome> + Send + '_>>,
     > = Vec::with_capacity(parts.len());
-    for part in &parts {
+    for part in parts {
         jobs.push(Box::pin(tidy_part(
             part.text,
             &part_config,
@@ -480,7 +487,7 @@ async fn process_in_parts(
         .iter()
         .map(|outcome| outcome.text.clone())
         .collect();
-    let joined = long_text::join(&parts, &tidied);
+    let joined = long_text::join(parts, &tidied);
 
     status.attempted = true;
     status.used = used > 0;
@@ -833,13 +840,14 @@ fn attempt_timeout(configured: u64, text: &str) -> Duration {
 }
 
 /// [`attempt_timeout`] for `config`. Thinking left to the model takes time
-/// before the first word of the answer, often as long again as the answer,
-/// so such a profile gets three times the time for the same text.
+/// before the first word of the answer — on a one-line dictation as much as
+/// on a long one — so such a profile gets three times the whole budget,
+/// within the cap the overlay's stuck guard is derived from.
 fn attempt_budget(config: &AiConfig, text: &str) -> Duration {
-    let configured = config.llm_timeout_seconds;
+    let budget = attempt_timeout(config.llm_timeout_seconds, text);
     match config.reasoning {
-        ReasoningMode::Minimal => attempt_timeout(configured, text),
-        ReasoningMode::Model => attempt_timeout(configured, &text.repeat(3)),
+        ReasoningMode::Minimal => budget,
+        ReasoningMode::Model => (budget * 3).min(Duration::from_secs(MAX_ATTEMPT_SECS)),
     }
 }
 
@@ -857,7 +865,10 @@ fn build_provider(config: &AiConfig, api_key: &str, timeout: Duration) -> Box<dy
             OpenAIProvider::new(key, model, base_url, Some(timeout), None)
                 .with_options(reasoning, limit),
         ),
-        "opencode-go" => Box::new(OpenCodeGoProvider::new(key, model, base_url, Some(timeout))),
+        "opencode-go" => Box::new(
+            OpenCodeGoProvider::new(key, model, base_url, Some(timeout))
+                .with_options(reasoning, limit),
+        ),
         "gemini" => {
             Box::new(GeminiProvider::new(key, model, Some(timeout)).with_options(reasoning, limit))
         }
@@ -1019,7 +1030,7 @@ mod tests {
             late_answer: LateAnswerMode::Notify,
             reasoning: ReasoningMode::Minimal,
             output_limit: OutputLimit::Auto,
-            waits_to_paste: true,
+            may_run_long: false,
         }
     }
 
@@ -1173,6 +1184,8 @@ mod tests {
     /// contains `refuse` with a server error.
     struct PartsProvider {
         refuse: &'static str,
+        /// How long each answer takes, on tokio's clock.
+        delay: Duration,
         calls: std::sync::atomic::AtomicUsize,
     }
 
@@ -1188,7 +1201,9 @@ mod tests {
                 .trim_end_matches("\n</dictation>")
                 .to_string();
             let refuse = !self.refuse.is_empty() && body.contains(self.refuse);
+            let delay = self.delay;
             Box::pin(async move {
+                tokio::time::sleep(delay).await;
                 if refuse {
                     Err(ProviderError::new(
                         ProviderErrorType::BadResponse,
@@ -1218,46 +1233,20 @@ mod tests {
     async fn run_in_parts(text: &str, refuse: &'static str) -> (CallOutcome, usize) {
         let provider = Arc::new(PartsProvider {
             refuse,
+            delay: Duration::ZERO,
             calls: std::sync::atomic::AtomicUsize::new(0),
         });
-        let config = base_config();
         let parts = long_text::split(text, long_text::PART_TARGET_CHARS);
-        let mut outcomes = Vec::new();
-        for part in &parts {
-            outcomes.push(
-                finish_with_provider(
-                    part.text,
-                    &config,
-                    provider.clone(),
-                    "system",
-                    &wrap_dictation(part.text),
-                    Duration::from_secs(12),
-                    AiStatus::default(),
-                )
-                .await,
-            );
-        }
-        let tidied: Vec<String> = outcomes
-            .iter()
-            .map(|outcome| outcome.text.clone())
-            .collect();
-        let used = outcomes
-            .iter()
-            .filter(|outcome| outcome.status.used)
-            .count();
-        let joined = long_text::join(&parts, &tidied);
+        let outcome = process_in_parts(
+            &parts,
+            &base_config(),
+            provider.clone(),
+            "system",
+            AiStatus::default(),
+        )
+        .await;
         (
-            CallOutcome {
-                text: joined,
-                status: AiStatus {
-                    parts: Some(PartsSummary {
-                        total: parts.len(),
-                        used,
-                    }),
-                    ..AiStatus::default()
-                },
-                late: None,
-            },
+            outcome,
             provider.calls.load(std::sync::atomic::Ordering::SeqCst),
         )
     }
@@ -1283,10 +1272,45 @@ mod tests {
         let (outcome, _) = run_in_parts(&text, "МЕТКА").await;
         let parts = outcome.status.parts.unwrap();
         assert_eq!(parts.used, parts.total - 1);
+        assert!(outcome.status.used && !outcome.status.fallback);
         assert!(outcome
             .text
             .contains("предложение номер 150 про работу МЕТКА."));
         assert!(outcome.text.starts_with("ПРЕДЛОЖЕНИЕ НОМЕР 0"));
+    }
+
+    /// A dictation keeps its overlay-bounded budget: parts still waiting when
+    /// it runs out keep their local text instead of holding the paste.
+    #[tokio::test(start_paused = true)]
+    async fn a_dictation_in_parts_stops_at_its_budget() {
+        let provider = Arc::new(PartsProvider {
+            refuse: "",
+            // Past each part's own budget, so every round takes a full one.
+            delay: Duration::from_secs(400),
+            calls: std::sync::atomic::AtomicUsize::new(0),
+        });
+        let text = (0..6_000)
+            .map(|index| format!("предложение {index}."))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let parts = long_text::split(&text, long_text::PART_TARGET_CHARS);
+        let started = tokio::time::Instant::now();
+        let outcome = process_in_parts(
+            &parts,
+            &base_config(),
+            provider.clone(),
+            "system",
+            AiStatus::default(),
+        )
+        .await;
+        let summary = outcome.status.parts.unwrap();
+        assert_eq!(summary.used, 0);
+        assert!(started.elapsed() <= Duration::from_secs(MAX_ATTEMPT_SECS + 1));
+        assert!(
+            provider.calls.load(std::sync::atomic::Ordering::SeqCst) < summary.total,
+            "parts past the budget must not be sent"
+        );
+        assert_eq!(outcome.text, text);
     }
 
     /// The real entry point goes through the parts path for a long text and
@@ -1297,7 +1321,6 @@ mod tests {
         config.provider = "compatible".to_string();
         // Nothing listens here: every part fails fast and stays local.
         config.base_url = Some("http://127.0.0.1:9".to_string());
-        config.waits_to_paste = false;
         let text = long_text(usize::MAX);
         let outcome = ai_process_text_with_status(&text, &config, Some("sk-test")).await;
         let parts = outcome.status.parts.expect("long text goes through parts");
@@ -1435,11 +1458,20 @@ mod tests {
 
     #[test]
     fn thinking_left_to_the_model_gets_three_times_the_time() {
-        let text = "я".repeat(6_000);
         let mut config = base_config();
-        assert_eq!(attempt_budget(&config, &text), Duration::from_secs(60));
+        let short = "короткая фраза";
+        let long = "я".repeat(6_000);
+        assert_eq!(attempt_budget(&config, short), Duration::from_secs(12));
+        assert_eq!(attempt_budget(&config, &long), Duration::from_secs(60));
         config.reasoning = ReasoningMode::Model;
-        assert_eq!(attempt_budget(&config, &text), Duration::from_secs(180));
+        // A one-line dictation needs the thinking time as much as a long one.
+        assert_eq!(attempt_budget(&config, short), Duration::from_secs(36));
+        assert_eq!(attempt_budget(&config, &long), Duration::from_secs(180));
+        // Still within the cap the overlay's stuck guard is derived from.
+        assert_eq!(
+            attempt_budget(&config, &"я".repeat(28_000)),
+            Duration::from_secs(MAX_ATTEMPT_SECS)
+        );
     }
 
     #[test]

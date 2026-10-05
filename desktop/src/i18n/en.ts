@@ -1232,7 +1232,6 @@ export const en: Record<string, string | string[]> = {
   "выключено": "off",
   "{p0} копия": "{p0} copy",
   "LLM не настроена, вставлен локальный текст": "LLM is not set up, local text pasted",
-  "Текст слишком длинный для LLM, вставлен локальный текст": "Text too long for the LLM, local text inserted",
   "LLM не ответила, вставлен локальный текст": "The LLM did not answer; local text was pasted",
   "Лимит LLM, вставлен локальный текст": "LLM rate limit; local text was pasted",
   "Ошибка LLM, вставлен локальный текст": "LLM error; local text was pasted",

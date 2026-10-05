@@ -272,7 +272,6 @@ impl Provider for AnthropicProvider {
         Box::pin(async move {
             let body = json!({
                 "model": self.model,
-                "temperature": DEFAULT_TEMPERATURE,
                 "system": system_prompt,
                 "messages": [{"role": "user", "content": text}],
             });
@@ -280,7 +279,20 @@ impl Provider for AnthropicProvider {
                 .limit
                 .tokens(text)
                 .unwrap_or(ANTHROPIC_UNLIMITED_TOKENS);
-            let mut fallbacks = vec![Fallback::limit(&["max_tokens"], &["max_tokens"], limit)];
+            let mut fallbacks = vec![
+                Fallback::limit(
+                    &["max_tokens"],
+                    &["max_tokens"],
+                    limit,
+                    self.limit.is_fixed(),
+                ),
+                // A Claude model that thinks takes only the default temperature.
+                Fallback::new(
+                    &["temperature"],
+                    &["temperature"],
+                    vec![json!(DEFAULT_TEMPERATURE)],
+                ),
+            ];
             if self.reasoning == ReasoningMode::Minimal {
                 // Older Claude models think only on request; newer ones think
                 // adaptively unless told not to, and one that must think
@@ -484,6 +496,7 @@ impl Provider for OpenAIProvider {
                     path,
                     &["max_tokens", "max_completion_tokens", "completion tokens"],
                     limit,
+                    self.limit.is_fixed(),
                 ));
             }
             if !(self.openai_api && is_openai_reasoning_model(&self.model)) {
@@ -573,6 +586,7 @@ impl Provider for GeminiProvider {
                     &["generationConfig", "maxOutputTokens"],
                     &["maxoutputtokens", "max_output_tokens"],
                     limit,
+                    self.limit.is_fixed(),
                 ));
             }
             if self.reasoning == ReasoningMode::Minimal {
@@ -624,6 +638,8 @@ pub struct OpenCodeGoProvider {
     model: String,
     base_url: String,
     timeout: Duration,
+    limit: OutputLimit,
+    reasoning: ReasoningMode,
 }
 
 impl OpenCodeGoProvider {
@@ -638,7 +654,16 @@ impl OpenCodeGoProvider {
             model: normalise_model(model.into()),
             base_url: resolve_base_url(base_url.as_deref(), OPENCODE_GO_BASE_URL),
             timeout: timeout.unwrap_or(Duration::from_secs(OPENCODE_GO_TIMEOUT_SECS)),
+            limit: OutputLimit::Auto,
+            reasoning: ReasoningMode::default(),
         }
+    }
+
+    /// Passed on to whichever API the model is routed to.
+    pub fn with_options(mut self, reasoning: ReasoningMode, limit: OutputLimit) -> Self {
+        self.reasoning = reasoning;
+        self.limit = limit;
+        self
     }
 }
 
@@ -671,7 +696,8 @@ impl Provider for OpenCodeGoProvider {
                     // Was a flat 2048 here too; the inner provider now sizes
                     // the budget to the dictation.
                     None,
-                );
+                )
+                .with_options(self.reasoning, self.limit);
                 return inner.complete(system_prompt, text).await;
             }
             if !OPENCODE_GO_CHAT_MODELS.contains(&self.model.as_str()) {
@@ -686,7 +712,8 @@ impl Provider for OpenCodeGoProvider {
                 Some(self.base_url.clone()),
                 Some(self.timeout),
                 None,
-            );
+            )
+            .with_options(self.reasoning, self.limit);
             inner.complete(system_prompt, text).await
         })
     }
