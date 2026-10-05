@@ -839,6 +839,7 @@ export const en: Record<string, string | string[]> = {
   "модель убрала отрицание": "model removed a negation",
   "модель изменила числа": "model changed numbers",
   "модель изменила названия": "model changed names",
+  "модель повторила контекст": "model repeated the context",
   "провайдер не выбран": "no provider selected",
 
   // ── Formatting ─────────────────────────────────────────────────────────
@@ -1026,7 +1027,7 @@ export const en: Record<string, string | string[]> = {
   "Своё значение": "Custom value",
   "Лимит ответа в токенах": "Answer limit in tokens",
   "токенов": "tokens",
-  "Сколько токенов модель может потратить на один ответ вместе с рассуждениями. «Авто» подбирает лимит по длине текста; длинный текст обрабатывается частями. Значение своё у каждого профиля.": "How many tokens the model may spend on one answer, reasoning included. “Auto” sizes the limit to the text; a long text is processed in parts. Each profile has its own value.",
+  "Сколько токенов модель может потратить на один ответ вместе с рассуждениями. «Авто» подбирает лимит по длине текста. Текст, который не помещается в лимит, обрабатывается частями: чем выше лимит, тем крупнее части. Значение своё у каждого профиля.": "How many tokens the model may spend on one answer, reasoning included. “Auto” sizes the limit to the text. A text that does not fit the limit is processed in parts: the higher the limit, the larger the parts. Each profile has its own value.",
   "LLM: частично · {p0} из {p1} частей": "LLM: partial · {p0} of {p1} parts",
   "Если LLM не успела до таймаута, текст уже вставлен без неё. Её ответ может прийти позже, до 5 минут, и заменить текст в истории; в окно он не вставляется. Значение общее для всех профилей.":
     "If the LLM misses the timeout, the text is pasted without it. Its answer may still arrive up to 5 minutes later and replace the text in the history; it is never pasted into the window. Shared by all profiles.",

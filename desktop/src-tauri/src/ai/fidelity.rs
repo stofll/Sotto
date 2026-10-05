@@ -110,6 +110,42 @@ pub fn altered_meaning(input: &str, output: &str) -> Option<Alteration> {
     None
 }
 
+/// Words compared at the start of an answer to spot an echoed context.
+const CONTEXT_PROBE_WORDS: usize = 6;
+
+/// Opening words of a part that must follow a short echo for it to count.
+const PART_ANCHOR_WORDS: usize = 3;
+
+/// True when the answer for a part of a long text opens with words of the
+/// context sent before it rather than with the part: the model tidied text it
+/// was told only to read, and joining it would repeat that text. Either the
+/// answer starts inside the context, or it restates the end of a sentence the
+/// cut broke — «мы решили» before a part that starts «перенести релиз».
+pub fn repeats_context(context: &str, input: &str, output: &str) -> bool {
+    let output = word_tokens(output);
+    let input = word_tokens(input);
+    let context = word_tokens(context);
+    let starts_with =
+        |words: &[String], prefix: &[String]| words.get(..prefix.len()) == Some(prefix);
+    if let Some(probe) = output.get(..CONTEXT_PROBE_WORDS) {
+        if !starts_with(&input, probe)
+            && context
+                .windows(CONTEXT_PROBE_WORDS)
+                .any(|window| window == probe)
+        {
+            return true;
+        }
+    }
+    let anchor = &input[..input.len().min(PART_ANCHOR_WORDS)];
+    !anchor.is_empty()
+        && (1..=CONTEXT_PROBE_WORDS.min(context.len())).any(|echo| {
+            let restated = &context[context.len() - echo..];
+            starts_with(&output, restated)
+                && !starts_with(&input, restated)
+                && starts_with(&output[echo..], anchor)
+        })
+}
+
 /// Lowercased word tokens with apostrophes kept, so `don't` stays one token.
 fn word_tokens(text: &str) -> Vec<String> {
     text.split(|c: char| !(c.is_alphanumeric() || c == '\'' || c == '’'))
@@ -443,5 +479,43 @@ mod tests {
             ),
             None
         );
+    }
+
+    const CONTEXT: &str = "Вчера мы обсудили релиз и решили перенести его на пятницу.";
+    const PART: &str = "потом надо обновить документацию и проверить установщик на маке";
+
+    #[test]
+    fn an_answer_that_opens_with_the_context_is_caught() {
+        let echoed = format!(
+            "Мы обсудили релиз и решили перенести его на пятницу. {}",
+            "Потом надо обновить документацию и проверить установщик на маке."
+        );
+        assert!(repeats_context(CONTEXT, PART, &echoed));
+    }
+
+    /// A cut inside a sentence: the model restates its start before the part.
+    #[test]
+    fn a_restated_sentence_start_is_caught() {
+        let context = "и потом мы решили";
+        let part = "перенести релиз на пятницу и обновить документацию";
+        let restated = "Мы решили перенести релиз на пятницу и обновить документацию.";
+        assert!(repeats_context(context, part, restated));
+        let tidied = "Перенести релиз на пятницу и обновить документацию.";
+        assert!(!repeats_context(context, part, tidied));
+    }
+
+    #[test]
+    fn a_tidied_part_is_not_an_echo() {
+        let tidied = "Потом надо обновить документацию и проверить установщик на маке.";
+        assert!(!repeats_context(CONTEXT, PART, tidied));
+    }
+
+    /// A part that itself starts by repeating the words before it, as speech
+    /// does, keeps its tidy-up.
+    #[test]
+    fn a_part_that_repeats_its_context_itself_is_kept() {
+        let part = "решили перенести его на пятницу да и потом надо обновить документацию";
+        let tidied = "Решили перенести его на пятницу, да. И потом надо обновить документацию.";
+        assert!(!repeats_context(CONTEXT, part, tidied));
     }
 }

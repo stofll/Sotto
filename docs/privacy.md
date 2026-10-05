@@ -39,7 +39,7 @@ Review provider settings before enabling a cloud workflow. Do not put secrets, t
 
 ## LLM prompts
 
-The System prompt field on the AI page contains all instructions Sotto sends to the selected LLM profile. You can edit every rule; Sotto does not append mandatory instructions. The source text is sent separately inside a `<dictation>` block. The built-in presets use English instructions and preserve the language of each source passage, including mixed-language text.
+The System prompt field on the AI page contains all instructions Sotto sends to the selected LLM profile. You can edit every rule; Sotto does not append mandatory instructions. The source text is sent separately inside a `<dictation>` block; when a long text is processed in parts, each part after the first is preceded by the end of the previous part in a `<preceding_text>` block marked as context only. The built-in presets use English instructions and preserve the language of each source passage, including mixed-language text.
 
 Save your prompt before testing it. Saved custom prompts survive updates unchanged; **Restore the built-in** replaces a custom prompt with the current preset and resumes receiving preset updates. The paragraph and list presets are starting points, and all their rules remain editable.
 

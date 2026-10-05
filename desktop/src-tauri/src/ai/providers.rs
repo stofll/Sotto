@@ -37,7 +37,7 @@ pub const MAX_COMPLETION_TOKENS: u32 = 16_384;
 /// Cyrillic costs roughly two characters per token in o200k-class vocabularies
 /// and Latin rather less, so this over-estimates for English — the safe
 /// direction for both the budget and the limit below.
-const CHARS_PER_TOKEN: usize = 2;
+pub const CHARS_PER_TOKEN: usize = 2;
 /// Estimated tokens in the tidied answer, which is about as long as `text`.
 pub fn answer_tokens(text: &str) -> u32 {
     u32::try_from(text.chars().count().div_ceil(CHARS_PER_TOKEN)).unwrap_or(u32::MAX)
