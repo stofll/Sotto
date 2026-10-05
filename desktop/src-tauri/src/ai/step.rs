@@ -21,10 +21,12 @@ use std::time::Duration;
 
 use serde::Serialize;
 
-use super::fidelity::{dropped_too_much, kept_word_ratio};
+use super::fidelity::{altered_meaning, dropped_too_much, kept_word_ratio};
+use super::long_text;
+use super::model_params::{OutputLimit, ReasoningMode};
 use super::providers::{
     answer_tokens, AnthropicProvider, GeminiProvider, OpenAIProvider, OpenCodeGoProvider, Provider,
-    ProviderError, ProviderErrorType, MAX_INPUT_CHARS,
+    ProviderError, ProviderErrorType,
 };
 #[cfg(test)]
 use super::providers::{CompletionFuture, ProviderInfo};
@@ -85,6 +87,16 @@ pub struct AiStatus {
     /// written into the history entry afterwards.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub late: bool,
+    /// A long text tidied in parts: how many there were and how many came
+    /// back from the model. `used` is true when at least one did.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parts: Option<PartsSummary>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct PartsSummary {
+    pub total: usize,
+    pub used: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -112,6 +124,12 @@ pub struct AiConfig {
     pub llm_min_duration_seconds: f64,
     pub llm_timeout_seconds: u64,
     pub late_answer: LateAnswerMode,
+    pub reasoning: ReasoningMode,
+    pub output_limit: OutputLimit,
+    /// A file transcription, which can be cancelled from its panel and has
+    /// no overlay waiting on it: a long text in parts may take up to
+    /// [`FILE_PARTS_MAX_SECS`]. Everything else keeps the dictation's budget.
+    pub may_run_long: bool,
 }
 
 /// What happens to an answer that arrives after the timeout, when the local
@@ -194,6 +212,11 @@ impl AiConfig {
             late_answer: LateAnswerMode::parse(
                 v.get("llm_late_answer").and_then(serde_json::Value::as_str),
             ),
+            reasoning: ReasoningMode::parse(
+                v.get("llm_reasoning").and_then(serde_json::Value::as_str),
+            ),
+            output_limit: OutputLimit::parse(v.get("llm_output_limit")),
+            may_run_long: false,
         }
     }
 }
@@ -319,7 +342,7 @@ pub async fn ai_process_text_with_status(
         fallback: false,
         skipped_reason: String::new(),
         timeout_seconds: config.llm_timeout_seconds,
-        attempt_timeout_seconds: attempt_timeout(config.llm_timeout_seconds, text).as_secs(),
+        attempt_timeout_seconds: attempt_budget(config, text).as_secs(),
         attempts: 0,
         elapsed_seconds: 0.0,
         usage: None,
@@ -330,6 +353,7 @@ pub async fn ai_process_text_with_status(
         output_length: None,
         provider_attempts: Vec::new(),
         late: false,
+        parts: None,
     };
 
     if config.pipeline_mode == "local" {
@@ -344,11 +368,6 @@ pub async fn ai_process_text_with_status(
     ) {
         return skipped(text, status, "duration_below_threshold");
     }
-    // The answer could not fit in the completion budget, so the request would
-    // only delay the paste and cost tokens before falling back anyway.
-    if text.chars().count() > MAX_INPUT_CHARS {
-        return skipped(text, status, "text_too_long");
-    }
     if api_key.map(str::is_empty).unwrap_or(true) {
         return skipped(text, status, "missing_api_key");
     }
@@ -362,11 +381,25 @@ pub async fn ai_process_text_with_status(
     if rendered_system.trim().is_empty() {
         return skipped(text, status, "missing_system_prompt");
     }
+    if text.chars().count() > long_text::SPLIT_ABOVE_CHARS {
+        let parts = long_text::split(text, long_text::PART_TARGET_CHARS);
+        let longest = parts
+            .iter()
+            .map(|part| part.text)
+            .max_by_key(|part| part.len())
+            .unwrap_or_default();
+        let provider: Arc<dyn Provider> = Arc::from(build_provider(
+            config,
+            api_key,
+            attempt_budget(config, longest),
+        ));
+        return process_in_parts(&parts, config, provider, &rendered_system, status).await;
+    }
     let user_message = wrap_dictation(text);
 
     // The HTTP client gives up on its own clock: kept to the attempt budget, it
     // would cut off the very request a late answer waits for.
-    let budget = attempt_timeout(config.llm_timeout_seconds, text);
+    let budget = attempt_budget(config, text);
     let http_timeout = match config.late_answer {
         LateAnswerMode::Off => budget,
         _ => budget + LATE_ANSWER_GRACE,
@@ -378,6 +411,155 @@ pub async fn ai_process_text_with_status(
         provider,
         &rendered_system,
         &user_message,
+        budget,
+        status,
+    )
+    .await
+}
+
+/// Parts tidied at once. Enough to finish a long file in a fraction of the
+/// time one at a time would take, few enough not to trip a provider's rate
+/// limit on an ordinary plan.
+const PARTS_IN_FLIGHT: usize = 3;
+
+/// How long a file transcription may wait for its parts in total. Nobody is
+/// waiting to paste and the panel can cancel it, so an hour-long recording
+/// gets the time it needs.
+const FILE_PARTS_MAX_SECS: u64 = 30 * 60;
+
+/// Tidy a long text in parts and join them back. Each part is judged on its
+/// own, so one that fails or changes the meaning keeps its local text while
+/// the others keep their tidy-up. A dictation keeps its usual total budget —
+/// the overlay waits on it — and a part not done by then stays local.
+async fn process_in_parts(
+    parts: &[long_text::Part<'_>],
+    config: &AiConfig,
+    provider: Arc<dyn Provider>,
+    rendered_system: &str,
+    mut status: AiStatus,
+) -> CallOutcome {
+    use futures_util::StreamExt;
+
+    let text = long_text::join(
+        parts,
+        &parts
+            .iter()
+            .map(|part| part.text.to_string())
+            .collect::<Vec<_>>(),
+    );
+    let started = tokio::time::Instant::now();
+    let total = if config.may_run_long {
+        Duration::from_secs(FILE_PARTS_MAX_SECS)
+    } else {
+        attempt_budget(config, &text)
+    };
+    let deadline = started + total;
+    // A part's answer is never late: past the deadline its local text stands.
+    let part_config = AiConfig {
+        late_answer: LateAnswerMode::Off,
+        ..config.clone()
+    };
+    // Boxed one by one: futures built in an iterator closure lose the proof
+    // that they are `Send`, which the dictation's spawned task needs.
+    let mut jobs: Vec<
+        std::pin::Pin<Box<dyn std::future::Future<Output = CallOutcome> + Send + '_>>,
+    > = Vec::with_capacity(parts.len());
+    for part in parts {
+        jobs.push(Box::pin(tidy_part(
+            part.text,
+            &part_config,
+            Arc::clone(&provider),
+            rendered_system,
+            deadline,
+            &status,
+        )));
+    }
+    let outcomes: Vec<CallOutcome> = futures_util::stream::iter(jobs)
+        .buffered(PARTS_IN_FLIGHT)
+        .collect()
+        .await;
+
+    let used = outcomes
+        .iter()
+        .filter(|outcome| outcome.status.used)
+        .count();
+    let tidied: Vec<String> = outcomes
+        .iter()
+        .map(|outcome| outcome.text.clone())
+        .collect();
+    let joined = long_text::join(parts, &tidied);
+
+    status.attempted = true;
+    status.used = used > 0;
+    status.fallback = used == 0;
+    status.parts = Some(PartsSummary {
+        total: parts.len(),
+        used,
+    });
+    status.elapsed_seconds = started.elapsed().as_secs_f64();
+    status.attempt_timeout_seconds = total.as_secs();
+    status.attempts = outcomes.iter().map(|outcome| outcome.status.attempts).sum();
+    status.provider_attempts = outcomes
+        .iter()
+        .flat_map(|outcome| outcome.status.provider_attempts.iter().cloned())
+        .collect();
+    status.usage = outcomes
+        .iter()
+        .filter_map(|outcome| outcome.status.usage.as_ref())
+        .fold(None, |sum: Option<super::providers::UsageInfo>, usage| {
+            let mut sum = sum.unwrap_or_default();
+            sum.input_tokens += usage.input_tokens;
+            sum.output_tokens += usage.output_tokens;
+            sum.total_tokens += usage.total_tokens;
+            Some(sum)
+        });
+    // With no part tidied, the history names the first part's failure.
+    if let Some(failed) = outcomes.iter().find(|outcome| !outcome.status.used) {
+        if used == 0 {
+            status.skipped_reason = failed.status.skipped_reason.clone();
+            status.error_type = failed.status.error_type.clone();
+            status.provider_error = failed.status.provider_error.clone();
+            status.http_status = failed.status.http_status;
+            status.response_snippet = failed.status.response_snippet.clone();
+        }
+    }
+    status.output_length = Some(joined.chars().count());
+    CallOutcome {
+        text: joined,
+        status,
+        late: None,
+    }
+}
+
+/// One part of a long text, within what is left of the shared `deadline`.
+async fn tidy_part(
+    text: &str,
+    config: &AiConfig,
+    provider: Arc<dyn Provider>,
+    rendered_system: &str,
+    deadline: tokio::time::Instant,
+    base: &AiStatus,
+) -> CallOutcome {
+    let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+    let budget = attempt_budget(config, text).min(remaining);
+    let status = AiStatus {
+        provider_attempts: Vec::new(),
+        ..base.clone()
+    };
+    if budget.is_zero() {
+        let mut outcome = skipped(text, status, "provider_timeout");
+        outcome.status.attempted = true;
+        outcome.status.fallback = true;
+        outcome.status.error_type = Some("timeout".to_string());
+        return outcome;
+    }
+    finish_with_provider(
+        text,
+        config,
+        provider,
+        rendered_system,
+        &wrap_dictation(text),
+        budget,
         status,
     )
     .await
@@ -392,10 +574,10 @@ async fn finish_with_provider(
     provider: Arc<dyn Provider>,
     rendered_system: &str,
     user_message: &str,
+    budget: Duration,
     mut status: AiStatus,
 ) -> CallOutcome {
     status.attempted = true;
-    let budget = attempt_timeout(config.llm_timeout_seconds, text);
     let (result, info) = call_provider_with_retry(
         provider,
         rendered_system,
@@ -495,6 +677,25 @@ fn judge_answer(
         status.fallback = true;
         status.error_type = Some("summarised_response".to_string());
         status.skipped_reason = "model_dropped_text".to_string();
+        status.output_length = Some(cleaned.chars().count());
+        return CallOutcome {
+            text: text.to_string(),
+            status,
+            late: None,
+        };
+    }
+    // Same length, different meaning: a lost «never», a renumbered list, a
+    // product name «corrected» into another one.
+    if let Some(alteration) = altered_meaning(text, &cleaned) {
+        log::warn!(
+            "Provider {}/{} changed the dictation's meaning ({}); falling back to the local transcript",
+            config.provider,
+            config.model,
+            alteration.reason()
+        );
+        status.fallback = true;
+        status.error_type = Some("altered_response".to_string());
+        status.skipped_reason = alteration.reason().to_string();
         status.output_length = Some(cleaned.chars().count());
         return CallOutcome {
             text: text.to_string(),
@@ -638,48 +839,43 @@ fn attempt_timeout(configured: u64, text: &str) -> Duration {
     Duration::from_secs(configured.max(needed).clamp(1, MAX_ATTEMPT_SECS))
 }
 
+/// [`attempt_timeout`] for `config`. Thinking left to the model takes time
+/// before the first word of the answer — on a one-line dictation as much as
+/// on a long one — so such a profile gets three times the whole budget,
+/// within the cap the overlay's stuck guard is derived from.
+fn attempt_budget(config: &AiConfig, text: &str) -> Duration {
+    let budget = attempt_timeout(config.llm_timeout_seconds, text);
+    match config.reasoning {
+        ReasoningMode::Minimal => budget,
+        ReasoningMode::Model => (budget * 3).min(Duration::from_secs(MAX_ATTEMPT_SECS)),
+    }
+}
+
 fn build_provider(config: &AiConfig, api_key: &str, timeout: Duration) -> Box<dyn Provider> {
-    let base_url = config.base_url.as_deref();
+    let base_url = config.base_url.as_deref().map(str::to_string);
+    let (key, model) = (api_key.to_string(), config.model.clone());
+    let (reasoning, limit) = (config.reasoning, config.output_limit);
     match config.provider.as_str() {
-        "anthropic" => Box::new(AnthropicProvider::new(
-            api_key.to_string(),
-            config.model.clone(),
-            base_url.map(str::to_string),
-            Some(timeout),
-            None,
-        )),
-        "openai" => Box::new(OpenAIProvider::new(
-            api_key.to_string(),
-            config.model.clone(),
-            base_url.map(str::to_string),
-            Some(timeout),
-            None,
-        )),
-        "compatible" => Box::new(OpenAIProvider::new(
-            api_key.to_string(),
-            config.model.clone(),
-            base_url.map(str::to_string),
-            Some(timeout),
-            None,
-        )),
-        "opencode-go" => Box::new(OpenCodeGoProvider::new(
-            api_key.to_string(),
-            config.model.clone(),
-            base_url.map(str::to_string),
-            Some(timeout),
-        )),
-        "gemini" => Box::new(GeminiProvider::new(
-            api_key.to_string(),
-            config.model.clone(),
-            Some(timeout),
-        )),
-        _ => Box::new(AnthropicProvider::new(
-            api_key.to_string(),
-            config.model.clone(),
-            base_url.map(str::to_string),
-            Some(timeout),
-            None,
-        )),
+        "openai" => Box::new(
+            OpenAIProvider::new(key, model, base_url, Some(timeout), None)
+                .for_openai_api()
+                .with_options(reasoning, limit),
+        ),
+        "compatible" => Box::new(
+            OpenAIProvider::new(key, model, base_url, Some(timeout), None)
+                .with_options(reasoning, limit),
+        ),
+        "opencode-go" => Box::new(
+            OpenCodeGoProvider::new(key, model, base_url, Some(timeout))
+                .with_options(reasoning, limit),
+        ),
+        "gemini" => {
+            Box::new(GeminiProvider::new(key, model, Some(timeout)).with_options(reasoning, limit))
+        }
+        _ => Box::new(
+            AnthropicProvider::new(key, model, base_url, Some(timeout), None)
+                .with_options(reasoning, limit),
+        ),
     }
 }
 
@@ -832,6 +1028,9 @@ mod tests {
             llm_min_duration_seconds: 30.0,
             llm_timeout_seconds: 12,
             late_answer: LateAnswerMode::Notify,
+            reasoning: ReasoningMode::Minimal,
+            output_limit: OutputLimit::Auto,
+            may_run_long: false,
         }
     }
 
@@ -981,20 +1180,153 @@ mod tests {
         }
     }
 
-    #[test]
-    fn text_past_the_completion_budget_skips_ai() {
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-        let text = "я".repeat(MAX_INPUT_CHARS + 1);
-        let outcome = runtime.block_on(ai_process_text_with_status(
-            &text,
+    /// Plays a model that tidies by capitalising, and refuses any part that
+    /// contains `refuse` with a server error.
+    struct PartsProvider {
+        refuse: &'static str,
+        /// How long each answer takes, on tokio's clock.
+        delay: Duration,
+        calls: std::sync::atomic::AtomicUsize,
+    }
+
+    impl Provider for PartsProvider {
+        fn name(&self) -> &'static str {
+            "parts"
+        }
+
+        fn complete<'a>(&'a self, _system_prompt: &'a str, text: &'a str) -> CompletionFuture<'a> {
+            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let body = text
+                .trim_start_matches("<dictation>\n")
+                .trim_end_matches("\n</dictation>")
+                .to_string();
+            let refuse = !self.refuse.is_empty() && body.contains(self.refuse);
+            let delay = self.delay;
+            Box::pin(async move {
+                tokio::time::sleep(delay).await;
+                if refuse {
+                    Err(ProviderError::new(
+                        ProviderErrorType::BadResponse,
+                        "refused",
+                    ))
+                } else {
+                    Ok((body.to_uppercase(), ProviderInfo::success("ok", None, 0.1)))
+                }
+            })
+        }
+    }
+
+    fn long_text(marker_at: usize) -> String {
+        (0..300)
+            .map(|index| {
+                let marker = if index == marker_at {
+                    " МЕТКА"
+                } else {
+                    ""
+                };
+                format!("предложение номер {index} про работу{marker}.")
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    async fn run_in_parts(text: &str, refuse: &'static str) -> (CallOutcome, usize) {
+        let provider = Arc::new(PartsProvider {
+            refuse,
+            delay: Duration::ZERO,
+            calls: std::sync::atomic::AtomicUsize::new(0),
+        });
+        let parts = long_text::split(text, long_text::PART_TARGET_CHARS);
+        let outcome = process_in_parts(
+            &parts,
             &base_config(),
-            Some("sk-test"),
-        ));
-        assert!(!outcome.status.attempted);
-        assert_eq!(outcome.status.skipped_reason, "text_too_long");
+            provider.clone(),
+            "system",
+            AiStatus::default(),
+        )
+        .await;
+        (
+            outcome,
+            provider.calls.load(std::sync::atomic::Ordering::SeqCst),
+        )
+    }
+
+    /// Past the old 28k-character limit the text is tidied, not skipped:
+    /// every part comes back and the parts join into one text.
+    #[tokio::test]
+    async fn a_long_text_is_tidied_in_parts() {
+        let text = long_text(usize::MAX);
+        assert!(text.chars().count() > long_text::SPLIT_ABOVE_CHARS);
+        let (outcome, calls) = run_in_parts(&text, "").await;
+        let parts = outcome.status.parts.unwrap();
+        assert!(parts.total > 2);
+        assert_eq!(parts.used, parts.total);
+        assert_eq!(calls, parts.total);
+        assert_eq!(outcome.text, text.to_uppercase());
+    }
+
+    /// A part the model fails keeps its local text; the rest keep theirs.
+    #[tokio::test]
+    async fn a_failed_part_keeps_its_local_text() {
+        let text = long_text(150);
+        let (outcome, _) = run_in_parts(&text, "МЕТКА").await;
+        let parts = outcome.status.parts.unwrap();
+        assert_eq!(parts.used, parts.total - 1);
+        assert!(outcome.status.used && !outcome.status.fallback);
+        assert!(outcome
+            .text
+            .contains("предложение номер 150 про работу МЕТКА."));
+        assert!(outcome.text.starts_with("ПРЕДЛОЖЕНИЕ НОМЕР 0"));
+    }
+
+    /// A dictation keeps its overlay-bounded budget: parts still waiting when
+    /// it runs out keep their local text instead of holding the paste.
+    #[tokio::test(start_paused = true)]
+    async fn a_dictation_in_parts_stops_at_its_budget() {
+        let provider = Arc::new(PartsProvider {
+            refuse: "",
+            // Past each part's own budget, so every round takes a full one.
+            delay: Duration::from_secs(400),
+            calls: std::sync::atomic::AtomicUsize::new(0),
+        });
+        let text = (0..6_000)
+            .map(|index| format!("предложение {index}."))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let parts = long_text::split(&text, long_text::PART_TARGET_CHARS);
+        let started = tokio::time::Instant::now();
+        let outcome = process_in_parts(
+            &parts,
+            &base_config(),
+            provider.clone(),
+            "system",
+            AiStatus::default(),
+        )
+        .await;
+        let summary = outcome.status.parts.unwrap();
+        assert_eq!(summary.used, 0);
+        assert!(started.elapsed() <= Duration::from_secs(MAX_ATTEMPT_SECS + 1));
+        assert!(
+            provider.calls.load(std::sync::atomic::Ordering::SeqCst) < summary.total,
+            "parts past the budget must not be sent"
+        );
+        assert_eq!(outcome.text, text);
+    }
+
+    /// The real entry point goes through the parts path for a long text and
+    /// reports it, however the provider answers.
+    #[tokio::test]
+    async fn the_entry_point_splits_a_long_text() {
+        let mut config = base_config();
+        config.provider = "compatible".to_string();
+        // Nothing listens here: every part fails fast and stays local.
+        config.base_url = Some("http://127.0.0.1:9".to_string());
+        let text = long_text(usize::MAX);
+        let outcome = ai_process_text_with_status(&text, &config, Some("sk-test")).await;
+        let parts = outcome.status.parts.expect("long text goes through parts");
+        assert!(parts.total > 2);
+        assert_eq!(parts.used, 0);
+        assert!(outcome.status.fallback);
         assert_eq!(outcome.text, text);
     }
 
@@ -1120,8 +1452,26 @@ mod tests {
         let long = "я".repeat(15_000);
         assert_eq!(attempt_timeout(12, &long), Duration::from_secs(150));
         assert_eq!(attempt_timeout(200, &long), Duration::from_secs(200));
-        let longest = "я".repeat(MAX_INPUT_CHARS);
-        assert_eq!(attempt_timeout(12, &longest), Duration::from_secs(287));
+        let longest = "я".repeat(28_000);
+        assert_eq!(attempt_timeout(12, &longest), Duration::from_secs(280));
+    }
+
+    #[test]
+    fn thinking_left_to_the_model_gets_three_times_the_time() {
+        let mut config = base_config();
+        let short = "короткая фраза";
+        let long = "я".repeat(6_000);
+        assert_eq!(attempt_budget(&config, short), Duration::from_secs(12));
+        assert_eq!(attempt_budget(&config, &long), Duration::from_secs(60));
+        config.reasoning = ReasoningMode::Model;
+        // A one-line dictation needs the thinking time as much as a long one.
+        assert_eq!(attempt_budget(&config, short), Duration::from_secs(36));
+        assert_eq!(attempt_budget(&config, &long), Duration::from_secs(180));
+        // Still within the cap the overlay's stuck guard is derived from.
+        assert_eq!(
+            attempt_budget(&config, &"я".repeat(28_000)),
+            Duration::from_secs(MAX_ATTEMPT_SECS)
+        );
     }
 
     #[test]
@@ -1373,6 +1723,7 @@ mod tests {
             provider.clone(),
             "system",
             "user",
+            Duration::from_secs(12),
             AiStatus::default(),
         )
         .await;
@@ -1404,6 +1755,7 @@ mod tests {
             provider.clone(),
             "system",
             "user",
+            Duration::from_secs(12),
             AiStatus::default(),
         )
         .await;
@@ -1412,6 +1764,38 @@ mod tests {
         assert!(outcome.status.used);
         assert!(outcome.status.error_type.is_none());
         assert!(outcome.status.skipped_reason.is_empty());
+    }
+
+    /// A short answer without its «never» is too short for the word ratio to
+    /// judge; the paste must still stay the dictation.
+    #[tokio::test]
+    async fn an_answer_without_the_negation_falls_back_to_the_dictation() {
+        let input = "I'd prefer to never merge this";
+        let provider = Arc::new(MockProvider {
+            outcomes: std::sync::Mutex::new(vec![Ok((
+                "I'd prefer to merge this.".to_string(),
+                ProviderInfo::success("ignored", None, 0.1),
+            ))]),
+            calls: std::sync::atomic::AtomicUsize::new(0),
+        });
+        let outcome = finish_with_provider(
+            input,
+            &base_config(),
+            provider.clone(),
+            "system",
+            "user",
+            Duration::from_secs(12),
+            AiStatus::default(),
+        )
+        .await;
+        assert_eq!(outcome.text, input);
+        assert!(outcome.status.fallback);
+        assert!(!outcome.status.used);
+        assert_eq!(
+            outcome.status.error_type.as_deref(),
+            Some("altered_response")
+        );
+        assert_eq!(outcome.status.skipped_reason, "model_dropped_negation");
     }
     struct SlowProvider;
     impl Provider for SlowProvider {
@@ -1449,6 +1833,7 @@ mod tests {
             Arc::new(SixSecondProvider),
             "system",
             &input,
+            Duration::from_secs(12),
             AiStatus::default(),
         )
         .await;
@@ -1521,6 +1906,7 @@ mod tests {
             Arc::new(DelayedEcho(20)),
             "system",
             &input,
+            Duration::from_secs(12),
             AiStatus::default(),
         )
         .await;
@@ -1550,6 +1936,7 @@ mod tests {
             Arc::new(DelayedEcho(12 + LATE_ANSWER_GRACE.as_secs() + 10)),
             "system",
             &input,
+            Duration::from_secs(12),
             AiStatus::default(),
         )
         .await;
@@ -1572,6 +1959,7 @@ mod tests {
             Arc::new(DelayedEcho(20)),
             "system",
             &input,
+            Duration::from_secs(12),
             AiStatus::default(),
         )
         .await;

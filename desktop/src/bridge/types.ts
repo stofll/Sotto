@@ -1,5 +1,9 @@
 /** What happens to an LLM answer that misses the timeout (`llm_late_answer`). */
 export type LateAnswerMode = "notify" | "silent" | "off";
+/** How much a reasoning model may think; see `ReasoningMode` in ai/model_params.rs. */
+export type ReasoningMode = "minimal" | "model";
+/** The cap on one LLM answer; see `OutputLimit` in ai/model_params.rs. */
+export type OutputLimit = "auto" | "unlimited" | number;
 
 export interface ReleaseNotes {
   version: string;
@@ -164,6 +168,8 @@ export interface ConfigResult {
     spend_limit_usd: number;
     llm_min_duration_seconds?: number;
     llm_timeout_seconds?: number;
+    llm_reasoning?: ReasoningMode;
+    llm_output_limit?: OutputLimit;
     /** What to do with an answer that misses the timeout; see `LateAnswerMode` in ai/step.rs. */
     llm_late_answer?: LateAnswerMode;
     cloud_stt_timeout_seconds?: number;
@@ -181,6 +187,8 @@ export interface ConfigResult {
       base_url?: string;
       llm_min_duration_seconds?: number;
       llm_timeout_seconds?: number;
+      llm_reasoning?: ReasoningMode;
+      llm_output_limit?: OutputLimit;
     }>;
     /**
      * Key slots not bound to any profile — what the «Добавить ключ» button
@@ -376,6 +384,8 @@ export interface HistoryEntry {
     used?: boolean;
     /** The answer arrived after the paste and was stored afterwards. */
     late?: boolean;
+    /** A long text tidied in parts: how many, and how many the model returned. */
+    parts?: { total: number; used: number };
     fallback?: boolean;
     skipped_reason?: string;
     error_type?: string;

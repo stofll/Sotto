@@ -12,6 +12,8 @@
 //! takes plain `&str` keys, the caller (dispatcher) looks them up.
 
 pub mod fidelity;
+pub mod long_text;
+pub mod model_params;
 pub mod models;
 pub mod providers;
 pub mod reasoning;
@@ -24,6 +26,13 @@ pub use providers::{
 pub use step::{ai_process_text, ai_process_text_with_status, AiStatus};
 
 use tauri::AppHandle;
+
+/// A profile's `llm_reasoning` and `llm_output_limit`, as the prompt
+/// commands receive them.
+struct ProfileOptions {
+    reasoning: Option<String>,
+    output_limit: Option<serde_json::Value>,
+}
 
 /// Shared core for the two explicit-LLM commands (`test_ai_prompt`,
 /// `process_text_ai`). Both run the SAME orchestrator the live
@@ -45,6 +54,7 @@ async fn run_ai_prompt(
     system_prompt: Option<String>,
     profile_id: Option<String>,
     profile_name: Option<String>,
+    options: ProfileOptions,
     language: String,
     text: &str,
 ) -> Result<serde_json::Value, String> {
@@ -70,6 +80,11 @@ async fn run_ai_prompt(
         llm_timeout_seconds: 30,
         // The text page shows its result in place and waits for it there.
         late_answer: step::LateAnswerMode::Off,
+        reasoning: model_params::ReasoningMode::parse(options.reasoning.as_deref()),
+        output_limit: model_params::OutputLimit::parse(options.output_limit.as_ref()),
+        // The text page cannot cancel, so a long paste keeps the dictation's
+        // budget; parts not done by then stay as pasted.
+        may_run_long: false,
     };
     let api_key = if api_key_ref.is_empty() {
         None
@@ -130,6 +145,8 @@ pub(crate) async fn test_ai_prompt(
     profile_id: Option<String>,
     profile_name: Option<String>,
     text: Option<String>,
+    llm_reasoning: Option<String>,
+    llm_output_limit: Option<serde_json::Value>,
 ) -> Result<serde_json::Value, String> {
     use tauri::Manager;
     app.state::<crate::telemetry::Telemetry>()
@@ -148,6 +165,10 @@ pub(crate) async fn test_ai_prompt(
         system_prompt,
         profile_id,
         profile_name,
+        ProfileOptions {
+            reasoning: llm_reasoning,
+            output_limit: llm_output_limit,
+        },
         crate::speech_language(crate::config::Config::load(&app).ok().as_ref()),
         &sample,
     )
@@ -168,6 +189,8 @@ pub(crate) async fn process_text_ai(
     system_prompt: Option<String>,
     profile_id: Option<String>,
     profile_name: Option<String>,
+    llm_reasoning: Option<String>,
+    llm_output_limit: Option<serde_json::Value>,
 ) -> Result<serde_json::Value, String> {
     use tauri::Manager;
     app.state::<crate::telemetry::Telemetry>()
@@ -185,6 +208,10 @@ pub(crate) async fn process_text_ai(
         system_prompt,
         profile_id,
         profile_name,
+        ProfileOptions {
+            reasoning: llm_reasoning,
+            output_limit: llm_output_limit,
+        },
         crate::speech_language(crate::config::Config::load(&app).ok().as_ref()),
         &text,
     )

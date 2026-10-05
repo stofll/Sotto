@@ -58,6 +58,155 @@ pub fn dropped_too_much(input: &str, output: &str) -> bool {
     kept_word_ratio(input, output).is_some_and(|ratio| ratio < MIN_KEPT_WORD_RATIO)
 }
 
+/// A change that reads better and says something else.
+///
+/// The word ratio cannot see these: dropping one «never» from a ten-word
+/// prompt, or renumbering a list that started at 5, leaves the length intact
+/// and inverts what the user asked for. The checks tolerate stutters, changes
+/// of form and number formatting, but they compare words, not meaning: an
+/// abandoned false start or a spoken self-correction that removes a negation
+/// or a number also trips them. A false alarm costs only the punctuation the
+/// local transcript lacks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Alteration {
+    /// Fewer negations came back than were dictated.
+    Negation,
+    /// A number, amount or list number from the dictation is missing.
+    Numbers,
+    /// A Latin-script name or term inside Russian text was changed.
+    Terms,
+}
+
+impl Alteration {
+    /// The `skipped_reason` code the history and its labels use.
+    pub fn reason(self) -> &'static str {
+        match self {
+            Self::Negation => "model_dropped_negation",
+            Self::Numbers => "model_changed_numbers",
+            Self::Terms => "model_changed_terms",
+        }
+    }
+}
+
+/// The first meaning-changing edit found in `output`, if any. Unlike the word
+/// ratio this applies at any length: a short prompt is where one lost «not»
+/// matters most.
+pub fn altered_meaning(input: &str, output: &str) -> Option<Alteration> {
+    if negation_count(output) < negation_count(input) {
+        return Some(Alteration::Negation);
+    }
+    if !digits_survive(input, output) {
+        return Some(Alteration::Numbers);
+    }
+    if mostly_cyrillic(input) {
+        let kept_terms = latin_terms(output);
+        if latin_terms(input)
+            .iter()
+            .any(|term| !kept_terms.contains(term))
+        {
+            return Some(Alteration::Terms);
+        }
+    }
+    None
+}
+
+/// Lowercased word tokens with apostrophes kept, so `don't` stays one token.
+fn word_tokens(text: &str) -> Vec<String> {
+    text.split(|c: char| !(c.is_alphanumeric() || c == '\'' || c == '’'))
+        .map(|token| {
+            token
+                .trim_matches(['\'', '’'])
+                .replace('’', "'")
+                .to_lowercase()
+        })
+        .filter(|token| !token.is_empty())
+        .collect()
+}
+
+// Speech language: the words compared, not UI text.
+const RUSSIAN_NEGATIONS: &[&str] = &["не", "нет", "ни", "никогда", "нельзя"];
+const ENGLISH_NEGATIONS: &[&str] = &["not", "no", "never", "cannot", "nothing", "nobody", "none"];
+
+/// Negations, counting `n't` contractions. A negation that repeats one of
+/// the two words before it is a stutter the prompt lets the model remove —
+/// «не не надо», «не ну не надо» — and counts once; «не хочу и не буду»
+/// keeps both.
+fn negation_count(text: &str) -> usize {
+    let tokens = word_tokens(text);
+    let is_negation = |token: &str| {
+        RUSSIAN_NEGATIONS.contains(&token)
+            || ENGLISH_NEGATIONS.contains(&token)
+            || token.ends_with("n't")
+    };
+    tokens
+        .iter()
+        .enumerate()
+        .filter(|(index, token)| {
+            is_negation(token) && !tokens[index.saturating_sub(2)..*index].contains(token)
+        })
+        .count()
+}
+
+/// Maximal runs of ASCII digits, in order.
+fn digit_runs(text: &str) -> Vec<&str> {
+    text.split(|c: char| !c.is_ascii_digit())
+        .filter(|run| !run.is_empty())
+        .collect()
+}
+
+/// Every digit of `input`, in order, is spelled by whole numbers of `output`.
+///
+/// Grouping, phone formatting, ranges and decimal commas move separators
+/// between digits, so the digits of the source are compared as one stream:
+/// `8 900 123 45 67` matches `8 (900) 123-45-67`, `1500` matches `1 500`.
+/// That stream must be the concatenation of some of the answer's numbers,
+/// taken whole and in order, so `1500` → `15000` and a list renumbered from
+/// `5, 6` to `1, 2` fail. Numbers the answer adds — «пять» written as `5` —
+/// are skipped.
+fn digits_survive(input: &str, output: &str) -> bool {
+    let source: String = digit_runs(input).concat();
+    if source.is_empty() {
+        return true;
+    }
+    // Offsets into `source` that a prefix of the answer's numbers can reach.
+    let mut reached = vec![false; source.len() + 1];
+    reached[0] = true;
+    for run in digit_runs(output) {
+        for start in (0..source.len()).rev() {
+            if reached[start] && source[start..].starts_with(run) {
+                reached[start + run.len()] = true;
+            }
+        }
+    }
+    reached[source.len()]
+}
+
+/// In Russian dictation a Latin word is a name, a brand or a term — the words
+/// the prompt says to keep as written. In English text every word is Latin,
+/// and the edits the prompt allows would trip this check, so it stays off.
+fn mostly_cyrillic(text: &str) -> bool {
+    let words = word_tokens(text);
+    let cyrillic = words
+        .iter()
+        .filter(|word| word.chars().any(|c| matches!(c, 'а'..='я' | 'ё')))
+        .count();
+    cyrillic * 2 > words.len()
+}
+
+/// Latin words of two letters or more, compared without case: «github» →
+/// `GitHub` is a fix, `Wispr` → `Whisper` is a different product.
+fn latin_terms(text: &str) -> std::collections::HashSet<String> {
+    word_tokens(text)
+        .into_iter()
+        .filter(|token| {
+            token.chars().filter(char::is_ascii_alphabetic).count() >= 2
+                && token
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '\'')
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -175,5 +324,124 @@ mod tests {
     fn sixty_nine_of_a_hundred_words_is_dropped() {
         let input = "слово ".repeat(100);
         assert!(dropped_too_much(&input, &"слово ".repeat(69)));
+    }
+
+    // The cases below are the published failures of cloud clean-up: a list
+    // that started at 5, a product name, an amount and a negation.
+
+    #[test]
+    fn a_dropped_negation_is_caught() {
+        for (input, output) in [
+            (
+                "I'd prefer to never merge this",
+                "I'd prefer to merge this.",
+            ),
+            ("I don't understand", "I understand."),
+            ("я не хочу это мержить", "Я хочу это мержить."),
+            ("это никогда не сработает", "Это не сработает."),
+            ("я не хочу и не буду", "Я хочу и не буду."),
+        ] {
+            assert_eq!(
+                altered_meaning(input, output),
+                Some(Alteration::Negation),
+                "{input} → {output}"
+            );
+        }
+    }
+
+    #[test]
+    fn negations_may_change_form_and_lose_stutters() {
+        for (input, output) in [
+            ("I don't understand", "I do not understand."),
+            ("we can not ship it", "We cannot ship it."),
+            ("ну не не надо так делать", "Не надо так делать."),
+            ("не ну не надо так делать", "Ну не надо так делать."),
+            ("no no no wait", "No, wait."),
+        ] {
+            assert_eq!(altered_meaning(input, output), None, "{input} → {output}");
+        }
+    }
+
+    #[test]
+    fn a_renumbered_list_is_caught() {
+        assert_eq!(
+            altered_meaning(
+                "пункт 5 проверить логи пункт 6 перезапустить сервис",
+                "1. Проверить логи.\n2. Перезапустить сервис."
+            ),
+            Some(Alteration::Numbers)
+        );
+    }
+
+    #[test]
+    fn a_changed_amount_is_caught_and_grouping_is_not() {
+        let input = "переведи 1500 рублей до 3.5 процентов";
+        assert_eq!(
+            altered_meaning(input, "Переведи 15 000 рублей до 3,5 процентов."),
+            Some(Alteration::Numbers)
+        );
+        assert_eq!(
+            altered_meaning(input, "Переведи 1 500 рублей до 3,5 процентов."),
+            None
+        );
+    }
+
+    #[test]
+    fn number_formatting_is_allowed() {
+        for (input, output) in [
+            (
+                "позвони на 8 900 123 45 67",
+                "Позвони на 8 (900) 123-45-67.",
+            ),
+            ("с 2019 2020 года", "С 2019–2020 года."),
+            ("купи 100 200 300 штук", "Купи 100, 200, 300 штук."),
+            ("встреча в 10.30", "Встреча в 10:30."),
+            ("версия 0 3 2", "Версия 0.3.2."),
+        ] {
+            assert_eq!(altered_meaning(input, output), None, "{input} → {output}");
+        }
+    }
+
+    #[test]
+    fn a_reordered_or_merged_number_is_caught() {
+        assert_eq!(
+            altered_meaning("сначала 5 потом 6", "Сначала 6, потом 5."),
+            Some(Alteration::Numbers)
+        );
+        assert_eq!(
+            altered_meaning("ровно 1500", "Ровно 15000."),
+            Some(Alteration::Numbers)
+        );
+    }
+
+    #[test]
+    fn spelling_out_digits_from_words_is_allowed() {
+        assert_eq!(altered_meaning("купи пять яблок", "Купи 5 яблок."), None);
+    }
+
+    #[test]
+    fn a_changed_product_name_is_caught_in_russian_text() {
+        assert_eq!(
+            altered_meaning(
+                "отправь это в Wispr Flow и в Superwhisper",
+                "Отправь это в Whisper Flow и в Superwhisper."
+            ),
+            Some(Alteration::Terms)
+        );
+        assert_eq!(
+            altered_meaning("залей в github и открой pr", "Залей в GitHub и открой PR."),
+            None
+        );
+    }
+
+    #[test]
+    fn english_text_may_lose_fillers() {
+        assert_eq!(
+            altered_meaning(
+                "um so like we ship it on friday",
+                "So we ship it on Friday."
+            ),
+            None
+        );
     }
 }

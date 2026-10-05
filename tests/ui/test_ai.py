@@ -426,3 +426,31 @@ def test_late_answer_mode_is_saved_for_all_profiles(app, page):
     page.wait_for_function(
         "window.__sottoTest.state.config.ai_processing.llm_late_answer === 'off'"
     )
+
+
+def test_reasoning_and_answer_limit_are_saved_on_the_profile(app, page):
+    ui = app(
+        config={
+            "ai_processing": {"profiles": PROMPT_PROFILES, "active_profile_id": "A"}
+        }
+    )
+    ui.nav("ai")
+    page.get_by_role("button", name="Дополнительно", exact=True).click()
+    reasoning = page.locator(".route-advanced__cell").filter(has_text="Рассуждения")
+    reasoning.get_by_role("button").click()
+    page.get_by_role("option", name="Как у модели", exact=True).click()
+    page.wait_for_function(
+        "(() => { const ai = window.__sottoTest.state.config.ai_processing;"
+        " return ai.llm_reasoning === 'model'"
+        " && ai.profiles.find((p) => p.id === 'A').llm_reasoning === 'model'"
+        " && ai.profiles.find((p) => p.id === 'B').llm_reasoning !== 'model'; })()"
+    )
+    limit = page.locator(".route-advanced__cell").filter(has_text="Лимит ответа")
+    expect(limit.get_by_label("Лимит ответа в токенах")).to_have_count(0)
+    limit.get_by_role("button").click()
+    page.get_by_role("option", name="Своё значение", exact=True).click()
+    field = limit.get_by_label("Лимит ответа в токенах")
+    expect(field).to_have_value("8192")
+    page.wait_for_function(
+        "window.__sottoTest.state.config.ai_processing.llm_output_limit === 8192"
+    )

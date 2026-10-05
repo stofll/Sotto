@@ -47,6 +47,8 @@ Versions up to 0.3.2-beta.1 appended fixed response and data-boundary rules to e
 
 Custom templates can still use `{{language}}`, `{{app}}` and `{{datetime}}`. Legacy `{{text}}` and `{{transcript}}` markers are removed from the system prompt; the source text is always sent in the separate message. An empty prompt skips LLM processing and inserts the local transcript. Response handling still removes reasoning blocks and falls back to the source text for empty responses, comments about the text or excessive word loss; changing the prompt does not disable these checks.
 
+The response is also rejected when it changes the meaning: it has fewer negations than the source, drops a number from it (amounts and list numbers included, while thousands separators and decimal commas may change), or alters a Latin-script name inside mostly Russian text. History names the reason. These checks compare words, not meaning, so they cannot catch every distortion. Number formatting, ranges and repeated stutters pass, but an abandoned false start or a spoken self-correction that drops a negation or a number, and a legitimate correction of a recognised English term in Russian text, also fall back to the local transcript.
+
 ## Local data
 
 History, settings, telemetry outbox data, and optional audio recordings are stored locally by the application. To request help, share only the minimum redacted logs needed to reproduce a problem.

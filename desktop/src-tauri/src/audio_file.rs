@@ -704,7 +704,7 @@ async fn transcribe_file_inner(
     // user's dictation for no reason at all.
     drop(engine_claim);
     let processed = await_file_processing(
-        crate::post_process_transcription(app, &inference),
+        crate::post_process_transcription(app, &inference, true),
         state.wait_cancelled(session_id),
     )
     .await

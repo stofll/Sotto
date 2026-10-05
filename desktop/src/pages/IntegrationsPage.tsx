@@ -459,6 +459,8 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
       api_key_ref: keyRef,
       base_url: profile.base_url ?? "",
       system_prompt: effectiveSystemPrompt(profile),
+      llm_reasoning: profile.llm_reasoning,
+      llm_output_limit: profile.llm_output_limit,
     });
   }
 

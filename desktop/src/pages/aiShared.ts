@@ -150,6 +150,7 @@ WHAT YOU MUST PRESERVE:
 - Do NOT replace words with synonyms or simplify them. Preserve the author's vocabulary, tone and meaning, including rare, colloquial, technical and coarse words.
 - Keep unfamiliar words, names, brands and jargon as written, in their original script. Correct a recognition error only when it is unambiguous; when in doubt, leave it unchanged.
 - Do not paraphrase, summarise, shorten, expand or reorder ideas. Do not remove emotional interjections or repetitions used deliberately for emphasis.
+- Keep every negation, in any language, and every number exactly as dictated: amounts, dates, versions and list numbers. Never renumber a list; if the speaker started from another number, keep it.
 - Preserve the source language. Never translate or transliterate. If the text mixes languages, keep each passage in its original language.`;
 
 function promptParagraphs(singleSentenceException: string): string {
@@ -300,6 +301,8 @@ export function normalizeProfile(ai: AiConfig, profile: Partial<LlmProfile>): Ll
     base_url: profile.base_url ?? (providerId === "opencode-go" ? OPENCODE_GO_BASE_URL : ai.base_url ?? ""),
     llm_min_duration_seconds: profile.llm_min_duration_seconds ?? ai.llm_min_duration_seconds ?? DEFAULT_AI.llm_min_duration_seconds,
     llm_timeout_seconds: profile.llm_timeout_seconds ?? ai.llm_timeout_seconds ?? DEFAULT_AI.llm_timeout_seconds,
+    llm_reasoning: profile.llm_reasoning ?? ai.llm_reasoning ?? "minimal",
+    llm_output_limit: profile.llm_output_limit ?? ai.llm_output_limit ?? "auto",
   };
 }
 
@@ -401,6 +404,8 @@ export function activeConfigFromProfile(ai: AiConfig, profile: LlmProfile, profi
     base_url: profile.base_url || "",
     llm_min_duration_seconds: profile.llm_min_duration_seconds ?? ai.llm_min_duration_seconds,
     llm_timeout_seconds: profile.llm_timeout_seconds ?? ai.llm_timeout_seconds,
+    llm_reasoning: profile.llm_reasoning ?? ai.llm_reasoning,
+    llm_output_limit: profile.llm_output_limit ?? ai.llm_output_limit,
     profiles,
   });
 }
@@ -430,6 +435,7 @@ export function staleBuiltInPrompt(ai: AiConfig | null | undefined): string | nu
 const ROUTE_FIELDS = [
   "active_profile_id", "profile_id", "profile_name", "provider", "model", "api_key_ref",
   "prompt_preset", "system_prompt", "base_url", "llm_min_duration_seconds", "llm_timeout_seconds",
+  "llm_reasoning", "llm_output_limit",
 ] as const satisfies ReadonlyArray<keyof AiConfig>;
 
 /** The flat fields Rust reads for the LLM route, with `profile` active. A write

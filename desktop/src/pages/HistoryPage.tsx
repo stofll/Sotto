@@ -80,6 +80,10 @@ function aiStatusText(entry: HistoryEntry): string {
   if (!ai.enabled) return t("LLM: выключено");
   const profile = ai.profile_name ? `${ai.profile_name} · ` : "";
   const model = `${profile}${[ai.provider, ai.model].filter(Boolean).join(" / ")}`.trim();
+  if (ai.attempted && ai.used && ai.parts && ai.parts.used < ai.parts.total) {
+    const label = t("LLM: частично · {p0} из {p1} частей", { p0: ai.parts.used, p1: ai.parts.total });
+    return model ? `${label} · ${model}` : label;
+  }
   if (ai.attempted && ai.used && ai.late) return model ? t("LLM: обработано позже · {p0}", { p0: model }) : t("LLM: обработано позже");
   if (ai.attempted && ai.used) return model ? t("LLM: обработано · {p0}", { p0: model }) : t("LLM: обработано");
   if (ai.attempted && ai.fallback) {
@@ -95,7 +99,8 @@ function aiStatusText(entry: HistoryEntry): string {
 }
 
 function aiFallbackLabel(errorType?: string, skippedReason?: string): string {
-  const code = errorType || skippedReason || "";
+  // `altered_response` covers several checks; the reason says which one.
+  const code = (errorType === "altered_response" ? skippedReason : errorType) || skippedReason || "";
   if (code === "auth_error" || code === "provider_auth_error") return t("ошибка ключа");
   if (code === "rate_limit" || code === "provider_quota_or_rate_limit") return t("лимит");
   if (code === "timeout" || code === "provider_timeout") return "timeout";
@@ -104,6 +109,9 @@ function aiFallbackLabel(errorType?: string, skippedReason?: string): string {
   if (code === "empty_response") return t("пустой ответ");
   if (code === "meta_response" || code === "model_returned_meta_response") return "meta fallback";
   if (code === "summarised_response" || code === "model_dropped_text") return t("модель сократила текст");
+  if (code === "model_dropped_negation") return t("модель убрала отрицание");
+  if (code === "model_changed_numbers") return t("модель изменила числа");
+  if (code === "model_changed_terms") return t("модель изменила названия");
   return "fallback";
 }
 

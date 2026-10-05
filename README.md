@@ -83,7 +83,7 @@ Enable built-in term dictionaries or create your own sets for names, brands, and
 
 ### Add AI processing when you need it
 
-Connect an optional LLM for rewriting and formatting, and save your instructions as reusable profiles. Use OpenAI, Anthropic, Gemini, or an OpenAI-compatible service, including local Ollama and LM Studio. Apply a profile to dictation, process pasted text manually, or reprocess a history entry and review the changes before accepting them.
+Connect an optional LLM for punctuation and formatting, and save your instructions as reusable profiles. The LLM tidies what you said rather than rewriting it: an answer that drops a negation, a number or a name, or loses a large part of the text, is replaced by the local result. Long texts are processed in parts, and each profile chooses how much a reasoning model may think. Use OpenAI, Anthropic, Gemini, or an OpenAI-compatible service, including local Ollama and LM Studio. Apply a profile to dictation, process pasted text manually, or reprocess a history entry and review the changes before accepting them.
 
 Cloud speech recognition is also available through configured provider profiles. Local recognition and cleanup work without these integrations; external providers may charge for usage.
 

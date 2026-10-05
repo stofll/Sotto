@@ -699,6 +699,12 @@ fn apply_ai_profile(
     {
         cfg.llm_timeout_seconds = timeout;
     }
+    if let Some(reasoning) = profile.get("llm_reasoning").and_then(Value::as_str) {
+        cfg.reasoning = crate::ai::model_params::ReasoningMode::parse(Some(reasoning));
+    }
+    if let Some(limit) = profile.get("llm_output_limit") {
+        cfg.output_limit = crate::ai::model_params::OutputLimit::parse(Some(limit));
+    }
     Ok(())
 }
 
@@ -1479,6 +1485,7 @@ mod retry_ai_tests {
             output_length: None,
             provider_attempts: Vec::new(),
             late: false,
+            parts: None,
         };
         status.output_length = used.then_some(10);
         status
