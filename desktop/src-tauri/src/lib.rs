@@ -1864,6 +1864,7 @@ pub(crate) fn ai_processing_json(status: Option<&crate::ai::step::AiStatus>) -> 
 pub(crate) async fn post_process_transcription(
     app: &AppHandle,
     inference: &crate::whisper::InferenceResult,
+    waits_to_paste: bool,
 ) -> ProcessedTranscription {
     let raw_text = inference.text.trim().to_string();
     let whisper_seconds = inference.inference_time_ms as f64 / 1000.0;
@@ -1904,6 +1905,7 @@ pub(crate) async fn post_process_transcription(
             let mut ai_cfg = crate::ai::step::AiConfig::from_ai_processing(ai_val);
             ai_cfg.language = speech_language(config.as_ref());
             ai_cfg.audio_duration_seconds = Some(inference.audio_seconds);
+            ai_cfg.waits_to_paste = waits_to_paste;
             let api_key = if ai_cfg.api_key_ref.is_empty() {
                 None
             } else {

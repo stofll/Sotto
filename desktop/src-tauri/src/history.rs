@@ -598,6 +598,8 @@ async fn run_history_entry_ai(
     let mut ai_cfg = crate::ai::step::AiConfig::from_ai_processing(ai);
     ai_cfg.language = crate::speech_language(Some(&config));
     ai_cfg.pipeline_mode = manual_llm_mode(&ai_cfg.pipeline_mode).to_string();
+    // The history page waits on this itself; no overlay guard bounds it.
+    ai_cfg.waits_to_paste = false;
     apply_ai_profile(&mut ai_cfg, ai, profile_id.as_deref())?;
     // Rust is handed finished prompt text here exactly as it is on the
     // dictation path — it knows nothing about presets. The caller resolves the
@@ -698,6 +700,12 @@ fn apply_ai_profile(
         .filter(|value| *value > 0)
     {
         cfg.llm_timeout_seconds = timeout;
+    }
+    if let Some(reasoning) = profile.get("llm_reasoning").and_then(Value::as_str) {
+        cfg.reasoning = crate::ai::model_params::ReasoningMode::parse(Some(reasoning));
+    }
+    if let Some(limit) = profile.get("llm_output_limit") {
+        cfg.output_limit = crate::ai::model_params::OutputLimit::parse(Some(limit));
     }
     Ok(())
 }
@@ -1479,6 +1487,7 @@ mod retry_ai_tests {
             output_length: None,
             provider_attempts: Vec::new(),
             late: false,
+            parts: None,
         };
         status.output_length = used.then_some(10);
         status

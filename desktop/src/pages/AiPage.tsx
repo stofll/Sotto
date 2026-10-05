@@ -28,7 +28,12 @@ import { CustomSelect } from "../components/CustomSelect";
 import { confirmAction } from "../components/ConfirmDialog";
 import { isLocalBaseUrl } from "./baseUrlFormat";
 import { NumberField } from "../components/NumberField";
-import type { ApiKeyStatus, ConfigChange, ConfigResult, LateAnswerMode } from "../bridge/types";
+import type { ApiKeyStatus, ConfigChange, ConfigResult, LateAnswerMode, ReasoningMode } from "../bridge/types";
+
+/** Mirrors `MIN_CUSTOM_OUTPUT_TOKENS` in ai/model_params.rs: below it Rust treats the limit as unset. */
+const MIN_OUTPUT_LIMIT = 256;
+/** Where a newly chosen custom limit starts. */
+const CUSTOM_OUTPUT_LIMIT_DEFAULT = 8192;
 import { t } from "../i18n";
 import { useFileTranscription, type FileStage, type TranscribeFileResult } from "./useFileTranscription";
 
@@ -238,7 +243,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
         const nextActive = currentProfiles.find((profile) => profile.id === patch.active_profile_id);
         return nextActive ? { ai_processing: activeConfigFromProfile(currentAi, nextActive, currentProfiles) } : {};
       }
-      const profileFields = ["model", "base_url", "api_key_ref", "prompt_preset", "system_prompt", "llm_min_duration_seconds", "llm_timeout_seconds"] as const;
+      const profileFields = ["model", "base_url", "api_key_ref", "prompt_preset", "system_prompt", "llm_min_duration_seconds", "llm_timeout_seconds", "llm_reasoning", "llm_output_limit"] as const;
       if (!profileFields.some((field) => field in patch)) {
         return { ai_processing: { ...routeFields(currentAi, activeProfileOf(currentAi, currentProfiles), currentProfiles), ...patch } };
       }
@@ -315,6 +320,8 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
         model: ai.model,
         base_url: ai.base_url ?? "",
         system_prompt: ai.system_prompt,
+        llm_reasoning: ai.llm_reasoning,
+        llm_output_limit: ai.llm_output_limit,
         // i18n-ignore: a Russian dictation sample for the trial LLM request
         text: "ну в общем нужно сегодня встретиться с командой и обсудить следующие шаги",
       });
@@ -350,6 +357,8 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
         // dictation profile's prompt, and a «structured» preset quietly asked
         // for plain paragraphs.
         system_prompt: effectiveSystemPrompt(textProfile),
+        llm_reasoning: textProfile.llm_reasoning,
+        llm_output_limit: textProfile.llm_output_limit,
       });
       setManualResult(result);
     } catch (e) {
@@ -516,6 +525,37 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
                 <NumberField className="mono" min={1} max={60} step={1} value={ai.llm_timeout_seconds ?? 12}
                   onValueChange={(next) => void saveAi({ llm_timeout_seconds: Math.max(1, Math.min(60, Number(next) || 12)) })} style={{ width: 84 }}/>
                 <span className="route-advanced__unit">{t("секунд")}</span>
+              </div>
+              <div className="route-advanced__cell">
+                <h3>{t("Рассуждения")}<Hint text={t("Рассуждающие модели думают перед ответом: это время и токены из лимита ответа. Для очистки диктовки рассуждения почти не нужны. «Минимальные» просит модель думать как можно меньше там, где API это позволяет. Значение своё у каждого профиля.")}/></h3>
+                <CustomSelect<ReasoningMode>
+                  value={ai.llm_reasoning ?? "minimal"}
+                  options={[
+                    { value: "minimal", label: t("Минимальные") },
+                    { value: "model", label: t("Как у модели") },
+                  ]}
+                  onChange={(next) => void saveAi({ llm_reasoning: next })}
+                />
+              </div>
+              <div className="route-advanced__cell">
+                <h3>{t("Лимит ответа")}<Hint text={t("Сколько токенов модель может потратить на один ответ вместе с рассуждениями. «Авто» подбирает лимит по длине текста; длинный текст обрабатывается частями. Значение своё у каждого профиля.")}/></h3>
+                <CustomSelect<"auto" | "unlimited" | "custom">
+                  value={typeof ai.llm_output_limit === "number" ? "custom" : (ai.llm_output_limit ?? "auto")}
+                  options={[
+                    { value: "auto", label: t("Авто") },
+                    { value: "unlimited", label: t("Без лимита") },
+                    { value: "custom", label: t("Своё значение") },
+                  ]}
+                  onChange={(next) => void saveAi({ llm_output_limit: next === "custom" ? CUSTOM_OUTPUT_LIMIT_DEFAULT : next })}
+                />
+                {typeof ai.llm_output_limit === "number" && (
+                  <>
+                    <NumberField className="mono" min={MIN_OUTPUT_LIMIT} max={200000} step={1024} value={ai.llm_output_limit}
+                      aria-label={t("Лимит ответа в токенах")}
+                      onValueChange={(next) => void saveAi({ llm_output_limit: Math.max(MIN_OUTPUT_LIMIT, Math.round(Number(next) || CUSTOM_OUTPUT_LIMIT_DEFAULT)) })} style={{ width: 96 }}/>
+                    <span className="route-advanced__unit">{t("токенов")}</span>
+                  </>
+                )}
               </div>
               <div className="route-advanced__cell">
                 <h3>{t("Поздний ответ LLM")}<Hint text={t("Если LLM не успела до таймаута, текст уже вставлен без неё. Её ответ может прийти позже, до 5 минут, и заменить текст в истории; в окно он не вставляется. Значение общее для всех профилей.")}/></h3>

@@ -1017,6 +1017,17 @@ export const en: Record<string, string | string[]> = {
   "Сколько ждать ответа перед вставкой как минимум: для длинного текста время увеличивается само. Если провайдер не успеет, вставится локально обработанный текст, а с ответом поступят по настройке «Поздний ответ LLM». Значение своё у каждого профиля.":
     "The minimum wait for an answer before pasting: long text gets more time automatically. If the provider is too slow, the locally processed text is pasted, and its answer is handled as set in «Late LLM answer». Each profile has its own value.",
   "Поздний ответ LLM": "Late LLM answer",
+  "Рассуждения": "Reasoning",
+  "Минимальные": "Minimal",
+  "Как у модели": "Model default",
+  "Рассуждающие модели думают перед ответом: это время и токены из лимита ответа. Для очистки диктовки рассуждения почти не нужны. «Минимальные» просит модель думать как можно меньше там, где API это позволяет. Значение своё у каждого профиля.": "Reasoning models think before they answer, which costs time and tokens from the answer limit. Tidying a dictation rarely needs it. “Minimal” asks the model to think as little as its API allows. Each profile has its own value.",
+  "Лимит ответа": "Answer limit",
+  "Без лимита": "No limit",
+  "Своё значение": "Custom value",
+  "Лимит ответа в токенах": "Answer limit in tokens",
+  "токенов": "tokens",
+  "Сколько токенов модель может потратить на один ответ вместе с рассуждениями. «Авто» подбирает лимит по длине текста; длинный текст обрабатывается частями. Значение своё у каждого профиля.": "How many tokens the model may spend on one answer, reasoning included. “Auto” sizes the limit to the text; a long text is processed in parts. Each profile has its own value.",
+  "LLM: частично · {p0} из {p1} частей": "LLM: partial · {p0} of {p1} parts",
   "Если LLM не успела до таймаута, текст уже вставлен без неё. Её ответ может прийти позже, до 5 минут, и заменить текст в истории; в окно он не вставляется. Значение общее для всех профилей.":
     "If the LLM misses the timeout, the text is pasted without it. Its answer may still arrive up to 5 minutes later and replace the text in the history; it is never pasted into the window. Shared by all profiles.",
   "Сохранить в историю и сообщить": "Save to history and notify",

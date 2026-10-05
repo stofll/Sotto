@@ -564,6 +564,7 @@ mod tests {
             output_length: None,
             provider_attempts: Vec::new(),
             late: false,
+            parts: None,
         }
     }
 

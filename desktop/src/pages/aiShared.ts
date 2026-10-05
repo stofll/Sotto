@@ -301,6 +301,8 @@ export function normalizeProfile(ai: AiConfig, profile: Partial<LlmProfile>): Ll
     base_url: profile.base_url ?? (providerId === "opencode-go" ? OPENCODE_GO_BASE_URL : ai.base_url ?? ""),
     llm_min_duration_seconds: profile.llm_min_duration_seconds ?? ai.llm_min_duration_seconds ?? DEFAULT_AI.llm_min_duration_seconds,
     llm_timeout_seconds: profile.llm_timeout_seconds ?? ai.llm_timeout_seconds ?? DEFAULT_AI.llm_timeout_seconds,
+    llm_reasoning: profile.llm_reasoning ?? ai.llm_reasoning ?? "minimal",
+    llm_output_limit: profile.llm_output_limit ?? ai.llm_output_limit ?? "auto",
   };
 }
 
@@ -402,6 +404,8 @@ export function activeConfigFromProfile(ai: AiConfig, profile: LlmProfile, profi
     base_url: profile.base_url || "",
     llm_min_duration_seconds: profile.llm_min_duration_seconds ?? ai.llm_min_duration_seconds,
     llm_timeout_seconds: profile.llm_timeout_seconds ?? ai.llm_timeout_seconds,
+    llm_reasoning: profile.llm_reasoning ?? ai.llm_reasoning,
+    llm_output_limit: profile.llm_output_limit ?? ai.llm_output_limit,
     profiles,
   });
 }
@@ -431,6 +435,7 @@ export function staleBuiltInPrompt(ai: AiConfig | null | undefined): string | nu
 const ROUTE_FIELDS = [
   "active_profile_id", "profile_id", "profile_name", "provider", "model", "api_key_ref",
   "prompt_preset", "system_prompt", "base_url", "llm_min_duration_seconds", "llm_timeout_seconds",
+  "llm_reasoning", "llm_output_limit",
 ] as const satisfies ReadonlyArray<keyof AiConfig>;
 
 /** The flat fields Rust reads for the LLM route, with `profile` active. A write

@@ -14,6 +14,7 @@ use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 
+use sotto_lib::ai::model_params::{OutputLimit, ReasoningMode};
 use sotto_lib::ai::providers::{AnthropicProvider, OpenAIProvider, Provider, ProviderErrorType};
 use sotto_lib::ai::step::{ai_process_text_with_status, AiConfig, LateAnswerMode};
 
@@ -255,6 +256,9 @@ fn local_mode_does_not_call_provider() {
         llm_min_duration_seconds: 0.0,
         llm_timeout_seconds: 12,
         late_answer: LateAnswerMode::Off,
+        reasoning: ReasoningMode::Minimal,
+        output_limit: OutputLimit::Auto,
+        waits_to_paste: true,
     };
     let outcome = block_on(ai_process_text_with_status(
         "hello",
@@ -283,6 +287,9 @@ fn missing_api_key_short_circuits_before_http() {
         llm_min_duration_seconds: 0.0,
         llm_timeout_seconds: 12,
         late_answer: LateAnswerMode::Off,
+        reasoning: ReasoningMode::Minimal,
+        output_limit: OutputLimit::Auto,
+        waits_to_paste: true,
     };
     let outcome = block_on(ai_process_text_with_status("hello", &config, None));
     assert_eq!(outcome.status.skipped_reason, "missing_api_key");
@@ -458,6 +465,9 @@ fn profile_kind_chooses_the_request_dialect() {
             llm_min_duration_seconds: 0.0,
             llm_timeout_seconds: 12,
             late_answer: LateAnswerMode::Off,
+            reasoning: ReasoningMode::Minimal,
+            output_limit: OutputLimit::Auto,
+            waits_to_paste: true,
         };
         let outcome = block_on(ai_process_text_with_status(
             "hello",
@@ -473,6 +483,77 @@ fn profile_kind_chooses_the_request_dialect() {
         assert!(
             body[field].as_u64().is_some(),
             "{provider} must send {field}"
+        );
+    }
+}
+
+/// The lowest effort differs between OpenAI models: a refused value steps
+/// down to the next one rather than failing the dictation.
+#[test]
+fn openai_reasoning_effort_steps_down_when_refused() {
+    let (url, requests) = mock_server_sequence(&[
+        (
+            "HTTP/1.1 400 Bad Request",
+            r#"{"error":{"message":"Unsupported value: 'reasoning_effort' does not support 'none' with this model.","param":"reasoning_effort"}}"#,
+        ),
+        ("HTTP/1.1 200 OK", OPENAI_OK),
+    ]);
+    let provider = OpenAIProvider::new(
+        "sk-test",
+        "o9-mock-stepping",
+        Some(url),
+        Some(Duration::from_secs(5)),
+        None,
+    )
+    .for_openai_api();
+    block_on(provider.complete("system", "user")).expect("second value accepted");
+    assert_eq!(request_json(&requests, 0)["reasoning_effort"], "none");
+    assert_eq!(request_json(&requests, 1)["reasoning_effort"], "minimal");
+}
+
+#[test]
+fn reasoning_left_to_the_model_sends_no_reasoning_field() {
+    let (url, requests) = mock_server("HTTP/1.1 200 OK", OPENAI_OK);
+    let provider = OpenAIProvider::new(
+        "sk-test",
+        "o9-mock-model",
+        Some(url),
+        Some(Duration::from_secs(5)),
+        None,
+    )
+    .for_openai_api()
+    .with_options(ReasoningMode::Model, OutputLimit::Unlimited);
+    block_on(provider.complete("system", "user")).expect("mock server returned 200");
+    let body = request_json(&requests, 0);
+    assert!(body.get("reasoning_effort").is_none());
+    // Unlimited leaves the cap out where the API allows it.
+    assert!(body.get("max_completion_tokens").is_none());
+}
+
+#[test]
+fn anthropic_is_told_not_to_think_unless_left_to_the_model() {
+    const ANTHROPIC_OK: &str =
+        r#"{"content":[{"text":"Tidied"}],"usage":{"input_tokens":1,"output_tokens":1}}"#;
+    for (mode, expect_disabled) in [
+        (ReasoningMode::Minimal, true),
+        (ReasoningMode::Model, false),
+    ] {
+        let (url, requests) = mock_server("HTTP/1.1 200 OK", ANTHROPIC_OK);
+        let provider = AnthropicProvider::new(
+            "sk-test",
+            "claude-mock",
+            Some(url),
+            Some(Duration::from_secs(5)),
+            None,
+        )
+        .with_options(mode, OutputLimit::Tokens(3000));
+        block_on(provider.complete("system", "user")).expect("mock server returned 200");
+        let body = request_json(&requests, 0);
+        assert_eq!(body["max_tokens"], 3000);
+        assert_eq!(
+            body.get("thinking") == Some(&serde_json::json!({"type": "disabled"})),
+            expect_disabled,
+            "{mode:?}"
         );
     }
 }

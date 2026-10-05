@@ -80,6 +80,10 @@ function aiStatusText(entry: HistoryEntry): string {
   if (!ai.enabled) return t("LLM: выключено");
   const profile = ai.profile_name ? `${ai.profile_name} · ` : "";
   const model = `${profile}${[ai.provider, ai.model].filter(Boolean).join(" / ")}`.trim();
+  if (ai.attempted && ai.used && ai.parts && ai.parts.used < ai.parts.total) {
+    const label = t("LLM: частично · {p0} из {p1} частей", { p0: ai.parts.used, p1: ai.parts.total });
+    return model ? `${label} · ${model}` : label;
+  }
   if (ai.attempted && ai.used && ai.late) return model ? t("LLM: обработано позже · {p0}", { p0: model }) : t("LLM: обработано позже");
   if (ai.attempted && ai.used) return model ? t("LLM: обработано · {p0}", { p0: model }) : t("LLM: обработано");
   if (ai.attempted && ai.fallback) {

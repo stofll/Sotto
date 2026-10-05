@@ -20,6 +20,9 @@
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
+use serde_json::json;
+
+use super::model_params::{post_with_fallbacks, Fallback, OutputLimit, ReasoningMode};
 
 pub const DEFAULT_TEMPERATURE: f32 = 0.2;
 pub const DEFAULT_TIMEOUT_SECS: u64 = 12;
@@ -35,13 +38,6 @@ pub const MAX_COMPLETION_TOKENS: u32 = 16_384;
 /// and Latin rather less, so this over-estimates for English — the safe
 /// direction for both the budget and the limit below.
 const CHARS_PER_TOKEN: usize = 2;
-/// Longest text the LLM step sends: past it, the tidied answer plus the
-/// minimum thinking room no longer fits under `MAX_COMPLETION_TOKENS`, so the
-/// request would be cut off mid-answer however long the user waited. About
-/// 28k characters, half an hour of speech.
-pub const MAX_INPUT_CHARS: usize =
-    (MAX_COMPLETION_TOKENS - MIN_COMPLETION_TOKENS) as usize * CHARS_PER_TOKEN;
-
 /// Estimated tokens in the tidied answer, which is about as long as `text`.
 pub fn answer_tokens(text: &str) -> u32 {
     u32::try_from(text.chars().count().div_ceil(CHARS_PER_TOKEN)).unwrap_or(u32::MAX)
@@ -163,7 +159,7 @@ impl ProviderInfo {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Copy, Serialize, Default)]
 pub struct UsageInfo {
     pub input_tokens: u32,
     pub output_tokens: u32,
@@ -222,8 +218,13 @@ pub struct AnthropicProvider {
     model: String,
     base_url: String,
     timeout: Duration,
-    max_tokens: Option<u32>,
+    limit: OutputLimit,
+    reasoning: ReasoningMode,
 }
+
+/// Anthropic requires `max_tokens`, so "unlimited" sends this; a model with a
+/// lower ceiling refuses it and the request steps down.
+const ANTHROPIC_UNLIMITED_TOKENS: u32 = 32_000;
 
 impl AnthropicProvider {
     pub fn new(
@@ -240,8 +241,15 @@ impl AnthropicProvider {
             timeout: timeout.unwrap_or(Duration::from_secs(DEFAULT_TIMEOUT_SECS)),
             // Same contract as OpenAI's: `None` sizes the budget to the
             // request. Anthropic requires the field, so it is always sent.
-            max_tokens,
+            limit: max_tokens.map_or(OutputLimit::Auto, OutputLimit::Tokens),
+            reasoning: ReasoningMode::default(),
         }
+    }
+
+    pub fn with_options(mut self, reasoning: ReasoningMode, limit: OutputLimit) -> Self {
+        self.reasoning = reasoning;
+        self.limit = limit;
+        self
     }
 }
 
@@ -262,28 +270,51 @@ impl Provider for AnthropicProvider {
         >,
     > {
         Box::pin(async move {
-            let body = serde_json::json!({
+            let body = json!({
                 "model": self.model,
-                "max_tokens": self.max_tokens.unwrap_or_else(|| completion_budget(text)),
                 "temperature": DEFAULT_TEMPERATURE,
                 "system": system_prompt,
                 "messages": [{"role": "user", "content": text}],
             });
-            let request = build_request(
-                reqwest::Method::POST,
-                &format!("{}/messages", self.base_url),
-                Some(&body),
-                &[
-                    ("x-api-key", self.api_key.as_str()),
-                    ("anthropic-version", "2023-06-01"),
-                ],
-            );
-            send_request(
-                request,
-                self.timeout,
-                "anthropic",
-                &self.model,
-                "content[0].text",
+            let limit = self
+                .limit
+                .tokens(text)
+                .unwrap_or(ANTHROPIC_UNLIMITED_TOKENS);
+            let mut fallbacks = vec![Fallback::limit(&["max_tokens"], &["max_tokens"], limit)];
+            if self.reasoning == ReasoningMode::Minimal {
+                // Older Claude models think only on request; newer ones think
+                // adaptively unless told not to, and one that must think
+                // refuses this and gets no field.
+                fallbacks.push(Fallback::new(
+                    &["thinking"],
+                    &["thinking"],
+                    vec![json!({"type": "disabled"})],
+                ));
+            }
+            let this = self;
+            post_with_fallbacks(
+                body,
+                &fallbacks,
+                &format!("anthropic|{}|{}", self.base_url, self.model),
+                move |body| async move {
+                    let request = build_request(
+                        reqwest::Method::POST,
+                        &format!("{}/messages", this.base_url),
+                        Some(&body),
+                        &[
+                            ("x-api-key", this.api_key.as_str()),
+                            ("anthropic-version", "2023-06-01"),
+                        ],
+                    );
+                    send_request(
+                        request,
+                        this.timeout,
+                        "anthropic",
+                        &this.model,
+                        "content[0].text",
+                    )
+                    .await
+                },
             )
             .await
         })
@@ -295,7 +326,8 @@ pub struct OpenAIProvider {
     model: String,
     base_url: String,
     timeout: Duration,
-    max_tokens: Option<u32>,
+    limit: OutputLimit,
+    reasoning: ReasoningMode,
     /// OpenAI's own API rather than a compatible server: see
     /// [`OpenAIProvider::for_openai_api`].
     openai_api: bool,
@@ -316,15 +348,22 @@ impl OpenAIProvider {
             timeout: timeout.unwrap_or(Duration::from_secs(DEFAULT_TIMEOUT_SECS)),
             // `None` means "size it to the request" — see `completion_budget`.
             // An explicit value stays an explicit hard cap.
-            max_tokens,
+            limit: max_tokens.map_or(OutputLimit::Auto, OutputLimit::Tokens),
+            reasoning: ReasoningMode::default(),
             openai_api: false,
         }
     }
 
+    pub fn with_options(mut self, reasoning: ReasoningMode, limit: OutputLimit) -> Self {
+        self.reasoning = reasoning;
+        self.limit = limit;
+        self
+    }
+
     /// Speak OpenAI's current dialect: `max_completion_tokens`, which its
-    /// reasoning models require instead of the deprecated `max_tokens`, and
-    /// no `temperature` for those models. Compatible servers keep the old
-    /// field, which is the one they all understand.
+    /// reasoning models require instead of the deprecated `max_tokens`, no
+    /// `temperature` for those models, and `reasoning_effort`. Compatible
+    /// servers keep the old field, which is the one they all understand.
     pub fn for_openai_api(mut self) -> Self {
         self.openai_api = true;
         self
@@ -332,12 +371,12 @@ impl OpenAIProvider {
 
     async fn post(
         &self,
-        payload: &serde_json::Value,
+        payload: serde_json::Value,
     ) -> Result<(String, ProviderInfo), ProviderError> {
         let request = build_request(
             reqwest::Method::POST,
             &format!("{}/chat/completions", self.base_url),
-            Some(payload),
+            Some(&payload),
             &[("Authorization", &format!("Bearer {}", self.api_key))],
         );
         send_request(
@@ -349,11 +388,49 @@ impl OpenAIProvider {
         )
         .await
     }
+
+    /// How this server is told to think as little as it can. Only servers
+    /// whose parameter is known get one: another OpenAI-compatible server may
+    /// reject an unknown field, and a local model's thinking arrives in tags
+    /// that are stripped anyway.
+    fn minimal_reasoning(&self) -> Option<Fallback> {
+        use crate::telemetry::ProviderService;
+        if self.openai_api {
+            // Models differ in their lowest effort: newer ones take `none`,
+            // gpt-5 `minimal`, the o-series only `low`.
+            return is_openai_reasoning_model(&self.model).then(|| {
+                Fallback::new(
+                    &["reasoning_effort"],
+                    &["reasoning_effort", "reasoning effort"],
+                    vec![json!("none"), json!("minimal"), json!("low")],
+                )
+            });
+        }
+        match crate::telemetry::provider_service(&self.base_url) {
+            // DeepSeek's own API reasons before answering unless told not to:
+            // the thinking spent the completion budget on long texts, leaving
+            // an empty answer. The same models behind an aggregator take
+            // other parameters.
+            ProviderService::Deepseek => Some(Fallback::new(
+                &["thinking"],
+                &["thinking"],
+                vec![json!({"type": "disabled"})],
+            )),
+            // OpenRouter maps one `reasoning` object onto every model; a model
+            // that must reason refuses `enabled: false` and gets low effort.
+            ProviderService::Openrouter => Some(Fallback::new(
+                &["reasoning"],
+                &["reasoning"],
+                vec![json!({"enabled": false}), json!({"effort": "low"})],
+            )),
+            _ => None,
+        }
+    }
 }
 
 /// OpenAI's reasoning families — o1, o3, o4-mini, gpt-5 and later — accept
 /// only the default temperature and answer 400 to any other. A name this
-/// misses costs one rejected request; see [`rejects_temperature`].
+/// misses costs one rejected request; see [`post_with_fallbacks`].
 fn is_openai_reasoning_model(model: &str) -> bool {
     let model = model.to_ascii_lowercase();
     let generation = |rest: &str| {
@@ -370,16 +447,6 @@ fn is_openai_reasoning_model(model: &str) -> bool {
         .strip_prefix("gpt-")
         .and_then(generation)
         .is_some_and(|major| major >= 5)
-}
-
-/// A 400 that names `temperature`: the model takes only its default. OpenAI
-/// says so for its reasoning models, and servers hosting others do the same.
-fn rejects_temperature(error: &ProviderError) -> bool {
-    error.http_status == Some(400)
-        && error
-            .response_snippet
-            .as_deref()
-            .is_some_and(|body| body.contains("temperature"))
 }
 
 impl Provider for OpenAIProvider {
@@ -399,40 +466,44 @@ impl Provider for OpenAIProvider {
         >,
     > {
         Box::pin(async move {
-            let mut payload = serde_json::json!({
+            let payload = json!({
                 "model": self.model,
                 "messages": [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": text},
                 ],
             });
-            let limit = self.max_tokens.unwrap_or_else(|| completion_budget(text));
-            let limit_field = if self.openai_api {
-                "max_completion_tokens"
-            } else {
-                "max_tokens"
-            };
-            payload[limit_field] = serde_json::json!(limit);
-            let with_temperature = !(self.openai_api && is_openai_reasoning_model(&self.model));
-            if with_temperature {
-                payload["temperature"] = serde_json::json!(DEFAULT_TEMPERATURE);
+            let mut fallbacks = Vec::new();
+            if let Some(limit) = self.limit.tokens(text) {
+                let path: &'static [&'static str] = if self.openai_api {
+                    &["max_completion_tokens"]
+                } else {
+                    &["max_tokens"]
+                };
+                fallbacks.push(Fallback::limit(
+                    path,
+                    &["max_tokens", "max_completion_tokens", "completion tokens"],
+                    limit,
+                ));
             }
-            if thinks_by_default(&self.base_url) {
-                payload["thinking"] = serde_json::json!({"type": "disabled"});
+            if !(self.openai_api && is_openai_reasoning_model(&self.model)) {
+                fallbacks.push(Fallback::new(
+                    &["temperature"],
+                    &["temperature"],
+                    vec![json!(DEFAULT_TEMPERATURE)],
+                ));
             }
-            match self.post(&payload).await {
-                Err(error) if with_temperature && rejects_temperature(&error) => {
-                    log::info!(
-                        "Provider openai/{} takes only its default temperature; retrying without it",
-                        self.model
-                    );
-                    if let Some(fields) = payload.as_object_mut() {
-                        fields.remove("temperature");
-                    }
-                    self.post(&payload).await
-                }
-                result => result,
+            if self.reasoning == ReasoningMode::Minimal {
+                fallbacks.extend(self.minimal_reasoning());
             }
+            let this = self;
+            post_with_fallbacks(
+                payload,
+                &fallbacks,
+                &format!("openai|{}|{}", self.base_url, self.model),
+                move |payload| this.post(payload),
+            )
+            .await
         })
     }
 }
@@ -441,6 +512,8 @@ pub struct GeminiProvider {
     api_key: String,
     model: String,
     timeout: Duration,
+    limit: OutputLimit,
+    reasoning: ReasoningMode,
 }
 
 impl GeminiProvider {
@@ -453,7 +526,15 @@ impl GeminiProvider {
             api_key: api_key.into(),
             model: model.into(),
             timeout: timeout.unwrap_or(Duration::from_secs(DEFAULT_TIMEOUT_SECS)),
+            limit: OutputLimit::Auto,
+            reasoning: ReasoningMode::default(),
         }
+    }
+
+    pub fn with_options(mut self, reasoning: ReasoningMode, limit: OutputLimit) -> Self {
+        self.reasoning = reasoning;
+        self.limit = limit;
+        self
     }
 }
 
@@ -474,27 +555,64 @@ impl Provider for GeminiProvider {
         >,
     > {
         Box::pin(async move {
-            let body = serde_json::json!({
+            let body = json!({
                 "system_instruction": {"parts": [{"text": system_prompt}]},
                 "contents": [{"role": "user", "parts": [{"text": text}]}],
                 "generationConfig": {"temperature": DEFAULT_TEMPERATURE},
             });
+            let mut fallbacks = Vec::new();
+            // Thinking counts against `maxOutputTokens`. With thinking left to
+            // the model, an automatic cap sized for a tidy-up would cut off a
+            // Pro model that must think, so only an explicit one is sent.
+            let limit = match (self.limit, self.reasoning) {
+                (OutputLimit::Auto, ReasoningMode::Model) => None,
+                (limit, _) => limit.tokens(text),
+            };
+            if let Some(limit) = limit {
+                fallbacks.push(Fallback::limit(
+                    &["generationConfig", "maxOutputTokens"],
+                    &["maxoutputtokens", "max_output_tokens"],
+                    limit,
+                ));
+            }
+            if self.reasoning == ReasoningMode::Minimal {
+                // 2.5 Flash turns thinking off with a zero budget; 2.5 Pro
+                // refuses zero, and Gemini 3 is set by level.
+                fallbacks.push(Fallback::new(
+                    &["generationConfig", "thinkingConfig"],
+                    &["thinking"],
+                    vec![
+                        json!({"thinkingBudget": 0}),
+                        json!({"thinkingLevel": "low"}),
+                        json!({"thinkingBudget": 128}),
+                    ],
+                ));
+            }
             let url = format!(
                 "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent",
                 urlencoding(&self.model)
             );
-            let request = build_request(
-                reqwest::Method::POST,
-                &url,
-                Some(&body),
-                &[("x-goog-api-key", self.api_key.as_str())],
-            );
-            send_request(
-                request,
-                self.timeout,
-                "gemini",
-                &self.model,
-                "candidates[0].content.parts[0].text",
+            let (this, url) = (self, &url);
+            post_with_fallbacks(
+                body,
+                &fallbacks,
+                &format!("gemini|{}", self.model),
+                move |body| async move {
+                    let request = build_request(
+                        reqwest::Method::POST,
+                        url,
+                        Some(&body),
+                        &[("x-goog-api-key", this.api_key.as_str())],
+                    );
+                    send_request(
+                        request,
+                        this.timeout,
+                        "gemini",
+                        &this.model,
+                        "candidates[0].content.parts[0].text",
+                    )
+                    .await
+                },
             )
             .await
         })
@@ -590,15 +708,6 @@ fn resolve_base_url(base_url: Option<&str>, default: &str) -> String {
         .filter(|value| !value.is_empty())
         .unwrap_or(default)
         .to_string()
-}
-
-/// DeepSeek's own API reasons before answering unless told not to. Tidying a
-/// dictation gains nothing from it: the thinking spent the completion budget on
-/// long texts, leaving an empty answer, and multiplied the latency. Matched by
-/// host, since the same models behind an aggregator take other parameters and
-/// other OpenAI-compatible servers may reject the unknown field.
-fn thinks_by_default(base_url: &str) -> bool {
-    crate::telemetry::provider_service(base_url) == crate::telemetry::ProviderService::Deepseek
 }
 
 /// The endpoint `build_provider` will actually call for this configuration.
@@ -987,11 +1096,17 @@ fn empty_answer_summary(json: &serde_json::Value) -> Option<String> {
     let output_tokens = json
         .pointer("/usage/completion_tokens")
         .or_else(|| json.pointer("/usage/output_tokens"))
+        .or_else(|| json.pointer("/usageMetadata/candidatesTokenCount"))
+        .and_then(serde_json::Value::as_u64);
+    let reasoning_tokens = json
+        .pointer("/usage/completion_tokens_details/reasoning_tokens")
+        .or_else(|| json.pointer("/usageMetadata/thoughtsTokenCount"))
         .and_then(serde_json::Value::as_u64);
     let parts: Vec<String> = [
         finish.map(|value| format!("stop reason: {value}")),
         reasoning_chars.map(|value| format!("reasoning: {value} chars")),
         output_tokens.map(|value| format!("output tokens: {value}")),
+        reasoning_tokens.map(|value| format!("reasoning tokens: {value}")),
     ]
     .into_iter()
     .flatten()
@@ -1222,18 +1337,9 @@ mod tests {
     }
 
     #[test]
-    fn the_longest_accepted_text_leaves_minimum_thinking_room() {
-        let longest = "я".repeat(MAX_INPUT_CHARS);
-        assert_eq!(
-            answer_tokens(&longest) + MIN_COMPLETION_TOKENS,
-            MAX_COMPLETION_TOKENS
-        );
-    }
-
-    #[test]
     fn completion_budget_is_capped() {
         assert_eq!(
-            completion_budget(&"я".repeat(MAX_INPUT_CHARS * 100)),
+            completion_budget(&"я".repeat(1_000_000)),
             MAX_COMPLETION_TOKENS
         );
     }
@@ -1370,32 +1476,54 @@ mod tests {
         }
     }
 
-    #[test]
-    fn only_a_400_naming_temperature_is_a_temperature_refusal() {
-        let error = |status: u16, body: &str| ProviderError {
-            kind: classify_http_status(status),
-            message: String::new(),
-            http_status: Some(status),
-            response_snippet: Some(body.to_string()),
-            retryable: false,
+    /// The field each server is told to think as little as it can with, by
+    /// the path it is sent at.
+    fn minimal_reasoning_path(base_url: &str, model: &str, openai_api: bool) -> Option<String> {
+        let provider = OpenAIProvider::new("k", model, Some(base_url.to_string()), None, None);
+        let provider = if openai_api {
+            provider.for_openai_api()
+        } else {
+            provider
         };
-        assert!(rejects_temperature(&error(
-            400,
-            r#"{"error":{"message":"Unsupported value: 'temperature' does not support 0.2 with this model.","param":"temperature"}}"#
-        )));
-        assert!(!rejects_temperature(&error(
-            400,
-            r#"{"error":{"message":"Invalid model"}}"#
-        )));
-        assert!(!rejects_temperature(&error(500, "temperature")));
+        provider
+            .minimal_reasoning()
+            .map(|fallback| fallback.path.join("."))
     }
 
     #[test]
-    fn only_deepseek_api_gets_thinking_disabled() {
-        assert!(thinks_by_default("https://api.deepseek.com/v1"));
-        assert!(thinks_by_default("https://api.deepseek.com"));
-        assert!(!thinks_by_default("https://openrouter.ai/api/v1"));
-        assert!(!thinks_by_default("https://opencode.ai/zen/go/v1"));
+    fn minimal_reasoning_uses_each_servers_own_parameter() {
+        assert_eq!(
+            minimal_reasoning_path("https://api.openai.com/v1", "o4-mini", true).as_deref(),
+            Some("reasoning_effort")
+        );
+        // A non-reasoning OpenAI model gets no reasoning field at all.
+        assert_eq!(
+            minimal_reasoning_path("https://api.openai.com/v1", "gpt-4o-mini", true),
+            None
+        );
+        assert_eq!(
+            minimal_reasoning_path("https://api.deepseek.com/v1", "deepseek-chat", false)
+                .as_deref(),
+            Some("thinking")
+        );
+        assert_eq!(
+            minimal_reasoning_path(
+                "https://openrouter.ai/api/v1",
+                "deepseek/deepseek-r1",
+                false
+            )
+            .as_deref(),
+            Some("reasoning")
+        );
+        // An unknown compatible server may reject unknown fields.
+        assert_eq!(
+            minimal_reasoning_path("http://localhost:11434/v1", "qwen3", false),
+            None
+        );
+        assert_eq!(
+            minimal_reasoning_path("https://opencode.ai/zen/go/v1", "glm", false),
+            None
+        );
     }
 
     #[test]

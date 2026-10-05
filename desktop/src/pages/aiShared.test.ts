@@ -163,6 +163,19 @@ describe("activeConfigFromProfile", () => {
     expect(next.api_key_ref).toBe("key_p1");
     expect(next.profiles).toHaveLength(1);
   });
+
+  // Rust reads the flat route; a profile's own reasoning and limit must reach
+  // it, or switching profiles would keep the previous profile's behaviour.
+  it("carries the profile's reasoning and answer limit to the route", () => {
+    const base = mergeAi(null, {});
+    const fresh = normalizeProfile(base, { id: "p1", provider: "openai" });
+    expect(fresh.llm_reasoning).toBe("minimal");
+    expect(fresh.llm_output_limit).toBe("auto");
+    const tuned = normalizeProfile(base, { id: "p2", provider: "gemini", llm_reasoning: "model", llm_output_limit: 4096 });
+    const next = activeConfigFromProfile(base, tuned, [fresh, tuned]);
+    expect(next.llm_reasoning).toBe("model");
+    expect(next.llm_output_limit).toBe(4096);
+  });
 });
 
 // The threshold exists so as "not to run the LLM on a stray sneeze", but by

@@ -416,3 +416,27 @@ def test_history_names_a_meaning_change_fallback(app, page):
     expect(
         card.get_by_label("LLM: модель убрала отрицание · openai / synthetic-model")
     ).to_be_attached()
+
+
+def test_history_names_a_partly_tidied_long_text(app, page):
+    entry = {
+        "id": 7,
+        "timestamp": 1789200240,
+        "text": "Длинный текст.",
+        "formatted_text": "длинный текст",
+        "raw_text": "длинный текст",
+        "length": 14,
+        "ai_processing": {
+            "attempted": True,
+            "used": True,
+            "enabled": True,
+            "provider": "openai",
+            "model": "synthetic-model",
+            "parts": {"total": 6, "used": 5},
+        },
+    }
+    app(history=[entry]).nav("history")
+    card = page.get_by_test_id("history-entry-7")
+    expect(
+        card.get_by_label("LLM: частично · 5 из 6 частей · openai / synthetic-model")
+    ).to_be_attached()
