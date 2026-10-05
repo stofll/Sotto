@@ -16,14 +16,15 @@
 //! because the only legitimate caller is the dispatcher / Tauri
 //! command layer; tests call it directly.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use serde::Serialize;
 
 use super::fidelity::{dropped_too_much, kept_word_ratio};
 use super::providers::{
-    AnthropicProvider, GeminiProvider, OpenAIProvider, OpenCodeGoProvider, Provider, ProviderError,
-    ProviderErrorType,
+    answer_tokens, AnthropicProvider, GeminiProvider, OpenAIProvider, OpenCodeGoProvider, Provider,
+    ProviderError, ProviderErrorType, MAX_INPUT_CHARS,
 };
 #[cfg(test)]
 use super::providers::{CompletionFuture, ProviderInfo};
@@ -31,7 +32,6 @@ use super::reasoning::{is_meta_noop_response, strip_reasoning};
 
 const MAX_PROVIDER_ATTEMPTS: u32 = 2;
 const RETRY_BACKOFF: Duration = Duration::from_millis(300);
-const MAX_RETRY_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(4);
 const TRANSIENT_ERRORS: &[ProviderErrorType] = &[
     ProviderErrorType::Timeout,
     ProviderErrorType::ConnectionError,
@@ -81,6 +81,10 @@ pub struct AiStatus {
     pub output_length: Option<usize>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub provider_attempts: Vec<ProviderAttemptInfo>,
+    /// The answer arrived after the text had already been pasted, and was
+    /// written into the history entry afterwards.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub late: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -107,6 +111,30 @@ pub struct AiConfig {
     pub audio_duration_seconds: Option<f64>,
     pub llm_min_duration_seconds: f64,
     pub llm_timeout_seconds: u64,
+    pub late_answer: LateAnswerMode,
+}
+
+/// What happens to an answer that arrives after the timeout, when the local
+/// text has already been pasted (`llm_late_answer` in `ai_processing`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LateAnswerMode {
+    /// Write it into the history entry and say so in the overlay.
+    Notify,
+    /// Write it into the history entry without a word.
+    Silent,
+    /// Cancel the request at the timeout, as before late answers existed.
+    Off,
+}
+
+impl LateAnswerMode {
+    fn parse(value: Option<&str>) -> Self {
+        match value {
+            Some("silent") => Self::Silent,
+            Some("off") => Self::Off,
+            _ => Self::Notify,
+        }
+    }
 }
 
 impl AiConfig {
@@ -163,6 +191,9 @@ impl AiConfig {
                 .get("llm_timeout_seconds")
                 .and_then(serde_json::Value::as_u64)
                 .unwrap_or(12),
+            late_answer: LateAnswerMode::parse(
+                v.get("llm_late_answer").and_then(serde_json::Value::as_str),
+            ),
         }
     }
 }
@@ -170,6 +201,80 @@ impl AiConfig {
 pub struct CallOutcome {
     pub text: String,
     pub status: AiStatus,
+    /// The request that ran out of time but was not cancelled. Only a live
+    /// dictation waits for it; anyone else drops it, which cancels it.
+    pub late: Option<LateAnswer>,
+}
+
+/// How long a request may keep running after its timeout, while the local
+/// text is already in the user's window.
+pub const LATE_ANSWER_GRACE: Duration = Duration::from_secs(5 * 60);
+
+/// A provider request still running when its time ran out.
+///
+/// The timeout used to cancel it, so a model that needed a second longer was
+/// paid for and its answer thrown away. Now the dictation is pasted without
+/// it as before, and the answer, if it comes within [`LATE_ANSWER_GRACE`],
+/// is judged exactly like one on time and stored in the history entry.
+pub struct LateAnswer {
+    request: InFlight,
+    source_text: String,
+    config: AiConfig,
+    status: AiStatus,
+    started: tokio::time::Instant,
+    give_up_at: tokio::time::Instant,
+}
+
+impl LateAnswer {
+    pub fn mode(&self) -> LateAnswerMode {
+        self.config.late_answer
+    }
+
+    /// The answer, or `None` when the request failed or outlived its grace.
+    pub async fn wait(mut self) -> Option<CallOutcome> {
+        let joined = tokio::time::timeout_at(self.give_up_at, &mut self.request.0)
+            .await
+            .ok()?;
+        let (raw, info) = joined.ok()?.ok()?;
+        let mut status = std::mem::take(&mut self.status);
+        status.late = true;
+        status.fallback = false;
+        status.skipped_reason.clear();
+        status.error_type = None;
+        status.provider_error = None;
+        status.http_status = info.http_status;
+        status.usage = info.usage;
+        status.elapsed_seconds = self.started.elapsed().as_secs_f64();
+        Some(judge_answer(
+            &self.source_text,
+            &self.config,
+            raw,
+            info.response_snippet,
+            status,
+        ))
+    }
+}
+
+type ProviderReply = Result<(String, super::providers::ProviderInfo), ProviderError>;
+
+/// A provider request on a task of its own, cancelled when dropped — so no
+/// way out of the retry loop leaves one running unseen.
+struct InFlight(tokio::task::JoinHandle<ProviderReply>);
+
+impl InFlight {
+    fn spawn(provider: &Arc<dyn Provider>, system_prompt: &str, text: &str) -> Self {
+        let provider = Arc::clone(provider);
+        let (system_prompt, text) = (system_prompt.to_string(), text.to_string());
+        Self(tokio::spawn(async move {
+            provider.complete(&system_prompt, &text).await
+        }))
+    }
+}
+
+impl Drop for InFlight {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
 }
 
 /// Build a "skipped" `CallOutcome`: the LLM step did not run, the
@@ -181,6 +286,7 @@ fn skipped(text: &str, mut status: AiStatus, reason: &str) -> CallOutcome {
     CallOutcome {
         text: text.to_string(),
         status,
+        late: None,
     }
 }
 
@@ -213,7 +319,7 @@ pub async fn ai_process_text_with_status(
         fallback: false,
         skipped_reason: String::new(),
         timeout_seconds: config.llm_timeout_seconds,
-        attempt_timeout_seconds: attempt_timeout(config.llm_timeout_seconds).as_secs(),
+        attempt_timeout_seconds: attempt_timeout(config.llm_timeout_seconds, text).as_secs(),
         attempts: 0,
         elapsed_seconds: 0.0,
         usage: None,
@@ -223,6 +329,7 @@ pub async fn ai_process_text_with_status(
         response_snippet: None,
         output_length: None,
         provider_attempts: Vec::new(),
+        late: false,
     };
 
     if config.pipeline_mode == "local" {
@@ -236,6 +343,11 @@ pub async fn ai_process_text_with_status(
         config.audio_duration_seconds,
     ) {
         return skipped(text, status, "duration_below_threshold");
+    }
+    // The answer could not fit in the completion budget, so the request would
+    // only delay the paste and cost tokens before falling back anyway.
+    if text.chars().count() > MAX_INPUT_CHARS {
+        return skipped(text, status, "text_too_long");
     }
     if api_key.map(str::is_empty).unwrap_or(true) {
         return skipped(text, status, "missing_api_key");
@@ -252,11 +364,18 @@ pub async fn ai_process_text_with_status(
     }
     let user_message = wrap_dictation(text);
 
-    let provider = build_provider(config, api_key);
+    // The HTTP client gives up on its own clock: kept to the attempt budget, it
+    // would cut off the very request a late answer waits for.
+    let budget = attempt_timeout(config.llm_timeout_seconds, text);
+    let http_timeout = match config.late_answer {
+        LateAnswerMode::Off => budget,
+        _ => budget + LATE_ANSWER_GRACE,
+    };
+    let provider: Arc<dyn Provider> = Arc::from(build_provider(config, api_key, http_timeout));
     finish_with_provider(
         text,
         config,
-        provider.as_ref(),
+        provider,
         &rendered_system,
         &user_message,
         status,
@@ -270,19 +389,19 @@ pub async fn ai_process_text_with_status(
 async fn finish_with_provider(
     text: &str,
     config: &AiConfig,
-    provider: &dyn Provider,
+    provider: Arc<dyn Provider>,
     rendered_system: &str,
     user_message: &str,
     mut status: AiStatus,
 ) -> CallOutcome {
     status.attempted = true;
-    let attempt_timeout = attempt_timeout(config.llm_timeout_seconds);
+    let budget = attempt_timeout(config.llm_timeout_seconds, text);
     let (result, info) = call_provider_with_retry(
         provider,
         rendered_system,
         user_message,
-        attempt_timeout,
-        Duration::from_secs(config.llm_timeout_seconds.clamp(1, 300)),
+        budget,
+        budget,
         &mut status,
     )
     .await;
@@ -309,20 +428,46 @@ async fn finish_with_provider(
         }
         status.skipped_reason =
             skipped_reason_for(&status.error_type.clone().unwrap_or_default()).to_string();
+        let late = info
+            .pending
+            .filter(|_| config.late_answer != LateAnswerMode::Off)
+            .map(|request| LateAnswer {
+                request,
+                source_text: text.to_string(),
+                config: config.clone(),
+                status: status.clone(),
+                started: info.started,
+                give_up_at: info.started + budget + LATE_ANSWER_GRACE,
+            });
         return CallOutcome {
             text: text.to_string(),
             status,
+            late,
         };
     };
+    judge_answer(text, config, raw, info.response_snippet, status)
+}
 
+/// Keep the answer if it is a tidy edit of `text`; otherwise the dictation
+/// stays as it was and `status` says why. The same judgement for an answer on
+/// time and for a late one.
+fn judge_answer(
+    text: &str,
+    config: &AiConfig,
+    raw: String,
+    response_snippet: Option<String>,
+    mut status: AiStatus,
+) -> CallOutcome {
     let cleaned = strip_reasoning(&raw);
     if cleaned.is_empty() {
         status.fallback = true;
         status.error_type = Some("empty_response".to_string());
         status.skipped_reason = "empty_response".to_string();
+        status.provider_error = response_snippet;
         return CallOutcome {
             text: text.to_string(),
             status,
+            late: None,
         };
     }
     if is_meta_noop_response(&cleaned) {
@@ -332,6 +477,7 @@ async fn finish_with_provider(
         return CallOutcome {
             text: text.to_string(),
             status,
+            late: None,
         };
     }
     // A model that gave back half the dictation retold it instead of tidying
@@ -353,6 +499,7 @@ async fn finish_with_provider(
         return CallOutcome {
             text: text.to_string(),
             status,
+            late: None,
         };
     }
 
@@ -361,6 +508,7 @@ async fn finish_with_provider(
     CallOutcome {
         text: cleaned,
         status,
+        late: None,
     }
 }
 
@@ -472,56 +620,73 @@ fn is_leap(year: i64) -> bool {
     (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
 }
 
-fn attempt_timeout(configured: u64) -> Duration {
-    Duration::from_secs(configured.clamp(1, MAX_RETRY_ATTEMPT_TIMEOUT.as_secs()))
+/// A conservative output speed for a hosted model, so a long text is given
+/// time to come back rather than timing out on every attempt.
+const ANSWER_TOKENS_PER_SECOND: u32 = 50;
+
+/// The longest one attempt may take, however long the text. The overlay's
+/// stuck-guard is derived from it, so it never hides a request still running.
+pub(crate) const MAX_ATTEMPT_SECS: u64 = 300;
+
+/// One attempt may use the whole budget: the configured timeout, or longer
+/// when `text` cannot be rewritten in it at [`ANSWER_TOKENS_PER_SECOND`]. A
+/// fixed cap cut off every long dictation, and retrying the same request after
+/// the cap cannot finish sooner. Fast transient failures still retry within
+/// the budget that remains.
+fn attempt_timeout(configured: u64, text: &str) -> Duration {
+    let needed = u64::from(answer_tokens(text).div_ceil(ANSWER_TOKENS_PER_SECOND));
+    Duration::from_secs(configured.max(needed).clamp(1, MAX_ATTEMPT_SECS))
 }
 
-fn build_provider(config: &AiConfig, api_key: &str) -> Box<dyn Provider> {
+fn build_provider(config: &AiConfig, api_key: &str, timeout: Duration) -> Box<dyn Provider> {
     let base_url = config.base_url.as_deref();
     match config.provider.as_str() {
         "anthropic" => Box::new(AnthropicProvider::new(
             api_key.to_string(),
             config.model.clone(),
             base_url.map(str::to_string),
-            Some(attempt_timeout(config.llm_timeout_seconds)),
+            Some(timeout),
             None,
         )),
         "openai" => Box::new(OpenAIProvider::new(
             api_key.to_string(),
             config.model.clone(),
             base_url.map(str::to_string),
-            Some(attempt_timeout(config.llm_timeout_seconds)),
+            Some(timeout),
             None,
         )),
         "compatible" => Box::new(OpenAIProvider::new(
             api_key.to_string(),
             config.model.clone(),
             base_url.map(str::to_string),
-            Some(attempt_timeout(config.llm_timeout_seconds)),
+            Some(timeout),
             None,
         )),
         "opencode-go" => Box::new(OpenCodeGoProvider::new(
             api_key.to_string(),
             config.model.clone(),
             base_url.map(str::to_string),
-            Some(attempt_timeout(config.llm_timeout_seconds)),
+            Some(timeout),
         )),
         "gemini" => Box::new(GeminiProvider::new(
             api_key.to_string(),
             config.model.clone(),
-            Some(attempt_timeout(config.llm_timeout_seconds)),
+            Some(timeout),
         )),
         _ => Box::new(AnthropicProvider::new(
             api_key.to_string(),
             config.model.clone(),
             base_url.map(str::to_string),
-            Some(attempt_timeout(config.llm_timeout_seconds)),
+            Some(timeout),
             None,
         )),
     }
 }
 
 struct CallOutcomeInfo {
+    started: tokio::time::Instant,
+    /// The last attempt, when it was still running at the deadline.
+    pending: Option<InFlight>,
     attempts: u32,
     attempt_timeout_seconds: u64,
     elapsed_seconds: f64,
@@ -533,7 +698,7 @@ struct CallOutcomeInfo {
 }
 
 async fn call_provider_with_retry(
-    provider: &dyn Provider,
+    provider: Arc<dyn Provider>,
     system_prompt: &str,
     text: &str,
     attempt_timeout: Duration,
@@ -544,23 +709,31 @@ async fn call_provider_with_retry(
     let deadline = started + total_timeout;
     let mut last_error =
         ProviderError::new(ProviderErrorType::Timeout, "LLM time budget exhausted");
+    let mut pending = None;
     for attempt in 1..=MAX_PROVIDER_ATTEMPTS {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
         if remaining.is_zero() {
             break;
         }
+        // A retry replaces the attempt that timed out before it.
+        pending = None;
         let attempt_started = tokio::time::Instant::now();
-        let result = tokio::time::timeout(
-            remaining.min(attempt_timeout),
-            provider.complete(system_prompt, text),
-        )
-        .await
-        .unwrap_or_else(|_| {
-            Err(ProviderError::new(
-                ProviderErrorType::Timeout,
-                "LLM attempt timed out",
-            ))
-        });
+        let mut request = InFlight::spawn(&provider, system_prompt, text);
+        let joined = tokio::time::timeout(remaining.min(attempt_timeout), &mut request.0).await;
+        let result = match joined {
+            Ok(Ok(reply)) => reply,
+            Ok(Err(failure)) => Err(ProviderError::new(
+                ProviderErrorType::ProviderFailed,
+                format!("provider task failed: {failure}"),
+            )),
+            Err(_) => {
+                pending = Some(request);
+                Err(ProviderError::new(
+                    ProviderErrorType::Timeout,
+                    "LLM attempt timed out",
+                ))
+            }
+        };
         let elapsed = attempt_started.elapsed().as_secs_f64();
         let error = result.as_ref().err();
         status.provider_attempts.push(ProviderAttemptInfo {
@@ -578,6 +751,8 @@ async fn call_provider_with_retry(
                 return (
                     Some(text),
                     CallOutcomeInfo {
+                        started,
+                        pending: None,
                         attempts: attempt,
                         attempt_timeout_seconds: attempt_timeout.as_secs(),
                         elapsed_seconds: started.elapsed().as_secs_f64(),
@@ -585,7 +760,7 @@ async fn call_provider_with_retry(
                         message: String::new(),
                         error_type: None,
                         http_status: info.http_status,
-                        response_snippet: None,
+                        response_snippet: info.response_snippet,
                     },
                 )
             }
@@ -605,6 +780,8 @@ async fn call_provider_with_retry(
     (
         None,
         CallOutcomeInfo {
+            started,
+            pending,
             attempts: status.provider_attempts.len() as u32,
             attempt_timeout_seconds: attempt_timeout.as_secs(),
             elapsed_seconds: started.elapsed().as_secs_f64(),
@@ -654,6 +831,7 @@ mod tests {
             audio_duration_seconds: Some(45.0),
             llm_min_duration_seconds: 30.0,
             llm_timeout_seconds: 12,
+            late_answer: LateAnswerMode::Notify,
         }
     }
 
@@ -804,6 +982,23 @@ mod tests {
     }
 
     #[test]
+    fn text_past_the_completion_budget_skips_ai() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let text = "я".repeat(MAX_INPUT_CHARS + 1);
+        let outcome = runtime.block_on(ai_process_text_with_status(
+            &text,
+            &base_config(),
+            Some("sk-test"),
+        ));
+        assert!(!outcome.status.attempted);
+        assert_eq!(outcome.status.skipped_reason, "text_too_long");
+        assert_eq!(outcome.text, text);
+    }
+
+    #[test]
     fn short_audio_skips_ai() {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -910,10 +1105,23 @@ mod tests {
     }
 
     #[test]
-    fn attempt_timeout_clamps_to_one_and_four_seconds() {
-        assert_eq!(attempt_timeout(0), Duration::from_secs(1));
-        assert_eq!(attempt_timeout(2), Duration::from_secs(2));
-        assert_eq!(attempt_timeout(12), Duration::from_secs(4));
+    fn attempt_timeout_is_the_configured_budget() {
+        assert_eq!(attempt_timeout(0, ""), Duration::from_secs(1));
+        assert_eq!(
+            attempt_timeout(25, "короткая фраза"),
+            Duration::from_secs(25)
+        );
+        assert_eq!(attempt_timeout(1000, ""), Duration::from_secs(300));
+    }
+
+    #[test]
+    fn attempt_timeout_grows_with_a_long_text() {
+        // 15 minutes of speech: ~7.5k answer tokens, far past a 12 s default.
+        let long = "я".repeat(15_000);
+        assert_eq!(attempt_timeout(12, &long), Duration::from_secs(150));
+        assert_eq!(attempt_timeout(200, &long), Duration::from_secs(200));
+        let longest = "я".repeat(MAX_INPUT_CHARS);
+        assert_eq!(attempt_timeout(12, &longest), Duration::from_secs(287));
     }
 
     #[test]
@@ -946,7 +1154,7 @@ mod tests {
             ("something-unknown", "anthropic"), // fallback arm
         ] {
             cfg.provider = provider.to_string();
-            let built = build_provider(&cfg, "sk-test");
+            let built = build_provider(&cfg, "sk-test", Duration::from_secs(12));
             assert_eq!(built.name(), expected_name, "provider {provider}");
         }
     }
@@ -1119,17 +1327,17 @@ mod tests {
     async fn call_provider_with_retry_retries_a_transient_error() {
         let timeout = ProviderError::new(ProviderErrorType::Timeout, "timeout");
         let success = ProviderInfo::success("answer", None, 0.1);
-        let provider = MockProvider {
+        let provider = Arc::new(MockProvider {
             outcomes: std::sync::Mutex::new(vec![
                 Err(timeout),
                 Ok(("answer".to_string(), success)),
             ]),
             calls: std::sync::atomic::AtomicUsize::new(0),
-        };
+        });
         let mut status = AiStatus::default();
 
         let (text, info) = call_provider_with_retry(
-            &provider,
+            provider.clone(),
             "system",
             "text",
             Duration::from_secs(4),
@@ -1152,17 +1360,17 @@ mod tests {
     #[tokio::test]
     async fn a_shortened_answer_falls_back_to_the_dictation() {
         let input = "слово ".repeat(100);
-        let provider = MockProvider {
+        let provider = Arc::new(MockProvider {
             outcomes: std::sync::Mutex::new(vec![Ok((
                 "слово ".repeat(69),
                 ProviderInfo::success("ignored", None, 0.1),
             ))]),
             calls: std::sync::atomic::AtomicUsize::new(0),
-        };
+        });
         let outcome = finish_with_provider(
             &input,
             &base_config(),
-            &provider,
+            provider.clone(),
             "system",
             "user",
             AiStatus::default(),
@@ -1183,17 +1391,17 @@ mod tests {
     async fn punctuation_at_the_same_length_is_kept() {
         let input = "слово ".repeat(40);
         let tidied = format!("{},", input.trim().replace(' ', ", "));
-        let provider = MockProvider {
+        let provider = Arc::new(MockProvider {
             outcomes: std::sync::Mutex::new(vec![Ok((
                 tidied.clone(),
                 ProviderInfo::success("ignored", None, 0.1),
             ))]),
             calls: std::sync::atomic::AtomicUsize::new(0),
-        };
+        });
         let outcome = finish_with_provider(
             &input,
             &base_config(),
-            &provider,
+            provider.clone(),
             "system",
             "user",
             AiStatus::default(),
@@ -1218,11 +1426,45 @@ mod tests {
         }
     }
 
+    /// Rewriting a long dictation takes the model longer than a phrase; the
+    /// configured timeout, not a fixed per-attempt cap, decides when to give up.
+    #[tokio::test(start_paused = true)]
+    async fn a_slow_answer_within_the_configured_timeout_is_kept() {
+        struct SixSecondProvider;
+        impl Provider for SixSecondProvider {
+            fn name(&self) -> &'static str {
+                "six-seconds"
+            }
+            fn complete<'a>(&'a self, _: &'a str, text: &'a str) -> CompletionFuture<'a> {
+                Box::pin(async move {
+                    tokio::time::sleep(Duration::from_secs(6)).await;
+                    Ok((text.to_string(), ProviderInfo::success(text, None, 6.0)))
+                })
+            }
+        }
+        let input = "слово ".repeat(40);
+        let outcome = finish_with_provider(
+            &input,
+            &base_config(),
+            Arc::new(SixSecondProvider),
+            "system",
+            &input,
+            AiStatus::default(),
+        )
+        .await;
+        assert!(
+            outcome.status.used,
+            "{:?}",
+            outcome.status.provider_attempts
+        );
+        assert_eq!(outcome.status.attempts, 1);
+    }
+
     #[tokio::test(start_paused = true)]
     async fn actual_attempts_and_backoff_respect_the_overall_deadline() {
         let mut status = AiStatus::default();
         let (text, info) = call_provider_with_retry(
-            &SlowProvider,
+            Arc::new(SlowProvider),
             "system",
             "text",
             Duration::from_secs(4),
@@ -1242,7 +1484,7 @@ mod tests {
     async fn an_attempt_timeout_does_not_wait_for_a_late_success() {
         let mut status = AiStatus::default();
         let (text, info) = call_provider_with_retry(
-            &SlowProvider,
+            Arc::new(SlowProvider),
             "system",
             "text",
             Duration::from_secs(4),
@@ -1253,5 +1495,87 @@ mod tests {
         assert!(text.is_none());
         assert!((info.elapsed_seconds - 8.3).abs() < 0.01);
         assert_eq!(info.attempts, 2);
+    }
+
+    /// Echoes the text it was given, `.0` seconds later.
+    struct DelayedEcho(u64);
+    impl Provider for DelayedEcho {
+        fn name(&self) -> &'static str {
+            "delayed-echo"
+        }
+        fn complete<'a>(&'a self, _: &'a str, text: &'a str) -> CompletionFuture<'a> {
+            let delay = self.0;
+            Box::pin(async move {
+                tokio::time::sleep(Duration::from_secs(delay)).await;
+                Ok((text.to_string(), ProviderInfo::success(text, None, 0.0)))
+            })
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn an_answer_after_the_timeout_is_kept_as_a_late_answer() {
+        let input = "слово ".repeat(40);
+        let outcome = finish_with_provider(
+            &input,
+            &base_config(),
+            Arc::new(DelayedEcho(20)),
+            "system",
+            &input,
+            AiStatus::default(),
+        )
+        .await;
+        assert!(
+            outcome.status.fallback,
+            "the paste does not wait past the timeout"
+        );
+        assert_eq!(outcome.text, input);
+        let late = outcome.late.expect("the request keeps running");
+        let answer = late
+            .wait()
+            .await
+            .expect("the answer arrives within the grace");
+        assert!(answer.status.used);
+        assert!(answer.status.late);
+        assert!(!answer.status.fallback);
+        assert!(answer.status.skipped_reason.is_empty());
+        assert!((answer.status.elapsed_seconds - 20.0).abs() < 0.01);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_late_answer_past_the_grace_is_given_up() {
+        let input = "слово ".repeat(40);
+        let outcome = finish_with_provider(
+            &input,
+            &base_config(),
+            Arc::new(DelayedEcho(12 + LATE_ANSWER_GRACE.as_secs() + 10)),
+            "system",
+            &input,
+            AiStatus::default(),
+        )
+        .await;
+        assert!(outcome
+            .late
+            .expect("still running at the timeout")
+            .wait()
+            .await
+            .is_none());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn late_answers_turned_off_cancel_the_request_at_the_timeout() {
+        let input = "слово ".repeat(40);
+        let mut config = base_config();
+        config.late_answer = LateAnswerMode::Off;
+        let outcome = finish_with_provider(
+            &input,
+            &config,
+            Arc::new(DelayedEcho(20)),
+            "system",
+            &input,
+            AiStatus::default(),
+        )
+        .await;
+        assert!(outcome.status.fallback);
+        assert!(outcome.late.is_none());
     }
 }

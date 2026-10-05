@@ -14,7 +14,7 @@ type PreviewPayload = { session_id: number; text: string };
 // window. They used to be one state, so a slow LLM pass produced an
 // overlay that announced a character count before anything was inserted.
 
-type AiProcessingPayload = { fallback?: boolean; skipped_reason?: string };
+type AiProcessingPayload = { fallback?: boolean; skipped_reason?: string; late_pending?: boolean };
 type TranscriptionPayload = { text?: string; length?: number; ai_processing?: AiProcessingPayload; ai_problem?: string };
 type PastePayload = { session_id?: number; length?: number; ai_processing?: AiProcessingPayload };
 type ErrorPayload = { session_id?: number; message?: string };
@@ -28,7 +28,12 @@ function shortAiProblem(payload?: TranscriptionPayload) {
   if (ai?.skipped_reason === "missing_provider" || ai?.skipped_reason === "missing_api_key" || ai?.skipped_reason === "missing_system_prompt") {
     return t("LLM не настроена, вставлен локальный текст");
   }
+  // Not a fallback either: the text was past what one answer can hold, so it
+  // was never sent.
+  if (ai?.skipped_reason === "text_too_long") return t("Текст слишком длинный для LLM, вставлен локальный текст");
   if (!ai?.fallback) return "";
+  // Still running: the answer, if it comes, goes into the history entry.
+  if (ai.skipped_reason === "provider_timeout" && ai.late_pending) return t("LLM не успела — ответ появится в истории");
   if (ai.skipped_reason === "provider_timeout") return t("LLM не ответила, вставлен локальный текст");
   if (ai.skipped_reason === "provider_quota_or_rate_limit") return t("Лимит LLM, вставлен локальный текст");
   return t("Ошибка LLM, вставлен локальный текст");
@@ -103,6 +108,9 @@ export function useOverlaySession() {
   const [dictationKey, setDictationKey] = useState<number | null>(null);
   const [errorText, setErrorText] = useState("");
   const [aiProblem, setAiProblem] = useState("");
+  // The history entry a late LLM answer was written into: what its note's
+  // buttons copy and open.
+  const [lateEntryId, setLateEntryId] = useState<number | null>(null);
   const [isClosing, setIsClosing] = useState(false);
   const isClosingRef = useRef(false);
   // Rust is about to conceal the window: play the exit. A new state cancels it.
@@ -123,7 +131,7 @@ export function useOverlaySession() {
       setIsClosing(false);
     };
 
-    if (state === "pasted" || state === "error") {
+    if (state === "pasted" || state === "error" || state === "late") {
       void hide().finally(release);
       return;
     }
@@ -158,7 +166,7 @@ export function useOverlaySession() {
   useEffect(() => {
     const win = getCurrentWebviewWindow();
     const isOverlayState = (value: unknown): value is OverlayState => {
-      return typeof value === "string" && ["recording", "processing", "loading", "done", "pasted", "error"].includes(value);
+      return typeof value === "string" && ["recording", "processing", "loading", "done", "pasted", "error", "late"].includes(value);
     };
     const applyOverlayState = (next: OverlayState) => {
       isClosingRef.current = false;
@@ -239,7 +247,8 @@ export function useOverlaySession() {
   // Arrived text is the safety net for when the enable event missed the window
   // warm-up: there is nowhere to show a hypothesis inside the pill.
   const streaming = state === "recording" && (armedSession !== null || previewText.length > 0);
-  const needsText = state === "error" || (state === "pasted" && !!aiProblem);
+  // The late-answer note is all text and buttons, like an error: a bead opens into a pill for it.
+  const needsText = state === "error" || state === "late" || (state === "pasted" && !!aiProblem);
   const layout = overlayLayout(preferences.form, streaming, needsText);
   useEffect(() => {
     void tauriInvoke("set_overlay_presentation", { streaming, needsText }).catch(() => {});
@@ -345,6 +354,9 @@ export function useOverlaySession() {
         setState(null);
         // Overlay hides via Rust's hide() call (subscribe_engine_events).
       }),
+      subscribe<{ entry_id?: number }>("llm-late-answer", (payload) => {
+        if (typeof payload?.entry_id === "number") setLateEntryId(payload.entry_id);
+      }),
       subscribe<unknown>("whisper-cancelled", (payload) => {
         if (!belongsToCurrentSession(payload)) return;
         liveStateVersion.current++;
@@ -367,6 +379,7 @@ export function useOverlaySession() {
   return {
     state, config, preferences, layout, dictationKey, streaming, recordingStartedAt, recordingStoppedAt, limitAt,
     pastedLength, decodedAt, previewText, errorText, aiProblem, isClosing, leaving, hovered, setHovered, handleClose,
+    lateEntryId,
   };
 }
 

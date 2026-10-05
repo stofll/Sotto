@@ -1,3 +1,6 @@
+/** What happens to an LLM answer that misses the timeout (`llm_late_answer`). */
+export type LateAnswerMode = "notify" | "silent" | "off";
+
 export interface ReleaseNotes {
   version: string;
   notes: string;
@@ -161,6 +164,8 @@ export interface ConfigResult {
     spend_limit_usd: number;
     llm_min_duration_seconds?: number;
     llm_timeout_seconds?: number;
+    /** What to do with an answer that misses the timeout; see `LateAnswerMode` in ai/step.rs. */
+    llm_late_answer?: LateAnswerMode;
     cloud_stt_timeout_seconds?: number;
     system_prompt: string;
     base_url?: string;
@@ -369,6 +374,8 @@ export interface HistoryEntry {
     enabled?: boolean;
     attempted?: boolean;
     used?: boolean;
+    /** The answer arrived after the paste and was stored afterwards. */
+    late?: boolean;
     fallback?: boolean;
     skipped_reason?: string;
     error_type?: string;
@@ -437,6 +444,7 @@ export interface HistoryAiPreview {
   ok: boolean;
   text: string;
   reason?: string;
+  detail?: string;
   provider: string;
   model: string;
   profile_name: string;

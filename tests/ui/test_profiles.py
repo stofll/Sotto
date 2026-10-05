@@ -30,7 +30,7 @@ def test_wizard_invalid_url_and_unsaved_guard(app, page):
     dialog.get_by_label("Base URL", exact=True).fill("https://api.example.com/v1")
     expect(dialog.get_by_role("button", name="Далее", exact=True)).to_be_enabled()
     dialog.get_by_role("button", name="Закрыть", exact=True).click()
-    guard = page.get_by_role("alertdialog")
+    guard = page.get_by_role("dialog", name="Закрыть мастер?")
     expect(guard.get_by_role("button", name="Остаться", exact=True)).to_be_focused()
     guard.get_by_role("button", name="Остаться", exact=True).click()
     expect(dialog.get_by_label("Base URL", exact=True)).to_have_value(
@@ -39,6 +39,91 @@ def test_wizard_invalid_url_and_unsaved_guard(app, page):
     dialog.get_by_role("button", name="Закрыть", exact=True).click()
     guard.get_by_role("button", name="Закрыть без сохранения", exact=True).click()
     expect(dialog).not_to_be_visible()
+
+
+def test_wizard_starts_with_nothing_picked(app, page):
+    ui = app()
+    dialog = wizard(ui, page)
+    expect(
+        dialog.get_by_placeholder("Поиск: провайдер, пресет, адрес…")
+    ).not_to_be_focused()
+    expect(dialog.get_by_role("button", name="Далее", exact=True)).to_be_disabled()
+    dialog.get_by_role("button", name="Groq", exact=True).click()
+    expect(dialog.get_by_role("button", name="Далее", exact=True)).to_be_enabled()
+
+
+def test_wizard_name_follows_the_card_until_typed(app, page):
+    ui = app()
+    dialog = wizard(ui, page)
+    dialog.get_by_role("button", name="DeepSeek", exact=True).click()
+    dialog.get_by_role("button", name="Mistral", exact=True).click()
+    dialog.get_by_role("button", name="Далее", exact=True).click()
+    dialog.get_by_placeholder("sk-...", exact=True).fill("synthetic-key-0123456789")
+    dialog.get_by_role("button", name="Далее", exact=True).click()
+    name = dialog.get_by_label("Название профиля", exact=True)
+    expect(name).to_have_value("Mistral")
+    # No model is filled in for the user: an id compiled into the app goes stale.
+    expect(
+        dialog.get_by_placeholder("Выберите из списка провайдера или введите id")
+    ).to_have_value("")
+    name.fill("Typed name")
+    dialog.get_by_role("button", name="Назад", exact=True).click()
+    dialog.get_by_role("button", name="Назад", exact=True).click()
+    dialog.get_by_role("button", name="Groq", exact=True).click()
+    dialog.get_by_role("button", name="Далее", exact=True).click()
+    dialog.get_by_placeholder("sk-...", exact=True).fill("synthetic-key-0123456789")
+    dialog.get_by_role("button", name="Далее", exact=True).click()
+    expect(name).to_have_value("Typed name")
+
+
+def test_wizard_forgets_the_key_of_another_provider(app, page):
+    ui = app()
+    dialog = wizard(ui, page)
+    dialog.get_by_role("button", name="OpenAI", exact=True).click()
+    dialog.get_by_role("button", name="Далее", exact=True).click()
+    dialog.get_by_placeholder("sk-...", exact=True).fill("sk-synthetic-0123456789")
+    dialog.get_by_role("button", name="Назад", exact=True).click()
+    dialog.get_by_role("button", name="Anthropic", exact=True).click()
+    dialog.get_by_role("button", name="Далее", exact=True).click()
+    expect(dialog.get_by_placeholder("sk-...", exact=True)).to_have_value("")
+
+
+def test_wizard_escape_and_focus_stay_with_the_dialog(app, page):
+    ui = app()
+    dialog = wizard(ui, page)
+    page.keyboard.press("Escape")
+    expect(dialog).not_to_be_visible()
+    dialog = wizard(ui, page)
+    dialog.get_by_role("button", name="Своя конфигурация", exact=False).click()
+    dialog.get_by_label("Base URL", exact=True).fill("https://api.example.com/v1")
+    for _ in range(30):
+        page.keyboard.press("Tab")
+        assert page.evaluate("() => !!document.activeElement?.closest('[role=dialog]')")
+    page.keyboard.press("Escape")
+    guard = page.get_by_role("dialog", name="Закрыть мастер?")
+    expect(guard).to_be_visible()
+    page.keyboard.press("Escape")
+    expect(dialog.get_by_label("Base URL", exact=True)).to_have_value(
+        "https://api.example.com/v1"
+    )
+
+
+def test_wizard_asks_the_provider_for_models_when_the_list_opens(app, page):
+    ui = app()
+    dialog = wizard(ui, page)
+    dialog.get_by_role("button", name="Своя конфигурация", exact=False).click()
+    dialog.get_by_label("Base URL", exact=True).fill("http://localhost:1234/v1")
+    dialog.get_by_role("button", name="Далее", exact=True).click()
+    dialog.get_by_role("button", name="Далее", exact=True).click()
+    assert ui.calls("fetch_provider_models") == []
+    dialog.get_by_placeholder("Выберите из списка провайдера или введите id").click()
+    expect(page.get_by_role("option", name="synthetic-model")).to_be_visible()
+    assert len(ui.calls("fetch_provider_models")) == 1
+    # Escape belongs to the open list, not to the dialog around it.
+    page.keyboard.press("Escape")
+    expect(page.get_by_role("option", name="synthetic-model")).not_to_be_visible()
+    expect(page.get_by_role("dialog", name="Закрыть мастер?")).to_have_count(0)
+    expect(dialog).to_be_visible()
 
 
 def test_create_local_profile(app, page):
@@ -52,7 +137,9 @@ def test_create_local_profile(app, page):
     ).check()
     dialog.get_by_role("button", name="Далее", exact=True).click()
     dialog.get_by_label("Название профиля", exact=True).fill("Synthetic local profile")
-    dialog.get_by_placeholder("например: gpt-oss-120b").fill("synthetic-model")
+    dialog.get_by_placeholder("Выберите из списка провайдера или введите id").fill(
+        "synthetic-model"
+    )
     dialog.get_by_role("button", name="Создать профиль", exact=True).click()
     expect(dialog).not_to_be_visible()
     expect(page.get_by_test_id("page-integrations")).to_contain_text(
@@ -79,7 +166,9 @@ def test_wizard_config_failure_keeps_draft_and_key_ref_for_retry(app, page):
     ).check()
     dialog.get_by_role("button", name="Далее", exact=True).click()
     dialog.get_by_label("Название профиля", exact=True).fill("Retried profile")
-    dialog.get_by_placeholder("например: gpt-oss-120b").fill("synthetic-model")
+    dialog.get_by_placeholder("Выберите из списка провайдера или введите id").fill(
+        "synthetic-model"
+    )
     ui.queue("save_config", {"error": "Synthetic config failure"})
     dialog.get_by_role("button", name="Создать профиль", exact=True).click()
     expect(dialog).to_be_visible()
@@ -110,7 +199,9 @@ def test_fresh_install_wizard_writes_the_route(app, page):
     ).check()
     dialog.get_by_role("button", name="Далее", exact=True).click()
     dialog.get_by_label("Название профиля", exact=True).fill("Fresh profile")
-    dialog.get_by_placeholder("например: gpt-oss-120b").fill("synthetic-model")
+    dialog.get_by_placeholder("Выберите из списка провайдера или введите id").fill(
+        "synthetic-model"
+    )
     dialog.get_by_role("button", name="Создать профиль", exact=True).click()
     expect(dialog).not_to_be_visible()
     ai = ui.state()["config"]["ai_processing"]
@@ -408,7 +499,10 @@ def test_key_slot_edit_config_failure_keeps_editor_open(app, page):
     ui.queue("save_config", {"error": "Synthetic config failure"})
     row.get_by_role("button", name="Сохранить", exact=True).click()
     expect(field).to_have_value("synthetic-replacement")
-    expect(page.get_by_role("status")).to_contain_text("Не удалось сохранить ключ.")
+    # The field below the key carries its own status line about the value.
+    expect(
+        page.get_by_role("status").filter(has_text="Не удалось сохранить ключ.")
+    ).to_be_visible()
     assert (
         ui.state()["config"]["ai_processing"]["key_slots"][0]["label"]
         == "Synthetic key"
@@ -450,7 +544,10 @@ def test_key_replace_and_delete_failure_preserve_key(app, page):
         "synthetic-replacement"
     )
     row.get_by_role("button", name="Сохранить", exact=True).click()
-    expect(page.get_by_role("status")).to_contain_text("Synthetic replace failure")
+    # The field below the key carries its own status line about the value.
+    expect(
+        page.get_by_role("status").filter(has_text="Synthetic replace failure")
+    ).to_be_visible()
     expect(row.get_by_placeholder("Новое значение ключа", exact=True)).to_be_visible()
     row.get_by_role("button", name="Отмена", exact=True).click()
     ui.queue("delete_api_key", {"error": "Synthetic delete failure"})
@@ -480,3 +577,137 @@ def test_profile_connection_failure_and_retry(app, page):
     ui.queue("test_ai_prompt", {"result": {"available": True}})
     row.get_by_role("button", name="Проверить связь", exact=True).click()
     expect(row.get_by_role("status")).to_contain_text("Тест пройден")
+
+
+def test_profile_connection_sends_preset_prompt_for_empty_field(app, page):
+    # An empty prompt on a profile means "the built-in preset"; sending it
+    # verbatim made the backend skip the request as missing_system_prompt.
+    ui = app(
+        config={"ai_processing": {"profiles": [{**PROFILE, "system_prompt": ""}]}},
+        keys={
+            "openai": {"available": True, "label": "Synthetic", "masked": "test-***"}
+        },
+    )
+    ui.nav("integrations")
+    row = page.get_by_test_id("profile-synthetic")
+    row.get_by_role("button", name="Synthetic profile", exact=False).click()
+    ui.queue("test_ai_prompt", {"result": {"available": True}})
+    row.get_by_role("button", name="Проверить связь", exact=True).click()
+    expect(row.get_by_role("status")).to_contain_text("Тест пройден")
+    assert ui.calls("test_ai_prompt")[-1]["args"]["system_prompt"].strip()
+
+
+def test_key_reveal_buttons_match_field_height(app, page):
+    ui = app(
+        config={
+            "ai_processing": {
+                "key_slots": [
+                    {
+                        "ref": "synthetic-key",
+                        "label": "Synthetic key",
+                        "provider": "openai",
+                    }
+                ]
+            }
+        },
+        keys={
+            "synthetic-key": {
+                "available": True,
+                "label": "Synthetic key",
+                "masked": "test-***",
+            }
+        },
+    )
+    ui.nav("integrations")
+    row = page.get_by_test_id("key-synthetic-key")
+    row.get_by_role("button", name="Действия с ключом", exact=True).click()
+    page.get_by_role("menuitem", name="Заменить ключ", exact=True).click()
+    page.get_by_role("button", name="Добавить ключ", exact=True).click()
+    dialog = page.get_by_role("dialog", name="Новый API-ключ")
+    for scope, placeholder in ((row, "Новое значение ключа"), (dialog, "sk-...")):
+        field = scope.get_by_placeholder(placeholder, exact=True).bounding_box()
+        reveal = scope.get_by_role(
+            "button", name="Показать ключ", exact=True
+        ).bounding_box()
+        assert abs(reveal["height"] - field["height"]) < 1
+
+
+COMPATIBLE_PROFILE = {
+    **PROFILE,
+    "provider": "compatible",
+    "base_url": "https://api.example.com/v1",
+}
+
+
+def test_profile_editor_refuses_a_broken_base_url(app, page):
+    ui = app(
+        config={
+            "ai_processing": {
+                "profiles": [COMPATIBLE_PROFILE],
+                "active_profile_id": "synthetic",
+            }
+        }
+    )
+    ui.nav("integrations")
+    row = page.get_by_test_id("profile-synthetic")
+    row.get_by_role("button", name="Synthetic profile", exact=False).click()
+    field = row.get_by_label("Base URL", exact=True)
+    before = len(ui.calls("save_config"))
+    field.fill("not a url")
+    field.blur()
+    expect(row.get_by_role("alert")).to_contain_text("Не похоже на адрес")
+    assert len(ui.calls("save_config")) == before
+    field.fill("https://api.other.example/v1/")
+    field.blur()
+    page.wait_for_function(
+        "window.__sottoTest.state.config.ai_processing.profiles[0].base_url === 'https://api.other.example/v1'"
+    )
+
+
+def test_key_dialogs_refuse_a_value_that_is_not_a_key(app, page):
+    ui = app()
+    ui.nav("integrations")
+    page.get_by_role("button", name="Добавить ключ", exact=True).click()
+    dialog = page.get_by_role("dialog", name="Новый API-ключ")
+    key = dialog.get_by_placeholder("sk-...", exact=True)
+    key.fill("your-api-key")
+    expect(dialog.get_by_role("alert")).to_contain_text("пример из документации")
+    expect(
+        dialog.get_by_role("button", name="Сохранить ключ", exact=True)
+    ).to_be_disabled()
+    key.fill("synthetic-not-a-real-secret")
+    dialog.get_by_role("button", name="Сохранить ключ", exact=True).click()
+    expect(dialog).not_to_be_visible()
+    page.get_by_role("button", name="Добавить ключ", exact=True).click()
+    page.keyboard.press("Escape")
+    expect(dialog).not_to_be_visible()
+    ref = ui.state()["config"]["ai_processing"]["key_slots"][0]["ref"]
+    row = page.get_by_test_id(f"key-{ref}")
+    row.get_by_role("button", name="Действия с ключом", exact=True).click()
+    page.get_by_role("menuitem", name="Заменить ключ", exact=True).click()
+    row.get_by_placeholder("Новое значение ключа", exact=True).fill("two halves")
+    expect(row.get_by_role("alert")).to_contain_text("пробел")
+    expect(row.get_by_role("button", name="Сохранить", exact=True)).to_be_disabled()
+
+
+def test_profile_editor_keeps_an_incomplete_provider_switch_as_a_draft(app, page):
+    ui = app(
+        config={
+            "ai_processing": {
+                "profiles": [COMPATIBLE_PROFILE],
+                "active_profile_id": "synthetic",
+            }
+        }
+    )
+    ui.nav("integrations")
+    row = page.get_by_test_id("profile-synthetic")
+    row.get_by_role("button", name="Synthetic profile", exact=False).click()
+    before = len(ui.calls("save_config"))
+    row.get_by_text("Провайдер", exact=True).locator("..").get_by_role("button").click()
+    page.get_by_role("option", name="Anthropic", exact=True).click()
+    # No model was ever used with Anthropic here, and none is made up for it.
+    expect(row).to_contain_text("Укажите модель")
+    assert len(ui.calls("save_config")) == before
+    assert (
+        ui.state()["config"]["ai_processing"]["profiles"][0]["provider"] == "compatible"
+    )

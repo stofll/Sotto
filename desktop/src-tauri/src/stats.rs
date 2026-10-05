@@ -563,6 +563,7 @@ mod tests {
             response_snippet: None,
             output_length: None,
             provider_attempts: Vec::new(),
+            late: false,
         }
     }
 

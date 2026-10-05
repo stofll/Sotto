@@ -71,8 +71,13 @@ function openPrivacyPane(permission: string) {
   invoke<null>("open_url", { url }).catch(() => {/* ignore */});
 }
 
+/** An entry the history page should bring into view. `seq` makes a second
+ *  request for the same entry count as new. */
+type HistoryFocus = { id: number; seq: number };
+
 function pageFor(tab: TabId, data: {
   config: ConfigResult | null;
+  historyFocus: HistoryFocus | null;
   version: string | null;
   textPreviewDraft: string | null;
   onTextPreviewDraftChange: (text: string) => void;
@@ -94,13 +99,13 @@ function pageFor(tab: TabId, data: {
     case "text": return <TextPage config={data.config} onConfigChanged={data.onConfigChanged} previewDraft={data.textPreviewDraft} onPreviewDraftChange={data.onTextPreviewDraftChange}/>;
     case "ai": return <AiPage config={data.config?.ai_processing ?? null} apiKeys={data.apiKeys} onConfigChanged={data.onConfigChanged} onNavigate={(t) => data.onNavigate(t)}/>;
     case "integrations": return <IntegrationsPage config={data.config?.ai_processing ?? null} apiKeys={data.apiKeys} onConfigChanged={data.onConfigChanged} onApiKeysChanged={data.onApiKeysChanged}/>;
-    case "history": return <HistoryPageLoader/>;
+    case "history": return <HistoryPageLoader focus={data.historyFocus}/>;
     case "stats": return <StatsPage stats={data.stats} typingSpeedCpm={data.config?.typing_speed_cpm} onRefresh={data.onStatsRefresh}/>;
     case "info": return <InfoPage version={data.version} config={data.config} onConfigChanged={data.onConfigChanged} onStartOnboarding={data.onStartOnboarding}/>;
   }
 }
 
-function HistoryPageLoader() {
+function HistoryPageLoader({ focus }: { focus: HistoryFocus | null }) {
   const [Page, setPage] = useState<typeof import("./pages/HistoryPage")["HistoryPage"] | null>(null);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
@@ -110,7 +115,7 @@ function HistoryPageLoader() {
       .catch(() => { if (!disposed) setFailed(true); });
     return () => { disposed = true; };
   }, []);
-  if (Page) return <Page/>;
+  if (Page) return <Page focus={focus}/>;
   return <div className="loading-state" role={failed ? "alert" : "status"}>
     {failed ? <div>
       <p>{t("Не удалось открыть историю.")}</p>
@@ -129,6 +134,10 @@ export function MainWindow() {
   const [onboardingToolbar, setOnboardingToolbar] = useState<HTMLDivElement | null>(null);
   const [textPreviewDraft, setTextPreviewDraft] = useState<string | null>(null);
   const [tab, setTab] = useState<TabId>("settings");
+  const [historyFocus, setHistoryFocus] = useState<HistoryFocus | null>(null);
+  // A request to show an entry is spent once the user leaves the page:
+  // coming back later must not jump to it again.
+  useEffect(() => { if (tab !== "history") setHistoryFocus(null); }, [tab]);
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [version, setVersion] = useState<string | null>(null);
   const [config, setConfig] = useState<ConfigResult | null>(null);
@@ -290,6 +299,12 @@ export function MainWindow() {
       setConfig(next);
       setTheme(pendingTheme.current ?? next.theme ?? "dark");
       applyLocaleFromConfig(next.ui_language);
+    }));
+    // «Открыть в истории» on the overlay's late-answer note.
+    unlisteners.push(subscribe<number>("open-history-entry", (id) => {
+      if (!mounted || typeof id !== "number") return;
+      setHistoryFocus((current) => ({ id, seq: (current?.seq ?? 0) + 1 }));
+      setTab("history");
     }));
     // `paste-done`, not `whisper-done`: stats and the history row are
     // written after the LLM pass, so refreshing on decode read the numbers
@@ -488,7 +503,7 @@ export function MainWindow() {
             </Suspense>}
             {loading ? <LoadingState/> : !onboardingActive && (
               <div data-testid={`page-${tab}`} style={{ position: "relative", flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
-                {pageFor(tab, { config, version, stats, microphones, models, runtime, apiKeys, onConfigChanged, textPreviewDraft, onTextPreviewDraftChange: setTextPreviewDraft, onNavigate: setTab, onApiKeysChanged: setApiKeys, onModelsChanged: setModels, onStatsRefresh: refreshStats, onStartOnboarding: () => void startOnboarding() })}
+                {pageFor(tab, { config, historyFocus, version, stats, microphones, models, runtime, apiKeys, onConfigChanged, textPreviewDraft, onTextPreviewDraftChange: setTextPreviewDraft, onNavigate: setTab, onApiKeysChanged: setApiKeys, onModelsChanged: setModels, onStatsRefresh: refreshStats, onStartOnboarding: () => void startOnboarding() })}
               </div>
             )}
           </main>

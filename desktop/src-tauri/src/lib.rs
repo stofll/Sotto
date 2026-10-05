@@ -46,6 +46,7 @@ mod hardware_profile;
 mod history;
 mod hotkey;
 pub mod http_client;
+mod late_answer;
 pub mod mic_test;
 pub mod model;
 pub mod model_download;
@@ -1568,6 +1569,8 @@ pub fn run() {
             // and the write are separate so the result can be reviewed first.
             history::preview_history_ai_processing,
             history::apply_history_ai_processing,
+            late_answer::copy_history_entry,
+            late_answer::open_history_entry,
             // Settings.
             config::get_config,
             config::save_config,
@@ -1645,6 +1648,9 @@ pub(crate) struct ProcessedTranscription {
     pub(crate) ai_status: Option<crate::ai::step::AiStatus>,
     stats_json: String,
     system_prompt: Option<String>,
+    /// An LLM request still running after its timeout. Only a dictation waits
+    /// for it; a file transcription drops it, which cancels it.
+    pub(crate) late_answer: Option<crate::ai::step::LateAnswer>,
 }
 
 /// How a recognition session ended — before post-processing starts.
@@ -1889,11 +1895,11 @@ pub(crate) async fn post_process_transcription(
         .as_ref()
         .and_then(|c| ai_processing_config(c).ok().cloned());
     let run_llm = llm_should_run(ai_value.as_ref());
-    let (final_text, ai_status) = match &ai_value {
+    let (final_text, ai_status, late_answer) = match &ai_value {
         // Nothing survived the hallucination filter — there is no text to
         // clean up, and sending an empty prompt would only burn a request
         // and invite the model to invent a reply.
-        _ if formatted_text.is_empty() => (String::new(), None),
+        _ if formatted_text.is_empty() => (String::new(), None, None),
         Some(ai_val) if run_llm => {
             let mut ai_cfg = crate::ai::step::AiConfig::from_ai_processing(ai_val);
             ai_cfg.language = speech_language(config.as_ref());
@@ -1912,9 +1918,9 @@ pub(crate) async fn post_process_transcription(
                 api_key.as_deref(),
             )
             .await;
-            (outcome.text, Some(outcome.status))
+            (outcome.text, Some(outcome.status), outcome.late)
         }
-        _ => (formatted_text.clone(), None),
+        _ => (formatted_text.clone(), None, None),
     };
 
     let llm_seconds = ai_status.as_ref().map(|s| s.elapsed_seconds).unwrap_or(0.0);
@@ -1941,6 +1947,7 @@ pub(crate) async fn post_process_transcription(
         ai_status,
         stats_json,
         system_prompt,
+        late_answer,
     }
 }
 

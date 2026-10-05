@@ -28,9 +28,24 @@ pub const OPENCODE_GO_TIMEOUT_SECS: u64 = 90;
 /// reasoning model room to think before it answers.
 pub const MIN_COMPLETION_TOKENS: u32 = 2048;
 /// Ceiling, so a pathological input cannot ask a provider for an unbounded
-/// completion. Well above what `MAX_INPUT_CHARS` can ever need.
+/// completion. Some providers (gpt-4o-mini among them) reject a larger
+/// `max_tokens` outright.
 pub const MAX_COMPLETION_TOKENS: u32 = 16_384;
-pub const MAX_INPUT_CHARS: usize = 4000;
+/// Cyrillic costs roughly two characters per token in o200k-class vocabularies
+/// and Latin rather less, so this over-estimates for English — the safe
+/// direction for both the budget and the limit below.
+const CHARS_PER_TOKEN: usize = 2;
+/// Longest text the LLM step sends: past it, the tidied answer plus the
+/// minimum thinking room no longer fits under `MAX_COMPLETION_TOKENS`, so the
+/// request would be cut off mid-answer however long the user waited. About
+/// 28k characters, half an hour of speech.
+pub const MAX_INPUT_CHARS: usize =
+    (MAX_COMPLETION_TOKENS - MIN_COMPLETION_TOKENS) as usize * CHARS_PER_TOKEN;
+
+/// Estimated tokens in the tidied answer, which is about as long as `text`.
+pub fn answer_tokens(text: &str) -> u32 {
+    u32::try_from(text.chars().count().div_ceil(CHARS_PER_TOKEN)).unwrap_or(u32::MAX)
+}
 
 /// How many completion tokens to allow for tidying up `text`.
 ///
@@ -40,14 +55,11 @@ pub const MAX_INPUT_CHARS: usize = 4000;
 /// back: a reasoning model spent the budget thinking and stopped mid-sentence,
 /// sometimes before emitting any answer at all.
 ///
-/// Cyrillic costs roughly two characters per token in o200k-class vocabularies
-/// and Latin rather less, so this over-estimates for English — the safe
-/// direction, since `max_tokens` caps a completion rather than reserving it and
-/// nobody is billed for headroom they do not use. The ×3 is one part answer and
-/// two parts thinking room.
+/// Over-estimating is safe, since `max_tokens` caps a completion rather than
+/// reserving it and nobody is billed for headroom they do not use. The ×3 is
+/// one part answer and two parts thinking room.
 pub fn completion_budget(text: &str) -> u32 {
-    let input_tokens = u32::try_from(text.chars().count().div_ceil(2)).unwrap_or(u32::MAX);
-    input_tokens
+    answer_tokens(text)
         .saturating_mul(3)
         .clamp(MIN_COMPLETION_TOKENS, MAX_COMPLETION_TOKENS)
 }
@@ -333,6 +345,9 @@ impl Provider for OpenAIProvider {
             });
             payload["max_tokens"] =
                 serde_json::json!(self.max_tokens.unwrap_or_else(|| completion_budget(text)));
+            if thinks_by_default(&self.base_url) {
+                payload["thinking"] = serde_json::json!({"type": "disabled"});
+            }
             let request = build_request(
                 reqwest::Method::POST,
                 &format!("{}/chat/completions", self.base_url),
@@ -506,6 +521,15 @@ fn resolve_base_url(base_url: Option<&str>, default: &str) -> String {
         .to_string()
 }
 
+/// DeepSeek's own API reasons before answering unless told not to. Tidying a
+/// dictation gains nothing from it: the thinking spent the completion budget on
+/// long texts, leaving an empty answer, and multiplied the latency. Matched by
+/// host, since the same models behind an aggregator take other parameters and
+/// other OpenAI-compatible servers may reject the unknown field.
+fn thinks_by_default(base_url: &str) -> bool {
+    crate::telemetry::provider_service(base_url) == crate::telemetry::ProviderService::Deepseek
+}
+
 /// The endpoint `build_provider` will actually call for this configuration.
 ///
 /// Telemetry classifies the service from this, so the reported label always
@@ -642,7 +666,11 @@ async fn send_request(
         retryable: false,
         elapsed_seconds: elapsed,
         http_status: Some(status.as_u16()),
-        response_snippet: None,
+        response_snippet: text
+            .trim()
+            .is_empty()
+            .then(|| empty_answer_summary(&json))
+            .flatten(),
         usage,
     };
     log::info!("Provider {provider_name}/{model} responded in {elapsed:.2}s");
@@ -863,6 +891,41 @@ fn extract_usage(value: &serde_json::Value, provider: &str) -> Option<UsageInfo>
         output_tokens: output,
         total_tokens: total,
     })
+}
+
+/// Why a well-formed response carried no answer, without any of its text: the
+/// stop reason, how much the model reasoned, and the tokens it spent. A
+/// reasoning model that exhausts `max_tokens` while thinking reports
+/// `finish_reason=length` with an empty answer, and without this the history
+/// shows only «пустой ответ».
+fn empty_answer_summary(json: &serde_json::Value) -> Option<String> {
+    let finish = [
+        "/choices/0/finish_reason",
+        "/stop_reason",
+        "/candidates/0/finishReason",
+    ]
+    .iter()
+    .find_map(|pointer| json.pointer(pointer).and_then(serde_json::Value::as_str));
+    let reasoning_chars = [
+        "/choices/0/message/reasoning_content",
+        "/choices/0/message/reasoning",
+    ]
+    .iter()
+    .find_map(|pointer| json.pointer(pointer).and_then(serde_json::Value::as_str))
+    .map(|text| text.chars().count());
+    let output_tokens = json
+        .pointer("/usage/completion_tokens")
+        .or_else(|| json.pointer("/usage/output_tokens"))
+        .and_then(serde_json::Value::as_u64);
+    let parts: Vec<String> = [
+        finish.map(|value| format!("stop reason: {value}")),
+        reasoning_chars.map(|value| format!("reasoning: {value} chars")),
+        output_tokens.map(|value| format!("output tokens: {value}")),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    (!parts.is_empty()).then(|| parts.join(", "))
 }
 
 /// A bounded, whitespace-collapsed excerpt of a provider response body.
@@ -1088,6 +1151,15 @@ mod tests {
     }
 
     #[test]
+    fn the_longest_accepted_text_leaves_minimum_thinking_room() {
+        let longest = "я".repeat(MAX_INPUT_CHARS);
+        assert_eq!(
+            answer_tokens(&longest) + MIN_COMPLETION_TOKENS,
+            MAX_COMPLETION_TOKENS
+        );
+    }
+
+    #[test]
     fn completion_budget_is_capped() {
         assert_eq!(
             completion_budget(&"я".repeat(MAX_INPUT_CHARS * 100)),
@@ -1198,6 +1270,30 @@ mod tests {
             extract_text(&serde_json::json!({ "x": null }), "x"),
             Some("".to_string())
         );
+    }
+
+    #[test]
+    fn only_deepseek_api_gets_thinking_disabled() {
+        assert!(thinks_by_default("https://api.deepseek.com/v1"));
+        assert!(thinks_by_default("https://api.deepseek.com"));
+        assert!(!thinks_by_default("https://openrouter.ai/api/v1"));
+        assert!(!thinks_by_default("https://opencode.ai/zen/go/v1"));
+    }
+
+    #[test]
+    fn empty_answer_summary_names_the_stop_reason_and_reasoning_length() {
+        let json = serde_json::json!({
+            "choices": [{
+                "message": {"content": "", "reasoning_content": "думаю"},
+                "finish_reason": "length"
+            }],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 3615}
+        });
+        assert_eq!(
+            empty_answer_summary(&json).as_deref(),
+            Some("stop reason: length, reasoning: 5 chars, output tokens: 3615")
+        );
+        assert_eq!(empty_answer_summary(&serde_json::json!({})), None);
     }
 
     #[test]

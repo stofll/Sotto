@@ -525,3 +525,43 @@ def test_original_glow_colors_and_full_width_processing(
         assert min(centers) > 0.04 and max(centers) < 0.96, centers
         ui.emit("overlay-reset")
         expect(beam).to_have_count(0)
+
+
+def test_overlay_late_answer_note_copies_and_opens_the_entry(app, page):
+    ui = app("overlay")
+    overlay = page.get_by_test_id("overlay")
+    for action, command, entry_id in [
+        ("Копировать", "copy_history_entry", 7),
+        ("Открыть в истории", "open_history_entry", 8),
+    ]:
+        ui.emit("llm-late-answer", {"entry_id": entry_id})
+        ui.emit("overlay-state", "late")
+        expect(overlay).to_have_attribute("data-state", "late")
+        expect(overlay).to_contain_text("LLM ответила позже — результат в истории")
+        page.get_by_role("button", name=action, exact=True).click()
+        # The harness `hide` is a no-op, so the call is what can be checked.
+        page.wait_for_function(
+            "c => window.__sottoTest.calls.some(x => x.command === c)", arg=command
+        )
+        assert ui.calls(command)[-1]["args"]["id"] == entry_id
+
+
+def test_paste_note_says_a_late_answer_is_still_coming(app, page):
+    ui = app("overlay")
+    ui.emit("recording-started", 3)
+    ui.emit("whisper-done", {"session_id": 3, "text": "Synthetic speech"})
+    ui.emit(
+        "paste-done",
+        {
+            "session_id": 3,
+            "length": 16,
+            "ai_processing": {
+                "fallback": True,
+                "skipped_reason": "provider_timeout",
+                "late_pending": True,
+            },
+        },
+    )
+    expect(page.get_by_test_id("overlay")).to_contain_text(
+        "LLM не успела — ответ появится в истории"
+    )

@@ -1,3 +1,4 @@
+import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { Hint } from "../components/Hint";
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "../components/Icon";
@@ -47,7 +48,7 @@ export function OverlayApp() {
   // warning before the recording stops by itself.
   const timerOn = preferences.show_timer || session.limitAt !== null;
   const showTimer = timerOn && state === "recording";
-  const closeLabel = state === "pasted" || state === "error" ? t("Закрыть") : t("Отменить запись");
+  const closeLabel = finished(state) ? t("Закрыть") : t("Отменить запись");
   return (
     <div data-testid="overlay" data-state={state} data-layout={layout === "pill" ? "compact" : layout} data-size={preferences.size} data-timer={timerOn ? "on" : "off"} data-hovered={hovered ? "true" : "false"} data-leaving={session.leaving ? "true" : undefined} className="overlay" style={config ? overlayPalette(preferences) : undefined}>
       <div className="overlay-shell" onPointerEnter={() => setHovered(true)} onPointerLeave={() => setHovered(false)}>
@@ -90,6 +91,8 @@ export function OverlayApp() {
 
 function scenePhase(state: NonNullable<OverlaySession["state"]>): ScenePhase {
   if (state === "recording" || state === "pasted" || state === "error") return state;
+  // A designed scene has no buttons of its own: the note reads as a result.
+  if (state === "late") return "pasted";
   return "processing";
 }
 
@@ -112,20 +115,25 @@ function RecipeOverlay({ session, recipe }: { session: OverlaySession; recipe: R
   return <div data-testid="overlay" data-state={state} data-layout="recipe" className="overlay" style={config ? overlayPalette(preferences) : undefined}
     onPointerMove={(event) => session.setHovered(isOverlayBody(event.target))} onPointerLeave={() => session.setHovered(false)}>
     <Suspense fallback={<SceneFallback loading phase={scenePhase(state)} timer={clock.text} status={status}
-      close={{ label: state === "pasted" || state === "error" ? t("Закрыть") : t("Отменить запись"), text: t("Отмена"), onClick: session.handleClose, disabled: session.isClosing }}/>}>
+      close={{ label: finished(state) ? t("Закрыть") : t("Отменить запись"), text: t("Отмена"), onClick: session.handleClose, disabled: session.isClosing }}/>}>
       <OverlayScene key={session.dictationKey} recipe={recipe} size={preferences.size} phase={scenePhase(state)}
-        streaming={session.streaming} needsText={state === "error" || (state === "pasted" && !!session.aiProblem)}
+        streaming={session.streaming} needsText={state === "error" || state === "late" || (state === "pasted" && !!session.aiProblem)}
         draft={session.previewText} draftPlaceholder={t("Говорите — текст появится здесь")}
         timer={state === "loading" ? "--:--" : clock.text} limited={clock.limited} status={status}
         mode={{ full: config?.model ? `${language} · ${config.model}` : language, short: language }}
         close={{
-          label: state === "pasted" || state === "error" ? t("Закрыть") : t("Отменить запись"),
-          text: state === "pasted" || state === "error" ? t("Закрыть") : t("Отмена"),
+          label: finished(state) ? t("Закрыть") : t("Отменить запись"),
+          text: finished(state) ? t("Закрыть") : t("Отмена"),
           onClick: session.handleClose, disabled: session.isClosing,
         }}
         hovered={session.hovered} surfaceRef={surfaceRef} source={audioLevelSource} shown={entered && !session.leaving}/>
     </Suspense>
   </div>;
+}
+
+/** Nothing left to cancel: the close button only dismisses the note. */
+function finished(state: NonNullable<OverlaySession["state"]>) {
+  return state === "pasted" || state === "error" || state === "late";
 }
 
 function glowMode(state: NonNullable<OverlaySession["state"]>): "listen" | "process" | "idle" {
@@ -137,6 +145,7 @@ function glowMode(state: NonNullable<OverlaySession["state"]>): "listen" | "proc
 function beadLabel(state: NonNullable<OverlaySession["state"]>) {
   if (state === "loading") return t("Подготавливаю локальную модель");
   if (state === "pasted") return t("Текст вставлен");
+  if (state === "late") return t("LLM ответила позже — результат в истории");
   return t("Обрабатываю");
 }
 
@@ -186,6 +195,7 @@ function StateDetail({ session }: { session: OverlaySession }) {
     errorText: session.errorText, aiProblem: session.aiProblem,
   });
   if (detail.kind === "waveform") return null;
+  if (session.state === "late") return <LateAnswerNote session={session} text={detail.kind === "text" ? detail.text : ""}/>;
   if (detail.kind === "progress") {
     return <div className="overlay-progress"><span>{detail.label}</span>{detail.seconds !== undefined && <span className="overlay-counter">{t("{p0} с", { p0: detail.seconds })}</span>}</div>;
   }
@@ -195,6 +205,22 @@ function StateDetail({ session }: { session: OverlaySession }) {
   // Both lines are cut to the width of the overlay; the bubble is how the
   // rest of a long error is read, not a second copy of what already fits.
   return <Hint asChild ifClipped text={detail.text}><div className="overlay-text">{detail.text}</div></Hint>;
+}
+
+/** The note about a late LLM answer, with the two things worth doing about
+ *  it. Both close the note: it has been acted on. */
+function LateAnswerNote({ session, text }: { session: OverlaySession; text: string }) {
+  const id = session.lateEntryId;
+  const done = (request: Promise<unknown>) => void request.catch(() => {}).finally(session.handleClose);
+  return <div className="overlay-late">
+    <Hint asChild ifClipped text={text}><div className="overlay-text">{text}</div></Hint>
+    <div className="overlay-late__actions">
+      <button type="button" className="overlay-late__action" disabled={id === null}
+        onClick={() => id !== null && done(tauriInvoke("copy_history_entry", { id }))}>{t("Копировать")}</button>
+      <button type="button" className="overlay-late__action" disabled={id === null}
+        onClick={() => id !== null && done(tauriInvoke("open_history_entry", { id }))}>{t("Открыть в истории")}</button>
+    </div>
+  </div>;
 }
 
 function PreviewPane({ text }: { text: string }) {

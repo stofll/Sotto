@@ -76,6 +76,10 @@ Cloud STT and LLM formatting are opt-in. Verify the selected provider, endpoint,
 
 The LLM timeout in the Integrations settings is the whole budget for one dictation, including retries and the pause between them, not the limit for a single attempt. When it runs out, the transcription is delivered without cloud formatting rather than held back.
 
+The timeout is a minimum: a long text gets as much time as a model needs to rewrite it at a conservative output speed, up to five minutes. Text longer than about 28,000 characters (roughly half an hour of speech) is not sent to the LLM, because the formatted answer could not fit in one response; it is delivered with local formatting only, and the history shows why.
+
+A request that misses the timeout is not cancelled by default. The local text is pasted at once, and if the model answers within the next five minutes, its result replaces the text in that history entry — it is never typed into the window you have moved on to. The overlay then offers to copy the result or open the entry. **LLM processing → Advanced → Late LLM answer** switches the notice off or cancels late requests at the timeout as before.
+
 ## Report a problem or suggest an improvement
 
 Open **Help → Report a problem** to preview a public technical summary and optionally prepare sanitized logs. Continue on GitHub opens a bug-report draft in your browser; a GitHub account is required, and you must submit the issue there. You can exclude the summary or copy it manually. Add your OS version, reproduction steps, expected result and actual result on GitHub.

@@ -568,7 +568,7 @@ fn cursor_over_overlay_ns(ns_window: *mut objc2::runtime::AnyObject) -> Option<P
 fn apply_show(app: &AppHandle, state: String) -> Result<(), String> {
     let prev_state = current_state();
     log::debug!("apply_show({state}); current_state={prev_state:?}");
-    if state == "recording" && matches!(prev_state.as_deref(), Some("pasted" | "error")) {
+    if state == "recording" && matches!(prev_state.as_deref(), Some("pasted" | "error" | "late")) {
         *crate::mutex_recover::lock(&PRESENTATION) = (false, false);
     }
     set_last_state(Some(&state));
@@ -775,7 +775,8 @@ fn position_overlay(window: &tauri::WebviewWindow) -> Result<(), String> {
     let state = current_state();
     let layout = prefs.layout(
         streaming && state.as_deref() == Some("recording"),
-        needs_text || state.as_deref() == Some("error"),
+        // The late-answer note is all text and buttons, like an error.
+        needs_text || matches!(state.as_deref(), Some("error" | "late")),
     );
     let (width, height) = prefs.window_size(layout);
     let scale = monitor.scale_factor();
@@ -954,7 +955,9 @@ fn pasted_note_warns(payload: &serde_json::Value) -> bool {
         || ai["fallback"].as_bool() == Some(true)
         || matches!(
             ai["skipped_reason"].as_str(),
-            Some("missing_provider" | "missing_api_key" | "missing_system_prompt")
+            Some(
+                "missing_provider" | "missing_api_key" | "missing_system_prompt" | "text_too_long"
+            )
         )
 }
 
@@ -969,12 +972,17 @@ fn pasted_hold_ms(chosen: u64, warned: bool) -> u64 {
 /// How long the overlay may sit in "распознано" before we assume the rest
 /// of the pipeline died and hide it anyway.
 ///
-/// Not a deadline for the LLM — that has its own timeout, applied per
-/// attempt and retried — but a floor under the worst legitimate case, so
-/// a genuinely slow model is never cut off mid-flight. What it actually
+/// Not a deadline for the LLM — that has its own timeout, which grows with
+/// the length of the text — but a floor under the worst legitimate case:
+/// the longest LLM attempt plus room for formatting and the paste, so a
+/// genuinely slow model is never cut off mid-flight. What it actually
 /// guards against is a paste path that never reports back at all, which
 /// would otherwise leave the overlay on screen until the app restarts.
-const STUCK_OVERLAY_TIMEOUT_MS: u64 = 180_000;
+const STUCK_OVERLAY_TIMEOUT_MS: u64 = (crate::ai::step::MAX_ATTEMPT_SECS + 30) * 1000;
+
+/// How long the late-answer note stays: it carries two buttons, and the
+/// user has to notice it in the middle of other work first.
+const LATE_ANSWER_NOTE_MS: u64 = 8_000;
 
 /// Subscribe the overlay to engine lifecycle events. Call once from
 /// `lib.rs::setup()` after the engine dispatcher task is spawned. The
@@ -1026,6 +1034,19 @@ pub fn subscribe_engine_events(app: &AppHandle) {
             "pasted".to_string(),
             Duration::from_millis(pasted_hold_ms(preferences().pasted_hold_ms, warned)),
         ));
+    });
+
+    // llm-late-answer: an answer that missed the timeout arrived and is now in
+    // the history entry. Only an idle overlay says so — over a new recording
+    // or its result the note would be about the wrong dictation, and the
+    // history page carries the change either way.
+    app.listen("llm-late-answer", move |_event| {
+        if current_state().is_none() {
+            post(OverlayOp::ShowFor(
+                "late".to_string(),
+                Duration::from_millis(LATE_ANSWER_NOTE_MS),
+            ));
+        }
     });
 
     // paste-failed: the transcription succeeded but the text never reached
@@ -1145,6 +1166,9 @@ mod tests {
         ));
         assert!(pasted_note_warns(
             &json!({"ai_processing":{"skipped_reason":"missing_system_prompt"}})
+        ));
+        assert!(pasted_note_warns(
+            &json!({"ai_processing":{"skipped_reason":"text_too_long"}})
         ));
         assert!(!pasted_note_warns(
             &json!({"length":23,"ai_processing":{"fallback":false}})

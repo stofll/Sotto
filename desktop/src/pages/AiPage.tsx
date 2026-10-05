@@ -28,7 +28,7 @@ import { CustomSelect } from "../components/CustomSelect";
 import { confirmAction } from "../components/ConfirmDialog";
 import { isLocalBaseUrl } from "./baseUrlFormat";
 import { NumberField } from "../components/NumberField";
-import type { ApiKeyStatus, ConfigChange, ConfigResult } from "../bridge/types";
+import type { ApiKeyStatus, ConfigChange, ConfigResult, LateAnswerMode } from "../bridge/types";
 import { t } from "../i18n";
 import { useFileTranscription, type FileStage, type TranscribeFileResult } from "./useFileTranscription";
 
@@ -512,10 +512,22 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
                 <span className="route-advanced__unit">{t("секунд")}</span>
               </div>
               <div className="route-advanced__cell">
-                <h3>{t("Таймаут LLM")}<Hint text={t("Если провайдер не ответит за это время — вставится локально обработанный текст и fallback запишется в историю. Значение своё у каждого профиля.")}/></h3>
+                <h3>{t("Таймаут LLM")}<Hint text={t("Сколько ждать ответа перед вставкой как минимум: для длинного текста время увеличивается само. Если провайдер не успеет, вставится локально обработанный текст, а с ответом поступят по настройке «Поздний ответ LLM». Значение своё у каждого профиля.")}/></h3>
                 <NumberField className="mono" min={1} max={60} step={1} value={ai.llm_timeout_seconds ?? 12}
                   onValueChange={(next) => void saveAi({ llm_timeout_seconds: Math.max(1, Math.min(60, Number(next) || 12)) })} style={{ width: 84 }}/>
                 <span className="route-advanced__unit">{t("секунд")}</span>
+              </div>
+              <div className="route-advanced__cell">
+                <h3>{t("Поздний ответ LLM")}<Hint text={t("Если LLM не успела до таймаута, текст уже вставлен без неё. Её ответ может прийти позже, до 5 минут, и заменить текст в истории; в окно он не вставляется. Значение общее для всех профилей.")}/></h3>
+                <CustomSelect<LateAnswerMode>
+                  value={ai.llm_late_answer ?? "notify"}
+                  options={[
+                    { value: "notify", label: t("Сохранить в историю и сообщить") },
+                    { value: "silent", label: t("Сохранить в историю молча") },
+                    { value: "off", label: t("Не ждать") },
+                  ]}
+                  onChange={(next) => void saveAi({ llm_late_answer: next })}
+                />
               </div>
               {/* Read by Rust since cloud transcription existed, and until now
                   changeable only by hand-editing config.json. */}

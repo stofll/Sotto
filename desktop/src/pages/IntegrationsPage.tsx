@@ -5,12 +5,15 @@ import { PageHeader, SectionLabel } from "../components/Shell";
 import { Icon } from "../components/Icon";
 import { Hint } from "../components/Hint";
 import { CustomSelect, type SelectOption } from "../components/CustomSelect";
+import { FieldCheckNote } from "../components/FieldCheckNote";
+import { Modal } from "../components/Modal";
 import { RowMenu } from "../components/RowMenu";
 import { ProfileWizard, type ProfileWizardSeed } from "../components/ProfileWizard";
 import type { ApiKeyStatus, ConfigChange, ConfigResult } from "../bridge/types";
 import { t } from "../i18n";
 import {
   activeConfigFromProfile,
+  effectiveSystemPrompt,
   EMPTY_KEY_INFO,
   mergeAi,
   normalizeProfile,
@@ -19,12 +22,13 @@ import {
   profileKeyRef,
   profilesForAi,
   PROVIDERS,
-  PROVIDER_MODEL_OPTIONS,
   routeFields,
   type AiConfig,
   type LlmProfile,
 } from "./aiShared";
+import { apiKeyBlocks, checkApiKey } from "./apiKeyFormat";
 import { collectSlots, withKeySlot, type KeySlotRecord, type Slot } from "./apiKeySlots";
+import { baseUrlBlocks, checkBaseUrl, normalizeBaseUrl } from "./baseUrlFormat";
 import { ModelField, useProviderModels } from "./providerModels";
 
 type Props = {
@@ -233,13 +237,14 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
 
   function patchedProfile(profile: LlmProfile, patch: Partial<LlmProfile>): LlmProfile {
     const nextProvider = patch.provider ?? profile.provider;
-    const provider = PROVIDERS.find((item) => item.id === nextProvider) ?? PROVIDERS[0];
     const providerChanged = patch.provider && patch.provider !== profile.provider;
     return {
       ...profile,
       ...patch,
+      // The model last used with that provider, or none: an id compiled into
+      // the app goes stale, and the provider's list is fetched right below.
       model: providerChanged
-        ? providerModels[nextProvider] || provider.defaultModel
+        ? providerModels[nextProvider] || ""
         : (patch.model ?? profile.model),
       // A key for one provider does not authenticate with another, so changing
       // the provider hands the profile back to its own slot — which is what an
@@ -273,7 +278,11 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
   function updateProfile(profileId: string, patch: Partial<LlmProfile>, commit = false) {
     const next = draftProfiles.map((profile) => (profile.id === profileId ? patchedProfile(profile, patch) : profile));
     setDraftProfiles(next);
-    if (commit) void writeProfiles(next, t("Сохранено."));
+    if (commit) {
+      const patched = next.find((profile) => profile.id === profileId);
+      const ready = patched && writableProfile(patched);
+      if (ready) void writeProfiles(profiles.map((item) => (item.id === profileId ? ready : item)), t("Сохранено."));
+    }
     // Changing the provider invalidates the fetched list: it was about a
     // different API. We fetch a new one at once — this is an explicit user
     // action rather than background polling, and without it the suggestions
@@ -301,9 +310,18 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
     return saveAi(activeConfigFromProfile(base, activeProfile, next), text);
   }
 
-  /** Commits a text field on blur. A profile without a model is not written:
-   *  it would break the pipeline, and the field is left for the user to fill in
-   *  — the editor says so beneath it.
+  /** The draft as it may be written, or `null` while it would break the
+   *  route: no model, or an OpenAI-compatible address that cannot work. The
+   *  draft stays on screen with the reason under the field, and every way of
+   *  saving — a blur or a pick from a list — goes through here. */
+  function writableProfile(draft: LlmProfile, model?: string): LlmProfile | null {
+    const nextModel = (model ?? draft.model).trim();
+    if (!nextModel) return null;
+    if (draft.provider === "compatible" && baseUrlBlocks(checkBaseUrl(draft.base_url ?? ""))) return null;
+    return { ...draft, model: nextModel, base_url: normalizeBaseUrl(draft.base_url ?? "") };
+  }
+
+  /** Commits a text field on blur.
    *
    *  `model` is passed when the value being committed is not yet in the draft:
    *  picking one from the combobox's list changes and commits in a single
@@ -314,11 +332,11 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
     const draft = draftProfiles.find((item) => item.id === profileId);
     const saved = profiles.find((item) => item.id === profileId);
     if (!draft || !saved) return;
-    const nextModel = (model ?? draft.model).trim();
-    if (!nextModel) return;
-    const normalized = { ...draft, model: nextModel, base_url: draft.base_url?.trim() || "" };
-    if (JSON.stringify(normalized) === JSON.stringify(saved)) return;
-    void writeProfiles(draftProfiles.map((item) => (item.id === profileId ? normalized : item)), t("Сохранено."));
+    const normalized = writableProfile(draft, model);
+    if (!normalized || JSON.stringify(normalized) === JSON.stringify(saved)) return;
+    // The saved list, not the drafts: another profile's half-typed field is
+    // not this write's to make.
+    void writeProfiles(profiles.map((item) => (item.id === profileId ? normalized : item)), t("Сохранено."));
   }
 
   async function setActiveProfile(profile: LlmProfile) {
@@ -440,7 +458,7 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
       model,
       api_key_ref: keyRef,
       base_url: profile.base_url ?? "",
-      system_prompt: profile.system_prompt ?? ai?.system_prompt ?? "",
+      system_prompt: effectiveSystemPrompt(profile),
     });
   }
 
@@ -576,6 +594,14 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
     setAdding(true);
   }
 
+  function closeAdding() {
+    setAdding(false);
+    setNewRevealed(false);
+  }
+
+  // Checked as it is typed, against the provider picked in the same dialog.
+  const newKeyCheck = newKey.trim() ? checkApiKey(newProvider, null, newKey) : null;
+
   function startEdit(slot: Slot) {
     setEditing(slot.ref);
     setReplaceLabel(slot.info.label);
@@ -671,7 +697,7 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
           const provider = PROVIDERS.find((item) => item.id === profile.provider) ?? PROVIDERS[0];
           const keyRef = profileKeyRef(profile);
           const keyInfo = apiKeys[keyRef];
-          const suggestions = PROVIDER_MODEL_OPTIONS[profile.provider] ?? [];
+          const urlCheck = profile.provider === "compatible" ? checkBaseUrl(profile.base_url ?? "") : null;
           const isOpen = expandedProfiles.has(profile.id);
           const isActive = profile.id === activeProfileId;
           const isRenaming = renamingId === profile.id;
@@ -757,7 +783,6 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
                         value={profile.model}
                         onChange={(next) => updateProfile(profile.id, { model: next })}
                         onCommit={(next) => commitProfile(profile.id, next)}
-                        fallbackSuggestions={suggestions}
                         query={{
                           provider: profile.provider,
                           baseUrl: profile.base_url ?? undefined,
@@ -782,11 +807,15 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
                       <span className="set-label">Base URL</span>
                       <input
                         className="field mono"
+                        aria-label="Base URL"
                         value={profile.base_url ?? ""}
                         onChange={(e) => updateProfile(profile.id, { base_url: e.target.value })}
                         onBlur={() => commitProfile(profile.id)}
                         placeholder={profile.provider === "opencode-go" ? OPENCODE_GO_BASE_URL : "https://api.example.com/v1"}
+                        aria-invalid={baseUrlBlocks(urlCheck)}
+                        aria-describedby={urlCheck ? `base-url-check-${profile.id}` : undefined}
                       />
+                      <FieldCheckNote id={`base-url-check-${profile.id}`} check={urlCheck} value={profile.base_url ?? ""}/>
                     </div>
                   )}
 
@@ -879,6 +908,9 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
           {filteredSlots.map((slot) => {
             const provider = PROVIDERS.find((p) => p.id === slot.provider) ?? PROVIDERS[0];
             const isEditing = editing === slot.ref;
+            // The same checks as typing a key into the wizard: a value that cannot
+            // be a key is not saved over the one that works.
+            const replaceCheck = isEditing && replaceKey.trim() ? checkApiKey(slot.provider, null, replaceKey) : null;
             return (
               <div key={slot.ref} data-testid={`key-${slot.ref}`} className="keys-row">
                 <Hint asChild text={slot.isActive ? t("Используется активным профилем") : undefined}><span className="row-dot" data-active={slot.isActive ? "true" : "false"}/></Hint>
@@ -927,8 +959,10 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
                         placeholder={t("Новое значение ключа")}
                         style={{ flex: 1, fontSize: 12 }}
                         autoFocus
+                        aria-invalid={apiKeyBlocks(replaceCheck)}
+                        aria-describedby={replaceCheck ? `key-check-${slot.ref}` : undefined}
                       />
-                      <Hint text={replaceRevealed ? t("Скрыть ключ") : t("Показать ключ")}>
+                      <Hint asChild text={replaceRevealed ? t("Скрыть ключ") : t("Показать ключ")}>
                         <button
                           type="button"
                           className="btn btn--icon field-reveal"
@@ -938,10 +972,11 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
                           <Icon name={replaceRevealed ? "eye-off" : "eye"} size={13}/>
                         </button>
                       </Hint>
-                      <button className="btn btn--primary" onClick={() => void saveSlot(slot, replaceLabel, replaceKey).catch((error) => showMessage(failureText(error)))} disabled={!replaceKey.trim()} style={{ height: 30 }}>
+                      <button className="btn btn--primary" onClick={() => void saveSlot(slot, replaceLabel, replaceKey).catch((error) => showMessage(failureText(error)))} disabled={!replaceKey.trim() || apiKeyBlocks(replaceCheck)} style={{ height: 30 }}>
                         <Icon name="check" size={12}/>  {t("Сохранить")} </button>
                       <button className="btn btn--ghost" onClick={cancelEdit} style={{ height: 30 }}>{t("Отмена")}</button>
                     </div>
+                    <FieldCheckNote id={`key-check-${slot.ref}`} check={replaceCheck} value={replaceKey}/>
                   </div>
                 )}
               </div>
@@ -961,59 +996,60 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
       )}
 
       {adding && (
-        <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) { setAdding(false); setNewRevealed(false); } }}>
-          <div className="modal" role="dialog" aria-modal="true" aria-label={t("Новый API-ключ")}>
-            <div className="modal__head">
-              <div>
-                <h2>{t("Новый API-ключ")}</h2>
-                <div className="sub">{t("Сохраняется в DPAPI, отдельным слотом. Привязать к профилю можно потом.")}</div>
-              </div>
-            </div>
-            <div className="modal__body">
-              <label style={{ display: "grid", gap: 6 }}>
-                <span className="wizard-label">{t("Провайдер")}</span>
-                <CustomSelect<string>
-                  value={newProvider}
-                  options={PROVIDERS.map<SelectOption<string>>((p) => ({ value: p.id, label: p.name }))}
-                  onChange={(next) => setNewProvider(next)}
-                />
-              </label>
-              <label style={{ display: "grid", gap: 6 }}>
-                <span className="wizard-label">{t("Метка (опционально)")}</span>
-                <input className="field" value={newLabel} onChange={(e) => setNewLabel(e.target.value)} placeholder={t("например \"Личный Cerebras\"")} maxLength={64}/>
-              </label>
-              <label style={{ display: "grid", gap: 6 }}>
-                <span className="wizard-label">{t("Ключ")}</span>
-                <div style={{ display: "flex", gap: 6 }}>
-                  <input
-                    className="field mono"
-                    type={newRevealed ? "text" : "password"}
-                    value={newKey}
-                    onChange={(e) => setNewKey(e.target.value)}
-                    placeholder="sk-..."
-                    style={{ flex: 1 }}
-                  />
-                  <Hint text={newRevealed ? t("Скрыть ключ") : t("Показать ключ")}>
-                    <button
-                      type="button"
-                      className="btn btn--icon field-reveal"
-                      onClick={() => setNewRevealed((v) => !v)}
-                      aria-label={newRevealed ? t("Скрыть ключ") : t("Показать ключ")}
-                    >
-                      <Icon name={newRevealed ? "eye-off" : "eye"} size={13}/>
-                    </button>
-                  </Hint>
-                </div>
-              </label>
-              {newKeyError && <div role="alert" className="set-warn">{newKeyError}</div>}
-            </div>
-            <div className="modal__foot">
-              <button className="btn btn--primary" onClick={() => void addCustomKey().catch((error) => setNewKeyError(failureText(error)))} disabled={!newKey.trim()}>
-                <Icon name="check" size={12}/>  {t("Сохранить ключ")} </button>
-              <button className="btn btn--ghost" onClick={() => { setAdding(false); setNewRevealed(false); }}>{t("Отмена")}</button>
+        <Modal title={t("Новый API-ключ")} onClose={closeAdding} showHeader={false}>
+          <div className="modal__head">
+            <div>
+              <h2>{t("Новый API-ключ")}</h2>
+              <div className="sub">{t("Сохраняется в DPAPI, отдельным слотом. Привязать к профилю можно потом.")}</div>
             </div>
           </div>
-        </div>
+          <div className="modal__body">
+            <label className="wizard-field">
+              <span className="wizard-label">{t("Провайдер")}</span>
+              <CustomSelect<string>
+                value={newProvider}
+                options={PROVIDERS.map<SelectOption<string>>((p) => ({ value: p.id, label: p.name }))}
+                onChange={(next) => setNewProvider(next)}
+              />
+            </label>
+            <label className="wizard-field">
+              <span className="wizard-label">{t("Метка (опционально)")}</span>
+              <input className="field" value={newLabel} onChange={(e) => setNewLabel(e.target.value)} placeholder={t("например \"Личный Cerebras\"")} maxLength={64}/>
+            </label>
+            <label className="wizard-field">
+              <span className="wizard-label">{t("Ключ")}</span>
+              <div style={{ display: "flex", gap: 6 }}>
+                <input
+                  className="field mono"
+                  type={newRevealed ? "text" : "password"}
+                  value={newKey}
+                  onChange={(e) => setNewKey(e.target.value)}
+                  placeholder="sk-..."
+                  style={{ flex: 1 }}
+                  aria-invalid={apiKeyBlocks(newKeyCheck)}
+                  aria-describedby={newKeyCheck ? "new-key-check" : undefined}
+                />
+                <Hint asChild text={newRevealed ? t("Скрыть ключ") : t("Показать ключ")}>
+                  <button
+                    type="button"
+                    className="btn btn--icon field-reveal"
+                    onClick={() => setNewRevealed((v) => !v)}
+                    aria-label={newRevealed ? t("Скрыть ключ") : t("Показать ключ")}
+                  >
+                    <Icon name={newRevealed ? "eye-off" : "eye"} size={13}/>
+                  </button>
+                </Hint>
+              </div>
+            </label>
+            <FieldCheckNote id="new-key-check" check={newKeyCheck} value={newKey}/>
+            {newKeyError && <div role="alert" className="set-warn">{newKeyError}</div>}
+          </div>
+          <div className="modal__foot">
+            <button className="btn btn--primary" onClick={() => void addCustomKey().catch((error) => setNewKeyError(failureText(error)))} disabled={!newKey.trim() || apiKeyBlocks(newKeyCheck)}>
+              <Icon name="check" size={12}/>  {t("Сохранить ключ")} </button>
+            <button className="btn btn--ghost" onClick={closeAdding}>{t("Отмена")}</button>
+          </div>
+        </Modal>
       )}
     </div>
   );

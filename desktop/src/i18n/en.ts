@@ -589,6 +589,7 @@ export const en: Record<string, string | string[]> = {
   "Не удалось удалить модель: {p0}": "Could not delete the model: {p0}",
   "{p0} (размер уточняется…)": "{p0} (size unknown yet)",
   "Нет известных моделей — введите id вручную.": "No known models — enter an id by hand.",
+  "Запрашиваю список у провайдера…": "Asking the provider for its models…",
   "Режим записи": "Recording mode",
   "Переключать": "Toggle",
   "Переключатель": "Toggle",
@@ -653,6 +654,10 @@ export const en: Record<string, string | string[]> = {
   "Применить": "Apply",
   "Сбросить": "Reset",
   "Сбросить фильтры": "Clear filters",
+  "Страницы истории": "History pages",
+  "Предыдущая страница": "Previous page",
+  "Следующая страница": "Next page",
+  "Страница {p0}": "Page {p0}",
   "Добавить": "Add",
   "Удалить": "Delete",
   "Скопировать": "Copy",
@@ -816,6 +821,7 @@ export const en: Record<string, string | string[]> = {
   "LLM: пропущено · нет ключа": "LLM: skipped · no key",
   "LLM: пропущено · нет провайдера": "LLM: skipped · no provider",
   "LLM: пропущено · пустой промпт": "LLM: skipped · empty prompt",
+  "LLM: пропущено · текст слишком длинный": "LLM: skipped · text too long",
   "ошибка ключа": "key error",
   "лимит": "rate limit",
   "сеть": "network",
@@ -976,6 +982,7 @@ export const en: Record<string, string | string[]> = {
   "Похоже на адрес запроса, а не на корень API — путь до /v1 обычно достаточен.": "That looks like a request path rather than the API root — up to /v1 is usually enough.",
   "Обычно адрес заканчивается на /v1 — сверьтесь с документацией провайдера.": "Such an address usually ends with /v1 — check the provider docs.",
   "LM Studio (локально)": "LM Studio (local)",
+  "Kimi (Китай)": "Kimi (China)",
   "Ollama (локально)": "Ollama (local)",
   "vLLM (локально)": "vLLM (local)",
 
@@ -1004,8 +1011,20 @@ export const en: Record<string, string | string[]> = {
   "Таймаут облачного STT": "Cloud STT timeout",
   "Сколько ждать ответа /audio/transcriptions в облачном режиме. Распознавать больше нечем, поэтому по истечении диктовка завершится ошибкой. Значение общее для всех профилей.":
     "How long to wait for /audio/transcriptions in cloud mode. There is nothing else to transcribe with, so dictation fails once it runs out. One value for every profile.",
-  "Если провайдер не ответит за это время — вставится локально обработанный текст и fallback запишется в историю. Значение своё у каждого профиля.":
-    "If the provider does not answer in time, the locally processed text is pasted and the fallback is recorded in the history. Each profile has its own value.",
+  "Сколько ждать ответа перед вставкой как минимум: для длинного текста время увеличивается само. Если провайдер не успеет, вставится локально обработанный текст, а с ответом поступят по настройке «Поздний ответ LLM». Значение своё у каждого профиля.":
+    "The minimum wait for an answer before pasting: long text gets more time automatically. If the provider is too slow, the locally processed text is pasted, and its answer is handled as set in «Late LLM answer». Each profile has its own value.",
+  "Поздний ответ LLM": "Late LLM answer",
+  "Если LLM не успела до таймаута, текст уже вставлен без неё. Её ответ может прийти позже, до 5 минут, и заменить текст в истории; в окно он не вставляется. Значение общее для всех профилей.":
+    "If the LLM misses the timeout, the text is pasted without it. Its answer may still arrive up to 5 minutes later and replace the text in the history; it is never pasted into the window. Shared by all profiles.",
+  "Сохранить в историю и сообщить": "Save to history and notify",
+  "Сохранить в историю молча": "Save to history silently",
+  "Не ждать": "Don't wait",
+  "Копировать": "Copy",
+  "Открыть в истории": "Open in history",
+  "LLM не успела — ответ появится в истории": "LLM was too slow — its answer will appear in history",
+  "LLM ответила позже — результат в истории": "LLM answered late — result is in history",
+  "LLM: обработано позже": "LLM: processed late",
+  "LLM: обработано позже · {p0}": "LLM: processed late · {p0}",
   "LLM запускается только для записей не короче этого значения. 0 = обрабатывать все. Значение своё у каждого профиля.":
     "The LLM only runs for recordings at least this long. 0 processes everything. Each profile has its own value.",
   "Отправить пробный запрос в {p0} ({p1})? Запрос уйдёт провайдеру и спишет токены.":
@@ -1068,6 +1087,7 @@ export const en: Record<string, string | string[]> = {
   "Ключ": "Key",
   "нет ключа": "no key",
   "пустой системный промпт": "empty system prompt",
+  "текст слишком длинный для LLM": "text too long for the LLM",
   "не задан": "not set",
   "не выбран провайдер": "no provider selected",
   "Распознано": "Decoded",
@@ -1198,6 +1218,7 @@ export const en: Record<string, string | string[]> = {
   "выключено": "off",
   "{p0} копия": "{p0} copy",
   "LLM не настроена, вставлен локальный текст": "LLM is not set up, local text pasted",
+  "Текст слишком длинный для LLM, вставлен локальный текст": "Text too long for the LLM, local text inserted",
   "LLM не ответила, вставлен локальный текст": "The LLM did not answer; local text was pasted",
   "Лимит LLM, вставлен локальный текст": "LLM rate limit; local text was pasted",
   "Ошибка LLM, вставлен локальный текст": "LLM error; local text was pasted",
@@ -1213,7 +1234,7 @@ export const en: Record<string, string | string[]> = {
   "например \"Личный Cerebras\"": "e.g. \"My Cerebras\"",
   "Например: Cerebras gpt-oss": "For example: Cerebras gpt-oss",
   "Например: Cerebras gpt-oss-120b": "For example: Cerebras gpt-oss-120b",
-  "например: gpt-oss-120b": "for example: gpt-oss-120b",
+  "Выберите из списка провайдера или введите id": "Pick from the provider's list or type an id",
   "Обработка:": "Processing:",
 
   // ── Processing → Text ──────────────────────────────────────────────────

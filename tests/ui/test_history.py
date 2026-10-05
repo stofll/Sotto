@@ -271,3 +271,122 @@ def test_history_reports_a_recording_that_cannot_be_read(app, page):
     page.get_by_test_id("history-play-1").click()
     expect(page.get_by_role("alert")).to_contain_text("read recording: not found")
     expect(page.get_by_role("slider", name="Позиция воспроизведения")).to_have_count(0)
+
+
+def test_history_pages_by_fifty_and_search_returns_to_first_page(app, page):
+    entries = [
+        {
+            "id": index,
+            "timestamp": 1789200000 + index * 60,
+            "text": f"Synthetic entry {index}",
+            "length": 18,
+        }
+        for index in range(120, 0, -1)
+    ]
+    ui = app(history=entries)
+    ui.nav("history")
+    pager = page.get_by_role("navigation", name="Страницы истории")
+    expect(page.get_by_test_id("history-entry-120")).to_be_visible()
+    expect(page.get_by_test_id("history-entry-71")).to_be_visible()
+    expect(page.get_by_test_id("history-entry-70")).to_have_count(0)
+    expect(pager.get_by_role("button", name="Предыдущая страница")).to_be_disabled()
+
+    pager.get_by_role("button", name="Страница 3", exact=True).click()
+    expect(
+        pager.get_by_role("button", name="Страница 3", exact=True)
+    ).to_have_attribute("aria-current", "page")
+    expect(page.get_by_test_id("history-entry-20")).to_be_visible()
+    expect(page.get_by_test_id("history-entry-21")).to_have_count(0)
+    expect(pager.get_by_role("button", name="Следующая страница")).to_be_disabled()
+
+    page.get_by_role("searchbox", name="Поиск по истории").fill("entry 1")
+    expect(page.get_by_test_id("history-entry-119")).to_be_visible()
+    expect(page.get_by_test_id("history-entry-1")).to_be_visible()
+    expect(pager).to_have_count(0)
+
+
+def test_long_reprocess_diff_marks_only_edits_and_apply_keeps_entry_in_view(app, page):
+    words = [f"слово{i}" for i in range(400)]
+    long_text = " ".join(words)
+    for index in (17, 233, 391):
+        words[index] += ","
+    revised = " ".join(words)
+    entries = [
+        {"id": 3, "timestamp": 1789200120, "text": long_text, "length": len(long_text)},
+        # Enough entries below that the page stays long once the panel closes.
+        *[
+            {
+                "id": 100 + index,
+                "timestamp": 1789200000 - index * 60,
+                "text": f"Synthetic older entry {index}",
+                "length": 24,
+            }
+            for index in range(30)
+        ],
+    ]
+    ui = app(history=entries)
+    page.set_viewport_size({"width": 1100, "height": 700})
+    ui.nav("history")
+    card = page.get_by_test_id("history-entry-3")
+    card.get_by_role("button", name="Обработать через LLM", exact=True).click()
+    ui.queue(
+        "preview_history_ai_processing",
+        {
+            "result": {
+                "ok": True,
+                "text": revised,
+                "provider": "openai",
+                "model": "test-model",
+                "profile_name": "Test",
+                "elapsed_seconds": 0.1,
+                "ai_json": "{}",
+                "stats_json": "{}",
+            }
+        },
+    )
+    card.get_by_role("button", name="Запустить", exact=True).click()
+    apply = card.get_by_role("button", name="Заменить текст", exact=True)
+    expect(apply).to_be_visible()
+    marked = card.locator("span[style*='line-through'], span[style*='--ok']")
+    assert marked.all_inner_texts() == [",", ",", ","]
+
+    ui.queue(
+        "apply_history_ai_processing",
+        {"result": {"updated": True, "entry": {**entries[0], "text": revised}}},
+    )
+    apply.scroll_into_view_if_needed()
+    apply.click()
+    expect(apply).not_to_be_visible()
+    expect(card).to_be_in_viewport()
+
+
+def test_open_history_entry_shows_what_a_late_answer_changed(app, page):
+    late_entry = {
+        "id": 5,
+        "timestamp": 1789200120,
+        "text": "Привет, как дела?",
+        "formatted_text": "привет как дела",
+        "raw_text": "привет как дела",
+        "length": 17,
+        "ai_processing": {
+            "attempted": True,
+            "used": True,
+            "late": True,
+            "enabled": True,
+            "provider": "openai",
+            "model": "synthetic-model",
+        },
+    }
+    ui = app(history=[*ENTRIES, late_entry])
+    ui.nav("settings")
+    ui.emit("open-history-entry", 5)
+    card = page.get_by_test_id("history-entry-5")
+    expect(card.get_by_text("Diff: до LLM → финальный")).to_be_visible()
+    expect(
+        card.get_by_label("LLM: обработано позже · openai / synthetic-model")
+    ).to_be_attached()
+    # The request is spent: coming back to the page does not reopen the diff.
+    card.get_by_role("button", name="Скрыть diff", exact=True).click()
+    ui.nav("settings")
+    ui.nav("history")
+    expect(card.get_by_text("Diff: до LLM → финальный")).to_have_count(0)

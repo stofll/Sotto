@@ -43,6 +43,69 @@ describe("wordDiff", () => {
     expect(reconstruct(segments, "after")).toBe(after);
   });
 
+  it("keeps a long dictation tidy-up to the characters that changed", () => {
+    // About 2700 characters: long enough that the old alignment cap gave up and
+    // painted the whole text as removed, then added.
+    const words = Array.from({ length: 400 }, (_, i) => `слово${i}`);
+    const before = words.join(" ");
+    for (const index of [17, 120, 233, 391]) words[index] += ",";
+    words[0] = "Слово0";
+    const after = words.join(" ");
+    const segments = wordDiff(before, after);
+    expect(segments.filter((s) => s.change !== "keep")).toEqual([
+      { text: "с", change: "remove" },
+      { text: "С", change: "add" },
+      { text: ",", change: "add" },
+      { text: ",", change: "add" },
+      { text: ",", change: "add" },
+      { text: ",", change: "add" },
+    ]);
+    expect(reconstruct(segments, "before")).toBe(before);
+    expect(reconstruct(segments, "after")).toBe(after);
+  });
+
+  it("aligns an hour-long transcript whose tidy-up touches both ends", () => {
+    // About 60k characters with edits from the first word to the last, so the
+    // shared head and tail cannot narrow the alignment down.
+    const words = Array.from({ length: 8_000 }, (_, i) => `слово${i}`);
+    const before = words.join(" ");
+    const edited = Array.from({ length: 300 }, (_, i) => i * 26 + 7);
+    for (const index of edited) words[index] += ",";
+    words[0] = "Слово0";
+    words[7_999] += ".";
+    const after = words.join(" ");
+    const segments = wordDiff(before, after);
+    expect(segments.filter((s) => s.change !== "keep")).toEqual([
+      { text: "с", change: "remove" },
+      { text: "С", change: "add" },
+      ...edited.map(() => ({ text: ",", change: "add" })),
+      { text: ".", change: "add" },
+    ]);
+    expect(reconstruct(segments, "before")).toBe(before);
+    expect(reconstruct(segments, "after")).toBe(after);
+  });
+
+  it("round-trips arbitrary edits and puts each removal before its insertion", () => {
+    const vocabulary = ["а", "б", "в", "г", " ", "  ", "\n"];
+    let seed = 7;
+    const random = (limit: number) => {
+      seed = (seed * 1_103_515_245 + 12_345) % 2_147_483_648;
+      return seed % limit;
+    };
+    const text = (length: number) =>
+      Array.from({ length }, () => vocabulary[random(vocabulary.length)]).join("");
+    for (let run = 0; run < 200; run++) {
+      const before = text(random(40));
+      const after = text(random(40));
+      const segments = wordDiff(before, after);
+      expect(reconstruct(segments, "before")).toBe(before);
+      expect(reconstruct(segments, "after")).toBe(after);
+      for (let i = 1; i < segments.length; i++) {
+        expect([segments[i - 1].change, segments[i].change]).not.toEqual(["add", "remove"]);
+      }
+    }
+  });
+
   it("marks nothing when the texts match", () => {
     const segments = wordDiff("привет как дела", "привет как дела");
     expect(segments.every((s) => s.change === "keep")).toBe(true);

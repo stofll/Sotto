@@ -178,9 +178,10 @@ impl Dispatcher {
             self.report_cancelled(session_id);
             return;
         }
-        let Some(processed) = processed else {
+        let Some(mut processed) = processed else {
             return;
         };
+        let late_answer = processed.late_answer.take();
 
         // The post-processor emptied the text — the whole transcription was a
         // Whisper silence hallucination. Treat it exactly like an empty
@@ -226,6 +227,8 @@ impl Dispatcher {
                 serde_json::json!({
                     "fallback": status.fallback,
                     "skipped_reason": status.skipped_reason,
+                    // The request is still running: its answer goes to history.
+                    "late_pending": late_answer.is_some(),
                 })
             }),
             telemetry: DictationTelemetry::capture(
@@ -238,7 +241,7 @@ impl Dispatcher {
                 inference.stt_service,
             ),
         };
-        self.record(session_id, &inference, processed).await;
+        let entry_id = self.record(session_id, &inference, processed).await;
         // HistoryPage re-fetches on this.
         let _ = self.app.emit(
             "history-updated",
@@ -246,6 +249,11 @@ impl Dispatcher {
         );
         self.paste(paste, config.as_ref());
         self.prune_history();
+        // Without a history entry there is nowhere to put a late answer, and
+        // dropping it cancels the request.
+        if let (Some(late), Some(entry_id)) = (late_answer, entry_id) {
+            crate::late_answer::follow(self.app.clone(), self.state.db.clone(), entry_id, late);
+        }
     }
 
     /// Delete the entries the retention settings no longer keep. Scheduled
@@ -260,13 +268,13 @@ impl Dispatcher {
 
     /// Stats and history on a blocking worker: the connection guard must not
     /// be held across an `.await`. Failures are logged, never fatal — a broken
-    /// database must not prevent the paste.
+    /// database must not prevent the paste. Returns the new history entry.
     async fn record(
         &self,
         session_id: u64,
         inference: &InferenceResult,
         processed: ProcessedTranscription,
-    ) {
+    ) -> Option<u64> {
         let started = std::time::Instant::now();
         let db = self.state.db.clone();
         let language = inference.language.clone();
@@ -285,6 +293,7 @@ impl Dispatcher {
                 ai_status,
                 stats_json,
                 system_prompt,
+                late_answer: _,
             } = processed;
             // LLM outcome first: it is the one aggregate that survives history
             // pruning, so it must not be skipped when a later write fails.
@@ -320,19 +329,25 @@ impl Dispatcher {
                     },
                 )
             })
-            .map(|_| ())
             .map_err(|e| e.to_string())
         })
         .await;
-        match written {
-            Ok(Ok(())) => {}
-            Ok(Err(e)) => log::warn!("stats/history write failed (non-fatal): {e}"),
-            Err(_) => log::warn!("stats/history worker channel closed (non-fatal)"),
-        }
+        let entry_id = match written {
+            Ok(Ok(id)) => Some(id),
+            Ok(Err(e)) => {
+                log::warn!("stats/history write failed (non-fatal): {e}");
+                None
+            }
+            Err(_) => {
+                log::warn!("stats/history worker channel closed (non-fatal)");
+                None
+            }
+        };
         log::info!(
             "delivery timing: session={session_id} database_ms={}",
             started.elapsed().as_millis()
         );
+        entry_id
     }
 
     /// Paste (or copy) the final text on the delivery thread. The cue and

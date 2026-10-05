@@ -30,7 +30,7 @@ const SEARCH_FROM = 10;
  * control filters at a time: the search box when it exists, the field itself
  * when it does not.
  */
-export function ModelCombobox({ value, suggestions, onChange, onCommit, placeholder, openSignal }: {
+export function ModelCombobox({ value, suggestions, onChange, onCommit, placeholder, openSignal, onOpen, loading = false }: {
   value: string;
   suggestions: string[];
   onChange: (next: string) => void;
@@ -44,6 +44,11 @@ export function ModelCombobox({ value, suggestions, onChange, onCommit, placehol
   /// models» button shows what it has just fetched — otherwise the field
   /// reports «20 options from the provider» and keeps them to itself.
   openSignal?: number;
+  /// Called each time the list opens, so the owner can fetch it on demand.
+  onOpen?: () => void;
+  /// A request for the list is in flight: the empty menu says so instead of
+  /// telling the user to type an id by hand.
+  loading?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   // The field almost always already holds a model id, and it is not a search
@@ -62,9 +67,10 @@ export function ModelCombobox({ value, suggestions, onChange, onCommit, placehol
   const hasSearch = suggestions.length > SEARCH_FROM;
 
   useEffect(() => {
-    if (open) return;
+    if (open) { onOpen?.(); return; }
     setQuery("");
     setSearchWanted(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only the opening counts; `onOpen` is a fresh closure every render.
   }, [open]);
 
   // An invisible field cannot take focus, and no error is raised either: we
@@ -181,7 +187,7 @@ export function ModelCombobox({ value, suggestions, onChange, onCommit, placehol
             {s === value && <span className="custom-select__check"><Icon name="check" size={14}/></span>}
           </button>
         ))
-        : <p className="custom-select__empty">{query.trim() ? t("Ничего не нашлось") : t("Нет известных моделей — введите id вручную.")}</p>
+        : <p className="custom-select__empty">{query.trim() ? t("Ничего не нашлось") : loading ? t("Запрашиваю список у провайдера…") : t("Нет известных моделей — введите id вручную.")}</p>
       )}
     </div>
   );
