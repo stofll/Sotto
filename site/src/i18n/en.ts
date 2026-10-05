@@ -76,7 +76,7 @@ export const en: Dictionary = {
     },
     custom: {
       title: 'Make it yours',
-      text: 'Replacements for names and terms. For punctuation and formatting, connect an LLM and save instructions as profiles.',
+      text: 'Replacements for names and terms. For punctuation and formatting, connect an LLM and save instructions as profiles. An answer that drops a negation, a number or a name is not pasted.',
     },
     files: {
       title: 'Transcribe recordings',
@@ -202,7 +202,7 @@ export const en: Dictionary = {
       {
         id: 'privacy',
         question: 'Where does my voice go?',
-        answer: 'By default it stays on your computer. Audio is sent to the cloud only if you connect a cloud recognition provider yourself. De-identified usage statistics never include audio or text, and can be turned off.',
+        answer: 'By default it stays on your computer. Audio is sent to the cloud only if you connect a cloud recognition provider yourself. De-identified usage statistics stay off until you allow them, and never include audio or text.',
       },
       {
         id: 'audio-files',
@@ -233,16 +233,18 @@ export const en: Dictionary = {
     descriptionWindows: 'Choose the x64 .exe installer from the latest GitHub release. A portable ZIP is also available.',
     stepsMac: [
       'Open the .dmg and drag Sotto into Applications.',
+      'If macOS will not open Sotto: System Settings → Privacy & Security → Open Anyway.',
       'Grant microphone and Accessibility permissions when prompted.',
       'Download a model, select it, and set your dictation shortcut.',
     ],
     stepsWindows: [
       'Run the x64 .exe installer, or unpack the portable ZIP.',
+      'If “Windows protected your PC” appears: More info → Run anyway.',
       'Allow microphone access when prompted.',
       'Download a model, select it, and set your dictation shortcut.',
     ],
     notice:
-      'Builds currently lack a publisher certificate. Your operating system may warn on first launch.',
+      'Builds lack a publisher certificate yet, so the system warns about an unknown publisher. You can check the file against SHA256SUMS.txt from the same release.',
     noticeLink: 'Read the verification and first-launch guide.',
     openRelease: 'Open GitHub release',
     directMac: 'Download .dmg for Apple Silicon',

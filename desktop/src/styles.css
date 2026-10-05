@@ -1930,6 +1930,8 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .route-advanced__cell { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .route-advanced__cell h3 { margin: 0; font: 500 13px/1.2 var(--font-sans); letter-spacing: -0.01em; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
 .route-advanced__unit { font: 500 12px/1 var(--font-sans); color: var(--ink-dim); }
+/* The cell may shrink to wrap; a number field must keep the width set for its digits. */
+.route-advanced__cell > .number-field { flex-shrink: 0; }
 
 .route-idle { margin: 10px 0 0; font: 400 11.5px/1.45 var(--font-sans); color: var(--ink-mute); }
 

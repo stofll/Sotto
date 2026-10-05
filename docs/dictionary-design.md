@@ -22,6 +22,7 @@ Growing the library must not add file reads, network requests or noticeable late
 - Adding a term from history to a chosen set.
 - Excluding individual words from a built-in set, should practice show that copying it is not enough.
 - Binding sets to applications or working profiles, once the need for switching context has been assessed.
+- Recognition hints for Sherpa transducer models. Sherpa-ONNX biases transducers towards listed phrases only under `modified_beam_search`, which is slower than the greedy search Sotto uses, and it encodes each phrase with a `bpe.vocab` tokenizer file. As of October 2026 the upstream Parakeet and Nemotron exports in the catalogue ship only `tokens.txt`, so phrases for them cannot be encoded into the tokens the model emits. The Russian Zipformer exports ship `bpe.model`, from which `bpe.vocab` can be derived, but their vocabulary is Cyrillic: they could be biased towards a spoken spelling such as «гитхаб», which the reviewed aliases then turn into `GitHub`, not towards Latin terms. Either path needs a reviewed set of recordings with mixed-language terms to show the accuracy gain outweighs the slower decoding before it changes the default.
 
 ## Checking further changes
 

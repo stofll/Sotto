@@ -552,7 +552,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
                   <>
                     <NumberField className="mono" min={MIN_OUTPUT_LIMIT} max={200000} step={1024} value={ai.llm_output_limit}
                       aria-label={t("Лимит ответа в токенах")}
-                      onValueChange={(next) => void saveAi({ llm_output_limit: Math.max(MIN_OUTPUT_LIMIT, Math.round(Number(next) || CUSTOM_OUTPUT_LIMIT_DEFAULT)) })} style={{ width: 96 }}/>
+                      onValueChange={(next) => void saveAi({ llm_output_limit: Math.max(MIN_OUTPUT_LIMIT, Math.round(Number(next) || CUSTOM_OUTPUT_LIMIT_DEFAULT)) })} style={{ width: 128 }}/>
                     <span className="route-advanced__unit">{t("токенов")}</span>
                   </>
                 )}
