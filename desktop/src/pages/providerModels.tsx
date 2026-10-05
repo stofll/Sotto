@@ -6,10 +6,13 @@
 // you find out in the middle of a dictation, when you least want to
 // investigate.
 //
-// The request goes out only on an explicit action: on switching provider and on
-// the refresh button. No background polling — this is a network request made
-// with the user's key. The field stays free for typing: ids entered by hand
-// earlier must keep working even if the provider no longer lists them.
+// The request goes out only on an explicit action: opening the list for the
+// first time, switching provider, or the refresh button. No background polling
+// — this is a network request made with the user's key. There is no list
+// compiled into the app to fall back on: it went stale between releases and
+// offered retired models until the first refresh replaced it. The field stays
+// free for typing: ids entered by hand earlier must keep working even if the
+// provider no longer lists them.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
@@ -75,8 +78,7 @@ export function useProviderModels(): ProviderModelsState {
         // the old one is not «stale», it is somebody else's: the caption would
         // keep counting options nobody offers any more, and if the request
         // failed — no key for the new provider is the ordinary case — the field
-        // would go on suggesting the previous provider's models. With it gone,
-        // the field falls back to the ids compiled into the app.
+        // would go on suggesting the previous provider's models.
         setModels((current) => {
             if (!(cacheKey in current)) return current;
             const next = { ...current };
@@ -120,7 +122,7 @@ export function useProviderModels(): ProviderModelsState {
     return { models, loadedAt, loadingKeys, errors, queries, load };
 }
 
-export function ModelField({ cacheKey, value, onChange, onCommit, fallbackSuggestions, query, state, inputStyle, placeholder }: {
+export function ModelField({ cacheKey, value, onChange, onCommit, query, state, inputStyle, placeholder }: {
     cacheKey: string;
     value: string;
     onChange: (next: string) => void;
@@ -129,10 +131,6 @@ export function ModelField({ cacheKey, value, onChange, onCommit, fallbackSugges
     /// write per letter. The value comes with it: a pick from the list commits
     /// in the same event that changed it, before React has re-rendered.
     onCommit?: (value: string) => void;
-    /// The hardcoded list — all there used to be. It stays as a fallback while
-    /// there is no live answer: without a key or without a network, suggesting
-    /// something still beats an empty list.
-    fallbackSuggestions: string[];
     query: ProviderModelsQuery;
     state: ProviderModelsState;
     inputStyle?: React.CSSProperties;
@@ -140,6 +138,10 @@ export function ModelField({ cacheKey, value, onChange, onCommit, fallbackSugges
 }) {
     const [openSignal, setOpenSignal] = useState(0);
     const currentQuery = state.queries[cacheKey] === queryKey(query);
+    // Asked once per provider, address and key: a failed answer is shown under
+    // the field rather than re-requested on every focus, and the refresh button
+    // is there to try again.
+    const loadOnOpen = () => { if (!currentQuery) void state.load(cacheKey, query); };
     const fetched = currentQuery ? state.models[cacheKey] : undefined;
     const error = currentQuery ? state.errors[cacheKey] : undefined;
     const loading = currentQuery && state.loadingKeys.has(cacheKey);
@@ -159,7 +161,7 @@ export function ModelField({ cacheKey, value, onChange, onCommit, fallbackSugges
     const countShown = loadedAt !== undefined && now - loadedAt < COUNT_TTL_MS;
     // The current value is always in the list: otherwise an id typed by hand
     // looks like a typo next to the "correct" options.
-    const suggestions = Array.from(new Set([...(fetched ?? fallbackSuggestions), value].filter(Boolean)));
+    const suggestions = Array.from(new Set([...(fetched ?? []), value].filter(Boolean)));
 
     return (
         <>
@@ -171,6 +173,8 @@ export function ModelField({ cacheKey, value, onChange, onCommit, fallbackSugges
                     onCommit={(next) => onCommit?.(next)}
                     placeholder={placeholder}
                     openSignal={openSignal}
+                    onOpen={loadOnOpen}
+                    loading={loading}
                 />
                 {/* The app's own bubble rather than the browser's `title`: the
                     native one comes in the system font, with the system delay,

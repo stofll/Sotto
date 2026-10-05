@@ -80,6 +80,7 @@ function aiStatusText(entry: HistoryEntry): string {
   if (!ai.enabled) return t("LLM: выключено");
   const profile = ai.profile_name ? `${ai.profile_name} · ` : "";
   const model = `${profile}${[ai.provider, ai.model].filter(Boolean).join(" / ")}`.trim();
+  if (ai.attempted && ai.used && ai.late) return model ? t("LLM: обработано позже · {p0}", { p0: model }) : t("LLM: обработано позже");
   if (ai.attempted && ai.used) return model ? t("LLM: обработано · {p0}", { p0: model }) : t("LLM: обработано");
   if (ai.attempted && ai.fallback) {
     const label = aiFallbackLabel(ai.error_type, ai.skipped_reason);
@@ -89,6 +90,7 @@ function aiStatusText(entry: HistoryEntry): string {
   if (ai.skipped_reason === "missing_api_key") return t("LLM: пропущено · нет ключа");
   if (ai.skipped_reason === "missing_provider") return t("LLM: пропущено · нет провайдера");
   if (ai.skipped_reason === "missing_system_prompt") return t("LLM: пропущено · пустой промпт");
+  if (ai.skipped_reason === "text_too_long") return t("LLM: пропущено · текст слишком длинный");
   return t("LLM: пропущено");
 }
 
@@ -115,6 +117,7 @@ function aiSkipLabel(code: string): string {
   if (code === "missing_api_key") return t("нет ключа");
   if (code === "missing_system_prompt") return t("пустой системный промпт");
   if (code === "duration_below_threshold") return t("запись короче порога");
+  if (code === "text_too_long") return t("текст слишком длинный для LLM");
   const label = aiFallbackLabel(undefined, code);
   // An unmapped code is more useful raw than as the word "fallback".
   return label === "fallback" ? code : label;
@@ -224,6 +227,27 @@ function filterEntries(entries: HistoryEntry[], query: string, status: StatusFil
   });
 }
 
+export const HISTORY_PAGE_SIZE = 50;
+
+/** One page of the filtered entries. A page past the end — the last entries
+ *  were deleted, or a new dictation pushed the list — lands on the last one. */
+export function historyPage<T>(items: T[], page: number, size = HISTORY_PAGE_SIZE): { items: T[]; page: number; pageCount: number } {
+  const pageCount = Math.max(1, Math.ceil(items.length / size));
+  const current = Math.min(Math.max(0, page), pageCount - 1);
+  return { items: items.slice(current * size, (current + 1) * size), page: current, pageCount };
+}
+
+/** Page buttons to show: the first, the last and the neighbours of the
+ *  current one, with a gap marker where pages are skipped. Zero-based. */
+export function pagerItems(page: number, pageCount: number): Array<number | "gap"> {
+  const items: Array<number | "gap"> = [];
+  for (let index = 0; index < pageCount; index += 1) {
+    if (index === 0 || index === pageCount - 1 || Math.abs(index - page) <= 1) items.push(index);
+    else if (items[items.length - 1] !== "gap") items.push("gap");
+  }
+  return items;
+}
+
 function groupByDay(entries: HistoryEntry[]): Array<{ key: string; label: string; entries: HistoryEntry[] }> {
   const groups: Array<{ key: string; label: string; entries: HistoryEntry[] }> = [];
   for (const entry of entries) {
@@ -255,7 +279,7 @@ function describeRetention(maxAgeSeconds: number, maxEntries: number): string {
   return t("Хранится {p0}", { p0: parts.join(t(", не больше ")) });
 }
 
-export function HistoryPage() {
+export function HistoryPage({ focus = null }: { focus?: { id: number; seq: number } | null } = {}) {
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
   // Matches RetentionPolicy::default in src-tauri/src/history.rs.
   const [maxAgeSeconds, setMaxAgeSeconds] = useState(30 * 24 * 3600);
@@ -286,6 +310,8 @@ export function HistoryPage() {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [dateFilter, setDateFilter] = useState<DateFilter>("all");
+  const [page, setPage] = useState(0);
+  const pageTopRef = useRef<HTMLDivElement>(null);
 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set());
   const [openMenuId, setOpenMenuId] = useState<number | null>(null);
@@ -392,6 +418,19 @@ export function HistoryPage() {
     if (reprocessId !== null && !ids.has(reprocessId)) setReprocessTarget(null);
     if (playingId !== undefined && !ids.has(playingId)) stopPlayer();
   }, [entries, reprocessId, playingId, stopPlayer]);
+
+  // «Открыть в истории» from the overlay's late-answer note: once the entry is
+  // loaded, open what the LLM changed and bring it into view — once per request.
+  const handledFocus = useRef(0);
+  useEffect(() => {
+    if (!focus || focus.seq === handledFocus.current) return;
+    if (!entries.some((entry) => entry.id === focus.id)) return;
+    handledFocus.current = focus.seq;
+    setDiffEntryIds((current) => new Set(current).add(focus.id));
+    requestAnimationFrame(() => {
+      document.getElementById(`history-entry-${focus.id}`)?.scrollIntoView({ block: "center" });
+    });
+  }, [focus, entries]);
 
   function flashNotice(text: string) {
     setNotice(text);
@@ -566,9 +605,10 @@ export function HistoryPage() {
       }
       // A refusal stays in the panel and nothing is written: the row keeps
       // describing the last run that actually produced text.
-      setReprocessError(preview.reason
+      const failure = preview.reason
         ? t("LLM не вернула текст: {p0}", { p0: aiSkipLabel(preview.reason) })
-        : t("LLM не вернула текст."));
+        : t("LLM не вернула текст.");
+      setReprocessError(preview.detail ? `${failure} (${preview.detail})` : failure);
     } catch (e) {
       if (!current()) return;
       setReprocessError(e instanceof Error ? e.message : String(e));
@@ -598,6 +638,12 @@ export function HistoryPage() {
       setEntries((current) => current.map((item) => item.id === updated.id ? updated : item));
       if (stillOpen()) closeReprocess();
       flashNotice(t("Текст заменен результатом LLM"));
+      // The closing panel takes its diff, often several screens of it, out
+      // from under the reader, and the notice pushes the list down: without
+      // this the view lands on whichever entries slid into place.
+      requestAnimationFrame(() => {
+        document.getElementById(`history-entry-${updated.id}`)?.scrollIntoView({ block: "nearest" });
+      });
     } catch (e) {
       if (stillOpen()) setReprocessError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -620,11 +666,12 @@ export function HistoryPage() {
     () => filterEntries(entries, query, statusFilter, dateFilter),
     [entries, query, statusFilter, dateFilter],
   );
+  const paged = useMemo(() => historyPage(filtered, page), [filtered, page]);
   const groups = useMemo(
     () => groupedByDay
-      ? groupByDay(filtered)
-      : (filtered.length ? [{ key: "all", label: "", entries: filtered }] : []),
-    [filtered, groupedByDay],
+      ? groupByDay(paged.items)
+      : (paged.items.length ? [{ key: "all", label: "", entries: paged.items }] : []),
+    [paged, groupedByDay],
   );
 
   const filterIsActive = query.trim().length > 0 || statusFilter !== "all" || dateFilter !== "all";
@@ -633,17 +680,23 @@ export function HistoryPage() {
     ? t("Показано {p0} из {p1} · {p2}", { p0: filtered.length, p1: entries.length, p2: retentionText })
     : retentionText;
 
-  const visibleIds = useMemo(() => filtered.map((e) => e.id), [filtered]);
+  const visibleIds = useMemo(() => paged.items.map((e) => e.id), [paged]);
   const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
 
   function resetFilters() {
     setQuery("");
     setStatusFilter("all");
     setDateFilter("all");
+    setPage(0);
+  }
+
+  function goToPage(next: number) {
+    setPage(next);
+    pageTopRef.current?.scrollIntoView({ block: "start" });
   }
 
   return (
-    <div className="page">
+    <div className="page" ref={pageTopRef}>
       <PageHeader
         title={t("История транскрипций")}
         sub={subtitle}
@@ -677,11 +730,11 @@ export function HistoryPage() {
         {entries.length > 0 && (
           <FiltersBar
             query={query}
-            onQuery={setQuery}
+            onQuery={(value) => { setQuery(value); setPage(0); }}
             statusFilter={statusFilter}
-            onStatusFilter={setStatusFilter}
+            onStatusFilter={(value) => { setStatusFilter(value); setPage(0); }}
             dateFilter={dateFilter}
-            onDateFilter={setDateFilter}
+            onDateFilter={(value) => { setDateFilter(value); setPage(0); }}
             onReset={resetFilters}
             filterIsActive={filterIsActive}
           />
@@ -765,10 +818,41 @@ export function HistoryPage() {
                 </div>
               </section>
             ))}
+            {paged.pageCount > 1 && <HistoryPager page={paged.page} pageCount={paged.pageCount} onPage={goToPage}/>}
           </div>
         )}
       </div>
     </div>
+  );
+}
+
+function HistoryPager({ page, pageCount, onPage }: { page: number; pageCount: number; onPage: (page: number) => void }) {
+  return (
+    <nav aria-label={t("Страницы истории")} className="flex-row" style={{ gap: 6, justifyContent: "center", flexWrap: "wrap" }}>
+      <Hint asChild text={t("Предыдущая страница")}>
+        <button className="btn btn--ghost btn--sm btn--icon" disabled={page === 0} onClick={() => onPage(page - 1)} aria-label={t("Предыдущая страница")}>
+          <Icon name="chev-left" size={12}/>
+        </button>
+      </Hint>
+      {pagerItems(page, pageCount).map((item, index) => item === "gap"
+        ? <span key={`gap-${index}`} aria-hidden="true" style={{ color: "var(--ink-mute)" }}>…</span>
+        : (
+          <button
+            key={item}
+            className={`btn btn--sm ${item === page ? "btn--primary" : "btn--ghost"}`}
+            aria-current={item === page ? "page" : undefined}
+            aria-label={t("Страница {p0}", { p0: item + 1 })}
+            onClick={() => onPage(item)}
+          >
+            {item + 1}
+          </button>
+        ))}
+      <Hint asChild text={t("Следующая страница")}>
+        <button className="btn btn--ghost btn--sm btn--icon" disabled={page === pageCount - 1} onClick={() => onPage(page + 1)} aria-label={t("Следующая страница")}>
+          <Icon name="chev-right" size={12}/>
+        </button>
+      </Hint>
+    </nav>
   );
 }
 
@@ -935,6 +1019,7 @@ function EntryCard(props: {
 
   return (
     <article
+      id={`history-entry-${entry.id}`}
       data-testid={`history-entry-${entry.id}`}
       style={{
         display: "grid",

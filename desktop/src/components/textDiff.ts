@@ -21,9 +21,13 @@ export type DiffSegment = { text: string; change: "keep" | "add" | "remove" };
  */
 const MIN_COMMON_SHARE = 0.34;
 
-// At most 1 MiB for exact alignment. Large rewrites remain readable as whole
-// removed/added runs instead of freezing the UI to find a minimal edit script.
-const MAX_ALIGNMENT_CELLS = 262_144;
+// Token edits (a word with added punctuation costs two: remove and add) that
+// the exact alignment may find before giving up. Myers' search costs time
+// proportional to text length times edits, and its trace about edits squared,
+// so a tidy-up of an hour-long transcript stays cheap while a wholesale
+// rewrite gives up within ~40 ms and ~16 MiB, rendering whole removed/added
+// runs instead of freezing the UI.
+const MAX_EDIT_DISTANCE = 2_000;
 
 /** Split into words *and* the whitespace between them, so the runs can be
  *  reassembled without inventing separators. */
@@ -31,48 +35,85 @@ function splitWords(text: string): string[] {
   return text.split(/(\s+)/);
 }
 
-/**
- * LCS diff over tokens. Emits one segment per token; callers merge.
- *
- * The tie-break (`>=`) puts deletions before insertions, which is what makes
- * a replacement come out as an adjacent remove/add pair that
- * {@link refineReplacement} can then look at.
- */
+/** Token diff around the shared head and tail. Emits one segment per token;
+ *  callers merge. */
 function diffTokens(a: string[], b: string[]): DiffSegment[] {
   const prefix = commonPrefixLength(a, b);
   const suffix = commonSuffixLength(a, b, prefix);
-  const m = a.length - prefix - suffix;
-  const n = b.length - prefix - suffix;
-  const out: DiffSegment[] = [{ text: a.slice(0, prefix).join(""), change: "keep" }];
-  const appendSuffix = () => {
-    out.push({ text: a.slice(a.length - suffix).join(""), change: "keep" });
-    return out;
-  };
-  if (!m || !n || (m + 1) * (n + 1) > MAX_ALIGNMENT_CELLS) {
-    out.push({ text: a.slice(prefix, prefix + m).join(""), change: "remove" });
-    out.push({ text: b.slice(prefix, prefix + n).join(""), change: "add" });
-    return appendSuffix();
-  }
+  const middleA = a.slice(prefix, a.length - suffix);
+  const middleB = b.slice(prefix, b.length - suffix);
+  const middle = middleA.length && middleB.length ? alignTokens(middleA, middleB) : null;
+  return [
+    { text: a.slice(0, prefix).join(""), change: "keep" },
+    ...(middle ?? [
+      { text: middleA.join(""), change: "remove" },
+      { text: middleB.join(""), change: "add" },
+    ]),
+    { text: a.slice(a.length - suffix).join(""), change: "keep" },
+  ];
+}
 
-  const width = n + 1;
-  const dp = new Uint32Array((m + 1) * width);
-  for (let i = m - 1; i >= 0; i--) {
-    for (let j = n - 1; j >= 0; j--) {
-      dp[i * width + j] = a[prefix + i] === b[prefix + j]
-        ? dp[(i + 1) * width + j + 1] + 1
-        : Math.max(dp[(i + 1) * width + j], dp[i * width + j + 1]);
+/**
+ * Shortest edit script by Myers' O((N+M)·D) algorithm, or `null` past
+ * {@link MAX_EDIT_DISTANCE}.
+ *
+ * Within each run of changes the deletions come first, which is what makes a
+ * replacement an adjacent remove/add pair that {@link refineReplacement} can
+ * then look at.
+ */
+function alignTokens(a: string[], b: string[]): DiffSegment[] | null {
+  const n = a.length;
+  const m = b.length;
+  const maxD = Math.min(n + m, MAX_EDIT_DISTANCE);
+  // Furthest x reached on each diagonal k = x - y, indexed from -maxD - 1.
+  const offset = maxD + 1;
+  const v = new Int32Array(2 * maxD + 3);
+  // Snapshot of diagonals -d..d after each step, for the walk back.
+  const trace: Int32Array[] = [];
+  let distance = -1;
+  for (let d = 0; d <= maxD && distance < 0; d++) {
+    for (let k = -d; k <= d; k += 2) {
+      let x = k === -d || (k !== d && v[offset + k - 1] < v[offset + k + 1])
+        ? v[offset + k + 1]
+        : v[offset + k - 1] + 1;
+      let y = x - k;
+      while (x < n && y < m && a[x] === b[y]) { x++; y++; }
+      v[offset + k] = x;
+      if (x >= n && y >= m) distance = d;
     }
+    trace.push(v.slice(offset - d, offset + d + 1));
   }
-  let i = 0;
-  let j = 0;
-  while (i < m && j < n) {
-    if (a[prefix + i] === b[prefix + j]) { out.push({ text: a[prefix + i], change: "keep" }); i++; j++; }
-    else if (dp[(i + 1) * width + j] >= dp[i * width + j + 1]) { out.push({ text: a[prefix + i], change: "remove" }); i++; }
-    else { out.push({ text: b[prefix + j], change: "add" }); j++; }
+  if (distance < 0) return null;
+
+  const reversed: DiffSegment[] = [];
+  let x = n;
+  let y = m;
+  for (let d = distance; d > 0; d--) {
+    const previous = trace[d - 1];
+    const k = x - y;
+    const inserted = k === -d || (k !== d && previous[k - 1 + d - 1] < previous[k + 1 + d - 1]);
+    const previousK = inserted ? k + 1 : k - 1;
+    const startX = previous[previousK + d - 1] + (inserted ? 0 : 1);
+    while (x > startX) { reversed.push({ text: a[--x], change: "keep" }); y--; }
+    if (inserted) reversed.push({ text: b[--y], change: "add" });
+    else reversed.push({ text: a[--x], change: "remove" });
   }
-  while (i < m) out.push({ text: a[prefix + i++], change: "remove" });
-  while (j < n) out.push({ text: b[prefix + j++], change: "add" });
-  return appendSuffix();
+  while (x > 0) reversed.push({ text: a[--x], change: "keep" });
+  return removalsFirst(reversed.reverse());
+}
+
+/** Reorder each run of changes so its deletions precede its insertions. Both
+ *  sides still read back in order, since only remove/add pairs swap. */
+function removalsFirst(segments: DiffSegment[]): DiffSegment[] {
+  const out: DiffSegment[] = [];
+  let added: DiffSegment[] = [];
+  for (const segment of segments) {
+    if (segment.change === "add") { added.push(segment); continue; }
+    if (segment.change === "keep") { out.push(...added); added = []; }
+    out.push(segment);
+  }
+  out.push(...added);
+  return out;
 }
 
 function mergeAdjacent(segments: DiffSegment[]): DiffSegment[] {

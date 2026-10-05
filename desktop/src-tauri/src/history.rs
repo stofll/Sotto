@@ -712,6 +712,8 @@ pub(crate) struct HistoryAiPreview {
     ok: bool,
     text: String,
     reason: Option<String>,
+    /// What the provider said about a failed run, shown after `reason`.
+    detail: Option<String>,
     provider: String,
     model: String,
     profile_name: String,
@@ -742,6 +744,9 @@ pub(crate) async fn preview_history_ai_processing(
         ok: outcome.status.used,
         text: outcome.text,
         reason: retry_failure_reason(&outcome.status),
+        detail: (!outcome.status.used)
+            .then(|| outcome.status.provider_error.clone())
+            .flatten(),
         provider: ai_cfg.provider,
         model: ai_cfg.model,
         profile_name: ai_cfg.profile_name,
@@ -836,9 +841,33 @@ fn retry_failure_reason(status: &crate::ai::step::AiStatus) -> Option<String> {
         .or_else(|| Some("unknown".to_string()))
 }
 
+/// Store an LLM answer that arrived after the dictation was pasted.
+///
+/// The row already holds the local text and the timed-out status; both give
+/// way to what the model sent, as when a result from «Обработать» is applied.
+/// Only the LLM leg of the timings changes. `false` when the row is gone —
+/// deleted or pruned while the request was still running.
+pub(crate) fn store_late_answer(
+    conn: &Connection,
+    id: u64,
+    text: &str,
+    ai_json: &str,
+    llm_seconds: f64,
+) -> Result<bool, rusqlite::Error> {
+    let Some(entry) = read_history_entry(conn, id)? else {
+        return Ok(false);
+    };
+    let stats = stats_with_llm_timing(entry.processing_stats.as_ref(), llm_seconds);
+    update_entry_ai(conn, id, Some(text), ai_json, &stats)?;
+    Ok(true)
+}
+
 /// Read a single history row by id (used by the manual LLM processing path
 /// to fetch the source text and to re-fetch the row after the write).
-fn read_history_entry(conn: &Connection, id: u64) -> Result<Option<HistoryEntry>, rusqlite::Error> {
+pub(crate) fn read_history_entry(
+    conn: &Connection,
+    id: u64,
+) -> Result<Option<HistoryEntry>, rusqlite::Error> {
     conn.query_row(
         &format!("SELECT {ENTRY_COLUMNS} FROM history WHERE id = ?1"),
         [id as i64],
@@ -1066,6 +1095,45 @@ mod tests {
         let stats = list.entries[0].processing_stats.as_ref().unwrap();
         assert_eq!(stats["audio_seconds"], serde_json::json!(4.0));
         assert_eq!(stats["whisper_seconds"], serde_json::json!(0.25));
+    }
+
+    #[test]
+    fn a_late_answer_replaces_the_pasted_text_and_only_the_llm_timing() {
+        let db = fresh_db();
+        let id = append_entry(
+            &db,
+            &NewEntry {
+                text: "привет как дела",
+                raw_text: "привет как дела",
+                formatted_text: "привет как дела",
+                session_id: Some(7),
+                language: Some("ru"),
+                inference_time_ms: 250,
+                ai_processing_json: Some(r#"{"fallback":true,"skipped_reason":"provider_timeout"}"#),
+                processing_stats_json: Some(
+                    r#"{"audio_seconds":4.0,"whisper_seconds":0.5,"llm_seconds":12.0,"total_seconds":12.5}"#,
+                ),
+                system_prompt: None,
+                transcription_model: None,
+                recording_file: None,
+            },
+        )
+        .unwrap();
+        let conn = db.lock().unwrap();
+        let ai_json = r#"{"used":true,"late":true}"#;
+        assert!(store_late_answer(&conn, id, "Привет, как дела?", ai_json, 20.0).unwrap());
+        let entry = read_history_entry(&conn, id).unwrap().unwrap();
+        assert_eq!(entry.text, "Привет, как дела?");
+        assert_eq!(
+            entry.ai_processing.unwrap()["late"],
+            serde_json::json!(true)
+        );
+        let stats = entry.processing_stats.unwrap();
+        assert_eq!(stats["llm_seconds"], serde_json::json!(20.0));
+        assert_eq!(stats["total_seconds"], serde_json::json!(20.5));
+        assert_eq!(stats["audio_seconds"], serde_json::json!(4.0));
+        // Deleted while the request was still running: nothing to write.
+        assert!(!store_late_answer(&conn, id + 1, "x", ai_json, 1.0).unwrap());
     }
 
     #[test]
@@ -1410,6 +1478,7 @@ mod retry_ai_tests {
             response_snippet: None,
             output_length: None,
             provider_attempts: Vec::new(),
+            late: false,
         };
         status.output_length = used.then_some(10);
         status

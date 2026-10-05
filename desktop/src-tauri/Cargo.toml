@@ -159,7 +159,6 @@ objc2-app-kit = { version = "0.3.2", default-features = false, features = [
 
 [lib]
 name = "sotto_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
 
 # The binary name is what the system shows: the icon caption in the dock for an
 # unbundled build, Activity Monitor, Force Quit, crash reports, and Sotto.exe on

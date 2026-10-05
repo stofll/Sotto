@@ -26,6 +26,8 @@ const APP_COMMANDS: &[&str] = &[
     "history_recording",
     "preview_history_ai_processing",
     "apply_history_ai_processing",
+    "copy_history_entry",
+    "open_history_entry",
     "get_config",
     "save_config",
     "app_version",

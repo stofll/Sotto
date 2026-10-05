@@ -107,6 +107,7 @@ export function install(seed: any = {}) {
       case 'delete_history_entry': state.history = state.history.filter((e: any) => e.id !== args.id); persist(); return { deleted: true };
       case 'clear_history': { const count = state.history.length; state.history = []; persist(); return { deleted: count }; }
       case 'history_recording': return silentWav(2);
+      case 'copy_history_entry': case 'open_history_entry': return null;
       case 'recordings_size': return 3 * 1024 * 1024;
       case 'has_api_key': return state.keys[args.key_id] ?? { available: false, label: '', masked: '' };
       case 'save_api_key': state.keys[args.key_id] = { available: true, label: args.label, masked: 'test-***' }; persist(); return { saved: true, ...state.keys[args.key_id] };

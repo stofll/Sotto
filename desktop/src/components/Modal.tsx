@@ -14,17 +14,23 @@ import { t } from "../i18n";
  * the question is the body, and a header repeating it above the cross would
  * say it twice. `title` still names the dialog for assistive technology.
  * `closeRef` lets the opener aim focus at the cross when the dialog has no
- * cancel button of its own.
+ * cancel button of its own. `focusFirstInput={false}` keeps focus on the
+ * dialog itself, for one that opens on a choice rather than on typing.
  */
-export function Modal({ title, children, onClose, busy = false, className, showHeader = true, closeRef }: { title: string; children: ReactNode; onClose: () => void; busy?: boolean; className?: string; showHeader?: boolean; closeRef?: Ref<HTMLButtonElement> }) {
+export function Modal({ title, children, onClose, busy = false, className, showHeader = true, closeRef, focusFirstInput = true }: { title: string; children: ReactNode; onClose: () => void; busy?: boolean; className?: string; showHeader?: boolean; closeRef?: Ref<HTMLButtonElement>; focusFirstInput?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
-    (ref.current?.querySelector<HTMLElement>("input") ?? ref.current)?.focus();
+    (focusFirstInput ? ref.current?.querySelector<HTMLElement>("input") ?? ref.current : ref.current)?.focus();
     return () => { previous?.focus(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- focus is placed once, when the dialog opens.
   }, []);
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
+      // An open dropdown takes Escape for itself: this listener runs in the
+      // capture phase, ahead of the menu's own, and used to close the whole
+      // dialog — or ask about it — instead of the list.
+      if (event.key === "Escape" && document.querySelector(".custom-select__menu")) return;
       if (event.key === "Escape" && !busy) { event.preventDefault(); event.stopPropagation(); onClose(); }
       if (event.key !== "Tab") return;
       const dialog = ref.current;

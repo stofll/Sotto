@@ -1,7 +1,9 @@
 import { useMemo, useRef, useState } from "react";
 import { Icon } from "./Icon";
 import { CustomSelect, type SelectOption } from "./CustomSelect";
+import { FieldCheckNote } from "./FieldCheckNote";
 import { Hint } from "./Hint";
+import { Modal } from "./Modal";
 import {
   CATALOG_GROUPS,
   LogoMark,
@@ -9,21 +11,25 @@ import {
   OPENCODE_GO_BASE_URL,
   PROVIDERS,
   PROVIDER_CATALOG,
-  PROVIDER_MODEL_OPTIONS,
   type CompatiblePreset,
   type LlmProfile,
 } from "../pages/aiShared";
 import { apiKeyBlocks, checkApiKey, keyIsOptional, LOCAL_KEY_VALUE, type KeyCheck } from "../pages/apiKeyFormat";
-import { baseUrlBlocks, baseUrlLabel, checkBaseUrl, normalizeBaseUrl } from "../pages/baseUrlFormat";
+import { baseUrlBlocks, baseUrlLabel, checkBaseUrl, normalizeBaseUrl, type UrlCheck } from "../pages/baseUrlFormat";
 import { ModelField, useProviderModels, type ProviderModelsQuery } from "../pages/providerModels";
 import type { ApiKeyStatus } from "../bridge/types";
 import { t } from "../i18n";
 
 type WizardState = {
   step: 1 | 2 | 3;
+  /// Empty until a card is picked: a card lit up before anyone chose it was a
+  /// choice the user had not made, one «Далее» away from being a profile.
   provider: string;
   preset: CompatiblePreset | null;
   name: string;
+  /// The name was typed rather than derived from the card. A derived one
+  /// follows the card; a typed one is never overwritten.
+  nameEdited: boolean;
   baseUrl: string;
   model: string;
   reuseKeyRef: string | null;
@@ -50,16 +56,18 @@ export type ProfileWizardResult = {
 };
 
 function initialState(seed: ProfileWizardSeed | undefined): WizardState {
-  const providerId = seed?.provider ?? PROVIDERS[0].id;
-  const provider = PROVIDERS.find((p) => p.id === providerId) ?? PROVIDERS[0];
+  const provider = PROVIDERS.find((p) => p.id === seed?.provider);
   const preset = seed?.preset ?? null;
   return {
     step: seed?.startStep ?? 1,
-    provider: provider.id,
+    provider: provider?.id ?? "",
     preset,
     name: seed?.name ?? "",
-    baseUrl: seed?.baseUrl ?? (provider.id === "opencode-go" ? OPENCODE_GO_BASE_URL : (preset?.baseUrl ?? "")),
-    model: seed?.model ?? preset?.suggestedModel ?? provider.defaultModel,
+    nameEdited: Boolean(seed?.name),
+    baseUrl: seed?.baseUrl ?? (provider?.id === "opencode-go" ? OPENCODE_GO_BASE_URL : (preset?.baseUrl ?? "")),
+    // No model until one is picked: an id compiled into the app goes stale
+    // between releases, and the provider's own list is a click away.
+    model: seed?.model ?? "",
     reuseKeyRef: null,
     noKey: null,
     newKey: "",
@@ -80,10 +88,29 @@ export function hasUnsavedInput({ step, isCustom, baseUrl }: { step: number; isC
   return step > 1 || (isCustom && baseUrl.trim() !== "");
 }
 
-/** An empty field is a hint, a malformed value is an error. */
-function checkTone(level: "error" | "warn", raw: string): string {
-  if (!raw.trim()) return "var(--ink-mute)";
-  return level === "error" ? "var(--err)" : "var(--warn)";
+/** The address field, asked for on the first step for the blank card and
+ *  shown again on the last one for every OpenAI-compatible entry. */
+function BaseUrlField({ id, value, check, onChange, autoFocus }: {
+  id: string;
+  value: string;
+  check: UrlCheck;
+  onChange: (next: string) => void;
+  autoFocus?: boolean;
+}) {
+  // An empty field is not a remark worth printing: the placeholder shows the
+  // shape of the address and «Далее» stays disabled until there is one. The
+  // check itself is still made — `submit` reports it if the field is emptied
+  // on the last step.
+  const note = check && check.code !== "empty" ? check : null;
+  return (
+    <label className="wizard-field">
+      <span className="wizard-label">Base URL</span>
+      <input className="field mono wizard-url-field" aria-label="Base URL" value={value} onChange={(e) => onChange(e.target.value)}
+        placeholder="https://api.example.com/v1" autoFocus={autoFocus}
+        aria-invalid={baseUrlBlocks(check)} aria-describedby={note ? id : undefined}/>
+      <FieldCheckNote id={id} check={note} value={value}/>
+    </label>
+  );
 }
 
 export function ProfileWizard({ apiKeys, existingProfiles, seed, onClose, onCreate }: {
@@ -97,11 +124,12 @@ export function ProfileWizard({ apiKeys, existingProfiles, seed, onClose, onCrea
   const [state, setState] = useState<WizardState>(() => initialState(seed));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // The question about closing lives in the wizard's own footer. `window.confirm`
-  // was the first attempt — it is what the rest of the app deletes things with —
-  // but in this webview it returns without ever drawing anything, so the modal
-  // closed silently no matter what had been typed.
+  // The question about closing is asked in the wizard's own dialog.
+  // `window.confirm` was the first attempt, but in this webview it returns
+  // without ever drawing anything, so the modal closed silently no matter what
+  // had been typed.
   const [confirmingClose, setConfirmingClose] = useState(false);
+  const [keyRevealed, setKeyRevealed] = useState(false);
   const remoteModels = useProviderModels();
 
   function update(patch: Partial<WizardState>) {
@@ -115,35 +143,43 @@ export function ProfileWizard({ apiKeys, existingProfiles, seed, onClose, onCrea
   // format hints.
   const isCustom = state.provider === "compatible" && !state.preset;
 
+  /** What a different card resets. A derived name follows the card — kept,
+   *  it named the profile after whichever card was clicked first — and a key
+   *  chosen or typed for one provider does not authenticate with another. */
+  function switchTo(selection: string, derivedName: string): Partial<WizardState> {
+    const current = state.preset?.id ?? state.provider;
+    return {
+      name: state.nameEdited ? state.name : derivedName,
+      noKey: null,
+      ...(selection === current ? {} : { reuseKeyRef: null, newKey: "", newKeyLabel: "" }),
+    };
+  }
+
   function pickProvider(providerId: string) {
     const provider = PROVIDERS.find((p) => p.id === providerId) ?? PROVIDERS[0];
     update({
+      ...switchTo(providerId, provider.name),
       provider: providerId,
       preset: null,
       baseUrl: providerId === "opencode-go" ? OPENCODE_GO_BASE_URL : "",
-      model: provider.defaultModel,
-      name: state.name || provider.name,
-      noKey: null,
+      model: "",
     });
   }
 
   function pickPreset(preset: CompatiblePreset) {
     update({
+      ...switchTo(preset.id, preset.name),
       provider: "compatible",
       preset,
       baseUrl: preset.baseUrl,
-      model: preset.suggestedModel ?? state.model,
-      name: state.name || `${preset.name} · ${preset.suggestedModel ?? "auto"}`,
-      noKey: null,
+      model: "",
     });
   }
 
   function pickCustom() {
-    // Everything is cleared, the name included: a name carried over from the
-    // card clicked a moment earlier would be a lie about where the profile
-    // points. The default one is derived from the host when the profile is
-    // created.
-    update({ provider: "compatible", preset: null, baseUrl: "", model: "", name: "", noKey: null });
+    // The derived name goes too: the default for a hand-typed address is its
+    // host, taken when the profile is created.
+    update({ ...switchTo("compatible", ""), provider: "compatible", preset: null, baseUrl: "", model: "" });
   }
 
   const availableKeys = useMemo(() => {
@@ -157,11 +193,6 @@ export function ProfileWizard({ apiKeys, existingProfiles, seed, onClose, onCrea
   // typo used to turn into a profile that quietly processed nothing.
   const urlCheck = state.provider === "compatible" ? checkBaseUrl(state.baseUrl) : null;
   const urlBlocks = baseUrlBlocks(urlCheck);
-  // An empty field is not a remark worth printing: the placeholder shows the
-  // shape of the address and «Далее» stays disabled until there is one. The
-  // check itself is still made — `submit` reports it if the field is emptied
-  // on the last step.
-  const urlNote = urlCheck && urlCheck.code !== "empty" ? urlCheck : null;
 
   // A local server accepts any token, so the key step has nothing to ask for.
   // The checkbox is offered only where that holds; an explicit answer wins, and
@@ -198,8 +229,6 @@ export function ProfileWizard({ apiKeys, existingProfiles, seed, onClose, onCrea
     entry.name,
     entry.id,
     entry.meta,
-    entry.preset?.suggestedModel,
-    entry.provider?.defaultModel,
   ));
 
   async function submit() {
@@ -268,8 +297,10 @@ export function ProfileWizard({ apiKeys, existingProfiles, seed, onClose, onCrea
   const canNext = (state.step === 1 && !!state.provider && !(isCustom && urlBlocks))
     || (state.step === 2 && !keyBlocks);
 
-  /** Every way out except «Создать профиль» — the X, the overlay, «Отмена». */
+  /** Every way out except «Создать профиль» — the X, Escape, the overlay.
+   *  While the question is on screen, the same ways out answer «Остаться». */
   function requestClose() {
+    if (confirmingClose) { setConfirmingClose(false); return; }
     if (hasUnsavedInput({ step: state.step, isCustom, baseUrl: state.baseUrl })) {
       setConfirmingClose(true);
       return;
@@ -277,9 +308,34 @@ export function ProfileWizard({ apiKeys, existingProfiles, seed, onClose, onCrea
     onClose();
   }
 
+  const stepNames = [t("Провайдер"), t("API-ключ"), t("Модель")];
+
+  // The question replaces the wizard inside the same dialog, as the dictionary
+  // editor asks it: a second overlay stacked on top had its own Escape and
+  // focus rules to keep in step with the first, and kept neither.
+  if (confirmingClose) {
+    return (
+      <Modal title={t("Закрыть мастер?")} onClose={requestClose} showHeader={false} className="modal--ask">
+        <div className="modal__head">
+          <div className="modal__title"><h2>{t("Закрыть мастер?")}</h2></div>
+        </div>
+        <div className="modal__body">
+          <p className="dictionary-note">{t("Введённые данные не сохранятся.")}</p>
+        </div>
+        {/* «Остаться» is the primary button: the safe answer is the one under
+            the finger, and Escape or a click outside mean the same thing. */}
+        <div className="modal__foot">
+          <button className="btn btn--ghost" onClick={onClose}>{t("Закрыть без сохранения")}</button>
+          <button className="btn btn--primary" autoFocus onClick={() => setConfirmingClose(false)}>{t("Остаться")}</button>
+        </div>
+      </Modal>
+    );
+  }
+
   return (
-    <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) requestClose(); }}>
-      <div className="modal modal--wide" role="dialog" aria-modal="true" aria-label={t("Новый профиль LLM")}>
+    // The first step is a choice of card, not something to type: a focused
+    // search box lit up as if it were the thing to do first.
+    <Modal title={t("Новый профиль LLM")} onClose={requestClose} busy={submitting} showHeader={false} focusFirstInput={false} className="modal--wide">
         {/* The counter goes beside the title, and the segments below take over
             the head's divider instead of lying on top of it: the window is 710px
             tall at its smallest, and two of those rows were spent on saying
@@ -287,9 +343,9 @@ export function ProfileWizard({ apiKeys, existingProfiles, seed, onClose, onCrea
         <div className="modal__head modal__head--flush">
           <div className="modal__title">
             <h2>{t("Новый профиль LLM")}</h2>
-            <span className="sub">{t("Шаг")} {state.step}  {t("из 3")}</span>
+            <span className="sub">{t("Шаг")} {state.step}  {t("из 3")} · {stepNames[state.step - 1]}</span>
           </div>
-          <button className="modal__close" onClick={requestClose} aria-label={t("Закрыть")}><Icon name="x" size={14}/></button>
+          <button className="modal__close" onClick={requestClose} disabled={submitting} aria-label={t("Закрыть")}><Icon name="x" size={14}/></button>
         </div>
         <div className="wizard-steps">
           <div className="wizard-step" data-active={state.step === 1} data-done={state.step > 1}/>
@@ -330,32 +386,24 @@ export function ProfileWizard({ apiKeys, existingProfiles, seed, onClose, onCrea
                     the blank has nothing else to say about itself, and the key
                     step needs it to know whether a key is wanted at all. */}
                 {isCustom && (
-                  <label style={{ display: "grid", gap: 6, marginTop: 4 }}>
-                    <span className="wizard-label">Base URL</span>
-                    <input className="field mono wizard-url-field" aria-label="Base URL" value={state.baseUrl} onChange={(e) => update({ baseUrl: e.target.value })}
-                      placeholder="https://api.example.com/v1" autoFocus
-                      aria-invalid={urlBlocks} aria-describedby={urlNote ? "wizard-url-check" : undefined}/>
-                    {urlNote && (
-                      <div id="wizard-url-check" role={urlNote.level === "error" ? "alert" : "status"}
-                        style={{ font: "500 12px/1.4 var(--font-sans)", color: checkTone(urlNote.level, state.baseUrl) }}>
-                        {urlNote.message}
-                      </div>
-                    )}
-                  </label>
+                  <BaseUrlField id="wizard-url-check" value={state.baseUrl} check={urlCheck} autoFocus
+                    onChange={(baseUrl) => update({ baseUrl })}/>
                 )}
               </div>
               {/* Grouped by what the entry is to whoever is choosing it, not by
                   which adapter serves it — see `catalogGroup`. Name and logo
                   are the whole card: the default model was a fact about the
                   third step and cost the row half its cards, and the address
-                  earns its place only where it points at your own machine. */}
+                  earns its place only where it points at your own machine —
+                  as host and port, which is what gets checked against the
+                  server running there. */}
               {CATALOG_GROUPS().map(({ id: group, label }) => {
                 const entries = catalog.filter((entry) => entry.group === group);
                 if (entries.length === 0) return null;
                 return (
                   <div className="wizard-section" key={group}>
                     <div className="wizard-label">{label}</div>
-                    <div className={group === "local" ? "wizard-provider-grid" : "wizard-provider-grid wizard-provider-grid--compact"}>
+                    <div className="wizard-provider-grid">
                       {entries.map((entry) => (
                         <button key={entry.id} className="wizard-provider-card"
                           data-selected={entry.preset ? state.preset?.id === entry.id : state.provider === entry.id && !state.preset}
@@ -364,7 +412,7 @@ export function ProfileWizard({ apiKeys, existingProfiles, seed, onClose, onCrea
                           {group === "local" ? (
                             <div style={{ minWidth: 0 }}>
                               <div className="name">{entry.name}</div>
-                              <div className="meta">{entry.meta}</div>
+                              <div className="meta">{baseUrlLabel(entry.meta)}</div>
                             </div>
                           ) : (
                             <div className="name">{entry.name}</div>
@@ -376,15 +424,12 @@ export function ProfileWizard({ apiKeys, existingProfiles, seed, onClose, onCrea
                 );
               })}
               {catalog.length === 0 && (
-                <div style={{ font: "500 12px/1.4 var(--font-sans)", color: "var(--ink-mute)" }}>
-                  {t("Ничего не найдено — заполните адрес вручную.")}
-                </div>
+                <div className="field-check">{t("Ничего не найдено — заполните адрес вручную.")}</div>
               )}
             </>
           )}
           {state.step === 2 && (
             <>
-              <div className="wizard-label">{t("API-ключ")}</div>
               {/* A local server checks nothing, and until this box existed the
                   wizard demanded a key it would never send anywhere: LM Studio,
                   Ollama and vLLM could not be set up through it at all. */}
@@ -400,8 +445,8 @@ export function ProfileWizard({ apiKeys, existingProfiles, seed, onClose, onCrea
               {!noKey && (
                 <>
                   {availableKeys.length > 0 && (
-                    <div style={{ display: "grid", gap: 6 }}>
-                      <span style={{ font: "500 11px/1.4 var(--font-mono)", color: "var(--ink-mute)" }}>{t("Использовать существующий слот:")}</span>
+                    <div className="wizard-field">
+                      <span className="wizard-label">{t("Использовать существующий слот:")}</span>
                       <CustomSelect<string>
                         value={state.reuseKeyRef ?? ""}
                         inlineMeta
@@ -419,25 +464,32 @@ export function ProfileWizard({ apiKeys, existingProfiles, seed, onClose, onCrea
                   )}
                   {!state.reuseKeyRef && (
                     <>
-                      <label style={{ display: "grid", gap: 6 }}>
+                      <label className="wizard-field">
                         <span className="wizard-label">{t("Метка ключа (опционально)")}</span>
                         <input className="field" value={state.newKeyLabel} onChange={(e) => update({ newKeyLabel: e.target.value })} placeholder={state.name || t("Например: Cerebras gpt-oss")}/>
                       </label>
-                      <label style={{ display: "grid", gap: 6 }}>
+                      <label className="wizard-field">
                         <span className="wizard-label">{t("Значение")}</span>
-                        <input className="field mono" type="password" value={state.newKey} onChange={(e) => update({ newKey: e.target.value })} placeholder="sk-..."
-                          aria-invalid={keyBlocks} aria-describedby={keyCheck ? "wizard-key-check" : undefined}/>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <input className="field mono" type={keyRevealed ? "text" : "password"} value={state.newKey} onChange={(e) => update({ newKey: e.target.value })} placeholder="sk-..."
+                            style={{ flex: 1 }} aria-invalid={keyBlocks} aria-describedby={keyCheck ? "wizard-key-check" : undefined}/>
+                          <Hint asChild text={keyRevealed ? t("Скрыть ключ") : t("Показать ключ")}>
+                            <button
+                              type="button"
+                              className="btn btn--icon field-reveal"
+                              onClick={() => setKeyRevealed((v) => !v)}
+                              aria-label={keyRevealed ? t("Скрыть ключ") : t("Показать ключ")}
+                            >
+                              <Icon name={keyRevealed ? "eye-off" : "eye"} size={13}/>
+                            </button>
+                          </Hint>
+                        </div>
                       </label>
                       {/* The line is always there when there is something to say:
                           «Далее» is disabled, and a silent grey button is the same
                           dead end as a refusal on the third step. An empty field is
                           not yet the user's mistake, so it is a hint, not red. */}
-                      {keyCheck && (
-                        <div id="wizard-key-check" role={keyCheck.level === "error" && state.newKey.trim() ? "alert" : "status"}
-                          style={{ font: "500 12px/1.4 var(--font-sans)", color: checkTone(keyCheck.level, state.newKey) }}>
-                          {keyCheck.message}
-                        </div>
-                      )}
+                      <FieldCheckNote id="wizard-key-check" check={keyCheck} value={state.newKey}/>
                     </>
                   )}
                 </>
@@ -446,23 +498,14 @@ export function ProfileWizard({ apiKeys, existingProfiles, seed, onClose, onCrea
           )}
           {state.step === 3 && (
             <>
-              <label style={{ display: "grid", gap: 6 }}>
+              <label className="wizard-field">
                 <span className="wizard-label">{t("Название профиля")}</span>
-                <input className="field" value={state.name} onChange={(e) => update({ name: e.target.value })}
+                <input className="field" value={state.name} onChange={(e) => update({ name: e.target.value, nameEdited: e.target.value !== "" })}
                   placeholder={(isCustom && baseUrlLabel(state.baseUrl)) || t("Например: Cerebras gpt-oss-120b")} maxLength={64}/>
               </label>
               {state.provider === "compatible" && (
-                <label style={{ display: "grid", gap: 6 }}>
-                  <span className="wizard-label">Base URL</span>
-                  <input className="field mono wizard-url-field" aria-label="Base URL" value={state.baseUrl} onChange={(e) => update({ baseUrl: e.target.value })} placeholder="https://api.example.com/v1"
-                    aria-invalid={urlBlocks} aria-describedby={urlNote ? "wizard-url-review" : undefined}/>
-                  {urlNote && (
-                    <div id="wizard-url-review" role={urlNote.level === "error" ? "alert" : "status"}
-                      style={{ font: "500 12px/1.4 var(--font-sans)", color: checkTone(urlNote.level, state.baseUrl) }}>
-                      {urlNote.message}
-                    </div>
-                  )}
-                </label>
+                <BaseUrlField id="wizard-url-review" value={state.baseUrl} check={urlCheck}
+                  onChange={(baseUrl) => update({ baseUrl })}/>
               )}
               {/* The same field as on «Интеграции», refresh button and all: the
                   list a provider serves today beats one compiled into the app
@@ -470,7 +513,7 @@ export function ProfileWizard({ apiKeys, existingProfiles, seed, onClose, onCrea
                   where the id is chosen for the first time. Where the docs are
                   to be found is a footnote about the field, so it hangs off the
                   caption instead of taking a row under it. */}
-              <label style={{ display: "grid", gap: 6 }}>
+              <label className="wizard-field">
                 <span className="wizard-label">
                   Model ID <Hint text={MODEL_HINTS()[state.provider] ?? t("Model ID берётся из документации провайдера.")}/>
                 </span>
@@ -478,13 +521,12 @@ export function ProfileWizard({ apiKeys, existingProfiles, seed, onClose, onCrea
                   cacheKey={`wizard:${state.provider}:${baseUrl}`}
                   value={state.model}
                   onChange={(v) => update({ model: v })}
-                  fallbackSuggestions={PROVIDER_MODEL_OPTIONS[state.provider] ?? []}
-                  placeholder={t("например: gpt-oss-120b")}
+                  placeholder={t("Выберите из списка провайдера или введите id")}
                   query={modelsQuery}
                   state={remoteModels}
                 />
               </label>
-              {error && <div style={{ color: "var(--err)", font: "500 12px/1.4 var(--font-sans)" }}>{error}</div>}
+              {error && <div className="field-check" data-tone="error" role="alert">{error}</div>}
             </>
           )}
         </div>
@@ -498,30 +540,6 @@ export function ProfileWizard({ apiKeys, existingProfiles, seed, onClose, onCrea
             <button className="btn btn--primary" onClick={() => void submit()} disabled={submitting}><Icon name="check" size={12}/>{submitting ? t("Создаю…") : t("Создать профиль")}</button>
           )}
         </div>
-      </div>
-      {/* A window of its own over the wizard, not a line in its footer: the
-          question is asked about the window still standing behind it, and it
-          has to be answered before anything else can be clicked. «Остаться» is
-          the primary button — the safe answer is the one under the finger, and
-          clicking the backdrop means the same thing. */}
-      {confirmingClose && (
-        <div className="modal-overlay modal-overlay--stacked" onMouseDown={(e) => { if (e.target === e.currentTarget) setConfirmingClose(false); }}>
-          <div className="modal modal--ask" role="alertdialog" aria-modal="true" aria-labelledby="wizard-close-title">
-            <div className="modal__head">
-              <div className="modal__title"><h2 id="wizard-close-title">{t("Закрыть мастер?")}</h2></div>
-            </div>
-            <div className="modal__body">
-              <div style={{ font: "500 12.5px/1.45 var(--font-sans)", color: "var(--ink-dim)" }}>
-                {t("Введённые данные не сохранятся.")}
-              </div>
-            </div>
-            <div className="modal__foot">
-              <button className="btn btn--ghost" onClick={onClose}>{t("Закрыть без сохранения")}</button>
-              <button className="btn btn--primary" autoFocus onClick={() => setConfirmingClose(false)}>{t("Остаться")}</button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+    </Modal>
   );
 }

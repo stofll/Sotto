@@ -61,6 +61,9 @@
      source above. White in the dark theme, and still white on the accent
      button in the light one, so it is a token rather than a literal. */
   --inset-highlight: rgba(255, 255, 255, 0.04);
+  /* Brand marks are drawn for a light ground, so their tile stays white in
+     both themes. */
+  --logo-tile: #ffffff;
 
   --radius-sm: 6px;
   --radius: 10px;
@@ -308,6 +311,9 @@ button, input, textarea, select { font: inherit; }
 .model-card2__actions { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
 .field { background: var(--bg-2); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); height: 34px; padding: 0 10px; color: var(--ink); font: 400 13px/1 var(--font-sans); outline: none; width: 100%; }
 .field:focus { border-color: var(--ring-color); box-shadow: var(--ring); }
+/* WebView2 draws its own reveal eye inside password inputs; key fields carry
+   a `.field-reveal` button instead, and two eyes would be one too many. */
+.field::-ms-reveal, .field::-ms-clear { display: none; }
 /* `.field` fixes height for single-line inputs; a textarea has to size itself
    from `rows` instead, or a 14-row prompt renders as a 34px slit. Textareas
    that set an inline min-height were unaffected and stay where they were. */
@@ -946,11 +952,8 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 /* The wizard shows a catalog, not a form: at 560px the cards were narrow
    enough that the logos read as decoration rather than as marks you pick by. */
 .modal--wide { width: min(820px, 100%); }
-/* A question about the window underneath. It is small on purpose — there is
-   one sentence in it — and the backdrop is lighter than the first one, or two
-   of them stacked would black the wizard out entirely. */
+/* A one-sentence question: small on purpose. */
 .modal--ask { width: min(420px, 100%); }
-.modal-overlay--stacked { background: rgba(0,0,0,0.35); backdrop-filter: none; }
 .modal__head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--line); }
 /* The step counter sits beside the title: three words did not need a second
    line of head, and the wizard has 710px of window at its smallest. */
@@ -979,13 +982,12 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
    pushed the catalog further down a window that is 710px tall at its
    smallest — and `.input-search`s own `flex: 1` grew it down the column. */
 .wizard-search { flex: 0 0 auto; max-width: 280px; }
-/* `auto-fill` instead of two fixed columns: the grid uses whatever width the
-   modal has and folds back to one column on a narrow window. The list scrolls
-   with the rest of the body — its own `max-height` put a second scrollbar
-   inside an already scrolling area. */
-.wizard-provider-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; }
-/* Logo and name only: those cards fit four and five to a row. */
-.wizard-provider-grid--compact { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+/* `auto-fill` instead of fixed columns: the grid uses whatever width the modal
+   has and folds back on a narrow window. Every shelf shares one column width,
+   so the cards line up from one heading to the next. The list scrolls with the
+   rest of the body — its own `max-height` put a second scrollbar inside an
+   already scrolling area. */
+.wizard-provider-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; }
 .wizard-provider-card { appearance: none; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; align-items: center; padding: 11px 12px; border-radius: var(--radius-sm); border: 1px solid var(--line); background: var(--bg-3); color: var(--ink); text-align: left; cursor: pointer; }
 .wizard-provider-card:hover:not(:disabled) { background: var(--bg-2); border-color: var(--line-strong); }
 /* `--border-accent` is an alias of `--accent-soft-2`, so a 1px border plus a
@@ -1010,6 +1012,19 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
    enough here: the field is focused the moment the blank is picked, and it is
    the only input on the screen. */
 .wizard-url-field:focus { border-color: var(--line-strong); box-shadow: none; }
+/* A caption over its field. */
+.wizard-field { display: grid; gap: 6px; }
+
+/* A brand mark on its tile, or the app's own icon where there is no mark. */
+.logo-mark { display: grid; place-items: center; flex: 0 0 auto; border-radius: var(--radius-sm); border: 1px solid var(--line); background: var(--bg-4); }
+.logo-mark--brand { background: var(--logo-tile); box-shadow: var(--shadow-card); }
+.logo-mark img { display: block; object-fit: contain; }
+
+/* The verdict on a value being typed. An empty field has not been got wrong
+   yet, so its line is a hint rather than an error. */
+.field-check { font: 500 12px/1.4 var(--font-sans); color: var(--ink-mute); }
+.field-check[data-tone="error"] { color: var(--err); }
+.field-check[data-tone="warn"] { color: var(--warn); }
 
 /* Transcribing an audio file is its own zone, not a button in the common row.
 

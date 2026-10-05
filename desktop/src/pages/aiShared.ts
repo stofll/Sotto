@@ -19,7 +19,6 @@ export type CompatiblePreset = {
   id: string;
   name: string;
   baseUrl: string;
-  suggestedModel?: string;
   signupHint?: string;
   logo?: string;
 };
@@ -32,20 +31,6 @@ export const PROVIDERS: ProviderConfig[] = [
   { id: "compatible", name: "OpenAI-compatible", defaultModel: "custom-model", dot: "#a78bfa", icon: "brand-compatible" },
 ];
 
-export const PROVIDER_MODEL_OPTIONS: Record<string, string[]> = {
-  openai: ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "gpt-4.1"],
-  anthropic: ["claude-haiku-4-5", "claude-sonnet-4-5", "claude-3-5-haiku-latest", "claude-3-7-sonnet-latest"],
-  gemini: ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-flash"],
-  "opencode-go": [
-    "qwen3.5-plus", "qwen3.6-plus", "minimax-m2.7", "minimax-m2.5",
-    "kimi-k2.6", "kimi-k2.5", "glm-5.1", "glm-5",
-    "deepseek-v4-pro", "deepseek-v4-flash",
-    "mimo-v2.5-pro", "mimo-v2.5", "mimo-v2-pro", "mimo-v2-omni",
-    "hy3-preview",
-  ],
-  compatible: ["gpt-oss-120b", "openai/gpt-4o-mini", "opencode/qwen3.6-plus", "deepseek-chat", "llama-3.1", "auto"],
-};
-
 export const MODEL_HINTS = (): Record<string, string> => ({
   openai: t("Model ID смотри в OpenAI Platform: docs OpenAI Models или GET /v1/models."),
   anthropic: t("Model ID смотри в Anthropic Console / документации Models, например claude-*."),
@@ -57,21 +42,21 @@ export const MODEL_HINTS = (): Record<string, string> => ({
 export const OPENCODE_GO_BASE_URL = "https://opencode.ai/zen/go/v1";
 
 export const COMPATIBLE_PRESETS = () => ([
-  { id: "openrouter", name: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1", suggestedModel: "openai/gpt-4o-mini", signupHint: "openrouter.ai/keys", logo: "openrouter.svg" },
-  { id: "opencode", name: "OpenCode Zen", baseUrl: "https://opencode.ai/zen/v1", suggestedModel: "opencode/qwen3.6-plus", signupHint: "opencode.ai/auth", logo: "opencode.svg" },
-  { id: "deepseek", name: "DeepSeek", baseUrl: "https://api.deepseek.com/v1", suggestedModel: "deepseek-chat", signupHint: "platform.deepseek.com", logo: "deepseek.svg" },
-  { id: "cerebras", name: "Cerebras", baseUrl: "https://api.cerebras.ai/v1", suggestedModel: "gpt-oss-120b", signupHint: "cloud.cerebras.ai", logo: "cerebras.svg" },
-  { id: "kimi", name: "Moonshot Kimi (中国)", baseUrl: "https://api.moonshot.cn/v1", suggestedModel: "moonshot-v1-8k", signupHint: "platform.moonshot.cn", logo: "moonshot.svg" },
-  { id: "kimi-intl", name: "Moonshot Kimi (Global)", baseUrl: "https://api.moonshot.ai/v1", suggestedModel: "kimi-k2-0905-preview", signupHint: "platform.moonshot.ai", logo: "moonshot.svg" },
-  { id: "minimax", name: "MiniMax", baseUrl: "https://api.minimax.io/v1", suggestedModel: "MiniMax-M2", signupHint: "platform.minimax.io", logo: "minimax.svg" },
-  { id: "groq", name: "Groq", baseUrl: "https://api.groq.com/openai/v1", suggestedModel: "llama-3.3-70b-versatile", signupHint: "console.groq.com", logo: "groq.svg" },
-  { id: "together", name: "Together AI", baseUrl: "https://api.together.xyz/v1", suggestedModel: "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo", signupHint: "api.together.ai", logo: "together.svg" },
-  { id: "fireworks", name: "Fireworks AI", baseUrl: "https://api.fireworks.ai/inference/v1", suggestedModel: "accounts/fireworks/models/llama-v3p1-8b-instruct", signupHint: "fireworks.ai", logo: "fireworks.svg" },
-  { id: "mistral", name: "Mistral", baseUrl: "https://api.mistral.ai/v1", suggestedModel: "mistral-small-latest", signupHint: "console.mistral.ai", logo: "mistral.svg" },
-  { id: "xai", name: "xAI Grok", baseUrl: "https://api.x.ai/v1", suggestedModel: "grok-2-latest", signupHint: "console.x.ai", logo: "xai.svg" },
-  { id: "lmstudio", name: t("LM Studio (локально)"), baseUrl: "http://localhost:1234/v1", suggestedModel: "auto", signupHint: "lmstudio.ai", logo: "lmstudio.svg" },
-  { id: "ollama", name: t("Ollama (локально)"), baseUrl: "http://localhost:11434/v1", suggestedModel: "llama3.1", signupHint: "ollama.com", logo: "ollama.svg" },
-  { id: "vllm", name: t("vLLM (локально)"), baseUrl: "http://localhost:8000/v1", suggestedModel: "your-model", signupHint: "docs.vllm.ai", logo: "vllm.svg" },
+  { id: "openrouter", name: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1", signupHint: "openrouter.ai/keys", logo: "openrouter.svg" },
+  { id: "opencode", name: "OpenCode Zen", baseUrl: "https://opencode.ai/zen/v1", signupHint: "opencode.ai/auth", logo: "opencode.svg" },
+  { id: "deepseek", name: "DeepSeek", baseUrl: "https://api.deepseek.com/v1", signupHint: "platform.deepseek.com", logo: "deepseek.svg" },
+  { id: "cerebras", name: "Cerebras", baseUrl: "https://api.cerebras.ai/v1", signupHint: "cloud.cerebras.ai", logo: "cerebras.svg" },
+  { id: "kimi", name: t("Kimi (Китай)"), baseUrl: "https://api.moonshot.cn/v1", signupHint: "platform.moonshot.cn", logo: "kimi.svg" },
+  { id: "kimi-intl", name: "Kimi (Global)", baseUrl: "https://api.moonshot.ai/v1", signupHint: "platform.moonshot.ai", logo: "kimi.svg" },
+  { id: "minimax", name: "MiniMax", baseUrl: "https://api.minimax.io/v1", signupHint: "platform.minimax.io", logo: "minimax.svg" },
+  { id: "groq", name: "Groq", baseUrl: "https://api.groq.com/openai/v1", signupHint: "console.groq.com", logo: "groq.svg" },
+  { id: "together", name: "Together AI", baseUrl: "https://api.together.xyz/v1", signupHint: "api.together.ai", logo: "together.svg" },
+  { id: "fireworks", name: "Fireworks AI", baseUrl: "https://api.fireworks.ai/inference/v1", signupHint: "fireworks.ai", logo: "fireworks.svg" },
+  { id: "mistral", name: "Mistral", baseUrl: "https://api.mistral.ai/v1", signupHint: "console.mistral.ai", logo: "mistral.svg" },
+  { id: "xai", name: "xAI Grok", baseUrl: "https://api.x.ai/v1", signupHint: "console.x.ai", logo: "xai.svg" },
+  { id: "lmstudio", name: t("LM Studio (локально)"), baseUrl: "http://localhost:1234/v1", signupHint: "lmstudio.ai", logo: "lmstudio.svg" },
+  { id: "ollama", name: t("Ollama (локально)"), baseUrl: "http://localhost:11434/v1", signupHint: "ollama.com", logo: "ollama.svg" },
+  { id: "vllm", name: t("vLLM (локально)"), baseUrl: "http://localhost:8000/v1", signupHint: "docs.vllm.ai", logo: "vllm.svg" },
 ]);
 
 /**
@@ -458,9 +443,9 @@ export function routeFields(ai: AiConfig, profile: LlmProfile, profiles: LlmProf
 export function LogoMark({ logo, fallback, color = "var(--ink-dim)", size = 16 }: { logo?: string; fallback: string; color?: string; size?: number }) {
   return createElement(
     "span",
-    { style: { width: size + 8, height: size + 8, borderRadius: "var(--radius-sm)", display: "grid", placeItems: "center", color, background: logo ? "#fff" : "var(--bg-4)", border: logo ? "1px solid rgba(0,0,0,0.08)" : "1px solid var(--line)", boxShadow: logo ? "0 1px 2px rgba(0,0,0,0.18)" : "none", flex: "0 0 auto" } },
+    { className: logo ? "logo-mark logo-mark--brand" : "logo-mark", style: { width: size + 8, height: size + 8, color } },
     logo
-      ? createElement("img", { src: `/logos/${logo}`, alt: "", width: size, height: size, draggable: false, style: { display: "block", objectFit: "contain" } })
+      ? createElement("img", { src: `/logos/${logo}`, alt: "", width: size, height: size, draggable: false })
       : createElement(Icon, { name: fallback, size }),
   );
 }

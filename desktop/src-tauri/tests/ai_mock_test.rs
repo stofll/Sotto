@@ -15,7 +15,7 @@ use std::thread;
 use std::time::Duration;
 
 use sotto_lib::ai::providers::{AnthropicProvider, OpenAIProvider, Provider, ProviderErrorType};
-use sotto_lib::ai::step::{ai_process_text_with_status, AiConfig};
+use sotto_lib::ai::step::{ai_process_text_with_status, AiConfig, LateAnswerMode};
 
 /// Per-test type alias — the captured-request log is an
 /// `Arc<Mutex<Vec<HashMap<...>>>>`, too noisy to repeat in every
@@ -238,6 +238,7 @@ fn local_mode_does_not_call_provider() {
         audio_duration_seconds: Some(45.0),
         llm_min_duration_seconds: 0.0,
         llm_timeout_seconds: 12,
+        late_answer: LateAnswerMode::Off,
     };
     let outcome = block_on(ai_process_text_with_status(
         "hello",
@@ -265,6 +266,7 @@ fn missing_api_key_short_circuits_before_http() {
         audio_duration_seconds: Some(45.0),
         llm_min_duration_seconds: 0.0,
         llm_timeout_seconds: 12,
+        late_answer: LateAnswerMode::Off,
     };
     let outcome = block_on(ai_process_text_with_status("hello", &config, None));
     assert_eq!(outcome.status.skipped_reason, "missing_api_key");

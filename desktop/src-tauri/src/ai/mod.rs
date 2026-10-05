@@ -68,6 +68,8 @@ async fn run_ai_prompt(
         audio_duration_seconds: None,
         llm_min_duration_seconds: 0.0,
         llm_timeout_seconds: 30,
+        // The text page shows its result in place and waits for it there.
+        late_answer: step::LateAnswerMode::Off,
     };
     let api_key = if api_key_ref.is_empty() {
         None

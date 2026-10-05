@@ -18,7 +18,10 @@ export type OverlayDetailState =
     | "loading"
     | "done"
     | "pasted"
-    | "error";
+    | "error"
+    /// An LLM answer that missed the timeout arrived later and is now in the
+    /// history entry; the text pasted before it is not touched.
+    | "late";
 
 export type OverlayDetail =
     | { kind: "waveform" }
@@ -62,6 +65,7 @@ export function overlayDetail(input: OverlayDetailInput): OverlayDetail {
     if (state === "error") {
         return { kind: "text", text: errorText || t("Запись не была обработана") };
     }
+    if (state === "late") return { kind: "text", text: t("LLM ответила позже — результат в истории") };
 
     // Transcribed but not inserted yet. On the fast path this is a fraction of a
     // second; when the LLM cleans the text it is tens of seconds, and staying

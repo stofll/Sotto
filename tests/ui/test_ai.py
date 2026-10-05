@@ -410,3 +410,19 @@ def test_file_subscription_failure_allows_retry(app, page):
     ui.queue("transcribe_audio_file", {"result": FILE_RESULT})
     page.get_by_role("button", name="Выбрать файл").click()
     expect(page.get_by_text("Synthetic file result", exact=True)).to_be_visible()
+
+
+def test_late_answer_mode_is_saved_for_all_profiles(app, page):
+    ui = app(
+        config={
+            "ai_processing": {"profiles": PROMPT_PROFILES, "active_profile_id": "A"}
+        }
+    )
+    ui.nav("ai")
+    page.get_by_role("button", name="Дополнительно", exact=True).click()
+    cell = page.locator(".route-advanced__cell").filter(has_text="Поздний ответ LLM")
+    cell.get_by_role("button").click()
+    page.get_by_role("option", name="Не ждать", exact=True).click()
+    page.wait_for_function(
+        "window.__sottoTest.state.config.ai_processing.llm_late_answer === 'off'"
+    )
