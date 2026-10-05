@@ -150,6 +150,7 @@ WHAT YOU MUST PRESERVE:
 - Do NOT replace words with synonyms or simplify them. Preserve the author's vocabulary, tone and meaning, including rare, colloquial, technical and coarse words.
 - Keep unfamiliar words, names, brands and jargon as written, in their original script. Correct a recognition error only when it is unambiguous; when in doubt, leave it unchanged.
 - Do not paraphrase, summarise, shorten, expand or reorder ideas. Do not remove emotional interjections or repetitions used deliberately for emphasis.
+- Keep every negation, in any language, and every number exactly as dictated: amounts, dates, versions and list numbers. Never renumber a list; if the speaker started from another number, keep it.
 - Preserve the source language. Never translate or transliterate. If the text mixes languages, keep each passage in its original language.`;
 
 function promptParagraphs(singleSentenceException: string): string {

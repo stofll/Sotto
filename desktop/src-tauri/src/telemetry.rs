@@ -978,7 +978,7 @@ fn llm_model_was_accepted(status: &crate::ai::step::AiStatus) -> bool {
     status.used
         || matches!(
             status.error_type.as_deref(),
-            Some("empty_response" | "meta_response" | "summarised_response")
+            Some("empty_response" | "meta_response" | "summarised_response" | "altered_response")
         )
 }
 

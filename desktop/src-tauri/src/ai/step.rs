@@ -21,7 +21,7 @@ use std::time::Duration;
 
 use serde::Serialize;
 
-use super::fidelity::{dropped_too_much, kept_word_ratio};
+use super::fidelity::{altered_meaning, dropped_too_much, kept_word_ratio};
 use super::providers::{
     answer_tokens, AnthropicProvider, GeminiProvider, OpenAIProvider, OpenCodeGoProvider, Provider,
     ProviderError, ProviderErrorType, MAX_INPUT_CHARS,
@@ -495,6 +495,25 @@ fn judge_answer(
         status.fallback = true;
         status.error_type = Some("summarised_response".to_string());
         status.skipped_reason = "model_dropped_text".to_string();
+        status.output_length = Some(cleaned.chars().count());
+        return CallOutcome {
+            text: text.to_string(),
+            status,
+            late: None,
+        };
+    }
+    // Same length, different meaning: a lost «never», a renumbered list, a
+    // product name «corrected» into another one.
+    if let Some(alteration) = altered_meaning(text, &cleaned) {
+        log::warn!(
+            "Provider {}/{} changed the dictation's meaning ({}); falling back to the local transcript",
+            config.provider,
+            config.model,
+            alteration.reason()
+        );
+        status.fallback = true;
+        status.error_type = Some("altered_response".to_string());
+        status.skipped_reason = alteration.reason().to_string();
         status.output_length = Some(cleaned.chars().count());
         return CallOutcome {
             text: text.to_string(),
@@ -1412,6 +1431,37 @@ mod tests {
         assert!(outcome.status.used);
         assert!(outcome.status.error_type.is_none());
         assert!(outcome.status.skipped_reason.is_empty());
+    }
+
+    /// A short answer without its «never» is too short for the word ratio to
+    /// judge; the paste must still stay the dictation.
+    #[tokio::test]
+    async fn an_answer_without_the_negation_falls_back_to_the_dictation() {
+        let input = "I'd prefer to never merge this";
+        let provider = Arc::new(MockProvider {
+            outcomes: std::sync::Mutex::new(vec![Ok((
+                "I'd prefer to merge this.".to_string(),
+                ProviderInfo::success("ignored", None, 0.1),
+            ))]),
+            calls: std::sync::atomic::AtomicUsize::new(0),
+        });
+        let outcome = finish_with_provider(
+            input,
+            &base_config(),
+            provider.clone(),
+            "system",
+            "user",
+            AiStatus::default(),
+        )
+        .await;
+        assert_eq!(outcome.text, input);
+        assert!(outcome.status.fallback);
+        assert!(!outcome.status.used);
+        assert_eq!(
+            outcome.status.error_type.as_deref(),
+            Some("altered_response")
+        );
+        assert_eq!(outcome.status.skipped_reason, "model_dropped_negation");
     }
     struct SlowProvider;
     impl Provider for SlowProvider {

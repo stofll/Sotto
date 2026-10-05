@@ -390,3 +390,29 @@ def test_open_history_entry_shows_what_a_late_answer_changed(app, page):
     ui.nav("settings")
     ui.nav("history")
     expect(card.get_by_text("Diff: до LLM → финальный")).to_have_count(0)
+
+
+def test_history_names_a_meaning_change_fallback(app, page):
+    entry = {
+        "id": 6,
+        "timestamp": 1789200180,
+        "text": "I'd prefer to never merge this",
+        "formatted_text": "I'd prefer to never merge this",
+        "raw_text": "I'd prefer to never merge this",
+        "length": 30,
+        "ai_processing": {
+            "attempted": True,
+            "used": False,
+            "fallback": True,
+            "enabled": True,
+            "provider": "openai",
+            "model": "synthetic-model",
+            "error_type": "altered_response",
+            "skipped_reason": "model_dropped_negation",
+        },
+    }
+    app(history=[entry]).nav("history")
+    card = page.get_by_test_id("history-entry-6")
+    expect(
+        card.get_by_label("LLM: модель убрала отрицание · openai / synthetic-model")
+    ).to_be_attached()

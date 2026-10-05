@@ -1593,5 +1593,32 @@
     "config": {
       "language": "ru"
     }
+  },
+  {
+    "id": "negation-kept-ru",
+    "category": "preservation",
+    "input": "ну я не хочу это мержить никогда",
+    "expected": "Я не хочу это мержить никогда."
+  },
+  {
+    "id": "negation-kept-en",
+    "category": "preservation",
+    "input": "um so like I'd prefer to never merge this and we don't ship it",
+    "expected": "So I'd prefer to never merge this and we don't ship it.",
+    "config": {
+      "language": "en",
+      "text_formatting": {
+        "parasite_sets": [
+          "ru",
+          "en"
+        ]
+      }
+    }
+  },
+  {
+    "id": "list-number-kept",
+    "category": "preservation",
+    "input": "пункт 5 проверить логи пункт 6 перезапустить сервис",
+    "expected": "Пункт 5 проверить логи пункт 6 перезапустить сервис."
   }
 ]

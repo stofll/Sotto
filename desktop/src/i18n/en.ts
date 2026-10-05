@@ -836,6 +836,9 @@ export const en: Record<string, string | string[]> = {
   "STT {p0} + форматирование {p1} + LLM {p2}.": "STT {p0} + formatting {p1} + LLM {p2}.",
   "Стоимость в деньгах не считается без таблицы тарифов; сохраняются только usage-токены провайдера.": "Cost in money is not computed without a price table; only the provider’s usage tokens are stored.",
   "модель сократила текст": "model shortened the text",
+  "модель убрала отрицание": "model removed a negation",
+  "модель изменила числа": "model changed numbers",
+  "модель изменила названия": "model changed names",
   "провайдер не выбран": "no provider selected",
 
   // ── Formatting ─────────────────────────────────────────────────────────
