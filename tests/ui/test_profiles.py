@@ -137,7 +137,9 @@ def test_create_local_profile(app, page):
     ).check()
     dialog.get_by_role("button", name="Далее", exact=True).click()
     dialog.get_by_label("Название профиля", exact=True).fill("Synthetic local profile")
-    dialog.get_by_placeholder("Выберите из списка провайдера или введите id").fill("synthetic-model")
+    dialog.get_by_placeholder("Выберите из списка провайдера или введите id").fill(
+        "synthetic-model"
+    )
     dialog.get_by_role("button", name="Создать профиль", exact=True).click()
     expect(dialog).not_to_be_visible()
     expect(page.get_by_test_id("page-integrations")).to_contain_text(
@@ -164,7 +166,9 @@ def test_wizard_config_failure_keeps_draft_and_key_ref_for_retry(app, page):
     ).check()
     dialog.get_by_role("button", name="Далее", exact=True).click()
     dialog.get_by_label("Название профиля", exact=True).fill("Retried profile")
-    dialog.get_by_placeholder("Выберите из списка провайдера или введите id").fill("synthetic-model")
+    dialog.get_by_placeholder("Выберите из списка провайдера или введите id").fill(
+        "synthetic-model"
+    )
     ui.queue("save_config", {"error": "Synthetic config failure"})
     dialog.get_by_role("button", name="Создать профиль", exact=True).click()
     expect(dialog).to_be_visible()
@@ -195,7 +199,9 @@ def test_fresh_install_wizard_writes_the_route(app, page):
     ).check()
     dialog.get_by_role("button", name="Далее", exact=True).click()
     dialog.get_by_label("Название профиля", exact=True).fill("Fresh profile")
-    dialog.get_by_placeholder("Выберите из списка провайдера или введите id").fill("synthetic-model")
+    dialog.get_by_placeholder("Выберите из списка провайдера или введите id").fill(
+        "synthetic-model"
+    )
     dialog.get_by_role("button", name="Создать профиль", exact=True).click()
     expect(dialog).not_to_be_visible()
     ai = ui.state()["config"]["ai_processing"]
@@ -494,7 +500,9 @@ def test_key_slot_edit_config_failure_keeps_editor_open(app, page):
     row.get_by_role("button", name="Сохранить", exact=True).click()
     expect(field).to_have_value("synthetic-replacement")
     # The field below the key carries its own status line about the value.
-    expect(page.get_by_role("status").filter(has_text="Не удалось сохранить ключ.")).to_be_visible()
+    expect(
+        page.get_by_role("status").filter(has_text="Не удалось сохранить ключ.")
+    ).to_be_visible()
     assert (
         ui.state()["config"]["ai_processing"]["key_slots"][0]["label"]
         == "Synthetic key"
@@ -537,7 +545,9 @@ def test_key_replace_and_delete_failure_preserve_key(app, page):
     )
     row.get_by_role("button", name="Сохранить", exact=True).click()
     # The field below the key carries its own status line about the value.
-    expect(page.get_by_role("status").filter(has_text="Synthetic replace failure")).to_be_visible()
+    expect(
+        page.get_by_role("status").filter(has_text="Synthetic replace failure")
+    ).to_be_visible()
     expect(row.get_by_placeholder("Новое значение ключа", exact=True)).to_be_visible()
     row.get_by_role("button", name="Отмена", exact=True).click()
     ui.queue("delete_api_key", {"error": "Synthetic delete failure"})
@@ -698,4 +708,6 @@ def test_profile_editor_keeps_an_incomplete_provider_switch_as_a_draft(app, page
     # No model was ever used with Anthropic here, and none is made up for it.
     expect(row).to_contain_text("Укажите модель")
     assert len(ui.calls("save_config")) == before
-    assert ui.state()["config"]["ai_processing"]["profiles"][0]["provider"] == "compatible"
+    assert (
+        ui.state()["config"]["ai_processing"]["profiles"][0]["provider"] == "compatible"
+    )
