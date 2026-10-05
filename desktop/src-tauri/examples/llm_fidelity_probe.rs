@@ -10,8 +10,10 @@
 //!
 //! Provider, base URL, key reference and system prompt come from the installed
 //! app's `config.json`, so the probe measures the same pipeline the user runs.
-//! With no model arguments it uses the configured one. The API key is read
-//! through `secret_store` and never printed.
+//! With no model arguments it uses the configured one. `--profile` picks a
+//! saved profile, `--limit` and `--reasoning` override its answer limit and
+//! reasoning, and `--set KEY=VALUE` any string field of `ai_processing`. The
+//! API key is read through `secret_store` and never printed.
 
 use std::time::Instant;
 
@@ -27,7 +29,7 @@ struct StderrLogger;
 
 impl log::Log for StderrLogger {
     fn enabled(&self, metadata: &log::Metadata) -> bool {
-        metadata.level() <= log::Level::Info
+        metadata.level() <= log::Level::Info || metadata.target().starts_with("sotto_lib::ai")
     }
     fn log(&self, record: &log::Record) {
         if self.enabled(record.metadata()) {
@@ -50,17 +52,71 @@ fn main() {
     // boxed variant.
     static LOGGER: StderrLogger = StderrLogger;
     let _ = log::set_logger(&LOGGER);
-    log::set_max_level(log::LevelFilter::Info);
+    log::set_max_level(log::LevelFilter::Debug);
 
     let mut args = std::env::args().skip(1);
-    let text_path = args
-        .next()
-        .expect("usage: llm_fidelity_probe <text-file|--list> [model ...]");
-    let models: Vec<String> = args.collect();
+    let text_path = args.next().expect(
+        "usage: llm_fidelity_probe <text-file|--list> [--profile NAME] \
+         [--limit auto|unlimited|TOKENS] [--reasoning minimal|model] [--set KEY=VALUE] \
+         [model ...]",
+    );
+    let (mut profile, mut limit, mut reasoning) = (None, None, None);
+    let mut overrides: Vec<(String, String)> = Vec::new();
+    let mut models: Vec<String> = Vec::new();
+    while let Some(arg) = args.next() {
+        let mut value = || args.next().unwrap_or_else(|| panic!("{arg} needs a value"));
+        match arg.as_str() {
+            "--profile" => profile = Some(value()),
+            "--limit" => limit = Some(value()),
+            "--reasoning" => reasoning = Some(value()),
+            // Any string field of `ai_processing`, e.g. `--set base_url=…`.
+            "--set" => {
+                let pair = value();
+                let (key, value) = pair.split_once('=').expect("--set takes key=value");
+                overrides.push((key.to_string(), value.to_string()));
+            }
+            _ => models.push(arg),
+        }
+    }
 
     let raw = std::fs::read_to_string(config_path()).expect("read config.json");
     let root: serde_json::Value = serde_json::from_str(&raw).expect("parse config.json");
-    let ai_value = root.get("ai_processing").cloned().unwrap_or_default();
+    let mut ai_value = root.get("ai_processing").cloned().unwrap_or_default();
+    // A profile other than the active one: its fields over the shared ones,
+    // as the app applies a profile.
+    if let Some(wanted) = &profile {
+        let wanted = wanted.to_lowercase();
+        let found = ai_value
+            .get("profiles")
+            .and_then(|profiles| profiles.as_array())
+            .and_then(|profiles| {
+                profiles.iter().find(|profile| {
+                    ["id", "name"].iter().any(|key| {
+                        profile
+                            .get(key)
+                            .and_then(|value| value.as_str())
+                            .is_some_and(|value| value.to_lowercase().contains(&wanted))
+                    })
+                })
+            })
+            .cloned()
+            .unwrap_or_else(|| panic!("no profile matches {wanted:?}"));
+        for (key, value) in found.as_object().into_iter().flatten() {
+            ai_value[key] = value.clone();
+        }
+    }
+    for (key, value) in overrides {
+        ai_value[key] = serde_json::json!(value);
+    }
+    if let Some(limit) = limit {
+        ai_value["llm_output_limit"] = limit.parse::<u64>().map_or_else(
+            |_| serde_json::json!(limit),
+            |tokens| serde_json::json!(tokens),
+        );
+    }
+    if let Some(reasoning) = reasoning {
+        ai_value["llm_reasoning"] = serde_json::json!(reasoning);
+    }
     let base = AiConfig::from_ai_processing(&ai_value);
 
     let models = if models.is_empty() {
@@ -109,9 +165,11 @@ fn main() {
     let text = text.trim();
 
     println!(
-        "провайдер {} @ {}\nвход: {} симв., {} слов\n",
+        "провайдер {} @ {}\nлимит ответа {:?}, рассуждения {:?}\nвход: {} симв., {} слов\n",
         base.provider,
         base.base_url.clone().unwrap_or_else(|| "-".to_string()),
+        base.output_limit,
+        base.reasoning,
         text.chars().count(),
         word_count(text),
     );
@@ -131,6 +189,12 @@ fn main() {
         let status = &outcome.status;
 
         println!("── {model}");
+        if let Some(parts) = &status.parts {
+            println!(
+                "   части:          {} из {} приняты",
+                parts.used, parts.total
+            );
+        }
         // On a fallback `outcome.text` is the untouched dictation, so measuring
         // it would report a flattering 100%. `output_length` keeps the size of
         // what the model actually sent in both branches.
