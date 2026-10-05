@@ -80,6 +80,8 @@ The timeout is a minimum: a long text gets as much time as a model needs to rewr
 
 A request that misses the timeout is not cancelled by default. The local text is pasted at once, and if the model answers within the next five minutes, its result replaces the text in that history entry — it is never typed into the window you have moved on to. The overlay then offers to copy the result or open the entry. **LLM processing → Advanced → Late LLM answer** switches the notice off or cancels late requests at the timeout as before.
 
+Reasoning models think before they answer, and that thinking shares the answer's token limit and the timeout. Sotto removes reasoning from the pasted text, disables it on DeepSeek's own API, and sends OpenAI's reasoning models (o-series, GPT-5 and later) the parameters they accept. If a reasoning model often returns an empty answer or misses the timeout, choose a non-reasoning model for dictation; the history shows the stop reason of an empty answer.
+
 ## Report a problem or suggest an improvement
 
 Open **Help → Report a problem** to preview a public technical summary and optionally prepare sanitized logs. Continue on GitHub opens a bug-report draft in your browser; a GitHub account is required, and you must submit the issue there. You can exclude the summary or copy it manually. Add your OS version, reproduction steps, expected result and actual result on GitHub.

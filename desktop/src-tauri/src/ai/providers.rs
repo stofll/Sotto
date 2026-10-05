@@ -296,6 +296,9 @@ pub struct OpenAIProvider {
     base_url: String,
     timeout: Duration,
     max_tokens: Option<u32>,
+    /// OpenAI's own API rather than a compatible server: see
+    /// [`OpenAIProvider::for_openai_api`].
+    openai_api: bool,
 }
 
 impl OpenAIProvider {
@@ -314,8 +317,69 @@ impl OpenAIProvider {
             // `None` means "size it to the request" — see `completion_budget`.
             // An explicit value stays an explicit hard cap.
             max_tokens,
+            openai_api: false,
         }
     }
+
+    /// Speak OpenAI's current dialect: `max_completion_tokens`, which its
+    /// reasoning models require instead of the deprecated `max_tokens`, and
+    /// no `temperature` for those models. Compatible servers keep the old
+    /// field, which is the one they all understand.
+    pub fn for_openai_api(mut self) -> Self {
+        self.openai_api = true;
+        self
+    }
+
+    async fn post(
+        &self,
+        payload: &serde_json::Value,
+    ) -> Result<(String, ProviderInfo), ProviderError> {
+        let request = build_request(
+            reqwest::Method::POST,
+            &format!("{}/chat/completions", self.base_url),
+            Some(payload),
+            &[("Authorization", &format!("Bearer {}", self.api_key))],
+        );
+        send_request(
+            request,
+            self.timeout,
+            "openai",
+            &self.model,
+            "choices[0].message.content",
+        )
+        .await
+    }
+}
+
+/// OpenAI's reasoning families — o1, o3, o4-mini, gpt-5 and later — accept
+/// only the default temperature and answer 400 to any other. A name this
+/// misses costs one rejected request; see [`rejects_temperature`].
+fn is_openai_reasoning_model(model: &str) -> bool {
+    let model = model.to_ascii_lowercase();
+    let generation = |rest: &str| {
+        rest.chars()
+            .take_while(char::is_ascii_digit)
+            .collect::<String>()
+            .parse::<u32>()
+            .ok()
+    };
+    if let Some(rest) = model.strip_prefix('o') {
+        return generation(rest).is_some();
+    }
+    model
+        .strip_prefix("gpt-")
+        .and_then(generation)
+        .is_some_and(|major| major >= 5)
+}
+
+/// A 400 that names `temperature`: the model takes only its default. OpenAI
+/// says so for its reasoning models, and servers hosting others do the same.
+fn rejects_temperature(error: &ProviderError) -> bool {
+    error.http_status == Some(400)
+        && error
+            .response_snippet
+            .as_deref()
+            .is_some_and(|body| body.contains("temperature"))
 }
 
 impl Provider for OpenAIProvider {
@@ -341,27 +405,34 @@ impl Provider for OpenAIProvider {
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": text},
                 ],
-                "temperature": DEFAULT_TEMPERATURE,
             });
-            payload["max_tokens"] =
-                serde_json::json!(self.max_tokens.unwrap_or_else(|| completion_budget(text)));
+            let limit = self.max_tokens.unwrap_or_else(|| completion_budget(text));
+            let limit_field = if self.openai_api {
+                "max_completion_tokens"
+            } else {
+                "max_tokens"
+            };
+            payload[limit_field] = serde_json::json!(limit);
+            let with_temperature = !(self.openai_api && is_openai_reasoning_model(&self.model));
+            if with_temperature {
+                payload["temperature"] = serde_json::json!(DEFAULT_TEMPERATURE);
+            }
             if thinks_by_default(&self.base_url) {
                 payload["thinking"] = serde_json::json!({"type": "disabled"});
             }
-            let request = build_request(
-                reqwest::Method::POST,
-                &format!("{}/chat/completions", self.base_url),
-                Some(&payload),
-                &[("Authorization", &format!("Bearer {}", self.api_key))],
-            );
-            send_request(
-                request,
-                self.timeout,
-                "openai",
-                &self.model,
-                "choices[0].message.content",
-            )
-            .await
+            match self.post(&payload).await {
+                Err(error) if with_temperature && rejects_temperature(&error) => {
+                    log::info!(
+                        "Provider openai/{} takes only its default temperature; retrying without it",
+                        self.model
+                    );
+                    if let Some(fields) = payload.as_object_mut() {
+                        fields.remove("temperature");
+                    }
+                    self.post(&payload).await
+                }
+                result => result,
+            }
         })
     }
 }
@@ -1270,6 +1341,53 @@ mod tests {
             extract_text(&serde_json::json!({ "x": null }), "x"),
             Some("".to_string())
         );
+    }
+
+    #[test]
+    fn openai_reasoning_models_are_recognised_by_family() {
+        for model in [
+            "o1",
+            "o1-mini",
+            "o3",
+            "o3-mini",
+            "o4-mini",
+            "gpt-5",
+            "gpt-5-mini",
+            "GPT-5.1",
+            "gpt-6-astra",
+        ] {
+            assert!(is_openai_reasoning_model(model), "{model}");
+        }
+        for model in [
+            "gpt-4o",
+            "gpt-4o-mini",
+            "gpt-4.1",
+            "gpt-3.5-turbo",
+            "omni-moderation",
+            "openai/o3",
+        ] {
+            assert!(!is_openai_reasoning_model(model), "{model}");
+        }
+    }
+
+    #[test]
+    fn only_a_400_naming_temperature_is_a_temperature_refusal() {
+        let error = |status: u16, body: &str| ProviderError {
+            kind: classify_http_status(status),
+            message: String::new(),
+            http_status: Some(status),
+            response_snippet: Some(body.to_string()),
+            retryable: false,
+        };
+        assert!(rejects_temperature(&error(
+            400,
+            r#"{"error":{"message":"Unsupported value: 'temperature' does not support 0.2 with this model.","param":"temperature"}}"#
+        )));
+        assert!(!rejects_temperature(&error(
+            400,
+            r#"{"error":{"message":"Invalid model"}}"#
+        )));
+        assert!(!rejects_temperature(&error(500, "temperature")));
     }
 
     #[test]

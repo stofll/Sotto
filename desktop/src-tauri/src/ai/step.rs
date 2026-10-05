@@ -667,13 +667,16 @@ fn build_provider(config: &AiConfig, api_key: &str, timeout: Duration) -> Box<dy
             Some(timeout),
             None,
         )),
-        "openai" => Box::new(OpenAIProvider::new(
-            api_key.to_string(),
-            config.model.clone(),
-            base_url.map(str::to_string),
-            Some(timeout),
-            None,
-        )),
+        "openai" => Box::new(
+            OpenAIProvider::new(
+                api_key.to_string(),
+                config.model.clone(),
+                base_url.map(str::to_string),
+                Some(timeout),
+                None,
+            )
+            .for_openai_api(),
+        ),
         "compatible" => Box::new(OpenAIProvider::new(
             api_key.to_string(),
             config.model.clone(),
