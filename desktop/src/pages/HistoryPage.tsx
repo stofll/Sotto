@@ -112,6 +112,7 @@ function aiFallbackLabel(errorType?: string, skippedReason?: string): string {
   if (code === "model_dropped_negation") return t("модель убрала отрицание");
   if (code === "model_changed_numbers") return t("модель изменила числа");
   if (code === "model_changed_terms") return t("модель изменила названия");
+  if (code === "model_repeated_context") return t("модель повторила контекст");
   return "fallback";
 }
 

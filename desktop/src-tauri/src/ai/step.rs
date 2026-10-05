@@ -21,12 +21,12 @@ use std::time::Duration;
 
 use serde::Serialize;
 
-use super::fidelity::{altered_meaning, dropped_too_much, kept_word_ratio};
+use super::fidelity::{altered_meaning, dropped_too_much, kept_word_ratio, repeats_context};
 use super::long_text;
 use super::model_params::{OutputLimit, ReasoningMode};
 use super::providers::{
     answer_tokens, AnthropicProvider, GeminiProvider, OpenAIProvider, OpenCodeGoProvider, Provider,
-    ProviderError, ProviderErrorType,
+    ProviderError, ProviderErrorType, CHARS_PER_TOKEN,
 };
 #[cfg(test)]
 use super::providers::{CompletionFuture, ProviderInfo};
@@ -381,8 +381,8 @@ pub async fn ai_process_text_with_status(
     if rendered_system.trim().is_empty() {
         return skipped(text, status, "missing_system_prompt");
     }
-    if text.chars().count() > long_text::SPLIT_ABOVE_CHARS {
-        let parts = long_text::split(text, long_text::PART_TARGET_CHARS);
+    let parts = long_text::split(text, max_request_chars(config));
+    if parts.len() > 1 {
         let longest = parts
             .iter()
             .map(|part| part.text)
@@ -464,9 +464,15 @@ async fn process_in_parts(
     let mut jobs: Vec<
         std::pin::Pin<Box<dyn std::future::Future<Output = CallOutcome> + Send + '_>>,
     > = Vec::with_capacity(parts.len());
-    for part in parts {
+    for (index, part) in parts.iter().enumerate() {
+        // The local text before the cut, not its tidied version: the parts
+        // run side by side, and the model only reads it.
+        let before = index
+            .checked_sub(1)
+            .map(|previous| long_text::tail(parts[previous].text, long_text::CONTEXT_CHARS));
         jobs.push(Box::pin(tidy_part(
             part.text,
+            before,
             &part_config,
             Arc::clone(&provider),
             rendered_system,
@@ -479,6 +485,19 @@ async fn process_in_parts(
         .collect()
         .await;
 
+    for (index, (part, outcome)) in parts.iter().zip(&outcomes).enumerate() {
+        log::debug!(
+            "Part {}/{}: {} chars, {}",
+            index + 1,
+            parts.len(),
+            part.text.chars().count(),
+            if outcome.status.used {
+                "tidied"
+            } else {
+                outcome.status.skipped_reason.as_str()
+            }
+        );
+    }
     let used = outcomes
         .iter()
         .filter(|outcome| outcome.status.used)
@@ -532,8 +551,10 @@ async fn process_in_parts(
 }
 
 /// One part of a long text, within what is left of the shared `deadline`.
+/// `before` is the end of the preceding part, sent for context only.
 async fn tidy_part(
     text: &str,
+    before: Option<&str>,
     config: &AiConfig,
     provider: Arc<dyn Provider>,
     rendered_system: &str,
@@ -553,16 +574,35 @@ async fn tidy_part(
         outcome.status.error_type = Some("timeout".to_string());
         return outcome;
     }
-    finish_with_provider(
+    let user_message = match before {
+        Some(before) => format!("{}\n{}", wrap_context(before), wrap_dictation(text)),
+        None => wrap_dictation(text),
+    };
+    let mut outcome = finish_with_provider(
         text,
         config,
         provider,
         rendered_system,
-        &wrap_dictation(text),
+        &user_message,
         budget,
         status,
     )
-    .await
+    .await;
+    if outcome.status.used
+        && before.is_some_and(|before| repeats_context(before, text, &outcome.text))
+    {
+        log::warn!(
+            "Provider {}/{} repeated the context before a part; keeping the part's local text",
+            config.provider,
+            config.model
+        );
+        outcome.text = text.to_string();
+        outcome.status.used = false;
+        outcome.status.fallback = true;
+        outcome.status.error_type = Some("altered_response".to_string());
+        outcome.status.skipped_reason = "model_repeated_context".to_string();
+    }
+    outcome
 }
 
 /// Keep a tidy edit, and return the original dictation when the answer is
@@ -727,6 +767,16 @@ fn wrap_dictation(text: &str) -> String {
     format!("<dictation>\n{safe}\n</dictation>")
 }
 
+/// The end of the preceding part, sent before a part of a long text. The
+/// system prompt is the user's and knows nothing of parts, so the block says
+/// itself what it is for.
+fn wrap_context(text: &str) -> String {
+    let safe = text.replace("</preceding_text>", "</ preceding_text>");
+    format!(
+        "<preceding_text note=\"The text right before this dictation, already handled separately. The dictation continues it, possibly in the middle of a sentence. Use it only to understand the context; do not edit it or include it in your answer.\">\n{safe}\n</preceding_text>"
+    )
+}
+
 /// Turn the speech-language setting into the phrase that replaces
 /// `{{language}}` in the system prompt.
 ///
@@ -849,6 +899,38 @@ fn attempt_budget(config: &AiConfig, text: &str) -> Duration {
         ReasoningMode::Minimal => budget,
         ReasoningMode::Model => (budget * 3).min(Duration::from_secs(MAX_ATTEMPT_SECS)),
     }
+}
+
+/// The output cap an automatic limit counts on. The app asks for more, but
+/// many hosted models stop at this, and an answer cut short loses its part.
+const AUTO_OUTPUT_TOKENS: u32 = 8_192;
+
+/// The output cap an unlimited profile counts on; past it the attempt's time
+/// cap binds first anyway.
+const UNLIMITED_OUTPUT_TOKENS: u32 = 32_000;
+
+/// The longest text one request may carry for `config`: its answer, about as
+/// long as the text, must fit the profile's output limit with room left for
+/// thinking, and come back within one attempt's time cap. A longer text is
+/// tidied in parts.
+fn max_request_chars(config: &AiConfig) -> usize {
+    let cap = match config.output_limit {
+        OutputLimit::Auto => AUTO_OUTPUT_TOKENS,
+        OutputLimit::Unlimited => UNLIMITED_OUTPUT_TOKENS,
+        OutputLimit::Tokens(tokens) => tokens,
+    };
+    // Thinking left to the model may take two thirds of the cap and of the
+    // time, as `completion_budget` and `attempt_budget` allow it; minimal
+    // thinking still needs some room.
+    let in_time = MAX_ATTEMPT_SECS * u64::from(ANSWER_TOKENS_PER_SECOND);
+    let (answer, in_time) = match config.reasoning {
+        ReasoningMode::Minimal => (cap / 3 * 2, in_time),
+        ReasoningMode::Model => (cap / 3, in_time / 3),
+    };
+    // A fifth of the time spare: the output speed is an estimate, and an
+    // answer that misses the cap loses the whole text, not one part.
+    let tokens = u64::from(answer).min(in_time / 5 * 4);
+    usize::try_from(tokens).unwrap_or(usize::MAX) * CHARS_PER_TOKEN
 }
 
 fn build_provider(config: &AiConfig, api_key: &str, timeout: Duration) -> Box<dyn Provider> {
@@ -1182,11 +1264,15 @@ mod tests {
 
     /// Plays a model that tidies by capitalising, and refuses any part that
     /// contains `refuse` with a server error.
+    #[derive(Default)]
     struct PartsProvider {
         refuse: &'static str,
         /// How long each answer takes, on tokio's clock.
         delay: Duration,
+        /// Answer with the preceding text in front of the part.
+        echo: bool,
         calls: std::sync::atomic::AtomicUsize,
+        with_context: std::sync::atomic::AtomicUsize,
     }
 
     impl Provider for PartsProvider {
@@ -1196,10 +1282,16 @@ mod tests {
 
         fn complete<'a>(&'a self, _system_prompt: &'a str, text: &'a str) -> CompletionFuture<'a> {
             self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            let body = text
-                .trim_start_matches("<dictation>\n")
-                .trim_end_matches("\n</dictation>")
-                .to_string();
+            let (context, body) = text.split_once("<dictation>\n").unwrap();
+            let mut body = body.trim_end_matches("\n</dictation>").to_string();
+            if let Some((_, context)) = context.split_once("\">\n") {
+                self.with_context
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                if self.echo {
+                    let context = context.trim_end_matches("\n</preceding_text>\n");
+                    body = format!("{context} {body}");
+                }
+            }
             let refuse = !self.refuse.is_empty() && body.contains(self.refuse);
             let delay = self.delay;
             Box::pin(async move {
@@ -1217,7 +1309,7 @@ mod tests {
     }
 
     fn long_text(marker_at: usize) -> String {
-        (0..300)
+        (0..900)
             .map(|index| {
                 let marker = if index == marker_at {
                     " МЕТКА"
@@ -1230,13 +1322,12 @@ mod tests {
             .join(" ")
     }
 
-    async fn run_in_parts(text: &str, refuse: &'static str) -> (CallOutcome, usize) {
-        let provider = Arc::new(PartsProvider {
-            refuse,
-            delay: Duration::ZERO,
-            calls: std::sync::atomic::AtomicUsize::new(0),
-        });
-        let parts = long_text::split(text, long_text::PART_TARGET_CHARS);
+    async fn run_in_parts(
+        text: &str,
+        provider: PartsProvider,
+    ) -> (CallOutcome, Arc<PartsProvider>) {
+        let provider = Arc::new(provider);
+        let parts = long_text::split(text, 3_000);
         let outcome = process_in_parts(
             &parts,
             &base_config(),
@@ -1245,10 +1336,7 @@ mod tests {
             AiStatus::default(),
         )
         .await;
-        (
-            outcome,
-            provider.calls.load(std::sync::atomic::Ordering::SeqCst),
-        )
+        (outcome, provider)
     }
 
     /// Past the old 28k-character limit the text is tidied, not skipped:
@@ -1256,20 +1344,45 @@ mod tests {
     #[tokio::test]
     async fn a_long_text_is_tidied_in_parts() {
         let text = long_text(usize::MAX);
-        assert!(text.chars().count() > long_text::SPLIT_ABOVE_CHARS);
-        let (outcome, calls) = run_in_parts(&text, "").await;
+        let (outcome, provider) = run_in_parts(&text, PartsProvider::default()).await;
         let parts = outcome.status.parts.unwrap();
         assert!(parts.total > 2);
         assert_eq!(parts.used, parts.total);
-        assert_eq!(calls, parts.total);
+        let count = |counter: &std::sync::atomic::AtomicUsize| {
+            counter.load(std::sync::atomic::Ordering::SeqCst)
+        };
+        assert_eq!(count(&provider.calls), parts.total);
+        // Every part but the first reads the end of the one before it.
+        assert_eq!(count(&provider.with_context), parts.total - 1);
         assert_eq!(outcome.text, text.to_uppercase());
+    }
+
+    /// A part answered with its context in front keeps its local text, so
+    /// the joined result does not say that text twice.
+    #[tokio::test]
+    async fn a_part_that_repeats_its_context_keeps_its_local_text() {
+        let text = long_text(usize::MAX);
+        let provider = PartsProvider {
+            echo: true,
+            ..PartsProvider::default()
+        };
+        let (outcome, _) = run_in_parts(&text, provider).await;
+        let parts = outcome.status.parts.unwrap();
+        assert_eq!(parts.used, 1);
+        assert!(outcome.text.starts_with("ПРЕДЛОЖЕНИЕ НОМЕР 0"));
+        assert!(outcome.text.ends_with("предложение номер 899 про работу."));
+        assert_eq!(outcome.text.chars().count(), text.chars().count());
     }
 
     /// A part the model fails keeps its local text; the rest keep theirs.
     #[tokio::test]
     async fn a_failed_part_keeps_its_local_text() {
         let text = long_text(150);
-        let (outcome, _) = run_in_parts(&text, "МЕТКА").await;
+        let provider = PartsProvider {
+            refuse: "МЕТКА",
+            ..PartsProvider::default()
+        };
+        let (outcome, _) = run_in_parts(&text, provider).await;
         let parts = outcome.status.parts.unwrap();
         assert_eq!(parts.used, parts.total - 1);
         assert!(outcome.status.used && !outcome.status.fallback);
@@ -1284,16 +1397,15 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_dictation_in_parts_stops_at_its_budget() {
         let provider = Arc::new(PartsProvider {
-            refuse: "",
             // Past each part's own budget, so every round takes a full one.
             delay: Duration::from_secs(400),
-            calls: std::sync::atomic::AtomicUsize::new(0),
+            ..PartsProvider::default()
         });
         let text = (0..6_000)
             .map(|index| format!("предложение {index}."))
             .collect::<Vec<_>>()
             .join(" ");
-        let parts = long_text::split(&text, long_text::PART_TARGET_CHARS);
+        let parts = long_text::split(&text, 3_000);
         let started = tokio::time::Instant::now();
         let outcome = process_in_parts(
             &parts,
@@ -1444,6 +1556,33 @@ mod tests {
             Duration::from_secs(25)
         );
         assert_eq!(attempt_timeout(1000, ""), Duration::from_secs(300));
+    }
+
+    #[test]
+    fn the_request_size_follows_the_profile_output_limit() {
+        let chars = |output_limit, reasoning| {
+            max_request_chars(&AiConfig {
+                output_limit,
+                reasoning,
+                ..base_config()
+            })
+        };
+        let auto = chars(OutputLimit::Auto, ReasoningMode::Minimal);
+        // A ten-minute dictation still goes as one request by default.
+        assert!(auto > 10_000, "{auto}");
+        assert!(chars(OutputLimit::Auto, ReasoningMode::Model) < auto);
+        assert!(chars(OutputLimit::Tokens(4_000), ReasoningMode::Minimal) < auto);
+        let large = chars(OutputLimit::Tokens(64_000), ReasoningMode::Minimal);
+        assert!(large > auto * 2, "{large}");
+        // However large the cap, an answer must come back in one attempt with
+        // time to spare, and with time to think when thinking is left on.
+        assert_eq!(chars(OutputLimit::Unlimited, ReasoningMode::Minimal), large);
+        let answer_secs = |chars: usize| {
+            u64::try_from(chars / CHARS_PER_TOKEN).unwrap() / u64::from(ANSWER_TOKENS_PER_SECOND)
+        };
+        assert!(answer_secs(large) < MAX_ATTEMPT_SECS);
+        let thinking = chars(OutputLimit::Tokens(64_000), ReasoningMode::Model);
+        assert!(answer_secs(thinking) < MAX_ATTEMPT_SECS / 3);
     }
 
     #[test]
