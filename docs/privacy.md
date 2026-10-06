@@ -31,7 +31,7 @@ The application UI uses system fonts and does not load font assets from a third-
 
 Update checks use stable releases by default. Enabling **Help → Updates → Receive beta builds** also queries the public GitHub Releases list to find newer published betas; the choice is saved locally. Update checks send no audio, transcripts, provider credentials, or application history, and installation still requires an explicit click.
 
-While the settings window is visible and active, Sotto checks for updates on opening and every six hours. A quiet notice at the top of the window appears at most once every 24 hours, waits until dictation and open dialogs finish, and disappears after 12 seconds; hovering or focusing its controls pauses dismissal. **Details** opens the existing update controls in Help.
+While the settings window is visible and active, Sotto checks for updates on opening and every six hours. A quiet notice at the top of the window appears at most once every 24 hours, waits until dictation and open dialogs finish, and disappears after 12 seconds; hovering or focusing its controls pauses dismissal. **Update now** starts the installation in Help, which shows the download progress and any error; nothing is downloaded until it is clicked.
 
 The reminder timestamp is saved locally in settings so restarting the app does not repeat it immediately. Debug and portable builds do not check for installable updates.
 

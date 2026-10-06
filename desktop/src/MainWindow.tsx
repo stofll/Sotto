@@ -92,6 +92,8 @@ function pageFor(tab: TabId, data: {
   onModelsChanged: (models: ModelInfo[]) => void;
   onStatsRefresh: () => Promise<void>;
   onStartOnboarding: () => void;
+  updateInstallRequested: boolean;
+  onUpdateInstallRequestHandled: () => void;
 }) {
   switch (tab) {
     case "settings": return <SettingsPage config={data.config} microphones={data.microphones} models={data.models} portable={data.runtime?.portable} onConfigChanged={data.onConfigChanged}/>;
@@ -101,7 +103,7 @@ function pageFor(tab: TabId, data: {
     case "integrations": return <IntegrationsPage config={data.config?.ai_processing ?? null} apiKeys={data.apiKeys} onConfigChanged={data.onConfigChanged} onApiKeysChanged={data.onApiKeysChanged}/>;
     case "history": return <HistoryPageLoader focus={data.historyFocus}/>;
     case "stats": return <StatsPage stats={data.stats} typingSpeedCpm={data.config?.typing_speed_cpm} onRefresh={data.onStatsRefresh}/>;
-    case "info": return <InfoPage version={data.version} config={data.config} onConfigChanged={data.onConfigChanged} onStartOnboarding={data.onStartOnboarding}/>;
+    case "info": return <InfoPage version={data.version} config={data.config} onConfigChanged={data.onConfigChanged} onStartOnboarding={data.onStartOnboarding} installRequested={data.updateInstallRequested} onInstallRequestHandled={data.onUpdateInstallRequestHandled}/>;
   }
 }
 
@@ -134,6 +136,11 @@ export function MainWindow() {
   const [onboardingToolbar, setOnboardingToolbar] = useState<HTMLDivElement | null>(null);
   const [textPreviewDraft, setTextPreviewDraft] = useState<string | null>(null);
   const [tab, setTab] = useState<TabId>("settings");
+  // «Обновить сейчас» on the update notice: the Help page's updates card
+  // installs once its check confirms the update, then clears this. Leaving
+  // the page first spends it too: a later visit must not install unasked.
+  const [updateInstallRequested, setUpdateInstallRequested] = useState(false);
+  useEffect(() => { if (tab !== "info") setUpdateInstallRequested(false); }, [tab]);
   const [historyFocus, setHistoryFocus] = useState<HistoryFocus | null>(null);
   // A request to show an entry is spent once the user leaves the page:
   // coming back later must not jump to it again.
@@ -465,7 +472,7 @@ export function MainWindow() {
         ready={recordingState === "idle" && tab !== "info"}
         lastShownAt={config.update_reminder_shown_at}
         onShown={(timestamp) => { void onConfigChanged({ update_reminder_shown_at: timestamp }, () => {}); }}
-        onDetails={() => setTab("info")}
+        onUpdate={() => { setUpdateInstallRequested(true); setTab("info"); }}
       />}
       <div className={`win${collapsed && !onboardingActive ? " collapsed" : ""}`}>
         <TitleBar actionsRef={setOnboardingToolbar} collapsed={collapsed && !onboardingActive} fullWidth={onboardingActive} onToggleCollapse={onboardingActive ? undefined : toggleSidebarCollapse}/>
@@ -503,7 +510,7 @@ export function MainWindow() {
             </Suspense>}
             {loading ? <LoadingState/> : !onboardingActive && (
               <div data-testid={`page-${tab}`} style={{ position: "relative", flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
-                {pageFor(tab, { config, historyFocus, version, stats, microphones, models, runtime, apiKeys, onConfigChanged, textPreviewDraft, onTextPreviewDraftChange: setTextPreviewDraft, onNavigate: setTab, onApiKeysChanged: setApiKeys, onModelsChanged: setModels, onStatsRefresh: refreshStats, onStartOnboarding: () => void startOnboarding() })}
+                {pageFor(tab, { config, historyFocus, version, stats, microphones, models, runtime, apiKeys, onConfigChanged, textPreviewDraft, onTextPreviewDraftChange: setTextPreviewDraft, onNavigate: setTab, onApiKeysChanged: setApiKeys, onModelsChanged: setModels, onStatsRefresh: refreshStats, onStartOnboarding: () => void startOnboarding(), updateInstallRequested, onUpdateInstallRequestHandled: () => setUpdateInstallRequested(false) })}
               </div>
             )}
           </main>

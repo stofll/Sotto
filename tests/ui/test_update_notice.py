@@ -15,7 +15,7 @@ RELEASE = {
 
 @pytest.mark.parametrize("locale", ["ru", "en"])
 @pytest.mark.parametrize("theme", ["dark", "light"])
-def test_notice_layout_focus_and_details(app, page, locale, theme, output_path):
+def test_notice_layout_focus_and_update(app, page, locale, theme, output_path):
     page.set_viewport_size({"width": 760, "height": 620})
     ui = app(
         config={"ui_language": locale, "theme": theme},
@@ -30,8 +30,8 @@ def test_notice_layout_focus_and_details(app, page, locale, theme, output_path):
     box = notice.bounding_box()
     assert box["y"] < 100 and box["x"] >= 0
     assert box["x"] + box["width"] <= 760
-    details = notice.get_by_role(
-        "button", name="Подробнее" if locale == "ru" else "Details", exact=True
+    update = notice.get_by_role(
+        "button", name="Обновить сейчас" if locale == "ru" else "Update now", exact=True
     )
     Path(output_path).mkdir(parents=True, exist_ok=True)
     notice.screenshot(
@@ -42,22 +42,58 @@ def test_notice_layout_focus_and_details(app, page, locale, theme, output_path):
         path=str(Path(output_path) / f"window-{locale}-{theme}.png"),
         animations="disabled",
     )
-    details.focus()
-    expect(details).to_be_focused()
+    update.focus()
+    expect(update).to_be_focused()
     notice.screenshot(
         path=str(Path(output_path) / f"notice-focused-{locale}-{theme}.png"),
         animations="disabled",
     )
     ui.queue("check_update", {"result": UPDATE})
+    ui.queue("install_update", {"hold": True})
     page.keyboard.press("Enter")
     expect(notice).not_to_be_visible()
     expect(page.get_by_test_id("page-info")).to_be_visible()
+    # One click installs: the Help page shows the download instead of a
+    # second «Update to» button.
+    expect(page.get_by_test_id("page-info")).to_contain_text(
+        "Скачиваем обновление" if locale == "ru" else "Downloading the update"
+    )
+    assert len(ui.calls("install_update")) == 1
+
+
+def test_update_request_is_used_up_when_the_check_finds_nothing(app, page):
+    ui = app(responses={"check_update": [{"result": UPDATE}]})
+    notice = page.get_by_test_id("update-notice")
+    ui.queue(
+        "check_update", {"result": {"available": False, "current_version": "0.3.1"}}
+    )
+    notice.get_by_role("button", name="Обновить сейчас", exact=True).click()
+    expect(page.get_by_test_id("page-info")).to_contain_text(
+        "Установлена последняя версия."
+    )
+    # A later visit that finds the update offers it instead of installing.
+    ui.nav("settings")
+    ui.queue("check_update", {"result": UPDATE})
+    ui.nav("info")
     expect(
-        page.get_by_role(
-            "button",
-            name="Обновить до 0.3.1" if locale == "ru" else "Update to 0.3.1",
-            exact=True,
-        )
+        page.get_by_role("button", name="Обновить до 0.3.1", exact=True)
+    ).to_be_visible()
+    assert not ui.calls("install_update")
+
+
+def test_update_request_is_dropped_when_help_is_left_mid_check(app, page):
+    ui = app(responses={"check_update": [{"result": UPDATE}]})
+    notice = page.get_by_test_id("update-notice")
+    ui.queue("check_update", {"hold": True})
+    notice.get_by_role("button", name="Обновить сейчас", exact=True).click()
+    expect(page.get_by_test_id("page-info")).to_be_visible()
+    ui.nav("settings")
+    ui.settle("check_update", result=UPDATE)
+    # Coming back later finds the update and offers it; nothing installs.
+    ui.queue("check_update", {"result": UPDATE})
+    ui.nav("info")
+    expect(
+        page.get_by_role("button", name="Обновить до 0.3.1", exact=True)
     ).to_be_visible()
     assert not ui.calls("install_update")
 
@@ -97,7 +133,7 @@ def test_notice_auto_dismiss_pauses_for_keyboard_and_survives_restart(app, page)
     ui = app(responses={"check_update": [{"result": UPDATE}]})
     notice = page.get_by_test_id("update-notice")
     expect(notice).to_be_visible()
-    notice.get_by_role("button", name="Подробнее", exact=True).focus()
+    notice.get_by_role("button", name="Обновить сейчас", exact=True).focus()
     notice.hover()
     page.mouse.move(0, 500)
     page.clock.run_for(20_000)

@@ -1193,6 +1193,7 @@ export const en: Record<string, string | string[]> = {
   "Проблема с ключом": "Key problem",
   "Ответ не разобрался": "Could not parse the response",
   "Обновить": "Refresh",
+  "Обновить сейчас": "Update now",
 
   // ── Diagnostics and updates ────────────────────────────────────────────
   "Диагностика": "Diagnostics",
