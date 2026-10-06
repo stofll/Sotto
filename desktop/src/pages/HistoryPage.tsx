@@ -80,6 +80,7 @@ function aiStatusText(entry: HistoryEntry): string {
   if (!ai.enabled) return t("LLM: выключено");
   const profile = ai.profile_name ? `${ai.profile_name} · ` : "";
   const model = `${profile}${[ai.provider, ai.model].filter(Boolean).join(" / ")}`.trim();
+  if (ai.attempted && ai.used && ai.accepted_reason != null) return model ? t("LLM: вариант принят вручную · {p0}", { p0: model }) : t("LLM: вариант принят вручную");
   if (ai.attempted && ai.used && ai.parts && ai.parts.used < ai.parts.total) {
     const label = t("LLM: частично · {p0} из {p1} частей", { p0: ai.parts.used, p1: ai.parts.total });
     return model ? `${label} · ${model}` : label;
@@ -130,6 +131,15 @@ function aiSkipLabel(code: string): string {
   const label = aiFallbackLabel(undefined, code);
   // An unmapped code is more useful raw than as the word "fallback".
   return label === "fallback" ? code : label;
+}
+
+/** Above an answer a check turned down. In a long text the check judged one
+ *  of its parts; the others may have been kept or failed for another reason. */
+function variantNote(reason: string | undefined, inParts: boolean): string {
+  if (!reason) return t("Проверка отклонила часть ответа. Сравните и замените текст, если вариант верный.");
+  return inParts
+    ? t("Проверка отклонила часть ответа: {p0}. Сравните и замените текст, если вариант верный.", { p0: aiSkipLabel(reason) })
+    : t("Проверка отклонила ответ: {p0}. Сравните и замените текст, если вариант верный.", { p0: aiSkipLabel(reason) });
 }
 
 function aiStatusColor(entry: HistoryEntry): string {
@@ -310,6 +320,7 @@ export function HistoryPage({ focus = null }: { focus?: { id: number; seq: numbe
   // inside an awaited closure, where a state variable would still hold the
   // value it had when the request left.
   const reprocessRunRef = useRef(0);
+  const [variantApplyingId, setVariantApplyingId] = useState<number | null>(null);
   const [currentAiConfig, setCurrentAiConfig] = useState<AiConfig | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -608,7 +619,8 @@ export function HistoryPage({ focus = null }: { focus?: { id: number; seq: numbe
         reprocessProfileId ? reprocessPrompt(currentAiConfig, reprocessProfileId) : undefined,
       );
       if (!current()) return;
-      if (preview.ok) {
+      // An answer a check turned down is offered too, with the reason.
+      if (preview.ok || preview.rejected_text) {
         setReprocessPreview(preview);
         return;
       }
@@ -638,7 +650,8 @@ export function HistoryPage({ focus = null }: { focus?: { id: number; seq: numbe
     setReprocessApplying(true);
     setReprocessError(null);
     try {
-      const result = await applyHistoryAiProcessing(entry.id, preview.text, preview.ai_json, preview.stats_json);
+      const text = preview.ok ? preview.text : preview.rejected_text ?? "";
+      const result = await applyHistoryAiProcessing(entry.id, text, preview.ai_json, preview.stats_json);
       const updated = result.entry;
       if (!result.updated || !updated) {
         if (stillOpen()) setReprocessError(t("Не удалось сохранить результат."));
@@ -657,6 +670,35 @@ export function HistoryPage({ focus = null }: { focus?: { id: number; seq: numbe
       if (stillOpen()) setReprocessError(e instanceof Error ? e.message : String(e));
     } finally {
       if (stillOpen()) setReprocessApplying(false);
+    }
+  }
+
+  // «Заменить текст» under «Вариант LLM». The row's own status goes back with
+  // the answer; Rust recognises it as the turned-down one and marks the row
+  // processed. The text before stays in «До LLM».
+  async function acceptVariant(entry: HistoryEntry) {
+    const variant = entry.ai_processing?.rejected_text;
+    if (!variant) return;
+    setVariantApplyingId(entry.id);
+    setError(null);
+    try {
+      const result = await applyHistoryAiProcessing(
+        entry.id,
+        variant,
+        JSON.stringify(entry.ai_processing),
+        JSON.stringify(entry.processing_stats ?? {}),
+      );
+      const updated = result.entry;
+      if (!result.updated || !updated) {
+        setError(t("Не удалось сохранить результат."));
+        return;
+      }
+      setEntries((current) => current.map((item) => item.id === updated.id ? updated : item));
+      flashNotice(t("Текст заменен вариантом LLM"));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setVariantApplyingId(null);
     }
   }
 
@@ -817,6 +859,8 @@ export function HistoryPage({ focus = null }: { focus?: { id: number; seq: numbe
                       reprocessError={reprocessError}
                       onRunReprocess={() => void runReprocess(entry)}
                       onApplyReprocess={() => void applyReprocess(entry)}
+                      variantApplying={variantApplyingId === entry.id}
+                      onAcceptVariant={() => void acceptVariant(entry)}
                       player={player.state?.id === entry.id ? player.state : null}
                       onTogglePlay={() => player.toggle(entry.id)}
                       onSeek={player.seek}
@@ -993,6 +1037,8 @@ function EntryCard(props: {
   reprocessError: string | null;
   onRunReprocess: () => void;
   onApplyReprocess: () => void;
+  variantApplying: boolean;
+  onAcceptVariant: () => void;
   player: PlayerState;
   onTogglePlay: () => void;
   onSeek: (seconds: number) => void;
@@ -1006,7 +1052,7 @@ function EntryCard(props: {
     copiedBlockKey, onCopyBlock, expandedBlockKeys, onToggleBlock,
     reprocessOpen, onOpenReprocess, onCloseReprocess, reprocessProfileId, onReprocessProfileId,
     reprocessRunning, reprocessApplying, reprocessPreview, reprocessError,
-    onRunReprocess, onApplyReprocess, player, onTogglePlay, onSeek, menuOpen, onToggleMenu,
+    onRunReprocess, onApplyReprocess, variantApplying, onAcceptVariant, player, onTogglePlay, onSeek, menuOpen, onToggleMenu,
   } = props;
 
   const compact = viewMode === "list" && !detailsExpanded;
@@ -1015,6 +1061,10 @@ function EntryCard(props: {
   const canReprocess = reprocessSource(entry).length > 0;
   const hasDetails = entryHasDetails(entry);
   const canDiff = !!(entry.formatted_text && entry.formatted_text !== entry.text);
+  const rejected = entry.ai_processing?.rejected_text;
+  const variant = rejected && rejected !== entry.text ? rejected : null;
+  const variantKey = `${entry.id}:variant`;
+  const variantOpen = expandedBlockKeys.has(variantKey);
   const aiBadgeColor = aiStatusColor(entry);
   const profileLabel = aiProfileLabel(entry);
   const sttLabel = transcriptionModelLabel(entry);
@@ -1088,7 +1138,7 @@ function EntryCard(props: {
             >
               {entry.text}
             </div>
-            {(hasDetails || canDiff || canReprocess) && (
+            {(hasDetails || canDiff || canReprocess || !!variant) && (
               <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 6 }}>
                 {hasDetails && (
                   <button className="btn btn--ghost" onClick={onToggleDetails} aria-expanded={detailsExpanded} style={{ height: 24 }}>
@@ -1099,6 +1149,12 @@ function EntryCard(props: {
                 {canDiff && (
                   <button className="btn btn--ghost" onClick={onToggleDiff} aria-pressed={diffOn} style={{ height: 24 }}>
                     <Icon name="compare" size={11}/>{diffOn ? t("Скрыть diff") : t("Сравнить с до-LLM")}
+                  </button>
+                )}
+                {variant && (
+                  <button className="btn btn--ghost" onClick={() => onToggleBlock(variantKey)} aria-expanded={variantOpen} style={{ height: 24 }}>
+                    <Icon name={variantOpen ? "chev-down" : "chev"} size={11} style={{ transform: variantOpen ? undefined : "rotate(90deg)" }}/>
+                    {t("Вариант LLM")}
                   </button>
                 )}
                 {canReprocess && (
@@ -1115,6 +1171,20 @@ function EntryCard(props: {
             )}
             {diffOn && canDiff && (
               <DiffBlock before={entry.formatted_text || ""} after={entry.text}/>
+            )}
+            {variant && variantOpen && (
+              <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
+                <div style={{ font: "400 11.5px/1.4 var(--font-sans)", color: "var(--ink-mute)" }}>
+                  {variantNote(entry.ai_processing?.rejected_reason ?? entry.ai_processing?.skipped_reason, !!entry.ai_processing?.parts)}
+                </div>
+                <DiffBlock before={entry.text} after={variant} title={t("Diff: сейчас → вариант LLM")}/>
+                <div>
+                  <button className="btn btn--primary" onClick={onAcceptVariant} disabled={variantApplying} aria-busy={variantApplying} style={{ height: 26 }}>
+                    {variantApplying ? <span className="mini-spinner" aria-hidden="true"/> : <Icon name="check" size={11}/>}
+                    {variantApplying ? t("Сохраняю") : t("Заменить текст")}
+                  </button>
+                </div>
+              </div>
             )}
             {reprocessOpen && (
               <ReprocessPanel
@@ -1383,7 +1453,14 @@ function ReprocessPanel({
 
       {preview && (
         <div style={{ display: "grid", gap: 8 }}>
-          <DiffBlock before={entry.text} after={preview.text} title={t("Diff: сейчас → новый вариант")}/>
+          {!preview.ok && (
+            <div style={{ font: "400 11.5px/1.4 var(--font-sans)", color: "var(--ink-mute)" }}>{variantNote(preview.reason, false)}</div>
+          )}
+          <DiffBlock
+            before={entry.text}
+            after={preview.ok ? preview.text : preview.rejected_text ?? ""}
+            title={preview.ok ? t("Diff: сейчас → новый вариант") : t("Diff: сейчас → вариант LLM")}
+          />
           <div>
             <button className="btn btn--primary" onClick={onApply} disabled={busy} aria-busy={applying} style={{ height: 26 }}>
               {applying ? <span className="mini-spinner" aria-hidden="true"/> : <Icon name="check" size={11}/>}

@@ -1040,6 +1040,14 @@ export const en: Record<string, string | string[]> = {
   "LLM ответила позже — результат в истории": "LLM answered late — result is in history",
   "LLM: обработано позже": "LLM: processed late",
   "LLM: обработано позже · {p0}": "LLM: processed late · {p0}",
+  "LLM: вариант принят вручную": "LLM: variant accepted manually",
+  "LLM: вариант принят вручную · {p0}": "LLM: variant accepted manually · {p0}",
+  "Вариант LLM": "LLM variant",
+  "Diff: сейчас → вариант LLM": "Diff: current → LLM variant",
+  "Проверка отклонила ответ: {p0}. Сравните и замените текст, если вариант верный.": "A check rejected the answer: {p0}. Compare and replace the text if the variant is correct.",
+  "Проверка отклонила часть ответа. Сравните и замените текст, если вариант верный.": "A check rejected part of the answer. Compare and replace the text if the variant is correct.",
+  "Проверка отклонила часть ответа: {p0}. Сравните и замените текст, если вариант верный.": "A check rejected part of the answer: {p0}. Compare and replace the text if the variant is correct.",
+  "Текст заменен вариантом LLM": "The text was replaced with the LLM variant",
   "LLM запускается только для записей не короче этого значения. 0 = обрабатывать все. Значение своё у каждого профиля.":
     "The LLM only runs for recordings at least this long. 0 processes everything. Each profile has its own value.",
   "Отправить пробный запрос в {p0} ({p1})? Запрос уйдёт провайдеру и спишет токены.":

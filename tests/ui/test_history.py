@@ -440,3 +440,129 @@ def test_history_names_a_partly_tidied_long_text(app, page):
     expect(
         card.get_by_label("LLM: частично · 5 из 6 частей · openai / synthetic-model")
     ).to_be_attached()
+
+
+TURNED_DOWN = {
+    "id": 8,
+    "timestamp": 1789200300,
+    "text": "посмотри pdf файлы а не сами PD файлы",
+    "formatted_text": "посмотри pdf файлы а не сами PD файлы",
+    "raw_text": "посмотри pdf файлы а не сами PD файлы",
+    "length": 37,
+    "ai_processing": {
+        "attempted": True,
+        "used": False,
+        "fallback": True,
+        "enabled": True,
+        "provider": "openai",
+        "model": "synthetic-model",
+        "error_type": "altered_response",
+        "skipped_reason": "model_changed_terms",
+        "rejected_text": "Посмотри PDF-файлы, а не сами PDF-файлы.",
+        "rejected_reason": "model_changed_terms",
+    },
+}
+
+
+def test_history_offers_an_answer_a_check_turned_down(app, page):
+    ui = app(history=[TURNED_DOWN])
+    ui.nav("history")
+    card = page.get_by_test_id("history-entry-8")
+    toggle = card.get_by_role("button", name="Вариант LLM", exact=True)
+    expect(toggle).to_have_attribute("aria-expanded", "false")
+    expect(
+        card.get_by_role("button", name="Заменить текст", exact=True)
+    ).not_to_be_visible()
+    toggle.click()
+    expect(card).to_contain_text("Проверка отклонила ответ: модель изменила названия.")
+    expect(card).to_contain_text("Diff: сейчас → вариант LLM")
+    variant = TURNED_DOWN["ai_processing"]["rejected_text"]
+    accepted = {
+        **TURNED_DOWN,
+        "text": variant,
+        "ai_processing": {
+            **TURNED_DOWN["ai_processing"],
+            "used": True,
+            "fallback": False,
+            "skipped_reason": "",
+            "accepted_reason": "model_changed_terms",
+            "rejected_text": None,
+        },
+    }
+    ui.queue(
+        "apply_history_ai_processing", {"result": {"updated": True, "entry": accepted}}
+    )
+    card.get_by_role("button", name="Заменить текст", exact=True).click()
+    expect(card).to_contain_text(variant)
+    expect(
+        card.get_by_label("LLM: вариант принят вручную · openai / synthetic-model")
+    ).to_be_attached()
+    expect(
+        card.get_by_role("button", name="Вариант LLM", exact=True)
+    ).not_to_be_visible()
+    [call] = ui.calls("apply_history_ai_processing")
+    assert call["args"]["text"] == variant
+    # The row's own status goes back, so Rust can recognise the answer.
+    assert '"rejected_text"' in call["args"]["aiJson"]
+
+
+def test_history_reprocess_offers_a_turned_down_answer(app, page):
+    ui = app(history=ENTRIES)
+    ui.nav("history")
+    card = page.get_by_test_id("history-entry-1")
+    card.get_by_role("button", name="Обработать через LLM", exact=True).click()
+    ui.queue(
+        "preview_history_ai_processing",
+        {
+            "result": {
+                "ok": False,
+                "text": ENTRIES[0]["text"],
+                "reason": "model_dropped_negation",
+                "rejected_text": "Synthetic turned-down answer",
+                "provider": "openai",
+                "model": "test-model",
+                "profile_name": "Test",
+                "elapsed_seconds": 0.1,
+                "ai_json": '{"rejected_text":"Synthetic turned-down answer"}',
+                "stats_json": "{}",
+            }
+        },
+    )
+    card.get_by_role("button", name="Запустить", exact=True).click()
+    expect(card).to_contain_text("Проверка отклонила ответ: модель убрала отрицание.")
+    updated = {**ENTRIES[0], "text": "Synthetic turned-down answer"}
+    ui.queue(
+        "apply_history_ai_processing", {"result": {"updated": True, "entry": updated}}
+    )
+    card.get_by_role("button", name="Заменить текст", exact=True).click()
+    expect(card).to_contain_text("Synthetic turned-down answer")
+    [call] = ui.calls("apply_history_ai_processing")
+    assert call["args"]["text"] == "Synthetic turned-down answer"
+
+
+def test_history_names_the_part_a_check_turned_down(app, page):
+    entry = {
+        "id": 9,
+        "timestamp": 1789200360,
+        "text": "Первая часть. Вторая часть.",
+        "formatted_text": "первая часть вторая часть",
+        "raw_text": "первая часть вторая часть",
+        "length": 27,
+        "ai_processing": {
+            "attempted": True,
+            "used": True,
+            "enabled": True,
+            "provider": "openai",
+            "model": "synthetic-model",
+            "skipped_reason": "",
+            "parts": {"total": 2, "used": 1},
+            "rejected_text": "Первая часть. Первая часть. Вторая часть.",
+            "rejected_reason": "model_repeated_context",
+        },
+    }
+    app(history=[entry]).nav("history")
+    card = page.get_by_test_id("history-entry-9")
+    card.get_by_role("button", name="Вариант LLM", exact=True).click()
+    expect(card).to_contain_text(
+        "Проверка отклонила часть ответа: модель повторила контекст."
+    )

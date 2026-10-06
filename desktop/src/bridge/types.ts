@@ -406,6 +406,12 @@ export interface HistoryEntry {
       http_status?: number;
     }>;
     output_length?: number;
+    /** The answer a check turned down, kept for the history to offer. */
+    rejected_text?: string;
+    /** The check that turned `rejected_text` down. */
+    rejected_reason?: string;
+    /** Set once the user took that answer: the check that objected. */
+    accepted_reason?: string;
     usage?: {
       input_tokens?: number;
       output_tokens?: number;
@@ -455,6 +461,8 @@ export interface HistoryAiPreview {
   text: string;
   reason?: string;
   detail?: string;
+  /** The answer a check turned down; `text` is then the source. */
+  rejected_text?: string | null;
   provider: string;
   model: string;
   profile_name: string;

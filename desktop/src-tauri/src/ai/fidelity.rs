@@ -99,15 +99,42 @@ pub fn altered_meaning(input: &str, output: &str) -> Option<Alteration> {
         return Some(Alteration::Numbers);
     }
     if mostly_cyrillic(input) {
+        let dictated = latin_terms(input);
         let kept_terms = latin_terms(output);
-        if latin_terms(input)
+        if dictated
             .iter()
-            .any(|term| !kept_terms.contains(term))
+            .any(|term| !kept_terms.contains(term) && !unified(term, &dictated, &kept_terms))
         {
             return Some(Alteration::Terms);
         }
     }
     None
+}
+
+/// True when a missing `term` gave way to a term dictated elsewhere in the
+/// same text that has one letter more or less: the transcript misheard one
+/// mention — «PD файлы» beside «PDF файлы» — and the model wrote them alike.
+/// A replacement the author never said, `Wispr` → `Whisper`, is not covered,
+/// and neither is a substituted letter: `UI` and `UX` are two terms.
+fn unified(
+    term: &str,
+    dictated: &std::collections::HashSet<String>,
+    kept: &std::collections::HashSet<String>,
+) -> bool {
+    kept.iter()
+        .any(|other| dictated.contains(other) && one_letter_apart(term, other))
+}
+
+/// Inserting one character into the shorter of `a` and `b` gives the other.
+fn one_letter_apart(a: &str, b: &str) -> bool {
+    let (a, b): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
+    let (short, long) = if a.len() < b.len() { (a, b) } else { (b, a) };
+    if long.len() != short.len() + 1 {
+        return false;
+    }
+    // Past the shared prefix, skip the extra character in `long`.
+    let prefix = short.iter().zip(&long).take_while(|(x, y)| x == y).count();
+    short[prefix..] == long[prefix + 1..]
 }
 
 /// Words compared at the start of an answer to spot an echoed context.
@@ -467,6 +494,49 @@ mod tests {
         assert_eq!(
             altered_meaning("залей в github и открой pr", "Залей в GitHub и открой PR."),
             None
+        );
+    }
+
+    /// The false alarm from a real dictation: the transcript misheard one of
+    /// two mentions of PDF, and the model wrote both the same way.
+    #[test]
+    fn a_misheard_term_unified_with_its_other_mention_passes() {
+        assert_eq!(
+            altered_meaning(
+                "там ссылки на pdf файлы а не сами PD файлы и картинки",
+                "Там ссылки на PDF-файлы, а не сами PDF-файлы и картинки."
+            ),
+            None
+        );
+        // One letter off from a term the author never said is still a change.
+        assert_eq!(
+            altered_meaning("открой PD файлы и картинки", "Открой PDF-файлы и картинки."),
+            Some(Alteration::Terms)
+        );
+    }
+
+    #[test]
+    fn one_letter_apart_counts_only_an_added_or_dropped_letter() {
+        assert!(one_letter_apart("pd", "pdf"));
+        assert!(one_letter_apart("pdf", "pd"));
+        assert!(one_letter_apart("sotto", "soto"));
+        assert!(one_letter_apart("gpt", "gpt4"));
+        assert!(!one_letter_apart("api", "apy"));
+        assert!(!one_letter_apart("pdf", "pdf"));
+        assert!(!one_letter_apart("wispr", "whisper"));
+        assert!(!one_letter_apart("ab", "ba"));
+    }
+
+    /// Two different terms the author dictated are not one misheard term:
+    /// writing one in place of the other is still a change.
+    #[test]
+    fn swapping_one_dictated_term_for_another_is_caught() {
+        assert_eq!(
+            altered_meaning(
+                "сделай ui и ux для этой формы",
+                "Сделай UX и UX для этой формы."
+            ),
+            Some(Alteration::Terms)
         );
     }
 

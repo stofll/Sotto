@@ -565,6 +565,8 @@ mod tests {
             provider_attempts: Vec::new(),
             late: false,
             parts: None,
+            rejected_text: None,
+            rejected_reason: None,
         }
     }
 
