@@ -55,11 +55,12 @@ function formatMb(bytes: number) {
   return t("{p0} МБ", { p0: (bytes / 1024 / 1024).toFixed(1) });
 }
 
-// An update is never installed by itself: the check when the page opens is
-// silent (there is nothing to gain from showing a network error) and downloading
-// happens only on an explicit click. The user always sees exactly what is
-// coming: the version, the date and the release notes.
-function UpdatesCard({ version, config, onConfigChanged }: { version?: string | null; config: ConfigResult | null; onConfigChanged?: (partial: Partial<ConfigResult>, onError?: (message: string) => void) => Promise<ConfigResult | null> }) {
+// An update is never installed by itself: downloading starts only on an
+// explicit click, either here or on the update notice's «Обновить сейчас»,
+// which opens this page with `installRequested`. The check when the page opens
+// is silent (a network error alone is not worth showing) unless that request
+// is waiting on it; then a failure is reported, since the user asked to update.
+function UpdatesCard({ version, config, onConfigChanged, installRequested = false, onInstallRequestHandled }: { version?: string | null; config: ConfigResult | null; onConfigChanged?: (partial: Partial<ConfigResult>, onError?: (message: string) => void) => Promise<ConfigResult | null>; installRequested?: boolean; onInstallRequestHandled?: () => void }) {
   const [state, setState] = useState<UpdateState>({ kind: "idle" });
   const [showNotes, setShowNotes] = useState(false);
   const [savingChannel, setSavingChannel] = useState(false);
@@ -67,6 +68,9 @@ function UpdatesCard({ version, config, onConfigChanged }: { version?: string | 
   const receiveBeta = config?.receive_beta_updates === true;
   const configReady = config !== null;
   const invalidateCheck = useCallback(() => { requestGeneration.current++; }, []);
+  // Read by the check on open: a requested install must report a failed check.
+  const installRequestedRef = useRef(installRequested);
+  installRequestedRef.current = installRequested;
 
   const check = useCallback(async (loud: boolean) => {
     const generation = ++requestGeneration.current;
@@ -85,7 +89,7 @@ function UpdatesCard({ version, config, onConfigChanged }: { version?: string | 
 
   useEffect(() => {
     if (!configReady) return;
-    void check(false);
+    void check(installRequestedRef.current);
     return invalidateCheck;
   }, [check, invalidateCheck, receiveBeta, configReady]);
 
@@ -120,6 +124,15 @@ function UpdatesCard({ version, config, onConfigChanged }: { version?: string | 
       setState({ kind: "error", message: e instanceof Error ? e.message : String(e) });
     }
   }
+
+  // The update notice asked to install: start once the check confirms the
+  // update, so the download shows here. Any outcome of the check uses the
+  // request up; a later visit to this page must not install by itself.
+  useEffect(() => {
+    if (!installRequested || state.kind === "idle" || state.kind === "checking") return;
+    onInstallRequestHandled?.();
+    if (state.kind === "available") void install(state.info);
+  }, [installRequested, state, onInstallRequestHandled]);
 
   const busy = savingChannel || state.kind === "checking" || state.kind === "downloading";
   const percent = state.kind === "downloading" && state.progress?.total
@@ -324,7 +337,7 @@ function DiagnosticsCard({ config, onConfigChanged }: { config: ConfigResult | n
   );
 }
 
-export function InfoPage({ version, config, onConfigChanged, onStartOnboarding }: { version?: string | null; config: ConfigResult | null; onConfigChanged?: (partial: Partial<ConfigResult>, onError?: (message: string) => void) => Promise<ConfigResult | null>; onStartOnboarding?: () => void }) {
+export function InfoPage({ version, config, onConfigChanged, onStartOnboarding, installRequested, onInstallRequestHandled }: { version?: string | null; config: ConfigResult | null; onConfigChanged?: (partial: Partial<ConfigResult>, onError?: (message: string) => void) => Promise<ConfigResult | null>; onStartOnboarding?: () => void; installRequested?: boolean; onInstallRequestHandled?: () => void }) {
   const pipelineMode = config?.ai_processing?.pipeline_mode ?? "local";
   const hotkey = hotkeyParts(config?.hotkey);
   const recordingMode = config?.recording_mode === "push_to_talk" ? t("Удержание клавиш") : t("Переключатель");
@@ -376,7 +389,7 @@ export function InfoPage({ version, config, onConfigChanged, onStartOnboarding }
 
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(280px, .85fr)", gap: 14, marginTop: 14 }} className="help-top">
         <DiagnosticsCard config={config} onConfigChanged={onConfigChanged}/>
-        <UpdatesCard version={version} config={config} onConfigChanged={onConfigChanged}/>
+        <UpdatesCard version={version} config={config} onConfigChanged={onConfigChanged} installRequested={installRequested} onInstallRequestHandled={onInstallRequestHandled}/>
       </div>
 
       <style>{`

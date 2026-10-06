@@ -91,6 +91,22 @@ pub struct AiStatus {
     /// back from the model. `used` is true when at least one did.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parts: Option<PartsSummary>,
+    /// The model's answer when a check turned it down. The history shows it
+    /// beside the dictation, so a false alarm costs a click, not the answer.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rejected_text: Option<String>,
+    /// The check that turned `rejected_text` down. Not `skipped_reason`: a
+    /// long text may keep its tidy-up, or name another part's failure.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rejected_reason: Option<String>,
+}
+
+impl AiStatus {
+    /// Keep `answer` as the variant a check turned down for `skipped_reason`.
+    fn reject(&mut self, answer: String) {
+        self.rejected_reason = Some(self.skipped_reason.clone());
+        self.rejected_text = Some(answer);
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -354,6 +370,8 @@ pub async fn ai_process_text_with_status(
         provider_attempts: Vec::new(),
         late: false,
         parts: None,
+        rejected_text: None,
+        rejected_reason: None,
     };
 
     if config.pipeline_mode == "local" {
@@ -542,6 +560,27 @@ async fn process_in_parts(
             status.response_snippet = failed.status.response_snippet.clone();
         }
     }
+    // The whole answer when a check turned any part down: every part as the
+    // model returned it, and the local text of parts it never answered.
+    if outcomes
+        .iter()
+        .any(|outcome| outcome.status.rejected_text.is_some())
+    {
+        let answered: Vec<String> = outcomes
+            .iter()
+            .map(|outcome| {
+                outcome
+                    .status
+                    .rejected_text
+                    .clone()
+                    .unwrap_or_else(|| outcome.text.clone())
+            })
+            .collect();
+        status.rejected_text = Some(long_text::join(parts, &answered));
+        status.rejected_reason = outcomes
+            .iter()
+            .find_map(|outcome| outcome.status.rejected_reason.clone());
+    }
     status.output_length = Some(joined.chars().count());
     CallOutcome {
         text: joined,
@@ -596,11 +635,12 @@ async fn tidy_part(
             config.provider,
             config.model
         );
-        outcome.text = text.to_string();
         outcome.status.used = false;
         outcome.status.fallback = true;
         outcome.status.error_type = Some("altered_response".to_string());
         outcome.status.skipped_reason = "model_repeated_context".to_string();
+        let answer = std::mem::replace(&mut outcome.text, text.to_string());
+        outcome.status.reject(answer);
     }
     outcome
 }
@@ -695,6 +735,7 @@ fn judge_answer(
     if is_meta_noop_response(&cleaned) {
         status.fallback = true;
         status.error_type = Some("meta_response".to_string());
+        // A remark about the text is not a text to offer in its place.
         status.skipped_reason = "model_returned_meta_response".to_string();
         return CallOutcome {
             text: text.to_string(),
@@ -718,6 +759,7 @@ fn judge_answer(
         status.error_type = Some("summarised_response".to_string());
         status.skipped_reason = "model_dropped_text".to_string();
         status.output_length = Some(cleaned.chars().count());
+        status.reject(cleaned);
         return CallOutcome {
             text: text.to_string(),
             status,
@@ -737,6 +779,7 @@ fn judge_answer(
         status.error_type = Some("altered_response".to_string());
         status.skipped_reason = alteration.reason().to_string();
         status.output_length = Some(cleaned.chars().count());
+        status.reject(cleaned);
         return CallOutcome {
             text: text.to_string(),
             status,
@@ -1372,6 +1415,37 @@ mod tests {
         assert!(outcome.text.starts_with("ПРЕДЛОЖЕНИЕ НОМЕР 0"));
         assert!(outcome.text.ends_with("предложение номер 899 про работу."));
         assert_eq!(outcome.text.chars().count(), text.chars().count());
+        // The variant keeps what the model sent for every part, echo included.
+        let variant = outcome.status.rejected_text.unwrap();
+        assert!(variant.starts_with("ПРЕДЛОЖЕНИЕ НОМЕР 0"));
+        assert!(variant.ends_with("ПРЕДЛОЖЕНИЕ НОМЕР 899 ПРО РАБОТУ."));
+        assert!(variant.chars().count() > text.chars().count());
+        assert_eq!(
+            outcome.status.rejected_reason.as_deref(),
+            Some("model_repeated_context")
+        );
+    }
+
+    /// With no part kept, the row names the first part's failure, but the
+    /// variant names the check that turned its parts down.
+    #[tokio::test]
+    async fn a_variant_names_its_check_when_another_part_failed_first() {
+        let text = long_text(0);
+        let provider = PartsProvider {
+            refuse: "МЕТКА",
+            echo: true,
+            ..PartsProvider::default()
+        };
+        let (outcome, _) = run_in_parts(&text, provider).await;
+        assert_eq!(outcome.status.parts.unwrap().used, 0);
+        assert_eq!(outcome.status.skipped_reason, "provider_bad_response");
+        assert_eq!(
+            outcome.status.rejected_reason.as_deref(),
+            Some("model_repeated_context")
+        );
+        // The refused first part stays local in the variant too.
+        let variant = outcome.status.rejected_text.unwrap();
+        assert!(variant.starts_with("предложение номер 0 про работу МЕТКА."));
     }
 
     /// A part the model fails keeps its local text; the rest keep theirs.
@@ -1390,6 +1464,8 @@ mod tests {
             .text
             .contains("предложение номер 150 про работу МЕТКА."));
         assert!(outcome.text.starts_with("ПРЕДЛОЖЕНИЕ НОМЕР 0"));
+        // A failure has no answer to offer.
+        assert_eq!(outcome.status.rejected_text, None);
     }
 
     /// A dictation keeps its overlay-bounded budget: parts still waiting when
@@ -1874,6 +1950,34 @@ mod tests {
             Some("summarised_response")
         );
         assert_eq!(outcome.status.skipped_reason, "model_dropped_text");
+        assert_eq!(
+            outcome.status.rejected_text.as_deref(),
+            Some("слово ".repeat(69).trim())
+        );
+        assert_eq!(
+            outcome.status.rejected_reason.as_deref(),
+            Some("model_dropped_text")
+        );
+    }
+
+    /// A remark about the text is turned down without becoming a variant:
+    /// offered as a replacement, it would overwrite the dictation.
+    #[test]
+    fn a_meta_response_is_not_kept_as_a_variant() {
+        let outcome = judge_answer(
+            "текст без ошибок",
+            &base_config(),
+            "Текст не содержит ошибок.".to_string(),
+            None,
+            AiStatus::default(),
+        );
+        assert_eq!(outcome.text, "текст без ошибок");
+        assert_eq!(
+            outcome.status.skipped_reason,
+            "model_returned_meta_response"
+        );
+        assert_eq!(outcome.status.rejected_text, None);
+        assert_eq!(outcome.status.rejected_reason, None);
     }
 
     /// Punctuation at the same word count is the edit the prompt asks for.
@@ -1935,6 +2039,14 @@ mod tests {
             Some("altered_response")
         );
         assert_eq!(outcome.status.skipped_reason, "model_dropped_negation");
+        assert_eq!(
+            outcome.status.rejected_text.as_deref(),
+            Some("I'd prefer to merge this.")
+        );
+        assert_eq!(
+            outcome.status.rejected_reason.as_deref(),
+            Some("model_dropped_negation")
+        );
     }
     struct SlowProvider;
     impl Provider for SlowProvider {

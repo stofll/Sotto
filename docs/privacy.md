@@ -31,7 +31,7 @@ The application UI uses system fonts and does not load font assets from a third-
 
 Update checks use stable releases by default. Enabling **Help → Updates → Receive beta builds** also queries the public GitHub Releases list to find newer published betas; the choice is saved locally. Update checks send no audio, transcripts, provider credentials, or application history, and installation still requires an explicit click.
 
-While the settings window is visible and active, Sotto checks for updates on opening and every six hours. A quiet notice at the top of the window appears at most once every 24 hours, waits until dictation and open dialogs finish, and disappears after 12 seconds; hovering or focusing its controls pauses dismissal. **Details** opens the existing update controls in Help.
+While the settings window is visible and active, Sotto checks for updates on opening and every six hours. A quiet notice at the top of the window appears at most once every 24 hours, waits until dictation and open dialogs finish, and disappears after 12 seconds; hovering or focusing its controls pauses dismissal. **Update now** starts the installation in Help, which shows the download progress and any error; nothing is downloaded until it is clicked.
 
 The reminder timestamp is saved locally in settings so restarting the app does not repeat it immediately. Debug and portable builds do not check for installable updates.
 
@@ -47,7 +47,9 @@ Versions up to 0.3.2-beta.1 appended fixed response and data-boundary rules to e
 
 Custom templates can still use `{{language}}`, `{{app}}` and `{{datetime}}`. Legacy `{{text}}` and `{{transcript}}` markers are removed from the system prompt; the source text is always sent in the separate message. An empty prompt skips LLM processing and inserts the local transcript. Response handling still removes reasoning blocks and falls back to the source text for empty responses, comments about the text or excessive word loss; changing the prompt does not disable these checks.
 
-The response is also rejected when it changes the meaning: it has fewer negations than the source, drops a number from it (amounts and list numbers included, while thousands separators and decimal commas may change), or alters a Latin-script name inside mostly Russian text. History names the reason. These checks compare words, not meaning, so they cannot catch every distortion. Number formatting, ranges and repeated stutters pass, but an abandoned false start or a spoken self-correction that drops a negation or a number, and a legitimate correction of a recognised English term in Russian text, also fall back to the local transcript.
+The response is also rejected when it changes the meaning: it has fewer negations than the source, drops a number from it (amounts and list numbers included, while thousands separators and decimal commas may change), or alters a Latin-script name inside mostly Russian text. History names the reason. These checks compare words, not meaning, so they cannot catch every distortion. Number formatting, ranges and repeated stutters pass, and so does a Latin term written like another term of the same dictation with one letter more or fewer, as a misheard «PD» beside «PDF». An abandoned false start or a spoken self-correction that drops a negation or a number, and other legitimate corrections of a recognised English term in Russian text, also fall back to the local transcript.
+
+A response rejected by these checks or by excessive word loss is not discarded. The history entry keeps it under **LLM variant**, with a diff against the inserted text and the reason; **Replace the text** stores it in the entry. A comment about the text is not kept, since it cannot replace the dictation. Like the rest of the history, it stays on this computer.
 
 ## Local data
 

@@ -9,12 +9,13 @@ import { UPDATE_CHECK_INTERVAL, UPDATE_NOTICE_DURATION, updateReminderDue } from
 
 const DIALOG_SELECTOR = '[role="dialog"], [role="alertdialog"]';
 
-export function UpdateNotice({ receiveBeta, ready, lastShownAt = 0, onShown, onDetails }: {
+export function UpdateNotice({ receiveBeta, ready, lastShownAt = 0, onShown, onUpdate }: {
   receiveBeta: boolean;
   ready: boolean;
   lastShownAt?: number;
   onShown: (timestamp: number) => void;
-  onDetails: () => void;
+  /** Start installing; the Help page shows the download and any error. */
+  onUpdate: () => void;
 }) {
   const [checked, setChecked] = useState<{ receiveBeta: boolean; info: UpdateInfo } | null>(null);
   const [notice, setNotice] = useState<UpdateInfo | null>(null);
@@ -107,7 +108,7 @@ export function UpdateNotice({ receiveBeta, ready, lastShownAt = 0, onShown, onD
         <strong>{t("Доступна новая версия Sotto {p0}", { p0: notice.version ?? "" })}</strong>
         <span>{t("Обновитесь, когда будет удобно.")}</span>
       </div>
-      <button className="btn btn--ghost" type="button" onClick={() => { setNotice(null); onDetails(); }}>{t("Подробнее")}</button>
+      <button className="btn btn--primary" type="button" onClick={() => { setNotice(null); onUpdate(); }}><Icon name="download" size={12}/>{t("Обновить сейчас")}</button>
       <button className="btn btn--ghost" type="button" aria-label={t("Закрыть уведомление")} onClick={() => setNotice(null)}><Icon name="x" size={12}/></button>
     </Card>
   </div>;

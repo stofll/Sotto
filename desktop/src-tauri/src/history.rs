@@ -720,6 +720,8 @@ pub(crate) struct HistoryAiPreview {
     reason: Option<String>,
     /// What the provider said about a failed run, shown after `reason`.
     detail: Option<String>,
+    /// The answer a check turned down, for the panel to offer anyway.
+    rejected_text: Option<String>,
     provider: String,
     model: String,
     profile_name: String,
@@ -749,10 +751,18 @@ pub(crate) async fn preview_history_ai_processing(
     Ok(HistoryAiPreview {
         ok: outcome.status.used,
         text: outcome.text,
-        reason: retry_failure_reason(&outcome.status),
+        // With a variant on offer, the check that turned it down: in a text
+        // tidied in parts, `skipped_reason` may name another part's failure.
+        reason: outcome
+            .status
+            .rejected_reason
+            .clone()
+            .filter(|_| !outcome.status.used)
+            .or_else(|| retry_failure_reason(&outcome.status)),
         detail: (!outcome.status.used)
             .then(|| outcome.status.provider_error.clone())
             .flatten(),
+        rejected_text: outcome.status.rejected_text.clone(),
         provider: ai_cfg.provider,
         model: ai_cfg.model,
         profile_name: ai_cfg.profile_name,
@@ -778,6 +788,7 @@ pub(crate) async fn apply_history_ai_processing(
     if text.trim().is_empty() {
         return Err("refusing to store an empty LLM result".to_string());
     }
+    let ai_json = accept_rejected_answer(&ai_json, &text);
     let db = state.db.clone();
     crate::run_db_op(db, move |conn| {
         update_entry_ai(conn, id, Some(text.as_str()), &ai_json, &stats_json)
@@ -801,6 +812,42 @@ pub(crate) async fn apply_history_ai_processing(
         entry,
         reason: None,
     })
+}
+
+/// The status to store when `text` is the answer a check turned down: the
+/// user took it, so the row reads as processed, and `accepted_reason` keeps
+/// the check that objected. The failure fields describe the rejection, so
+/// they go. Any other status is stored as it came.
+fn accept_rejected_answer(ai_json: &str, text: &str) -> String {
+    let Ok(Value::Object(mut status)) = serde_json::from_str::<Value>(ai_json) else {
+        return ai_json.to_string();
+    };
+    if status.get("rejected_text").and_then(Value::as_str) != Some(text) {
+        return ai_json.to_string();
+    }
+    let reason = status
+        .remove("rejected_reason")
+        .filter(|reason| reason.as_str().is_some_and(|reason| !reason.is_empty()))
+        .or_else(|| status.get("skipped_reason").cloned())
+        .unwrap_or_else(|| Value::String(String::new()));
+    for key in [
+        "rejected_text",
+        "error_type",
+        "provider_error",
+        "http_status",
+        "response_snippet",
+    ] {
+        status.remove(key);
+    }
+    status.insert("used".into(), Value::Bool(true));
+    status.insert("fallback".into(), Value::Bool(false));
+    status.insert("skipped_reason".into(), Value::String(String::new()));
+    status.insert("accepted_reason".into(), reason);
+    status.insert(
+        "output_length".into(),
+        serde_json::json!(text.chars().count()),
+    );
+    Value::Object(status).to_string()
 }
 
 /// Replace the LLM leg of a row's `processing_stats` with a fresh
@@ -851,12 +898,14 @@ fn retry_failure_reason(status: &crate::ai::step::AiStatus) -> Option<String> {
 ///
 /// The row already holds the local text and the timed-out status; both give
 /// way to what the model sent, as when a result from «Обработать» is applied.
+/// `None` keeps the text: a check turned the answer down, and only the status,
+/// with the answer as a variant, replaces the timed-out one.
 /// Only the LLM leg of the timings changes. `false` when the row is gone —
 /// deleted or pruned while the request was still running.
 pub(crate) fn store_late_answer(
     conn: &Connection,
     id: u64,
-    text: &str,
+    text: Option<&str>,
     ai_json: &str,
     llm_seconds: f64,
 ) -> Result<bool, rusqlite::Error> {
@@ -864,7 +913,7 @@ pub(crate) fn store_late_answer(
         return Ok(false);
     };
     let stats = stats_with_llm_timing(entry.processing_stats.as_ref(), llm_seconds);
-    update_entry_ai(conn, id, Some(text), ai_json, &stats)?;
+    update_entry_ai(conn, id, text, ai_json, &stats)?;
     Ok(true)
 }
 
@@ -1127,7 +1176,7 @@ mod tests {
         .unwrap();
         let conn = db.lock().unwrap();
         let ai_json = r#"{"used":true,"late":true}"#;
-        assert!(store_late_answer(&conn, id, "Привет, как дела?", ai_json, 20.0).unwrap());
+        assert!(store_late_answer(&conn, id, Some("Привет, как дела?"), ai_json, 20.0).unwrap());
         let entry = read_history_entry(&conn, id).unwrap().unwrap();
         assert_eq!(entry.text, "Привет, как дела?");
         assert_eq!(
@@ -1139,7 +1188,83 @@ mod tests {
         assert_eq!(stats["total_seconds"], serde_json::json!(20.5));
         assert_eq!(stats["audio_seconds"], serde_json::json!(4.0));
         // Deleted while the request was still running: nothing to write.
-        assert!(!store_late_answer(&conn, id + 1, "x", ai_json, 1.0).unwrap());
+        assert!(!store_late_answer(&conn, id + 1, Some("x"), ai_json, 1.0).unwrap());
+        // A late answer a check turned down keeps the text and stores the
+        // answer as a variant.
+        let rejected = r#"{"used":false,"late":true,"rejected_text":"Вариант."}"#;
+        assert!(store_late_answer(&conn, id, None, rejected, 21.0).unwrap());
+        let entry = read_history_entry(&conn, id).unwrap().unwrap();
+        assert_eq!(entry.text, "Привет, как дела?");
+        assert_eq!(
+            entry.ai_processing.unwrap()["rejected_text"],
+            serde_json::json!("Вариант.")
+        );
+    }
+
+    #[test]
+    fn accepting_the_rejected_answer_marks_it_processed() {
+        let status = serde_json::json!({
+            "used": false,
+            "fallback": true,
+            "skipped_reason": "model_changed_terms",
+            "error_type": "altered_response",
+            "rejected_text": "Открой PDF-файлы.",
+            "rejected_reason": "model_changed_terms",
+            "model": "m",
+        })
+        .to_string();
+        let accepted: Value =
+            serde_json::from_str(&accept_rejected_answer(&status, "Открой PDF-файлы.")).unwrap();
+        assert_eq!(accepted["used"], serde_json::json!(true));
+        assert_eq!(accepted["fallback"], serde_json::json!(false));
+        assert_eq!(accepted["skipped_reason"], serde_json::json!(""));
+        assert_eq!(
+            accepted["accepted_reason"],
+            serde_json::json!("model_changed_terms")
+        );
+        assert_eq!(accepted["model"], serde_json::json!("m"));
+        assert!(accepted.get("rejected_text").is_none());
+        assert!(accepted.get("rejected_reason").is_none());
+        assert!(accepted.get("error_type").is_none());
+        // Any other text is a fresh run's result, stored as it came.
+        assert_eq!(accept_rejected_answer(&status, "Другой текст."), status);
+        assert_eq!(accept_rejected_answer("not json", "x"), "not json");
+    }
+
+    /// A long text that kept some parts' tidy-up has no `skipped_reason`; the
+    /// accepted row still names the check that turned a part down.
+    #[test]
+    fn accepting_a_variant_of_parts_names_the_rejected_part() {
+        let status = serde_json::json!({
+            "used": true,
+            "fallback": false,
+            "skipped_reason": "",
+            "parts": { "total": 3, "used": 2 },
+            "rejected_text": "Весь текст.",
+            "rejected_reason": "model_repeated_context",
+            "http_status": 200,
+        })
+        .to_string();
+        let accepted: Value =
+            serde_json::from_str(&accept_rejected_answer(&status, "Весь текст.")).unwrap();
+        assert_eq!(
+            accepted["accepted_reason"],
+            serde_json::json!("model_repeated_context")
+        );
+        assert!(accepted.get("http_status").is_none());
+        // A status written before `rejected_reason` falls back to its reason.
+        let older = serde_json::json!({
+            "used": false,
+            "skipped_reason": "model_dropped_text",
+            "rejected_text": "Кратко.",
+        })
+        .to_string();
+        let accepted: Value =
+            serde_json::from_str(&accept_rejected_answer(&older, "Кратко.")).unwrap();
+        assert_eq!(
+            accepted["accepted_reason"],
+            serde_json::json!("model_dropped_text")
+        );
     }
 
     #[test]
@@ -1486,6 +1611,8 @@ mod retry_ai_tests {
             provider_attempts: Vec::new(),
             late: false,
             parts: None,
+            rejected_text: None,
+            rejected_reason: None,
         };
         status.output_length = used.then_some(10);
         status
