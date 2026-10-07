@@ -7,6 +7,7 @@ import secrets
 import shutil
 import socket
 import subprocess
+import sys
 import time
 from contextlib import contextmanager
 from fnmatch import fnmatch
@@ -217,6 +218,13 @@ def ui_server(tmp_path_factory, pytestconfig, browser):
                 harness.read_text() + "\nSottoHarness.install({});",
             )
         yield url, harness.read_text()
+
+
+@pytest.fixture
+def tab_key(browser_name):
+    """macOS WebKit uses Option-Tab to include buttons without changing the
+    host's keyboard navigation preference."""
+    return "Alt+Tab" if sys.platform == "darwin" and browser_name == "webkit" else "Tab"
 
 
 @pytest.fixture(scope="session")

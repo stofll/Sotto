@@ -76,16 +76,20 @@ export function TelemetryControl({ value, onConfigChanged }: { value?: boolean; 
 export function TelemetryConsentCard({ onConfigChanged, onDismiss }: { onConfigChanged: ConfigChanged; onDismiss: () => void }) {
   const [explaining, setExplaining] = useState(false);
   const { busy, failure, save, clearError } = useTelemetryAnswer(onConfigChanged);
-  return <Card pad="rows" className="window-banner">
+  return <Card pad="rows" className="window-banner window-banner--stacked telemetry-consent">
     <div className="window-banner__copy" role="status">
       <strong>{t("Помочь улучшить Sotto?")}</strong>
       <p>{t("Телеметрия выключена. Если разрешите, Sotto будет отправлять обезличенные события использования — без записей и текста. Выбор можно поменять в «Настройки → Дополнительно».")}</p>
       {!explaining && failure}
     </div>
-    <button className="btn btn--ghost" type="button" disabled={busy} onClick={() => { clearError(); setExplaining(true); }}>{t("Что отправляется")}</button>
-    <button className="btn btn--ghost" type="button" disabled={busy} onClick={() => void save(false)}>{t("Не отправлять")}</button>
-    <button className="btn btn--primary" type="button" disabled={busy} onClick={() => void save(true)}>{t("Разрешить")}</button>
-    <button className="btn btn--ghost btn--icon" type="button" disabled={busy} aria-label={t("Закрыть подсказку")} onClick={onDismiss}><Icon name="x" size={14}/></button>
+    <div className="window-banner__actions telemetry-consent__actions">
+      <button className="btn btn--ghost" type="button" disabled={busy} onClick={() => { clearError(); setExplaining(true); }}>{t("Что отправляется")}</button>
+      <div className="telemetry-consent__choices">
+        <button className="btn btn--ghost" type="button" disabled={busy} onClick={() => void save(false)}>{t("Не отправлять")}</button>
+        <button className="btn btn--primary" type="button" disabled={busy} onClick={() => void save(true)}>{t("Разрешить")}</button>
+      </div>
+    </div>
+    <button className="btn btn--ghost btn--icon window-banner__close" type="button" disabled={busy} aria-label={t("Закрыть подсказку")} onClick={onDismiss}><Icon name="x" size={14}/></button>
     {explaining && <TelemetryExplanation busy={busy} failure={failure}
       onEnable={() => void save(true)}
       onClose={() => { setExplaining(false); clearError(); }}/>}

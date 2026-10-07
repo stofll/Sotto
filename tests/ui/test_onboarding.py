@@ -1,6 +1,5 @@
 """First-run UI with synthetic configuration; no native data or model downloads."""
 
-import sys
 from pathlib import Path
 
 import pytest
@@ -589,7 +588,7 @@ def test_portable_and_macos_controls(app, page):
         runtime={"portable": True, "os": "macos"},
         responses={"check_accessibility": [{"result": False}] * 8},
     )
-    expect(page.get_by_test_id("accessibility-notice")).to_be_visible()
+    expect(page.locator(".accessibility-notice")).to_be_visible()
     ui.emit("whisper-loading", "turbo")
     page.get_by_role("button", name="Дальше", exact=True).click()
     expect(
@@ -600,13 +599,8 @@ def test_portable_and_macos_controls(app, page):
 @pytest.mark.parametrize("locale", ["ru", "en"])
 @pytest.mark.parametrize("theme", ["dark", "light"])
 def test_onboarding_layout_and_keyboard_focus(
-    app, page, locale, theme, output_path, browser_name
+    app, page, locale, theme, output_path, tab_key
 ):
-    # macOS WebKit uses Option-Tab to include buttons without changing the
-    # host's keyboard navigation preference.
-    tab_key = (
-        "Alt+Tab" if sys.platform == "darwin" and browser_name == "webkit" else "Tab"
-    )
     page.set_viewport_size({"width": 1000, "height": 710})
     first_run(
         app, config={"ui_language": locale, "theme": theme, "telemetry_enabled": False}

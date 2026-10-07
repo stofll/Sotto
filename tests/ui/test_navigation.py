@@ -66,7 +66,7 @@ def test_all_pages_render(app, page, locale, theme):
 
 def test_accessibility_notice_can_be_dismissed(app, page):
     ui = app(responses={"check_accessibility": [{"result": False}] * 8})
-    notice = page.get_by_test_id("accessibility-notice")
+    notice = page.locator(".accessibility-notice")
     expect(notice).to_be_visible()
     expect(notice).to_contain_text("Для автоматической вставки нужен доступ macOS")
     notice.get_by_role("button", name="Закрыть", exact=True).click()
@@ -192,10 +192,10 @@ def test_permission_banner_deduplicates_and_dismisses(app, page):
     }
     ui.emit("app-error", payload)
     ui.emit("app-error", payload)
-    banner = page.get_by_role("alert")
+    banner = page.locator(".permission-notice")
     expect(banner).to_have_count(1)
-    expect(banner).to_contain_text("Test microphone")
-    banner.get_by_role("button", name="Открыть System Settings").click()
+    expect(banner.get_by_role("alert")).to_contain_text("Test microphone")
+    banner.get_by_role("button", name="Открыть настройки macOS").click()
     page.wait_for_function(
         "window.__sottoTest.calls.some(x => x.command === 'open_url')"
     )

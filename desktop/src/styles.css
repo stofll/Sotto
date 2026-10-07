@@ -471,6 +471,10 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 .titlebar--macos { --native-titlebar-h: 32px; height: calc(var(--native-titlebar-h) + var(--titlebar-h)); grid-template-rows: var(--native-titlebar-h) var(--titlebar-h); }
 .titlebar--macos.titlebar--full { height: calc(var(--native-titlebar-h) + var(--titlebar-h) + 2 * var(--pad-3)); grid-template-rows: var(--native-titlebar-h) 1fr; }
 .titlebar__native { grid-column: 1 / -1; background: var(--bg-1); border-bottom: 1px solid var(--line); }
+/* Without window buttons the bar beside the brand is empty, so the page rises
+   into it instead of opening with a blank band. The native row stays the drag
+   area; the introduction keeps its actions there. */
+.titlebar--macos:not(.titlebar--full) + .win__layout > .win__main { margin-top: calc(-1 * var(--titlebar-h)); }
 .sidebar-brand { position: relative; display: flex; align-items: center; gap: 8px; height: 100%; width: 100%; min-width: 0; padding: 0 8px 0 16px; transition: padding .4s cubic-bezier(.32,.72,0,1); }
 .sidebar-brand__name { position: absolute; left: 16px; top: 50%; transform: translateY(-50%); pointer-events: none; font: 600 17px/1 var(--font-sans); letter-spacing: -0.015em; white-space: nowrap; opacity: 1; transition: opacity .3s ease-out; }
 .nav { padding: 10px 8px 6px; display: flex; flex-direction: column; gap: 4px; overflow-y: auto; overflow-x: hidden; }
@@ -2197,17 +2201,26 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .accent-picker__custom[data-active="true"] { box-shadow: 0 0 0 2px var(--bg-2), 0 0 0 4px var(--accent); }
 .accent-picker__custom input { position: absolute; inset: -4px; width: calc(100% + 8px); height: calc(100% + 8px); padding: 0; border: 0; background: transparent; opacity: 0; cursor: pointer; }
 
-/* Permission recovery shares the existing shell notice colours and controls. */
-.permission-notice { margin: 14px 32px 0; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 12px 14px; border-radius: var(--radius); background: var(--accent-soft); border: 1px solid var(--accent-soft-2); color: var(--accent-text); font: 500 12.5px/1.4 var(--font-sans); }
-.permission-notice__text { flex: 1 1 400px; min-width: 0; }
-.permission-notice__text p { margin: 8px 0 0; }
-/* A dismissible card under the title bar: the introduction's follow-up and
-   the one-time telemetry question. Lives here because the main window shows
-   it without loading the introduction's module. */
+/* A dismissible card under the title bar: the introduction's follow-up, the
+   one-time telemetry question and macOS permission recovery. Lives here
+   because the main window shows it without loading the introduction's module. */
 .window-banner { margin: var(--pad-4) var(--pad-8) 0; display: flex; align-items: center; gap: var(--pad-4); }
+/* Inside a stack (the introduction) the stack's gap places the banner. */
+.card-stack > .window-banner { margin: 0; }
 .window-banner__copy { flex: 1; min-width: 0; }
 .window-banner p { margin: var(--pad-2) 0 0; color: var(--ink-dim); font: 400 13px/1.5 var(--font-sans); }
 .window-banner progress { width: 100%; height: var(--pad-2); margin-top: var(--pad-3); accent-color: var(--accent); }
+/* Copy above the actions, the close button pinned to the corner. */
+.window-banner--stacked { position: relative; flex-direction: column; align-items: stretch; }
+.window-banner--stacked .window-banner__copy { padding-right: var(--pad-8); }
+.window-banner__actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--pad-3); }
+.window-banner__close { position: absolute; top: var(--pad-3); right: var(--pad-3); }
+.telemetry-consent__actions { justify-content: space-between; }
+.telemetry-consent__choices { display: flex; flex-wrap: wrap; gap: var(--pad-2); }
+/* Permission recovery keeps the shell's accent notice colours. */
+.permission-notice { background: var(--accent-soft); border-color: var(--accent-soft-2); }
+.permission-notice__title { display: flex; align-items: center; gap: var(--pad-3); color: var(--accent-text); }
+.permission-notice__title > svg { flex-shrink: 0; }
 .update-notice { position: fixed; top: calc(var(--titlebar-h) + var(--pad-4)); left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100vw - var(--pad-8)); z-index: 180; }
 .update-notice__card { display: flex; align-items: center; gap: var(--pad-3); border-color: var(--line-strong); box-shadow: var(--shadow-pop); animation: update-notice-in .2s ease-out; }
 .update-notice .card-icon { color: var(--accent-text); flex-shrink: 0; }

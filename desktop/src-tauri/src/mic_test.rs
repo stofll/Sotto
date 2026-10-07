@@ -13,8 +13,9 @@
 //!   only while monitoring is on, so a plain level check does not pay for
 //!   serialising the whole capture over IPC.
 //! - `microphone-test-stopped`  — fired once on stop.
-//! - `app-error`     — fired when the OS rejects access
-//!   (macOS TCC denial) or when 2 s of silence suggests the same.
+//! - `microphone-test-silence`  — fired when 2 s pass without signal; the
+//!   test keeps running. A failed start is `microphone-test-failed`, emitted
+//!   by the command.
 
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -118,10 +119,10 @@ impl MicrophoneTest {
             return Ok(true);
         }
         let recorder = AudioRecorder::new(AudioConfig::default())
-            .map_err(|error| Self::emit_error(app, &error))?;
+            .map_err(|error| format!("microphone test start failed: {error}"))?;
         recorder
             .start_selected(microphone.as_deref())
-            .map_err(|error| Self::emit_error(app, &error))?;
+            .map_err(|error| format!("microphone test start failed: {error}"))?;
         let samples = recorder.attach_live_tap(8);
         guard.recorder = Some(recorder);
         guard.saw_signal = false;
@@ -189,17 +190,6 @@ impl MicrophoneTest {
         Ok(MicrophoneTestInfo {
             active: crate::mutex_recover::lock(&self.inner).active,
         })
-    }
-
-    fn emit_error(app: &AppHandle, error: &str) -> String {
-        let _ = app.emit(
-            "app-error",
-            serde_json::json!({
-                "kind": "audio",
-                "message": error,
-            }),
-        );
-        format!("microphone test start failed: {error}")
     }
 
     fn spawn_workers(
@@ -297,9 +287,8 @@ impl MicrophoneTest {
                 drop(guard);
                 if active {
                     let _ = watch_app.emit(
-                        "app-error",
+                        "microphone-test-silence",
                         serde_json::json!({
-                            "kind": "audio",
                             "message": crate::ui_text::t("Звук не обнаружен. Скажите что-нибудь, проверьте подключение, выбранный микрофон и его громкость. Тишина сама по себе не означает запрет доступа."),
                         }),
                     );

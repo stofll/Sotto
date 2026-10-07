@@ -20,6 +20,20 @@ use std::marker::PhantomData;
 #[cfg(any(windows, target_os = "macos"))]
 use std::path::Path;
 
+/// Unknown vocabulary tokens are decoder metadata, including in live drafts.
+/// Only a result that carried one is respaced: removing a token between words
+/// would otherwise leave two spaces, while other decoder output stays as is.
+#[cfg(any(windows, target_os = "macos", test))]
+fn clean_recognized_text(text: String) -> String {
+    if !text.contains("<unk>") {
+        return text;
+    }
+    text.replace("<unk>", "")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 #[cfg(any(windows, target_os = "macos"))]
 const PROVIDER_CPU: &str = "cpu";
 #[cfg(any(windows, target_os = "macos"))]
@@ -343,7 +357,7 @@ impl OfflineRecognizer {
         self.recognizer.decode(&stream);
         stream
             .get_result()
-            .map(|result| result.text)
+            .map(|result| clean_recognized_text(result.text))
             .ok_or_else(|| "SHERPA_RESULT_FAILED: offline result returned null".to_string())
     }
 }
@@ -508,6 +522,20 @@ impl OfflineRecognizer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recognized_text_removes_unknown_tokens_without_stripping_user_markup() {
+        for (input, expected) in [
+            ("<unk>Драфт<unk>.", "Драфт."),
+            ("<unk>Hello<unk>, world!", "Hello, world!"),
+            ("  <unk><unk>  ", ""),
+            ("Слово <unk> слово", "Слово слово"),
+            ("Текст <draft> и unknown", "Текст <draft> и unknown"),
+            ("  Ordinary text.  ", "  Ordinary text.  "),
+        ] {
+            assert_eq!(clean_recognized_text(input.into()), expected);
+        }
+    }
 
     #[test]
     fn bounded_offline_decode_keeps_all_samples_and_does_not_recheck_punctuation() {
@@ -789,7 +817,7 @@ impl OnlineRecognizer {
     pub fn text(&self) -> Result<String, String> {
         self.recognizer
             .get_result(&self.stream)
-            .map(|result| result.text)
+            .map(|result| clean_recognized_text(result.text))
             .ok_or_else(|| "SHERPA_RESULT_FAILED: online result returned null".to_string())
     }
 

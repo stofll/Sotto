@@ -3,7 +3,7 @@ import { emit } from "@tauri-apps/api/event";
 import { invoke, subscribe, onRecordingStateChange, type RecordingState } from "./bridge";
 import { getStats } from "./bridge/stats";
 import type { ApiKeyStatus, AppVersionResult, ConfigChange, ConfigResult, MicrophoneResult, ModelInfo, RuntimeStatusResult, StatsResult } from "./bridge/types";
-import { Sidebar, TitleBar, type TabId, type DownloadProgress } from "./components/Shell";
+import { Card, Sidebar, TitleBar, type TabId, type DownloadProgress } from "./components/Shell";
 import { Icon } from "./components/Icon";
 import { WhatsNewDialog } from "./components/WhatsNewDialog";
 import { AccessibilityNotice } from "./components/AccessibilityNotice";
@@ -481,18 +481,18 @@ export function MainWindow() {
           <main className="win__main" data-testid="main-content">
             {!loading && !onboardingActive && <AccessibilityNotice/>}
             {permissions.length > 0 && permissions.map((p) => (
-              <div key={p.permission} role="alert" className="permission-notice">
-                <Icon name="info" size={14}/>
-                <span style={{ flex: "1 1 240px", minWidth: 240 }}>
-                  <strong>{t("Нужно разрешение macOS —")} {p.hint}.</strong>
-                  {p.message ? ` ${p.message}` : ""}
-                  {" "}{t("После выдачи прав перезапустите приложение.")} </span>
-                <button className="btn btn--primary" type="button" onClick={() => openPrivacyPane(p.permission)} style={{ height: 28 }}>
-                  <Icon name="globe" size={12}/>  {t("Открыть System Settings")} </button>
-                <button className="btn btn--ghost" type="button" aria-label={t("Закрыть")} onClick={() => setPermissions((cur) => cur.filter((q) => q.permission !== p.permission))} style={{ height: 28, lineHeight: 1 }}>
-                  <Icon name="x" size={12}/>
+              <Card key={p.permission} pad="rows" className="window-banner window-banner--stacked permission-notice">
+                <div className="window-banner__copy" role="alert">
+                  <strong className="permission-notice__title"><Icon name="info" size={16}/>{t("Нужно разрешение macOS —")} {p.hint}.</strong>
+                  <p>{p.message ? `${p.message} ` : ""}{t("После выдачи прав перезапустите приложение.")}</p>
+                </div>
+                <div className="window-banner__actions">
+                  <button className="btn btn--primary" type="button" onClick={() => openPrivacyPane(p.permission)}>{t("Открыть настройки macOS")}</button>
+                </div>
+                <button className="btn btn--ghost btn--icon window-banner__close" type="button" aria-label={t("Закрыть")} onClick={() => setPermissions((cur) => cur.filter((q) => q.permission !== p.permission))}>
+                  <Icon name="x" size={14}/>
                 </button>
-              </div>
+              </Card>
             ))}
             {error && <div role="alert" style={{ margin: "14px 32px 0", padding: "10px 12px", borderRadius: 8, background: "var(--err-soft)", border: "1px solid color-mix(in srgb, var(--err) 35%, transparent)", color: "var(--err)", font: "500 12px/1.35 var(--font-sans)" }}>{error}</div>}
             {sttUnavailable && !onboardingCard && !onboardingActive && (
