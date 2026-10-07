@@ -91,6 +91,21 @@ def test_minimum_window_layout(app, page, locale, theme, output_path):
         page.screenshot(path=str(shots / f"{tab}.png"), animations="disabled")
 
 
+def test_page_starts_under_the_macos_title_row(app, page):
+    app()
+    native = page.locator(".titlebar__native")
+    if native.count() == 0:
+        pytest.skip("only the macOS title bar has a separate native row")
+    row = native.bounding_box()
+    main = page.get_by_test_id("main-content").bounding_box()
+    assert abs(main["y"] - (row["y"] + row["height"])) <= 1
+    brand = page.locator(".sidebar-brand__name").bounding_box()
+    assert page.evaluate(
+        "([x, y]) => !!document.elementFromPoint(x, y)?.closest('.titlebar__rail')",
+        [brand["x"] + brand["width"] / 2, brand["y"] + brand["height"] / 2],
+    )
+
+
 @pytest.mark.parametrize("locale", ["ru", "en"])
 @pytest.mark.parametrize("theme", ["dark", "light"])
 def test_telemetry_notice_layout(app, page, locale, theme, output_path, tab_key):
