@@ -278,6 +278,19 @@ def test_portable_mode_disables_autostart(app, page):
     ).to_be_disabled()
 
 
+def test_microphone_test_shows_only_its_own_errors(app, page):
+    ui = app()
+    microphone = page.locator(".mic-control").locator("..")
+    ui.emit("app-error", {"kind": "paste", "message": "Synthetic paste failure"})
+    expect(microphone.get_by_role("alert")).to_have_count(0)
+    ui.emit("microphone-test-silence", {"message": "Synthetic silence"})
+    expect(microphone.get_by_role("alert")).to_have_text("Synthetic silence")
+    ui.emit("app-error", {"kind": "paste", "message": "Another paste failure"})
+    expect(microphone.get_by_role("alert")).to_have_text("Synthetic silence")
+    ui.emit("microphone-test-started")
+    expect(microphone.get_by_role("alert")).to_have_count(0)
+
+
 def test_microphone_test_error_retry_and_stop(app, page):
     ui = app()
     ui.queue("start_microphone_test", {"error": "Synthetic device unavailable"})
