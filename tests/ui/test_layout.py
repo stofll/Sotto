@@ -92,6 +92,66 @@ def test_minimum_window_layout(app, page, locale, theme, output_path):
 
 
 @pytest.mark.parametrize("locale", ["ru", "en"])
+@pytest.mark.parametrize("theme", ["dark", "light"])
+def test_telemetry_notice_layout(app, page, locale, theme, output_path, tab_key):
+    page.set_viewport_size({"width": 1000, "height": 900})
+    app(
+        config={
+            "ui_language": locale,
+            "theme": theme,
+            "telemetry_enabled": None,
+        },
+        stats={"total_transcriptions": 1},
+    )
+    banner = page.locator(".telemetry-consent")
+    expect(banner).to_be_visible()
+    page.evaluate("() => document.fonts.ready.then(() => true)")
+    copy = banner.locator(".window-banner__copy").bounding_box()
+    actions = banner.locator(".window-banner__actions").bounding_box()
+    assert actions["y"] >= copy["y"] + copy["height"]
+    assert copy["width"] > banner.bounding_box()["width"] * 0.8
+    buttons = banner.get_by_role("button")
+    buttons.first.focus()
+    for index in range(buttons.count()):
+        expect(buttons.nth(index)).to_be_focused()
+        page.keyboard.press(tab_key)
+    shots = Path(output_path)
+    shots.mkdir(parents=True, exist_ok=True)
+    banner.screenshot(path=str(shots / "telemetry.png"))
+    banner.locator(".window-banner__close").click()
+    expect(banner).to_have_count(0)
+
+
+@pytest.mark.parametrize("locale", ["ru", "en"])
+@pytest.mark.parametrize("theme", ["dark", "light"])
+def test_accessibility_notice_layout(app, page, locale, theme, output_path, tab_key):
+    app(
+        config={"ui_language": locale, "theme": theme},
+        responses={"check_accessibility": [{"result": False}] * 8},
+    )
+    card = page.locator(".accessibility-notice")
+    expect(card).to_be_visible()
+    shots = Path(output_path)
+    shots.mkdir(parents=True, exist_ok=True)
+    for width in [1000, 1400]:
+        page.set_viewport_size({"width": width, "height": 900})
+        page.evaluate("() => document.fonts.ready.then(() => true)")
+        copy = card.locator(".window-banner__copy").bounding_box()
+        actions = card.locator(".window-banner__actions").bounding_box()
+        assert actions["y"] >= copy["y"] + copy["height"]
+        assert copy["width"] > card.bounding_box()["width"] * 0.8
+        assert card.evaluate("e => e.scrollWidth - e.clientWidth") <= 1
+        card.screenshot(path=str(shots / f"accessibility-{width}.png"))
+    buttons = card.get_by_role("button")
+    buttons.first.focus()
+    for index in range(buttons.count()):
+        expect(buttons.nth(index)).to_be_focused()
+        page.keyboard.press(tab_key)
+    card.locator(".window-banner__close").click()
+    expect(card).to_have_count(0)
+
+
+@pytest.mark.parametrize("locale", ["ru", "en"])
 def test_overlay_error_layout(app, page, locale, output_path):
     page.set_viewport_size({"width": 600, "height": 170})
     ui = app("overlay", config={"ui_language": locale})

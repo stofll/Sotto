@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke, subscribe } from "../bridge";
 import { t } from "../i18n";
 import { Icon } from "./Icon";
+import { Card } from "./Shell";
 
 export function AccessibilityNotice() {
   const [granted, setGranted] = useState<boolean | null>(null);
@@ -54,18 +55,19 @@ export function AccessibilityNotice() {
     }
   };
 
-  return <div className="permission-notice" role="alert" data-testid="accessibility-notice">
-    <Icon name="info" size={14}/>
-    <div className="permission-notice__text">
-      <strong>{t("Для автоматической вставки нужен доступ macOS")}</strong>
+  return <Card pad="rows" className="window-banner window-banner--stacked permission-notice accessibility-notice">
+    <div className="window-banner__copy" role="alert">
+      <strong className="permission-notice__title"><Icon name="info" size={16}/>{t("Для автоматической вставки нужен доступ macOS")}</strong>
       <p>{t("Разрешите Sotto доступ в «Системные настройки → Конфиденциальность и безопасность → Универсальный доступ». Пока доступ не выдан, вставляйте распознанный текст вручную через ⌘V.")}</p>
       <p>{t("Если переключатель Sotto уже включён, удалите приложение из списка и добавьте установленную копию заново. После изменения прав может потребоваться перезапуск Sotto.")}</p>
       {failed && <p>{t("Не удалось проверить доступ или открыть настройки. Попробуйте ещё раз.")}</p>}
     </div>
-    <button className="btn btn--primary" type="button" onClick={() => void openSettings()}>{t("Открыть System Settings")}</button>
-    <button className="btn btn--ghost" type="button" disabled={checking} onClick={() => void check()}>{checking ? t("Проверка…") : t("Проверить доступ")}</button>
-    <button className="btn btn--ghost" type="button" aria-label={t("Закрыть")} onClick={() => setDismissed(true)}>
-      <Icon name="x" size={12}/>
+    <div className="window-banner__actions">
+      <button className="btn btn--primary" type="button" onClick={() => void openSettings()}>{t("Открыть настройки macOS")}</button>
+      <button className="btn btn--ghost" type="button" disabled={checking} onClick={() => void check()}>{checking ? t("Проверка…") : t("Проверить доступ")}</button>
+    </div>
+    <button className="btn btn--ghost btn--icon window-banner__close" type="button" aria-label={t("Закрыть")} onClick={() => setDismissed(true)}>
+      <Icon name="x" size={14}/>
     </button>
-  </div>;
+  </Card>;
 }
