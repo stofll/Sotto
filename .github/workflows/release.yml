@@ -176,6 +176,12 @@ jobs:
         with:
           workspaces: desktop/src-tauri
           key: ggml-baseline-${{ hashFiles('.cargo/config.toml', 'scripts/ggml-baseline.cmake') }}
+          # A tag's cache can be restored only by that same tag, so a saved
+          # copy (about 160 MB per platform and release) serves nothing but a
+          # re-run, while it pushes the repository past its cache quota and gets
+          # main's shared caches evicted — which sends pull requests back to
+          # cold builds.
+          save-if: false
 
       # whisper.cpp is built with the Vulkan backend, which needs glslc and
       # the headers. At runtime vulkan-1.dll ships with the GPU driver, so the
