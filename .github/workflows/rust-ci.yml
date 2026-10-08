@@ -2,8 +2,8 @@ name: Rust CI
 
 # All changes enter main through pull requests. PRs, manual runs and calls from
 # Prepare Release (pinned to the release source commit) execute the full
-# checks; pushes to main only build the app and test dependencies to warm the
-# shared Cargo cache on all three operating systems.
+# checks; pushes to main only run Clippy and build the app and test
+# dependencies to warm the shared Cargo cache on all three operating systems.
 # Verified version-only release pushes already have a warm source cache.
 #
 # A PR cache belongs to refs/pull/N/merge and cannot serve other PRs. Only main
@@ -226,7 +226,14 @@ jobs:
       - name: Cache cargo registry & target
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2.9.2
         with:
-          workspaces: desktop/src-tauri -> target
+          # The Windows setup is a separate crate with its own target directory;
+          # uncached, it compiled Tauri from scratch on every run. It is listed
+          # on every OS so the key stays shared: rust-cache never re-saves on an
+          # exact key match, so new kinds of artifacts (such as Clippy's) reach
+          # the cache only when the key changes.
+          workspaces: |
+            desktop/src-tauri -> target
+            desktop/setup/src-tauri -> target
           key: ggml-baseline-${{ hashFiles('.cargo/config.toml', 'scripts/ggml-baseline.cmake') }}
           cache-on-failure: false
           # Only main writes (a Prepare Release call runs on main too and saves
@@ -340,7 +347,15 @@ jobs:
       # used to live in a separate lint job that stood up its own environment
       # for it — apt dependencies, Node, pnpm, a frontend build and its own
       # cargo cache — even though this job builds exactly that for ubuntu
-      # anyway. Here the target directory is already warm from the steps above.
+      # anyway.
+      #
+      # Pushes to main run it too, for the cache rather than the verdict: Clippy
+      # checks dependencies in a mode `cargo build` and `cargo test` do not
+      # produce. Without its artifacts in the shared cache, every pull request
+      # re-checked 350–440 dependency crates (about three minutes on Windows,
+      # the slowest leg) instead of only the application crate. On a push a lint
+      # failure must not fail the job: `cache-on-failure: false` would then
+      # discard the whole warm-up. Pull requests still enforce the verdict.
       #
       # `--all-targets` is load-bearing, not cosmetic: it pulls in the
       # benchmarks, which neither `cargo build` nor `cargo test` compiles, so
@@ -350,7 +365,7 @@ jobs:
       # cost 16 minutes out of 23, catching nothing beyond clippy except
       # codegen and link failures. Do not drop `--all-targets`.
       - name: Clippy (deny warnings)
-        if: github.event_name != 'push'
+        continue-on-error: ${{ github.event_name == 'push' }}
         working-directory: desktop/src-tauri
         run: cargo clippy --locked --all-targets -- -D warnings
 

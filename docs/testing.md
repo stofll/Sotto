@@ -31,7 +31,7 @@ Build the frontend before Cargo checks: Tauri reads `desktop/dist`. On Windows, 
 
 CI runs formatting once on Linux and Clippy on Linux, Windows, and macOS so platform-specific code is also linted. The CI workflow is authoritative for the operating-system matrix. Run relevant checks locally before a pull request; CI repeats them on clean runners. Local success does not replace CI, and CI does not replace native verification.
 
-All changes to `main` go through pull requests. Rust CI runs its full checks on PRs and manual dispatches; after a merge, it only prepares native dependencies and builds the frontend, Rust application and test targets to warm the shared Cargo cache on all three operating systems. Push runs do not execute tests, download speech models, or repeat lint and audit checks.
+All changes to `main` go through pull requests. Rust CI runs its full checks on PRs and manual dispatches; after a merge, it only prepares native dependencies, builds the frontend, Rust application and test targets, and runs Clippy to warm the shared Cargo cache on all three operating systems. Clippy runs there because its dependency artifacts differ from a build's, and without them every PR re-checks all dependencies. Apart from the Windows setup check, push runs do not execute tests, download speech models, or repeat format and audit checks.
 
 PRs read the Cargo cache; only runs on `main` save it. Pushes and PRs confined to `site/` skip the application checks.
 
