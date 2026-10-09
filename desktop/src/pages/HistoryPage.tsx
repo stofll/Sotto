@@ -47,14 +47,6 @@ function transcriptionModelLabel(entry: HistoryEntry): string {
   return model || t("модель не сохранена");
 }
 
-function relativeAge(unix: number): string {
-  const seconds = Math.max(0, Math.floor(Date.now() / 1000 - unix));
-  if (seconds < 60) return t("только что");
-  if (seconds < 3600) return t("{p0} мин назад", { p0: Math.floor(seconds / 60) });
-  if (seconds < 24 * 3600) return t("{p0} ч назад", { p0: Math.floor(seconds / 3600) });
-  return t("{p0} д назад", { p0: Math.floor(seconds / 86400) });
-}
-
 function dayBucketLabel(unix: number): string {
   const date = new Date(unix * 1000);
   const now = new Date();
@@ -760,13 +752,13 @@ export function HistoryPage({ focus = null }: { focus?: { id: number; seq: numbe
       />
       <div style={{ display: "grid", gap: 12 }}>
         {error && (
-          <div role="alert" style={{ padding: "10px 12px", borderRadius: 8, background: "var(--err-soft)", border: "1px solid color-mix(in srgb, var(--err) 35%, transparent)", color: "var(--err)", font: "500 12px/1.35 var(--font-sans)" }}>
+          <div role="alert" style={{ padding: "10px 12px", borderRadius: "var(--radius-sm)", background: "var(--err-soft)", border: "1px solid color-mix(in srgb, var(--err) 35%, transparent)", color: "var(--err)", font: "500 12px/1.35 var(--font-sans)" }}>
             {error}
             <button className="btn btn--ghost" style={{ marginLeft: 8, height: 22 }} onClick={() => setError(null)}><Icon name="x" size={10}/>{t("Скрыть")}</button>
           </div>
         )}
         {notice && (
-          <div role="status" aria-live="polite" style={{ padding: "10px 12px", borderRadius: 8, background: "var(--accent-soft-2)", border: "1px solid var(--accent-soft-2)", color: "var(--ink)", font: "500 12px/1.35 var(--font-sans)" }}>{notice}</div>
+          <div role="status" aria-live="polite" style={{ padding: "10px 12px", borderRadius: "var(--radius-sm)", background: "var(--accent-soft-2)", border: "1px solid var(--accent-soft-2)", color: "var(--ink)", font: "500 12px/1.35 var(--font-sans)" }}>{notice}</div>
         )}
 
         {entries.length > 0 && (
@@ -1099,7 +1091,6 @@ function EntryCard(props: {
             }}
           /></Hint>
           <span style={{ font: "500 11px/1 var(--font-mono)", color: "var(--ink-mute)", letterSpacing: "0.04em" }}>{formatTime(entry.timestamp)}</span>
-          <span style={{ font: "400 11px/1 var(--font-sans)", color: "var(--ink-faint)" }}>· {relativeAge(entry.timestamp)}</span>
           <span style={{ font: "500 11px/1 var(--font-mono)", color: "var(--ink-mute)" }}>· {t("{p0} симв.", { p0: entry.length.toLocaleString(localeTag()) })}</span>
           <Hint asChild text={t("Модель первичной транскрибации: {p0}", { p0: sttLabel })}><span style={{ font: "500 11px/1 var(--font-mono)", color: "var(--ink-mute)" }}>
             · {t("STT: {p0}", { p0: sttLabel })}
@@ -1331,7 +1322,7 @@ function ActionsMenu({ open, onToggle, actions }: {
                 gap: 8,
                 padding: "6px 8px",
                 border: 0,
-                borderRadius: 4,
+                borderRadius: "var(--radius-xs)",
                 background: "transparent",
                 color: action.danger ? "var(--err)" : "var(--ink)",
                 font: "500 12px/1.1 var(--font-sans)",
