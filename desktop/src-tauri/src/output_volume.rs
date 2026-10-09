@@ -83,8 +83,12 @@ pub fn recover() {
     }
 }
 
-/// The ducked sessions, kept on disk from the duck until its restore.
+/// The ducked sessions, kept on disk from the duck until its restore. An
+/// entry whose application is not running at recovery waits here for it.
 const JOURNAL_FILE: &str = "output-duck.json";
+/// How long an entry waits for its application before it is dropped: the
+/// identifiers name other programs' executables, so they must not pile up.
+const JOURNAL_MAX_AGE_SECS: u64 = 7 * 24 * 60 * 60;
 
 fn journal_path() -> std::path::PathBuf {
     crate::user_data::data_dir().join(JOURNAL_FILE)
@@ -98,6 +102,37 @@ struct Ducked {
     session: String,
     original: f32,
     ducked: f32,
+    /// When the duck happened, in seconds since the Unix epoch.
+    #[serde(default = "now_secs")]
+    at: u64,
+}
+
+fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_secs())
+        .unwrap_or(0)
+}
+
+/// The entries still owed a restore: neither handled in this pass nor too old.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn still_waiting(entries: Vec<Ducked>, handled: &[String], now: u64) -> Vec<Ducked> {
+    entries
+        .into_iter()
+        .filter(|entry| {
+            !handled.contains(&entry.session) && now.saturating_sub(entry.at) < JOURNAL_MAX_AGE_SECS
+        })
+        .collect()
+}
+
+/// Keep what is still waiting, or remove the journal once nothing is.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn save_waiting(path: &std::path::Path, entries: &[Ducked]) {
+    if entries.is_empty() {
+        let _ = std::fs::remove_file(path);
+    } else if let Err(error) = write_journal(path, entries) {
+        log::warn!("output volume: journal not written: {error}");
+    }
 }
 
 #[cfg_attr(not(windows), allow(dead_code))]
@@ -265,7 +300,9 @@ mod windows_impl {
         CoCreateInstance, CoInitializeEx, CoTaskMemFree, CLSCTX_ALL, COINIT_MULTITHREADED,
     };
 
-    use super::{read_journal, still_ducked, write_journal, Ducked};
+    use super::{
+        now_secs, read_journal, save_waiting, still_ducked, still_waiting, write_journal, Ducked,
+    };
     use std::path::Path;
 
     /// # Safety
@@ -330,8 +367,9 @@ mod windows_impl {
         Ok(out)
     }
 
-    /// Each ducked session with the volume to put back.
-    pub struct DuckState(Vec<(ISimpleAudioVolume, f32)>);
+    /// Each ducked session with the volume to put back, and the identifiers
+    /// of those the journal holds.
+    pub struct DuckState(Vec<(ISimpleAudioVolume, f32)>, Vec<String>);
 
     /// # Safety
     /// Must run on a thread that has entered the same COM apartment
@@ -342,8 +380,18 @@ mod windows_impl {
         if previous.is_some() {
             return Ok(()); // already ducked
         }
+        // A session an earlier run left ducked comes back first, or its
+        // lowered level would be remembered as the one to restore.
+        if journal.exists() {
+            if let Err(error) = recover(journal) {
+                log::warn!("output volume: recovery before duck: {error}");
+            }
+        }
         let mut ducked = Vec::new();
-        let mut entries = Vec::new();
+        let mut sessions = Vec::new();
+        // Entries still waiting for their application stay in the journal.
+        let mut entries = read_journal(journal);
+        let at = now_secs();
         // Per-session failures are skipped rather than returned: a session
         // already lowered must still be remembered, or it would stay quiet.
         for (volume, session) in foreign_sessions()? {
@@ -353,10 +401,12 @@ mod windows_impl {
             let lowered = current * level;
             if volume.SetMasterVolume(lowered, std::ptr::null()).is_ok() {
                 if let Some(session) = session {
+                    sessions.push(session.clone());
                     entries.push(Ducked {
                         session,
                         original: current,
                         ducked: lowered,
+                        at,
                     });
                 }
                 ducked.push((volume, current));
@@ -372,7 +422,7 @@ mod windows_impl {
             }
         }
         if !ducked.is_empty() {
-            *previous = Some(DuckState(ducked));
+            *previous = Some(DuckState(ducked, sessions));
         }
         Ok(())
     }
@@ -381,7 +431,7 @@ mod windows_impl {
     /// Must run in the same COM apartment as the [`duck`] call that filled
     /// `previous`: the session interfaces inside it cannot cross apartments.
     pub unsafe fn restore(previous: &mut Option<DuckState>, journal: &Path) -> Result<()> {
-        let Some(DuckState(ducked)) = previous.take() else {
+        let Some(DuckState(ducked, sessions)) = previous.take() else {
             return Ok(());
         };
         // The exact sessions that were changed, even if the default output
@@ -392,18 +442,24 @@ mod windows_impl {
                 log::debug!("output volume: session not restored: {error}");
             }
         }
-        let _ = std::fs::remove_file(journal);
+        save_waiting(
+            journal,
+            &still_waiting(read_journal(journal), &sessions, now_secs()),
+        );
         log::info!("output volume: restored {} session(s)", ducked.len());
         Ok(())
     }
 
     /// Restore the sessions an earlier run left ducked, from its journal.
+    /// One whose application is not playing now stays in the journal for a
+    /// later start or duck, until it ages out.
     ///
     /// # Safety
     /// Same apartment rule as [`duck`].
     pub unsafe fn recover(journal: &Path) -> Result<()> {
         let entries = read_journal(journal);
         let mut restored = 0;
+        let mut handled = Vec::new();
         if !entries.is_empty() {
             for (volume, session) in foreign_sessions()? {
                 let Some(entry) = session
@@ -414,6 +470,8 @@ mod windows_impl {
                 let Ok(current) = volume.GetMasterVolume() else {
                     continue;
                 };
+                // Found either way: a level changed since the duck stays.
+                handled.push(entry.session.clone());
                 if still_ducked(current, entry.ducked)
                     && volume
                         .SetMasterVolume(entry.original, std::ptr::null())
@@ -423,8 +481,12 @@ mod windows_impl {
                 }
             }
         }
-        let _ = std::fs::remove_file(journal);
-        log::info!("output volume: recovered {restored} session(s) left ducked by an earlier run");
+        let waiting = still_waiting(entries, &handled, now_secs());
+        save_waiting(journal, &waiting);
+        log::info!(
+            "output volume: recovered {restored} session(s) left ducked by an earlier run, {} waiting",
+            waiting.len()
+        );
         Ok(())
     }
 }
@@ -502,11 +564,56 @@ mod tests {
             session: "{0.0.0.00000000}.{guid}|player.exe".into(),
             original: 0.8,
             ducked: 0.16,
+            at: 1_700_000_000,
         }];
         write_journal(&path, &entries).unwrap();
         assert_eq!(read_journal(&path), entries);
         std::fs::write(&path, b"not json").unwrap();
         assert!(read_journal(&path).is_empty());
+    }
+
+    #[test]
+    fn an_entry_waits_for_its_application_until_it_ages_out() {
+        let entry = |session: &str, at: u64| Ducked {
+            session: session.into(),
+            original: 0.8,
+            ducked: 0.16,
+            at,
+        };
+        let now = 1_700_000_000;
+        let waiting = still_waiting(
+            vec![
+                entry("handled", now),
+                entry("closed", now - 60),
+                entry("stale", now - JOURNAL_MAX_AGE_SECS),
+            ],
+            &["handled".to_string()],
+            now,
+        );
+        assert_eq!(waiting, vec![entry("closed", now - 60)]);
+    }
+
+    #[test]
+    fn a_journal_without_timestamps_waits_from_now() {
+        let entries: Vec<Ducked> =
+            serde_json::from_str(r#"[{"session":"s","original":0.8,"ducked":0.16}]"#).unwrap();
+        assert_eq!(still_waiting(entries, &[], now_secs()).len(), 1);
+    }
+
+    #[test]
+    fn save_waiting_removes_an_empty_journal_and_keeps_the_rest() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(JOURNAL_FILE);
+        let entries = vec![Ducked {
+            session: "s".into(),
+            original: 0.8,
+            ducked: 0.16,
+            at: now_secs(),
+        }];
+        save_waiting(&path, &entries);
+        assert_eq!(read_journal(&path), entries);
+        save_waiting(&path, &[]);
+        assert!(!path.exists());
     }
 
     #[test]

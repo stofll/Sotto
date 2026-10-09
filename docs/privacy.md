@@ -74,6 +74,8 @@ Model cards take their speed from measurements bundled with the application and 
 | Downloaded models | `%LOCALAPPDATA%\sotto\models` | `~/Library/Caches/sotto/models` |
 | API keys | Credential Manager, entries ending in `.sotto` | Keychain, service `sotto` |
 
+On Windows, while other apps are ducked during a recording, `output-duck.json` in the history folder lists their audio-session identifiers, which include the executable path, and their volumes. It is removed when the volume comes back. After a crash, an entry whose app is not playing stays until a later start or recording finds that app, for at most seven days.
+
 A portable copy keeps everything except API keys in the `data` folder next to `Sotto.exe`; see [Portable version](portable.md).
 
 Automatic migration from builds up to 0.1.3 has been retired. The app no longer discovers or moves `~/.speech_to_text` automatically, imports Python-era `stats.json` / `history.json`, or retrieves keys from the `speech-to-text` service. Those sources remain untouched during normal startup; existing data in the current locations continues to work.
