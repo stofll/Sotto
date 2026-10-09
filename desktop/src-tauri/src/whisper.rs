@@ -457,6 +457,8 @@ impl Engine {
                 params.set_initial_prompt(&sanitized);
             }
         }
+        // SAFETY: `job` holds the flag's Arc for the whole `full()` call below.
+        unsafe { abort_when(&mut params, &job.cancel_flag) };
         // Silence whisper.cpp's own stdout/stderr chatter — in a windowed app
         // there is no console and it only adds noise.
         params.set_print_special(false);
@@ -497,6 +499,7 @@ impl Engine {
                 }
                 Ok((text, None))
             }
+            Ok(Err(_)) if job.cancelled() => Err("whisper transcribe cancelled".to_string()),
             Ok(Err(e)) => Err(format!("whisper error: {e}")),
             Err(_) => {
                 // After a panic the FFI state is half-broken — drop it so the
@@ -723,6 +726,27 @@ impl Engine {
         if let Some(recognizer) = self.sherpa.as_mut() {
             recognizer.reset_preview();
         }
+    }
+}
+
+/// Make `full()` stop once `flag` turns true. whisper.cpp asks between encoder
+/// windows and decoder steps, so a cancelled long file frees the engine within
+/// one window instead of after the whole recording.
+///
+/// The raw callback rather than whisper-rs's `set_abort_callback_safe`: in
+/// 0.14.4 that one registers a trampoline for the closure's own type but hands
+/// it a boxed trait object, which is undefined behaviour.
+///
+/// # Safety
+/// `flag` must outlive every `full()` call made with `params`.
+pub unsafe fn abort_when(params: &mut whisper_rs::FullParams, flag: &AtomicBool) {
+    unsafe extern "C" fn requested(flag: *mut std::ffi::c_void) -> bool {
+        // SAFETY: the caller of `abort_when` keeps the flag alive through `full()`.
+        unsafe { &*(flag as *const AtomicBool) }.load(std::sync::atomic::Ordering::Relaxed)
+    }
+    unsafe {
+        params.set_abort_callback(Some(requested));
+        params.set_abort_callback_user_data(flag as *const AtomicBool as *mut std::ffi::c_void);
     }
 }
 
