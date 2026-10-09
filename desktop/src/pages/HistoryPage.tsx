@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke, subscribe } from "../bridge";
+import { isWindowShown, subscribeWindowActivity } from "../bridge/windowActivity";
 import {
     applyHistoryAiProcessing,
     clearHistory,
@@ -317,7 +318,20 @@ export function HistoryPage({ focus = null }: { focus?: { id: number; seq: numbe
   useEffect(() => {
     const generation = refreshGeneration;
     void refresh();
-    const unlisten = subscribe<unknown>("history-updated", () => { void refresh(); });
+    // A window hidden in the tray stays mounted: it reloads once it is back
+    // rather than after every dictation.
+    let stale = false;
+    const unlisten = subscribe<unknown>("history-updated", () => {
+      void isWindowShown().then((shown) => {
+        stale = !shown;
+        if (shown) void refresh();
+      });
+    });
+    const stopActivity = subscribeWindowActivity((active) => {
+      if (!active || !stale) return;
+      stale = false;
+      void refresh();
+    });
     // No polling: entries that aged out while the window sat hidden in the
     // tray drop off when it is shown again.
     const onVisible = () => { if (document.visibilityState === "visible") void refresh(); };
@@ -325,6 +339,7 @@ export function HistoryPage({ focus = null }: { focus?: { id: number; seq: numbe
     return () => {
       generation.current++;
       unlisten();
+      stopActivity();
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [refresh]);

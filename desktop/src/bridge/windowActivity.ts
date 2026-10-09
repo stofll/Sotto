@@ -1,5 +1,16 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
+/** Whether the window is on screen, focused or not. Assumes it is when the native query fails. */
+export async function isWindowShown(): Promise<boolean> {
+  const windowHandle = getCurrentWindow();
+  try {
+    const [visible, minimized] = await Promise.all([windowHandle.isVisible(), windowHandle.isMinimized()]);
+    return visible && !minimized;
+  } catch {
+    return true;
+  }
+}
+
 /** Native focus/visibility is authoritative: WebView2 can stay "visible" in a hidden window. */
 export function subscribeWindowActivity(onActive: (active: boolean) => void): () => void {
   const windowHandle = getCurrentWindow();
