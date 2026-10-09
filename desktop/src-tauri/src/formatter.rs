@@ -1285,7 +1285,6 @@ const PRESET_DEVELOPMENT: &[&str] = &[
     "debug",
     "callback",
     "thread",
-    "оверлей",
     "Hugging Face",
     "drag and drop",
 ];

@@ -657,6 +657,9 @@
       "text_formatting": {
         "enabled_presets": [
           "development"
+        ],
+        "custom_words": [
+          "оверлей"
         ]
       }
     }
@@ -671,6 +674,9 @@
       "text_formatting": {
         "enabled_presets": [
           "development"
+        ],
+        "custom_words": [
+          "оверлей"
         ]
       }
     }
@@ -725,6 +731,9 @@
       "text_formatting": {
         "enabled_presets": [
           "development"
+        ],
+        "custom_words": [
+          "оверлей"
         ]
       }
     }
