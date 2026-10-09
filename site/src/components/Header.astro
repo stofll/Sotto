@@ -45,11 +45,14 @@ const sections = [
     </nav>
 
     <div class="header-actions">
+      <button type="button" class="icon-button theme-toggle js-only" data-theme-toggle aria-pressed="false" aria-label={t.nav.darkTheme} title={t.nav.darkTheme}>
+        <Icon name="moon" size={18} class="theme-moon" /><Icon name="sun" size={18} class="theme-sun" />
+      </button>
       <LocaleSwitcher slug={slug} class="desktop-only" />
       <a class="button button-primary button-small" href={anchor('#start')} data-platform-cta="short">{t.nav.download}</a>
       <button
         type="button"
-        class="menu-toggle"
+        class="icon-button menu-toggle"
         data-menu-toggle
         aria-controls="mobile-nav"
         aria-expanded="false"

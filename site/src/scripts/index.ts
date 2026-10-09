@@ -1,12 +1,16 @@
 import { ASSET_PREFIX, LINKS, RELEASES_API } from '../data/product';
 import { createRuntime, type Behaviour } from './runtime';
+import { initApps } from './apps';
+import { initCleanup } from './cleanup';
+import { initDesktopDemo } from './desktop-demo';
+import { initFeatures } from './features';
 import { initDownload } from './download';
 import { initFaq } from './faq';
 import { initHeader } from './header';
 import { initModels } from './models';
 import { initPlatform } from './platform';
 import { initReveal } from './reveal';
-import { initTour } from './tour';
+import { initTheme } from './theme';
 import { initVoice } from './voice';
 
 /**
@@ -20,11 +24,15 @@ export const initLanding = (): (() => void) => {
   const { signal } = runtime;
 
   const behaviours: Behaviour[] = [
+    initTheme(runtime),
     initHeader(runtime),
     initFaq(runtime),
     initReveal(runtime),
     initVoice(runtime),
-    initTour(runtime),
+    initDesktopDemo(runtime),
+    initApps(runtime),
+    initCleanup(runtime),
+    initFeatures(runtime),
     initModels(runtime),
     // Before the dialog, which binds the links this retargets.
     initPlatform(runtime),

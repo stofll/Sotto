@@ -1,18 +1,12 @@
 .hero { display: flex; flex-direction: column; gap: 22px; padding-top: clamp(48px, 8vw, 96px); container-type: inline-size; }
 .hero-eyebrow { font: 400 0.875rem var(--font-mono); color: var(--text-muted); }
-.hero-title { font: 500 clamp(1.75rem, 7cqi, 5rem)/1.08 var(--font-display); letter-spacing: -0.035em; }
-.hero-title > span { color: var(--accent); }
+.hero-title { font: 600 clamp(1.75rem, 7cqi, 5rem)/1.08 var(--font-body); letter-spacing: -0.035em; }
+.hero-title > span { color: var(--accent-text); }
 @media (min-width: 960px) {
   .hero-title > span { white-space: nowrap; }
 }
 
-/* The voice line runs from the left edge to the middle; the words start there. */
-.voice-stage { position: relative; height: clamp(160px, 20vw, 230px); margin-top: 28px; }
-.voice-canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
-.voice-output { position: absolute; left: calc(50% + 24px); right: var(--gutter); top: 50%; transform: translateY(-50%); display: flex; align-items: center; overflow: hidden; white-space: nowrap; font: 400 clamp(0.9375rem, 2vw, 1.5rem) var(--font-mono); color: var(--text); }
-.voice-caret { flex: none; width: 0.5em; height: 1.1em; margin-left: 3px; background: var(--accent); }
-
-.hero-foot { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 32px; padding-top: 40px; padding-bottom: clamp(80px, 10vw, 120px); }
+.hero-foot { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 24px 32px; padding-top: 10px; padding-bottom: clamp(40px, 6vw, 64px); }
 .hero-subtitle { max-width: 520px; font-size: 1.125rem; line-height: 1.6; color: var(--text-secondary); text-wrap: pretty; }
 .hero-actions { display: flex; flex-direction: column; align-items: flex-start; gap: 14px; }
 .hero-buttons { display: flex; flex-wrap: wrap; gap: 10px; }

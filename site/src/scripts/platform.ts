@@ -41,6 +41,10 @@ export const initPlatform = ({ query, all, strings }: Runtime): Behaviour => {
   }
   if (!platform) return {};
 
+  // The hero's desktop wears the reader's own system.
+  const desk = query('[data-desk]');
+  if (desk) desk.dataset.os = platform;
+
   // The platform cards: the reader's own goes first and gets the fill.
   const cards = query('[data-platforms]');
   const own = cards?.querySelector<HTMLElement>(`[data-download="${platform}"]`);

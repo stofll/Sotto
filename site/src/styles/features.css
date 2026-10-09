@@ -1,0 +1,62 @@
+/* Features: one wallpaper stage, a glass list on the left and one window at a time on the right. */
+.caps { --shade: linear-gradient(90deg, rgba(10, 14, 20, .5), rgba(10, 14, 20, .12) 55%, transparent);
+  position: relative; display: grid; grid-template-columns: minmax(230px, 30%) minmax(0, 1fr); min-height: clamp(460px, 48vw, 600px); border-radius: 22px; overflow: hidden; isolation: isolate; background: var(--shade), #a9b8c9 var(--wall) center / cover no-repeat; box-shadow: 0 40px 90px -40px rgba(20, 32, 48, .5); }
+/* The list needs a darker ground to read on the sky. It is a layer of the
+   stage's own background: a separate layer under the rounded clip left a dark
+   rim along the corners. */
+
+.caps-list { display: flex; flex-direction: column; justify-content: center; gap: 6px; padding: 24px; }
+.caps-list [role="tab"] { display: grid; grid-template-columns: 18px minmax(0, 1fr); align-items: start; gap: 4px 10px; padding: 10px 14px; border: 1px solid var(--glass-line); border-radius: 16px; background: rgba(12, 14, 18, .42); color: rgba(255, 255, 255, .92); text-align: left; font-size: 0.875rem; -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); transition: background 300ms; }
+.caps-list [role="tab"] .icon { margin-top: 2px; }
+.caps-list [role="tab"]:hover { background: rgba(12, 14, 18, .6); }
+.caps-list [aria-selected="true"] { background: var(--glass); }
+.caps-list [aria-selected="true"] .icon { color: #ffffff; }
+.caps-tab-text { display: none; grid-column: 2; color: rgba(255, 255, 255, .72); font-size: 0.8125rem; line-height: 1.45; }
+.caps-list [aria-selected="true"] .caps-tab-text { display: block; }
+.caps-list [role="tab"]:focus-visible { outline-color: #ffffff; }
+
+/* Panels overlap in one cell, so the stage keeps its height while they switch. */
+.caps-panels { display: grid; align-items: center; justify-items: center; padding: 24px; }
+.caps-panel { grid-area: 1 / 1; width: min(460px, 100%); transition: opacity 450ms, transform 550ms var(--ease), visibility 0s; }
+.caps.is-enhanced .caps-panel:not(.is-active) { visibility: hidden; opacity: 0; transform: translateY(14px) scale(.98); pointer-events: none; transition: opacity 300ms, transform 300ms, visibility 0s 300ms; }
+.caps.is-enhanced .caps-copy { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.caps-copy { margin-bottom: 12px; padding: 12px 16px; border-radius: 16px; background: var(--glass); color: #f2f2f4; }
+.caps-copy h3 { font-size: 1rem; font-weight: 600; }
+.caps-copy p { font-size: 0.875rem; color: rgba(255, 255, 255, .78); }
+
+/* The windows: the app's light panels, floating over the wallpaper. */
+.caps-window { display: grid; gap: 10px; padding: 16px; border-radius: 18px; background: color-mix(in srgb, var(--surface) 96%, transparent); color: var(--text); font-size: 0.8125rem; line-height: 1.5; box-shadow: 0 30px 70px -25px rgba(0, 0, 0, .6); }
+.caps-window-title { font-size: 0.875rem; font-weight: 600; }
+.caps-row { padding: 9px 11px; border-radius: 10px; background: var(--surface); box-shadow: 0 0 0 1px var(--border-subtle); overflow-wrap: anywhere; }
+.caps-row.mono { font-size: 0.75rem; }
+.caps-raw { color: var(--text-muted); }
+.caps-prompt { color: var(--text-secondary); }
+.caps-model { display: grid; gap: 8px; }
+.caps-model-name { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.caps-model-name span { font: 400 0.6875rem var(--font-mono); color: var(--text-muted); }
+.caps-progress { display: block; height: 5px; border-radius: 4px; background: var(--surface-raised); overflow: hidden; }
+.caps-progress i { display: block; width: 64%; height: 100%; border-radius: 4px; background: var(--accent); }
+.caps-entry { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.caps-entry time { flex: none; color: var(--text-muted); font-size: 0.75rem; }
+.caps-done { padding: 2px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-text); font: 500 0.6875rem var(--font-mono); }
+.caps-note { color: var(--text-muted); font-size: 0.75rem; }
+.caps-window .pill-list li { background: var(--surface); }
+
+.caps-voice { display: grid; justify-items: center; gap: 18px; }
+.caps-keys { display: flex; gap: 6px; padding: 8px; border: 1px solid rgba(255, 255, 255, .22); border-radius: 16px; background: rgba(255, 255, 255, .14); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); }
+.caps-keys kbd { min-width: 44px; padding: 7px 10px; border-radius: 9px; background: #fbfbfa; color: #2a2c30; text-align: center; font: 500 12px var(--font-mono); box-shadow: 0 0 0 #c9cacd, 0 2px 6px -4px rgba(0, 0, 0, .4); transform: translateY(2px); }
+
+/* Cleanup marks: each step has its own mark rather than its own colour. */
+.cl-tic { text-decoration: line-through; text-decoration-color: var(--accent-text); color: var(--text-muted); }
+.cl-term { text-decoration: underline; text-decoration-color: var(--accent-text); text-decoration-thickness: 2px; text-underline-offset: 3px; }
+.cl-rule { padding: 0 3px; border: 1px dashed var(--accent-text); border-radius: 4px; }
+.cl-finish { text-decoration: underline dotted; text-decoration-color: var(--accent-text); text-decoration-thickness: 2px; text-underline-offset: 3px; }
+
+@media (max-width: 860px) {
+  .caps { grid-template-columns: minmax(0, 1fr); }
+  .caps { --shade: linear-gradient(rgba(10, 14, 20, .28), rgba(10, 14, 20, .28)); }
+  .caps-list { flex-direction: row; flex-wrap: wrap; justify-content: flex-start; padding: 16px 16px 0; }
+  .caps-list [role="tab"] { grid-template-columns: 18px auto; padding: 8px 12px; }
+  .caps-list .caps-tab-text { display: none !important; }
+  .caps-panels { padding: 20px 16px 24px; }
+}

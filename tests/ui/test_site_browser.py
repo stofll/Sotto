@@ -13,17 +13,33 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-STEPS = ["catalog", "cleanup", "profile", "overlay", "history", "file"]
+FEATURES = ["voice", "cleanup", "models", "profile", "history", "file"]
+SECTIONS = ["[data-desk]", "[data-closeup]", "[data-caps]", ".facts", "[data-apps]"]
 
 
 def site_url(locale):
     return os.environ["SOTTO_SITE_URL"] + ("/ru/" if locale == "ru" else "/")
 
 
+def run_until(page, condition, step=100, limit=30000):
+    """Advances the fake clock until `condition()` holds; phase lengths depend on the locale's words."""
+    for _ in range(limit // step):
+        if condition():
+            return
+        page.clock.run_for(step)
+    assert condition()
+
+
+def fits_width(page):
+    return page.evaluate(
+        "document.documentElement.scrollWidth <= document.documentElement.clientWidth"
+    )
+
+
 @pytest.mark.parametrize("locale", ["ru", "en"])
 @pytest.mark.parametrize("width", [390, 1440])
 @pytest.mark.parametrize("appearance", ["light", "dark"])
-def test_tour_catalog_and_layout(browser, locale, width, appearance):
+def test_layout_features_and_catalog(browser, locale, width, appearance):
     context = browser.new_context(
         viewport={"width": width, "height": 1000},
         device_scale_factor=2,
@@ -35,73 +51,45 @@ def test_tour_catalog_and_layout(browser, locale, width, appearance):
     page.on("pageerror", lambda error: errors.append(str(error)))
     page.goto(site_url(locale))
     page.evaluate("() => document.fonts.ready")
-    tour = page.locator("[data-tour]")
-    expect(tour).to_have_class(re.compile(r"\bis-enhanced\b"))
     if width >= 960:
-        # The orange phrase is one line; text ranges detect wrapping directly.
+        # The second line of the headline is one line; text ranges detect wrapping directly.
         assert page.locator(".hero-title > span").evaluate(
             "el => { const r = document.createRange(); r.selectNodeContents(el); return r.getClientRects().length === 1; }"
         )
-    tour.scroll_into_view_if_needed()
-    sizes = []
-    for index, step in enumerate(STEPS):
-        tab = page.locator(f"#feature-tab-{step}")
+    for selector in SECTIONS:
+        page.locator(selector).scroll_into_view_if_needed()
+        assert fits_width(page), selector
+
+    caps = page.locator("[data-caps]")
+    expect(caps).to_have_class(re.compile(r"\bis-enhanced\b"))
+    caps.scroll_into_view_if_needed()
+    heights = []
+    for feature in FEATURES:
+        tab = page.locator(f"#cap-tab-{feature}")
         tab.click()
         expect(tab).to_have_attribute("aria-selected", "true")
-        expect(page.get_by_role("tabpanel")).to_have_count(1)
-        expect(page.get_by_role("tabpanel")).to_have_attribute("data-scene", step)
-        expect(page.locator(f"#feature-{step}")).to_be_visible()
-        sizes.append(page.locator(".tour-scenes").bounding_box())
-        # Every step fits the page width, including the overlay's widest state.
-        assert page.evaluate(
-            "document.documentElement.scrollWidth <= document.documentElement.clientWidth"
-        )
-    # Overlapping scenes reserve the tallest one, so switching never moves the page.
-    assert max(box["height"] for box in sizes) - min(box["height"] for box in sizes) < 1
-
-    for step, region in [("catalog", "resources"), ("history", "formatting")]:
-        page.locator(f"#feature-tab-{step}").click()
-        scene = page.locator(f"#feature-{step}")
-        image = scene.locator("[data-shot] img")
-        expect(image).to_have_js_property("complete", True)
-        expect(image).to_have_js_property("naturalWidth", 2176)
-        detail = scene.locator(f'[data-region="{region}"]')
-        detail.click()
-        expect(detail).to_have_attribute("aria-pressed", "true")
-        expect(scene.locator(f'[data-shot-ring="{region}"]')).to_have_class(
-            re.compile(r"\bis-on\b")
-        )
-        assert scene.locator("[data-shot-layer]").evaluate(
-            "el => el.style.transform.includes('scale')"
-        )
-        detail.click()
-        expect(detail).to_have_attribute("aria-pressed", "false")
-        assert scene.locator("[data-shot-layer]").evaluate(
-            "el => el.style.transform === ''"
-        )
-
-    page.locator("#feature-tab-catalog").focus()
+        expect(caps.get_by_role("tabpanel")).to_have_count(1)
+        expect(caps.get_by_role("tabpanel")).to_have_attribute("data-cap", feature)
+        heights.append(caps.bounding_box()["height"])
+        assert fits_width(page), feature
+    # Panels overlap in one cell, so switching never moves the page.
+    assert max(heights) - min(heights) < 1
+    page.locator("#cap-tab-voice").click()
     page.keyboard.press("ArrowDown")
-    expect(page.locator("#feature-tab-cleanup")).to_be_focused()
-    expect(page.locator("#feature-tab-cleanup")).to_have_attribute(
-        "aria-selected", "true"
-    )
+    expect(page.locator("#cap-tab-cleanup")).to_be_focused()
+    expect(page.locator("#cap-tab-cleanup")).to_have_attribute("aria-selected", "true")
     page.keyboard.press("End")
-    expect(page.locator("#feature-tab-file")).to_be_focused()
+    expect(page.locator("#cap-tab-file")).to_be_focused()
     page.keyboard.press("ArrowRight")
-    expect(page.locator("#feature-tab-catalog")).to_have_attribute(
-        "aria-selected", "true"
-    )
+    expect(page.locator("#cap-tab-voice")).to_have_attribute("aria-selected", "true")
 
     output = Path(
         os.environ.get("SOTTO_SITE_CHECKS_DIR", os.environ.get("TEMP", "/tmp"))
     )
     output.mkdir(parents=True, exist_ok=True)
-    if appearance == "dark":
-        page.locator("#feature-tab-overlay").click()
-        page.mouse.move(0, 0)
-        tour.screenshot(path=str(output / f"tour-{locale}-{width}.png"))
-        page.screenshot(path=str(output / f"site-{locale}-{width}.png"), full_page=True)
+    page.screenshot(
+        path=str(output / f"site-{locale}-{width}-{appearance}.png"), full_page=True
+    )
 
     catalog = page.locator(".model-catalog")
     expect(catalog).not_to_have_attribute("open", "")
@@ -120,9 +108,7 @@ def test_tour_catalog_and_layout(browser, locale, width, appearance):
     page.locator('[data-filter="all"]').click()
     page.locator("[data-streaming-filter]").click()
     expect(page.locator(".model-card:visible")).to_have_count(total)
-    expect(page.locator("section#privacy")).to_have_count(0)
     expect(page.locator('.desktop-nav a[href$="/privacy/"]')).to_have_count(1)
-    expect(page.locator(".voice-label")).to_have_count(0)
     page.locator(".faq-item summary").first.click()
     answer = page.locator(".faq-item p").first
     assert (
@@ -134,73 +120,216 @@ def test_tour_catalog_and_layout(browser, locale, width, appearance):
 
 
 @pytest.mark.parametrize("locale", ["ru", "en"])
-def test_overlay_scene_switches_and_plays(browser, locale):
+def test_desktop_demo_dictates_into_the_messenger(browser, locale):
+    context = browser.new_context(viewport={"width": 1440, "height": 1000})
+    page = context.new_page()
+    # The stand-in pill: what the desk shows until, or unless, the app's overlay loads.
+    page.route("**/island*", lambda route: route.abort())
+    page.clock.install()
+    page.goto(site_url(locale))
+    desk = page.locator("[data-desk]")
+    field = desk.locator("[data-desk-text]")
+    overlay = desk.locator("[data-ov]")
+    # Coming into view starts a dictation from an empty field, with the first caption.
+    page.clock.run_for(100)
+    expect(desk).to_have_attribute("data-phase", "idle")
+    expect(desk).to_have_attribute("data-step", "1")
+    expect(field).to_have_text("")
+    expect(desk.locator(".desk-placeholder")).to_be_visible()
+    page.clock.run_for(1300)
+    expect(desk).to_have_attribute("data-phase", "rec")
+    expect(desk).to_have_attribute("data-step", "2")
+    page.clock.run_for(1000)
+    expect(desk).to_have_attribute("data-phase", "stream")
+    page.clock.run_for(1200)
+    assert desk.locator("[data-ov-draft]").inner_text()
+    run_until(page, lambda: desk.get_attribute("data-phase") == "proc")
+    expect(overlay.locator(".ov-proc")).to_be_visible()
+    page.clock.run_for(1100)
+    expect(desk).to_have_attribute("data-phase", "done")
+    expect(field).not_to_have_text("")
+    expect(overlay.locator(".ov-done")).to_be_visible()
+    pasted = field.inner_text()
+    expect(overlay.locator("[data-ov-count]")).to_have_text(str(len(pasted)))
+
+    # Scrolled away, the desktop holds the moment after the paste.
+    page.locator("#faq").scroll_into_view_if_needed()
+    page.clock.run_for(100)
+    expect(desk).to_have_attribute("data-phase", "done")
+    expect(field).to_have_text(pasted)
+    expect(page.locator("[data-desk-tune]")).to_be_hidden()
+    context.close()
+
+
+@pytest.mark.parametrize("locale", ["ru", "en"])
+def test_desktop_demo_shows_the_apps_overlay_looks(browser, locale):
+    context = browser.new_context(viewport={"width": 1440, "height": 1000})
+    page = context.new_page()
+    errors = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    page.clock.install()
+    page.goto(site_url(locale))
+    desk = page.locator("[data-desk]")
+    field = desk.locator("[data-desk-text]")
+    overlay = desk.locator(".desk-ovs .ovs")
+    tune = page.locator("[data-desk-tune]")
+    phase = lambda name: lambda: desk.get_attribute("data-phase") == name
+
+    # The app's own overlay loads with the desk in view and takes the stand-in's place.
+    run_until(page, lambda: "has-island" in (desk.get_attribute("class") or ""))
+    expect(tune).to_be_visible()
+    expect(desk.locator(":scope > .ov")).to_be_hidden()
+
+    # A whole dictation: words while speaking, processing, then the pasted count.
+    run_until(page, phase("idle"))
+    run_until(page, phase("stream"))
+    run_until(
+        page,
+        lambda: (
+            overlay.locator(".ovs-draft").count() > 0
+            and overlay.locator(".ovs-draft").inner_text() != ""
+        ),
+    )
+    run_until(page, phase("proc"))
+    expect(overlay).to_have_attribute("data-phase", "processing")
+    run_until(page, phase("done"))
+    expect(overlay).to_have_attribute("data-phase", "pasted")
+    expect(overlay.locator(".ovs-lbl--ok")).to_contain_text(
+        str(len(field.inner_text()))
+    )
+
+    # Untouched, each dictation takes the next look, and the one on screen is marked.
+    first = overlay.get_attribute("data-shell")
+    run_until(page, phase("rest"))
+    run_until(page, phase("rec"))
+    assert overlay.get_attribute("data-shell") != first
+    expect(tune.locator("[data-live]")).to_have_count(1)
+
+    # A pick holds its look and starts over; "after" keeps the draft closed.
+    tune.locator('[data-look="term"]').click()
+    expect(tune.locator('[data-look="term"]')).to_have_attribute("aria-pressed", "true")
+    expect(tune.locator("[data-live]")).to_have_count(0)
+    tune.locator('[data-streaming="false"]').click()
+    run_until(page, phase("stream"))
+    page.clock.run_for(1200)
+    expect(overlay).to_have_attribute("data-draft", "0")
+    expect(overlay.locator(".ovs-ascii")).to_have_count(1)
+
+    # The palette recolours the overlay in place.
+    tune.locator('[data-palette="violet"]').click()
+    assert "295" in desk.locator(".desk-ovs-tone").evaluate(
+        "el => getComputedStyle(el).getPropertyValue('--overlay-wave-mid')"
+    )
+    assert not errors
+    context.close()
+
+
+@pytest.mark.parametrize("locale", ["ru", "en"])
+def test_cleanup_steps_through_the_pipeline(browser, locale):
     context = browser.new_context(viewport={"width": 1440, "height": 1000})
     page = context.new_page()
     page.clock.install()
     page.goto(site_url(locale))
-    page.locator("[data-tour]").scroll_into_view_if_needed()
-    page.locator("#feature-tab-overlay").click()
-    scene = page.locator("#feature-overlay")
-    # Selecting the step restarts the cycle from a new recording.
+    card = page.locator("[data-closeup]")
+    text = card.locator(".closeup-text")
+    final = text.inner_text()
+    card.scroll_into_view_if_needed()
     page.clock.run_for(100)
-    expect(scene).to_have_attribute("data-phase", "rec")
-    page.clock.run_for(2500)
-    expect(scene).to_have_attribute("data-phase", "stream")
-
-    page.locator('[data-ov-template="bead"]').click()
-    expect(scene).to_have_attribute("data-template", "bead")
-    expect(scene.locator('.tour-detail-value[data-for="bead"]').first).to_be_visible()
-    expect(scene.locator('.tour-detail-value[data-for="pill"]').first).to_be_hidden()
-    expect(scene.locator(".ov-note")).to_be_visible()
-    page.locator('[data-ov-palette="lagoon"]').click()
+    expect(card).to_have_class(re.compile(r"\bis-playing\b"))
+    expect(card.locator('[data-closeup-step="0"]')).to_have_class(
+        re.compile(r"\bis-current\b")
+    )
+    # The raw words differ from the cleaned sentence until the steps have run.
     assert (
-        scene.locator("[data-ov-stage]").evaluate(
-            "el => el.style.getPropertyValue('--ov-hue')"
-        )
-        == "195"
+        text.evaluate("el => [...el.children].map(p => p.textContent).join('')").split()
+        != final.split()
     )
+    last = card.locator('[data-closeup-step="5"]')
+    run_until(page, lambda: "is-done" in (last.get_attribute("class") or ""))
+    assert text.inner_text().split() == final.split()
 
-    # A chosen state holds instead of cycling on.
-    page.locator('[data-ov-phase="proc"]').click()
-    page.clock.run_for(8000)
-    expect(scene).to_have_attribute("data-phase", "proc")
-    expect(scene.locator(".ov-status")).to_be_visible()
-
-    # Another step stops the animation.
-    level = lambda: scene.locator("[data-ov]").evaluate(
-        "el => el.style.getPropertyValue('--level')"
+    card.locator("[data-closeup-replay]").click()
+    expect(card.locator('[data-closeup-step="0"]')).to_have_class(
+        re.compile(r"\bis-current\b")
     )
-    page.locator('[data-ov-phase="rec"]').click()
-    page.clock.run_for(500)
-    before = level()
-    page.clock.run_for(500)
-    assert level() != before
-    page.locator("#feature-tab-file").click()
-    page.clock.run_for(100)
-    before = level()
-    page.clock.run_for(1000)
-    assert level() == before
+    page.locator("#faq").scroll_into_view_if_needed()
+    run_until(page, lambda: "is-playing" not in (card.get_attribute("class") or ""))
+    assert text.inner_text().split() == final.split()
     context.close()
 
 
-def test_file_scene_walks_through_states(browser):
+def test_features_walk_until_the_reader_picks_one(browser):
     context = browser.new_context(viewport={"width": 1440, "height": 1000})
     page = context.new_page()
     page.clock.install()
-    page.goto(site_url("ru"))
-    page.locator("[data-tour]").scroll_into_view_if_needed()
-    scene = page.locator("#feature-file")
-    expect(scene).to_have_attribute("data-state", "done")
-    page.locator("#feature-tab-file").click()
-    expect(scene).to_have_attribute("data-state", "idle")
-    page.clock.run_for(1500)
-    expect(scene).to_have_attribute("data-state", "reading")
-    page.clock.run_for(1200)
-    expect(scene).to_have_attribute("data-state", "transcribing")
-    page.clock.run_for(2700)
-    expect(scene).to_have_attribute("data-state", "done")
-    expect(scene.locator(".file-result")).to_be_visible()
+    page.goto(site_url("en"))
+    caps = page.locator("[data-caps]")
+    caps.scroll_into_view_if_needed()
+    page.clock.run_for(100)
+    expect(page.locator("#cap-tab-voice")).to_have_attribute("aria-selected", "true")
+    # The level is a history: the readings move left as new ones arrive.
+    bars = caps.locator('[data-cap="voice"] [data-ov-bar]')
+    heights = "els => els.map((el) => el.style.height).join()"
+    before = bars.evaluate_all(heights)
+    page.clock.run_for(400)
+    assert bars.evaluate_all(heights) != before
+    page.clock.run_for(5000)
+    expect(page.locator("#cap-tab-cleanup")).to_have_attribute("aria-selected", "true")
+
+    page.locator("#cap-tab-history").click()
+    page.clock.run_for(12000)
+    expect(page.locator("#cap-tab-history")).to_have_attribute("aria-selected", "true")
+    context.close()
+
+
+def test_theme_follows_the_system_until_the_reader_picks_one(browser):
+    light, dark = "rgb(242, 243, 240)", "rgb(17, 19, 23)"
+    context = browser.new_context(
+        viewport={"width": 1440, "height": 900}, color_scheme="light"
+    )
+    page = context.new_page()
+    page.goto(site_url("en"))
+    background = lambda: page.evaluate(
+        "getComputedStyle(document.body).backgroundColor"
+    )
+    stored = lambda: page.evaluate("localStorage.getItem('sotto-theme')")
+    toggle = page.locator("[data-theme-toggle]")
+    assert background() == light
+    expect(toggle).to_have_attribute("aria-pressed", "false")
+
+    # The switch turns the other theme on and remembers it across a reload.
+    toggle.click()
+    expect(toggle).to_have_attribute("aria-pressed", "true")
+    assert background() == dark
+    assert stored() == "dark"
+    page.reload()
+    assert page.evaluate("document.documentElement.dataset.theme") == "dark"
+    assert background() == dark
+
+    # Picking what the system shows anyway forgets the choice, so the page follows the system again.
+    toggle.click()
+    assert background() == light
+    assert stored() is None
+    page.emulate_media(color_scheme="dark")
+    assert background() == dark
+    expect(toggle).to_have_attribute("aria-pressed", "true")
+    context.close()
+
+
+def test_apps_band_drifts_only_on_screen(browser):
+    context = browser.new_context(viewport={"width": 1440, "height": 1000})
+    page = context.new_page()
+    page.goto(site_url("en"))
+    band = page.locator("[data-apps]")
+    expect(band).not_to_have_class(re.compile(r"\bis-playing\b"))
+    band.scroll_into_view_if_needed()
+    expect(band).to_have_class(re.compile(r"\bis-playing\b"))
+    # The sprite resolves, so every tile shows a mark.
+    assert page.evaluate(
+        "async () => (await fetch('/app-logos.svg')).headers.get('content-type').startsWith('image/svg+xml')"
+    )
+    page.locator("#faq").scroll_into_view_if_needed()
+    expect(band).not_to_have_class(re.compile(r"\bis-playing\b"))
     context.close()
 
 
@@ -209,10 +338,15 @@ def test_without_javascript(browser, locale):
     context = browser.new_context(java_script_enabled=False)
     page = context.new_page()
     page.goto(site_url(locale))
-    expect(page.locator(".tour-scene:visible")).to_have_count(len(STEPS))
-    expect(page.locator(".tour-steps")).to_be_hidden()
-    expect(page.locator("#feature-overlay .ov-draft")).to_be_visible()
-    expect(page.locator("#feature-file .file-result")).to_be_visible()
+    desk = page.locator("[data-desk]")
+    expect(desk).to_have_attribute("data-phase", "done")
+    expect(desk.locator("[data-desk-text]")).not_to_have_text("")
+    expect(desk.locator(".ov-done")).to_be_visible()
+    expect(page.locator(".closeup-text")).not_to_have_text("")
+    expect(page.locator(".closeup-foot")).to_be_hidden()
+    expect(page.locator(".caps-panel:visible")).to_have_count(len(FEATURES))
+    expect(page.locator(".caps-copy:visible")).to_have_count(len(FEATURES))
+    expect(page.locator(".caps-list")).to_be_hidden()
     page.locator(".model-catalog summary").click()
     expect(page.locator(".model-card:visible")).to_have_count(
         page.locator(".model-card").count()

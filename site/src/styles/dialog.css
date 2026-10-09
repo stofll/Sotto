@@ -1,11 +1,11 @@
 .download-dialog { width: min(500px, calc(100% - 32px)); max-height: calc(100dvh - 40px); padding: 0; border: 1px solid var(--border-strong); border-radius: 14px; background: var(--surface); color: var(--text); box-shadow: 0 40px 100px -30px rgba(0,0,0,.8); }
-.download-dialog::backdrop { background: rgba(12,11,10,.8); backdrop-filter: blur(6px); }
+.download-dialog::backdrop { background: rgba(20,22,26,.45); backdrop-filter: blur(6px); }
 .dialog-inner { padding: 28px; }
 .dialog-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 36px; }
 .dialog-close { display: inline-flex; width: 36px; height: 36px; align-items: center; justify-content: center; border-radius: 6px; color: var(--text-muted); }
 .dialog-close:hover { background: var(--surface-raised); color: var(--text); }
 .dialog-eyebrow { margin-bottom: 14px; font: 400 0.75rem var(--font-mono); color: var(--text-muted); }
-.dialog-inner h2 { font: 500 1.75rem/1.15 var(--font-display); letter-spacing: -0.03em; }
+.dialog-inner h2 { font: 600 1.75rem/1.15 var(--font-body); letter-spacing: -0.03em; }
 .dialog-inner > p { margin-top: 14px; font-size: 0.875rem; line-height: 1.7; color: var(--text-secondary); }
 .install-steps { margin-top: 22px; padding-left: 20px; font-size: 0.875rem; line-height: 1.7; color: var(--text-secondary); }
 .install-steps li { padding-left: 4px; margin-bottom: 8px; }

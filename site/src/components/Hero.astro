@@ -1,4 +1,5 @@
 ---
+import DesktopDemo from './DesktopDemo.astro';
 import { LINKS } from '../data/product';
 import { latestRelease } from '../data/release';
 import { format } from '../i18n';
@@ -14,27 +15,19 @@ const meta = release
 <section class="hero container" data-screen-label="01 Hero">
   <p class="hero-eyebrow">{t.hero.eyebrow}</p>
   <h1 class="hero-title">{t.hero.titleLine1}<br /><span>{t.hero.titleLine2}</span></h1>
-</section>
-
-{/* The demo is decoration: the subtitle below says the same thing in words.
-    Without JavaScript the first phrase stands typed out next to a still line. */}
-<div class="voice-stage" aria-hidden="true">
-  <canvas class="voice-canvas" data-voice-wave="stage"></canvas>
-  <div class="voice-output">
-    <span data-voice-text>{t.hero.phrases[0]}</span><span class="voice-caret"></span>
-  </div>
-</div>
-
-<section class="hero-foot container">
-  <p class="hero-subtitle">{t.hero.subtitle}</p>
-  <div class="hero-actions">
-    <div class="hero-buttons">
-      {/* Leads to both platforms until scripts/platform.ts recognises the
-          reader's system and points it at that installer. */}
-      <a class="button button-primary" href="#start" data-platform-cta="long">{t.hero.download}</a>
-      <a class="button button-outline" href={LINKS.github}>GitHub ↗</a>
+  <div class="hero-foot">
+    <p class="hero-subtitle">{t.hero.subtitle}</p>
+    <div class="hero-actions">
+      <div class="hero-buttons">
+        {/* Leads to both platforms until scripts/platform.ts recognises the
+            reader's system and points it at that installer. */}
+        <a class="button button-primary" href="#start" data-platform-cta="long">{t.hero.download}</a>
+        <a class="button button-outline" href={LINKS.github}>GitHub ↗</a>
+      </div>
+      <span class="hero-meta">{meta}</span>
+      <span class="hero-meta hero-note" data-mobile-note>{t.hero.mobileNote}</span>
     </div>
-    <span class="hero-meta">{meta}</span>
-    <span class="hero-meta hero-note" data-mobile-note>{t.hero.mobileNote}</span>
   </div>
 </section>
+
+<DesktopDemo />

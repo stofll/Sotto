@@ -1,5 +1,5 @@
 ---
-import { featureSteps } from '../data/feature-tour';
+import { capabilities } from '../data/capabilities';
 import { AUTHOR, LINKS, OG_IMAGE, REPO } from '../data/product';
 import { latestRelease } from '../data/release';
 import { translationsFor } from '../i18n/context';
@@ -46,7 +46,7 @@ const application = {
   ...(version ? { softwareVersion: version } : {}),
   // The latest release is when the app last changed, not when it first shipped.
   ...(release?.published ? { dateModified: release.published } : {}),
-  featureList: featureSteps.map((id) => t.features.steps[id].title),
+  featureList: capabilities.map((id) => t.features.items[id].name),
 };
 
 /** The questions the page answers in its FAQ section, word for word. */

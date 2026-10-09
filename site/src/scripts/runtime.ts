@@ -27,8 +27,6 @@ export interface Behaviour {
 }
 
 export interface RuntimeStrings {
-  /** Typed out by the voice demo, in order. */
-  phrases: string[];
   /** Download button labels once the reader's system is known. */
   downloadWindows: string;
   downloadMac: string;

@@ -1,0 +1,27 @@
+/* The facts after the features: one row of short answers, wrapping on narrow
+   screens. They read as a footnote to the section above, so it gives up its
+   own bottom gap and the strip keeps a short one. */
+.section:has(+ .facts-strip) { padding-bottom: 0; }
+.facts-strip { padding-block: clamp(40px, 6vw, 64px) var(--section-gap); }
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr)); margin: 0; border-top: 1px solid var(--border); }
+.facts > div { display: flex; flex-direction: column; gap: 6px; padding: 18px 20px 0 0; }
+.facts dt { font: 400 0.75rem var(--font-mono); color: var(--text-muted); }
+.facts dd { margin: 0; font-size: 0.9375rem; line-height: 1.5; color: var(--text); text-wrap: pretty; }
+
+/* The app band: two rows of marks drifting in opposite directions, faded at both edges. */
+.apps-band { display: flex; flex-direction: column; gap: 14px; overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 14%, #000 86%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 14%, #000 86%, transparent); }
+.apps-row { display: flex; }
+/* Each tile carries its own trailing space, so a sixth of the track is exactly one copy. */
+.apps-track { display: flex; width: max-content; list-style: none; animation: apps-drift 26s linear infinite; animation-play-state: paused; }
+.apps-row:nth-child(2) .apps-track { animation-direction: reverse; animation-duration: 30s; }
+.apps-band.is-playing .apps-track { animation-play-state: running; }
+.app-tile { display: grid; place-items: center; width: 64px; height: 64px; margin-right: 14px; border: 1px solid var(--border); border-radius: 50%; background: var(--surface); color: var(--text-secondary); }
+.app-tile svg { fill: currentColor; }
+@keyframes apps-drift { to { transform: translateX(calc(-100% / 6)); } }
+
+@media (max-width: 640px) {
+  .app-tile { width: 52px; height: 52px; margin-right: 10px; }
+  .app-tile svg { width: 20px; height: 20px; }
+}

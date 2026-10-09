@@ -1,13 +1,13 @@
 .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); border-top: 1px solid var(--border); list-style: none; }
 .steps li { display: flex; flex-direction: column; gap: 14px; padding: 28px 28px 28px 0; border-bottom: 1px solid var(--border); }
 .step-number { font-size: 0.8125rem; font-weight: 500; color: var(--text-muted); }
-.steps h3 { font: 500 1.375rem/1.25 var(--font-display); letter-spacing: -0.02em; }
+.steps h3 { font: 600 1.375rem/1.25 var(--font-body); letter-spacing: -0.02em; }
 .steps p { max-width: 340px; font-size: 0.9375rem; line-height: 1.6; color: var(--text-secondary); text-wrap: pretty; }
 
 .platforms { margin-top: 40px; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 12px; }
 .platform { display: flex; flex-direction: column; gap: 6px; padding: 24px 28px; border: 1px solid var(--border-strong); border-radius: 12px; color: var(--text); transition: background 160ms, border-color 160ms; }
 .platform:hover { border-color: var(--text-muted); color: var(--text); }
-.platform strong { font: 500 1.125rem var(--font-display); }
+.platform strong { font: 600 1.125rem var(--font-body); }
 .platform span { font-size: 0.75rem; color: var(--text-muted); }
 /* The reader's own platform, once scripts/platform.ts has recognised it. */
 .platform-primary, .platform-primary:hover { border-color: var(--accent); background: var(--accent); color: var(--on-accent); }
@@ -18,4 +18,4 @@
 .final { position: relative; border-top: 1px solid var(--border-subtle); overflow: hidden; }
 .final-wave { position: absolute; inset: 0; width: 100%; height: 100%; opacity: .55; }
 .final-inner { position: relative; display: flex; flex-direction: column; align-items: center; gap: 32px; padding-block: clamp(100px, 13vw, 170px); text-align: center; }
-.final h2 { font: 500 clamp(2.5rem, 7vw, 6rem)/1.04 var(--font-display); letter-spacing: -0.04em; }
+.final h2 { font: 600 clamp(2.5rem, 7vw, 6rem)/1.04 var(--font-body); letter-spacing: -0.04em; }

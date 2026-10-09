@@ -1,0 +1,73 @@
+/* The app's default overlay: the "Pill" recipe at size S with a bare shell, no
+   rim and so no running light while processing. Sizes, timings and the
+   Graphite palette come from desktop/src/overlay/ (overlayScene.css,
+   overlayRecipe.ts, overlayPalette.ts); the fonts are the app's own stack,
+   which falls back to the system face as it does on a reader's machine. */
+.ov {
+  --ov-surface: oklch(0.18 0 0 / .97); --ov-shell-top: oklch(0.43 0 0 / .9); --ov-shell-bottom: oklch(0.3 0 0 / .94);
+  --ov-edge: oklch(0.8 0 0); --ov-wave-top: oklch(0.9 0 0); --ov-wave-mid: oklch(0.76 0 0); --ov-wave-bottom: oklch(0.62 0 0);
+  --ov-ink: #eceaf3; --ov-ink-dim: #b8b4c5; --ov-ok: #4ade80;
+  --ov-sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --ov-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, Menlo, monospace;
+  --ov-ease: cubic-bezier(.2, .55, .25, 1); --ov-fs: .92;
+  display: grid; place-items: end center; color: var(--ov-ink); font-family: var(--ov-sans); letter-spacing: 0;
+}
+.ov *, .ov *::before, .ov *::after { box-sizing: border-box; }
+
+/* The shell is the pill's 272 × 52 and opens to the streaming card's 512 × 130. */
+.ov-shell { position: relative; width: 272px; max-width: calc(100vw - 56px); height: 52px; border-radius: 26px; overflow: hidden; background: var(--ov-surface);
+  box-shadow: 0 18px 40px -16px rgba(0, 0, 0, .6); transition: width .44s var(--ov-ease), height .44s var(--ov-ease); }
+.ov[data-draft="1"] .ov-shell { width: 512px; height: 130px; }
+/* Glow "1": an inner light that follows the voice. */
+.ov-gfx { position: absolute; inset: 0; z-index: 1; border-radius: inherit; pointer-events: none;
+  box-shadow: 0 0 calc(5px + var(--ov-energy, .1) * 12px) var(--ov-wave-mid) inset; opacity: calc(.06 + var(--ov-energy, .1) * .24); }
+/* Pasted: a green flash inside the rim. */
+.ov-flash { position: absolute; inset: 0; z-index: 5; border-radius: inherit; opacity: 0; pointer-events: none;
+  box-shadow: inset 0 0 0 1.5px var(--ov-ok), inset 0 0 24px color-mix(in srgb, var(--ov-ok) 45%, transparent); }
+.ov[data-phase="done"] .ov-flash { animation: ov-flash 1.1s ease-out; }
+@keyframes ov-flash { 15% { opacity: 1; } }
+
+.ov-content { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; }
+.ov-row { position: relative; display: flex; align-items: center; gap: 8px; flex: 0 0 52px; height: 52px; padding: 0 8px 0 10px; }
+.ov-part { display: flex; align-items: center; min-width: 0; transition: opacity .18s ease, filter .18s ease; }
+.ov-start { flex: 0 0 auto; max-width: 140px; transition: max-width .2s var(--ov-ease), opacity .16s, filter .18s; }
+.ov-center { flex: 1 1 0; justify-content: flex-end; height: 70%; overflow: hidden; }
+.ov:is([data-phase="proc"], [data-phase="done"]) .ov-part { opacity: 0; filter: blur(4px); }
+.ov:is([data-phase="proc"], [data-phase="done"]) .ov-start { max-width: 0; }
+
+.ov-tcap { display: flex; align-items: center; justify-content: center; gap: 6px; height: calc(32px * var(--ov-fs)); min-width: calc(60px * var(--ov-fs)); padding: 0 9px; border-radius: 999px; background: color-mix(in srgb, var(--ov-wave-mid) 14%, transparent); }
+.ov-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--ov-wave-mid); }
+.ov-tt { color: var(--ov-wave-mid); font: 600 calc(12.5px * var(--ov-fs))/1 var(--ov-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* One bar per reading, newest at the right; scripts set each height and whether it is lit. */
+.ov-bars { display: flex; align-items: center; gap: 3px; height: 28px; }
+.ov-bars i { position: relative; flex: none; width: 3px; height: 5px; border-radius: 4px; background: rgba(255, 255, 255, .13); opacity: .66; transition: background 120ms ease, opacity 120ms ease; }
+.ov-bars i[data-on="true"] { background: linear-gradient(180deg, var(--ov-wave-top), var(--ov-wave-mid) 55%, var(--ov-wave-bottom)); opacity: 1; }
+.ov-bars i[data-on="true"]::after { content: ""; position: absolute; inset: 0; border-radius: inherit; box-shadow: 0 0 var(--ov-glow, 8px) var(--ov-wave-mid); opacity: var(--ov-glow-opacity, .5); }
+
+/* A status takes the row; it rises in after the parts start to fade. */
+.ov-stl { position: absolute; inset: 0 44px 0 12px; display: none; align-items: center; justify-content: center; gap: 8px; min-width: 0; }
+.ov[data-phase="proc"] .ov-proc, .ov[data-phase="done"] .ov-done { display: flex; animation: ov-in .26s cubic-bezier(.16, 1, .3, 1) .06s both; }
+@keyframes ov-in { from { opacity: 0; filter: blur(4px); transform: translateY(4px); } }
+.ov-lbl { min-width: 0; overflow: hidden; color: var(--ov-ink-dim); font: 600 calc(14px * var(--ov-fs))/1.2 var(--ov-sans); white-space: nowrap; text-overflow: ellipsis; }
+.ov-lbl--ok { color: var(--ov-ok); }
+.ov-dots { display: inline-flex; flex: none; gap: 4px; }
+.ov-dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--ov-edge); animation: ov-bob 1s ease-in-out infinite; }
+.ov-dots i:nth-child(2) { animation-delay: .14s; }
+.ov-dots i:nth-child(3) { animation-delay: .28s; }
+@keyframes ov-bob { 0%, 100% { transform: translateY(0); opacity: .45; } 40% { transform: translateY(-4px); opacity: 1; } }
+.ov-chk { flex: none; width: 18px; height: 18px; color: var(--ov-ok); }
+.ov-chk path { fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 24; stroke-dashoffset: 24; }
+.ov[data-phase="done"] .ov-chk path { animation: ov-draw .34s .06s var(--ov-ease) forwards; }
+@keyframes ov-draw { to { stroke-dashoffset: 0; } }
+
+/* The draft opens beneath the row once the shell has room for it. */
+.ov-below { flex: 1; min-height: 0; padding: 0 14px 10px; opacity: 0; visibility: hidden; transition: opacity .2s; }
+.ov[data-draft="1"] .ov-below { opacity: 1; visibility: visible; transition-delay: .2s; }
+.ov-draft { height: 100%; overflow: hidden; color: var(--ov-ink); font: 500 calc(14px * var(--ov-fs))/1.45 var(--ov-sans); text-align: left; overflow-wrap: break-word; }
+.ov-tail { opacity: .5; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ov *, .ov *::before, .ov *::after { transition: none !important; animation: none !important; }
+  .ov .ov-chk path { stroke-dashoffset: 0; }
+}

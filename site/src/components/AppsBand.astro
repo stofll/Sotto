@@ -1,0 +1,32 @@
+---
+import { appLogoRows } from '../data/app-logos';
+import { translationsFor } from '../i18n/context';
+
+const { t } = translationsFor(Astro.currentLocale);
+const a = t.apps;
+const names = appLogoRows.flat().map((logo) => logo.name).join(', ');
+---
+
+<section id="apps" class="section apps" data-screen-label="04 Apps">
+  <div class="container section-head" data-reveal>
+    <p class="section-label">{a.eyebrow}</p>
+    <h2 class="section-title">{a.title}</h2>
+    <p class="section-lede">{a.text}</p>
+  </div>
+
+  {/* The track holds each row six times and drifts by one copy, so the five
+      copies still in view are wider than any screen and the loop never shows
+      a gap. The names are read once, below. */}
+  <div class="apps-band" data-apps aria-hidden="true">
+    {appLogoRows.map((row) => (
+      <div class="apps-row">
+        <ul class="apps-track">
+          {Array.from({ length: 6 }, () => row).flat().map((logo) => (
+            <li class="app-tile" title={logo.name}><svg viewBox="0 0 24 24" width="24" height="24"><use href={`/app-logos.svg#${logo.id}`} /></svg></li>
+          ))}
+        </ul>
+      </div>
+    ))}
+  </div>
+  <p class="sr-only">{names}</p>
+</section>

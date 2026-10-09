@@ -1,5 +1,5 @@
-import type { FeatureStepId, OverlayPalette, OverlayPhase, OverlayTemplate, ScreenRegion } from '../data/feature-tour';
-import type { LanguageGroup, ScreenId } from '../data/product';
+import type { CapabilityId } from '../data/capabilities';
+import type { LanguageGroup } from '../data/product';
 
 /**
  * The shape every locale must satisfy. Adding a string here makes TypeScript
@@ -17,19 +17,6 @@ export interface Card {
 /** A label and its value in a scene's detail list. */
 export type Detail = [string, string];
 
-export interface FeatureStep {
-  /** Short name in the step list. */
-  name: string;
-  title: string;
-  text: string;
-}
-
-/** A screenshot step: the capture's description and the regions it can zoom into. */
-export interface ScreenScene<S extends ScreenId> {
-  alt: string;
-  regions: Record<ScreenRegion<S>, Detail>;
-}
-
 export type CleanupKind = 'term' | 'rule' | 'tic' | 'finish';
 
 export interface Dictionary {
@@ -44,15 +31,13 @@ export interface Dictionary {
   };
   nav: Record<
     | 'home' | 'main' | 'mobile' | 'features' | 'models' | 'privacy' | 'faq' | 'start' | 'download'
-    | 'openMenu' | 'closeMenu' | 'footerNav' | 'skipToContent' | 'noscript' | 'language',
+    | 'openMenu' | 'closeMenu' | 'darkTheme' | 'footerNav' | 'skipToContent' | 'noscript' | 'language',
     string
   >;
   hero: {
     eyebrow: string;
     titleLine1: string;
     titleLine2: string;
-    /** Typed out one by one in the demo. */
-    phrases: string[];
     subtitle: string;
     /** Shown when the reader's system is unknown; leads to both platforms. */
     download: string;
@@ -63,59 +48,82 @@ export interface Dictionary {
     meta: string;
     /** `{version}` of the latest release, resolved at build time. */
     version: string;
+    /** The messenger on the hero's desktop. */
+    demo: {
+      app: string;
+      /** The app's menus in the macOS menu bar, after its name. */
+      menus: string[];
+      /** The clock in the Windows taskbar, above `date`. */
+      clock: string;
+      date: string;
+      /** The day and time in the macOS menu bar. */
+      menuClock: string;
+      search: string;
+      /** Name, last message, time and unread count; the first chat is the open one. */
+      chats: [string, string, string, number?][];
+      status: string;
+      /** The divider above today's messages. */
+      today: string;
+      messages: { text: string; time: string; mine?: boolean }[];
+      placeholder: string;
+      /** Raw words, as the overlay's live draft shows them. */
+      spoken: string;
+      /** The text pasted into the field. */
+      pasted: string;
+      /** One caption per step: before, during and after speaking. */
+      steps: [string, string, string];
+      /** `{n}` of `{total}` steps. */
+      stepCount: string;
+      processing: string;
+      /** The overlay's note after a paste, `{n}` characters; worded as the app words it. */
+      inserted: string;
+      /** The choice under the desktop; look and palette names as the app names them. */
+      tune: {
+        label: string;
+        auto: string;
+        looks: Record<'pill' | 'glow' | 'caps' | 'scope' | 'mini' | 'bead' | 'term', string>;
+        textLabel: string;
+        /** Why both: words while speaking depend on the model, not on the overlay. */
+        textHint: string;
+        streaming: string;
+        after: string;
+        paletteLabel: string;
+        palettes: Record<'graphite' | 'copper' | 'lagoon' | 'violet', string>;
+      };
+    };
+  };
+  apps: {
+    eyebrow: string;
+    title: string;
+    text: string;
+  };
+  cleanup: {
+    eyebrow: string;
+    title: string;
+    text: string;
+    replay: string;
+    beforeLabel: string;
+    afterLabel: string;
+    /** Plain text, or what was recognised, what came out (`''` when removed) and the step that did it. */
+    sample: (string | [string, string, CleanupKind])[];
+    rows: Record<CleanupKind, Detail>;
   };
   features: {
     eyebrow: string;
     title: string;
-    stepsLabel: string;
-    /** `{n}` of `{total}` steps. */
-    stepCount: string;
-    steps: Record<FeatureStepId, FeatureStep>;
-    catalog: ScreenScene<'models'>;
-    history: ScreenScene<'history'>;
-    cleanup: {
-      beforeLabel: string;
-      afterLabel: string;
-      /** Plain text, or what was recognised, what came out (`''` when removed) and the step that did it. */
-      sample: (string | [string, string, CleanupKind])[];
-      rows: Record<CleanupKind, Detail>;
-    };
+    listLabel: string;
+    items: Record<CapabilityId, { name: string; text: string }>;
+    /** The words the overlay streams in the voice card. */
+    draft: string;
+    models: { title: string };
     profile: {
       name: string;
-      fields: { name: string; provider: string; model: string; address: string; prompt: string };
       model: string;
       address: string;
       prompt: string;
-      rows: Detail[];
     };
-    overlay: {
-      templateLabel: string;
-      paletteLabel: string;
-      phaseLabel: string;
-      templates: Record<OverlayTemplate, string>;
-      palettes: Record<OverlayPalette, string>;
-      phases: Record<OverlayPhase, string>;
-      processing: string;
-      /** The words a streaming model shows while you speak. */
-      draft: string;
-      /** Shown under the bead and the orb while streaming, which hide the draft. */
-      hiddenDraft: string;
-      rowLabels: string[];
-      /** One value per row label, for each template. */
-      rowValues: Record<OverlayTemplate, string[]>;
-    };
-    file: {
-      title: string;
-      dragNote: string;
-      pick: string;
-      cancel: string;
-      reading: string;
-      transcribing: string;
-      local: string;
-      name: string;
-      result: string;
-      rows: Detail[];
-    };
+    history: { title: string; entries: [string, string][] };
+    file: { title: string; name: string; done: string; result: string; note: string };
   };
   models: {
     eyebrow: string;
@@ -132,6 +140,14 @@ export interface Dictionary {
     streaming: string;
     punctuation: string;
     note: string;
+    providers: {
+      title: string;
+      local: string;
+      llm: string;
+      cloud: string;
+      /** Closes the LLM and cloud lists. */
+      compatible: string;
+    };
   };
   privacy: {
     link: string;

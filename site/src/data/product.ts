@@ -87,5 +87,6 @@ export const models: Model[] = [
 /** LLM providers the formatting step ships presets for. */
 export const llmProviders = ['OpenAI', 'Anthropic', 'Gemini', 'Ollama', 'LM Studio'];
 
-/** Screens of the app's settings window captured for the feature tour, one per locale. */
-export type ScreenId = 'models' | 'history';
+/** Local recognition runtimes, as `engine` names them in the catalog above. */
+export const engines = ['whisper.cpp', 'sherpa-onnx'];
+

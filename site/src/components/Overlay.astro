@@ -1,0 +1,49 @@
+---
+import { translationsFor } from '../i18n/context';
+
+type Phase = 'rec' | 'stream' | 'proc' | 'done';
+
+interface Props {
+  /** The live words of the streaming row. */
+  draft: string;
+  /** Characters reported as pasted. */
+  count: number;
+  phase: Phase;
+}
+
+const { draft, count, phase } = Astro.props;
+const { t } = translationsFor(Astro.currentLocale);
+const d = t.hero.demo;
+const words = draft.split(' ');
+// The last two words are the part of the hypothesis most likely to change.
+const cut = Math.max(0, words.length - 2);
+const [before, after] = d.inserted.split('{n}');
+/** More bars than the widest row holds; the row keeps the newest at its right edge. */
+const BARS = 72;
+---
+
+{/* A plain HTML and CSS likeness of the app's default overlay, the "Pill"
+    template at size S in the Graphite palette (desktop/src/overlay/), with a
+    bare shell as the page shows every look: the timer capsule and the level
+    history; the draft opens beneath while a model streams; then processing,
+    and the green flash with the pasted count. The hero shows it until the
+    app's own overlay loads; the features stage shows it as is. */}
+<div class="ov" data-ov data-phase={phase} data-draft={phase === 'stream' ? '1' : '0'}>
+  <div class="ov-shell">
+    <div class="ov-gfx"></div><div class="ov-flash"></div>
+    <div class="ov-content">
+      <div class="ov-row">
+        <div class="ov-part ov-start"><span class="ov-tcap"><span class="ov-dot"></span><span class="ov-tt" data-ov-timer>0:04</span></span></div>
+        <div class="ov-part ov-center"><span class="ov-bars">{Array.from({ length: BARS }, () => <i data-ov-bar></i>)}</span></div>
+        <div class="ov-stl ov-proc"><span class="ov-dots"><i></i><i></i><i></i></span><span class="ov-lbl">{d.processing}</span></div>
+        <div class="ov-stl ov-done">
+          <svg class="ov-chk" viewBox="0 0 24 24"><path d="M5 12.5l4.2 4.2L19 7" /></svg>
+          <span class="ov-lbl ov-lbl--ok">{before}<span data-ov-count>{count}</span>{after}</span>
+        </div>
+      </div>
+      <div class="ov-below">
+        <p class="ov-draft"><bdi data-ov-draft>{words.slice(0, cut).join(' ')}</bdi> <span class="ov-tail" data-ov-tail>{words.slice(cut).join(' ')}</span></p>
+      </div>
+    </div>
+  </div>
+</div>
