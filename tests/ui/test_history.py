@@ -167,9 +167,7 @@ def test_history_details_display_raw_text(app, page):
     ui.nav("history")
     card = page.get_by_test_id("history-entry-1")
     card.get_by_role("button", name="Подробнее", exact=True).click()
-    card.get_by_role(
-        "button", name="Развернуть блок Распознавание без обработки", exact=True
-    ).click()
+    card.get_by_role("button", name="Распознавание", exact=True).click()
     expect(card).to_contain_text("raw first speech")
 
 
@@ -381,15 +379,17 @@ def test_open_history_entry_shows_what_a_late_answer_changed(app, page):
     ui.nav("settings")
     ui.emit("open-history-entry", 5)
     card = page.get_by_test_id("history-entry-5")
-    expect(card.get_by_text("Diff: до LLM → финальный")).to_be_visible()
+    llm_stage = card.get_by_role("button", name="LLM", exact=True)
+    expect(llm_stage).to_have_attribute("aria-pressed", "true")
+    expect(card).to_contain_text("Привет, как дела?")
     expect(
         card.get_by_label("LLM: обработано позже · openai / synthetic-model")
     ).to_be_attached()
-    # The request is spent: coming back to the page does not reopen the diff.
-    card.get_by_role("button", name="Скрыть diff", exact=True).click()
+    # The request is spent: coming back to the page does not reopen the details.
+    card.get_by_role("button", name="Скрыть детали", exact=True).click()
     ui.nav("settings")
     ui.nav("history")
-    expect(card.get_by_text("Diff: до LLM → финальный")).to_have_count(0)
+    expect(llm_stage).to_have_count(0)
 
 
 def test_history_names_a_meaning_change_fallback(app, page):

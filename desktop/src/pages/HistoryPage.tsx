@@ -13,7 +13,7 @@ import { Icon } from "../components/Icon";
 import { Hint } from "../components/Hint";
 import { confirmDestructive } from "../components/ConfirmDialog";
 import { CustomSelect } from "../components/CustomSelect";
-import { DiffBlock } from "../components/DiffBlock";
+import { DiffBlock, DiffText } from "../components/DiffBlock";
 import type { ConfigResult, HistoryAiPreview, HistoryEntry } from "../bridge/types";
 import { effectiveSystemPrompt } from "./aiShared";
 import { localeTag, t, tPlural } from "../i18n";
@@ -220,6 +220,7 @@ async function copyToClipboard(text: string): Promise<boolean> {
 }
 
 function entryHasDetails(entry: HistoryEntry): boolean {
+  if (entry.raw_text || entry.formatted_text) return true;
   if (entry.formatted_text && entry.formatted_text !== entry.text) return true;
   if (entry.raw_text && entry.raw_text !== entry.formatted_text && entry.raw_text !== entry.text) return true;
   if (entry.ai_processing?.provider_error) return true;
@@ -335,7 +336,6 @@ export function HistoryPage({ focus = null }: { focus?: { id: number; seq: numbe
 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set());
   const [openMenuId, setOpenMenuId] = useState<number | null>(null);
-  const [diffEntryIds, setDiffEntryIds] = useState<Set<number>>(() => new Set());
   const [freshIds, setFreshIds] = useState<Set<number>>(() => new Set());
 
   const seenIdsRef = useRef<Set<number>>(new Set());
@@ -446,7 +446,7 @@ export function HistoryPage({ focus = null }: { focus?: { id: number; seq: numbe
     if (!focus || focus.seq === handledFocus.current) return;
     if (!entries.some((entry) => entry.id === focus.id)) return;
     handledFocus.current = focus.seq;
-    setDiffEntryIds((current) => new Set(current).add(focus.id));
+    setExpandedDetailIds((current) => new Set(current).add(focus.id));
     requestAnimationFrame(() => {
       document.getElementById(`history-entry-${focus.id}`)?.scrollIntoView({ block: "center" });
     });
@@ -488,15 +488,6 @@ export function HistoryPage({ focus = null }: { focus?: { id: number; seq: numbe
 
   function toggleDetails(id: number) {
     setExpandedDetailIds((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
-
-  function toggleDiff(id: number) {
-    setDiffEntryIds((current) => {
       const next = new Set(current);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -837,8 +828,6 @@ export function HistoryPage({ focus = null }: { focus?: { id: number; seq: numbe
                       onToggleSelected={() => toggleSelected(entry.id)}
                       detailsExpanded={expandedDetailIds.has(entry.id)}
                       onToggleDetails={() => toggleDetails(entry.id)}
-                      diffOn={diffEntryIds.has(entry.id)}
-                      onToggleDiff={() => toggleDiff(entry.id)}
                       fresh={freshIds.has(entry.id)}
                       copiedId={copiedId}
                       onCopy={() => void handleCopy(entry)}
@@ -1015,8 +1004,6 @@ function EntryCard(props: {
   onToggleSelected: () => void;
   detailsExpanded: boolean;
   onToggleDetails: () => void;
-  diffOn: boolean;
-  onToggleDiff: () => void;
   fresh: boolean;
   copiedId: number | null;
   onCopy: () => void;
@@ -1047,7 +1034,7 @@ function EntryCard(props: {
 }) {
   const {
     entry, viewMode, selected, onToggleSelected, detailsExpanded, onToggleDetails,
-    diffOn, onToggleDiff, fresh, copiedId, onCopy, onDelete,
+    fresh, copiedId, onCopy, onDelete,
     currentAiConfig,
     copiedBlockKey, onCopyBlock, expandedBlockKeys, onToggleBlock,
     reprocessOpen, onOpenReprocess, onCloseReprocess, reprocessProfileId, onReprocessProfileId,
@@ -1056,11 +1043,9 @@ function EntryCard(props: {
   } = props;
 
   const compact = viewMode === "list" && !detailsExpanded;
-  const formattedKey = `${entry.id}:formatted`;
-  const rawKey = `${entry.id}:raw`;
+  const [stage, setStage] = useState<TextStage | null>(null);
   const canReprocess = reprocessSource(entry).length > 0;
   const hasDetails = entryHasDetails(entry);
-  const canDiff = !!(entry.formatted_text && entry.formatted_text !== entry.text);
   const rejected = entry.ai_processing?.rejected_text;
   const variant = rejected && rejected !== entry.text ? rejected : null;
   const variantKey = `${entry.id}:variant`;
@@ -1138,17 +1123,12 @@ function EntryCard(props: {
             >
               {entry.text}
             </div>
-            {(hasDetails || canDiff || canReprocess || !!variant) && (
+            {(hasDetails || canReprocess || !!variant) && (
               <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 6 }}>
                 {hasDetails && (
                   <button className="btn btn--ghost" onClick={onToggleDetails} aria-expanded={detailsExpanded} style={{ height: 24 }}>
                     <Icon name={detailsExpanded ? "chev-down" : "chev"} size={11} style={{ transform: detailsExpanded ? undefined : "rotate(90deg)" }}/>
                     {detailsExpanded ? t("Скрыть детали") : t("Подробнее")}
-                  </button>
-                )}
-                {canDiff && (
-                  <button className="btn btn--ghost" onClick={onToggleDiff} aria-pressed={diffOn} style={{ height: 24 }}>
-                    <Icon name="compare" size={11}/>{diffOn ? t("Скрыть diff") : t("Сравнить с до-LLM")}
                   </button>
                 )}
                 {variant && (
@@ -1164,13 +1144,10 @@ function EntryCard(props: {
                     aria-expanded={reprocessOpen}
                     style={{ height: 24 }}
                   >
-                    <Icon name="wand" size={11}/>{t("Обработать через LLM")}
+                    <Icon name="sparkle" size={11}/>{t("Обработать через LLM")}
                   </button>
                 )}
               </div>
-            )}
-            {diffOn && canDiff && (
-              <DiffBlock before={entry.formatted_text || ""} after={entry.text}/>
             )}
             {variant && variantOpen && (
               <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
@@ -1212,30 +1189,13 @@ function EntryCard(props: {
                     onCopy={() => onCopyBlock(`${entry.id}:provider_error`, entry.ai_processing?.provider_error ?? "")}
                   />
                 )}
-                {entry.formatted_text && entry.formatted_text !== entry.text && (
-                  <HistoryTextBlock
-                    title={t("До LLM, после локальной обработки")}
-                    text={entry.formatted_text}
-                    muted
-                    collapsible
-                    collapsed={!expandedBlockKeys.has(formattedKey)}
-                    copied={copiedBlockKey === formattedKey}
-                    onToggle={() => onToggleBlock(formattedKey)}
-                    onCopy={() => onCopyBlock(formattedKey, entry.formatted_text ?? "")}
-                  />
-                )}
-                {entry.raw_text && entry.raw_text !== entry.formatted_text && entry.raw_text !== entry.text && (
-                  <HistoryTextBlock
-                    title={t("Распознавание без обработки")}
-                    text={entry.raw_text}
-                    muted
-                    collapsible
-                    collapsed={!expandedBlockKeys.has(rawKey)}
-                    copied={copiedBlockKey === rawKey}
-                    onToggle={() => onToggleBlock(rawKey)}
-                    onCopy={() => onCopyBlock(rawKey, entry.raw_text ?? "")}
-                  />
-                )}
+                <StageView
+                  entry={entry}
+                  stage={stage ?? defaultStage(entry)}
+                  onStage={setStage}
+                  copiedKey={copiedBlockKey}
+                  onCopy={onCopyBlock}
+                />
               </div>
             )}
           </>
@@ -1473,8 +1433,11 @@ function ReprocessPanel({
   );
 }
 
-function StatTile({ label, value }: { label: string; value: string }) {
-  return (
+type Tone = "ok" | "warn" | "mute";
+const TONE_COLOR: Record<Tone, string> = { ok: "var(--ok)", warn: "var(--warn)", mute: "var(--ink-faint)" };
+
+function StatTile({ label, value, tone, hint }: { label: string; value: string; tone?: Tone; hint?: string }) {
+  const tile = (
     <div style={{
       display: "grid",
       gap: 3,
@@ -1483,51 +1446,150 @@ function StatTile({ label, value }: { label: string; value: string }) {
       borderRadius: "var(--radius-sm)",
       border: "1px solid var(--line)",
       minWidth: 0,
+      flex: 1,
     }}>
-      <span style={{ font: "600 12.5px/1 var(--font-mono)", color: "var(--ink)" }}>{value}</span>
-      <span style={{ font: "500 9.5px/1 var(--font-mono)", color: "var(--ink-mute)", textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</span>
+      <span style={{ font: "600 12.5px/1 var(--font-mono)", color: tone ? TONE_COLOR[tone] : "var(--ink)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{value}</span>
+      <span style={{ font: "500 9.5px/1 var(--font-mono)", color: "var(--ink-mute)", textTransform: "uppercase", letterSpacing: "0.05em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
     </div>
   );
+  return hint ? <Hint text={hint} className="hint-anchor--block">{tile}</Hint> : tile;
+}
+
+/** The text before formatting, or `undefined` for entries recorded before the
+ *  stages were stored. */
+function recognizedText(entry: HistoryEntry): string | undefined {
+  return entry.raw_text || entry.formatted_text || undefined;
+}
+
+function formattedText(entry: HistoryEntry): string {
+  return entry.formatted_text || entry.raw_text || entry.text;
+}
+
+/** What the LLM step did, as one short tile: its time when it ran, otherwise
+ *  why not. The full sentence is the tile's hint. */
+function llmTile(entry: HistoryEntry): { value: string; label: string; tone?: Tone } | null {
+  const ai = entry.ai_processing;
+  const seconds = entry.processing_stats?.llm_seconds ?? ai?.elapsed_seconds;
+  const time = typeof seconds === "number" && Number.isFinite(seconds) ? formatSeconds(seconds) : "—";
+  switch (aiStatusKind(entry)) {
+    case "none":
+      return time === "—" ? null : { value: time, label: "LLM" };
+    case "processed":
+      return { value: time, label: "LLM" };
+    case "fallback":
+      return { value: time, label: `LLM · ${aiFallbackLabel(ai?.error_type, ai?.skipped_reason)}`, tone: "warn" };
+    case "skipped": {
+      const reason = !ai?.enabled || ai.skipped_reason === "local_mode"
+        ? t("выкл")
+        : ai.skipped_reason === "duration_below_threshold"
+          ? t("< {p0} с", { p0: Math.round(ai.min_duration_seconds ?? 0) })
+          : null;
+      return { value: t("пропуск"), label: reason ? `LLM · ${reason}` : "LLM", tone: "mute" };
+    }
+  }
 }
 
 function StatsGrid({ entry }: { entry: HistoryEntry }) {
   const stats = entry.processing_stats;
   const ai = entry.ai_processing;
   const audioSeconds = stats?.audio_seconds ?? ai?.audio_duration_seconds;
-  const tiles: Array<{ label: string; value: number | null | undefined }> = [
-    { label: t("Аудио"), value: audioSeconds },
-    { label: "STT", value: stats?.whisper_seconds },
-    { label: t("Формат"), value: stats?.format_seconds },
-    { label: "LLM", value: stats?.llm_seconds },
-    { label: t("Всего"), value: stats?.total_seconds },
+  const seconds = (value: number | undefined) => (typeof value === "number" && Number.isFinite(value) ? formatSeconds(value) : null);
+  const recognized = recognizedText(entry);
+  const formatChanged = recognized !== undefined && recognized !== formattedText(entry);
+  const llm = llmTile(entry);
+  const tiles: Array<{ label: string; value: string | null; tone?: Tone; hint?: string }> = [
+    { label: t("Аудио"), value: seconds(audioSeconds) },
+    { label: "STT", value: seconds(stats?.whisper_seconds) },
+    {
+      label: t("Формат"),
+      value: recognized === undefined ? null : formatChanged ? t("изменён") : t("без изм."),
+      tone: formatChanged ? "ok" : "mute",
+      hint: formatChanged ? t("Форматирование изменило распознанный текст") : t("Форматирование не меняло распознанный текст"),
+    },
+    { label: llm?.label ?? "LLM", value: llm?.value ?? null, tone: llm?.tone, hint: aiStatusKind(entry) === "none" ? undefined : aiStatusText(entry) },
+    { label: t("Всего"), value: seconds(stats?.total_seconds) },
   ];
-  const visible = tiles.filter(({ value }) => typeof value === "number" && Number.isFinite(value));
+  const visible = tiles.filter((tile): tile is typeof tile & { value: string } => tile.value !== null);
   const replacements = stats?.replacement_stats?.total ?? 0;
-  const chips: string[] = [];
-  if (ai?.timeout_seconds) chips.push(t("LLM timeout {p0} с", { p0: ai.timeout_seconds }));
-  if (ai?.attempt_timeout_seconds && ai.attempt_timeout_seconds !== ai.timeout_seconds) chips.push(t("попытка {p0} с", { p0: ai.attempt_timeout_seconds }));
-  if (ai?.attempts && ai.attempts > 1) chips.push(t("попыток {p0}", { p0: ai.attempts }));
-  if (ai?.error_type) chips.push(ai.error_type);
+  const attempts = ai?.attempts && ai.attempts > 1 ? t("попыток {p0}", { p0: ai.attempts }) : null;
 
-  if (visible.length === 0 && chips.length === 0 && replacements === 0) return null;
+  if (visible.length === 0 && !attempts && replacements === 0) return null;
 
   return (
     <div style={{ marginBottom: 10, display: "grid", gap: 8 }}>
       {visible.length > 0 && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(72px, 1fr))", gap: 6 }}>
-          {visible.map(({ label, value }) => (
-            <StatTile key={label} label={label} value={formatSeconds(value)}/>
+          {visible.map(({ label, value, tone, hint }) => (
+            <StatTile key={label} label={label} value={value} tone={tone} hint={hint}/>
           ))}
           {replacements > 0 && <StatTile label={t("Замен")} value={String(replacements)}/>}
         </div>
       )}
-      {chips.length > 0 && (
+      {attempts && (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-          {chips.map((text) => (
-            <span key={text} className="tag" style={{ height: 20, fontSize: 10 }}>{text}</span>
-          ))}
+          <span className="tag" style={{ height: 20, fontSize: 10 }}>{attempts}</span>
         </div>
       )}
+    </div>
+  );
+}
+
+type TextStage = "raw" | "formatted" | "llm";
+
+/** The stage a details panel opens on: the last one that produced the text. */
+function defaultStage(entry: HistoryEntry): TextStage {
+  return aiStatusKind(entry) === "processed" ? "llm" : "formatted";
+}
+
+/** One recognized text at a time instead of a stack of near-identical blocks.
+ *  Formatting and LLM show what they changed against the previous stage; the
+ *  copy button always takes the clean text of the stage on screen. */
+function StageView({ entry, stage, onStage, copiedKey, onCopy }: {
+  entry: HistoryEntry;
+  stage: TextStage;
+  onStage: (stage: TextStage) => void;
+  copiedKey: string | null;
+  onCopy: (key: string, text: string) => void;
+}) {
+  const recognized = recognizedText(entry);
+  if (recognized === undefined) return null;
+  const formatted = formattedText(entry);
+  const llmUsed = aiStatusKind(entry) === "processed";
+  const text = stage === "raw" ? recognized : stage === "formatted" ? formatted : llmUsed ? entry.text : null;
+  const copyKey = `${entry.id}:stage:${stage}`;
+  const copied = copiedKey === copyKey;
+  const textStyle = { font: "400 13px/1.5 var(--font-sans)", color: "var(--ink)", whiteSpace: "pre-wrap", overflowWrap: "break-word", minWidth: 0 } as const;
+
+  return (
+    <div style={{ display: "grid", gap: 8 }}>
+      <div>
+        <Segmented value={stage} onChange={(value) => onStage(value as TextStage)} options={[
+          { value: "raw", label: t("Распознавание") },
+          { value: "formatted", label: t("Форматирование") },
+          { value: "llm", label: "LLM" },
+        ]}/>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", gap: 8, alignItems: "start", padding: 10, borderRadius: "var(--radius-sm)", background: "var(--bg-3)", border: "1px solid var(--line)" }}>
+        {text === null ? (
+          <div style={{ ...textStyle, color: "var(--ink-mute)" }}>{aiStatusText(entry)}</div>
+        ) : (
+          <div style={textStyle}>
+            {stage === "raw" ? text : <DiffText before={stage === "formatted" ? recognized : formatted} after={text}/>}
+          </div>
+        )}
+        {text !== null && (
+          <Hint text={copied ? t("Скопировано") : t("Скопировать в буфер обмена")}>
+            <button
+              className={copied ? "btn btn--primary" : "btn btn--ghost"}
+              onClick={() => onCopy(copyKey, text)}
+              aria-label={t("Копировать текст этапа")}
+              style={{ height: 22, padding: "0 6px" }}
+            >
+              <Icon name={copied ? "check" : "copy"} size={10}/>
+            </button>
+          </Hint>
+        )}
+      </div>
     </div>
   );
 }
