@@ -812,6 +812,8 @@ export const en: Record<string, string | string[]> = {
   "лимит": "rate limit",
   "сеть": "network",
   "неожиданный ответ": "unexpected response",
+  "провайдер отклонил запрос": "provider rejected the request",
+  "неизвестный провайдер": "unknown provider",
   "пустой ответ": "empty response",
   "за всё время": "all time",
   "за {p0}": "for the {p0}",
