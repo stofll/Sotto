@@ -4,7 +4,7 @@ use serde_json::{Map, Value};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{LazyLock, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::SystemTime;
 use tauri::{AppHandle, Manager};
 
@@ -34,8 +34,10 @@ pub fn read_locked<T>(path: &Path, read: impl FnOnce(&Config) -> T) -> Result<T,
 /// A single dictation asks for the config several times, and most of those
 /// reads sit between the transcript and the paste. A changed stamp — a hand
 /// edit or another tool writing the file — sends the next load to disk.
-static LOADED: LazyLock<Mutex<HashMap<PathBuf, (FileStamp, Value)>>> =
-    LazyLock::new(Default::default);
+/// Loads share the cached tree; a writer copies it on its first change.
+static LOADED: LazyLock<Mutex<HashMap<PathBuf, Loaded>>> = LazyLock::new(Default::default);
+
+type Loaded = (FileStamp, Arc<Value>);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct FileStamp {
@@ -51,8 +53,8 @@ fn file_stamp(path: &Path) -> Option<FileStamp> {
     })
 }
 
-fn remember(path: &Path, stamp: FileStamp, data: &Value) {
-    crate::mutex_recover::lock(&LOADED).insert(path.to_owned(), (stamp, data.clone()));
+fn remember(path: &Path, stamp: FileStamp, data: &Arc<Value>) {
+    crate::mutex_recover::lock(&LOADED).insert(path.to_owned(), (stamp, Arc::clone(data)));
 }
 
 /// Value of the `device` config key meaning "run inference on the GPU".
@@ -155,11 +157,11 @@ fn initialize_onboarding_at(path: &Path, has_models: impl FnOnce() -> bool) -> R
     })
 }
 
-/// Owned snapshot of `config.json`; cloning copies the JSON tree.
-/// Disk writers load their snapshot inside `with_locked_config`.
+/// Snapshot of `config.json`. Snapshots share one JSON tree until one of them
+/// changes it. Disk writers load their snapshot inside `with_locked_config`.
 #[derive(Debug, Clone)]
 pub struct Config {
-    data: Value,
+    data: Arc<Value>,
 }
 
 impl Config {
@@ -179,13 +181,15 @@ impl Config {
         if let Some(stamp) = stamp {
             if let Some((cached, data)) = crate::mutex_recover::lock(&LOADED).get(path) {
                 if *cached == stamp {
-                    return Ok(Self { data: data.clone() });
+                    return Ok(Self {
+                        data: Arc::clone(data),
+                    });
                 }
             }
         }
         if !path.exists() {
             return Ok(Self {
-                data: Value::Object(Map::new()),
+                data: Arc::new(Value::Object(Map::new())),
             });
         }
         let raw = fs::read_to_string(path).map_err(|e| format!("read config.json: {e}"))?;
@@ -193,6 +197,7 @@ impl Config {
             serde_json::from_str(&raw).map_err(|e| format!("parse config.json: {e}"))?;
         crate::dictionaries::migrate(&mut data);
         crate::overlay_preferences::migrate(&mut data);
+        let data = Arc::new(data);
         if let Some(stamp) = stamp {
             remember(path, stamp, &data);
         }
@@ -206,8 +211,7 @@ impl Config {
 
     /// Set a single key in this owned snapshot.
     pub fn set(&mut self, key: &str, value: Value) -> Result<(), String> {
-        let map = self
-            .data
+        let map = Arc::make_mut(&mut self.data)
             .as_object_mut()
             .ok_or_else(|| "config root is not a JSON object".to_string())?;
         map.insert(key.to_string(), value);
@@ -255,8 +259,8 @@ impl Config {
     /// The patch is merged into `self.data` (objects recurse, null
     /// removes keys, scalars/arrays replace atomically).
     pub fn apply_merge_patch(&mut self, patch: &Value) -> Result<(), String> {
-        let merged = merge_json_patch(self.as_value().clone(), patch.clone());
-        self.data = merged;
+        let current = Arc::unwrap_or_clone(std::mem::take(&mut self.data));
+        self.data = Arc::new(merge_json_patch(current, patch.clone()));
         Ok(())
     }
 }
@@ -393,8 +397,11 @@ fn migrate_legacy_device_config(cfg: &mut Config, path: &Path) -> Result<bool, S
         cfg.set("device", Value::String(DEVICE_GPU.to_string()))?;
         changed = true;
     }
-    if let Some(map) = cfg.data.as_object_mut() {
-        changed |= map.remove("compute_type").is_some();
+    if cfg.data.get("compute_type").is_some() {
+        if let Some(map) = Arc::make_mut(&mut cfg.data).as_object_mut() {
+            map.remove("compute_type");
+        }
+        changed = true;
     }
     if changed {
         cfg.save_at(path)?;
@@ -1025,7 +1032,9 @@ mod tests {
     }
 
     fn make_config() -> Config {
-        Config { data: json!({}) }
+        Config {
+            data: Arc::new(json!({})),
+        }
     }
 
     #[test]
@@ -1053,7 +1062,7 @@ mod tests {
     #[test]
     fn set_preserves_unrelated_keys() {
         let mut c = Config {
-            data: json!({"theme": "dark", "hotkey": "ctrl+space"}),
+            data: Arc::new(json!({"theme": "dark", "hotkey": "ctrl+space"})),
         };
         c.set("hotkey", json!("ctrl+shift+a")).unwrap();
         assert_eq!(c.get_string("theme").as_deref(), Some("dark"));
@@ -1066,7 +1075,7 @@ mod tests {
         // where someone hand-wrote `"hotkey"` (no object wrapper). The
         // setter must surface the error rather than panic.
         let mut c = Config {
-            data: json!("not an object"),
+            data: Arc::new(json!("not an object")),
         };
         let result = c.set("hotkey", json!("ctrl+shift+a"));
         assert!(result.is_err());
@@ -1182,7 +1191,7 @@ mod tests {
     #[test]
     fn apply_merge_patch_mutates_config_in_place() {
         let mut cfg = Config {
-            data: json!({ "theme": "dark" }),
+            data: Arc::new(json!({ "theme": "dark" })),
         };
         cfg.apply_merge_patch(&json!({ "hotkey": "ctrl+space" }))
             .unwrap();
@@ -1200,6 +1209,24 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let cfg = Config::load_at(&dir.path().join("nope.json")).unwrap();
         assert!(cfg.as_value().as_object().unwrap().is_empty());
+    }
+
+    #[test]
+    fn unsaved_change_stays_out_of_cached_loads() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        fs::write(&path, json!({"theme": "dark"}).to_string()).unwrap();
+        let mut edited = Config::load_at(&path).unwrap();
+        let other = Config::load_at(&path).unwrap();
+        edited.set("theme", json!("light")).unwrap();
+        edited
+            .apply_merge_patch(&json!({"hotkey": "alt+a"}))
+            .unwrap();
+        assert_eq!(other.as_value(), &json!({"theme": "dark"}));
+        assert_eq!(
+            Config::load_at(&path).unwrap().as_value(),
+            &json!({"theme": "dark"})
+        );
     }
 
     #[test]
@@ -1314,10 +1341,12 @@ mod tests {
     #[test]
     fn disabled_dictionary_sets_do_not_reach_whisper_prompt() {
         let cfg = Config {
-            data: json!({"text_formatting": {"enabled": false, "dictionary_sets": [
-                {"id": "a", "name": "A", "enabled": false, "words": ["Hidden"]},
-                {"id": "b", "name": "B", "enabled": true, "words": ["Claude Code", "Tauri"]}
-            ]}}),
+            data: Arc::new(
+                json!({"text_formatting": {"enabled": false, "dictionary_sets": [
+                    {"id": "a", "name": "A", "enabled": false, "words": ["Hidden"]},
+                    {"id": "b", "name": "B", "enabled": true, "words": ["Claude Code", "Tauri"]}
+                ]}}),
+            ),
         };
         assert_eq!(
             crate::custom_words_prompt(&cfg).as_deref(),
@@ -1386,7 +1415,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.json");
         let cfg = Config {
-            data: json!({ "hotkey": "ctrl+shift+a", "theme": "dark" }),
+            data: Arc::new(json!({ "hotkey": "ctrl+shift+a", "theme": "dark" })),
         };
         cfg.save_at(&path).unwrap();
 
@@ -1400,10 +1429,15 @@ mod tests {
     #[test]
     fn hotkey_from_returns_configured_value_or_default() {
         let cfg = Config {
-            data: json!({ "hotkey": "alt+space" }),
+            data: Arc::new(json!({ "hotkey": "alt+space" })),
         };
         assert_eq!(hotkey_from(&cfg), "alt+space");
-        assert_eq!(hotkey_from(&Config { data: json!({}) }), DEFAULT_HOTKEY);
+        assert_eq!(
+            hotkey_from(&Config {
+                data: Arc::new(json!({}))
+            }),
+            DEFAULT_HOTKEY
+        );
     }
 
     #[test]
