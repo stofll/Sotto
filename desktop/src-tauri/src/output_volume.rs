@@ -63,6 +63,69 @@ pub fn restore() {
     submit(Request::Restore { reply: None });
 }
 
+/// [`restore`] that waits for the worker, for the exit path: a queued restore
+/// would never run once the process is gone.
+pub fn restore_before_exit() {
+    #[cfg(windows)]
+    if WORKER.get().is_some() {
+        if let Err(error) = request_with_reply(|reply| Request::Restore { reply: Some(reply) }) {
+            log::warn!("output volume: restore on exit: {error}");
+        }
+    }
+}
+
+/// Put back what an earlier run ducked and never restored — it crashed or was
+/// killed mid-recording. Windows keeps an application's volume across its
+/// restarts, so without this the other apps would stay quiet for good.
+pub fn recover() {
+    if journal_path().exists() {
+        submit(Request::Recover);
+    }
+}
+
+/// The ducked sessions, kept on disk from the duck until its restore.
+const JOURNAL_FILE: &str = "output-duck.json";
+
+fn journal_path() -> std::path::PathBuf {
+    crate::user_data::data_dir().join(JOURNAL_FILE)
+}
+
+/// One ducked session, by the identifier Windows keeps its volume under — it
+/// survives the application's restart, unlike the session instance.
+#[cfg_attr(not(windows), allow(dead_code))]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+struct Ducked {
+    session: String,
+    original: f32,
+    ducked: f32,
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+fn write_journal(path: &std::path::Path, entries: &[Ducked]) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    let json = serde_json::to_vec(entries).map_err(|error| error.to_string())?;
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, json).map_err(|error| error.to_string())?;
+    std::fs::rename(&tmp, path).map_err(|error| error.to_string())
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+fn read_journal(path: &std::path::Path) -> Vec<Ducked> {
+    std::fs::read(path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
+}
+
+/// Whether a session still sits where the duck left it. Any other level is a
+/// change made since — by the user or the app itself — and stays.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn still_ducked(current: f32, ducked: f32) -> bool {
+    (current - ducked).abs() < 0.005
+}
+
 /// Temporarily duck the output and report backend errors to the caller.
 /// Used by the settings-page check; unlike normal recording this waits for
 /// the worker so a broken endpoint is visible instead of being only a log.
@@ -99,6 +162,7 @@ enum Request {
     Restore {
         reply: Option<std::sync::mpsc::Sender<Result<(), String>>>,
     },
+    Recover,
 }
 
 /// Run volume changes on one dedicated thread.
@@ -120,11 +184,12 @@ fn submit(request: Request) {
 }
 
 #[cfg(windows)]
-fn worker() -> &'static std::sync::mpsc::SyncSender<Request> {
-    use std::sync::mpsc::{sync_channel, SyncSender};
-    use std::sync::OnceLock;
+static WORKER: std::sync::OnceLock<std::sync::mpsc::SyncSender<Request>> =
+    std::sync::OnceLock::new();
 
-    static WORKER: OnceLock<SyncSender<Request>> = OnceLock::new();
+#[cfg(windows)]
+fn worker() -> &'static std::sync::mpsc::SyncSender<Request> {
+    use std::sync::mpsc::sync_channel;
 
     WORKER.get_or_init(|| {
         let (tx, rx) = sync_channel::<Request>(4);
@@ -138,19 +203,26 @@ fn worker() -> &'static std::sync::mpsc::SyncSender<Request> {
                 // What the volume was before we touched it. `None` means we
                 // are not currently ducked.
                 let mut previous = None;
+                let journal = journal_path();
                 while let Ok(request) = rx.recv() {
                     let (outcome, reply) = match request {
                         Request::Duck { level, reply } => (
                             // SAFETY: same thread as the `init_com` above.
-                            unsafe { windows_impl::duck(&mut previous, level) }
+                            unsafe { windows_impl::duck(&mut previous, level, &journal) }
                                 .map_err(|error| error.to_string()),
                             reply,
                         ),
                         Request::Restore { reply } => (
                             // SAFETY: same thread as the `init_com` above.
-                            unsafe { windows_impl::restore(&mut previous) }
+                            unsafe { windows_impl::restore(&mut previous, &journal) }
                                 .map_err(|error| error.to_string()),
                             reply,
+                        ),
+                        Request::Recover => (
+                            // SAFETY: same thread as the `init_com` above.
+                            unsafe { windows_impl::recover(&journal) }
+                                .map_err(|error| error.to_string()),
+                            None,
                         ),
                     };
                     if let Err(error) = &outcome {
@@ -190,8 +262,11 @@ mod windows_impl {
         IAudioSessionManager2, IMMDeviceEnumerator, ISimpleAudioVolume, MMDeviceEnumerator,
     };
     use windows::Win32::System::Com::{
-        CoCreateInstance, CoInitializeEx, CLSCTX_ALL, COINIT_MULTITHREADED,
+        CoCreateInstance, CoInitializeEx, CoTaskMemFree, CLSCTX_ALL, COINIT_MULTITHREADED,
     };
+
+    use super::{read_journal, still_ducked, write_journal, Ducked};
+    use std::path::Path;
 
     /// # Safety
     /// Must run on the volume worker thread, once, before any other call
@@ -217,9 +292,18 @@ mod windows_impl {
         device.Activate::<IAudioSessionManager2>(CLSCTX_ALL, None)
     }
 
-    /// The live sessions of other processes. Our own is left out so the cues
-    /// keep their volume whenever they play relative to the duck.
-    unsafe fn foreign_sessions() -> Result<Vec<ISimpleAudioVolume>> {
+    /// The identifier Windows keeps a session's volume under, if it reads.
+    unsafe fn session_identifier(control: &IAudioSessionControl2) -> Option<String> {
+        let id = control.GetSessionIdentifier().ok()?;
+        let text = id.to_string().ok();
+        CoTaskMemFree(Some(id.0 as *const _));
+        text
+    }
+
+    /// The live sessions of other processes, with their identifiers. Our own
+    /// is left out so the cues keep their volume whenever they play relative
+    /// to the duck.
+    unsafe fn foreign_sessions() -> Result<Vec<(ISimpleAudioVolume, Option<String>)>> {
         let sessions = session_manager()?.GetSessionEnumerator()?;
         let own_pid = std::process::id();
         let mut out = Vec::new();
@@ -240,7 +324,7 @@ mod windows_impl {
                 continue;
             }
             if let Ok(volume) = control.cast::<ISimpleAudioVolume>() {
-                out.push(volume);
+                out.push((volume, session_identifier(&control2)));
             }
         }
         Ok(out)
@@ -254,21 +338,27 @@ mod windows_impl {
     /// [`init_com`] created — in practice the single volume worker, which is
     /// the only place this is called from. The interfaces stored in
     /// `previous` belong to that apartment and cannot be used outside it.
-    pub unsafe fn duck(previous: &mut Option<DuckState>, level: f32) -> Result<()> {
+    pub unsafe fn duck(previous: &mut Option<DuckState>, level: f32, journal: &Path) -> Result<()> {
         if previous.is_some() {
             return Ok(()); // already ducked
         }
         let mut ducked = Vec::new();
+        let mut entries = Vec::new();
         // Per-session failures are skipped rather than returned: a session
         // already lowered must still be remembered, or it would stay quiet.
-        for volume in foreign_sessions()? {
+        for (volume, session) in foreign_sessions()? {
             let Ok(current) = volume.GetMasterVolume() else {
                 continue;
             };
-            if volume
-                .SetMasterVolume(current * level, std::ptr::null())
-                .is_ok()
-            {
+            let lowered = current * level;
+            if volume.SetMasterVolume(lowered, std::ptr::null()).is_ok() {
+                if let Some(session) = session {
+                    entries.push(Ducked {
+                        session,
+                        original: current,
+                        ducked: lowered,
+                    });
+                }
                 ducked.push((volume, current));
             }
         }
@@ -276,6 +366,11 @@ mod windows_impl {
             "output volume: ducked {} session(s) to {level:.3}",
             ducked.len()
         );
+        if !entries.is_empty() {
+            if let Err(error) = write_journal(journal, &entries) {
+                log::warn!("output volume: journal not written: {error}");
+            }
+        }
         if !ducked.is_empty() {
             *previous = Some(DuckState(ducked));
         }
@@ -285,7 +380,7 @@ mod windows_impl {
     /// # Safety
     /// Must run in the same COM apartment as the [`duck`] call that filled
     /// `previous`: the session interfaces inside it cannot cross apartments.
-    pub unsafe fn restore(previous: &mut Option<DuckState>) -> Result<()> {
+    pub unsafe fn restore(previous: &mut Option<DuckState>, journal: &Path) -> Result<()> {
         let Some(DuckState(ducked)) = previous.take() else {
             return Ok(());
         };
@@ -297,7 +392,39 @@ mod windows_impl {
                 log::debug!("output volume: session not restored: {error}");
             }
         }
+        let _ = std::fs::remove_file(journal);
         log::info!("output volume: restored {} session(s)", ducked.len());
+        Ok(())
+    }
+
+    /// Restore the sessions an earlier run left ducked, from its journal.
+    ///
+    /// # Safety
+    /// Same apartment rule as [`duck`].
+    pub unsafe fn recover(journal: &Path) -> Result<()> {
+        let entries = read_journal(journal);
+        let mut restored = 0;
+        if !entries.is_empty() {
+            for (volume, session) in foreign_sessions()? {
+                let Some(entry) = session
+                    .and_then(|session| entries.iter().find(|entry| entry.session == session))
+                else {
+                    continue;
+                };
+                let Ok(current) = volume.GetMasterVolume() else {
+                    continue;
+                };
+                if still_ducked(current, entry.ducked)
+                    && volume
+                        .SetMasterVolume(entry.original, std::ptr::null())
+                        .is_ok()
+                {
+                    restored += 1;
+                }
+            }
+        }
+        let _ = std::fs::remove_file(journal);
+        log::info!("output volume: recovered {restored} session(s) left ducked by an earlier run");
         Ok(())
     }
 }
@@ -366,6 +493,29 @@ mod tests {
         restore();
     }
 
+    #[test]
+    fn the_journal_round_trips_and_a_missing_one_reads_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nested").join(JOURNAL_FILE);
+        assert!(read_journal(&path).is_empty());
+        let entries = vec![Ducked {
+            session: "{0.0.0.00000000}.{guid}|player.exe".into(),
+            original: 0.8,
+            ducked: 0.16,
+        }];
+        write_journal(&path, &entries).unwrap();
+        assert_eq!(read_journal(&path), entries);
+        std::fs::write(&path, b"not json").unwrap();
+        assert!(read_journal(&path).is_empty());
+    }
+
+    #[test]
+    fn recovery_leaves_a_volume_changed_since_the_duck() {
+        assert!(still_ducked(0.16, 0.16));
+        assert!(still_ducked(0.162, 0.16));
+        assert!(!still_ducked(0.5, 0.16));
+    }
+
     /// Touches the real audio endpoint:
     /// `cargo test --lib output_volume::tests::round_trip -- --ignored --nocapture`
     ///
@@ -382,11 +532,14 @@ mod tests {
         unsafe {
             windows_impl::init_com();
             let before = read_master_volume().expect("read volume");
+            let dir = tempfile::tempdir().unwrap();
+            let journal = dir.path().join(JOURNAL_FILE);
             let mut previous = None;
-            windows_impl::duck(&mut previous, 0.05).expect("duck");
+            windows_impl::duck(&mut previous, 0.05, &journal).expect("duck");
             let during = read_master_volume().expect("read volume");
             println!("ducked sessions: {}", previous.is_some());
-            windows_impl::restore(&mut previous).expect("restore");
+            windows_impl::restore(&mut previous, &journal).expect("restore");
+            assert!(!journal.exists(), "restore must remove the journal");
             // The master slider scales our own cues too, so it must not move.
             assert!((during - before).abs() < 0.01, "master volume changed");
             assert!(previous.is_none(), "restore must clear the saved levels");

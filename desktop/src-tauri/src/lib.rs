@@ -1492,6 +1492,8 @@ pub fn run() {
                 engine_current_model,
             );
             app.manage(engine_state);
+            // Before any recording can duck again: queued first on the worker.
+            crate::output_volume::recover();
             spawn_model_autoload(app.handle().clone());
             spawn_idle_watchdog(app.handle().clone());
             crate::engine_events::spawn(app.handle().clone(), engine_event_rx);
@@ -1624,6 +1626,8 @@ pub fn run() {
         // the outbox worker loses it rather than delaying the exit.
         .run(|app_handle, event| {
             if matches!(event, tauri::RunEvent::Exit) {
+                // Quitting from the tray mid-recording skips every stop path.
+                crate::output_volume::restore_before_exit();
                 app_handle
                     .state::<crate::telemetry::Telemetry>()
                     .finish_usage_session();
