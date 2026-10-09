@@ -227,6 +227,7 @@ pub fn engine_thread_main(
         last_preview: String::new(),
         preview_session: None,
         preview_fed: None,
+        loaded_spec: None,
         last_activity: std::time::Instant::now(),
         events: event_tx,
         app: app_handle,
@@ -341,6 +342,8 @@ struct Engine {
     /// or a model change clears it, and the final pass then decodes the whole
     /// recording again.
     preview_fed: Option<usize>,
+    /// How the model in memory was loaded, to recognise a request for the same.
+    loaded_spec: Option<crate::model::ModelLoadSpec>,
     /// When the engine last did work. Idleness is measured from here, and it
     /// is what takes the model out of memory (`UnloadIdle`).
     last_activity: std::time::Instant,
@@ -595,11 +598,18 @@ impl Engine {
         // that in the queue. The queue is ordered, so by the time a duplicate
         // is read the original has either succeeded — and this is it — or
         // failed, leaving the slot empty for a genuine retry.
-        if reason == ModelLoadReason::Restore
-            && crate::mutex_recover::lock(&self.current_model).as_deref() == Some(name.as_str())
-        {
-            log::debug!("model {name} is already back in memory, skipping restore");
+        //
+        // A request for the model as it is already loaded is the same race the
+        // other way round: startup's auto-load hashes the bundle before it
+        // queues, and a first dictation in the meantime restores the model.
+        let loaded =
+            crate::mutex_recover::lock(&self.current_model).as_deref() == Some(name.as_str());
+        if already_loaded(loaded, reason, self.loaded_spec.as_ref(), &spec) {
+            log::debug!("model {name} is already in memory, skipping {reason:?} load");
             let _ = reply.send(Ok(()));
+            if reason == ModelLoadReason::Requested {
+                let _ = self.events.blocking_send(EngineEvent::ModelReady { name });
+            }
             return;
         }
         if reason == ModelLoadReason::Requested {
@@ -650,6 +660,7 @@ impl Engine {
         reason: ModelLoadReason,
     ) -> Result<(), String> {
         self.drop_models();
+        let loaded_spec = spec.clone();
         match spec {
             crate::model::ModelLoadSpec::Whisper { path, use_gpu } => {
                 let path_str = path
@@ -675,6 +686,7 @@ impl Engine {
                 self.sherpa = Some(recognizer);
             }
         }
+        self.loaded_spec = Some(loaded_spec);
         Ok(())
     }
 
@@ -683,6 +695,7 @@ impl Engine {
     /// use-after-free for the next `state.full()`.
     fn drop_models(&mut self) {
         self.preview_fed = None;
+        self.loaded_spec = None;
         self.whisper_state = None;
         self.sherpa = None;
         self.whisper_ctx = None;
@@ -760,6 +773,18 @@ impl Engine {
             recognizer.reset_preview();
         }
     }
+}
+
+/// Whether a `SetModel` asks for the model in memory as it already is. A
+/// restore only needs the name to match; a request also the way it is
+/// loaded, since a device change reloads the same model.
+fn already_loaded(
+    loaded: bool,
+    reason: ModelLoadReason,
+    loaded_spec: Option<&crate::model::ModelLoadSpec>,
+    spec: &crate::model::ModelLoadSpec,
+) -> bool {
+    loaded && (reason == ModelLoadReason::Restore || loaded_spec == Some(spec))
 }
 
 /// The recording after the `fed` samples the live preview has decoded, as a
@@ -968,6 +993,36 @@ mod tests {
         ));
     }
     use std::thread;
+
+    #[test]
+    fn a_load_request_for_the_model_as_loaded_is_skipped() {
+        use crate::model::ModelLoadSpec;
+        let spec = |use_gpu| ModelLoadSpec::Whisper {
+            path: "ggml-tiny.bin".into(),
+            use_gpu,
+        };
+        let requested = ModelLoadReason::Requested;
+        assert!(already_loaded(
+            true,
+            requested,
+            Some(&spec(false)),
+            &spec(false)
+        ));
+        // A device change must rebuild the context.
+        assert!(!already_loaded(
+            true,
+            requested,
+            Some(&spec(false)),
+            &spec(true)
+        ));
+        assert!(already_loaded(
+            true,
+            ModelLoadReason::Restore,
+            Some(&spec(false)),
+            &spec(true)
+        ));
+        assert!(!already_loaded(false, requested, None, &spec(false)));
+    }
 
     #[test]
     fn the_final_pass_takes_the_recording_after_the_preview() {

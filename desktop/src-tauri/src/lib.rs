@@ -403,15 +403,23 @@ pub(crate) async fn load_model_into_engine(
     reason: crate::whisper::ModelLoadReason,
 ) -> Result<(), String> {
     let engine = crate::model::model_engine(model)?;
-    if !crate::model::is_downloaded(model) {
-        return Err(format!("model {model} not downloaded"));
-    }
-    if engine.is_sherpa() {
-        // Mandatory closed-registry validation before crossing the Sherpa C
-        // boundary. A malformed ONNX graph can abort the process via a C++
-        // exception rather than return a Rust error.
-        crate::model::verify_bundle_files(model)?;
-    }
+    // Hashing a bundle reads hundreds of megabytes: a blocking worker, not the
+    // async one this runs on.
+    let id = model.to_string();
+    tauri::async_runtime::spawn_blocking(move || {
+        if !crate::model::is_downloaded(&id) {
+            return Err(format!("model {id} not downloaded"));
+        }
+        if engine.is_sherpa() {
+            // Mandatory closed-registry validation before crossing the Sherpa C
+            // boundary. A malformed ONNX graph can abort the process via a C++
+            // exception rather than return a Rust error.
+            crate::model::verify_bundle_files(&id)?;
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())??;
     let use_gpu = crate::config::Config::load(app)
         .map(|c| crate::config::device_uses_gpu(c.as_value()))
         .unwrap_or(true);

@@ -1172,7 +1172,7 @@ impl ModelEngine {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ModelLoadSpec {
     Whisper {
         path: PathBuf,
@@ -1189,7 +1189,7 @@ pub enum ModelLoadSpec {
 }
 
 /// Paths to a bundle's files, laid out by role.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct BundleFiles(Vec<(ArtifactRole, PathBuf)>);
 
 impl BundleFiles {
