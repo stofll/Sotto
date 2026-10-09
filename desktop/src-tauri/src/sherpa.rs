@@ -796,14 +796,26 @@ impl OnlineRecognizer {
     /// Feed the next chunk of audio and advance decoding as far as the
     /// available data allows. Does not block until the end of the phrase.
     pub fn feed(&mut self, sample_rate: u32, samples: &[f32]) -> Result<(), String> {
+        self.feed_unless(sample_rate, samples, &|| false)
+            .map(|_| ())
+    }
+
+    /// [`Self::feed`] that stops decoding once `cancelled` turns true and
+    /// returns `false`. A whole recording is one `feed`, and on a slow model
+    /// its decode runs for minutes.
+    pub fn feed_unless(
+        &mut self,
+        sample_rate: u32,
+        samples: &[f32],
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<bool, String> {
         validate_audio(sample_rate, samples)?;
         if samples.is_empty() {
-            return Ok(());
+            return Ok(true);
         }
         self.input_rate.get_or_insert(sample_rate);
         self.stream.accept_waveform(sample_rate as i32, samples);
-        self.decode_ready();
-        Ok(())
+        Ok(self.decode_ready(cancelled))
     }
 
     /// The current hypothesis in full. The text grows and may be corrected
@@ -837,7 +849,7 @@ impl OnlineRecognizer {
             self.stream.accept_waveform(rate as i32, &samples);
         }
         self.stream.input_finished();
-        self.decode_ready();
+        self.decode_ready(&|| false);
         self.text()
     }
 
@@ -856,10 +868,15 @@ impl OnlineRecognizer {
         self.input_rate = None;
     }
 
-    fn decode_ready(&self) {
+    /// Decode what is ready; `false` when `cancelled` stopped it first.
+    fn decode_ready(&self, cancelled: &dyn Fn() -> bool) -> bool {
         while self.recognizer.is_ready(&self.stream) {
+            if cancelled() {
+                return false;
+            }
             self.recognizer.decode(&self.stream);
         }
+        true
     }
 }
 
@@ -880,6 +897,15 @@ impl OnlineRecognizer {
     }
 
     pub fn feed(&mut self, _sample_rate: u32, _samples: &[f32]) -> Result<(), String> {
+        Err(UNSUPPORTED.to_string())
+    }
+
+    pub fn feed_unless(
+        &mut self,
+        _sample_rate: u32,
+        _samples: &[f32],
+        _cancelled: &dyn Fn() -> bool,
+    ) -> Result<bool, String> {
         Err(UNSUPPORTED.to_string())
     }
 
@@ -961,11 +987,26 @@ impl SherpaRecognizer {
     /// as the live preview, only without pauses: feed everything, close the
     /// phrase, take the text.
     pub fn transcribe(&mut self, sample_rate: u32, samples: &[f32]) -> Result<String, String> {
+        self.transcribe_unless(sample_rate, samples, || false)
+    }
+
+    /// [`Self::transcribe`] that a streaming recognizer abandons between decode
+    /// steps once `cancelled` turns true. An offline decode is one native call
+    /// and still has to finish.
+    pub fn transcribe_unless(
+        &mut self,
+        sample_rate: u32,
+        samples: &[f32],
+        cancelled: impl Fn() -> bool,
+    ) -> Result<String, String> {
         match self {
             Self::Offline(recognizer) => recognizer.transcribe(sample_rate, samples),
             Self::Online(recognizer) => {
                 recognizer.reset();
-                recognizer.feed(sample_rate, samples)?;
+                if !recognizer.feed_unless(sample_rate, samples, &cancelled)? {
+                    recognizer.reset();
+                    return Err("sherpa transcribe cancelled during decoding".to_string());
+                }
                 let text = recognizer.finish()?;
                 recognizer.reset();
                 Ok(text)

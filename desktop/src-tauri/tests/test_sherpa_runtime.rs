@@ -72,6 +72,15 @@ async fn sherpa_download_load_infer_and_reload() {
                 text.contains("зелёный"),
                 "streaming transcript lost its tail: {text}"
             );
+            // Cancelled mid-decode, the final pass gives up instead of
+            // decoding the rest, and the recognizer serves the next one intact.
+            let checks = std::cell::Cell::new(0);
+            let cancelled = recognizer.transcribe_unless(16_000, &speech, || {
+                checks.set(checks.get() + 1);
+                checks.get() > 2
+            });
+            assert!(cancelled.is_err(), "a cancelled decode returned text");
+            assert_eq!(recognizer.transcribe(16_000, &speech).unwrap(), text);
             // A dictation feeds the live preview chunk by chunk, then transcribes
             // the whole recording on the same recognizer. Whatever the preview
             // left undecoded must not come back in front of the final text.

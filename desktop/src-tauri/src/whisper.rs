@@ -762,7 +762,7 @@ fn decode_sherpa(
         } else if model_id.is_some_and(crate::model::segments_with_context) {
             recognizer.transcribe_segmented(audio, requested, initial_prompt, || job.cancelled())
         } else {
-            recognizer.transcribe(16_000, audio)
+            recognizer.transcribe_unless(16_000, audio, || job.cancelled())
         }
     })) {
         Ok(Ok(_)) if job.cancelled() => {
