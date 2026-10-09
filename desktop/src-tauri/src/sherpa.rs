@@ -795,9 +795,13 @@ impl OnlineRecognizer {
 
     /// Feed the next chunk of audio and advance decoding as far as the
     /// available data allows. Does not block until the end of the phrase.
-    pub fn feed(&mut self, sample_rate: u32, samples: &[f32]) -> Result<(), String> {
-        self.feed_unless(sample_rate, samples, &|| false)
-            .map(|_| ())
+    ///
+    /// Returns whether a decode step ran: without one the hypothesis is
+    /// unchanged and [`Self::text`] need not be asked again.
+    pub fn feed(&mut self, sample_rate: u32, samples: &[f32]) -> Result<bool, String> {
+        validate_audio(sample_rate, samples)?;
+        self.accept(sample_rate, samples);
+        Ok(self.decode_ready(&|| false) != Some(0))
     }
 
     /// [`Self::feed`] that stops decoding once `cancelled` turns true and
@@ -810,12 +814,15 @@ impl OnlineRecognizer {
         cancelled: &dyn Fn() -> bool,
     ) -> Result<bool, String> {
         validate_audio(sample_rate, samples)?;
-        if samples.is_empty() {
-            return Ok(true);
+        self.accept(sample_rate, samples);
+        Ok(self.decode_ready(cancelled).is_some())
+    }
+
+    fn accept(&mut self, sample_rate: u32, samples: &[f32]) {
+        if !samples.is_empty() {
+            self.input_rate.get_or_insert(sample_rate);
+            self.stream.accept_waveform(sample_rate as i32, samples);
         }
-        self.input_rate.get_or_insert(sample_rate);
-        self.stream.accept_waveform(sample_rate as i32, samples);
-        Ok(self.decode_ready(cancelled))
     }
 
     /// The current hypothesis in full. The text grows and may be corrected
@@ -869,14 +876,17 @@ impl OnlineRecognizer {
     }
 
     /// Decode what is ready; `false` when `cancelled` stopped it first.
-    fn decode_ready(&self, cancelled: &dyn Fn() -> bool) -> bool {
+    /// The number of decode steps run, or `None` once `cancelled` stopped them.
+    fn decode_ready(&self, cancelled: &dyn Fn() -> bool) -> Option<usize> {
+        let mut steps = 0;
         while self.recognizer.is_ready(&self.stream) {
             if cancelled() {
-                return false;
+                return None;
             }
             self.recognizer.decode(&self.stream);
+            steps += 1;
         }
-        true
+        Some(steps)
     }
 }
 
@@ -896,7 +906,7 @@ impl OnlineRecognizer {
         Err(UNSUPPORTED.to_string())
     }
 
-    pub fn feed(&mut self, _sample_rate: u32, _samples: &[f32]) -> Result<(), String> {
+    pub fn feed(&mut self, _sample_rate: u32, _samples: &[f32]) -> Result<bool, String> {
         Err(UNSUPPORTED.to_string())
     }
 
@@ -1026,9 +1036,9 @@ impl SherpaRecognizer {
         }
     }
 
-    /// Live preview: feed a chunk and return the current hypothesis. A
-    /// non-streaming recognizer has no hypothesis — it stays silent until the
-    /// recording ends.
+    /// Live preview: feed a chunk and return the current hypothesis, or `None`
+    /// when the chunk decoded nothing new. A non-streaming recognizer has no
+    /// hypothesis — it stays silent until the recording ends.
     pub fn feed_preview(
         &mut self,
         sample_rate: u32,
@@ -1036,9 +1046,14 @@ impl SherpaRecognizer {
     ) -> Result<Option<String>, String> {
         match self {
             Self::Offline(_) => Ok(None),
+            // A chunk shorter than the model's step only queues audio; the
+            // JSON round-trip of `text` waits for a step that decodes it.
             Self::Online(recognizer) => {
-                recognizer.feed(sample_rate, samples)?;
-                recognizer.text().map(Some)
+                if recognizer.feed(sample_rate, samples)? {
+                    recognizer.text().map(Some)
+                } else {
+                    Ok(None)
+                }
             }
         }
     }

@@ -702,9 +702,10 @@ impl Engine {
             PreviewAction::Continue => {}
         }
         match recognizer.feed_preview(16_000, samples) {
-            // A non-streaming model returns no hypothesis — we stay silent
-            // rather than send empty text: an empty string would wipe what the
-            // overlay already shows.
+            // A non-streaming model returns no hypothesis, and a streaming one
+            // none while a chunk decodes nothing new — we stay silent rather
+            // than send empty text: an empty string would wipe what the overlay
+            // already shows.
             Ok(None) => {}
             Ok(Some(text)) => {
                 if text != self.last_preview {

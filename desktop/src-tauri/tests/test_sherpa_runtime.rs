@@ -53,6 +53,11 @@ async fn sherpa_download_load_infer_and_reload() {
             let mut recognizer = SherpaRecognizer::open(engine, &files, 2).unwrap();
             recognizer.transcribe(16_000, &silence).unwrap();
             recognizer.reset_preview();
+            // 10 ms is less than a decode step: nothing new to report yet.
+            assert_eq!(
+                recognizer.feed_preview(16_000, &silence[..160]).unwrap(),
+                None
+            );
             let preview = recognizer.feed_preview(16_000, &silence).unwrap();
             assert_eq!(preview.is_some(), id == "zipformer-ru-streaming");
             recognizer.transcribe(16_000, &silence).unwrap();
