@@ -32,10 +32,10 @@
   --ink-mute: #8C889B;
   --ink-faint: #5C5868;
 
-  --accent: #3d5ce6;
-  --accent-strong: #5470e9;
-  --accent-soft: rgba(61, 92, 230, 0.14);
-  --accent-soft-2: rgba(61, 92, 230, 0.26);
+  --accent: #3463d8;
+  --accent-strong: #4c76dd;
+  --accent-soft: rgba(52, 99, 216, 0.14);
+  --accent-soft-2: rgba(52, 99, 216, 0.26);
   --accent-ink: #ffffff;
   /* Share the contrast-adjusted text colour with focus and selection rings.
      The translucent stroke stays quieter than the text it marks. */
@@ -116,8 +116,8 @@
   --ink-mute: #4a4654;
   --ink-faint: #6b6776;
 
-  --accent-soft: rgba(61, 92, 230, 0.16);
-  --accent-soft-2: rgba(61, 92, 230, 0.30);
+  --accent-soft: rgba(52, 99, 216, 0.16);
+  --accent-soft-2: rgba(52, 99, 216, 0.30);
 
   /* Startup fallback before the saved interface colour is applied. */
   --accent-text: color-mix(in srgb, var(--accent) 55%, #12101a);

@@ -36,6 +36,8 @@ describe("overlay preferences", () => {
     expect(resolveAccent("#9b75ef")).toBe("#9b75ef");
     expect(resolveAccent("red")).toBe(DEFAULT_ACCENT);
     expect(resolveAccent(undefined)).toBe(DEFAULT_ACCENT);
+    // The previous default, written into every existing config on first launch.
+    expect(resolveAccent("#3D5CE6")).toBe(DEFAULT_ACCENT);
   });
   it("writes readable text on a light and on a dark interface colour", () => {
     // The ink is what is printed on the accent: it has to flip, or a navy
@@ -43,6 +45,8 @@ describe("overlay preferences", () => {
     const ink = (color: string) => parseInt(accentVariables(color)["--accent-ink"].slice(1, 3), 16);
     expect(ink("#f2e14a")).toBeLessThan(60);
     expect(ink("#102040")).toBeGreaterThan(195);
+    // A lighter blue crosses the flip point and the default buttons go black.
+    expect(ink(DEFAULT_ACCENT)).toBeGreaterThan(195);
   });
 });
 

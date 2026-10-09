@@ -1,8 +1,12 @@
 import { t } from "./i18n";
 import { parseRgb } from "./color";
 
-/** The website's blue, so the app opens in the colour the reader downloaded it from. */
-export const DEFAULT_ACCENT = "#3d5ce6";
+/** Shifted toward azure from the website's #3d5ce6: next to the app's
+ *  violet-tinted surfaces that blue read as violet itself. */
+export const DEFAULT_ACCENT = "#3463d8";
+// Every config that predates the change holds the old default — the first
+// launch writes the default in — so it stands for "the default", not a choice.
+const RETIRED_DEFAULT = "#3d5ce6";
 
 // A function rather than a constant: the labels are translated, and computed at
 // import time they would be stuck in the default language.
@@ -92,7 +96,9 @@ export function applyAccent(color: string) {
 }
 
 export function resolveAccent(value: unknown): AccentValue {
-  return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value) ? value.toLowerCase() : DEFAULT_ACCENT;
+  if (typeof value !== "string" || !/^#[0-9a-f]{6}$/i.test(value)) return DEFAULT_ACCENT;
+  const color = value.toLowerCase();
+  return color === RETIRED_DEFAULT ? DEFAULT_ACCENT : color;
 }
 
 export function storedAccent(): AccentValue {

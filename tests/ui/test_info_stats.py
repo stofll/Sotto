@@ -218,7 +218,7 @@ def test_stats_periods_and_refresh(app, page):
 @pytest.mark.parametrize("theme", ["light", "dark"])
 @pytest.mark.parametrize(
     "accent",
-    ["#ffffff", "#000000", "#f2e14a", "#102040", "#ff00ff", "#e68a3d", "#3d5ce6"],
+    ["#ffffff", "#000000", "#f2e14a", "#102040", "#ff00ff", "#e68a3d", "#3463d8"],
 )
 def test_heatmap_levels_remain_distinct_for_interface_colors(
     app, page, theme, accent, output_path
