@@ -236,7 +236,14 @@ impl Config {
         let pretty = serde_json::to_string_pretty(&self.data)
             .map_err(|e| format!("serialize config: {e}"))?;
         let tmp = path.with_extension("json.tmp");
-        fs::write(&tmp, &pretty).map_err(|e| format!("write config tmp: {e}"))?;
+        // Flushed before the rename: otherwise a power loss can leave the
+        // renamed file empty, and every setting falls back to its default.
+        let write = |tmp: &Path| {
+            let mut file = fs::File::create(tmp)?;
+            std::io::Write::write_all(&mut file, pretty.as_bytes())?;
+            file.sync_all()
+        };
+        write(&tmp).map_err(|e| format!("write config tmp: {e}"))?;
         fs::rename(&tmp, path).map_err(|e| format!("rename config tmp: {e}"))?;
         if let Some(stamp) = file_stamp(path) {
             remember(path, stamp, &self.data);
