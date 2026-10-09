@@ -31,6 +31,7 @@ import { NumberField } from "../components/NumberField";
 import type { ApiKeyStatus, ConfigChange, ConfigResult, LateAnswerMode, ReasoningMode } from "../bridge/types";
 import { t } from "../i18n";
 import { useFileTranscription, type FileStage, type TranscribeFileResult } from "./useFileTranscription";
+import { aiFallbackLabel, defaultStage, TranscriptStages, TranscriptStats, type TextStage, type TranscriptRecord } from "./transcriptStages";
 
 /** Mirrors `MIN_CUSTOM_OUTPUT_TOKENS` in ai/model_params.rs: below it Rust treats the limit as unset. */
 const MIN_OUTPUT_LIMIT = 256;
@@ -66,6 +67,20 @@ function FileStatusPill({ result }: { result: TranscribeFileResult }) {
   if (ai?.used) return <span className="pill ok">{t("Готово")}</span>;
   if (ai?.attempted) return <span className="pill warn">{t("LLM не отработала")}</span>;
   return <span className="pill">{t("Распознано")}</span>;
+}
+
+/** A file result in the shape history uses, so both show the same stages. */
+function fileRecord(result: TranscribeFileResult): TranscriptRecord {
+  const ai = result.ai_status ?? undefined;
+  const stt = result.inference_time_ms / 1000;
+  const llm = ai?.attempted ? ai.elapsed_seconds : undefined;
+  return {
+    text: result.text,
+    raw_text: result.raw_text,
+    formatted_text: result.formatted_text,
+    ai_processing: ai,
+    processing_stats: { audio_seconds: result.audio_seconds, whisper_seconds: stt, llm_seconds: llm, total_seconds: stt + (llm ?? 0) },
+  };
 }
 
 /** The provider's raw response beneath the error. Collapsed: needed when the
@@ -175,6 +190,10 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
     transcribeFile, cancelFileTranscription, runFileTranscription,
   } = useFileTranscription();
   const [fileDragActive, setFileDragActive] = useState(false);
+  const [fileDetails, setFileDetails] = useState(true);
+  const [fileTextStage, setFileTextStage] = useState<TextStage | null>(null);
+  const [fileLlmLoading, setFileLlmLoading] = useState(false);
+  const [fileLlmError, setFileLlmError] = useState<string | null>(null);
   // The drop subscription is installed once, so busyness is read from refs: a
   // closure over state would freeze the values of the first render.
   const fileStageRef = useRef<FileStage>(null);
@@ -227,6 +246,8 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
   }, [setFileError, setFileResult, transcribeFile]);
 
   useEffect(() => { fileStageRef.current = fileStage; }, [fileStage]);
+  // A new result, or the LLM pass over it, opens on its last stage.
+  useEffect(() => { setFileTextStage(null); setFileLlmError(null); }, [fileResult]);
   useEffect(() => { manualLoadingRef.current = manualLoading; }, [manualLoading]);
 
   function showMessage(text: string) {
@@ -339,11 +360,51 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
     setManualLoading(true);
     setManualResult(null);
     try {
-      // The fields are taken from the profile itself rather than from the flat
-      // active ones: under inheritance they are the same, but when a different
-      // profile is chosen the flat fields would describe the voice one — that
-      // is, they would send the request somewhere other than what is shown.
-      const result = await invoke<AiRunResult>("process_text_ai", {
+      setManualResult(await processWithTextProfile(text));
+    } catch (e) {
+      setManualResult({ available: false, message: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setManualLoading(false);
+    }
+  }
+
+  /** Run the LLM over a transcribed file in place and record it as the result's
+   *  LLM stage, instead of sending the user to paste it into the panel above. */
+  async function processFileResult() {
+    if (!fileResult || fileLlmLoading) return;
+    setFileLlmLoading(true);
+    setFileLlmError(null);
+    const started = performance.now();
+    try {
+      const result = await processWithTextProfile(fileResult.formatted_text || fileResult.text);
+      if (result.available && result.output && !result.fallback) {
+        setFileResult({
+          ...fileResult,
+          text: result.output,
+          ai_status: {
+            ...fileResult.ai_status,
+            enabled: true, attempted: true, used: true, fallback: false, skipped_reason: "",
+            elapsed_seconds: (performance.now() - started) / 1000,
+            provider: textProfile.provider, model: textProfile.model, profile_name: textProfile.name,
+          },
+        });
+      } else {
+        setFileLlmError(result.provider_error || result.message
+          || (result.skipped_reason ? aiFallbackLabel(undefined, result.skipped_reason) : t("LLM не вернула текст.")));
+      }
+    } catch (e) {
+      setFileLlmError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setFileLlmLoading(false);
+    }
+  }
+
+  function processWithTextProfile(text: string) {
+    // The fields are taken from the profile itself rather than from the flat
+    // active ones: under inheritance they are the same, but when a different
+    // profile is chosen the flat fields would describe the voice one — that
+    // is, they would send the request somewhere other than what is shown.
+    return invoke<AiRunResult>("process_text_ai", {
         text,
         profile_id: textProfile.id,
         profile_name: textProfile.name,
@@ -360,11 +421,14 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
         llm_reasoning: textProfile.llm_reasoning,
         llm_output_limit: textProfile.llm_output_limit,
       });
-      setManualResult(result);
-    } catch (e) {
-      setManualResult({ available: false, message: e instanceof Error ? e.message : String(e) });
-    } finally {
-      setManualLoading(false);
+  }
+
+  async function copyFileStage(text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      showMessage(t("Результат скопирован."));
+    } catch {
+      showMessage(t("Не удалось скопировать."));
     }
   }
 
@@ -749,22 +813,34 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
             <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <FileStatusPill result={fileResult}/>
-                <span style={{ font: "500 11px/1.35 var(--font-mono)", color: "var(--ink-mute)" }}>
-                  {t("{p0} с аудио", { p0: Math.round(fileResult.audio_seconds) })}
-                </span>
                 {fileResult.text && <button className="btn btn--ghost" onClick={() => void copyFileResult()}><Icon name="copy" size={12}/>{t("Скопировать")}</button>}
               </div>
-              {fileResult.ai_status?.skipped_reason && (
-                <div style={{ font: "500 11px/1.45 var(--font-mono)", color: "var(--ink-mute)", whiteSpace: "pre-wrap" }}>{fileResult.ai_status.skipped_reason}</div>
-              )}
               <div style={{ padding: 12, borderRadius: "var(--radius-sm)", background: "var(--bg-2)", border: "1px solid var(--line)", font: "400 13px/1.55 var(--font-sans)", color: "var(--ink)", whiteSpace: "pre-wrap" }}>{fileResult.text}</div>
-              {/* We show the raw stage only when it differs — otherwise it is
-                  simply a second copy of the same text. */}
-              {fileResult.raw_text !== fileResult.text && (
-                <details>
-                  <summary style={{ cursor: "pointer", font: "500 11px/1.4 var(--font-sans)", color: "var(--ink-mute)" }}>{t("Распознавание без обработки")}</summary>
-                  <div style={{ marginTop: 6, padding: 12, borderRadius: "var(--radius-sm)", background: "var(--bg-2)", border: "1px solid var(--line)", font: "400 13px/1.55 var(--font-sans)", color: "var(--ink-mute)", whiteSpace: "pre-wrap" }}>{fileResult.raw_text}</div>
-                </details>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                <button className="btn btn--ghost" onClick={() => setFileDetails((open) => !open)} aria-expanded={fileDetails} style={{ height: 24 }}>
+                  <Icon name={fileDetails ? "chev-down" : "chev"} size={11} style={{ transform: fileDetails ? undefined : "rotate(90deg)" }}/>
+                  {fileDetails ? t("Скрыть детали") : t("Подробнее")}
+                </button>
+                {fileResult.text && !fileResult.ai_status?.used && (
+                  <button className="btn btn--ghost" onClick={() => void processFileResult()} disabled={fileLlmLoading || !!textGap} aria-busy={fileLlmLoading} style={{ height: 24 }}>
+                    {fileLlmLoading ? <span className="mini-spinner" aria-hidden="true"/> : <Icon name="sparkle" size={11}/>}
+                    {fileLlmLoading ? t("Обрабатываю…") : t("Обработать через LLM")}
+                  </button>
+                )}
+              </div>
+              {fileLlmError && <div role="alert" style={{ font: "500 11px/1.45 var(--font-mono)", color: "var(--err)", whiteSpace: "pre-wrap" }}>{fileLlmError}</div>}
+              {fileDetails && (
+                <div>
+                  <TranscriptStats entry={fileRecord(fileResult)}/>
+                  <TranscriptStages
+                    entry={fileRecord(fileResult)}
+                    copyKey="file"
+                    stage={fileTextStage ?? defaultStage(fileRecord(fileResult))}
+                    onStage={setFileTextStage}
+                    copiedKey={null}
+                    onCopy={(_key, text) => void copyFileStage(text)}
+                  />
+                </div>
               )}
             </div>
           )}
