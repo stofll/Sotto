@@ -150,6 +150,12 @@ def test_accessibility_notice_layout(app, page, locale, theme, output_path, tab_
     shots.mkdir(parents=True, exist_ok=True)
     for width in [1000, 1400]:
         page.set_viewport_size({"width": width, "height": 900})
+        # A resize across the sidebar breakpoint slides the sidebar and reflows
+        # the page beside it; measure after the transitions settle.
+        page.wait_for_function(
+            "() => !document.getAnimations().some("
+            "a => a instanceof CSSTransition && a.playState === 'running')"
+        )
         page.evaluate("() => document.fonts.ready.then(() => true)")
         copy = card.locator(".window-banner__copy").bounding_box()
         actions = card.locator(".window-banner__actions").bounding_box()
