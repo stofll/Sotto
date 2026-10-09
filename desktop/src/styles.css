@@ -83,6 +83,7 @@
      left, and at 38 px it pressed against the top edge. The buttons stay
      pinned to the top — Windows fixes their place — while the name breathes. */
   --titlebar-h: 50px;
+  --titlebar-button-h: 24px;
   --footer-h: 44px;
 
   /* No Inter / JetBrains Mono: Google Fonts loaded them from index.html, and
@@ -458,8 +459,8 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 .titlebar { height: var(--titlebar-h); display: grid; grid-template-columns: var(--sidebar-w) 1fr; flex: 0 0 auto; transition: grid-template-columns .34s cubic-bezier(.32,.72,0,1); }
 .win.collapsed .titlebar { grid-template-columns: var(--sidebar-collapsed-w) 1fr; transition: grid-template-columns .4s cubic-bezier(.6,.04,.24,1); }
 .titlebar__rail { background: var(--bg-1); border-right: 1px solid var(--line); display: flex; align-items: center; min-width: 0; }
-.titlebar__bar { background: var(--bg-2); display: flex; align-items: flex-start; justify-content: flex-end; gap: 4px; padding: 6px 12px 0; color: var(--ink-mute); }
-.titlebar__button { height: 24px; width: 28px; padding: 0; }
+.titlebar__bar { background: var(--bg-2); display: flex; align-items: flex-start; justify-content: flex-end; gap: 4px; padding: var(--pad-2) 12px 0; color: var(--ink-mute); }
+.titlebar__button { height: var(--titlebar-button-h); width: 28px; padding: 0; }
 .titlebar.titlebar--full { height: calc(var(--titlebar-h) + 2 * var(--pad-3)); grid-template-columns: var(--sidebar-w) 1fr; transition: none; }
 .titlebar--full .titlebar__bar { align-items: center; padding-top: 0; }
 .titlebar__actions { flex: 1; min-width: 0; }
@@ -475,6 +476,10 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
    into it instead of opening with a blank band. The native row stays the drag
    area; the introduction keeps its actions there. */
 .titlebar--macos:not(.titlebar--full) + .win__layout > .win__main { margin-top: calc(-1 * var(--titlebar-h)); }
+/* Elsewhere the window buttons fill only the top of the bar (its top padding
+   plus one button); the page rises to just below them instead of under a blank
+   band. The strip beside the buttons stays the drag area. */
+.titlebar:not(.titlebar--macos):not(.titlebar--full) + .win__layout > .win__main { margin-top: calc(var(--pad-2) + var(--titlebar-button-h) - var(--titlebar-h)); }
 .sidebar-brand { position: relative; display: flex; align-items: center; gap: 8px; height: 100%; width: 100%; min-width: 0; padding: 0 8px 0 16px; transition: padding .4s cubic-bezier(.32,.72,0,1); }
 .sidebar-brand__name { position: absolute; left: 16px; top: 50%; transform: translateY(-50%); pointer-events: none; font: 600 17px/1 var(--font-sans); letter-spacing: -0.015em; white-space: nowrap; opacity: 1; transition: opacity .3s ease-out; }
 .nav { padding: 10px 8px 6px; display: flex; flex-direction: column; gap: 4px; overflow-y: auto; overflow-x: hidden; }
