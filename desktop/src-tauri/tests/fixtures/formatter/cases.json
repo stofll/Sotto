@@ -1021,6 +1021,20 @@
     }
   },
   {
+    "id": "claude-code-latin-alias",
+    "category": "term-aliases",
+    "input": "уходим от айдентики Cloud Coda, а cloud code не трогаем",
+    "expected": "Уходим от айдентики Claude Code, а cloud code не трогаем.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development"
+        ]
+      }
+    }
+  },
+  {
     "id": "brands-acronyms",
     "category": "term-aliases",
     "input": "Проверь LLМ, юай и SQEL",

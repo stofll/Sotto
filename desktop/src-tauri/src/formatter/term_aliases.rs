@@ -49,7 +49,7 @@ const TERMS: &[(&str, &[&str])] = &[
         ],
     ),
     ("Playwright", &["playrihte", "playrit", "плейрайт"]),
-    ("Claude Code", &["клауд код", "клод код"]),
+    ("Claude Code", &["клауд код", "клод код", "cloud coda"]),
     ("Selenium", &["selnium", "селениум"]),
     ("JUnit", &["gunit", "джей юнит"]),
     ("LLM", &["llм", "ллм"]),
