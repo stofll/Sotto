@@ -1,11 +1,13 @@
 ---
 import DesktopDemo from './DesktopDemo.astro';
+import { appLogoRows } from '../data/app-logos';
 import { LINKS } from '../data/product';
 import { latestRelease } from '../data/release';
 import { format } from '../i18n';
 import { translationsFor } from '../i18n/context';
 
 const { t } = translationsFor(Astro.currentLocale);
+const github = appLogoRows.flat().find((logo) => logo.id === 'github')!;
 const release = await latestRelease();
 const meta = release
   ? `${t.hero.meta}. ${format(t.hero.version, { version: release.version.replace(/^v/, '') })}`
@@ -21,7 +23,9 @@ const meta = release
         {/* Leads to both platforms until scripts/platform.ts recognises the
             reader's system and points it at that installer. */}
         <a class="button button-primary" href="#start" data-platform-cta="long">{t.hero.download}</a>
-        <a class="button button-outline" href={LINKS.github}>GitHub ↗</a>
+        <a class="button button-outline" href={LINKS.github}>
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d={github.path} /></svg>GitHub
+        </a>
       </div>
       <span class="hero-meta">{meta}</span>
       <span class="hero-meta hero-note" data-mobile-note>{t.hero.mobileNote}</span>

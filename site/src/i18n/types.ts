@@ -88,6 +88,8 @@ export interface Dictionary {
         after: string;
         paletteLabel: string;
         palettes: Record<'graphite' | 'copper' | 'lagoon' | 'violet', string>;
+        /** Says the demo's overlay changes on purpose: the app ships every look. */
+        note: string;
       };
     };
   };

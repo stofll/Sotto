@@ -84,6 +84,7 @@ export const en: Dictionary = {
         after: 'After',
         paletteLabel: 'Colour',
         palettes: { graphite: 'Graphite', copper: 'Copper', lagoon: 'Lagoon', violet: 'Purple' },
+        note: 'Each dictation in the demo shows another overlay style. Pick one to keep it.',
       },
     },
   },
