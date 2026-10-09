@@ -419,7 +419,7 @@ def test_unanswered_installation_is_asked_after_a_dictation(app, page):
         "() => { const s = window.__sottoTest.state; s.stats.total_transcriptions = 1;"
         " sessionStorage.setItem('sotto-test-state', JSON.stringify(s)); }"
     )
-    ui.emit("paste-done")
+    ui.emit("history-updated")
     expect(question).to_be_visible()
     page.get_by_role("button", name="Закрыть подсказку", exact=True).click()
     expect(question).to_have_count(0)

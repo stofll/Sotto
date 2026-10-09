@@ -15,6 +15,9 @@ def test_history_disposes_registration_that_finishes_after_navigation(app, page)
             return result;
         };
     }""")
+    # The main window keeps its own `history-updated` listener for stats.
+    page.wait_for_function("window.__sottoTest.subscriptions['history-updated'] > 0")
+    baseline = page.evaluate("window.__sottoTest.subscriptions['history-updated']")
     ui.nav("history")
     page.wait_for_function("window.heldHistoryListeners.length > 0")
     ui.nav("settings")
@@ -23,7 +26,10 @@ def test_history_disposes_registration_that_finishes_after_navigation(app, page)
     page.evaluate("window.__sottoTest.emit('history-updated', {})")
     assert len(ui.calls("list_history")) == before
     page.evaluate("window.heldHistoryListeners.forEach(resolve => resolve())")
-    page.wait_for_function("window.__sottoTest.subscriptions['history-updated'] === 0")
+    page.wait_for_function(
+        "baseline => window.__sottoTest.subscriptions['history-updated'] === baseline",
+        arg=baseline,
+    )
     page.evaluate("window.__sottoTest.emit('history-updated', {})")
     assert len(ui.calls("list_history")) == before
 
