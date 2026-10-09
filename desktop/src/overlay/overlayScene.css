@@ -194,7 +194,9 @@
 .ovs-rg-body > :is(.ovs-ring, .ovs-orb) { margin: auto; }
 .ovs-foot { position: relative; display: flex; align-items: center; gap: 8px; min-height: 30px; }
 .ovs-sp { flex: 1; }
-.ovs[data-shell="card"] .ovs-content > .ovs-stl { position: absolute; left: 30px; right: 30px; top: 10px; bottom: 40px; }
+/* After recording the footer is empty, so the status takes the middle of the whole card;
+   the sides clear the cancel button, which hover still shows in the footer. */
+.ovs[data-shell="card"] .ovs-content > .ovs-stl { position: absolute; inset: 0 46px; }
 
 /* Bead and stack; an error opens them into the pill row */
 .ovs-rg-core { position: absolute; inset: var(--pad); border-radius: inherit; }
