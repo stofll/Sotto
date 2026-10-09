@@ -1,7 +1,7 @@
 /* Cleanup, close up: the pipeline, a voice line and one sentence set large. */
 .closeup { display: grid; gap: 28px; padding: clamp(24px, 5vw, 64px) clamp(20px, 6vw, 80px); }
 .closeup-steps { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; }
-.closeup-steps li { padding: 5px 12px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--border); font: 500 0.75rem var(--font-mono); color: var(--text-muted); transition: color 300ms, background 300ms, box-shadow 300ms; }
+.closeup-steps li { padding: 5px 12px; border-radius: 6px; box-shadow: inset 0 0 0 1px var(--border); font: 500 0.75rem var(--font-mono); color: var(--text-muted); transition: color 300ms, background 300ms, box-shadow 300ms; }
 .closeup-steps .is-done { box-shadow: inset 0 0 0 1px var(--text-muted); color: var(--text); }
 .closeup-steps .is-current { background: var(--accent); box-shadow: none; color: var(--on-accent); }
 .closeup-wave { display: block; width: 100%; height: 64px; }
