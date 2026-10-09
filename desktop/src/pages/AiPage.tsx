@@ -60,13 +60,13 @@ type AiRunResult = {
  *  means "the LLM did not run", and that is an error. Here the LLM may
  *  legitimately not run — in local-only mode it should not — while the text is
  *  transcribed all the same. A red pill on a successful transcription would be
- *  a lie. */
+ *  a lie. A plain transcription needs no pill at all; only an LLM that failed
+ *  to deliver is worth a word next to the result. */
 function FileStatusPill({ result }: { result: TranscribeFileResult }) {
   const ai = result.ai_status;
   if (ai?.fallback) return <span className="pill warn">Fallback</span>;
-  if (ai?.used) return <span className="pill ok">{t("Готово")}</span>;
-  if (ai?.attempted) return <span className="pill warn">{t("LLM не отработала")}</span>;
-  return <span className="pill">{t("Распознано")}</span>;
+  if (ai?.attempted && !ai.used) return <span className="pill warn">{t("LLM не отработала")}</span>;
+  return null;
 }
 
 /** A file result in the shape history uses, so both show the same stages. */
@@ -190,7 +190,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
     transcribeFile, cancelFileTranscription, runFileTranscription,
   } = useFileTranscription();
   const [fileDragActive, setFileDragActive] = useState(false);
-  const [fileDetails, setFileDetails] = useState(true);
+  const [fileDetails, setFileDetails] = useState(false);
   const [fileTextStage, setFileTextStage] = useState<TextStage | null>(null);
   const [fileLlmLoading, setFileLlmLoading] = useState(false);
   const [fileLlmError, setFileLlmError] = useState<string | null>(null);
@@ -246,6 +246,9 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
   }, [setFileError, setFileResult, transcribeFile]);
 
   useEffect(() => { fileStageRef.current = fileStage; }, [fileStage]);
+  // Each new file starts with its details folded; the window only hides when
+  // closed, so the previous file's choice would otherwise carry over.
+  useEffect(() => { if (fileStage !== null) setFileDetails(false); }, [fileStage]);
   // A new result, or the LLM pass over it, opens on its last stage.
   useEffect(() => { setFileTextStage(null); setFileLlmError(null); }, [fileResult]);
   useEffect(() => { manualLoadingRef.current = manualLoading; }, [manualLoading]);
@@ -811,10 +814,6 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
           )}
           {fileResult && (
             <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <FileStatusPill result={fileResult}/>
-                {fileResult.text && <button className="btn btn--ghost" onClick={() => void copyFileResult()}><Icon name="copy" size={12}/>{t("Скопировать")}</button>}
-              </div>
               <div style={{ padding: 12, borderRadius: "var(--radius-sm)", background: "var(--bg-2)", border: "1px solid var(--line)", font: "400 13px/1.55 var(--font-sans)", color: "var(--ink)", whiteSpace: "pre-wrap" }}>{fileResult.text}</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                 <button className="btn btn--ghost" onClick={() => setFileDetails((open) => !open)} aria-expanded={fileDetails} style={{ height: 24 }}>
@@ -827,6 +826,14 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
                     {fileLlmLoading ? t("Обрабатываю…") : t("Обработать через LLM")}
                   </button>
                 )}
+                <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
+                  <FileStatusPill result={fileResult}/>
+                  {fileResult.text && (
+                    <button className="btn btn--ghost" onClick={() => void copyFileResult()} style={{ height: 24 }}>
+                      <Icon name="copy" size={11}/>{t("Скопировать")}
+                    </button>
+                  )}
+                </div>
               </div>
               {fileLlmError && <div role="alert" style={{ font: "500 11px/1.45 var(--font-mono)", color: "var(--err)", whiteSpace: "pre-wrap" }}>{fileLlmError}</div>}
               {fileDetails && (

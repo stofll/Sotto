@@ -336,6 +336,9 @@ def test_file_result_shows_stages_and_processes_with_llm_in_place(app, page):
     ui.queue("transcribe_audio_file", {"result": skipped})
     page.get_by_role("button", name="Выбрать файл").click()
     panel = page.get_by_test_id("page-ai")
+    details = panel.get_by_role("button", name="Подробнее", exact=True)
+    expect(details).to_have_attribute("aria-expanded", "false")
+    details.click()
     # The skip reason is a tile, not the raw backend code.
     expect(panel.get_by_text("LLM · < 60 с", exact=True)).to_be_visible()
     expect(panel.get_by_text("duration_below_threshold")).to_have_count(0)
@@ -355,6 +358,14 @@ def test_file_result_shows_stages_and_processes_with_llm_in_place(app, page):
     expect(
         panel.get_by_role("button", name="Обработать через LLM", exact=True)
     ).to_have_count(0)
+
+    # A new file starts folded, whatever the previous one was left at.
+    ui.queue("pick_audio_file", {"result": "/synthetic/second.wav"})
+    ui.queue("transcribe_audio_file", {"result": FILE_RESULT})
+    page.get_by_role("button", name="Выбрать файл").click()
+    expect(panel.get_by_role("button", name="Подробнее", exact=True)).to_have_attribute(
+        "aria-expanded", "false"
+    )
 
 
 def test_file_cancellation(app, page):

@@ -1110,7 +1110,6 @@ export const en: Record<string, string | string[]> = {
   "текст слишком длинный для LLM": "text too long for the LLM",
   "не задан": "not set",
   "не выбран провайдер": "no provider selected",
-  "Распознано": "Decoded",
   "запись короче порога": "recording shorter than the threshold",
   "режим «локально» — LLM выключена": "local mode — the LLM is off",
   "Ключ сохранён.": "Key saved.",
