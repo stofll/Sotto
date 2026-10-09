@@ -1067,8 +1067,10 @@ function EntryCard(props: {
       data-testid={`history-entry-${entry.id}`}
       style={{
         display: "grid",
-        gridTemplateColumns: "auto 1fr auto",
-        gap: 10,
+        // The actions share the first row with the metadata, so the text and
+        // the details below run the full width instead of beside an empty column.
+        gridTemplateColumns: "auto minmax(0, 1fr) auto",
+        columnGap: 10,
         padding: compact ? "8px 10px" : 12,
         borderRadius: "var(--radius-sm)",
         background: cardBackground,
@@ -1083,10 +1085,10 @@ function EntryCard(props: {
         checked={selected}
         onChange={onToggleSelected}
         aria-label={t("Выбрать запись от {p0}", { p0: formatTime(entry.timestamp) })}
-        style={{ marginTop: 4 }}
+        style={{ gridColumn: 1, gridRow: 1, alignSelf: "center" }}
       />
-      <div style={{ minWidth: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: compact ? 4 : 6 }}>
+      <div style={{ display: "contents" }}>
+        <div style={{ gridColumn: 2, gridRow: 1, alignSelf: "center", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", minWidth: 0 }}>
           <Hint asChild text={aiStatusText(entry)}><span
             aria-label={aiStatusText(entry)}
             style={{
@@ -1108,6 +1110,7 @@ function EntryCard(props: {
           {fresh && <span className="tag" style={{ height: 18, fontSize: 9, background: "var(--accent-soft-2)", borderColor: "var(--accent-soft-2)", color: "var(--ink)" }}>{t("новое")}</span>}
         </div>
 
+        <div style={{ gridColumn: "2 / -1", gridRow: 2, minWidth: 0, marginTop: compact ? 4 : 6 }}>
         {player && <RecordingProgress player={player} onSeek={onSeek}/>}
         {compact ? (
           <Hint text={t("Развернуть")} className="hint-anchor--block">
@@ -1200,9 +1203,10 @@ function EntryCard(props: {
             )}
           </>
         )}
+        </div>
       </div>
 
-      <div style={{ display: "flex", gap: 4, alignItems: "start" }}>
+      <div style={{ gridColumn: 3, gridRow: 1, alignSelf: "center", display: "flex", gap: 4, alignItems: "start" }}>
         {entry.has_recording && (
           <Hint text={player?.status === "playing" ? t("Пауза") : t("Прослушать запись")}>
             <button
