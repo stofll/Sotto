@@ -102,8 +102,8 @@ function ProviderSnippet({ result }: { result: AiRunResult }) {
 
 const PIPELINE_MODES = () => ([
   { id: "local", title: t("Только локально"), sub: t("STT на этом компьютере. LLM не вызывается."), icon: "shield" },
-  { id: "hybrid", title: t("Локальное распознавание + LLM"), sub: t("Распознаем локально, затем отправляем текст в LLM для обработки."), icon: "wand" },
-  { id: "cloud", title: t("Облачное распознавание"), sub: t("Запись целиком уходит провайдеру и распознаётся у него. Локальная модель не нужна."), icon: "spark" },
+  { id: "hybrid", title: t("Локальное распознавание + LLM"), sub: t("Распознаем локально, затем отправляем текст в LLM для обработки."), icon: "spark" },
+  { id: "cloud", title: t("Облачное распознавание"), sub: t("Запись целиком уходит провайдеру и распознаётся у него. Локальная модель не нужна."), icon: "globe" },
 ] as const);
 
 /** Why a request cannot leave. One wording and one shape for the dictation
@@ -487,33 +487,35 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
           <div className="ai-mode-grid" role="radiogroup" aria-label={t("Режим обработки")}>
             {PIPELINE_MODES().map((mode, index, modes) => {
               const selected = ai.pipeline_mode === mode.id;
+              // The explanation sits in the hover/focus bubble: three paragraphs
+              // under the titles made the route the heaviest card on the page.
               return (
-                <button
-                  key={mode.id}
-                  type="button"
-                  className="ai-mode-card"
-                  role="radio"
-                  aria-checked={selected}
-                  tabIndex={selected ? 0 : -1}
-                  data-selected={selected}
-                  onClick={() => void saveAi({ pipeline_mode: mode.id })}
-                  onKeyDown={(e) => {
-                    const step = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1
-                      : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
-                    if (!step) return;
-                    e.preventDefault();
-                    const next = modes[(index + step + modes.length) % modes.length];
-                    void saveAi({ pipeline_mode: next.id });
-                    const grid = e.currentTarget.parentElement;
-                    grid?.querySelectorAll<HTMLButtonElement>(".ai-mode-card")[modes.indexOf(next)]?.focus();
-                  }}
-                >
-                  <div className="ai-mode-card__head">
-                    <span className="ai-mode-card__icon"><Icon name={mode.icon} size={15}/></span>
-                    <span className="ai-mode-card__title">{mode.title}</span>
-                  </div>
-                  <div className="ai-mode-card__desc">{mode.sub}</div>
-                </button>
+                <Hint asChild key={mode.id} text={mode.sub}>
+                  <button
+                    type="button"
+                    className="ai-mode-card"
+                    role="radio"
+                    aria-checked={selected}
+                    tabIndex={selected ? 0 : -1}
+                    data-selected={selected}
+                    onClick={() => void saveAi({ pipeline_mode: mode.id })}
+                    onKeyDown={(e) => {
+                      const step = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1
+                        : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
+                      if (!step) return;
+                      e.preventDefault();
+                      const next = modes[(index + step + modes.length) % modes.length];
+                      void saveAi({ pipeline_mode: next.id });
+                      const grid = e.currentTarget.parentElement;
+                      grid?.querySelectorAll<HTMLButtonElement>(".ai-mode-card")[modes.indexOf(next)]?.focus();
+                    }}
+                  >
+                    <div className="ai-mode-card__head">
+                      <span className="ai-mode-card__icon"><Icon name={mode.icon} size={15}/></span>
+                      <span className="ai-mode-card__title">{mode.title}</span>
+                    </div>
+                  </button>
+                </Hint>
               );
             })}
           </div>

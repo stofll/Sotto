@@ -1889,6 +1889,7 @@ button.card { appearance: none; font: inherit; color: inherit; }
 }
 .ai-mode-card__head { display: flex; align-items: center; gap: 10px; }
 .ai-mode-card__icon {
+  flex: 0 0 auto;
   width: 28px; height: 28px; border-radius: var(--radius-sm);
   background: var(--bg-4); display: grid; place-items: center;
   color: var(--ink-mute);
@@ -1902,8 +1903,6 @@ button.card { appearance: none; font: inherit; color: inherit; }
   color: var(--ink);
 }
 .ai-mode-card[data-selected="true"] .ai-mode-card__title { color: var(--accent-text); }
-.ai-mode-card__desc { font: 400 12px/1.5 var(--font-sans); color: var(--ink-mute); }
-.ai-mode-card[data-selected="true"] .ai-mode-card__desc { color: var(--ink-dim); }
 
 /* Why a request cannot leave — under the route, and under the manual panel
    when it runs on a profile of its own. A yellow pill of the same kind as «у
