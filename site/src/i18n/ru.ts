@@ -22,7 +22,6 @@ export const ru: Dictionary = {
     mobile: 'Мобильная навигация',
     features: 'Возможности',
     models: 'Модели',
-    privacy: 'Приватность',
     faq: 'Вопросы',
     start: 'Начать',
     download: 'Скачать',
@@ -36,7 +35,6 @@ export const ru: Dictionary = {
   },
 
   hero: {
-    eyebrow: 'Sotto: голосовой ввод без интернета',
     titleLine1: 'Говорите.',
     titleLine2: 'Успевайте больше.',
     subtitle:
@@ -162,7 +160,6 @@ export const ru: Dictionary = {
     description:
       'Для русского, нескольких языков или текста прямо во время речи. Выберите подходящую модель и скачайте её один раз.',
     filterLabel: 'Фильтр моделей',
-    purposes: ['Для русского', 'Текст во время речи', 'Для нескольких языков', 'Семейство Whisper'],
     allModels: 'Все модели · {total}',
     filters: { all: 'Все', ru: 'Русский', en: 'English', cjk: '中文, 日本語, 한국어' },
     streamingOnly: 'Только потоковые',

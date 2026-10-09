@@ -1,13 +1,13 @@
 .hero { display: flex; flex-direction: column; gap: 22px; padding-top: clamp(48px, 8vw, 96px); container-type: inline-size; }
-.hero-eyebrow { font: 400 0.875rem var(--font-mono); color: var(--text-muted); }
-.hero-title { font: 600 clamp(1.75rem, 7cqi, 5rem)/1.08 var(--font-body); letter-spacing: -0.035em; }
+.hero-title { font: 600 clamp(1.75rem, 5.6cqi, 4.5rem)/1.08 var(--font-body); letter-spacing: -0.035em; }
 .hero-title > span { color: var(--accent-text); }
+/* Both halves share one line where they fit; the Russian headline is the longer one. */
 @media (min-width: 960px) {
-  .hero-title > span { white-space: nowrap; }
+  .hero-title { white-space: nowrap; }
 }
 
-.hero-foot { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 24px 32px; padding-top: 10px; padding-bottom: clamp(40px, 6vw, 64px); }
-.hero-subtitle { max-width: 520px; font-size: 1.125rem; line-height: 1.6; color: var(--text-secondary); text-wrap: pretty; }
+.hero-foot { padding-top: 10px; padding-bottom: clamp(40px, 6vw, 64px); }
+.hero-subtitle { max-width: 640px; font-size: 1.125rem; line-height: 1.6; color: var(--text-secondary); text-wrap: pretty; }
 .hero-actions { display: flex; flex-direction: column; align-items: flex-start; gap: 14px; }
 .hero-buttons { display: flex; flex-wrap: wrap; gap: 10px; }
 .hero-meta { font: 400 0.75rem var(--font-mono); color: var(--text-muted); }

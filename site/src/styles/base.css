@@ -86,7 +86,6 @@ canvas[data-voice-wave] { color: var(--accent-text); }
 /* Section scaffolding shared by every block on the landing page. */
 .section { padding-bottom: var(--section-gap); scroll-margin-top: 70px; }
 .section-head { display: flex; flex-direction: column; gap: 18px; margin-bottom: 48px; }
-.section-label { font: 500 0.75rem var(--font-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); }
 .section-title { max-width: 820px; font: 600 clamp(1.875rem, 4.2vw, 3.25rem)/1.06 var(--font-body); letter-spacing: -0.035em; text-wrap: balance; }
 .section-lede { max-width: 640px; font-size: 1.0625rem; line-height: 1.6; color: var(--text-secondary); text-wrap: pretty; }
 .section-note { display: block; margin-top: 16px; font: 400 0.75rem/1.6 var(--font-mono); color: var(--text-muted); }

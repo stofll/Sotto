@@ -30,12 +30,11 @@ export interface Dictionary {
     ogImageAlt: string;
   };
   nav: Record<
-    | 'home' | 'main' | 'mobile' | 'features' | 'models' | 'privacy' | 'faq' | 'start' | 'download'
+    | 'home' | 'main' | 'mobile' | 'features' | 'models' | 'faq' | 'start' | 'download'
     | 'openMenu' | 'closeMenu' | 'darkTheme' | 'footerNav' | 'skipToContent' | 'noscript' | 'language',
     string
   >;
   hero: {
-    eyebrow: string;
     titleLine1: string;
     titleLine2: string;
     subtitle: string;
@@ -129,7 +128,6 @@ export interface Dictionary {
     eyebrow: string;
     title: string;
     description: string;
-    purposes: string[];
     allModels: string;
     filterLabel: string;
     filters: Record<'all' | LanguageGroup, string>;

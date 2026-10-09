@@ -18,7 +18,6 @@ export const en: Dictionary = {
     mobile: 'Mobile navigation',
     features: 'Features',
     models: 'Models',
-    privacy: 'Privacy',
     faq: 'FAQ',
     start: 'Start',
     download: 'Download',
@@ -32,7 +31,6 @@ export const en: Dictionary = {
   },
 
   hero: {
-    eyebrow: 'Sotto: offline voice typing',
     titleLine1: 'Speak.',
     titleLine2: 'Get more done.',
     subtitle:
@@ -158,7 +156,6 @@ export const en: Dictionary = {
     description:
       'Russian, multiple languages or words as you speak. Pick a model and download it once.',
     filterLabel: 'Filter models',
-    purposes: ['For Russian', 'Words as you speak', 'For multiple languages', 'The Whisper family'],
     allModels: 'All models · {total}',
     filters: { all: 'All', ru: 'Русский', en: 'English', cjk: '中文, 日本語, 한국어' },
     streamingOnly: 'Streaming only',

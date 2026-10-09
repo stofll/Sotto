@@ -12,15 +12,13 @@ const featured = ['GigaAM v3', 'Nemotron 3.5', 'Parakeet TDT v3', 'Whisper turbo
 
 <section id="models" class="section container" data-screen-label="05 Models">
   <div class="section-head" data-reveal>
-    <p class="section-label">{m.eyebrow}</p>
     <h2 class="section-title">{m.title}</h2>
     <p class="section-lede">{m.description}</p>
   </div>
 
   <ul class="model-featured">
-    {featured.map((model, index) => (
+    {featured.map((model) => (
       <li class="model-pick">
-        <p class="model-purpose">{m.purposes[index]}</p>
         <h3>{model.name}</h3>
         <p class="model-pick-meta">{model.size} <span aria-hidden="true">·</span> {model.languages.join(', ')}</p>
       </li>
