@@ -415,7 +415,7 @@ impl Engine {
                 // hotkey before downloading a model. Tell them WHAT is
                 // missing, WHERE to get it, and HOW.
                 return Err(crate::ui_text::t(
-                    "Модель не загружена. Откройте «Настройки → Модели» и выберите модель.",
+                    "Модель не загружена. Откройте раздел «Модели» и выберите модель.",
                 ));
             };
             self.whisper_state = Some(
@@ -759,7 +759,7 @@ fn decode_sherpa(
             == Some(crate::model::ModelEngine::SherpaNemoCtc)
         {
             recognizer.transcribe_gigaam(audio, || job.cancelled())
-        } else if matches!(model_id, Some("parakeet-ultra" | "qwen3-asr-0.6b")) {
+        } else if model_id.is_some_and(crate::model::segments_with_context) {
             recognizer.transcribe_segmented(audio, requested, initial_prompt, || job.cancelled())
         } else {
             recognizer.transcribe(16_000, audio)

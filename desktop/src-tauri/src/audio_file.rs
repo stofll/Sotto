@@ -557,25 +557,25 @@ async fn transcribe_file_inner(
         ));
     }
 
-    // 3. The sherpa recognizers have no VAD of their own. They are fine on a
+    // 3. Sherpa models that decode the whole buffer in one pass are fine on a
     //    dictation-length utterance and degrade badly across an hour-long
     //    recording, so refuse rather than hand back mush the user would blame
-    //    on the file. Only checked for the local path — cloud STT does not
-    //    touch the loaded model at all.
+    //    on the file. The model that will run is the loaded one or, after an
+    //    idle unload, the configured one restored below — checking only the
+    //    loaded model let the same file pass or fail depending on timing.
+    //    Cloud STT does not touch the local model at all.
     if pipeline_mode != "cloud" {
         // Cloned out of the guard rather than read through it: `model_engine`
         // is unrelated code, and holding an engine lock across it is how the
         // next deadlock gets written.
         let loaded = crate::mutex_recover::lock(&state.engine_current_model).clone();
-        let is_sherpa = loaded.as_deref().is_some_and(|model| {
-            crate::model::model_engine(model).is_ok_and(|engine| engine.is_sherpa())
-        });
-        if is_sherpa {
+        let model = loaded.or_else(|| config.and_then(|config| config.get_string("model")));
+        if model.is_some_and(|model| !crate::model::handles_long_audio(&model)) {
             return Err(FileFailure::new(
                 crate::telemetry::FailureStage::Stt,
                 crate::telemetry::FailureReason::EngineError,
                 crate::ui_text::t(
-                    "Эта модель не умеет расшифровывать файлы — выберите модель Whisper в «Настройки → Модели».",
+                    "Эта модель не расшифровывает файлы — выберите в разделе «Модели» Whisper, GigaAM, Parakeet Ultra или Qwen3.",
                 ),
             ));
         }

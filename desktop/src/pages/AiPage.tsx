@@ -762,7 +762,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
                   simply a second copy of the same text. */}
               {fileResult.raw_text !== fileResult.text && (
                 <details>
-                  <summary style={{ cursor: "pointer", font: "500 11px/1.4 var(--font-sans)", color: "var(--ink-mute)" }}>{t("Whisper без обработки")}</summary>
+                  <summary style={{ cursor: "pointer", font: "500 11px/1.4 var(--font-sans)", color: "var(--ink-mute)" }}>{t("Распознавание без обработки")}</summary>
                   <div style={{ marginTop: 6, padding: 12, borderRadius: "var(--radius-sm)", background: "var(--bg-2)", border: "1px solid var(--line)", font: "400 13px/1.55 var(--font-sans)", color: "var(--ink-mute)", whiteSpace: "pre-wrap" }}>{fileResult.raw_text}</div>
                 </details>
               )}

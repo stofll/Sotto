@@ -95,8 +95,8 @@ fn en(key: &str) -> Option<&'static str> {
         "Не выбран провайдер." => "No provider selected.",
         "LLM не вернула результат." => "The LLM returned nothing.",
         "Вставьте текст для обработки." => "Paste some text to process.",
-        "Модель не загружена. Откройте «Настройки → Модели» и выберите модель." => {
-            "No model loaded. Open Settings → Models and pick one."
+        "Модель не загружена. Откройте раздел «Модели» и выберите модель." => {
+            "No model loaded. Open Models and pick one."
         }
         "Эта модель распознаёт только русскую речь." => {
             "This model transcribes Russian audio only."
@@ -142,8 +142,8 @@ fn en(key: &str) -> Option<&'static str> {
             "No speech model has been downloaded — there is nothing to record into. Download a model in the settings, or turn on cloud processing."
         }
         "Завершите текущую запись." => "Finish the current recording first.",
-        "Эта модель не умеет расшифровывать файлы — выберите модель Whisper в «Настройки → Модели»." => {
-            "This model cannot transcribe files — pick a Whisper model in Settings → Models."
+        "Эта модель не расшифровывает файлы — выберите в разделе «Модели» Whisper, GigaAM, Parakeet Ultra или Qwen3." => {
+            "This model cannot transcribe files — pick Whisper, GigaAM, Parakeet Ultra or Qwen3 under Models."
         }
         "Движок не ответил. Попробуйте ещё раз." => "The engine did not respond. Try again.",
         "Транскрипция отменена." => "Transcription cancelled.",

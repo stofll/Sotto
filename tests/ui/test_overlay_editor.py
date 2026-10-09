@@ -155,9 +155,9 @@ def test_captions_long_error_keeps_close_inside_window(
     )
     ui.emit("recording-started", 42)
     message = (
-        "Не удалось распознать речь. Откройте «Настройки → Модели» и убедитесь, что модель скачана."
+        "Не удалось распознать речь. Откройте раздел «Модели» и убедитесь, что модель скачана."
         if locale == "ru"
-        else "Speech recognition failed. Open Settings → Models and make sure the selected model has been downloaded."
+        else "Speech recognition failed. Open Models and make sure the selected model has been downloaded."
     )
     ui.emit("whisper-failed", {"session_id": 42, "message": message})
     expect(page.locator(".ovs")).to_have_attribute("data-phase", "error")

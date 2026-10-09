@@ -516,10 +516,10 @@ export const en: Record<string, string | string[]> = {
   "Проверить доступ": "Check access",
   "Проверка…": "Checking…",
   "Модель распознавания не скачана.": "The speech model has not been downloaded.",
-  "Не удалось распознать речь. Откройте «Настройки → Модели» и убедитесь, что модель скачана.":
-    "Could not transcribe. Open Settings → Models and make sure a model is downloaded.",
-  "Не удалось загрузить модель. Откройте «Настройки → Модели» и попробуйте снова.":
-    "Could not load the model. Open Settings → Models and try again.",
+  "Не удалось распознать речь. Откройте раздел «Модели» и убедитесь, что модель скачана.":
+    "Could not transcribe. Open Models and make sure a model is downloaded.",
+  "Не удалось загрузить модель. Откройте раздел «Модели» и попробуйте снова.":
+    "Could not load the model. Open Models and try again.",
   "Не удалось вставить текст в активное окно.": "Could not insert the text into the active window.",
   "Не удалось скопировать.": "Could not copy.",
   "Не удалось скопировать. Скопируйте текст вручную.": "Could not copy. Please copy the text manually.",
@@ -672,7 +672,7 @@ export const en: Record<string, string | string[]> = {
   "Распознаю аудио…": "Transcribing audio…",
   "{p0} с аудио": "{p0} s of audio",
   "LLM не отработала": "The LLM did not run",
-  "Whisper без обработки": "Whisper, unprocessed",
+  "Распознавание без обработки": "Recognition, unprocessed",
   "Скопировано": "Copied",
   "Скопировать в буфер обмена": "Copy to clipboard",
   "Копировать: {p0}": "Copy: {p0}",
