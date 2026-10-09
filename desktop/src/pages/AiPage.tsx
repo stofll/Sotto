@@ -31,7 +31,7 @@ import { NumberField } from "../components/NumberField";
 import type { ApiKeyStatus, ConfigChange, ConfigResult, LateAnswerMode, ReasoningMode } from "../bridge/types";
 import { t } from "../i18n";
 import { useFileTranscription, type FileStage, type TranscribeFileResult } from "./useFileTranscription";
-import { aiFallbackLabel, defaultStage, TranscriptStages, TranscriptStats, type TextStage, type TranscriptRecord } from "./transcriptStages";
+import { aiSkipLabel, defaultStage, TranscriptStages, TranscriptStats, type TextStage, type TranscriptRecord } from "./transcriptStages";
 
 /** Mirrors `MIN_CUSTOM_OUTPUT_TOKENS` in ai/model_params.rs: below it Rust treats the limit as unset. */
 const MIN_OUTPUT_LIMIT = 256;
@@ -69,17 +69,21 @@ function FileStatusPill({ result }: { result: TranscribeFileResult }) {
   return null;
 }
 
-/** A file result in the shape history uses, so both show the same stages. */
+/** A file result in the shape history uses, so both show the same stages.
+ *  No total: the result does not time decoding and formatting, and STT plus
+ *  LLM alone would pass for the whole run. */
 function fileRecord(result: TranscribeFileResult): TranscriptRecord {
   const ai = result.ai_status ?? undefined;
-  const stt = result.inference_time_ms / 1000;
-  const llm = ai?.attempted ? ai.elapsed_seconds : undefined;
   return {
     text: result.text,
     raw_text: result.raw_text,
     formatted_text: result.formatted_text,
     ai_processing: ai,
-    processing_stats: { audio_seconds: result.audio_seconds, whisper_seconds: stt, llm_seconds: llm, total_seconds: stt + (llm ?? 0) },
+    processing_stats: {
+      audio_seconds: result.audio_seconds,
+      whisper_seconds: result.inference_time_ms / 1000,
+      llm_seconds: ai?.attempted ? ai.elapsed_seconds : undefined,
+    },
   };
 }
 
@@ -198,6 +202,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
   // closure over state would freeze the values of the first render.
   const fileStageRef = useRef<FileStage>(null);
   const manualLoadingRef = useRef(false);
+  const fileLlmLoadingRef = useRef(false);
 
   useEffect(() => {
     setPromptDraft(effectiveSystemPrompt(activeProfile));
@@ -233,8 +238,9 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
         return;
       }
       // One transcription at a time: the engine is busy anyway, and a second
-      // would queue behind the first with no trace in the interface.
-      if (fileStageRef.current !== null || manualLoadingRef.current) return;
+      // would queue behind the first with no trace in the interface. Nor may a
+      // new file arrive under an LLM pass still running over the previous one.
+      if (fileStageRef.current !== null || manualLoadingRef.current || fileLlmLoadingRef.current) return;
       void transcribeFile(path);
     }).then((fn) => {
       if (disposed) { fn(); return; }
@@ -252,6 +258,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
   // A new result, or the LLM pass over it, opens on its last stage.
   useEffect(() => { setFileTextStage(null); setFileLlmError(null); }, [fileResult]);
   useEffect(() => { manualLoadingRef.current = manualLoading; }, [manualLoading]);
+  useEffect(() => { fileLlmLoadingRef.current = fileLlmLoading; }, [fileLlmLoading]);
 
   function showMessage(text: string) {
     setMessage(text);
@@ -374,26 +381,32 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
   /** Run the LLM over a transcribed file in place and record it as the result's
    *  LLM stage, instead of sending the user to paste it into the panel above. */
   async function processFileResult() {
-    if (!fileResult || fileLlmLoading) return;
+    const source = fileResult;
+    if (!source || fileLlmLoading) return;
     setFileLlmLoading(true);
     setFileLlmError(null);
     const started = performance.now();
     try {
-      const result = await processWithTextProfile(fileResult.formatted_text || fileResult.text);
+      const result = await processWithTextProfile(source.formatted_text || source.text);
       if (result.available && result.output && !result.fallback) {
-        setFileResult({
-          ...fileResult,
-          text: result.output,
+        const output = result.output;
+        const elapsed = (performance.now() - started) / 1000;
+        // Only onto the result it ran over: a dropped non-audio file clears it
+        // meanwhile. The status is fresh — the automatic pass's attempts and
+        // errors describe a different request.
+        setFileResult((current) => current !== source ? current : {
+          ...source,
+          text: output,
           ai_status: {
-            ...fileResult.ai_status,
-            enabled: true, attempted: true, used: true, fallback: false, skipped_reason: "",
-            elapsed_seconds: (performance.now() - started) / 1000,
+            enabled: true, attempted: true, used: true, fallback: false, elapsed_seconds: elapsed,
             provider: textProfile.provider, model: textProfile.model, profile_name: textProfile.name,
           },
         });
       } else {
-        setFileLlmError(result.provider_error || result.message
-          || (result.skipped_reason ? aiFallbackLabel(undefined, result.skipped_reason) : t("LLM не вернула текст.")));
+        // `message` repeats a skipped or rejected answer's raw code; the label names it.
+        setFileLlmError(result.provider_error
+          || (result.skipped_reason ? aiSkipLabel(result.skipped_reason) : result.message)
+          || t("LLM не вернула текст."));
       }
     } catch (e) {
       setFileLlmError(e instanceof Error ? e.message : String(e));
@@ -408,35 +421,25 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
     // profile is chosen the flat fields would describe the voice one — that
     // is, they would send the request somewhere other than what is shown.
     return invoke<AiRunResult>("process_text_ai", {
-        text,
-        profile_id: textProfile.id,
-        profile_name: textProfile.name,
-        api_key_ref: textKeyRef,
-        provider: textProfile.provider,
-        model: textProfile.model,
-        base_url: textProfile.base_url ?? "",
-        // Resolved against the preset rather than passed on raw: a profile that
-        // never edited its prompt stores an empty string, and `??` lets an
-        // empty string through — so the panel ran the chosen profile on the
-        // dictation profile's prompt, and a «structured» preset quietly asked
-        // for plain paragraphs.
-        system_prompt: effectiveSystemPrompt(textProfile),
-        llm_reasoning: textProfile.llm_reasoning,
-        llm_output_limit: textProfile.llm_output_limit,
-      });
+      text,
+      profile_id: textProfile.id,
+      profile_name: textProfile.name,
+      api_key_ref: textKeyRef,
+      provider: textProfile.provider,
+      model: textProfile.model,
+      base_url: textProfile.base_url ?? "",
+      // Resolved against the preset rather than passed on raw: a profile that
+      // never edited its prompt stores an empty string, and `??` lets an
+      // empty string through — so the panel ran the chosen profile on the
+      // dictation profile's prompt, and a «structured» preset quietly asked
+      // for plain paragraphs.
+      system_prompt: effectiveSystemPrompt(textProfile),
+      llm_reasoning: textProfile.llm_reasoning,
+      llm_output_limit: textProfile.llm_output_limit,
+    });
   }
 
-  async function copyFileStage(text: string) {
-    try {
-      await navigator.clipboard.writeText(text);
-      showMessage(t("Результат скопирован."));
-    } catch {
-      showMessage(t("Не удалось скопировать."));
-    }
-  }
-
-  async function copyFileResult() {
-    const text = fileResult?.text ?? "";
+  async function copyText(text: string) {
     if (!text) return;
     try {
       await navigator.clipboard.writeText(text);
@@ -446,16 +449,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
     }
   }
 
-  async function copyManualResult() {
-    const text = manualResult?.output ?? "";
-    if (!text) return;
-    try {
-      await navigator.clipboard.writeText(text);
-      showMessage(t("Результат скопирован."));
-    } catch {
-      showMessage(t("Не удалось скопировать."));
-    }
-  }
+  const fileTranscript = fileResult && fileRecord(fileResult);
 
   return (
     <div className="page">
@@ -805,7 +799,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
               {fileStage !== null
                 ? <button className="btn btn--ghost" onClick={() => void cancelFileTranscription()}>{t("Отменить")}</button>
                 : (
-                  <button className="btn btn--ghost" onClick={() => void runFileTranscription()} disabled={manualLoading}>
+                  <button className="btn btn--ghost" onClick={() => void runFileTranscription()} disabled={manualLoading || fileLlmLoading}>
                     <Icon name="folder" size={12}/>{t("Выбрать файл")}
                   </button>
                 )}
@@ -831,23 +825,23 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
                 <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
                   <FileStatusPill result={fileResult}/>
                   {fileResult.text && (
-                    <button className="btn btn--ghost" onClick={() => void copyFileResult()} style={{ height: 24 }}>
+                    <button className="btn btn--ghost" onClick={() => void copyText(fileResult.text)} style={{ height: 24 }}>
                       <Icon name="copy" size={11}/>{t("Скопировать")}
                     </button>
                   )}
                 </div>
               </div>
               {fileLlmError && <div role="alert" style={{ font: "500 11px/1.45 var(--font-mono)", color: "var(--err)", whiteSpace: "pre-wrap" }}>{fileLlmError}</div>}
-              {fileDetails && (
+              {fileDetails && fileTranscript && (
                 <div>
-                  <TranscriptStats entry={fileRecord(fileResult)}/>
+                  <TranscriptStats entry={fileTranscript}/>
                   <TranscriptStages
-                    entry={fileRecord(fileResult)}
+                    entry={fileTranscript}
                     copyKey="file"
-                    stage={fileTextStage ?? defaultStage(fileRecord(fileResult))}
+                    stage={fileTextStage ?? defaultStage(fileTranscript)}
                     onStage={setFileTextStage}
                     copiedKey={null}
-                    onCopy={(_key, text) => void copyFileStage(text)}
+                    onCopy={(_key, text) => void copyText(text)}
                   />
                 </div>
               )}
@@ -857,7 +851,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
             <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <span className={manualResult.available && !manualResult.fallback ? "pill ok" : (manualResult.fallback ? "pill warn" : "pill err")}>{manualResult.available ? (manualResult.fallback ? "Fallback" : t("Готово")) : t("Не обработано")}</span>
-                {manualResult.output && <button className="btn btn--ghost" onClick={() => void copyManualResult()}><Icon name="copy" size={12}/>{t("Скопировать")}</button>}
+                {manualResult.output && <button className="btn btn--ghost" onClick={() => void copyText(manualResult.output ?? "")}><Icon name="copy" size={12}/>{t("Скопировать")}</button>}
               </div>
               {(manualResult.message || manualResult.provider_error || manualResult.skipped_reason) && <div style={{ font: "500 11px/1.45 var(--font-mono)", color: manualResult.provider_error || manualResult.skipped_reason ? "var(--err)" : "var(--ink-mute)", whiteSpace: "pre-wrap" }}>{manualResult.provider_error || manualResult.message || manualResult.skipped_reason}</div>}
               <ProviderSnippet result={manualResult}/>

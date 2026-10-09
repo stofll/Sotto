@@ -57,7 +57,22 @@ export function aiFallbackLabel(errorType?: string, skippedReason?: string): str
   if (code === "model_changed_numbers") return t("модель изменила числа");
   if (code === "model_changed_terms") return t("модель изменила названия");
   if (code === "model_repeated_context") return t("модель повторила контекст");
-  return "fallback";
+  // An unmapped code is more useful raw than as the word "fallback".
+  return code || "fallback";
+}
+
+// Rust returns the raw `skipped_reason` code rather than a sentence, so the
+// wording for a given failure lives in exactly one place. The provider-side
+// codes are already spelled out by `aiFallbackLabel`; only the gates that
+// stop the call before it leaves the app need their own text.
+export function aiSkipLabel(code: string): string {
+  if (code === "local_mode") return t("режим «локально» — LLM выключена");
+  if (code === "missing_provider") return t("не выбран провайдер");
+  if (code === "missing_api_key") return t("нет ключа");
+  if (code === "missing_system_prompt") return t("пустой системный промпт");
+  if (code === "duration_below_threshold") return t("запись короче порога");
+  if (code === "text_too_long") return t("текст слишком длинный для LLM");
+  return aiFallbackLabel(undefined, code);
 }
 
 export function formatSeconds(value: number | null | undefined): string {

@@ -14,7 +14,7 @@ import { Hint } from "../components/Hint";
 import { confirmDestructive } from "../components/ConfirmDialog";
 import { CustomSelect } from "../components/CustomSelect";
 import { DiffBlock } from "../components/DiffBlock";
-import { aiFallbackLabel, aiStatusKind, aiStatusText, defaultStage, formatSeconds, TranscriptStages, TranscriptStats, type TextStage } from "./transcriptStages";
+import { aiSkipLabel, aiStatusKind, aiStatusText, defaultStage, formatSeconds, TranscriptStages, TranscriptStats, type TextStage } from "./transcriptStages";
 import type { ConfigResult, HistoryAiPreview, HistoryEntry } from "../bridge/types";
 import { effectiveSystemPrompt } from "./aiShared";
 import { localeTag, t, tPlural } from "../i18n";
@@ -57,22 +57,6 @@ function dayBucketLabel(unix: number): string {
   if (diffDays === 1) return t("Вчера");
   if (diffDays < 7) return date.toLocaleDateString(localeTag(), { weekday: "long" });
   return date.toLocaleDateString(localeTag(), { day: "2-digit", month: "long", year: date.getFullYear() === now.getFullYear() ? undefined : "numeric" });
-}
-
-// Rust returns the raw `skipped_reason` code rather than a sentence, so the
-// wording for a given failure lives in exactly one place. The provider-side
-// codes are already spelled out by `aiFallbackLabel`; only the gates that
-// stop the call before it leaves the app need their own text.
-function aiSkipLabel(code: string): string {
-  if (code === "local_mode") return t("режим «локально» — LLM выключена");
-  if (code === "missing_provider") return t("не выбран провайдер");
-  if (code === "missing_api_key") return t("нет ключа");
-  if (code === "missing_system_prompt") return t("пустой системный промпт");
-  if (code === "duration_below_threshold") return t("запись короче порога");
-  if (code === "text_too_long") return t("текст слишком длинный для LLM");
-  const label = aiFallbackLabel(undefined, code);
-  // An unmapped code is more useful raw than as the word "fallback".
-  return label === "fallback" ? code : label;
 }
 
 /** Above an answer a check turned down. In a long text the check judged one
@@ -156,9 +140,8 @@ async function copyToClipboard(text: string): Promise<boolean> {
 }
 
 function entryHasDetails(entry: HistoryEntry): boolean {
+  // Any stored stage opens the stage switcher.
   if (entry.raw_text || entry.formatted_text) return true;
-  if (entry.formatted_text && entry.formatted_text !== entry.text) return true;
-  if (entry.raw_text && entry.raw_text !== entry.formatted_text && entry.raw_text !== entry.text) return true;
   if (entry.ai_processing?.provider_error) return true;
   if (processingStatsText(entry)) return true;
   return false;
@@ -1122,7 +1105,6 @@ function EntryCard(props: {
                   <HistoryTextBlock
                     title={t("Причина fallback")}
                     text={entry.ai_processing.provider_error}
-                    muted
                     copied={copiedBlockKey === `${entry.id}:provider_error`}
                     onCopy={() => onCopyBlock(`${entry.id}:provider_error`, entry.ai_processing?.provider_error ?? "")}
                   />
@@ -1373,11 +1355,11 @@ function ReprocessPanel({
   );
 }
 
-function HistoryTextBlock({ title, text, muted = false, collapsible = false, collapsed = false, copied = false, onToggle, onCopy }: { title: string; text: string; muted?: boolean; collapsible?: boolean; collapsed?: boolean; copied?: boolean; onToggle?: () => void; onCopy?: () => void }) {
+function HistoryTextBlock({ title, text, copied = false, onCopy }: { title: string; text: string; copied?: boolean; onCopy?: () => void }) {
   return (
-    <div style={{ marginTop: muted ? 10 : 0 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: collapsed ? 0 : 4 }}>
-        <div style={{ flex: "0 1 auto", minWidth: 0, font: "600 10px/1 var(--font-mono)", color: muted ? "var(--ink-mute)" : "var(--ink-dim)", textTransform: "uppercase", letterSpacing: "0.04em" }}>{title}</div>
+    <div style={{ marginTop: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+        <div style={{ flex: "0 1 auto", minWidth: 0, font: "600 10px/1 var(--font-mono)", color: "var(--ink-mute)", textTransform: "uppercase", letterSpacing: "0.04em" }}>{title}</div>
         <Hint text={t("Копировать: {p0}", { p0: title })}>
           <button
             className={copied ? "btn btn--primary" : "btn btn--ghost"}
@@ -1388,25 +1370,10 @@ function HistoryTextBlock({ title, text, muted = false, collapsible = false, col
             <Icon name={copied ? "check" : "copy"} size={10}/>
           </button>
         </Hint>
-        {collapsible && (
-          <Hint text={collapsed ? t("Развернуть блок") : t("Свернуть блок")}>
-          <button
-            className="btn btn--ghost"
-            onClick={onToggle}
-            aria-label={collapsed ? t("Развернуть блок {p0}", { p0: title }) : t("Свернуть блок {p0}", { p0: title })}
-            aria-expanded={!collapsed}
-            style={{ height: 22, padding: "0 6px" }}
-          >
-            <Icon name={collapsed ? "chev-down" : "chev"} size={10} style={{ transform: collapsed ? undefined : "rotate(90deg)" }}/>
-          </button>
-          </Hint>
-        )}
       </div>
-      {!collapsed && (
-        <div style={{ font: "400 13px/1.5 var(--font-sans)", color: muted ? "var(--ink-dim)" : "var(--ink)", whiteSpace: "pre-wrap", overflowWrap: "break-word" }}>
-          {text}
-        </div>
-      )}
+      <div style={{ font: "400 13px/1.5 var(--font-sans)", color: "var(--ink-dim)", whiteSpace: "pre-wrap", overflowWrap: "break-word" }}>
+        {text}
+      </div>
     </div>
   );
 }

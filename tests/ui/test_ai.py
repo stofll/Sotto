@@ -368,6 +368,59 @@ def test_file_result_shows_stages_and_processes_with_llm_in_place(app, page):
     )
 
 
+def test_file_llm_pass_names_a_skip_and_keeps_to_its_result(app, page):
+    ui = app(keys=KEYS)
+    ui.nav("ai")
+    failed = {
+        **FILE_RESULT,
+        "ai_status": {
+            "enabled": True,
+            "attempted": True,
+            "used": False,
+            "fallback": True,
+            "attempts": 3,
+            "error_type": "timeout",
+        },
+    }
+    ui.queue("pick_audio_file", {"result": "/synthetic/sample.wav"})
+    ui.queue("transcribe_audio_file", {"result": failed})
+    pick = page.get_by_role("button", name="Выбрать файл")
+    pick.click()
+    panel = page.get_by_test_id("page-ai")
+    process = panel.get_by_role("button", name="Обработать через LLM", exact=True)
+
+    # The gate's code arrives as the message too; the panel names it instead.
+    ui.queue(
+        "process_text_ai",
+        {
+            "result": {
+                "available": False,
+                "skipped_reason": "text_too_long",
+                "message": "text_too_long",
+            }
+        },
+    )
+    process.click()
+    expect(
+        panel.get_by_text("текст слишком длинный для LLM", exact=True)
+    ).to_be_visible()
+    expect(panel.get_by_text("text_too_long")).to_have_count(0)
+
+    # While a pass runs over this result, no other file can take its place.
+    ui.queue("process_text_ai", {"hold": True})
+    process.click()
+    expect(pick).to_be_disabled()
+    ui.settle(
+        "process_text_ai",
+        result={"available": True, "output": "Synthetic polished file"},
+    )
+    expect(pick).to_be_enabled()
+    expect(panel.get_by_text("Synthetic polished file", exact=True)).to_be_visible()
+    # The status describes this pass, not the automatic one's three attempts.
+    panel.get_by_role("button", name="Подробнее", exact=True).click()
+    expect(panel.get_by_text("попыток 3")).to_have_count(0)
+
+
 def test_file_cancellation(app, page):
     ui = app()
     ui.nav("ai")
