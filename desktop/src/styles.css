@@ -1999,6 +1999,9 @@ button.card { appearance: none; font: inherit; color: inherit; }
    competed in weight with the heading itself and confused the count with the
    state pills («активный», «не сохранено») that remain as bubbles nearby. */
 .head-count { font: 500 10.5px/1.7 var(--font-mono); color: var(--ink-dim); white-space: nowrap; flex-shrink: 0; }
+/* A prose summary («118 активных терминов») gives way before the heading: in a
+   narrow column it wrapped onto two lines while the heading ellipsised to «Слов…». */
+.fold__toggle > .dictionary-note { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1000 auto; }
 
 /* The hint sits beside the collapse button rather than inside it, for the same
    reason the switches do: a click on it must not fold the card away. The button
