@@ -200,11 +200,20 @@ fn app_version(app: AppHandle) -> Result<serde_json::Value, String> {
 /// - `recording`: whether the audio recorder is active
 /// - `state`: app FSM state string (idle/recording/processing)
 #[tauri::command]
-fn get_runtime_status(
+async fn get_runtime_status(
     app: AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
-    let config = crate::config::Config::load(&app).ok();
+    // Config and model files are read off the main thread, which also runs the
+    // global hotkey.
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || runtime_status(&app, &state))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+fn runtime_status(app: &AppHandle, state: &AppState) -> serde_json::Value {
+    let config = crate::config::Config::load(app).ok();
     let model = config.as_ref().and_then(|c| c.get_string("model"));
     // Normalised, not the raw string: the UI shows this verbatim and the
     // stored value may still be the legacy `"cuda"`.
@@ -252,7 +261,7 @@ fn get_runtime_status(
         && pipeline_mode != "cloud"
         && model.as_deref().is_some_and(crate::model::is_downloaded);
 
-    Ok(serde_json::json!({
+    serde_json::json!({
         "model_loaded": loaded_engine.is_some(),
         "model_loads_on_demand": loads_on_demand,
         // A portable copy deliberately does not touch autostart (see
@@ -272,7 +281,7 @@ fn get_runtime_status(
         "cpu_only": loaded_engine.is_some_and(|engine| engine.is_sherpa()),
         "recording": state.recorder.is_recording(),
         "state": state_str,
-    }))
+    })
 }
 
 #[derive(Debug, PartialEq, Eq)]

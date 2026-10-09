@@ -504,9 +504,12 @@ fn persist_with_hotkey(
 
 /// Return the full on-disk config as a JSON value.
 #[tauri::command]
-pub(crate) fn get_config(app: AppHandle) -> Result<Value, String> {
-    let cfg = Config::load(&app)?;
-    Ok(cfg.as_value().clone())
+pub(crate) async fn get_config(app: AppHandle) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        Config::load(&app).map(|cfg| cfg.as_value().clone())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Save a JSON Merge Patch to the on-disk config.

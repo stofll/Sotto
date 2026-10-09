@@ -244,8 +244,10 @@ fn discard_in(dir: PathBuf, saving: JoinHandle<Option<String>>) -> JoinHandle<()
 }
 
 #[tauri::command]
-pub(crate) fn open_recordings_folder() -> Result<(), String> {
-    crate::debug::open_in_file_manager(&dir())
+pub(crate) async fn open_recordings_folder() -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(|| crate::debug::open_in_file_manager(&dir()))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// Bytes the saved recordings occupy. Async with a blocking worker: without a
