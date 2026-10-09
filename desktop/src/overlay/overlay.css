@@ -29,9 +29,6 @@
   max-width: 552px;
   height: 56px;
   border-radius: var(--overlay-radius);
-  padding: 4px;
-  background: linear-gradient(180deg, var(--overlay-shell-top), var(--overlay-shell-bottom));
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.05) inset;
   /* The shell mounts with each dictation, so the entrance plays every time.
      The exit stays under the native LEAVE_DURATION (220 ms, overlay.rs). */
   transform-origin: 50% 100%;
@@ -44,7 +41,7 @@
   position: relative;
   width: 100%;
   height: 100%;
-  border-radius: calc(var(--overlay-radius) - 4px);
+  border-radius: inherit;
   border: 1px solid transparent;
   background: var(--overlay-surface);
   padding: 0 8px;
@@ -52,7 +49,7 @@
   flex-direction: column;
   justify-content: center;
 }
-.overlay-surface::before, .overlay-surface::after, .overlay-glow {
+.overlay-surface::before, .overlay-glow {
   content: "";
   position: absolute;
   inset: 0;
@@ -62,10 +59,6 @@
 .overlay-surface::before {
   background: radial-gradient(circle at 48% 50%, var(--overlay-wave-mid), transparent 68%);
   opacity: calc(0.03 + var(--overlay-energy) * 0.14);
-}
-.overlay-surface::after {
-  border: 1px solid var(--overlay-edge);
-  opacity: calc(0.08 + var(--overlay-energy) * 0.34);
 }
 .overlay-glow {
   box-shadow: 0 0 calc(5px + var(--overlay-energy) * 12px) var(--overlay-wave-mid) inset;
@@ -134,11 +127,6 @@
 .overlay[data-timer="off"] .overlay-row { grid-template-columns: 0 1fr 30px; column-gap: 4px; }
 .overlay[data-state="error"] .overlay-text { color: var(--err); }
 .overlay-counter { animation: overlay-counter-in 200ms ease both; font-variant-numeric: tabular-nums; }
-.overlay:is([data-state="loading"], [data-state="processing"], [data-state="done"]) .overlay-shell::before {
-  content: ""; position: absolute; inset: 0; border-radius: inherit;
-  background: linear-gradient(110deg, transparent 35%, var(--overlay-edge) 50%, transparent 65%);
-  background-size: 250% 100%; animation: overlay-edge-sweep 1.4s ease-in-out infinite;
-}
 .overlay[data-size="s"] .overlay-shell { height: 52px; }
 .overlay[data-size="l"] .overlay-shell { height: 64px; }
 .overlay[data-size="s"] .overlay-text { font-size: 13px; }
@@ -152,9 +140,7 @@
 .overlay[data-layout="glow"] .overlay-shell { max-width: 400px; height: 104px; }
 .overlay[data-layout="glow"] .overlay-surface { padding: 10px 12px 8px; display: flex; flex-direction: column; justify-content: space-between; gap: 4px; }
 .overlay[data-layout="glow"] .overlay-surface::before,
-.overlay[data-layout="glow"] .overlay-surface::after,
 .overlay[data-layout="glow"] .overlay-glow { display: none; }
-.overlay[data-layout="glow"]:is([data-state="loading"], [data-state="processing"], [data-state="done"]) .overlay-shell::before { content: none; animation: none; }
 .overlay[data-layout="glow"][data-size="s"] .overlay-shell { max-width: 360px; height: 92px; }
 .overlay[data-layout="glow"][data-size="l"] .overlay-shell { max-width: 440px; height: 116px; }
 .overlay-composer-body { position: relative; z-index: 1; flex: 1; min-height: 0; display: flex; }
@@ -190,12 +176,11 @@
 .overlay[data-state="pasted"] .overlay-bead-status::after { content: "✓"; position: absolute; inset: 0; display: grid; place-items: center; color: var(--ok); }
 .overlay[data-layout="bead"][data-hovered="true"] .overlay-bead-status::after,
 .overlay[data-layout="bead"]:focus-within .overlay-bead-status::after { opacity: 0; }
-@keyframes overlay-edge-sweep { from { background-position: 150% 0; } to { background-position: -50% 0; } }
 @keyframes overlay-counter-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes overlay-enter { from { opacity: 0; transform: translateY(6px) scale(.94); } }
 @media (prefers-reduced-motion: reduce) {
   .overlay-row, .overlay-close, .overlay-shell { transition: none !important; }
-  .overlay-counter, .overlay-shell, .overlay-shell::before { animation: none !important; }
+  .overlay-counter, .overlay-shell { animation: none !important; }
 }
 
 /* Equal side slots keep status text centred independently of the cancel button. */

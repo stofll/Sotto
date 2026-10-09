@@ -32,11 +32,11 @@
   --ink-mute: #8C889B;
   --ink-faint: #5C5868;
 
-  --accent: #e68a3d;
-  --accent-strong: #f5993f;
-  --accent-soft: rgba(230, 138, 61, 0.14);
-  --accent-soft-2: rgba(230, 138, 61, 0.26);
-  --accent-ink: #1a1208;
+  --accent: #3d5ce6;
+  --accent-strong: #5470e9;
+  --accent-soft: rgba(61, 92, 230, 0.14);
+  --accent-soft-2: rgba(61, 92, 230, 0.26);
+  --accent-ink: #ffffff;
   /* Share the contrast-adjusted text colour with focus and selection rings.
      The translucent stroke stays quieter than the text it marks. */
   --ring-color: color-mix(in srgb, var(--accent-text) 75%, transparent);
@@ -116,8 +116,8 @@
   --ink-mute: #4a4654;
   --ink-faint: #6b6776;
 
-  --accent-soft: rgba(230, 138, 61, 0.16);
-  --accent-soft-2: rgba(230, 138, 61, 0.30);
+  --accent-soft: rgba(61, 92, 230, 0.16);
+  --accent-soft-2: rgba(61, 92, 230, 0.30);
 
   /* Startup fallback before the saved interface colour is applied. */
   --accent-text: color-mix(in srgb, var(--accent) 55%, #12101a);
@@ -1296,8 +1296,8 @@ button.card { appearance: none; font: inherit; color: inherit; }
   50%      { box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.22); }
 }
 @keyframes pulse-dot-accent {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(230, 138, 61, 0); }
-  50%      { box-shadow: 0 0 0 3px rgba(230, 138, 61, 0.22); }
+  0%, 100% { box-shadow: 0 0 0 0 transparent; }
+  50%      { box-shadow: 0 0 0 3px var(--accent-soft-2); }
 }
 
 /* Wide-screen breathing room — allow .page to expand on very wide screens */

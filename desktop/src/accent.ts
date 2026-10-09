@@ -1,13 +1,14 @@
 import { t } from "./i18n";
 import { parseRgb } from "./color";
 
-export const DEFAULT_ACCENT = "#e68a3d";
+/** The website's blue, so the app opens in the colour the reader downloaded it from. */
+export const DEFAULT_ACCENT = "#3d5ce6";
 
 // A function rather than a constant: the labels are translated, and computed at
 // import time they would be stuck in the default language.
 export const ACCENT_PRESETS = () => ([
-  { value: DEFAULT_ACCENT, label: t("Оранжевый") },
-  { value: "#5b8def", label: t("Синий") },
+  { value: DEFAULT_ACCENT, label: t("Синий") },
+  { value: "#e68a3d", label: t("Оранжевый") },
   { value: "#3dc97c", label: t("Зелёный") },
   { value: "#9b75ef", label: t("Фиолетовый") },
 ]);

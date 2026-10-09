@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { regionOf } from "../../overlay/overlayRecipe";
+import { DEFAULT_STYLE, regionOf } from "../../overlay/overlayRecipe";
 import { addPart, changeShell, freePartsFor, partsFor, placeInto, removePart, replacementPatch, restoreShell } from "./recipeEdits";
 import { SYSTEM_TEMPLATES } from "./templates";
 
@@ -98,7 +98,7 @@ describe("restoreShell", () => {
     if (!result.ok) throw new Error("rejected");
     const style = restoreShell(orb, result.recipe).style;
     expect(style.fill).not.toBe("none");
-    expect(style.stroke).not.toBe("none");
+    expect(style.stroke).toBe(DEFAULT_STYLE.stroke);
   });
 
   it("keeps a transparent shell the user chose without an orb", () => {
