@@ -92,7 +92,6 @@ export interface Dictionary {
     };
   };
   apps: {
-    eyebrow: string;
     title: string;
     text: string;
   };
@@ -151,7 +150,6 @@ export interface Dictionary {
     link: string;
   };
   start: {
-    eyebrow: string;
     title: string;
     steps: Card[];
     windows: string;
