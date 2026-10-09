@@ -14,6 +14,7 @@ import { Hint } from "../components/Hint";
 import { confirmDestructive } from "../components/ConfirmDialog";
 import { CustomSelect } from "../components/CustomSelect";
 import { DiffBlock } from "../components/DiffBlock";
+import { aiSkipLabel, aiStatusKind, aiStatusText, defaultStage, formatSeconds, TranscriptStages, TranscriptStats, type TextStage } from "./transcriptStages";
 import type { ConfigResult, HistoryAiPreview, HistoryEntry } from "../bridge/types";
 import { effectiveSystemPrompt } from "./aiShared";
 import { localeTag, t, tPlural } from "../i18n";
@@ -47,14 +48,6 @@ function transcriptionModelLabel(entry: HistoryEntry): string {
   return model || t("модель не сохранена");
 }
 
-function relativeAge(unix: number): string {
-  const seconds = Math.max(0, Math.floor(Date.now() / 1000 - unix));
-  if (seconds < 60) return t("только что");
-  if (seconds < 3600) return t("{p0} мин назад", { p0: Math.floor(seconds / 60) });
-  if (seconds < 24 * 3600) return t("{p0} ч назад", { p0: Math.floor(seconds / 3600) });
-  return t("{p0} д назад", { p0: Math.floor(seconds / 86400) });
-}
-
 function dayBucketLabel(unix: number): string {
   const date = new Date(unix * 1000);
   const now = new Date();
@@ -64,73 +57,6 @@ function dayBucketLabel(unix: number): string {
   if (diffDays === 1) return t("Вчера");
   if (diffDays < 7) return date.toLocaleDateString(localeTag(), { weekday: "long" });
   return date.toLocaleDateString(localeTag(), { day: "2-digit", month: "long", year: date.getFullYear() === now.getFullYear() ? undefined : "numeric" });
-}
-
-function aiStatusKind(entry: HistoryEntry): "processed" | "fallback" | "skipped" | "none" {
-  const ai = entry.ai_processing;
-  if (!ai || Object.keys(ai).length === 0) return "none";
-  if (ai.attempted && ai.used) return "processed";
-  if (ai.attempted && ai.fallback) return "fallback";
-  return "skipped";
-}
-
-function aiStatusText(entry: HistoryEntry): string {
-  const ai = entry.ai_processing;
-  if (!ai || Object.keys(ai).length === 0) return t("LLM: нет данных");
-  if (!ai.enabled) return t("LLM: выключено");
-  const profile = ai.profile_name ? `${ai.profile_name} · ` : "";
-  const model = `${profile}${[ai.provider, ai.model].filter(Boolean).join(" / ")}`.trim();
-  if (ai.attempted && ai.used && ai.accepted_reason != null) return model ? t("LLM: вариант принят вручную · {p0}", { p0: model }) : t("LLM: вариант принят вручную");
-  if (ai.attempted && ai.used && ai.parts && ai.parts.used < ai.parts.total) {
-    const label = t("LLM: частично · {p0} из {p1} частей", { p0: ai.parts.used, p1: ai.parts.total });
-    return model ? `${label} · ${model}` : label;
-  }
-  if (ai.attempted && ai.used && ai.late) return model ? t("LLM: обработано позже · {p0}", { p0: model }) : t("LLM: обработано позже");
-  if (ai.attempted && ai.used) return model ? t("LLM: обработано · {p0}", { p0: model }) : t("LLM: обработано");
-  if (ai.attempted && ai.fallback) {
-    const label = aiFallbackLabel(ai.error_type, ai.skipped_reason);
-    return model ? `LLM: ${label} · ${model}` : `LLM: ${label}`;
-  }
-  if (ai.skipped_reason === "duration_below_threshold") return t("LLM: пропущено · короче {p0} сек", { p0: Math.round(ai.min_duration_seconds ?? 0) });
-  if (ai.skipped_reason === "missing_api_key") return t("LLM: пропущено · нет ключа");
-  if (ai.skipped_reason === "missing_provider") return t("LLM: пропущено · нет провайдера");
-  if (ai.skipped_reason === "missing_system_prompt") return t("LLM: пропущено · пустой промпт");
-  if (ai.skipped_reason === "text_too_long") return t("LLM: пропущено · текст слишком длинный");
-  return t("LLM: пропущено");
-}
-
-function aiFallbackLabel(errorType?: string, skippedReason?: string): string {
-  // `altered_response` covers several checks; the reason says which one.
-  const code = (errorType === "altered_response" ? skippedReason : errorType) || skippedReason || "";
-  if (code === "auth_error" || code === "provider_auth_error") return t("ошибка ключа");
-  if (code === "rate_limit" || code === "provider_quota_or_rate_limit") return t("лимит");
-  if (code === "timeout" || code === "provider_timeout") return "timeout";
-  if (code === "connection_error" || code === "provider_connection_error") return t("сеть");
-  if (code === "bad_response" || code === "provider_bad_response") return t("неожиданный ответ");
-  if (code === "empty_response") return t("пустой ответ");
-  if (code === "meta_response" || code === "model_returned_meta_response") return "meta fallback";
-  if (code === "summarised_response" || code === "model_dropped_text") return t("модель сократила текст");
-  if (code === "model_dropped_negation") return t("модель убрала отрицание");
-  if (code === "model_changed_numbers") return t("модель изменила числа");
-  if (code === "model_changed_terms") return t("модель изменила названия");
-  if (code === "model_repeated_context") return t("модель повторила контекст");
-  return "fallback";
-}
-
-// Rust returns the raw `skipped_reason` code rather than a sentence, so the
-// wording for a given failure lives in exactly one place. The provider-side
-// codes are already spelled out by `aiFallbackLabel`; only the gates that
-// stop the call before it leaves the app need their own text.
-function aiSkipLabel(code: string): string {
-  if (code === "local_mode") return t("режим «локально» — LLM выключена");
-  if (code === "missing_provider") return t("не выбран провайдер");
-  if (code === "missing_api_key") return t("нет ключа");
-  if (code === "missing_system_prompt") return t("пустой системный промпт");
-  if (code === "duration_below_threshold") return t("запись короче порога");
-  if (code === "text_too_long") return t("текст слишком длинный для LLM");
-  const label = aiFallbackLabel(undefined, code);
-  // An unmapped code is more useful raw than as the word "fallback".
-  return label === "fallback" ? code : label;
 }
 
 /** Above an answer a check turned down. In a long text the check judged one
@@ -153,12 +79,6 @@ function aiTargetText(ai: Pick<AiConfig, "provider" | "model"> | HistoryEntry["a
   const provider = ai?.provider?.trim();
   const model = ai?.model?.trim();
   return [provider, model].filter(Boolean).join(" / ") || t("провайдер не выбран");
-}
-
-function formatSeconds(value: number | null | undefined): string {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "-";
-  if (value < 0.1) return t("{p0} мс", { p0: Math.round(value * 1000) });
-  return t("{p0} с", { p0: value.toFixed(value < 10 ? 1 : 0) });
 }
 
 function processingStatsText(entry: HistoryEntry): string {
@@ -220,8 +140,8 @@ async function copyToClipboard(text: string): Promise<boolean> {
 }
 
 function entryHasDetails(entry: HistoryEntry): boolean {
-  if (entry.formatted_text && entry.formatted_text !== entry.text) return true;
-  if (entry.raw_text && entry.raw_text !== entry.formatted_text && entry.raw_text !== entry.text) return true;
+  // Any stored stage opens the stage switcher.
+  if (entry.raw_text || entry.formatted_text) return true;
   if (entry.ai_processing?.provider_error) return true;
   if (processingStatsText(entry)) return true;
   return false;
@@ -335,7 +255,6 @@ export function HistoryPage({ focus = null }: { focus?: { id: number; seq: numbe
 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set());
   const [openMenuId, setOpenMenuId] = useState<number | null>(null);
-  const [diffEntryIds, setDiffEntryIds] = useState<Set<number>>(() => new Set());
   const [freshIds, setFreshIds] = useState<Set<number>>(() => new Set());
 
   const seenIdsRef = useRef<Set<number>>(new Set());
@@ -446,7 +365,7 @@ export function HistoryPage({ focus = null }: { focus?: { id: number; seq: numbe
     if (!focus || focus.seq === handledFocus.current) return;
     if (!entries.some((entry) => entry.id === focus.id)) return;
     handledFocus.current = focus.seq;
-    setDiffEntryIds((current) => new Set(current).add(focus.id));
+    setExpandedDetailIds((current) => new Set(current).add(focus.id));
     requestAnimationFrame(() => {
       document.getElementById(`history-entry-${focus.id}`)?.scrollIntoView({ block: "center" });
     });
@@ -488,15 +407,6 @@ export function HistoryPage({ focus = null }: { focus?: { id: number; seq: numbe
 
   function toggleDetails(id: number) {
     setExpandedDetailIds((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
-
-  function toggleDiff(id: number) {
-    setDiffEntryIds((current) => {
       const next = new Set(current);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -769,13 +679,13 @@ export function HistoryPage({ focus = null }: { focus?: { id: number; seq: numbe
       />
       <div style={{ display: "grid", gap: 12 }}>
         {error && (
-          <div role="alert" style={{ padding: "10px 12px", borderRadius: 8, background: "var(--err-soft)", border: "1px solid color-mix(in srgb, var(--err) 35%, transparent)", color: "var(--err)", font: "500 12px/1.35 var(--font-sans)" }}>
+          <div role="alert" style={{ padding: "10px 12px", borderRadius: "var(--radius-sm)", background: "var(--err-soft)", border: "1px solid color-mix(in srgb, var(--err) 35%, transparent)", color: "var(--err)", font: "500 12px/1.35 var(--font-sans)" }}>
             {error}
             <button className="btn btn--ghost" style={{ marginLeft: 8, height: 22 }} onClick={() => setError(null)}><Icon name="x" size={10}/>{t("Скрыть")}</button>
           </div>
         )}
         {notice && (
-          <div role="status" aria-live="polite" style={{ padding: "10px 12px", borderRadius: 8, background: "var(--accent-soft-2)", border: "1px solid var(--accent-soft-2)", color: "var(--ink)", font: "500 12px/1.35 var(--font-sans)" }}>{notice}</div>
+          <div role="status" aria-live="polite" style={{ padding: "10px 12px", borderRadius: "var(--radius-sm)", background: "var(--accent-soft-2)", border: "1px solid var(--accent-soft-2)", color: "var(--ink)", font: "500 12px/1.35 var(--font-sans)" }}>{notice}</div>
         )}
 
         {entries.length > 0 && (
@@ -837,8 +747,6 @@ export function HistoryPage({ focus = null }: { focus?: { id: number; seq: numbe
                       onToggleSelected={() => toggleSelected(entry.id)}
                       detailsExpanded={expandedDetailIds.has(entry.id)}
                       onToggleDetails={() => toggleDetails(entry.id)}
-                      diffOn={diffEntryIds.has(entry.id)}
-                      onToggleDiff={() => toggleDiff(entry.id)}
                       fresh={freshIds.has(entry.id)}
                       copiedId={copiedId}
                       onCopy={() => void handleCopy(entry)}
@@ -1015,8 +923,6 @@ function EntryCard(props: {
   onToggleSelected: () => void;
   detailsExpanded: boolean;
   onToggleDetails: () => void;
-  diffOn: boolean;
-  onToggleDiff: () => void;
   fresh: boolean;
   copiedId: number | null;
   onCopy: () => void;
@@ -1047,7 +953,7 @@ function EntryCard(props: {
 }) {
   const {
     entry, viewMode, selected, onToggleSelected, detailsExpanded, onToggleDetails,
-    diffOn, onToggleDiff, fresh, copiedId, onCopy, onDelete,
+    fresh, copiedId, onCopy, onDelete,
     currentAiConfig,
     copiedBlockKey, onCopyBlock, expandedBlockKeys, onToggleBlock,
     reprocessOpen, onOpenReprocess, onCloseReprocess, reprocessProfileId, onReprocessProfileId,
@@ -1056,11 +962,9 @@ function EntryCard(props: {
   } = props;
 
   const compact = viewMode === "list" && !detailsExpanded;
-  const formattedKey = `${entry.id}:formatted`;
-  const rawKey = `${entry.id}:raw`;
+  const [stage, setStage] = useState<TextStage | null>(null);
   const canReprocess = reprocessSource(entry).length > 0;
   const hasDetails = entryHasDetails(entry);
-  const canDiff = !!(entry.formatted_text && entry.formatted_text !== entry.text);
   const rejected = entry.ai_processing?.rejected_text;
   const variant = rejected && rejected !== entry.text ? rejected : null;
   const variantKey = `${entry.id}:variant`;
@@ -1082,8 +986,10 @@ function EntryCard(props: {
       data-testid={`history-entry-${entry.id}`}
       style={{
         display: "grid",
-        gridTemplateColumns: "auto 1fr auto",
-        gap: 10,
+        // The actions share the first row with the metadata, so the text and
+        // the details below run the full width instead of beside an empty column.
+        gridTemplateColumns: "auto minmax(0, 1fr) auto",
+        columnGap: 10,
         padding: compact ? "8px 10px" : 12,
         borderRadius: "var(--radius-sm)",
         background: cardBackground,
@@ -1098,10 +1004,10 @@ function EntryCard(props: {
         checked={selected}
         onChange={onToggleSelected}
         aria-label={t("Выбрать запись от {p0}", { p0: formatTime(entry.timestamp) })}
-        style={{ marginTop: 4 }}
+        style={{ gridColumn: 1, gridRow: 1, alignSelf: "center" }}
       />
-      <div style={{ minWidth: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: compact ? 4 : 6 }}>
+      <div style={{ display: "contents" }}>
+        <div style={{ gridColumn: 2, gridRow: 1, alignSelf: "center", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", minWidth: 0 }}>
           <Hint asChild text={aiStatusText(entry)}><span
             aria-label={aiStatusText(entry)}
             style={{
@@ -1112,7 +1018,6 @@ function EntryCard(props: {
             }}
           /></Hint>
           <span style={{ font: "500 11px/1 var(--font-mono)", color: "var(--ink-mute)", letterSpacing: "0.04em" }}>{formatTime(entry.timestamp)}</span>
-          <span style={{ font: "400 11px/1 var(--font-sans)", color: "var(--ink-faint)" }}>· {relativeAge(entry.timestamp)}</span>
           <span style={{ font: "500 11px/1 var(--font-mono)", color: "var(--ink-mute)" }}>· {t("{p0} симв.", { p0: entry.length.toLocaleString(localeTag()) })}</span>
           <Hint asChild text={t("Модель первичной транскрибации: {p0}", { p0: sttLabel })}><span style={{ font: "500 11px/1 var(--font-mono)", color: "var(--ink-mute)" }}>
             · {t("STT: {p0}", { p0: sttLabel })}
@@ -1123,6 +1028,7 @@ function EntryCard(props: {
           {fresh && <span className="tag" style={{ height: 18, fontSize: 9, background: "var(--accent-soft-2)", borderColor: "var(--accent-soft-2)", color: "var(--ink)" }}>{t("новое")}</span>}
         </div>
 
+        <div style={{ gridColumn: "2 / -1", gridRow: 2, minWidth: 0, marginTop: compact ? 4 : 6 }}>
         {player && <RecordingProgress player={player} onSeek={onSeek}/>}
         {compact ? (
           <Hint text={t("Развернуть")} className="hint-anchor--block">
@@ -1138,17 +1044,12 @@ function EntryCard(props: {
             >
               {entry.text}
             </div>
-            {(hasDetails || canDiff || canReprocess || !!variant) && (
+            {(hasDetails || canReprocess || !!variant) && (
               <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 6 }}>
                 {hasDetails && (
                   <button className="btn btn--ghost" onClick={onToggleDetails} aria-expanded={detailsExpanded} style={{ height: 24 }}>
                     <Icon name={detailsExpanded ? "chev-down" : "chev"} size={11} style={{ transform: detailsExpanded ? undefined : "rotate(90deg)" }}/>
                     {detailsExpanded ? t("Скрыть детали") : t("Подробнее")}
-                  </button>
-                )}
-                {canDiff && (
-                  <button className="btn btn--ghost" onClick={onToggleDiff} aria-pressed={diffOn} style={{ height: 24 }}>
-                    <Icon name="compare" size={11}/>{diffOn ? t("Скрыть diff") : t("Сравнить с до-LLM")}
                   </button>
                 )}
                 {variant && (
@@ -1164,13 +1065,10 @@ function EntryCard(props: {
                     aria-expanded={reprocessOpen}
                     style={{ height: 24 }}
                   >
-                    <Icon name="wand" size={11}/>{t("Обработать через LLM")}
+                    <Icon name="sparkle" size={11}/>{t("Обработать через LLM")}
                   </button>
                 )}
               </div>
-            )}
-            {diffOn && canDiff && (
-              <DiffBlock before={entry.formatted_text || ""} after={entry.text}/>
             )}
             {variant && variantOpen && (
               <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
@@ -1202,47 +1100,31 @@ function EntryCard(props: {
             )}
             {detailsExpanded && (
               <div style={{ marginTop: 10, display: "grid", gap: 0 }}>
-                <StatsGrid entry={entry}/>
+                <TranscriptStats entry={entry}/>
                 {entry.ai_processing?.provider_error && (
                   <HistoryTextBlock
                     title={t("Причина fallback")}
                     text={entry.ai_processing.provider_error}
-                    muted
                     copied={copiedBlockKey === `${entry.id}:provider_error`}
                     onCopy={() => onCopyBlock(`${entry.id}:provider_error`, entry.ai_processing?.provider_error ?? "")}
                   />
                 )}
-                {entry.formatted_text && entry.formatted_text !== entry.text && (
-                  <HistoryTextBlock
-                    title={t("До LLM, после локальной обработки")}
-                    text={entry.formatted_text}
-                    muted
-                    collapsible
-                    collapsed={!expandedBlockKeys.has(formattedKey)}
-                    copied={copiedBlockKey === formattedKey}
-                    onToggle={() => onToggleBlock(formattedKey)}
-                    onCopy={() => onCopyBlock(formattedKey, entry.formatted_text ?? "")}
-                  />
-                )}
-                {entry.raw_text && entry.raw_text !== entry.formatted_text && entry.raw_text !== entry.text && (
-                  <HistoryTextBlock
-                    title={t("Распознавание без обработки")}
-                    text={entry.raw_text}
-                    muted
-                    collapsible
-                    collapsed={!expandedBlockKeys.has(rawKey)}
-                    copied={copiedBlockKey === rawKey}
-                    onToggle={() => onToggleBlock(rawKey)}
-                    onCopy={() => onCopyBlock(rawKey, entry.raw_text ?? "")}
-                  />
-                )}
+                <TranscriptStages
+                  entry={entry}
+                  copyKey={`${entry.id}:stage`}
+                  stage={stage ?? defaultStage(entry)}
+                  onStage={setStage}
+                  copiedKey={copiedBlockKey}
+                  onCopy={onCopyBlock}
+                />
               </div>
             )}
           </>
         )}
+        </div>
       </div>
 
-      <div style={{ display: "flex", gap: 4, alignItems: "start" }}>
+      <div style={{ gridColumn: 3, gridRow: 1, alignSelf: "center", display: "flex", gap: 4, alignItems: "start" }}>
         {entry.has_recording && (
           <Hint text={player?.status === "playing" ? t("Пауза") : t("Прослушать запись")}>
             <button
@@ -1367,7 +1249,7 @@ function ActionsMenu({ open, onToggle, actions }: {
                 gap: 8,
                 padding: "6px 8px",
                 border: 0,
-                borderRadius: 4,
+                borderRadius: "var(--radius-xs)",
                 background: "transparent",
                 color: action.danger ? "var(--err)" : "var(--ink)",
                 font: "500 12px/1.1 var(--font-sans)",
@@ -1473,70 +1355,11 @@ function ReprocessPanel({
   );
 }
 
-function StatTile({ label, value }: { label: string; value: string }) {
+function HistoryTextBlock({ title, text, copied = false, onCopy }: { title: string; text: string; copied?: boolean; onCopy?: () => void }) {
   return (
-    <div style={{
-      display: "grid",
-      gap: 3,
-      padding: "8px 10px",
-      background: "var(--bg-3)",
-      borderRadius: "var(--radius-sm)",
-      border: "1px solid var(--line)",
-      minWidth: 0,
-    }}>
-      <span style={{ font: "600 12.5px/1 var(--font-mono)", color: "var(--ink)" }}>{value}</span>
-      <span style={{ font: "500 9.5px/1 var(--font-mono)", color: "var(--ink-mute)", textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</span>
-    </div>
-  );
-}
-
-function StatsGrid({ entry }: { entry: HistoryEntry }) {
-  const stats = entry.processing_stats;
-  const ai = entry.ai_processing;
-  const audioSeconds = stats?.audio_seconds ?? ai?.audio_duration_seconds;
-  const tiles: Array<{ label: string; value: number | null | undefined }> = [
-    { label: t("Аудио"), value: audioSeconds },
-    { label: "STT", value: stats?.whisper_seconds },
-    { label: t("Формат"), value: stats?.format_seconds },
-    { label: "LLM", value: stats?.llm_seconds },
-    { label: t("Всего"), value: stats?.total_seconds },
-  ];
-  const visible = tiles.filter(({ value }) => typeof value === "number" && Number.isFinite(value));
-  const replacements = stats?.replacement_stats?.total ?? 0;
-  const chips: string[] = [];
-  if (ai?.timeout_seconds) chips.push(t("LLM timeout {p0} с", { p0: ai.timeout_seconds }));
-  if (ai?.attempt_timeout_seconds && ai.attempt_timeout_seconds !== ai.timeout_seconds) chips.push(t("попытка {p0} с", { p0: ai.attempt_timeout_seconds }));
-  if (ai?.attempts && ai.attempts > 1) chips.push(t("попыток {p0}", { p0: ai.attempts }));
-  if (ai?.error_type) chips.push(ai.error_type);
-
-  if (visible.length === 0 && chips.length === 0 && replacements === 0) return null;
-
-  return (
-    <div style={{ marginBottom: 10, display: "grid", gap: 8 }}>
-      {visible.length > 0 && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(72px, 1fr))", gap: 6 }}>
-          {visible.map(({ label, value }) => (
-            <StatTile key={label} label={label} value={formatSeconds(value)}/>
-          ))}
-          {replacements > 0 && <StatTile label={t("Замен")} value={String(replacements)}/>}
-        </div>
-      )}
-      {chips.length > 0 && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-          {chips.map((text) => (
-            <span key={text} className="tag" style={{ height: 20, fontSize: 10 }}>{text}</span>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function HistoryTextBlock({ title, text, muted = false, collapsible = false, collapsed = false, copied = false, onToggle, onCopy }: { title: string; text: string; muted?: boolean; collapsible?: boolean; collapsed?: boolean; copied?: boolean; onToggle?: () => void; onCopy?: () => void }) {
-  return (
-    <div style={{ marginTop: muted ? 10 : 0 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: collapsed ? 0 : 4 }}>
-        <div style={{ flex: "0 1 auto", minWidth: 0, font: "600 10px/1 var(--font-mono)", color: muted ? "var(--ink-mute)" : "var(--ink-dim)", textTransform: "uppercase", letterSpacing: "0.04em" }}>{title}</div>
+    <div style={{ marginTop: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+        <div style={{ flex: "0 1 auto", minWidth: 0, font: "600 10px/1 var(--font-mono)", color: "var(--ink-mute)", textTransform: "uppercase", letterSpacing: "0.04em" }}>{title}</div>
         <Hint text={t("Копировать: {p0}", { p0: title })}>
           <button
             className={copied ? "btn btn--primary" : "btn btn--ghost"}
@@ -1547,25 +1370,10 @@ function HistoryTextBlock({ title, text, muted = false, collapsible = false, col
             <Icon name={copied ? "check" : "copy"} size={10}/>
           </button>
         </Hint>
-        {collapsible && (
-          <Hint text={collapsed ? t("Развернуть блок") : t("Свернуть блок")}>
-          <button
-            className="btn btn--ghost"
-            onClick={onToggle}
-            aria-label={collapsed ? t("Развернуть блок {p0}", { p0: title }) : t("Свернуть блок {p0}", { p0: title })}
-            aria-expanded={!collapsed}
-            style={{ height: 22, padding: "0 6px" }}
-          >
-            <Icon name={collapsed ? "chev-down" : "chev"} size={10} style={{ transform: collapsed ? undefined : "rotate(90deg)" }}/>
-          </button>
-          </Hint>
-        )}
       </div>
-      {!collapsed && (
-        <div style={{ font: "400 13px/1.5 var(--font-sans)", color: muted ? "var(--ink-dim)" : "var(--ink)", whiteSpace: "pre-wrap", overflowWrap: "break-word" }}>
-          {text}
-        </div>
-      )}
+      <div style={{ font: "400 13px/1.5 var(--font-sans)", color: "var(--ink-dim)", whiteSpace: "pre-wrap", overflowWrap: "break-word" }}>
+        {text}
+      </div>
     </div>
   );
 }

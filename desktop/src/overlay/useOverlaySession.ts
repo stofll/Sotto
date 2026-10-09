@@ -333,7 +333,7 @@ export function useOverlaySession() {
         setState("error");
         setErrorText(
           payload?.message
-            ?? t("Не удалось распознать речь. Откройте «Настройки → Модели» и убедитесь, что модель скачана."),
+            ?? t("Не удалось распознать речь. Откройте раздел «Модели» и убедитесь, что модель скачана."),
         );
       }),
       subscribe<ErrorPayload>("whisper-load-failed", (payload) => {
@@ -341,7 +341,7 @@ export function useOverlaySession() {
         setState("error");
         setErrorText(
           payload?.message
-            ?? t("Не удалось загрузить модель. Откройте «Настройки → Модели» и попробуйте снова."),
+            ?? t("Не удалось загрузить модель. Откройте раздел «Модели» и попробуйте снова."),
         );
       }),
       subscribe<unknown>("whisper-empty", (payload) => {

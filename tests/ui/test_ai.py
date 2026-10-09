@@ -319,6 +319,108 @@ def test_file_transcription_loading_result_and_retry(app, page, failure):
         ).not_to_be_visible()
 
 
+def test_file_result_shows_stages_and_processes_with_llm_in_place(app, page):
+    ui = app(keys=KEYS)
+    ui.nav("ai")
+    skipped = {
+        **FILE_RESULT,
+        "ai_status": {
+            "enabled": True,
+            "attempted": False,
+            "used": False,
+            "skipped_reason": "duration_below_threshold",
+            "min_duration_seconds": 60,
+        },
+    }
+    ui.queue("pick_audio_file", {"result": "/synthetic/sample.wav"})
+    ui.queue("transcribe_audio_file", {"result": skipped})
+    page.get_by_role("button", name="Выбрать файл").click()
+    panel = page.get_by_test_id("page-ai")
+    details = panel.get_by_role("button", name="Подробнее", exact=True)
+    expect(details).to_have_attribute("aria-expanded", "false")
+    details.click()
+    # The skip reason is a tile, not the raw backend code.
+    expect(panel.get_by_text("LLM · < 60 с", exact=True)).to_be_visible()
+    expect(panel.get_by_text("duration_below_threshold")).to_have_count(0)
+    panel.get_by_role("button", name="Распознавание", exact=True).click()
+    expect(panel).to_contain_text("synthetic raw file")
+
+    ui.queue(
+        "process_text_ai",
+        {"result": {"available": True, "output": "Synthetic polished file"}},
+    )
+    panel.get_by_role("button", name="Обработать через LLM", exact=True).click()
+    expect(panel.get_by_text("Synthetic polished file", exact=True)).to_be_visible()
+    assert ui.calls("process_text_ai")[-1]["args"]["text"] == "Synthetic file result"
+    expect(panel.get_by_role("button", name="LLM", exact=True)).to_have_attribute(
+        "aria-pressed", "true"
+    )
+    expect(
+        panel.get_by_role("button", name="Обработать через LLM", exact=True)
+    ).to_have_count(0)
+
+    # A new file starts folded, whatever the previous one was left at.
+    ui.queue("pick_audio_file", {"result": "/synthetic/second.wav"})
+    ui.queue("transcribe_audio_file", {"result": FILE_RESULT})
+    page.get_by_role("button", name="Выбрать файл").click()
+    expect(panel.get_by_role("button", name="Подробнее", exact=True)).to_have_attribute(
+        "aria-expanded", "false"
+    )
+
+
+def test_file_llm_pass_names_a_skip_and_keeps_to_its_result(app, page):
+    ui = app(keys=KEYS)
+    ui.nav("ai")
+    failed = {
+        **FILE_RESULT,
+        "ai_status": {
+            "enabled": True,
+            "attempted": True,
+            "used": False,
+            "fallback": True,
+            "attempts": 3,
+            "error_type": "timeout",
+        },
+    }
+    ui.queue("pick_audio_file", {"result": "/synthetic/sample.wav"})
+    ui.queue("transcribe_audio_file", {"result": failed})
+    pick = page.get_by_role("button", name="Выбрать файл")
+    pick.click()
+    panel = page.get_by_test_id("page-ai")
+    process = panel.get_by_role("button", name="Обработать через LLM", exact=True)
+
+    # The gate's code arrives as the message too; the panel names it instead.
+    ui.queue(
+        "process_text_ai",
+        {
+            "result": {
+                "available": False,
+                "skipped_reason": "text_too_long",
+                "message": "text_too_long",
+            }
+        },
+    )
+    process.click()
+    expect(
+        panel.get_by_text("текст слишком длинный для LLM", exact=True)
+    ).to_be_visible()
+    expect(panel.get_by_text("text_too_long")).to_have_count(0)
+
+    # While a pass runs over this result, no other file can take its place.
+    ui.queue("process_text_ai", {"hold": True})
+    process.click()
+    expect(pick).to_be_disabled()
+    ui.settle(
+        "process_text_ai",
+        result={"available": True, "output": "Synthetic polished file"},
+    )
+    expect(pick).to_be_enabled()
+    expect(panel.get_by_text("Synthetic polished file", exact=True)).to_be_visible()
+    # The status describes this pass, not the automatic one's three attempts.
+    panel.get_by_role("button", name="Подробнее", exact=True).click()
+    expect(panel.get_by_text("попыток 3")).to_have_count(0)
+
+
 def test_file_cancellation(app, page):
     ui = app()
     ui.nav("ai")

@@ -415,7 +415,7 @@ impl Engine {
                 // hotkey before downloading a model. Tell them WHAT is
                 // missing, WHERE to get it, and HOW.
                 return Err(crate::ui_text::t(
-                    "Модель не загружена. Откройте «Настройки → Модели» и выберите модель.",
+                    "Модель не загружена. Откройте раздел «Модели» и выберите модель.",
                 ));
             };
             self.whisper_state = Some(
@@ -429,7 +429,14 @@ impl Engine {
         // Set the decode language explicitly. whisper.cpp's default is "en",
         // which produces garbage (or empty) output for other languages; an
         // empty/absent/"auto" value means auto-detect.
+        // English-only (`.en`) models would still run the detection pass for
+        // "auto", roughly doubling their time for a fixed answer.
+        let multilingual = self
+            .whisper_ctx
+            .as_ref()
+            .is_none_or(|ctx| ctx.is_multilingual());
         match language {
+            _ if !multilingual => params.set_language(Some("en")),
             Some(lang) if !lang.is_empty() && lang != "auto" => params.set_language(Some(lang)),
             _ => params.set_language(Some("auto")),
         }
@@ -752,7 +759,7 @@ fn decode_sherpa(
             == Some(crate::model::ModelEngine::SherpaNemoCtc)
         {
             recognizer.transcribe_gigaam(audio, || job.cancelled())
-        } else if matches!(model_id, Some("parakeet-ultra" | "qwen3-asr-0.6b")) {
+        } else if model_id.is_some_and(crate::model::segments_with_context) {
             recognizer.transcribe_segmented(audio, requested, initial_prompt, || job.cancelled())
         } else {
             recognizer.transcribe(16_000, audio)

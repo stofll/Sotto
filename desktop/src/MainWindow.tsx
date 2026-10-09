@@ -494,9 +494,9 @@ export function MainWindow() {
                 </button>
               </Card>
             ))}
-            {error && <div role="alert" style={{ margin: "14px 32px 0", padding: "10px 12px", borderRadius: 8, background: "var(--err-soft)", border: "1px solid color-mix(in srgb, var(--err) 35%, transparent)", color: "var(--err)", font: "500 12px/1.35 var(--font-sans)" }}>{error}</div>}
+            {error && <div role="alert" style={{ margin: "14px 32px 0", padding: "10px 12px", borderRadius: "var(--radius-sm)", background: "var(--err-soft)", border: "1px solid color-mix(in srgb, var(--err) 35%, transparent)", color: "var(--err)", font: "500 12px/1.35 var(--font-sans)" }}>{error}</div>}
             {sttUnavailable && !onboardingCard && !onboardingActive && (
-              <div role="status" style={{ margin: "14px 32px 0", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", padding: "12px 14px", borderRadius: 8, background: "var(--warn-soft)", border: "1px solid color-mix(in srgb, var(--warn) 30%, transparent)", color: "var(--warn)", font: "500 12.5px/1.4 var(--font-sans)" }}>
+              <div role="status" style={{ margin: "14px 32px 0", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", padding: "12px 14px", borderRadius: "var(--radius-sm)", background: "var(--warn-soft)", border: "1px solid color-mix(in srgb, var(--warn) 30%, transparent)", color: "var(--warn)", font: "500 12.5px/1.4 var(--font-sans)" }}>
                 <Icon name="info" size={14}/>
                 <span style={{ flex: "1 1 240px", minWidth: 240 }}>
                   <strong>{t("Модель распознавания не скачана.")}</strong>  {t("Для записи скачайте модель распознавания в разделе «Модели».")} </span>

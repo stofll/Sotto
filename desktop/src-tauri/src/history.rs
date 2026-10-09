@@ -144,8 +144,8 @@ pub struct ClearResult {
 ///
 /// `text` is the FINAL text (what was pasted); `raw_text` is the untouched
 /// whisper output; `formatted_text` is the pre-LLM text (after local
-/// formatting). The history UI diffs `formatted_text` against `text` to show
-/// the LLM's edits and lists `raw_text` when it differs from `formatted_text`.
+/// formatting). The history UI shows these as stages and marks what
+/// formatting and the LLM changed against the stage before.
 #[derive(Debug, Default)]
 pub struct NewEntry<'a> {
     pub text: &'a str,

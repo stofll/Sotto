@@ -657,6 +657,9 @@
       "text_formatting": {
         "enabled_presets": [
           "development"
+        ],
+        "custom_words": [
+          "оверлей"
         ]
       }
     }
@@ -671,6 +674,9 @@
       "text_formatting": {
         "enabled_presets": [
           "development"
+        ],
+        "custom_words": [
+          "оверлей"
         ]
       }
     }
@@ -725,6 +731,9 @@
       "text_formatting": {
         "enabled_presets": [
           "development"
+        ],
+        "custom_words": [
+          "оверлей"
         ]
       }
     }
@@ -1002,6 +1011,20 @@
     "category": "term-aliases",
     "input": "Открой клауд код и обнови селениум",
     "expected": "Открой Claude Code и обнови Selenium.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "enabled_presets": [
+          "development"
+        ]
+      }
+    }
+  },
+  {
+    "id": "claude-code-latin-alias",
+    "category": "term-aliases",
+    "input": "уходим от айдентики Cloud Coda, а cloud code не трогаем",
+    "expected": "Уходим от айдентики Claude Code, а cloud code не трогаем.",
     "config": {
       "language": "ru",
       "text_formatting": {

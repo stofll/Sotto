@@ -10,6 +10,8 @@
 
 Whisper's ggml CPU backend uses AVX2, FMA and F16C on x86-64, with AVX-512, AVX-VNNI and AMX disabled. Windows x64 therefore requires a CPU supporting those baseline instructions. On macOS arm64 the compiler's target default applies, without detecting extensions on the build host. GPU builds retain this CPU baseline because some operations still run on the CPU.
 
+With the Visual Studio generator, the same file also restores the MSVC optimization flags (`/O2`) that cmake-rs drops from Release and RelWithDebInfo builds; without them Windows Whisper inference is about ten times slower. The baseline check below rejects a Visual Studio build cache without `/O2`.
+
 The repository's `.cargo/config.toml` selects `scripts/ggml-baseline.cmake` for both local and CI builds. Do not override `CMAKE_TOOLCHAIN_FILE` for distributed binaries unless the replacement preserves this baseline. Host-native compilation can otherwise produce illegal-instruction crashes on a different machine, including when reusing cached builds. After changing the baseline file, rebuild `whisper-rs-sys` with `cargo clean -p whisper-rs-sys` (and `cargo clean --release -p whisper-rs-sys` for release builds); Cargo does not track edits inside a CMake toolchain file. CI cache keys include the baseline files so old native artifacts are not restored. `node scripts/check-ggml-baseline.mjs <cargo-target-dir>` checks the generated CMake caches and fails if a compiled variant does not use the baseline.
 
 ### 1. Prepare the version in GitHub Actions

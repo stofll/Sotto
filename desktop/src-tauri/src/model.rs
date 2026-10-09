@@ -1317,6 +1317,28 @@ pub fn model_engine(model_id: &str) -> Result<ModelEngine, String> {
     }
 }
 
+/// Whether the model decodes a long recording in bounded fragments. Whisper
+/// windows audio itself; GigaAM, Parakeet Ultra and Qwen3 are split by Sotto.
+/// The other Sherpa models take the whole buffer in one pass, which degrades
+/// badly past dictation length, so file transcription refuses them.
+pub fn handles_long_audio(model_id: &str) -> bool {
+    match model_engine(model_id) {
+        Ok(ModelEngine::Whisper | ModelEngine::SherpaNemoCtc) => true,
+        Ok(_) => segments_with_context(model_id),
+        Err(_) => false,
+    }
+}
+
+/// The offline models whose fragments are decoded with language and hotword
+/// context rather than through the GigaAM path.
+pub fn segments_with_context(model_id: &str) -> bool {
+    // Normalized like `model_engine`, so both answer for the same spelling.
+    matches!(
+        normalize_model_id(model_id),
+        Ok("parakeet-ultra" | "qwen3-asr-0.6b")
+    )
+}
+
 /// Explain the model's restriction in the UI language. It lives next to the
 /// rule itself so a new monolingual model does not ship without a message.
 pub fn language_unsupported_message(languages: &[&str]) -> String {
@@ -1879,6 +1901,33 @@ pub(crate) async fn delete_model(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn file_transcription_accepts_only_models_that_split_long_audio() {
+        assert!(handles_long_audio("tiny"));
+        assert!(!handles_long_audio("not a catalog model"));
+        #[cfg(any(windows, target_os = "macos"))]
+        {
+            for id in [
+                "gigaam-v3",
+                "gigaam-multilingual",
+                "parakeet-ultra",
+                "qwen3-asr-0.6b",
+                // Spelled the way the catalogue lookup accepts it.
+                " Parakeet-Ultra ",
+            ] {
+                assert!(handles_long_audio(id), "{id}");
+            }
+            for id in [
+                "parakeet-tdt-v3",
+                "zipformer-ru",
+                "nemotron-streaming",
+                "sense-voice",
+            ] {
+                assert!(!handles_long_audio(id), "{id}");
+            }
+        }
+    }
 
     #[test]
     fn turbo_aliases_resolve_to_public_id() {

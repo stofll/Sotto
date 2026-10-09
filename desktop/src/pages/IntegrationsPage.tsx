@@ -667,12 +667,12 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
       )}
 
       {message && (
-        <div role="status" style={{ padding: "10px 12px", borderRadius: 8, background: "var(--bg-2)", border: "1px solid var(--line)", font: "500 12px/1.4 var(--font-sans)", marginBottom: 12 }}>
+        <div role="status" style={{ padding: "10px 12px", borderRadius: "var(--radius-sm)", background: "var(--bg-2)", border: "1px solid var(--line)", font: "500 12px/1.4 var(--font-sans)", marginBottom: 12 }}>
           {message}
         </div>
       )}
       {missingProfileKeys > 0 && (
-        <div role="alert" style={{ padding: "10px 12px", borderRadius: 8, background: "var(--accent-soft)", border: "1px solid var(--accent-soft-2)", color: "var(--ink)", font: "500 12px/1.4 var(--font-sans)", display: "flex", gap: 8, alignItems: "center", marginBottom: 12 }}>
+        <div role="alert" style={{ padding: "10px 12px", borderRadius: "var(--radius-sm)", background: "var(--accent-soft)", border: "1px solid var(--accent-soft-2)", color: "var(--ink)", font: "500 12px/1.4 var(--font-sans)", display: "flex", gap: 8, alignItems: "center", marginBottom: 12 }}>
           <Icon name="info" size={12}/> {missingProfileKeys}  {t("проф. ссылаются на отсутствующий API-ключ. Добавьте ключ или выберите другой slot.")} </div>
       )}
 
@@ -822,7 +822,7 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
                   )}
 
                   {!keyInfo?.available && (
-                    <div style={{ padding: "8px 10px", borderRadius: 8, background: "var(--accent-soft)", border: "1px solid var(--accent-soft-2)", color: "var(--ink)", font: "500 11px/1.4 var(--font-sans)", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                    <div style={{ padding: "8px 10px", borderRadius: "var(--radius-sm)", background: "var(--accent-soft)", border: "1px solid var(--accent-soft-2)", color: "var(--ink)", font: "500 11px/1.4 var(--font-sans)", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                       <span>{t("Слот")} <span className="mono">{keyRef}</span> {t("пуст.")}</span>
                       <button className="btn btn--ghost" style={{ height: 24 }} onClick={() => focusKeyForProfile(profile)}>
                         <Icon name="key" size={11}/>  {t("Задать ключ")} </button>
@@ -869,7 +869,7 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
                       style={{
                         marginTop: 8,
                         padding: "8px 10px",
-                        borderRadius: 8,
+                        borderRadius: "var(--radius-sm)",
                         font: "500 12px/1.4 var(--font-sans)",
                         background: testState.ok ? "var(--accent-soft)" : "var(--bg-2)",
                         border: `1px solid ${testState.ok ? "var(--accent-soft-2)" : "var(--line)"}`,

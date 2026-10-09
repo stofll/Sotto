@@ -31,6 +31,7 @@ import { NumberField } from "../components/NumberField";
 import type { ApiKeyStatus, ConfigChange, ConfigResult, LateAnswerMode, ReasoningMode } from "../bridge/types";
 import { t } from "../i18n";
 import { useFileTranscription, type FileStage, type TranscribeFileResult } from "./useFileTranscription";
+import { aiSkipLabel, defaultStage, TranscriptStages, TranscriptStats, type TextStage, type TranscriptRecord } from "./transcriptStages";
 
 /** Mirrors `MIN_CUSTOM_OUTPUT_TOKENS` in ai/model_params.rs: below it Rust treats the limit as unset. */
 const MIN_OUTPUT_LIMIT = 256;
@@ -59,13 +60,31 @@ type AiRunResult = {
  *  means "the LLM did not run", and that is an error. Here the LLM may
  *  legitimately not run — in local-only mode it should not — while the text is
  *  transcribed all the same. A red pill on a successful transcription would be
- *  a lie. */
+ *  a lie. A plain transcription needs no pill at all; only an LLM that failed
+ *  to deliver is worth a word next to the result. */
 function FileStatusPill({ result }: { result: TranscribeFileResult }) {
   const ai = result.ai_status;
   if (ai?.fallback) return <span className="pill warn">Fallback</span>;
-  if (ai?.used) return <span className="pill ok">{t("Готово")}</span>;
-  if (ai?.attempted) return <span className="pill warn">{t("LLM не отработала")}</span>;
-  return <span className="pill">{t("Распознано")}</span>;
+  if (ai?.attempted && !ai.used) return <span className="pill warn">{t("LLM не отработала")}</span>;
+  return null;
+}
+
+/** A file result in the shape history uses, so both show the same stages.
+ *  No total: the result does not time decoding and formatting, and STT plus
+ *  LLM alone would pass for the whole run. */
+function fileRecord(result: TranscribeFileResult): TranscriptRecord {
+  const ai = result.ai_status ?? undefined;
+  return {
+    text: result.text,
+    raw_text: result.raw_text,
+    formatted_text: result.formatted_text,
+    ai_processing: ai,
+    processing_stats: {
+      audio_seconds: result.audio_seconds,
+      whisper_seconds: result.inference_time_ms / 1000,
+      llm_seconds: ai?.attempted ? ai.elapsed_seconds : undefined,
+    },
+  };
 }
 
 /** The provider's raw response beneath the error. Collapsed: needed when the
@@ -87,8 +106,8 @@ function ProviderSnippet({ result }: { result: AiRunResult }) {
 
 const PIPELINE_MODES = () => ([
   { id: "local", title: t("Только локально"), sub: t("STT на этом компьютере. LLM не вызывается."), icon: "shield" },
-  { id: "hybrid", title: t("Локальное распознавание + LLM"), sub: t("Распознаем локально, затем отправляем текст в LLM для обработки."), icon: "wand" },
-  { id: "cloud", title: t("Облачное распознавание"), sub: t("Запись целиком уходит провайдеру и распознаётся у него. Локальная модель не нужна."), icon: "spark" },
+  { id: "hybrid", title: t("Локальное распознавание + LLM"), sub: t("Распознаем локально, затем отправляем текст в LLM для обработки."), icon: "spark" },
+  { id: "cloud", title: t("Облачное распознавание"), sub: t("Запись целиком уходит провайдеру и распознаётся у него. Локальная модель не нужна."), icon: "globe" },
 ] as const);
 
 /** Why a request cannot leave. One wording and one shape for the dictation
@@ -175,10 +194,15 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
     transcribeFile, cancelFileTranscription, runFileTranscription,
   } = useFileTranscription();
   const [fileDragActive, setFileDragActive] = useState(false);
+  const [fileDetails, setFileDetails] = useState(false);
+  const [fileTextStage, setFileTextStage] = useState<TextStage | null>(null);
+  const [fileLlmLoading, setFileLlmLoading] = useState(false);
+  const [fileLlmError, setFileLlmError] = useState<string | null>(null);
   // The drop subscription is installed once, so busyness is read from refs: a
   // closure over state would freeze the values of the first render.
   const fileStageRef = useRef<FileStage>(null);
   const manualLoadingRef = useRef(false);
+  const fileLlmLoadingRef = useRef(false);
 
   useEffect(() => {
     setPromptDraft(effectiveSystemPrompt(activeProfile));
@@ -214,8 +238,9 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
         return;
       }
       // One transcription at a time: the engine is busy anyway, and a second
-      // would queue behind the first with no trace in the interface.
-      if (fileStageRef.current !== null || manualLoadingRef.current) return;
+      // would queue behind the first with no trace in the interface. Nor may a
+      // new file arrive under an LLM pass still running over the previous one.
+      if (fileStageRef.current !== null || manualLoadingRef.current || fileLlmLoadingRef.current) return;
       void transcribeFile(path);
     }).then((fn) => {
       if (disposed) { fn(); return; }
@@ -227,7 +252,13 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
   }, [setFileError, setFileResult, transcribeFile]);
 
   useEffect(() => { fileStageRef.current = fileStage; }, [fileStage]);
+  // Each new file starts with its details folded; the window only hides when
+  // closed, so the previous file's choice would otherwise carry over.
+  useEffect(() => { if (fileStage !== null) setFileDetails(false); }, [fileStage]);
+  // A new result, or the LLM pass over it, opens on its last stage.
+  useEffect(() => { setFileTextStage(null); setFileLlmError(null); }, [fileResult]);
   useEffect(() => { manualLoadingRef.current = manualLoading; }, [manualLoading]);
+  useEffect(() => { fileLlmLoadingRef.current = fileLlmLoading; }, [fileLlmLoading]);
 
   function showMessage(text: string) {
     setMessage(text);
@@ -339,28 +370,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
     setManualLoading(true);
     setManualResult(null);
     try {
-      // The fields are taken from the profile itself rather than from the flat
-      // active ones: under inheritance they are the same, but when a different
-      // profile is chosen the flat fields would describe the voice one — that
-      // is, they would send the request somewhere other than what is shown.
-      const result = await invoke<AiRunResult>("process_text_ai", {
-        text,
-        profile_id: textProfile.id,
-        profile_name: textProfile.name,
-        api_key_ref: textKeyRef,
-        provider: textProfile.provider,
-        model: textProfile.model,
-        base_url: textProfile.base_url ?? "",
-        // Resolved against the preset rather than passed on raw: a profile that
-        // never edited its prompt stores an empty string, and `??` lets an
-        // empty string through — so the panel ran the chosen profile on the
-        // dictation profile's prompt, and a «structured» preset quietly asked
-        // for plain paragraphs.
-        system_prompt: effectiveSystemPrompt(textProfile),
-        llm_reasoning: textProfile.llm_reasoning,
-        llm_output_limit: textProfile.llm_output_limit,
-      });
-      setManualResult(result);
+      setManualResult(await processWithTextProfile(text));
     } catch (e) {
       setManualResult({ available: false, message: e instanceof Error ? e.message : String(e) });
     } finally {
@@ -368,8 +378,68 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
     }
   }
 
-  async function copyFileResult() {
-    const text = fileResult?.text ?? "";
+  /** Run the LLM over a transcribed file in place and record it as the result's
+   *  LLM stage, instead of sending the user to paste it into the panel above. */
+  async function processFileResult() {
+    const source = fileResult;
+    if (!source || fileLlmLoading) return;
+    setFileLlmLoading(true);
+    setFileLlmError(null);
+    const started = performance.now();
+    try {
+      const result = await processWithTextProfile(source.formatted_text || source.text);
+      if (result.available && result.output && !result.fallback) {
+        const output = result.output;
+        const elapsed = (performance.now() - started) / 1000;
+        // Only onto the result it ran over: a dropped non-audio file clears it
+        // meanwhile. The status is fresh — the automatic pass's attempts and
+        // errors describe a different request.
+        setFileResult((current) => current !== source ? current : {
+          ...source,
+          text: output,
+          ai_status: {
+            enabled: true, attempted: true, used: true, fallback: false, elapsed_seconds: elapsed,
+            provider: textProfile.provider, model: textProfile.model, profile_name: textProfile.name,
+          },
+        });
+      } else {
+        // `message` repeats a skipped or rejected answer's raw code; the label names it.
+        setFileLlmError(result.provider_error
+          || (result.skipped_reason ? aiSkipLabel(result.skipped_reason) : result.message)
+          || t("LLM не вернула текст."));
+      }
+    } catch (e) {
+      setFileLlmError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setFileLlmLoading(false);
+    }
+  }
+
+  function processWithTextProfile(text: string) {
+    // The fields are taken from the profile itself rather than from the flat
+    // active ones: under inheritance they are the same, but when a different
+    // profile is chosen the flat fields would describe the voice one — that
+    // is, they would send the request somewhere other than what is shown.
+    return invoke<AiRunResult>("process_text_ai", {
+      text,
+      profile_id: textProfile.id,
+      profile_name: textProfile.name,
+      api_key_ref: textKeyRef,
+      provider: textProfile.provider,
+      model: textProfile.model,
+      base_url: textProfile.base_url ?? "",
+      // Resolved against the preset rather than passed on raw: a profile that
+      // never edited its prompt stores an empty string, and `??` lets an
+      // empty string through — so the panel ran the chosen profile on the
+      // dictation profile's prompt, and a «structured» preset quietly asked
+      // for plain paragraphs.
+      system_prompt: effectiveSystemPrompt(textProfile),
+      llm_reasoning: textProfile.llm_reasoning,
+      llm_output_limit: textProfile.llm_output_limit,
+    });
+  }
+
+  async function copyText(text: string) {
     if (!text) return;
     try {
       await navigator.clipboard.writeText(text);
@@ -379,16 +449,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
     }
   }
 
-  async function copyManualResult() {
-    const text = manualResult?.output ?? "";
-    if (!text) return;
-    try {
-      await navigator.clipboard.writeText(text);
-      showMessage(t("Результат скопирован."));
-    } catch {
-      showMessage(t("Не удалось скопировать."));
-    }
-  }
+  const fileTranscript = fileResult && fileRecord(fileResult);
 
   return (
     <div className="page">
@@ -398,7 +459,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
           they act on. */}
       <PageHeader title={t("LLM-обработка")}/>
 
-      {message && <div style={{ padding: "10px 12px", borderRadius: 8, background: "var(--bg-2)", border: "1px solid var(--line)", font: "500 12px/1.4 var(--font-sans)", marginBottom: 14 }}>{message}</div>}
+      {message && <div style={{ padding: "10px 12px", borderRadius: "var(--radius-sm)", background: "var(--bg-2)", border: "1px solid var(--line)", font: "500 12px/1.4 var(--font-sans)", marginBottom: 14 }}>{message}</div>}
 
       <div className="card-stack">
         {/* Mode and profile are one chain, and they used to be two cards: the
@@ -420,33 +481,35 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
           <div className="ai-mode-grid" role="radiogroup" aria-label={t("Режим обработки")}>
             {PIPELINE_MODES().map((mode, index, modes) => {
               const selected = ai.pipeline_mode === mode.id;
+              // The explanation sits in the hover/focus bubble: three paragraphs
+              // under the titles made the route the heaviest card on the page.
               return (
-                <button
-                  key={mode.id}
-                  type="button"
-                  className="ai-mode-card"
-                  role="radio"
-                  aria-checked={selected}
-                  tabIndex={selected ? 0 : -1}
-                  data-selected={selected}
-                  onClick={() => void saveAi({ pipeline_mode: mode.id })}
-                  onKeyDown={(e) => {
-                    const step = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1
-                      : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
-                    if (!step) return;
-                    e.preventDefault();
-                    const next = modes[(index + step + modes.length) % modes.length];
-                    void saveAi({ pipeline_mode: next.id });
-                    const grid = e.currentTarget.parentElement;
-                    grid?.querySelectorAll<HTMLButtonElement>(".ai-mode-card")[modes.indexOf(next)]?.focus();
-                  }}
-                >
-                  <div className="ai-mode-card__head">
-                    <span className="ai-mode-card__icon"><Icon name={mode.icon} size={15}/></span>
-                    <span className="ai-mode-card__title">{mode.title}</span>
-                  </div>
-                  <div className="ai-mode-card__desc">{mode.sub}</div>
-                </button>
+                <Hint asChild key={mode.id} text={mode.sub}>
+                  <button
+                    type="button"
+                    className="ai-mode-card"
+                    role="radio"
+                    aria-checked={selected}
+                    tabIndex={selected ? 0 : -1}
+                    data-selected={selected}
+                    onClick={() => void saveAi({ pipeline_mode: mode.id })}
+                    onKeyDown={(e) => {
+                      const step = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1
+                        : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
+                      if (!step) return;
+                      e.preventDefault();
+                      const next = modes[(index + step + modes.length) % modes.length];
+                      void saveAi({ pipeline_mode: next.id });
+                      const grid = e.currentTarget.parentElement;
+                      grid?.querySelectorAll<HTMLButtonElement>(".ai-mode-card")[modes.indexOf(next)]?.focus();
+                    }}
+                  >
+                    <div className="ai-mode-card__head">
+                      <span className="ai-mode-card__icon"><Icon name={mode.icon} size={15}/></span>
+                      <span className="ai-mode-card__title">{mode.title}</span>
+                    </div>
+                  </button>
+                </Hint>
               );
             })}
           </div>
@@ -592,7 +655,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
                   : t("Пока этого нет, диктовка вставляет локальный текст без обработки LLM.")}
               />}
           {testResult && (
-            <div style={{ display: "grid", gap: 6, marginTop: 12, padding: 10, borderRadius: 8, background: "var(--bg-2)", border: "1px solid var(--line)" }}>
+            <div style={{ display: "grid", gap: 6, marginTop: 12, padding: 10, borderRadius: "var(--radius-sm)", background: "var(--bg-2)", border: "1px solid var(--line)" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <span className={testResult.available && !testResult.fallback ? "pill ok" : "pill warn"}>{testResult.available ? t("Ответ получен") : (testResult.fallback ? t("Запрос отправлен, fallback") : t("Запрос не отправлен"))}</span>
                 <Hint text={t("Закрыть")} style={{ marginLeft: "auto" }}>
@@ -601,7 +664,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
               </div>
               {(testResult.message || testResult.provider_error || testResult.skipped_reason) && <div style={{ font: "500 11px/1.45 var(--font-mono)", color: testResult.available ? "var(--ink-mute)" : "var(--err)", whiteSpace: "pre-wrap" }}>{testResult.provider_error || testResult.message || testResult.skipped_reason}</div>}
               <ProviderSnippet result={testResult}/>
-              {testResult.output && <div style={{ padding: 10, borderRadius: 6, background: "var(--bg-2)", border: "1px solid var(--line)", font: "400 12px/1.5 var(--font-sans)", whiteSpace: "pre-wrap" }}>{testResult.output}</div>}
+              {testResult.output && <div style={{ padding: 10, borderRadius: "var(--radius-sm)", background: "var(--bg-2)", border: "1px solid var(--line)", font: "400 12px/1.5 var(--font-sans)", whiteSpace: "pre-wrap" }}>{testResult.output}</div>}
             </div>
           )}
         </Card>
@@ -736,7 +799,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
               {fileStage !== null
                 ? <button className="btn btn--ghost" onClick={() => void cancelFileTranscription()}>{t("Отменить")}</button>
                 : (
-                  <button className="btn btn--ghost" onClick={() => void runFileTranscription()} disabled={manualLoading}>
+                  <button className="btn btn--ghost" onClick={() => void runFileTranscription()} disabled={manualLoading || fileLlmLoading}>
                     <Icon name="folder" size={12}/>{t("Выбрать файл")}
                   </button>
                 )}
@@ -747,24 +810,40 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
           )}
           {fileResult && (
             <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <FileStatusPill result={fileResult}/>
-                <span style={{ font: "500 11px/1.35 var(--font-mono)", color: "var(--ink-mute)" }}>
-                  {t("{p0} с аудио", { p0: Math.round(fileResult.audio_seconds) })}
-                </span>
-                {fileResult.text && <button className="btn btn--ghost" onClick={() => void copyFileResult()}><Icon name="copy" size={12}/>{t("Скопировать")}</button>}
-              </div>
-              {fileResult.ai_status?.skipped_reason && (
-                <div style={{ font: "500 11px/1.45 var(--font-mono)", color: "var(--ink-mute)", whiteSpace: "pre-wrap" }}>{fileResult.ai_status.skipped_reason}</div>
-              )}
               <div style={{ padding: 12, borderRadius: "var(--radius-sm)", background: "var(--bg-2)", border: "1px solid var(--line)", font: "400 13px/1.55 var(--font-sans)", color: "var(--ink)", whiteSpace: "pre-wrap" }}>{fileResult.text}</div>
-              {/* We show the raw stage only when it differs — otherwise it is
-                  simply a second copy of the same text. */}
-              {fileResult.raw_text !== fileResult.text && (
-                <details>
-                  <summary style={{ cursor: "pointer", font: "500 11px/1.4 var(--font-sans)", color: "var(--ink-mute)" }}>{t("Whisper без обработки")}</summary>
-                  <div style={{ marginTop: 6, padding: 12, borderRadius: "var(--radius-sm)", background: "var(--bg-2)", border: "1px solid var(--line)", font: "400 13px/1.55 var(--font-sans)", color: "var(--ink-mute)", whiteSpace: "pre-wrap" }}>{fileResult.raw_text}</div>
-                </details>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                <button className="btn btn--ghost" onClick={() => setFileDetails((open) => !open)} aria-expanded={fileDetails} style={{ height: 24 }}>
+                  <Icon name={fileDetails ? "chev-down" : "chev"} size={11} style={{ transform: fileDetails ? undefined : "rotate(90deg)" }}/>
+                  {fileDetails ? t("Скрыть детали") : t("Подробнее")}
+                </button>
+                {fileResult.text && !fileResult.ai_status?.used && (
+                  <button className="btn btn--ghost" onClick={() => void processFileResult()} disabled={fileLlmLoading || !!textGap} aria-busy={fileLlmLoading} style={{ height: 24 }}>
+                    {fileLlmLoading ? <span className="mini-spinner" aria-hidden="true"/> : <Icon name="sparkle" size={11}/>}
+                    {fileLlmLoading ? t("Обрабатываю…") : t("Обработать через LLM")}
+                  </button>
+                )}
+                <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
+                  <FileStatusPill result={fileResult}/>
+                  {fileResult.text && (
+                    <button className="btn btn--ghost" onClick={() => void copyText(fileResult.text)} style={{ height: 24 }}>
+                      <Icon name="copy" size={11}/>{t("Скопировать")}
+                    </button>
+                  )}
+                </div>
+              </div>
+              {fileLlmError && <div role="alert" style={{ font: "500 11px/1.45 var(--font-mono)", color: "var(--err)", whiteSpace: "pre-wrap" }}>{fileLlmError}</div>}
+              {fileDetails && fileTranscript && (
+                <div>
+                  <TranscriptStats entry={fileTranscript}/>
+                  <TranscriptStages
+                    entry={fileTranscript}
+                    copyKey="file"
+                    stage={fileTextStage ?? defaultStage(fileTranscript)}
+                    onStage={setFileTextStage}
+                    copiedKey={null}
+                    onCopy={(_key, text) => void copyText(text)}
+                  />
+                </div>
               )}
             </div>
           )}
@@ -772,7 +851,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
             <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <span className={manualResult.available && !manualResult.fallback ? "pill ok" : (manualResult.fallback ? "pill warn" : "pill err")}>{manualResult.available ? (manualResult.fallback ? "Fallback" : t("Готово")) : t("Не обработано")}</span>
-                {manualResult.output && <button className="btn btn--ghost" onClick={() => void copyManualResult()}><Icon name="copy" size={12}/>{t("Скопировать")}</button>}
+                {manualResult.output && <button className="btn btn--ghost" onClick={() => void copyText(manualResult.output ?? "")}><Icon name="copy" size={12}/>{t("Скопировать")}</button>}
               </div>
               {(manualResult.message || manualResult.provider_error || manualResult.skipped_reason) && <div style={{ font: "500 11px/1.45 var(--font-mono)", color: manualResult.provider_error || manualResult.skipped_reason ? "var(--err)" : "var(--ink-mute)", whiteSpace: "pre-wrap" }}>{manualResult.provider_error || manualResult.message || manualResult.skipped_reason}</div>}
               <ProviderSnippet result={manualResult}/>

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke, on } from "../bridge";
+import type { HistoryEntry } from "../bridge/types";
 
 /** The processing stage of an attached file. The engine reports no progress, so
  *  the UI shows decoding or recognition. */
@@ -12,12 +13,8 @@ export type TranscribeFileResult = {
   text: string;
   raw_text: string;
   formatted_text: string;
-  ai_status: {
-    used?: boolean;
-    fallback?: boolean;
-    attempted?: boolean;
-    skipped_reason?: string;
-  } | null;
+  /** The same status history stores for a dictation. */
+  ai_status: HistoryEntry["ai_processing"] | null;
   audio_seconds: number;
   inference_time_ms: number;
   language: string | null;

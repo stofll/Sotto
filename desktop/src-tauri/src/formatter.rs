@@ -1285,7 +1285,6 @@ const PRESET_DEVELOPMENT: &[&str] = &[
     "debug",
     "callback",
     "thread",
-    "оверлей",
     "Hugging Face",
     "drag and drop",
 ];
@@ -2092,6 +2091,62 @@ impl ParasiteWordsRemover {
     }
 }
 
+/// Nouns that take a type in technical dictation: «поле типа string»,
+/// «объект типа записи». Matched as a stem plus a case ending of up to three
+/// letters, so «получил» does not pass for «поле».
+const TYPED_NOUN_STEMS: &[&str] = &[
+    "пол",
+    "объект",
+    "переменн",
+    "параметр",
+    "аргумент",
+    "значени",
+    "свойств",
+    "атрибут",
+    "элемент",
+    "массив",
+    "спис",
+    "ключ",
+    "столб",
+    "колонк",
+    "данн",
+];
+
+/// The word without surrounding punctuation, lowercased.
+fn bare_word(word: &str) -> String {
+    word.trim_matches(|c: char| !c.is_alphabetic())
+        .to_lowercase()
+}
+
+/// Whether «типа» between `prefix` and `suffix` is the comparison or the type
+/// itself rather than padding: «типа того», «что-то типа», «какой-нибудь
+/// типа», and a type name after a noun or before an identifier («поле типа
+/// string»). Unpunctuated dictation puts padding mid-clause as well, so a
+/// mid-clause position alone does not make it meaningful.
+fn tipa_is_meaningful(prefix: &str, suffix: &str) -> bool {
+    let next = suffix.split_whitespace().next().unwrap_or("");
+    if bare_word(next) == "того" {
+        return true;
+    }
+    if prefix.ends_with(['.', '!', '?', '…', ',']) {
+        return false;
+    }
+    let Some(prev) = prefix.split_whitespace().next_back().map(bare_word) else {
+        return false;
+    };
+    // A protected identifier arrives as a marker whose first letter is Latin too.
+    let identifier_follows = next
+        .chars()
+        .find(|c| c.is_alphanumeric())
+        .is_some_and(|c| c.is_ascii_alphanumeric());
+    prev.ends_with("-то")
+        || prev.ends_with("-нибудь")
+        || identifier_follows
+        || TYPED_NOUN_STEMS
+            .iter()
+            .any(|stem| prev.starts_with(stem) && prev.chars().count() <= stem.chars().count() + 3)
+}
+
 impl FormatStep for ParasiteWordsRemover {
     fn name(&self) -> &str {
         "Remove parasites"
@@ -2137,17 +2192,17 @@ impl FormatStep for ParasiteWordsRemover {
                         let after = out[matched.end()..].chars().next();
                         let prefix = out[..matched.start()].trim_end();
                         let suffix = out[matched.end()..].trim_start();
-                        // Preserve comparative «короче» inside a clause and
-                        // the fixed expression «в общем и целом».
+                        // Preserve comparative «короче» inside a clause, the
+                        // meaningful «типа» and the fixed expression «в общем
+                        // и целом».
                         let explicit_custom = self
                             .custom_words
                             .iter()
                             .any(|custom| custom.eq_ignore_ascii_case(word));
                         let meaningful = !explicit_custom
                             && ((word == "типа"
-                                && !prefix.is_empty()
-                                && !prefix.ends_with(['.', '!', '?', '…', ','])
-                                && !matched.as_str().ends_with(','))
+                                && !matched.as_str().ends_with(',')
+                                && tipa_is_meaningful(prefix, suffix))
                                 || (word == "короче"
                                     && !prefix.is_empty()
                                     && !prefix.ends_with(['.', '!', '?', '…'])
@@ -2160,10 +2215,7 @@ impl FormatStep for ParasiteWordsRemover {
                                     && suffix
                                         .split_whitespace()
                                         .take(2)
-                                        .map(|s| {
-                                            s.trim_matches(|c: char| !c.is_alphabetic())
-                                                .to_lowercase()
-                                        })
+                                        .map(bare_word)
                                         .eq(["и", "целом"])));
                         // A word boundary also occurs inside «чё-то» and «ну-ка».
                         // Removing only one side would leave a dangling suffix.
@@ -3493,6 +3545,52 @@ mod tests {
         assert_eq!(
             formatter.process("вот это и есть главная проблема"),
             "Вот это и есть главная проблема."
+        );
+    }
+
+    /// Dictation rarely punctuates, so «типа» used as padding usually sits
+    /// mid-clause; it must go there too, capitalised or not.
+    #[test]
+    fn tipa_is_removed_mid_clause() {
+        let formatter = Formatter::from_config(&default_fmt());
+        assert_eq!(
+            formatter.process("я не могу оправдать типа такую жирную подписку"),
+            "Я не могу оправдать такую жирную подписку."
+        );
+        assert_eq!(
+            formatter.process("мне типа жаль. Поэтому я Типа планирую"),
+            "Мне жаль. Поэтому я планирую."
+        );
+    }
+
+    /// In «типа того» and «что-то типа» the word is the comparison itself.
+    #[test]
+    fn tipa_survives_in_fixed_comparisons() {
+        let formatter = Formatter::from_config(&default_fmt());
+        assert_eq!(
+            formatter.process("он сказал что-то типа привет"),
+            "Он сказал что-то типа привет."
+        );
+        assert_eq!(formatter.process("ну да типа того"), "Да типа того.");
+        assert_eq!(
+            formatter.process("возьми какой-нибудь типа шаблона"),
+            "Возьми какой-нибудь типа шаблона."
+        );
+    }
+
+    /// In a type name the word is the type itself: dropping it turns «объект
+    /// типа записи» into the record's object.
+    #[test]
+    fn tipa_survives_in_a_type_name() {
+        let formatter = Formatter::from_config(&default_fmt());
+        assert_eq!(
+            formatter.process("объявим переменную типа int и объект типа записи"),
+            "Объявим переменную типа int и объект типа записи."
+        );
+        // A word that merely starts like a typed noun is not one.
+        assert_eq!(
+            formatter.process("я получил типа ответ"),
+            "Я получил ответ."
         );
     }
 

@@ -36,6 +36,7 @@ export function Icon({ name, size = 16, ...rest }: IconProps) {
     case "eye-off": return <svg {...props}><path d="M3 3l10 10M5.5 5.5C3.8 6.3 2.5 7.5 1.5 8c1.5 3 3.8 4.5 6.5 4.5 1.2 0 2.3-.3 3.2-.8M9.8 4.3A6.6 6.6 0 0 1 14.5 8c-.5 1-1.1 1.8-1.9 2.4"/><path d="M6.8 6.8a2 2 0 0 0 2.4 2.4"/></svg>;
     case "chip": return <svg {...props}><rect x="4" y="4" width="8" height="8" rx="1"/><path d="M6.5 4V2.5M9.5 4V2.5M6.5 13.5V12M9.5 13.5V12M2.5 6.5H4M2.5 9.5H4M12 6.5h1.5M12 9.5h1.5"/></svg>;
     case "kbd": return <svg {...props}><rect x="1.5" y="3.5" width="13" height="9" rx="1.5"/><path d="M4 6.5h.01M7 6.5h.01M10 6.5h.01M4 9.5h6"/></svg>;
+    case "sparkle": return <svg {...props}><path d="M8 1.5c.5 3.3 3.2 6 6.5 6.5-3.3.5-6 3.2-6.5 6.5-.5-3.3-3.2-6-6.5-6.5 3.3-.5 6-3.2 6.5-6.5z"/></svg>;
     case "spark": return <svg {...props}><path d="M8 2v3M8 11v3M2 8h3M11 8h3M3.8 3.8l2 2M10.2 10.2l2 2M3.8 12.2l2-2M10.2 5.8l2-2"/></svg>;
     case "shield": return <svg {...props}><path d="M8 1.5l5.5 2v4.5C13.5 11 11 13.5 8 14.5C5 13.5 2.5 11 2.5 8V3.5z"/><path d="M5.5 8l2 2 3-4"/></svg>;
     // Trash can: the lid spans the full width, the body is a trapezoid from 4.5
