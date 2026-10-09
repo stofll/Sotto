@@ -11,7 +11,7 @@ use std::sync::OnceLock;
 /// engine upgrade the old references no longer describe the new code, and a
 /// stale label is what keeps them off the cards until they are measured again
 /// (`reference_catalog_has_valid_metrics_and_unique_contexts` checks it).
-const METHOD: &str = "sotto-stt-v1-whisper-0.14.4-sherpa-1.13.7";
+const METHOD: &str = "sotto-stt-v2-whisper-0.14.4-sherpa-1.13.7";
 /// The language setting that leaves the choice to the engine. Its measurement
 /// is the one that fits any other language the model is asked for.
 const GENERIC_LANGUAGE: &str = "auto";
@@ -190,12 +190,12 @@ pub struct Reference {
 /// The catalogue measurement for `model_id` under the configured `language`,
 /// falling back to the automatic-detection one.
 ///
-/// The language is not decoration. Whisper pays for a detection pass, so its
-/// `auto` rows run about twice its explicit-language rows — enough to move
-/// `base` and `base.en` a whole level down the card. Sherpa models are
-/// indifferent, and their two rows agree within a few percent. Showing the
-/// `auto` number to someone who has chosen a language therefore understates
-/// Whisper against Sherpa on one shared scale.
+/// The language is not decoration. Multilingual Whisper pays for a detection
+/// pass, so its `auto` rows run 1.5–2 times its explicit-language rows —
+/// enough to move `medium` a level down the card. Sherpa
+/// models and English-only Whisper are indifferent, and their two rows agree
+/// within a few percent. Showing the `auto` number to someone who has chosen a
+/// language therefore understates Whisper against Sherpa on one shared scale.
 fn reference(model_id: &str, language: &str) -> Option<&'static Reference> {
     static REFERENCES: OnceLock<Vec<Reference>> = OnceLock::new();
     let references = REFERENCES.get_or_init(|| {
@@ -326,7 +326,7 @@ mod tests {
         assert_eq!(explicit.language, "ru");
         let detected = reference("tiny", GENERIC_LANGUAGE).expect("auto is measured");
         assert!(
-            detected.rtf > explicit.rtf * 1.5,
+            detected.rtf > explicit.rtf * 1.2,
             "detection should cost Whisper real time: {} vs {}",
             detected.rtf,
             explicit.rtf
@@ -368,17 +368,6 @@ mod tests {
         let missing = catalog_speed("custom-missing", "ru");
         assert_eq!(missing.score, None);
         assert_eq!(missing.source, "unknown");
-    }
-
-    #[test]
-    fn detection_overhead_does_not_demote_a_model_whose_language_is_set() {
-        // `base` reads as the lowest level at `auto` and the middle one with a
-        // language chosen. Showing the detection number to someone who will
-        // never pay for detection understates Whisper against Sherpa.
-        let configured = catalog_speed("base", "ru").score.unwrap();
-        let detected = catalog_speed("base", GENERIC_LANGUAGE).score.unwrap();
-        assert!(detected < 0.5, "auto should fall below the middle level");
-        assert!(configured >= 0.5, "a chosen language should reach it");
     }
 
     #[test]

@@ -9,6 +9,8 @@ import { test } from 'node:test';
 const checker = fileURLToPath(new URL('./check-ggml-baseline.mjs', import.meta.url));
 const toolchain = fileURLToPath(new URL('./ggml-baseline.cmake', import.meta.url));
 const check = (root) => spawnSync(process.execPath, [checker, root], { encoding: 'utf8' });
+// The flags cmake-rs passes for the Visual Studio generator: cc's, without /O.
+const stripped = '-nologo -MD -Brepro -W0';
 
 test('CMake replaces stale native flags and the checker rejects incompatible artifacts', (t) => {
   const root = mkdtempSync(join(tmpdir(), 'sotto-baseline-'));
@@ -24,6 +26,9 @@ test('CMake replaces stale native flags and the checker rejects incompatible art
     '-S', source, '-B', build, `-DCMAKE_TOOLCHAIN_FILE=${toolchain}`,
     '-DGGML_NATIVE:BOOL=ON', '-DGGML_AVX512:BOOL=ON', '-DGGML_AVX2:BOOL=OFF',
     '-DGGML_CPU_ARM_ARCH:STRING=armv8.6-a',
+    // As cmake-rs passes them for the Visual Studio generator; inert elsewhere.
+    '-DCMAKE_BUILD_TYPE=Release',
+    `-DCMAKE_C_FLAGS_RELEASE=${stripped}`, `-DCMAKE_CXX_FLAGS_RELEASE=${stripped}`,
   ], { encoding: 'utf8' });
   assert.equal(configured.status, 0, configured.error?.message ?? configured.stdout + configured.stderr);
   const valid = check(target);
@@ -38,6 +43,37 @@ test('CMake replaces stale native flags and the checker rejects incompatible art
     assert.notEqual(invalid.status, 0);
     assert.match(invalid.stderr, new RegExp(`expected ${flag}=OFF, got ON`));
   }
+});
+
+test('Visual Studio builds keep optimisation flags that cmake-rs strips', (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'sotto-baseline-msvc-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const source = join(root, 'source');
+  const build = join(root, 'target', 'release', 'build', 'whisper-rs-sys-test', 'out', 'build');
+  mkdirSync(source, { recursive: true });
+  writeFileSync(join(source, 'CMakeLists.txt'),
+    'cmake_minimum_required(VERSION 3.14)\nproject(BaselineProbe NONE)\n');
+  const configured = spawnSync('cmake', [
+    '-S', source, '-B', build, `-DCMAKE_TOOLCHAIN_FILE=${toolchain}`,
+    '-DCMAKE_BUILD_TYPE=Release',
+    `-DCMAKE_C_FLAGS_RELEASE=${stripped}`, `-DCMAKE_CXX_FLAGS_RELEASE=${stripped}`,
+  ], { encoding: 'utf8' });
+  assert.equal(configured.status, 0, configured.error?.message ?? configured.stdout + configured.stderr);
+  const cache = join(build, 'CMakeCache.txt');
+  const text = readFileSync(cache, 'utf8');
+  const visualStudio = /^CMAKE_GENERATOR:INTERNAL=Visual Studio/m.test(text);
+  if (visualStudio) {
+    assert.match(text, /^CMAKE_C_FLAGS_RELEASE:STRING=.* \/O2 \/Ob2 \/DNDEBUG\r?$/m);
+  }
+  assert.equal(check(join(root, 'target')).status, 0);
+
+  // Whatever generator this host has, a Visual Studio cache without /O2 must fail.
+  const generator = visualStudio ? text : text.replace(/^CMAKE_GENERATOR:INTERNAL=.*$/m,
+    'CMAKE_GENERATOR:INTERNAL=Visual Studio 17 2022');
+  writeFileSync(cache, generator.replace(/^(CMAKE_C_FLAGS_RELEASE:STRING=).*$/m, `$1${stripped}`));
+  const invalid = check(join(root, 'target'));
+  assert.notEqual(invalid.status, 0);
+  assert.match(invalid.stderr, /expected \/O2 in CMAKE_C_FLAGS_RELEASE/);
 });
 
 test('missing build artifacts cannot silently pass', (t) => {

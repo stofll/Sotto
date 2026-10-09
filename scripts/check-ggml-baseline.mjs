@@ -45,6 +45,16 @@ function inspect(directory, depth = 0) {
             throw new Error(`${cache}: expected ${key}=${value}, got ${values.get(key) ?? '<missing>'}`);
           }
         }
+        // cmake-rs strips /O flags for the Visual Studio generator; see ggml-baseline.cmake.
+        if (values.get('CMAKE_GENERATOR')?.startsWith('Visual Studio')) {
+          const config = (values.get('CMAKE_BUILD_TYPE') || 'Release').toUpperCase();
+          for (const lang of ['C', 'CXX']) {
+            const key = `CMAKE_${lang}_FLAGS_${config}`;
+            if (!/(^|\s)[-/]O2(\s|$)/.test(values.get(key) ?? '')) {
+              throw new Error(`${cache}: expected /O2 in ${key}, got ${values.get(key) ?? '<missing>'}`);
+            }
+          }
+        }
         console.log(`Verified Whisper CPU baseline: ${cache}`);
         checked++;
       }

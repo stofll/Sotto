@@ -429,7 +429,14 @@ impl Engine {
         // Set the decode language explicitly. whisper.cpp's default is "en",
         // which produces garbage (or empty) output for other languages; an
         // empty/absent/"auto" value means auto-detect.
+        // English-only (`.en`) models would still run the detection pass for
+        // "auto", roughly doubling their time for a fixed answer.
+        let multilingual = self
+            .whisper_ctx
+            .as_ref()
+            .is_none_or(|ctx| ctx.is_multilingual());
         match language {
+            _ if !multilingual => params.set_language(Some("en")),
             Some(lang) if !lang.is_empty() && lang != "auto" => params.set_language(Some(lang)),
             _ => params.set_language(Some("auto")),
         }

@@ -302,7 +302,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     },
                 )?;
                 let mut state = ctx.create_state()?;
+                // As the application does: English-only models skip detection.
+                let multilingual = ctx.is_multilingual();
                 Box::new(move |language| {
+                    let language = if multilingual { language } else { "en" };
                     let mut params =
                         whisper_rs::FullParams::new(whisper_rs::SamplingStrategy::Greedy {
                             best_of: 1,
