@@ -68,6 +68,7 @@ fn channels_accept_all_engine_command_variants() {
         .try_send(EngineCommand::Transcribe {
             session_id: 1,
             audio: Arc::new(vec![0.0_f32; 16000]),
+            audio_offset: 0,
             speech_timing: sotto_lib::whisper::SpeechTiming::Ready(None),
             cancel_flag: Arc::new(AtomicBool::new(false)),
             language: None,

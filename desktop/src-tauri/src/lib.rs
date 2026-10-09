@@ -510,6 +510,7 @@ mod model_restore_tests {
             .unwrap();
         tx.try_send(EngineCommand::PreviewChunk {
             session_id: 1,
+            offset: 0,
             samples: vec![0.0; 160],
         })
         .unwrap();
@@ -517,6 +518,7 @@ mod model_restore_tests {
         tx.try_send(EngineCommand::Transcribe {
             session_id: 1,
             audio: std::sync::Arc::new(vec![0.0; 160]),
+            audio_offset: 0,
             speech_timing: crate::vad::SpeechTiming::Ready(None),
             cancel_flag: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             language: None,
@@ -979,13 +981,17 @@ pub(crate) fn build_dictation_command(
     cancel_flag: Arc<AtomicBool>,
     reply: tokio::sync::oneshot::Sender<Result<crate::whisper::InferenceResult, String>>,
 ) -> Result<crate::whisper::EngineCommand, String> {
-    let (audio, speech_timing) =
-        crate::vad::prepare_dictation(config.map(crate::config::Config::as_value), audio);
+    let crate::vad::PreparedDictation {
+        audio,
+        offset,
+        timing: speech_timing,
+    } = crate::vad::prepare_dictation(config.map(crate::config::Config::as_value), audio);
     let pipeline_mode = telemetry_pipeline_mode(config);
     if pipeline_mode != "cloud" {
         return Ok(crate::whisper::EngineCommand::Transcribe {
             session_id,
             audio,
+            audio_offset: offset,
             speech_timing,
             cancel_flag,
             // Configured whisper language (e.g. "ru"); None auto-detects.
@@ -1132,7 +1138,7 @@ fn start_live_preview(state: &AppState, session_id: u64, model: Option<&str>) ->
     std::thread::spawn(move || {
         // The channel breaks when the recording stops and the tap is detached —
         // that is exactly the exit condition.
-        while let Ok(samples) = rx.recv() {
+        while let Ok(crate::audio::LiveChunk { offset, samples }) = rx.recv() {
             // Room for real commands is preserved before sending: the queue is
             // shared, and a slot taken here is a slot the recording will not
             // have.
@@ -1143,6 +1149,7 @@ fn start_live_preview(state: &AppState, session_id: u64, model: Option<&str>) ->
             if engine_tx
                 .try_send(crate::whisper::EngineCommand::PreviewChunk {
                     session_id,
+                    offset,
                     samples,
                 })
                 .is_err()

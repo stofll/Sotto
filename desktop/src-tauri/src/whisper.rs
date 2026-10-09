@@ -30,6 +30,9 @@ pub enum EngineCommand {
     Transcribe {
         session_id: u64,
         audio: Arc<Vec<f32>>,
+        /// Where `audio` starts in the recording, past the silence trimmed off
+        /// its front. Lines it up with the live preview's chunks.
+        audio_offset: usize,
         speech_timing: SpeechTiming,
         cancel_flag: Arc<AtomicBool>,
         /// Target language (e.g. `"ru"`). `None` or `"auto"` auto-detects.
@@ -70,6 +73,8 @@ pub enum EngineCommand {
     /// non-streaming model swallows this command silently.
     PreviewChunk {
         session_id: u64,
+        /// Where the chunk starts in the recording.
+        offset: usize,
         samples: Vec<f32>,
     },
     /// Forget the accumulated hypothesis before a new dictation.
@@ -221,6 +226,7 @@ pub fn engine_thread_main(
         sherpa: None,
         last_preview: String::new(),
         preview_session: None,
+        preview_fed: None,
         last_activity: std::time::Instant::now(),
         events: event_tx,
         app: app_handle,
@@ -240,6 +246,7 @@ pub fn engine_thread_main(
             EngineCommand::Transcribe {
                 session_id,
                 audio,
+                audio_offset,
                 speech_timing,
                 cancel_flag,
                 language,
@@ -253,6 +260,7 @@ pub fn engine_thread_main(
                     reply,
                 },
                 &audio,
+                audio_offset,
                 language.as_deref(),
                 initial_prompt.as_deref(),
             ),
@@ -281,8 +289,9 @@ pub fn engine_thread_main(
             } => engine.set_model(name, spec, reason, reply),
             EngineCommand::PreviewChunk {
                 session_id,
+                offset,
                 samples,
-            } => engine.preview_chunk(session_id, &samples),
+            } => engine.preview_chunk(session_id, offset, &samples),
             EngineCommand::PreviewReset { session_id } => engine.preview_reset(session_id),
             EngineCommand::UnloadModel { reply } => {
                 engine.unload();
@@ -327,6 +336,11 @@ struct Engine {
     /// would receive fifty identical events per second.
     last_preview: String,
     preview_session: Option<u64>,
+    /// How much of `preview_session`'s recording the streaming preview has
+    /// fed, while it holds exactly that prefix. A dropped chunk, a failed feed
+    /// or a model change clears it, and the final pass then decodes the whole
+    /// recording again.
+    preview_fed: Option<usize>,
     /// When the engine last did work. Idleness is measured from here, and it
     /// is what takes the model out of memory (`UnloadIdle`).
     last_activity: std::time::Instant,
@@ -340,10 +354,18 @@ impl Engine {
         &mut self,
         job: Job,
         audio: &[f32],
+        audio_offset: usize,
         language: Option<&str>,
         initial_prompt: Option<&str>,
     ) {
         let session_id = job.session_id;
+        // Taken in any case: whichever way the final pass goes, it ends the
+        // preview's stream.
+        let preview_fed = self
+            .preview_fed
+            .take()
+            .filter(|_| self.preview_session == Some(session_id));
+        let rest = preview_fed.and_then(|fed| preview_rest(fed, audio, audio_offset));
         let _ = self
             .events
             .blocking_send(EngineEvent::InferenceStarted { session_id });
@@ -367,6 +389,7 @@ impl Engine {
                 recognizer,
                 &job,
                 audio,
+                rest,
                 language,
                 model_id.as_deref(),
                 initial_prompt,
@@ -659,6 +682,7 @@ impl Engine {
     /// context and must go first; dropping the context first leaves a
     /// use-after-free for the next `state.full()`.
     fn drop_models(&mut self) {
+        self.preview_fed = None;
         self.whisper_state = None;
         self.sherpa = None;
         self.whisper_ctx = None;
@@ -688,8 +712,9 @@ impl Engine {
             .blocking_send(EngineEvent::ModelUnloaded { name });
     }
 
-    fn preview_chunk(&mut self, session_id: u64, samples: &[f32]) {
+    fn preview_chunk(&mut self, session_id: u64, offset: usize, samples: &[f32]) {
         let Some(recognizer) = self.sherpa.as_mut() else {
+            self.preview_fed = None;
             return;
         };
         match preview_action(self.preview_session, session_id) {
@@ -697,11 +722,17 @@ impl Engine {
             PreviewAction::Restart => {
                 self.preview_session = Some(session_id);
                 self.last_preview.clear();
+                self.preview_fed = Some(0);
                 recognizer.reset_preview();
             }
             PreviewAction::Continue => {}
         }
-        match recognizer.feed_preview(16_000, samples) {
+        let fed = self.preview_fed.take();
+        let preview = recognizer.feed_preview(16_000, samples);
+        if fed == Some(offset) && preview.is_ok() {
+            self.preview_fed = Some(offset + samples.len());
+        }
+        match preview {
             // A non-streaming model returns no hypothesis, and a streaming one
             // none while a chunk decodes nothing new — we stay silent rather
             // than send empty text: an empty string would wipe what the overlay
@@ -724,10 +755,19 @@ impl Engine {
         // fate of late chunks, not just state cleanup.
         self.preview_session = Some(session_id);
         self.last_preview.clear();
+        self.preview_fed = Some(0);
         if let Some(recognizer) = self.sherpa.as_mut() {
             recognizer.reset_preview();
         }
     }
+}
+
+/// The recording after the `fed` samples the live preview has decoded, as a
+/// slice of `audio`, which starts `audio_offset` samples into the recording.
+/// `None` while the preview is behind that start: what it misses was trimmed.
+fn preview_rest(fed: usize, audio: &[f32], audio_offset: usize) -> Option<&[f32]> {
+    let skip = fed.checked_sub(audio_offset)?;
+    Some(&audio[skip.min(audio.len())..])
 }
 
 /// Make `full()` stop once `flag` turns true. whisper.cpp asks between encoder
@@ -757,6 +797,7 @@ fn decode_sherpa(
     recognizer: &mut crate::sherpa::SherpaRecognizer,
     job: &Job,
     audio: &[f32],
+    preview_rest: Option<&[f32]>,
     language: Option<&str>,
     model_id: Option<&str>,
     initial_prompt: Option<&str>,
@@ -786,6 +827,14 @@ fn decode_sherpa(
             recognizer.transcribe_gigaam(audio, || job.cancelled())
         } else if model_id.is_some_and(crate::model::segments_with_context) {
             recognizer.transcribe_segmented(audio, requested, initial_prompt, || job.cancelled())
+        } else if let Some(rest) = preview_rest.filter(|_| recognizer.is_streaming()) {
+            log::info!(
+                "session {}: final pass continues the live preview, {} of {} samples left",
+                job.session_id,
+                rest.len(),
+                audio.len()
+            );
+            recognizer.finish_preview(16_000, rest, || job.cancelled())
         } else {
             recognizer.transcribe_unless(16_000, audio, || job.cancelled())
         }
@@ -919,6 +968,18 @@ mod tests {
         ));
     }
     use std::thread;
+
+    #[test]
+    fn the_final_pass_takes_the_recording_after_the_preview() {
+        let audio = [1.0, 2.0, 3.0, 4.0];
+        // Trimmed audio starts 10 samples into the recording.
+        assert_eq!(preview_rest(12, &audio, 10), Some(&audio[2..]));
+        assert_eq!(preview_rest(10, &audio, 10), Some(&audio[..]));
+        // The preview decoded past the trimmed end: nothing left to feed.
+        assert_eq!(preview_rest(20, &audio, 10), Some(&audio[4..]));
+        // It never reached the trimmed start: the gap is gone from `audio`.
+        assert_eq!(preview_rest(5, &audio, 10), None);
+    }
 
     #[test]
     fn a_late_chunk_of_the_previous_dictation_never_reaches_the_new_one() {

@@ -860,6 +860,23 @@ impl OnlineRecognizer {
         self.text()
     }
 
+    /// Feed the rest of the phrase, close it and start over, unless
+    /// `cancelled` stops the decode first.
+    fn finish_unless(
+        &mut self,
+        sample_rate: u32,
+        samples: &[f32],
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<String, String> {
+        let result = match self.feed_unless(sample_rate, samples, cancelled) {
+            Ok(true) => self.finish(),
+            Ok(false) => Err("sherpa transcribe cancelled during decoding".to_string()),
+            Err(error) => Err(error),
+        };
+        self.reset();
+        result
+    }
+
     /// Forget what was accumulated and start the next dictation from scratch.
     ///
     /// A new stream, not `OnlineRecognizer::reset`: that one only rewinds the
@@ -928,6 +945,15 @@ impl OnlineRecognizer {
     }
 
     pub fn reset(&mut self) {}
+
+    fn finish_unless(
+        &mut self,
+        _sample_rate: u32,
+        _samples: &[f32],
+        _cancelled: &dyn Fn() -> bool,
+    ) -> Result<String, String> {
+        Err(UNSUPPORTED.to_string())
+    }
 }
 
 /// A recognizer of any sherpa family — streaming or not.
@@ -1013,14 +1039,24 @@ impl SherpaRecognizer {
             Self::Offline(recognizer) => recognizer.transcribe(sample_rate, samples),
             Self::Online(recognizer) => {
                 recognizer.reset();
-                if !recognizer.feed_unless(sample_rate, samples, &cancelled)? {
-                    recognizer.reset();
-                    return Err("sherpa transcribe cancelled during decoding".to_string());
-                }
-                let text = recognizer.finish()?;
-                recognizer.reset();
-                Ok(text)
+                recognizer.finish_unless(sample_rate, samples, &cancelled)
             }
+        }
+    }
+
+    /// Close the live preview's stream with `rest`, the recording after what
+    /// the preview has fed, so the final text does not decode the whole
+    /// dictation again. The caller vouches that the preview fed exactly the
+    /// recording's start; a non-streaming recognizer has no such stream.
+    pub fn finish_preview(
+        &mut self,
+        sample_rate: u32,
+        rest: &[f32],
+        cancelled: impl Fn() -> bool,
+    ) -> Result<String, String> {
+        match self {
+            Self::Offline(_) => Err("finish_preview: the recognizer does not stream".to_string()),
+            Self::Online(recognizer) => recognizer.finish_unless(sample_rate, rest, &cancelled),
         }
     }
 

@@ -103,6 +103,18 @@ async fn sherpa_download_load_infer_and_reload() {
                 after_preview, clean,
                 "the preview's tail leaked into the final text"
             );
+            // A final pass that continues the preview's stream with the rest
+            // of the recording reads the same text as one over all of it.
+            let fed = spoken.len() * 2 / 3;
+            recognizer.reset_preview();
+            for chunk in spoken[..fed].chunks(1600) {
+                recognizer.feed_preview(16_000, chunk).unwrap();
+            }
+            let continued = recognizer
+                .finish_preview(16_000, &spoken[fed..], || false)
+                .unwrap();
+            assert_eq!(continued, clean, "continuing the preview changed the text");
+            assert_eq!(recognizer.transcribe(16_000, spoken).unwrap(), clean);
         }
     }
     std::env::remove_var("SOTTO_MODELS_DIR");

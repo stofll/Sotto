@@ -195,7 +195,7 @@ impl MicrophoneTest {
     fn spawn_workers(
         inner: &Arc<Mutex<Inner>>,
         app: &AppHandle,
-        samples: std::sync::mpsc::Receiver<Vec<f32>>,
+        samples: std::sync::mpsc::Receiver<crate::audio::LiveChunk>,
         monitor: Arc<AtomicBool>,
     ) {
         let poller_inner = Arc::clone(inner);
@@ -238,7 +238,8 @@ impl MicrophoneTest {
                     // Drain the tap unconditionally — a full channel makes the
                     // audio callback drop frames — but only pay for the emit
                     // while the user is actually listening to themselves.
-                    let audio: Vec<f32> = samples.try_iter().flatten().collect();
+                    let audio: Vec<f32> =
+                        samples.try_iter().flat_map(|chunk| chunk.samples).collect();
                     if monitor.load(Ordering::Acquire) && !audio.is_empty() {
                         // The rate travels with the samples. A device whose
                         // rate the capture resampler cannot divide (44.1 kHz,

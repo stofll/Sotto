@@ -662,6 +662,7 @@ async fn transcribe_file_inner(
         crate::whisper::EngineCommand::Transcribe {
             session_id,
             audio,
+            audio_offset: 0,
             speech_timing: crate::vad::SpeechTiming::Ready(None),
             cancel_flag,
             language: config.and_then(|cfg| cfg.get_string("language")),
