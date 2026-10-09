@@ -17,7 +17,9 @@ if(CMAKE_GENERATOR MATCHES "^Visual Studio")
     foreach(lang C CXX)
         foreach(config RELEASE RELWITHDEBINFO)
             set(flags "${CMAKE_${lang}_FLAGS_${config}}")
-            if(DEFINED CMAKE_${lang}_FLAGS_${config} AND NOT flags MATCHES "[-/]O[12x]")
+            # The same test as scripts/check-ggml-baseline.mjs; a later /O2
+            # overrides any other /O level MSVC was given.
+            if(DEFINED CMAKE_${lang}_FLAGS_${config} AND NOT flags MATCHES "(^| )[-/]O2( |$)")
                 set(CMAKE_${lang}_FLAGS_${config} "${flags} /O2 /Ob2 /DNDEBUG" CACHE STRING "" FORCE)
             endif()
         endforeach()

@@ -371,6 +371,17 @@ mod tests {
     }
 
     #[test]
+    fn detection_overhead_does_not_demote_a_model_whose_language_is_set() {
+        // `medium` reads as the lowest level at `auto` and the middle one with
+        // a language chosen. Showing the detection number to someone who will
+        // never pay for detection understates Whisper against Sherpa.
+        let configured = catalog_speed("medium", "ru").score.unwrap();
+        let detected = catalog_speed("medium", GENERIC_LANGUAGE).score.unwrap();
+        assert!(detected < 0.5, "auto should fall below the middle level");
+        assert!(configured >= 0.5, "a chosen language should reach it");
+    }
+
+    #[test]
     fn download_capacity_distinguishes_full_and_unknown_disk() {
         assert!(download_assessment("tiny", Some(0)).insufficient);
         assert!(!download_assessment("tiny", None).insufficient);

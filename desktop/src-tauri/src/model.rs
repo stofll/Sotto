@@ -1332,7 +1332,11 @@ pub fn handles_long_audio(model_id: &str) -> bool {
 /// The offline models whose fragments are decoded with language and hotword
 /// context rather than through the GigaAM path.
 pub fn segments_with_context(model_id: &str) -> bool {
-    matches!(model_id, "parakeet-ultra" | "qwen3-asr-0.6b")
+    // Normalized like `model_engine`, so both answer for the same spelling.
+    matches!(
+        normalize_model_id(model_id),
+        Ok("parakeet-ultra" | "qwen3-asr-0.6b")
+    )
 }
 
 /// Explain the model's restriction in the UI language. It lives next to the
@@ -1909,6 +1913,8 @@ mod tests {
                 "gigaam-multilingual",
                 "parakeet-ultra",
                 "qwen3-asr-0.6b",
+                // Spelled the way the catalogue lookup accepts it.
+                " Parakeet-Ultra ",
             ] {
                 assert!(handles_long_audio(id), "{id}");
             }

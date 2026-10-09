@@ -333,8 +333,8 @@ pub(crate) async fn pick_audio_file(app: AppHandle) -> Result<Option<String>, St
 /// What the "Прикрепить аудио" panel gets back from a file transcription.
 ///
 /// Deliberately not `InferenceResult`: the panel shows the *processed*
-/// text, and it needs the intermediate stages to render the "Whisper без
-/// обработки" disclosure the same way history does.
+/// text, and it needs the intermediate stages to show them the same way
+/// history does.
 #[derive(Debug, serde::Serialize)]
 pub struct TranscribeFileResult {
     /// The text to show and copy — formatted, and LLM-cleaned when the
@@ -346,7 +346,7 @@ pub struct TranscribeFileResult {
     formatted_text: String,
     /// `None` when the LLM never ran (disabled, or the mode is local-only).
     /// That is a normal outcome for a file, not a failure — the panel shows
-    /// "Распознано" for it, not an error.
+    /// no status pill for it, not an error.
     ai_status: Option<crate::ai::step::AiStatus>,
     audio_seconds: f64,
     inference_time_ms: u64,

@@ -1872,8 +1872,8 @@ pub(crate) async fn post_process_transcription(
 
     // 1. Local formatting (fillers, capitalization, replacements, …). Gated
     //    by `text_formatting.enabled`; when disabled the formatter just
-    //    trims, so `formatted_text == raw_text` and the "Whisper без
-    //    обработки" block stays hidden.
+    //    trims, so `formatted_text == raw_text` and the formatting stage
+    //    shows no change.
     //
     //    The shared formatter classifies intentional empty results after
     //    protecting code and replacement matches. Incidental empty cleanup
