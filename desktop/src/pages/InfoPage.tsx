@@ -34,7 +34,7 @@ function PipelineStep({ index, title, detail, icon }: { index: number; title: st
   return (
     <div style={{ padding: 14, borderRadius: "var(--radius)", background: "var(--bg-2)", border: "1px solid var(--line)" }}>
       <div className="flex-row" style={{ gap: 8, marginBottom: 8 }}>
-        <span style={{ font: "500 10px/1 var(--font-mono)", color: "var(--ink-mute)", background: "var(--bg-4)", padding: "2px 6px", borderRadius: 4 }}>{index}</span>
+        <span style={{ font: "500 10px/1 var(--font-mono)", color: "var(--ink-mute)", background: "var(--bg-4)", padding: "2px 6px", borderRadius: "var(--radius-xs)" }}>{index}</span>
         <span className="card-icon" style={{ width: 26, height: 26, color: "var(--accent-text)" }}><Icon name={icon} size={13}/></span>
         <span style={{ font: "600 13px/1.2 var(--font-sans)", color: "var(--ink)" }}>{title}</span>
       </div>

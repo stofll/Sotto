@@ -398,7 +398,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
           they act on. */}
       <PageHeader title={t("LLM-обработка")}/>
 
-      {message && <div style={{ padding: "10px 12px", borderRadius: 8, background: "var(--bg-2)", border: "1px solid var(--line)", font: "500 12px/1.4 var(--font-sans)", marginBottom: 14 }}>{message}</div>}
+      {message && <div style={{ padding: "10px 12px", borderRadius: "var(--radius-sm)", background: "var(--bg-2)", border: "1px solid var(--line)", font: "500 12px/1.4 var(--font-sans)", marginBottom: 14 }}>{message}</div>}
 
       <div className="card-stack">
         {/* Mode and profile are one chain, and they used to be two cards: the
@@ -592,7 +592,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
                   : t("Пока этого нет, диктовка вставляет локальный текст без обработки LLM.")}
               />}
           {testResult && (
-            <div style={{ display: "grid", gap: 6, marginTop: 12, padding: 10, borderRadius: 8, background: "var(--bg-2)", border: "1px solid var(--line)" }}>
+            <div style={{ display: "grid", gap: 6, marginTop: 12, padding: 10, borderRadius: "var(--radius-sm)", background: "var(--bg-2)", border: "1px solid var(--line)" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <span className={testResult.available && !testResult.fallback ? "pill ok" : "pill warn"}>{testResult.available ? t("Ответ получен") : (testResult.fallback ? t("Запрос отправлен, fallback") : t("Запрос не отправлен"))}</span>
                 <Hint text={t("Закрыть")} style={{ marginLeft: "auto" }}>
@@ -601,7 +601,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
               </div>
               {(testResult.message || testResult.provider_error || testResult.skipped_reason) && <div style={{ font: "500 11px/1.45 var(--font-mono)", color: testResult.available ? "var(--ink-mute)" : "var(--err)", whiteSpace: "pre-wrap" }}>{testResult.provider_error || testResult.message || testResult.skipped_reason}</div>}
               <ProviderSnippet result={testResult}/>
-              {testResult.output && <div style={{ padding: 10, borderRadius: 6, background: "var(--bg-2)", border: "1px solid var(--line)", font: "400 12px/1.5 var(--font-sans)", whiteSpace: "pre-wrap" }}>{testResult.output}</div>}
+              {testResult.output && <div style={{ padding: 10, borderRadius: "var(--radius-sm)", background: "var(--bg-2)", border: "1px solid var(--line)", font: "400 12px/1.5 var(--font-sans)", whiteSpace: "pre-wrap" }}>{testResult.output}</div>}
             </div>
           )}
         </Card>
