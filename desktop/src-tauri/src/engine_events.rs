@@ -29,6 +29,7 @@ pub(crate) fn spawn(app: AppHandle, events: EngineEventRx) {
     tauri::async_runtime::spawn(dispatcher.run(events));
 }
 
+#[derive(Clone)]
 struct Dispatcher {
     app: AppHandle,
     state: AppState,
@@ -38,12 +39,12 @@ struct Dispatcher {
 impl Dispatcher {
     async fn run(self, mut events: EngineEventRx) {
         while let Some(event) = events.recv().await {
-            self.handle(event).await;
+            self.handle(event);
         }
         log::info!("whisper event dispatcher exiting");
     }
 
-    async fn handle(&self, event: EngineEvent) {
+    fn handle(&self, event: EngineEvent) {
         match event {
             EngineEvent::ModelLoading { name } => {
                 let _ = self.app.emit("whisper-loading", name);
@@ -87,8 +88,13 @@ impl Dispatcher {
                     let _ = self.app.emit("whisper-started", session_id);
                 }
             }
+            // Delivery waits on formatting, an LLM and the paste; on its own
+            // task it holds up neither model events nor the next dictation's.
             EngineEvent::InferenceCompleted { session_id, result } => {
-                self.complete(session_id, result).await;
+                let dispatcher = self.clone();
+                tauri::async_runtime::spawn(async move {
+                    dispatcher.complete(session_id, result).await;
+                });
             }
         }
     }
