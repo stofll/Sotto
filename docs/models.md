@@ -57,7 +57,7 @@ A model asked for a language it does not support does not fail — it silently p
 
 ### Streaming models
 
-Only `SherpaStreamingTransducer` produces text while you speak; the others stay silent until the recording ends. The live preview in the overlay picks a model by exactly this property. "Streaming" is a property of the model on its catalog card, not part of its name.
+Only `SherpaStreamingTransducer` produces text while you speak; the others stay silent until the recording ends. The live preview in the overlay picks a model by exactly this property. "Streaming" is a property of the model on its catalog card, not part of its name. After the recording ends, the final text continues the live preview's stream with the audio it has not decoded yet. When the preview missed a chunk (it may fall behind and drop audio, but the recording may not), the model decodes the whole recording once more instead. Cancelling stops either pass between decode steps.
 
 Parakeet unified uses the 1120 ms buffered-streaming export. It processes larger chunks than the previous 560 ms export, reducing repeated encoder work at the cost of a later first result and less frequent updates. It still recomputes overlapping audio windows, unlike cache-aware Nemotron. The nominal preset is not a measured first-word latency; see [Benchmarks](benchmarks.md) for throughput measurements and their limits. Existing 560 ms installations must be downloaded again through the model catalog; artifact verification rejects the old encoder.
 

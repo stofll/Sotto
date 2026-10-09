@@ -53,6 +53,11 @@ async fn sherpa_download_load_infer_and_reload() {
             let mut recognizer = SherpaRecognizer::open(engine, &files, 2).unwrap();
             recognizer.transcribe(16_000, &silence).unwrap();
             recognizer.reset_preview();
+            // 10 ms is less than a decode step: nothing new to report yet.
+            assert_eq!(
+                recognizer.feed_preview(16_000, &silence[..160]).unwrap(),
+                None
+            );
             let preview = recognizer.feed_preview(16_000, &silence).unwrap();
             assert_eq!(preview.is_some(), id == "zipformer-ru-streaming");
             recognizer.transcribe(16_000, &silence).unwrap();
@@ -72,6 +77,15 @@ async fn sherpa_download_load_infer_and_reload() {
                 text.contains("зелёный"),
                 "streaming transcript lost its tail: {text}"
             );
+            // Cancelled mid-decode, the final pass gives up instead of
+            // decoding the rest, and the recognizer serves the next one intact.
+            let checks = std::cell::Cell::new(0);
+            let cancelled = recognizer.transcribe_unless(16_000, &speech, || {
+                checks.set(checks.get() + 1);
+                checks.get() > 2
+            });
+            assert!(cancelled.is_err(), "a cancelled decode returned text");
+            assert_eq!(recognizer.transcribe(16_000, &speech).unwrap(), text);
             // A dictation feeds the live preview chunk by chunk, then transcribes
             // the whole recording on the same recognizer. Whatever the preview
             // left undecoded must not come back in front of the final text.
@@ -89,6 +103,18 @@ async fn sherpa_download_load_infer_and_reload() {
                 after_preview, clean,
                 "the preview's tail leaked into the final text"
             );
+            // A final pass that continues the preview's stream with the rest
+            // of the recording reads the same text as one over all of it.
+            let fed = spoken.len() * 2 / 3;
+            recognizer.reset_preview();
+            for chunk in spoken[..fed].chunks(1600) {
+                recognizer.feed_preview(16_000, chunk).unwrap();
+            }
+            let continued = recognizer
+                .finish_preview(16_000, &spoken[fed..], || false)
+                .unwrap();
+            assert_eq!(continued, clean, "continuing the preview changed the text");
+            assert_eq!(recognizer.transcribe(16_000, spoken).unwrap(), clean);
         }
     }
     std::env::remove_var("SOTTO_MODELS_DIR");

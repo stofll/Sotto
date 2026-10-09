@@ -1,20 +1,21 @@
 /* Cleanup, close up: the pipeline, a voice line and one sentence set large. */
 .closeup { display: grid; gap: 28px; padding: clamp(24px, 5vw, 64px) clamp(20px, 6vw, 80px); }
 .closeup-steps { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; }
-.closeup-steps li { padding: 5px 12px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--border); font: 500 0.75rem var(--font-mono); color: var(--text-muted); transition: color 300ms, background 300ms, box-shadow 300ms; }
+.closeup-steps li { padding: 5px 12px; border-radius: 6px; box-shadow: inset 0 0 0 1px var(--border); font: 500 0.75rem var(--font-mono); color: var(--text-muted); transition: color 300ms, background 300ms, box-shadow 300ms; }
 .closeup-steps .is-done { box-shadow: inset 0 0 0 1px var(--text-muted); color: var(--text); }
 .closeup-steps .is-current { background: var(--accent); box-shadow: none; color: var(--on-accent); }
 .closeup-wave { display: block; width: 100%; height: 64px; }
 .closeup-text { min-height: 2.6em; font: 500 clamp(1.625rem, 4.2vw, 3rem)/1.25 var(--font-body); letter-spacing: -0.025em; color: var(--text); text-wrap: pretty; }
 /* The pieces stay inline so the sentence wraps like plain text: a space never
    starts or ends a line, and a word split across pieces never breaks. A removed
-   piece shrinks to nothing along with its spaces. */
-.closeup-piece { transition: opacity 250ms, font-size 300ms var(--ease), color 250ms, background 250ms; }
+   piece shrinks to nothing along with its spaces. The padding gives the
+   highlight room around a word; the negative margin keeps the line in place. */
+.closeup-piece { padding-inline: 0.12em; margin-inline: -0.12em; border-radius: 6px; transition: opacity 250ms, font-size 300ms var(--ease), color 250ms, background 250ms; }
 .closeup.is-playing .closeup-piece { color: var(--text-muted); }
 .closeup.is-playing .closeup-piece:not(.is-in) { opacity: 0; }
 .closeup.is-playing .closeup-piece.is-struck { text-decoration: line-through; text-decoration-color: var(--accent-text); }
 .closeup.is-playing .closeup-piece.is-gone { font-size: 0; opacity: 0; }
 .closeup.is-playing .closeup-piece.is-fixed { color: var(--text); }
-.closeup-piece.is-lit { border-radius: 6px; background: var(--accent-soft); }
+.closeup.is-playing .closeup-piece.is-lit { background: color-mix(in srgb, var(--accent) 40%, transparent); }
 .closeup.is-final .closeup-piece { color: var(--text); }
 .closeup-foot { display: flex; justify-content: flex-end; }

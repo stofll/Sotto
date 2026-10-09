@@ -33,12 +33,16 @@ pub fn summary(version: &str, config: &Value) -> String {
 }
 
 #[tauri::command]
-pub fn get_public_diagnostics(app: AppHandle) -> Result<String, String> {
-    let config = crate::config::Config::load(&app)?;
-    Ok(summary(
-        &app.package_info().version.to_string(),
-        config.as_value(),
-    ))
+pub async fn get_public_diagnostics(app: AppHandle) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let config = crate::config::Config::load(&app)?;
+        Ok(summary(
+            &app.package_info().version.to_string(),
+            config.as_value(),
+        ))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 fn project_logs(input: &str) -> String {

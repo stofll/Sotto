@@ -1172,7 +1172,7 @@ impl ModelEngine {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ModelLoadSpec {
     Whisper {
         path: PathBuf,
@@ -1189,7 +1189,7 @@ pub enum ModelLoadSpec {
 }
 
 /// Paths to a bundle's files, laid out by role.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct BundleFiles(Vec<(ArtifactRole, PathBuf)>);
 
 impl BundleFiles {
@@ -1822,16 +1822,22 @@ pub fn delete_cached_model(model_id: &str) -> Result<bool, String> {
 /// `id`, `label`, `size`, `ram`, `recommended`, `downloaded`, and
 /// `selected` fields.
 #[tauri::command]
-pub(crate) fn list_models(
+pub(crate) async fn list_models(
     app: AppHandle,
     state: tauri::State<'_, crate::state::AppState>,
-) -> Vec<ModelInfo> {
-    let selected = crate::config::Config::load(&app)
-        .ok()
-        .and_then(|c| c.get_string("model"))
-        .unwrap_or_else(|| "turbo".to_string());
+) -> Result<Vec<ModelInfo>, String> {
     let current = crate::mutex_recover::lock(&state.engine_current_model).clone();
-    list_model_infos(&selected, current.as_deref())
+    // A file check for every catalog model: off the main thread, which also
+    // runs the global hotkey.
+    tauri::async_runtime::spawn_blocking(move || {
+        let selected = crate::config::Config::load(&app)
+            .ok()
+            .and_then(|c| c.get_string("model"))
+            .unwrap_or_else(|| "turbo".to_string());
+        list_model_infos(&selected, current.as_deref())
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 /// Load a downloaded model into the whisper engine.

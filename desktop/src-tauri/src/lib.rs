@@ -200,11 +200,20 @@ fn app_version(app: AppHandle) -> Result<serde_json::Value, String> {
 /// - `recording`: whether the audio recorder is active
 /// - `state`: app FSM state string (idle/recording/processing)
 #[tauri::command]
-fn get_runtime_status(
+async fn get_runtime_status(
     app: AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
-    let config = crate::config::Config::load(&app).ok();
+    // Config and model files are read off the main thread, which also runs the
+    // global hotkey.
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || runtime_status(&app, &state))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+fn runtime_status(app: &AppHandle, state: &AppState) -> serde_json::Value {
+    let config = crate::config::Config::load(app).ok();
     let model = config.as_ref().and_then(|c| c.get_string("model"));
     // Normalised, not the raw string: the UI shows this verbatim and the
     // stored value may still be the legacy `"cuda"`.
@@ -252,7 +261,7 @@ fn get_runtime_status(
         && pipeline_mode != "cloud"
         && model.as_deref().is_some_and(crate::model::is_downloaded);
 
-    Ok(serde_json::json!({
+    serde_json::json!({
         "model_loaded": loaded_engine.is_some(),
         "model_loads_on_demand": loads_on_demand,
         // A portable copy deliberately does not touch autostart (see
@@ -272,7 +281,7 @@ fn get_runtime_status(
         "cpu_only": loaded_engine.is_some_and(|engine| engine.is_sherpa()),
         "recording": state.recorder.is_recording(),
         "state": state_str,
-    }))
+    })
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -394,15 +403,23 @@ pub(crate) async fn load_model_into_engine(
     reason: crate::whisper::ModelLoadReason,
 ) -> Result<(), String> {
     let engine = crate::model::model_engine(model)?;
-    if !crate::model::is_downloaded(model) {
-        return Err(format!("model {model} not downloaded"));
-    }
-    if engine.is_sherpa() {
-        // Mandatory closed-registry validation before crossing the Sherpa C
-        // boundary. A malformed ONNX graph can abort the process via a C++
-        // exception rather than return a Rust error.
-        crate::model::verify_bundle_files(model)?;
-    }
+    // Hashing a bundle reads hundreds of megabytes: a blocking worker, not the
+    // async one this runs on.
+    let id = model.to_string();
+    tauri::async_runtime::spawn_blocking(move || {
+        if !crate::model::is_downloaded(&id) {
+            return Err(format!("model {id} not downloaded"));
+        }
+        if engine.is_sherpa() {
+            // Mandatory closed-registry validation before crossing the Sherpa C
+            // boundary. A malformed ONNX graph can abort the process via a C++
+            // exception rather than return a Rust error.
+            crate::model::verify_bundle_files(&id)?;
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())??;
     let use_gpu = crate::config::Config::load(app)
         .map(|c| crate::config::device_uses_gpu(c.as_value()))
         .unwrap_or(true);
@@ -501,6 +518,7 @@ mod model_restore_tests {
             .unwrap();
         tx.try_send(EngineCommand::PreviewChunk {
             session_id: 1,
+            offset: 0,
             samples: vec![0.0; 160],
         })
         .unwrap();
@@ -508,6 +526,7 @@ mod model_restore_tests {
         tx.try_send(EngineCommand::Transcribe {
             session_id: 1,
             audio: std::sync::Arc::new(vec![0.0; 160]),
+            audio_offset: 0,
             speech_timing: crate::vad::SpeechTiming::Ready(None),
             cancel_flag: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             language: None,
@@ -970,13 +989,17 @@ pub(crate) fn build_dictation_command(
     cancel_flag: Arc<AtomicBool>,
     reply: tokio::sync::oneshot::Sender<Result<crate::whisper::InferenceResult, String>>,
 ) -> Result<crate::whisper::EngineCommand, String> {
-    let (audio, speech_timing) =
-        crate::vad::prepare_dictation(config.map(crate::config::Config::as_value), audio);
+    let crate::vad::PreparedDictation {
+        audio,
+        offset,
+        timing: speech_timing,
+    } = crate::vad::prepare_dictation(config.map(crate::config::Config::as_value), audio);
     let pipeline_mode = telemetry_pipeline_mode(config);
     if pipeline_mode != "cloud" {
         return Ok(crate::whisper::EngineCommand::Transcribe {
             session_id,
             audio,
+            audio_offset: offset,
             speech_timing,
             cancel_flag,
             // Configured whisper language (e.g. "ru"); None auto-detects.
@@ -1123,7 +1146,7 @@ fn start_live_preview(state: &AppState, session_id: u64, model: Option<&str>) ->
     std::thread::spawn(move || {
         // The channel breaks when the recording stops and the tap is detached —
         // that is exactly the exit condition.
-        while let Ok(samples) = rx.recv() {
+        while let Ok(crate::audio::LiveChunk { offset, samples }) = rx.recv() {
             // Room for real commands is preserved before sending: the queue is
             // shared, and a slot taken here is a slot the recording will not
             // have.
@@ -1134,6 +1157,7 @@ fn start_live_preview(state: &AppState, session_id: u64, model: Option<&str>) ->
             if engine_tx
                 .try_send(crate::whisper::EngineCommand::PreviewChunk {
                     session_id,
+                    offset,
                     samples,
                 })
                 .is_err()
@@ -1492,6 +1516,8 @@ pub fn run() {
                 engine_current_model,
             );
             app.manage(engine_state);
+            // Before any recording can duck again: queued first on the worker.
+            crate::output_volume::recover();
             spawn_model_autoload(app.handle().clone());
             spawn_idle_watchdog(app.handle().clone());
             crate::engine_events::spawn(app.handle().clone(), engine_event_rx);
@@ -1624,6 +1650,8 @@ pub fn run() {
         // the outbox worker loses it rather than delaying the exit.
         .run(|app_handle, event| {
             if matches!(event, tauri::RunEvent::Exit) {
+                // Quitting from the tray mid-recording skips every stop path.
+                crate::output_volume::restore_before_exit();
                 app_handle
                     .state::<crate::telemetry::Telemetry>()
                     .finish_usage_session();

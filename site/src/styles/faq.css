@@ -1,4 +1,3 @@
-.faq-list { border-top: 1px solid var(--border); }
 .faq-item { border-bottom: 1px solid var(--border); }
 .faq-item summary { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 20px 0; cursor: pointer; list-style: none; font: 600 1.0625rem/1.4 var(--font-body); letter-spacing: -0.01em; }
 .faq-item summary::-webkit-details-marker { display: none; }

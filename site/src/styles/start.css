@@ -1,5 +1,5 @@
-.steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); border-top: 1px solid var(--border); list-style: none; }
-.steps li { display: flex; flex-direction: column; gap: 14px; padding: 28px 28px 28px 0; border-bottom: 1px solid var(--border); }
+.steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); list-style: none; }
+.steps li { display: flex; flex-direction: column; gap: 14px; padding: 28px 28px 28px 0; border-top: 1px solid var(--border); }
 .step-number { font-size: 0.8125rem; font-weight: 500; color: var(--text-muted); }
 .steps h3 { font: 600 1.375rem/1.25 var(--font-body); letter-spacing: -0.02em; }
 .steps p { max-width: 340px; font-size: 0.9375rem; line-height: 1.6; color: var(--text-secondary); text-wrap: pretty; }

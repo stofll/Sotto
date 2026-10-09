@@ -158,19 +158,29 @@ impl SpeechTiming {
     }
 }
 
+/// A dictation's audio ready for speech recognition.
+pub struct PreparedDictation {
+    pub audio: Arc<Vec<f32>>,
+    /// Where `audio` starts in the recording: the silence trimmed off its front.
+    pub offset: usize,
+    pub timing: SpeechTiming,
+}
+
 /// Analyze speech and optionally trim its outer bounds.
 ///
 /// Without trimming nothing waits for the detector: timing runs on its own
 /// thread while the engine transcribes.
 /// Returns the original `Arc` untouched in every case where nothing is
 /// trimmed, so the common path copies nothing.
-pub fn prepare_dictation(
-    config: Option<&Value>,
-    audio: Arc<Vec<f32>>,
-) -> (Arc<Vec<f32>>, SpeechTiming) {
+pub fn prepare_dictation(config: Option<&Value>, audio: Arc<Vec<f32>>) -> PreparedDictation {
+    let whole = |audio, timing| PreparedDictation {
+        audio,
+        offset: 0,
+        timing,
+    };
     if !config.is_some_and(enabled) {
         let timing = SpeechTiming::start(&audio);
-        return (audio, timing);
+        return whole(audio, timing);
     }
     // One detector pass serves both metrics and trimming. Timing is independent
     // of the trim preference, and never removes internal pauses from STT audio.
@@ -178,14 +188,18 @@ pub fn prepare_dictation(
     let timing = SpeechTiming::Ready(analysis.as_ref().map(|value| value.active_seconds));
     let Some((range, removed)) = trim_decision(audio.len(), analysis.map(|value| value.range))
     else {
-        return (audio, timing);
+        return whole(audio, timing);
     };
     log::info!(
         "trimmed {removed:.1}s of silence ({:.1}s → {:.1}s)",
         audio.len() as f32 / SAMPLE_RATE as f32,
         range.len() as f32 / SAMPLE_RATE as f32
     );
-    (Arc::new(audio[range].to_vec()), timing)
+    PreparedDictation {
+        offset: range.start,
+        audio: Arc::new(audio[range].to_vec()),
+        timing,
+    }
 }
 
 /// The pure half of [`prepare_dictation`]: decide whether to trim to
@@ -328,7 +342,7 @@ mod tests {
     }
 
     fn trim_for_test(config: &Value, audio: Arc<Vec<f32>>) -> Arc<Vec<f32>> {
-        prepare_dictation(Some(config), audio).0
+        prepare_dictation(Some(config), audio).audio
     }
 
     fn silence(seconds: f32) -> Vec<f32> {
@@ -368,6 +382,17 @@ mod tests {
             Arc::ptr_eq(&audio, &out),
             "silence must not be trimmed away"
         );
+    }
+
+    #[test]
+    fn offset_locates_trimmed_audio_in_the_recording() {
+        let mut audio = silence(2.0);
+        audio.extend(tone(2.0));
+        audio.extend(silence(2.0));
+        let prepared = prepare_dictation(Some(&json!({})), Arc::new(audio.clone()));
+        assert!(prepared.offset > 0, "leading silence was kept");
+        let end = prepared.offset + prepared.audio.len();
+        assert_eq!(&audio[prepared.offset..end], &prepared.audio[..]);
     }
 
     #[test]
@@ -558,27 +583,29 @@ mod tests {
         samples.extend(silence(3.0));
         samples.extend(tone(2.0));
         let audio = Arc::new(samples);
-        let (untrimmed, timing) =
+        let untrimmed =
             prepare_dictation(Some(&json!({"trim_silence": false})), Arc::clone(&audio));
-        assert!(Arc::ptr_eq(&audio, &untrimmed));
+        assert!(Arc::ptr_eq(&audio, &untrimmed.audio));
+        assert_eq!(untrimmed.offset, 0);
+        let timing = untrimmed.timing;
         assert!(matches!(timing, SpeechTiming::Running(_)));
         let timing = timing.resolve().expect("synthetic speech detected");
         assert!(
             timing > 2.0 && timing < 6.0,
             "unexpected active duration: {timing}"
         );
-        let (trimmed, trimmed_timing) = prepare_dictation(Some(&json!({})), audio);
-        assert!(matches!(trimmed_timing, SpeechTiming::Ready(Some(value)) if value == timing));
-        assert!(trimmed.len() as f64 / SAMPLE_RATE as f64 >= timing + 1.0);
+        let trimmed = prepare_dictation(Some(&json!({})), Arc::clone(&audio));
+        assert!(matches!(trimmed.timing, SpeechTiming::Ready(Some(value)) if value == timing));
+        assert!(trimmed.audio.len() as f64 / SAMPLE_RATE as f64 >= timing + 1.0);
     }
 
     #[test]
     fn unavailable_config_times_speech_beside_inference_and_file_timing_stays_absent() {
         let audio = Arc::new(tone(2.0));
-        let (prepared, timing) = prepare_dictation(None, Arc::clone(&audio));
-        assert!(Arc::ptr_eq(&prepared, &audio));
-        assert!(matches!(timing, SpeechTiming::Running(_)));
-        assert!(timing.resolve().is_some());
+        let prepared = prepare_dictation(None, Arc::clone(&audio));
+        assert!(Arc::ptr_eq(&prepared.audio, &audio));
+        assert!(matches!(prepared.timing, SpeechTiming::Running(_)));
+        assert!(prepared.timing.resolve().is_some());
         assert_eq!(SpeechTiming::Ready(None).resolve(), None);
     }
 

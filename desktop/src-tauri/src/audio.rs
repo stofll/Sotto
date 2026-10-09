@@ -146,7 +146,7 @@ pub struct AudioRecorder {
     /// `audio_buffer` as before — this queue merely duplicates chunks along the
     /// way. Bounded and non-blocking: the preview is allowed to fall behind and
     /// lose a chunk, the recording is not.
-    live_tap: Arc<Mutex<Option<std::sync::mpsc::SyncSender<Vec<f32>>>>>,
+    live_tap: Arc<Mutex<Option<std::sync::mpsc::SyncSender<LiveChunk>>>>,
     /// RMS level EMA, atomic bit-cast f32. Wrapped in Arc so the callback
     /// can update the SAME bit-cast the public `level()` reads.
     level_ema_bits: Arc<AtomicU32>,
@@ -161,6 +161,10 @@ impl AudioRecorder {
     /// Five minutes at the resampled output rate. This is a capacity hint,
     /// not a recording limit; the vector grows for longer sessions.
     const CAPACITY_SECONDS: usize = 60 * 5;
+
+    fn buffer_capacity(&self) -> usize {
+        (self.config.sample_rate_target as usize).saturating_mul(Self::CAPACITY_SECONDS)
+    }
 
     /// Create a new `AudioRecorder`. The default input device is queried
     /// lazily via `start()`, so a missing or broken device does not prevent
@@ -185,9 +189,7 @@ impl AudioRecorder {
             resampler: Arc::new(Mutex::new(None)),
             capture_error: Arc::new(Mutex::new(None)),
             first_frame_ms: Arc::new(AtomicU64::new(u64::MAX)),
-            audio_buffer: Arc::new(Mutex::new(Vec::with_capacity(
-                (config.sample_rate_target as usize).saturating_mul(Self::CAPACITY_SECONDS),
-            ))),
+            audio_buffer: Arc::new(Mutex::new(Vec::new())),
             level_ema_bits: Arc::new(AtomicU32::new(0.0_f32.to_bits())),
             live_tap: Arc::new(Mutex::new(None)),
             tap_sample_rate: AtomicU32::new(0),
@@ -252,7 +254,12 @@ impl AudioRecorder {
 
         // Clear stale samples from a previous session so that `stop()`
         // either returns None (empty) or returns ONLY this session's audio.
-        crate::mutex_recover::lock(&self.audio_buffer).clear();
+        // `stop()` hands the previous buffer away with its capacity, so it is
+        // reserved again here rather than regrown in the capture callback.
+        let mut buffer = crate::mutex_recover::lock(&self.audio_buffer);
+        buffer.clear();
+        buffer.reserve(self.buffer_capacity());
+        drop(buffer);
 
         // Arc references for the callback closure. The callback MUST be
         // `'static + Send` for cpal's real-time thread. Each branch of
@@ -413,9 +420,23 @@ impl AudioRecorder {
     /// The capacity is given in chunks rather than seconds: the callback hands
     /// over one chunk per call, and a queue of a few dozen chunks is on the
     /// order of a second of audio at a typical cpal buffer size.
-    pub fn attach_live_tap(&self, capacity_chunks: usize) -> std::sync::mpsc::Receiver<Vec<f32>> {
+    ///
+    /// The tap is attached once capture runs, so the first chunk carries what
+    /// was recorded before it: the receiver sees the recording from its start.
+    pub fn attach_live_tap(&self, capacity_chunks: usize) -> std::sync::mpsc::Receiver<LiveChunk> {
         let (tx, rx) = std::sync::mpsc::sync_channel(capacity_chunks.max(1));
-        *crate::mutex_recover::lock(&self.live_tap) = Some(tx);
+        // Same order as `append_samples`: no chunk lands between the copy and
+        // the attachment.
+        let mut tap = crate::mutex_recover::lock(&self.live_tap);
+        let buffer = crate::mutex_recover::lock(&self.audio_buffer);
+        if !buffer.is_empty() {
+            let _ = tx.try_send(LiveChunk {
+                offset: 0,
+                samples: buffer.clone(),
+            });
+        }
+        drop(buffer);
+        *tap = Some(tx);
         rx
     }
 
@@ -516,6 +537,15 @@ pub fn display_level_in(raw_rms: f32, (floor_db, ceil_db): (f32, f32)) -> f32 {
     ((db - floor_db) / (ceil_db - floor_db)).clamp(0.0, 1.0)
 }
 
+/// A piece of the recording sent to the live tap.
+#[derive(Debug)]
+pub struct LiveChunk {
+    /// Where the chunk starts in the recording. A chunk the bounded tap
+    /// dropped shows up as a gap before the next offset.
+    pub offset: usize,
+    pub samples: Vec<f32>,
+}
+
 /// Where the recording callback puts its output: the full recording, the level
 /// meter, and an optional tap for the live preview. One struct rather than three
 /// arguments — the callback holds them together for its entire lifetime.
@@ -523,7 +553,7 @@ pub fn display_level_in(raw_rms: f32, (floor_db, ceil_db): (f32, f32)) -> f32 {
 struct CaptureSinks {
     buffer: Arc<Mutex<Vec<f32>>>,
     level_bits: Arc<AtomicU32>,
-    live_tap: Arc<Mutex<Option<std::sync::mpsc::SyncSender<Vec<f32>>>>>,
+    live_tap: Arc<Mutex<Option<std::sync::mpsc::SyncSender<LiveChunk>>>>,
     resampler: Arc<Mutex<Option<AudioResampler>>>,
     capture_error: Arc<Mutex<Option<String>>>,
     first_frame_ms: Arc<AtomicU64>,
@@ -549,10 +579,15 @@ fn append_samples(sinks: &CaptureSinks, samples: &[f32]) {
     if samples.is_empty() {
         return;
     }
-    if let Some(tx) = crate::mutex_recover::lock(&sinks.live_tap).as_ref() {
-        let _ = tx.try_send(samples.to_vec());
+    let tap = crate::mutex_recover::lock(&sinks.live_tap);
+    let mut buffer = crate::mutex_recover::lock(&sinks.buffer);
+    if let Some(tx) = tap.as_ref() {
+        let _ = tx.try_send(LiveChunk {
+            offset: buffer.len(),
+            samples: samples.to_vec(),
+        });
     }
-    crate::mutex_recover::lock(&sinks.buffer).extend_from_slice(samples);
+    buffer.extend_from_slice(samples);
 }
 
 fn flush_samples(sinks: &CaptureSinks) -> Result<(), String> {
@@ -928,7 +963,7 @@ mod tests {
         }
         flush_samples(&sinks).unwrap();
         let captured = sinks.buffer.lock().unwrap().clone();
-        let preview: Vec<f32> = rx.try_iter().flatten().collect();
+        let preview: Vec<f32> = rx.try_iter().flat_map(|chunk| chunk.samples).collect();
         assert_eq!(captured.len(), 16_000);
         assert_eq!(captured, preview);
     }
@@ -952,7 +987,7 @@ mod tests {
             12,
             "the recording lost audio"
         );
-        assert_eq!(rx.try_recv().map(|c| c.len()), Ok(4));
+        assert_eq!(rx.try_recv().map(|c| c.samples.len()), Ok(4));
         // Overflow simply drops chunks without blocking the callback.
         assert!(rx.try_recv().is_err());
     }
@@ -971,6 +1006,21 @@ mod tests {
     /// level" apart from "computed from scratch".
     fn recording_sink(level: f32) -> (Arc<AtomicBool>, CaptureSinks) {
         (Arc::new(AtomicBool::new(true)), test_sinks(level))
+    }
+
+    #[test]
+    fn a_late_tap_sees_the_recording_from_its_start_with_offsets() {
+        let recorder = AudioRecorder::new(AudioConfig::default()).unwrap();
+        let sinks = recorder.capture_sinks();
+        let live = Arc::new(AtomicBool::new(true));
+        process_samples(&[0.1; 160], 1, 16_000, 16_000, &live, &sinks);
+        let rx = recorder.attach_live_tap(8);
+        process_samples(&[0.2; 160], 1, 16_000, 16_000, &live, &sinks);
+        let chunks: Vec<_> = rx
+            .try_iter()
+            .map(|chunk| (chunk.offset, chunk.samples.len()))
+            .collect();
+        assert_eq!(chunks, [(0, 160), (160, 160)]);
     }
 
     #[test]

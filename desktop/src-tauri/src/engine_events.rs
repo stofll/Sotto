@@ -29,6 +29,7 @@ pub(crate) fn spawn(app: AppHandle, events: EngineEventRx) {
     tauri::async_runtime::spawn(dispatcher.run(events));
 }
 
+#[derive(Clone)]
 struct Dispatcher {
     app: AppHandle,
     state: AppState,
@@ -38,12 +39,12 @@ struct Dispatcher {
 impl Dispatcher {
     async fn run(self, mut events: EngineEventRx) {
         while let Some(event) = events.recv().await {
-            self.handle(event).await;
+            self.handle(event);
         }
         log::info!("whisper event dispatcher exiting");
     }
 
-    async fn handle(&self, event: EngineEvent) {
+    fn handle(&self, event: EngineEvent) {
         match event {
             EngineEvent::ModelLoading { name } => {
                 let _ = self.app.emit("whisper-loading", name);
@@ -87,8 +88,13 @@ impl Dispatcher {
                     let _ = self.app.emit("whisper-started", session_id);
                 }
             }
+            // Delivery waits on formatting, an LLM and the paste; on its own
+            // task it holds up neither model events nor the next dictation's.
             EngineEvent::InferenceCompleted { session_id, result } => {
-                self.complete(session_id, result).await;
+                let dispatcher = self.clone();
+                tauri::async_runtime::spawn(async move {
+                    dispatcher.complete(session_id, result).await;
+                });
             }
         }
     }
@@ -241,13 +247,19 @@ impl Dispatcher {
                 inference.stt_service,
             ),
         };
-        let entry_id = self.record(session_id, &inference, processed).await;
-        // HistoryPage re-fetches on this.
+        // Claimed before the paste, whose `dictation::finish` would otherwise
+        // let the recording go without its history entry.
+        let recording_file = self.state.pending_recordings.take(inference.session_id);
+        // The text goes in first; the database write does not hold it up.
+        self.paste(paste, config.as_ref());
+        let entry_id = self
+            .record(session_id, &inference, processed, recording_file)
+            .await;
+        // History and statistics re-fetch on this.
         let _ = self.app.emit(
             "history-updated",
             serde_json::json!({ "session_id": session_id }),
         );
-        self.paste(paste, config.as_ref());
         self.prune_history();
         // Without a history entry there is nowhere to put a late answer, and
         // dropping it cancels the request.
@@ -267,13 +279,14 @@ impl Dispatcher {
     }
 
     /// Stats and history on a blocking worker: the connection guard must not
-    /// be held across an `.await`. Failures are logged, never fatal — a broken
-    /// database must not prevent the paste. Returns the new history entry.
+    /// be held across an `.await`. Failures are logged, never fatal: the paste
+    /// has already been scheduled. Returns the new history entry.
     async fn record(
         &self,
         session_id: u64,
         inference: &InferenceResult,
         processed: ProcessedTranscription,
+        recording_file: impl std::future::Future<Output = Option<String>>,
     ) -> Option<u64> {
         let started = std::time::Instant::now();
         let db = self.state.db.clone();
@@ -283,7 +296,7 @@ impl Dispatcher {
         let audio_seconds = inference.audio_seconds;
         let speech_seconds = inference.speech_seconds;
         let inference_session = inference.session_id;
-        let recording_file = self.state.pending_recordings.take(inference_session).await;
+        let recording_file = recording_file.await;
         let written = tokio::task::spawn_blocking(move || {
             let ProcessedTranscription {
                 raw_text,

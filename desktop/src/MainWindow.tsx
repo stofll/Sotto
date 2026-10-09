@@ -313,10 +313,10 @@ export function MainWindow() {
       setHistoryFocus((current) => ({ id, seq: (current?.seq ?? 0) + 1 }));
       setTab("history");
     }));
-    // `paste-done`, not `whisper-done`: stats and the history row are
-    // written after the LLM pass, so refreshing on decode read the numbers
-    // from before this transcription was recorded.
-    unlisteners.push(subscribe<unknown>("paste-done", () => {
+    // `history-updated`, not `whisper-done` or `paste-done`: stats and the
+    // history row are written after the LLM pass and the paste, so refreshing
+    // earlier read the numbers from before this transcription was recorded.
+    unlisteners.push(subscribe<unknown>("history-updated", () => {
       if (mounted) void refreshStats().catch(() => {});
     }));
     const refreshModels = () => {

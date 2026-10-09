@@ -6,7 +6,7 @@
  * is drawn as outlines with fontkit: sharp rasterizes SVG with whatever fonts
  * the system has, and the site's own faces are not among them.
  *
- * Run with `pnpm og` after changing the headline, the palette or the brand icon.
+ * Run with `pnpm og` after changing the headline, the palette or the wordmark.
  */
 import { readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -62,30 +62,22 @@ const wrap = (fonts, text, size, maxWidth) => {
   return lines;
 };
 
-const icon = await readFile(path('public/brand/sotto-icon.png'));
-
-// The hero's wallpaper as a band along the bottom. librsvg cannot read WebP, so it is passed as PNG.
-const BAND = 150;
-// The band is cut where the far ridges meet the mist, so it reads as a horizon rather than a dark stripe.
-const wallpaper = await sharp(path('src/assets/wallpaper/hills-2400.webp'))
-  .extract({ left: 0, top: 860, width: 2400, height: 300 }).resize(WIDTH, BAND).png().toBuffer();
-
 const render = async (locale, t) => {
   const left = 88;
-  const word = outline(display, 'sotto', left + 70, 122, 32, -0.02);
-  const line1 = outline(display, t.hero.titleLine1, left, 246, 80, -0.04);
-  const line2 = outline(display, t.hero.titleLine2, left, 330, 80, -0.04);
+  // Baselines from the top of the block, which sits centred on the card.
+  const top = 180;
+  const word = outline(display, 'Sotto', left, top, 32, -0.02);
+  const line1 = outline(display, t.hero.titleLine1, left, top + 124, 80, -0.04);
+  const line2 = outline(display, t.hero.titleLine2, left, top + 208, 80, -0.04);
   const subtitle = wrap(body, t.meta.ogDescription, 28, WIDTH - left * 2)
-    .map((text, index) => outline(body, text, left, 400 + index * 40, 28).d);
+    .map((text, index) => outline(body, text, left, top + 278 + index * 40, 28).d);
 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}">
   <rect width="${WIDTH}" height="${HEIGHT}" fill="${COLORS.bg}"/>
-  <image href="data:image/png;base64,${icon.toString('base64')}" x="${left}" y="90" width="48" height="48"/>
   <path d="${word.d}" fill="${COLORS.text}"/>
   <path d="${line1.d}" fill="${COLORS.text}"/>
   <path d="${line2.d}" fill="${COLORS.accent}"/>
   <path d="${subtitle.join('')}" fill="${COLORS.secondary}"/>
-  <image href="data:image/png;base64,${wallpaper.toString('base64')}" x="0" y="${HEIGHT - BAND}" width="${WIDTH}" height="${BAND}"/>
 </svg>`;
 
   const png = await sharp(Buffer.from(svg)).png({ compressionLevel: 9 }).toBuffer();

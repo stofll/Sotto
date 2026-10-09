@@ -46,6 +46,32 @@ def test_history_refreshes_when_shown_instead_of_polling(app, page):
     )
 
 
+def test_history_waits_for_a_hidden_window_and_reloads_once_shown(app, page):
+    ui = app()
+    ui.nav("history")
+    expect(page.get_by_text("История пуста", exact=True)).to_be_visible()
+    loaded = len(ui.calls("list_history"))
+    checks = len(ui.calls("plugin:window|is_minimized"))
+    # Hidden in the tray when the dictation lands.
+    ui.queue("plugin:window|is_visible", {"result": False})
+    ui.emit("history-updated")
+    page.wait_for_function(
+        "n => window.__sottoTest.calls.filter(x => x.command === 'plugin:window|is_minimized').length > n",
+        arg=checks,
+    )
+    page.evaluate("() => new Promise(resolve => setTimeout(resolve, 50))")
+    assert len(ui.calls("list_history")) == loaded
+    ui.emit("tauri://focus")
+    page.wait_for_function(
+        "n => window.__sottoTest.calls.filter(x => x.command === 'list_history').length === n + 1",
+        arg=loaded,
+    )
+    # Shown again with nothing new: no second reload.
+    ui.emit("tauri://focus")
+    page.evaluate("() => new Promise(resolve => setTimeout(resolve, 50))")
+    assert len(ui.calls("list_history")) == loaded + 1
+
+
 @pytest.mark.parametrize("query,visible", [("first", 1), ("исходный", 2)])
 def test_history_search_including_raw(app, page, query, visible):
     ui = app(history=ENTRIES)

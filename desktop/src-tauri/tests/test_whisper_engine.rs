@@ -68,6 +68,7 @@ fn channels_accept_all_engine_command_variants() {
         .try_send(EngineCommand::Transcribe {
             session_id: 1,
             audio: Arc::new(vec![0.0_f32; 16000]),
+            audio_offset: 0,
             speech_timing: sotto_lib::whisper::SpeechTiming::Ready(None),
             cancel_flag: Arc::new(AtomicBool::new(false)),
             language: None,
@@ -157,15 +158,27 @@ async fn whisper_download_load_and_recognize_speech() {
     )
     .unwrap();
     let mut state = context.create_state().unwrap();
-    // Reusing a state must not leak the previous recognition into the next one.
-    for _ in 0..2 {
+    let params = || {
         let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
         params.set_language(Some("en"));
         params.set_n_threads(4);
         params.set_print_progress(false);
         params.set_print_realtime(false);
         params.set_print_timestamps(false);
-        state.full(params, &speech).unwrap();
+        params
+    };
+    // A cancel stops `full()` early, and the state still serves the next run.
+    let cancel = AtomicBool::new(true);
+    let mut aborted = params();
+    // SAFETY: `cancel` outlives the `full()` call below.
+    unsafe { sotto_lib::whisper::abort_when(&mut aborted, &cancel) };
+    assert!(
+        state.full(aborted, &speech).is_err(),
+        "a cancelled full() reported success"
+    );
+    // Reusing a state must not leak the previous recognition into the next one.
+    for _ in 0..2 {
+        state.full(params(), &speech).unwrap();
         let mut text = String::new();
         for segment in 0..state.full_n_segments().unwrap() {
             text.push_str(&state.full_get_segment_text(segment).unwrap());

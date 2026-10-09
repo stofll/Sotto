@@ -795,15 +795,34 @@ impl OnlineRecognizer {
 
     /// Feed the next chunk of audio and advance decoding as far as the
     /// available data allows. Does not block until the end of the phrase.
-    pub fn feed(&mut self, sample_rate: u32, samples: &[f32]) -> Result<(), String> {
+    ///
+    /// Returns whether a decode step ran: without one the hypothesis is
+    /// unchanged and [`Self::text`] need not be asked again.
+    pub fn feed(&mut self, sample_rate: u32, samples: &[f32]) -> Result<bool, String> {
         validate_audio(sample_rate, samples)?;
-        if samples.is_empty() {
-            return Ok(());
+        self.accept(sample_rate, samples);
+        Ok(self.decode_ready(&|| false) != Some(0))
+    }
+
+    /// [`Self::feed`] that stops decoding once `cancelled` turns true and
+    /// returns `false`. A whole recording is one `feed`, and on a slow model
+    /// its decode runs for minutes.
+    pub fn feed_unless(
+        &mut self,
+        sample_rate: u32,
+        samples: &[f32],
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<bool, String> {
+        validate_audio(sample_rate, samples)?;
+        self.accept(sample_rate, samples);
+        Ok(self.decode_ready(cancelled).is_some())
+    }
+
+    fn accept(&mut self, sample_rate: u32, samples: &[f32]) {
+        if !samples.is_empty() {
+            self.input_rate.get_or_insert(sample_rate);
+            self.stream.accept_waveform(sample_rate as i32, samples);
         }
-        self.input_rate.get_or_insert(sample_rate);
-        self.stream.accept_waveform(sample_rate as i32, samples);
-        self.decode_ready();
-        Ok(())
     }
 
     /// The current hypothesis in full. The text grows and may be corrected
@@ -837,8 +856,25 @@ impl OnlineRecognizer {
             self.stream.accept_waveform(rate as i32, &samples);
         }
         self.stream.input_finished();
-        self.decode_ready();
+        self.decode_ready(&|| false);
         self.text()
+    }
+
+    /// Feed the rest of the phrase, close it and start over, unless
+    /// `cancelled` stops the decode first.
+    fn finish_unless(
+        &mut self,
+        sample_rate: u32,
+        samples: &[f32],
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<String, String> {
+        let result = match self.feed_unless(sample_rate, samples, cancelled) {
+            Ok(true) => self.finish(),
+            Ok(false) => Err("sherpa transcribe cancelled during decoding".to_string()),
+            Err(error) => Err(error),
+        };
+        self.reset();
+        result
     }
 
     /// Forget what was accumulated and start the next dictation from scratch.
@@ -856,10 +892,18 @@ impl OnlineRecognizer {
         self.input_rate = None;
     }
 
-    fn decode_ready(&self) {
+    /// Decode what is ready; `false` when `cancelled` stopped it first.
+    /// The number of decode steps run, or `None` once `cancelled` stopped them.
+    fn decode_ready(&self, cancelled: &dyn Fn() -> bool) -> Option<usize> {
+        let mut steps = 0;
         while self.recognizer.is_ready(&self.stream) {
+            if cancelled() {
+                return None;
+            }
             self.recognizer.decode(&self.stream);
+            steps += 1;
         }
+        Some(steps)
     }
 }
 
@@ -879,7 +923,16 @@ impl OnlineRecognizer {
         Err(UNSUPPORTED.to_string())
     }
 
-    pub fn feed(&mut self, _sample_rate: u32, _samples: &[f32]) -> Result<(), String> {
+    pub fn feed(&mut self, _sample_rate: u32, _samples: &[f32]) -> Result<bool, String> {
+        Err(UNSUPPORTED.to_string())
+    }
+
+    pub fn feed_unless(
+        &mut self,
+        _sample_rate: u32,
+        _samples: &[f32],
+        _cancelled: &dyn Fn() -> bool,
+    ) -> Result<bool, String> {
         Err(UNSUPPORTED.to_string())
     }
 
@@ -892,6 +945,15 @@ impl OnlineRecognizer {
     }
 
     pub fn reset(&mut self) {}
+
+    fn finish_unless(
+        &mut self,
+        _sample_rate: u32,
+        _samples: &[f32],
+        _cancelled: &dyn Fn() -> bool,
+    ) -> Result<String, String> {
+        Err(UNSUPPORTED.to_string())
+    }
 }
 
 /// A recognizer of any sherpa family — streaming or not.
@@ -961,15 +1023,40 @@ impl SherpaRecognizer {
     /// as the live preview, only without pauses: feed everything, close the
     /// phrase, take the text.
     pub fn transcribe(&mut self, sample_rate: u32, samples: &[f32]) -> Result<String, String> {
+        self.transcribe_unless(sample_rate, samples, || false)
+    }
+
+    /// [`Self::transcribe`] that a streaming recognizer abandons between decode
+    /// steps once `cancelled` turns true. An offline decode is one native call
+    /// and still has to finish.
+    pub fn transcribe_unless(
+        &mut self,
+        sample_rate: u32,
+        samples: &[f32],
+        cancelled: impl Fn() -> bool,
+    ) -> Result<String, String> {
         match self {
             Self::Offline(recognizer) => recognizer.transcribe(sample_rate, samples),
             Self::Online(recognizer) => {
                 recognizer.reset();
-                recognizer.feed(sample_rate, samples)?;
-                let text = recognizer.finish()?;
-                recognizer.reset();
-                Ok(text)
+                recognizer.finish_unless(sample_rate, samples, &cancelled)
             }
+        }
+    }
+
+    /// Close the live preview's stream with `rest`, the recording after what
+    /// the preview has fed, so the final text does not decode the whole
+    /// dictation again. The caller vouches that the preview fed exactly the
+    /// recording's start; a non-streaming recognizer has no such stream.
+    pub fn finish_preview(
+        &mut self,
+        sample_rate: u32,
+        rest: &[f32],
+        cancelled: impl Fn() -> bool,
+    ) -> Result<String, String> {
+        match self {
+            Self::Offline(_) => Err("finish_preview: the recognizer does not stream".to_string()),
+            Self::Online(recognizer) => recognizer.finish_unless(sample_rate, rest, &cancelled),
         }
     }
 
@@ -985,9 +1072,9 @@ impl SherpaRecognizer {
         }
     }
 
-    /// Live preview: feed a chunk and return the current hypothesis. A
-    /// non-streaming recognizer has no hypothesis — it stays silent until the
-    /// recording ends.
+    /// Live preview: feed a chunk and return the current hypothesis, or `None`
+    /// when the chunk decoded nothing new. A non-streaming recognizer has no
+    /// hypothesis — it stays silent until the recording ends.
     pub fn feed_preview(
         &mut self,
         sample_rate: u32,
@@ -995,9 +1082,14 @@ impl SherpaRecognizer {
     ) -> Result<Option<String>, String> {
         match self {
             Self::Offline(_) => Ok(None),
+            // A chunk shorter than the model's step only queues audio; the
+            // JSON round-trip of `text` waits for a step that decodes it.
             Self::Online(recognizer) => {
-                recognizer.feed(sample_rate, samples)?;
-                recognizer.text().map(Some)
+                if recognizer.feed(sample_rate, samples)? {
+                    recognizer.text().map(Some)
+                } else {
+                    Ok(None)
+                }
             }
         }
     }

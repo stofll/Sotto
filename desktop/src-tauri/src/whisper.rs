@@ -30,6 +30,9 @@ pub enum EngineCommand {
     Transcribe {
         session_id: u64,
         audio: Arc<Vec<f32>>,
+        /// Where `audio` starts in the recording, past the silence trimmed off
+        /// its front. Lines it up with the live preview's chunks.
+        audio_offset: usize,
         speech_timing: SpeechTiming,
         cancel_flag: Arc<AtomicBool>,
         /// Target language (e.g. `"ru"`). `None` or `"auto"` auto-detects.
@@ -70,6 +73,8 @@ pub enum EngineCommand {
     /// non-streaming model swallows this command silently.
     PreviewChunk {
         session_id: u64,
+        /// Where the chunk starts in the recording.
+        offset: usize,
         samples: Vec<f32>,
     },
     /// Forget the accumulated hypothesis before a new dictation.
@@ -221,6 +226,8 @@ pub fn engine_thread_main(
         sherpa: None,
         last_preview: String::new(),
         preview_session: None,
+        preview_fed: None,
+        loaded_spec: None,
         last_activity: std::time::Instant::now(),
         events: event_tx,
         app: app_handle,
@@ -240,6 +247,7 @@ pub fn engine_thread_main(
             EngineCommand::Transcribe {
                 session_id,
                 audio,
+                audio_offset,
                 speech_timing,
                 cancel_flag,
                 language,
@@ -253,6 +261,7 @@ pub fn engine_thread_main(
                     reply,
                 },
                 &audio,
+                audio_offset,
                 language.as_deref(),
                 initial_prompt.as_deref(),
             ),
@@ -281,8 +290,9 @@ pub fn engine_thread_main(
             } => engine.set_model(name, spec, reason, reply),
             EngineCommand::PreviewChunk {
                 session_id,
+                offset,
                 samples,
-            } => engine.preview_chunk(session_id, &samples),
+            } => engine.preview_chunk(session_id, offset, &samples),
             EngineCommand::PreviewReset { session_id } => engine.preview_reset(session_id),
             EngineCommand::UnloadModel { reply } => {
                 engine.unload();
@@ -327,6 +337,13 @@ struct Engine {
     /// would receive fifty identical events per second.
     last_preview: String,
     preview_session: Option<u64>,
+    /// How much of `preview_session`'s recording the streaming preview has
+    /// fed, while it holds exactly that prefix. A dropped chunk, a failed feed
+    /// or a model change clears it, and the final pass then decodes the whole
+    /// recording again.
+    preview_fed: Option<usize>,
+    /// How the model in memory was loaded, to recognise a request for the same.
+    loaded_spec: Option<crate::model::ModelLoadSpec>,
     /// When the engine last did work. Idleness is measured from here, and it
     /// is what takes the model out of memory (`UnloadIdle`).
     last_activity: std::time::Instant,
@@ -340,10 +357,18 @@ impl Engine {
         &mut self,
         job: Job,
         audio: &[f32],
+        audio_offset: usize,
         language: Option<&str>,
         initial_prompt: Option<&str>,
     ) {
         let session_id = job.session_id;
+        // Taken in any case: whichever way the final pass goes, it ends the
+        // preview's stream.
+        let preview_fed = self
+            .preview_fed
+            .take()
+            .filter(|_| self.preview_session == Some(session_id));
+        let rest = preview_fed.and_then(|fed| preview_rest(fed, audio, audio_offset));
         let _ = self
             .events
             .blocking_send(EngineEvent::InferenceStarted { session_id });
@@ -367,6 +392,7 @@ impl Engine {
                 recognizer,
                 &job,
                 audio,
+                rest,
                 language,
                 model_id.as_deref(),
                 initial_prompt,
@@ -457,6 +483,8 @@ impl Engine {
                 params.set_initial_prompt(&sanitized);
             }
         }
+        // SAFETY: `job` holds the flag's Arc for the whole `full()` call below.
+        unsafe { abort_when(&mut params, &job.cancel_flag) };
         // Silence whisper.cpp's own stdout/stderr chatter — in a windowed app
         // there is no console and it only adds noise.
         params.set_print_special(false);
@@ -497,6 +525,7 @@ impl Engine {
                 }
                 Ok((text, None))
             }
+            Ok(Err(_)) if job.cancelled() => Err("whisper transcribe cancelled".to_string()),
             Ok(Err(e)) => Err(format!("whisper error: {e}")),
             Err(_) => {
                 // After a panic the FFI state is half-broken — drop it so the
@@ -569,11 +598,18 @@ impl Engine {
         // that in the queue. The queue is ordered, so by the time a duplicate
         // is read the original has either succeeded — and this is it — or
         // failed, leaving the slot empty for a genuine retry.
-        if reason == ModelLoadReason::Restore
-            && crate::mutex_recover::lock(&self.current_model).as_deref() == Some(name.as_str())
-        {
-            log::debug!("model {name} is already back in memory, skipping restore");
+        //
+        // A request for the model as it is already loaded is the same race the
+        // other way round: startup's auto-load hashes the bundle before it
+        // queues, and a first dictation in the meantime restores the model.
+        let loaded =
+            crate::mutex_recover::lock(&self.current_model).as_deref() == Some(name.as_str());
+        if already_loaded(loaded, reason, self.loaded_spec.as_ref(), &spec) {
+            log::debug!("model {name} is already in memory, skipping {reason:?} load");
             let _ = reply.send(Ok(()));
+            if reason == ModelLoadReason::Requested {
+                let _ = self.events.blocking_send(EngineEvent::ModelReady { name });
+            }
             return;
         }
         if reason == ModelLoadReason::Requested {
@@ -624,6 +660,7 @@ impl Engine {
         reason: ModelLoadReason,
     ) -> Result<(), String> {
         self.drop_models();
+        let loaded_spec = spec.clone();
         match spec {
             crate::model::ModelLoadSpec::Whisper { path, use_gpu } => {
                 let path_str = path
@@ -649,6 +686,7 @@ impl Engine {
                 self.sherpa = Some(recognizer);
             }
         }
+        self.loaded_spec = Some(loaded_spec);
         Ok(())
     }
 
@@ -656,6 +694,8 @@ impl Engine {
     /// context and must go first; dropping the context first leaves a
     /// use-after-free for the next `state.full()`.
     fn drop_models(&mut self) {
+        self.preview_fed = None;
+        self.loaded_spec = None;
         self.whisper_state = None;
         self.sherpa = None;
         self.whisper_ctx = None;
@@ -685,8 +725,9 @@ impl Engine {
             .blocking_send(EngineEvent::ModelUnloaded { name });
     }
 
-    fn preview_chunk(&mut self, session_id: u64, samples: &[f32]) {
+    fn preview_chunk(&mut self, session_id: u64, offset: usize, samples: &[f32]) {
         let Some(recognizer) = self.sherpa.as_mut() else {
+            self.preview_fed = None;
             return;
         };
         match preview_action(self.preview_session, session_id) {
@@ -694,14 +735,21 @@ impl Engine {
             PreviewAction::Restart => {
                 self.preview_session = Some(session_id);
                 self.last_preview.clear();
+                self.preview_fed = Some(0);
                 recognizer.reset_preview();
             }
             PreviewAction::Continue => {}
         }
-        match recognizer.feed_preview(16_000, samples) {
-            // A non-streaming model returns no hypothesis — we stay silent
-            // rather than send empty text: an empty string would wipe what the
-            // overlay already shows.
+        let fed = self.preview_fed.take();
+        let preview = recognizer.feed_preview(16_000, samples);
+        if fed == Some(offset) && preview.is_ok() {
+            self.preview_fed = Some(offset + samples.len());
+        }
+        match preview {
+            // A non-streaming model returns no hypothesis, and a streaming one
+            // none while a chunk decodes nothing new — we stay silent rather
+            // than send empty text: an empty string would wipe what the overlay
+            // already shows.
             Ok(None) => {}
             Ok(Some(text)) => {
                 if text != self.last_preview {
@@ -720,9 +768,51 @@ impl Engine {
         // fate of late chunks, not just state cleanup.
         self.preview_session = Some(session_id);
         self.last_preview.clear();
+        self.preview_fed = Some(0);
         if let Some(recognizer) = self.sherpa.as_mut() {
             recognizer.reset_preview();
         }
+    }
+}
+
+/// Whether a `SetModel` asks for the model in memory as it already is. A
+/// restore only needs the name to match; a request also the way it is
+/// loaded, since a device change reloads the same model.
+fn already_loaded(
+    loaded: bool,
+    reason: ModelLoadReason,
+    loaded_spec: Option<&crate::model::ModelLoadSpec>,
+    spec: &crate::model::ModelLoadSpec,
+) -> bool {
+    loaded && (reason == ModelLoadReason::Restore || loaded_spec == Some(spec))
+}
+
+/// The recording after the `fed` samples the live preview has decoded, as a
+/// slice of `audio`, which starts `audio_offset` samples into the recording.
+/// `None` while the preview is behind that start: what it misses was trimmed.
+fn preview_rest(fed: usize, audio: &[f32], audio_offset: usize) -> Option<&[f32]> {
+    let skip = fed.checked_sub(audio_offset)?;
+    Some(&audio[skip.min(audio.len())..])
+}
+
+/// Make `full()` stop once `flag` turns true. whisper.cpp asks between encoder
+/// windows and decoder steps, so a cancelled long file frees the engine within
+/// one window instead of after the whole recording.
+///
+/// The raw callback rather than whisper-rs's `set_abort_callback_safe`: in
+/// 0.14.4 that one registers a trampoline for the closure's own type but hands
+/// it a boxed trait object, which is undefined behaviour.
+///
+/// # Safety
+/// `flag` must outlive every `full()` call made with `params`.
+pub unsafe fn abort_when(params: &mut whisper_rs::FullParams, flag: &AtomicBool) {
+    unsafe extern "C" fn requested(flag: *mut std::ffi::c_void) -> bool {
+        // SAFETY: the caller of `abort_when` keeps the flag alive through `full()`.
+        unsafe { &*(flag as *const AtomicBool) }.load(std::sync::atomic::Ordering::Relaxed)
+    }
+    unsafe {
+        params.set_abort_callback(Some(requested));
+        params.set_abort_callback_user_data(flag as *const AtomicBool as *mut std::ffi::c_void);
     }
 }
 
@@ -732,6 +822,7 @@ fn decode_sherpa(
     recognizer: &mut crate::sherpa::SherpaRecognizer,
     job: &Job,
     audio: &[f32],
+    preview_rest: Option<&[f32]>,
     language: Option<&str>,
     model_id: Option<&str>,
     initial_prompt: Option<&str>,
@@ -761,8 +852,16 @@ fn decode_sherpa(
             recognizer.transcribe_gigaam(audio, || job.cancelled())
         } else if model_id.is_some_and(crate::model::segments_with_context) {
             recognizer.transcribe_segmented(audio, requested, initial_prompt, || job.cancelled())
+        } else if let Some(rest) = preview_rest.filter(|_| recognizer.is_streaming()) {
+            log::info!(
+                "session {}: final pass continues the live preview, {} of {} samples left",
+                job.session_id,
+                rest.len(),
+                audio.len()
+            );
+            recognizer.finish_preview(16_000, rest, || job.cancelled())
         } else {
-            recognizer.transcribe(16_000, audio)
+            recognizer.transcribe_unless(16_000, audio, || job.cancelled())
         }
     })) {
         Ok(Ok(_)) if job.cancelled() => {
@@ -894,6 +993,48 @@ mod tests {
         ));
     }
     use std::thread;
+
+    #[test]
+    fn a_load_request_for_the_model_as_loaded_is_skipped() {
+        use crate::model::ModelLoadSpec;
+        let spec = |use_gpu| ModelLoadSpec::Whisper {
+            path: "ggml-tiny.bin".into(),
+            use_gpu,
+        };
+        let requested = ModelLoadReason::Requested;
+        assert!(already_loaded(
+            true,
+            requested,
+            Some(&spec(false)),
+            &spec(false)
+        ));
+        // A device change must rebuild the context.
+        assert!(!already_loaded(
+            true,
+            requested,
+            Some(&spec(false)),
+            &spec(true)
+        ));
+        assert!(already_loaded(
+            true,
+            ModelLoadReason::Restore,
+            Some(&spec(false)),
+            &spec(true)
+        ));
+        assert!(!already_loaded(false, requested, None, &spec(false)));
+    }
+
+    #[test]
+    fn the_final_pass_takes_the_recording_after_the_preview() {
+        let audio = [1.0, 2.0, 3.0, 4.0];
+        // Trimmed audio starts 10 samples into the recording.
+        assert_eq!(preview_rest(12, &audio, 10), Some(&audio[2..]));
+        assert_eq!(preview_rest(10, &audio, 10), Some(&audio[..]));
+        // The preview decoded past the trimmed end: nothing left to feed.
+        assert_eq!(preview_rest(20, &audio, 10), Some(&audio[4..]));
+        // It never reached the trimmed start: the gap is gone from `audio`.
+        assert_eq!(preview_rest(5, &audio, 10), None);
+    }
 
     #[test]
     fn a_late_chunk_of_the_previous_dictation_never_reaches_the_new_one() {

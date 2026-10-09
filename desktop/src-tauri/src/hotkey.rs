@@ -370,11 +370,14 @@ fn handle_shortcut_event(app: AppHandle, state: AppState, event: ShortcutEvent) 
     // Toggle is the default: only an explicit `"push_to_talk"` selects
     // push-to-talk. Absent key, unreadable config, or any other value all
     // fall through to toggle so the runtime behaviour matches the UI.
-    let is_toggle = crate::config::Config::load(&app)
-        .ok()
-        .and_then(|c| c.get_string("recording_mode"))
-        .map(|m| m != "push_to_talk")
-        .unwrap_or(true);
+    // Called only once an event is acted on: auto-repeat arrives tens of
+    // times a second on the main thread.
+    let is_toggle = || {
+        crate::config::Config::load(&app)
+            .ok()
+            .and_then(|c| c.get_string("recording_mode"))
+            .is_none_or(|m| m != "push_to_talk")
+    };
 
     match event.state() {
         ShortcutState::Pressed => {
@@ -398,7 +401,7 @@ fn handle_shortcut_event(app: AppHandle, state: AppState, event: ShortcutEvent) 
             if was_held && now.saturating_sub(last) < AUTO_REPEAT_DEBOUNCE_MS {
                 return;
             }
-            if is_toggle {
+            if is_toggle() {
                 // Toggle mode: use toggle_armed atomic instead of
                 // recorder.is_recording() to avoid TOCTOU races with
                 // rapid hotkey events on Windows.
@@ -420,7 +423,7 @@ fn handle_shortcut_event(app: AppHandle, state: AppState, event: ShortcutEvent) 
             // Physical key up: clear the debounce flag so the next real
             // press is recognised as a leading edge.
             state.key_held.store(false, Ordering::Release);
-            if !is_toggle {
+            if !is_toggle() {
                 // Push-to-talk: release stops recording.
                 hotkey_do_stop(&app, &state);
             }

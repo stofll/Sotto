@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { subscribeWindowActivity } from "./windowActivity";
+import { isWindowShown, subscribeWindowActivity } from "./windowActivity";
 
 const native = vi.hoisted(() => ({
   isVisible: vi.fn(), isMinimized: vi.fn(), isFocused: vi.fn(), onFocusChanged: vi.fn(),
@@ -21,6 +21,21 @@ beforeEach(() => {
   native.onFocusChanged.mockImplementation((handler) => { onFocus = handler; return Promise.resolve(stop); });
 });
 afterEach(() => { vi.unstubAllGlobals(); });
+
+describe("native window visibility", () => {
+  it.each([
+    [true, false, true], [false, false, false], [true, true, false],
+  ])("counts a visible, unminimized window as shown (%s, %s)", async (visible, minimized, shown) => {
+    native.isVisible.mockResolvedValue(visible);
+    native.isMinimized.mockResolvedValue(minimized);
+    await expect(isWindowShown()).resolves.toBe(shown);
+  });
+
+  it("assumes a shown window when the native query fails", async () => {
+    native.isVisible.mockRejectedValue(new Error("gone"));
+    await expect(isWindowShown()).resolves.toBe(true);
+  });
+});
 
 describe("native window activity", () => {
   it.each([

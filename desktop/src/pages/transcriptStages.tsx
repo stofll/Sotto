@@ -50,6 +50,8 @@ export function aiFallbackLabel(errorType?: string, skippedReason?: string): str
   if (code === "timeout" || code === "provider_timeout") return "timeout";
   if (code === "connection_error" || code === "provider_connection_error") return t("сеть");
   if (code === "bad_response" || code === "provider_bad_response") return t("неожиданный ответ");
+  if (code === "provider_failed") return t("провайдер отклонил запрос");
+  if (code === "unknown_provider") return t("неизвестный провайдер");
   if (code === "empty_response") return t("пустой ответ");
   if (code === "meta_response" || code === "model_returned_meta_response") return "meta fallback";
   if (code === "summarised_response" || code === "model_dropped_text") return t("модель сократила текст");

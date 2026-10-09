@@ -1,10 +1,9 @@
-.model-featured { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 24px; list-style: none; margin-bottom: 32px; }
+.model-featured { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 24px; list-style: none; margin-bottom: 8px; }
 .model-pick { padding-block: 22px; border-top: 1px solid var(--border-strong); }
-.model-purpose { font: 400 0.8125rem var(--font-mono); color: var(--text-secondary); margin-bottom: 16px; }
 .model-pick h3 { font: 600 1.25rem/1.3 var(--font-body); letter-spacing: -0.02em; }
 .model-pick-meta { margin-top: 10px; font-size: 0.8125rem; color: var(--text-muted); }
 .model-pick-meta span { margin-inline: 6px; }
-.model-catalog { border-block: 1px solid var(--border); padding-bottom: 0; }
+.model-catalog { padding-bottom: 0; }
 .model-catalog[open] { padding-bottom: 24px; }
 .model-catalog summary { padding-block: 20px; font: 500 0.875rem var(--font-mono); cursor: pointer; }
 .model-catalog summary:hover { color: var(--accent-text); }
@@ -13,9 +12,9 @@
 @media (max-width: 640px) { .model-featured { grid-template-columns: 1fr; gap: 0; } }
 .model-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid var(--border); }
 .model-chips { display: flex; flex-wrap: wrap; gap: 8px; }
-.chip { padding: 9px 15px; border: 1px solid var(--border); border-radius: 999px; font: 500 0.8125rem var(--font-mono); color: var(--text-secondary); transition: background 160ms, color 160ms, border-color 160ms; }
+.chip { padding: 9px 15px; border: 1px solid var(--border); border-radius: 6px; font: 500 0.8125rem var(--font-mono); color: var(--text-secondary); transition: background 160ms, color 160ms, border-color 160ms; }
 .chip:hover { color: var(--text); border-color: var(--border-strong); }
-.chip[aria-pressed="true"] { background: var(--text); border-color: var(--text); color: var(--on-accent); }
+.chip[aria-pressed="true"] { background: var(--text); border-color: var(--text); color: var(--bg); }
 .chip-dashed { border-style: dashed; border-color: var(--border-strong); color: var(--text-muted); }
 .chip-dashed[aria-pressed="true"] { background: transparent; border-color: var(--text); color: var(--text); }
 .model-count { font-size: 0.75rem; color: var(--text-muted); }

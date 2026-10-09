@@ -84,8 +84,8 @@
 @keyframes desk-paste { from { background: var(--accent-soft); } }
 
 /* The hotkey, pressed twice: to start and to stop. */
-.desk-keys { position: absolute; left: 3%; bottom: calc(var(--floor) + 16px); display: flex; gap: 6px; padding: 8px; border: 1px solid rgba(255, 255, 255, .22); border-radius: 16px; background: rgba(255, 255, 255, .14); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); transition: opacity 300ms; }
-.desk-keys kbd { min-width: 44px; padding: 7px 10px; border-radius: 9px; background: #fbfbfa; color: #2a2c30; text-align: center; font: 500 12px var(--font-mono); box-shadow: 0 2px 0 #c9cacd, 0 6px 14px -6px rgba(0, 0, 0, .4); transition: transform 120ms, box-shadow 120ms; }
+.desk-keys { position: absolute; left: 3%; bottom: calc(var(--floor) + 16px); display: flex; gap: 6px; padding: 8px; border: 1px solid rgba(255, 255, 255, .22); border-radius: 12px; background: rgba(255, 255, 255, .14); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); transition: opacity 300ms; }
+.desk-keys kbd { min-width: 44px; padding: 7px 10px; border-radius: 6px; background: #fbfbfa; color: #2a2c30; text-align: center; font: 500 12px var(--font-mono); box-shadow: 0 2px 0 #c9cacd, 0 6px 14px -6px rgba(0, 0, 0, .4); transition: transform 120ms, box-shadow 120ms; }
 .desk.keys-down .desk-keys kbd { transform: translateY(2px); box-shadow: 0 0 0 #c9cacd, 0 2px 6px -4px rgba(0, 0, 0, .4); }
 .desk:is([data-phase="done"], [data-phase="rest"]) .desk-keys { opacity: 0; }
 
@@ -112,7 +112,7 @@
 .desk-swatches button { width: 24px; height: 24px; padding: 0; border: 2px solid var(--surface); border-radius: 50%; background: var(--swatch); box-shadow: 0 0 0 1px var(--border); cursor: pointer; }
 .desk-swatches [aria-pressed="true"] { box-shadow: 0 0 0 2px var(--text); }
 
-.desk-caption { position: absolute; right: 3%; bottom: calc(var(--floor) + 16px); max-width: 200px; padding: 12px 16px; border: 1px solid var(--glass-line); border-radius: 16px; background: var(--glass); color: #f2f2f4; font-size: 13px; line-height: 1.4; -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); }
+.desk-caption { position: absolute; right: 3%; bottom: calc(var(--floor) + 16px); max-width: 200px; padding: 12px 16px; border: 1px solid var(--glass-line); border-radius: 12px; background: var(--glass); color: #f2f2f4; font-size: 13px; line-height: 1.4; -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); }
 .desk-caption > span { display: none; }
 .desk[data-step="1"] [data-for-step="1"], .desk[data-step="2"] [data-for-step="2"], .desk[data-step="3"] [data-for-step="3"] { display: block; }
 .desk-caption small { display: block; margin-bottom: 4px; font: 500 10px var(--font-mono); letter-spacing: .06em; text-transform: uppercase; color: rgba(255, 255, 255, .6); }

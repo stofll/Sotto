@@ -9,7 +9,7 @@ export const en: Dictionary = {
       'Free, open-source voice typing for Windows and macOS. Speech is recognized on your computer without the internet, and the text goes into any app.',
     ogTitle: 'Sotto — Speak. Get more done.',
     ogDescription: 'Free, open-source desktop dictation. Local by default.',
-    ogImageAlt: 'The Sotto logo above the headline “Speak. Get more done.” and a band of misty hills',
+    ogImageAlt: 'The name Sotto above the headline “Speak. Get more done.”',
   },
 
   nav: {
@@ -18,7 +18,6 @@ export const en: Dictionary = {
     mobile: 'Mobile navigation',
     features: 'Features',
     models: 'Models',
-    privacy: 'Privacy',
     faq: 'FAQ',
     start: 'Start',
     download: 'Download',
@@ -32,7 +31,6 @@ export const en: Dictionary = {
   },
 
   hero: {
-    eyebrow: 'Sotto: offline voice typing',
     titleLine1: 'Speak.',
     titleLine2: 'Get more done.',
     subtitle:
@@ -91,7 +89,6 @@ export const en: Dictionary = {
   },
 
   apps: {
-    eyebrow: 'Anywhere',
     title: 'Works wherever you type',
     text: 'Sotto pastes into the field with the cursor: a messenger, mail, a document, a code editor or a browser. There are no plugins or integrations to set up.',
   },
@@ -158,7 +155,6 @@ export const en: Dictionary = {
     description:
       'Russian, multiple languages or words as you speak. Pick a model and download it once.',
     filterLabel: 'Filter models',
-    purposes: ['For Russian', 'Words as you speak', 'For multiple languages', 'The Whisper family'],
     allModels: 'All models · {total}',
     filters: { all: 'All', ru: 'Русский', en: 'English', cjk: '中文, 日本語, 한국어' },
     streamingOnly: 'Streaming only',
@@ -181,7 +177,6 @@ export const en: Dictionary = {
   },
 
   start: {
-    eyebrow: 'Start',
     title: 'Three steps to your first phrase',
     steps: [
       { title: 'Download', text: 'Windows: .exe installer or portable ZIP. macOS: open the .dmg and drag Sotto into Applications.' },

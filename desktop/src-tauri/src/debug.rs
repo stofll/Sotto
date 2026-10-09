@@ -158,21 +158,24 @@ pub fn open_in_file_manager(path: &Path) -> Result<(), String> {
 
 /// Copy-pasteable summary of the setup for a bug report.
 #[tauri::command]
-pub(crate) fn get_diagnostics(app: AppHandle) -> Result<String, String> {
-    let config = crate::config::Config::load(&app)?;
-    Ok(diagnostics_report(&app, config.as_value()))
+pub(crate) async fn get_diagnostics(app: AppHandle) -> Result<String, String> {
+    blocking(move || {
+        let config = crate::config::Config::load(&app)?;
+        Ok(diagnostics_report(&app, config.as_value()))
+    })
+    .await?
 }
 
 /// Reveal the diagnostics folder (logs) in the file manager.
 #[tauri::command]
-pub(crate) fn open_diagnostics_folder() -> Result<(), String> {
-    open_in_file_manager(&diagnostics_dir())
+pub(crate) async fn open_diagnostics_folder() -> Result<(), String> {
+    blocking(|| open_in_file_manager(&diagnostics_dir())).await?
 }
 
 /// Bytes the logs occupy: the active file plus its rotated archives.
 #[tauri::command]
-pub(crate) fn logs_size() -> u64 {
-    crate::structured_log::logs_total_bytes()
+pub(crate) async fn logs_size() -> Result<u64, String> {
+    blocking(crate::structured_log::logs_total_bytes).await
 }
 
 /// Empty the logs, returning the resulting size so the caller does not
@@ -182,9 +185,22 @@ pub(crate) fn logs_size() -> u64 {
 /// that is actually true rather than one read mid-truncate. The wait is a
 /// truncate and a few `remove_file` calls behind whatever is queued.
 #[tauri::command]
-pub(crate) fn clear_logs() -> u64 {
-    crate::structured_log::clear();
-    crate::structured_log::logs_total_bytes()
+pub(crate) async fn clear_logs() -> Result<u64, String> {
+    blocking(|| {
+        crate::structured_log::clear();
+        crate::structured_log::logs_total_bytes()
+    })
+    .await
+}
+
+/// Run file work for a command on a blocking worker: a synchronous command
+/// runs on the main thread, which also delivers the global hotkey.
+async fn blocking<T: Send + 'static>(
+    work: impl FnOnce() -> T + Send + 'static,
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

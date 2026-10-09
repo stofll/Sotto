@@ -30,7 +30,6 @@ const anchor = (hash: string) => (onLanding ? hash : `${home}${hash}`);
 const sections = [
   { href: anchor('#features'), label: t.nav.features },
   { href: anchor('#models'), label: t.nav.models },
-  { href: localePath(locale, 'privacy'), label: t.nav.privacy },
   { href: anchor('#faq'), label: t.nav.faq },
   { href: anchor('#start'), label: t.nav.start },
 ];

@@ -5,8 +5,7 @@
 .desktop-nav a, .mobile-nav a { color: var(--text-muted); transition: color 160ms; }
 .desktop-nav a:hover, .mobile-nav a:hover { color: var(--text); }
 .header-actions { display: flex; align-items: center; gap: 16px; }
-.locale-switcher { border-radius: 6px; }
-.locale-switcher > * { padding: 5px 10px; border-radius: 4px; font-size: 0.6875rem; }
+.locale-switcher > * { padding: 5px 10px; font-size: 0.6875rem; }
 .icon-button { display: inline-flex; width: 38px; height: 38px; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: 6px; color: var(--text-muted); }
 .icon-button:hover { color: var(--text); }
 .menu-toggle { display: none; }
@@ -22,6 +21,11 @@
   .desktop-nav, .desktop-only { display: none; }
   .menu-toggle { display: inline-flex; }
 }
-@media (min-width: 901px) { .mobile-nav { display: none !important; } }
+@media (min-width: 901px) {
+  .mobile-nav { display: none !important; }
+  /* Beside the locale switcher, matches its height; on phones it pairs with the menu button instead. */
+  .theme-toggle { width: 31px; height: 31px; }
+  .theme-toggle svg { width: 16px; height: 16px; }
+}
 /* The stylesheet describes the page as scripts leave it, so nothing moves once
    they run. What changes without JavaScript is in Base.astro's <noscript>. */
