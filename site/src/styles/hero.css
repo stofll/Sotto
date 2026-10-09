@@ -6,7 +6,7 @@
   .hero-title { white-space: nowrap; }
 }
 
-.hero-foot { padding-top: 10px; padding-bottom: clamp(40px, 6vw, 64px); }
+.hero-foot { padding-top: 10px; padding-bottom: clamp(16px, 2.5vw, 28px); }
 .hero-subtitle { max-width: 640px; font-size: 1.125rem; line-height: 1.6; color: var(--text-secondary); text-wrap: pretty; }
 .hero-actions { display: flex; flex-direction: column; align-items: flex-start; gap: 14px; }
 .hero-buttons { display: flex; flex-wrap: wrap; gap: 10px; }
