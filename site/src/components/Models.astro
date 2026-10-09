@@ -1,5 +1,5 @@
 ---
-import { LINKS, models } from '../data/product';
+import { LINKS, engines, llmProviders, models } from '../data/product';
 import { format } from '../i18n';
 import { translationsFor } from '../i18n/context';
 
@@ -10,7 +10,7 @@ const filters = Object.entries(m.filters) as [keyof typeof m.filters, string][];
 const featured = ['GigaAM v3', 'Nemotron 3.5', 'Parakeet TDT v3', 'Whisper turbo'].map((name) => models.find((model) => model.name === name)!);
 ---
 
-<section id="models" class="section container" data-screen-label="04 Models">
+<section id="models" class="section container" data-screen-label="05 Models">
   <div class="section-head" data-reveal>
     <p class="section-label">{m.eyebrow}</p>
     <h2 class="section-title">{m.title}</h2>
@@ -68,4 +68,13 @@ const featured = ['GigaAM v3', 'Nemotron 3.5', 'Parakeet TDT v3', 'Whisper turbo
   <p class="model-empty mono" data-model-empty hidden>{m.empty}</p>
   <span class="section-note">{m.note} <a href={LINKS.models}>models.md ↗</a></span>
   </details>
+
+  <div class="providers" data-reveal>
+    <h3>{m.providers.title}</h3>
+    <dl>
+      <div><dt>{m.providers.local}</dt><dd><ul class="pill-list">{engines.map((name) => <li>{name}</li>)}</ul></dd></div>
+      <div><dt>{m.providers.llm}</dt><dd><ul class="pill-list">{[...llmProviders, m.providers.compatible].map((name) => <li>{name}</li>)}</ul></dd></div>
+      <div><dt>{m.providers.cloud}</dt><dd><ul class="pill-list"><li>{m.providers.compatible}</li></ul></dd></div>
+    </dl>
+  </div>
 </section>

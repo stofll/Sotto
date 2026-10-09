@@ -1,0 +1,37 @@
+---
+import { translationsFor } from '../i18n/context';
+
+const { t } = translationsFor(Astro.currentLocale);
+const c = t.cleanup;
+const pieces = c.sample.map((part) => (typeof part === 'string' ? { from: part, to: part } : { from: part[0], to: part[1], kind: part[2] }));
+const plain = (side: 'from' | 'to') => pieces.map((piece) => piece[side]).join('').replace(/\s+/g, ' ').trim();
+/** The pipeline, in the order the app applies it. */
+const kinds = ['tic', 'term', 'rule', 'finish'] as const;
+const steps = [[c.beforeLabel, ''], ...kinds.map((kind) => c.rows[kind]), [c.afterLabel, '']];
+---
+
+<section id="cleanup" class="section container" data-screen-label="02 Cleanup">
+  <div class="section-head" data-reveal>
+    <p class="section-label">{c.eyebrow}</p>
+    <h2 class="section-title">{c.title}</h2>
+    <p class="section-lede">{c.text}</p>
+  </div>
+
+  {/* One sentence, close up: the raw words arrive, then each cleanup step
+      changes its own words. Without scripts the cleaned sentence stands. */}
+  <div class="card closeup" data-closeup data-reveal="80">
+    <ol class="closeup-steps" aria-label={c.eyebrow}>
+      {steps.map(([label, example], index) => (
+        <li data-closeup-step={index} title={example || undefined}>{label}</li>
+      ))}
+    </ol>
+    <canvas class="closeup-wave" data-voice-wave="speech" aria-hidden="true"></canvas>
+    <p class="closeup-text" aria-hidden="true">{pieces.map((piece) => (
+      <span class:list={['closeup-piece', piece.kind && `is-${piece.kind}`]} data-from={piece.from} data-to={piece.to} data-kind={piece.kind}>{piece.to}</span>
+    ))}</p>
+    <p class="sr-only">{c.beforeLabel}: {plain('from')} {c.afterLabel}: {plain('to')}</p>
+    <div class="closeup-foot js-only">
+      <button type="button" class="button button-outline button-small" data-closeup-replay>{c.replay}</button>
+    </div>
+  </div>
+</section>

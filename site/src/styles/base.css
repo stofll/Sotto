@@ -1,30 +1,40 @@
 :root {
-  color-scheme: dark;
-  --bg: #0c0b0a;
-  --surface: #141210;
-  --surface-raised: #1e1b19;
-  --text: #edeae4;
-  --text-secondary: #a39b91;
-  /* The draft's #6b645b reads at 3.4:1; this is the nearest tone that clears 4.5:1
-     on both the page and a card. */
-  --text-muted: #867e74;
+  /* "Quiet": cool paper, ink and one pen blue; at night, cool graphite with the
+     same blue. Each colour names its light and dark value once: the theme
+     follows the system through `color-scheme`, and a reader's own choice sets
+     `data-theme` on the root (see scripts/theme.ts). */
+  color-scheme: light dark;
+  --bg: light-dark(#f2f3f0, #111317);
+  --surface: light-dark(#ffffff, #181b20);
+  --surface-raised: light-dark(#e9ebe7, #20242a);
+  --text: light-dark(#14171a, #eceef1);
+  --text-secondary: light-dark(#4e555d, #b4bac2);
+  /* Clears 4.5:1 on the page, a card and the raised surface in both themes. */
+  --text-muted: light-dark(#5f666e, #959ca5);
   /* Dividers, then card and control outlines, then outline buttons and hover. */
-  --border-subtle: #1e1c1a;
-  --border: #2a2724;
-  --border-strong: #3a3530;
-  /* The one hue: the download buttons, the second line of the headline, and
-     live state (the voice line, the caret, progress). */
-  --accent: #ff7a2f;
-  --accent-hover: #ff9b5e;
-  --on-accent: #0c0b0a;
-  --font-display: Unbounded, system-ui, sans-serif;
-  --font-body: Onest, system-ui, sans-serif;
+  --border-subtle: light-dark(#e4e6e2, #1d2025);
+  --border: light-dark(#d8dbd6, #272b31);
+  --border-strong: light-dark(#bfc3bd, #3a3f46);
+  /* The one hue: the download buttons, live state (the caret, the pressed
+     hotkey, the paste, progress) and the current choice in a switch. */
+  --accent: light-dark(#2d4fd6, #3d5ce6);
+  --accent-hover: light-dark(#2442b8, #5470f0);
+  /* The blue as text and marks on the page; on a dark page the button's blue is too dim to read. */
+  --accent-text: light-dark(#2d4fd6, #8ea2ff);
+  --accent-soft: light-dark(#e2e7fa, #1c2442);
+  --on-accent: #ffffff;
+  /* Floating glass over the wallpaper: the overlay, captions and the capability list. */
+  --glass: rgba(20, 22, 26, .78);
+  --glass-line: rgba(255, 255, 255, .12);
+  --font-body: 'Golos Text', system-ui, sans-serif;
   --font-mono: ui-monospace, 'Cascadia Mono', 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
   --ease: cubic-bezier(.2,.7,.2,1);
   --max-width: 1200px;
   --gutter: clamp(20px, 5vw, 56px);
   --section-gap: clamp(90px, 11vw, 140px);
 }
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
 *, *::before, *::after { box-sizing: border-box; }
 /* No pinned root size: a reader who has enlarged their browser default gets it.
    `scrollbar-gutter` keeps the page from jumping sideways when the dialog puts
@@ -38,11 +48,13 @@ a { color: inherit; text-decoration: none; }
 .text-link, .section-note a, .install-notice a { color: var(--text); text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px; transition: text-decoration-color 160ms; }
 .text-link:hover, .section-note a:hover, .install-notice a:hover { color: var(--text); text-decoration-color: currentColor; }
 a, button { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
-a:focus-visible, button:focus-visible, [tabindex="0"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+a:focus-visible, button:focus-visible, [tabindex="0"]:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 3px; }
 ::selection { background: var(--accent); color: var(--on-accent); }
 p, h1, h2, h3, h4, figure { margin: 0; }
 ul, ol { margin: 0; padding: 0; }
 img, svg, canvas { vertical-align: middle; }
+/* The voice lines draw in their element's colour. */
+canvas[data-voice-wave] { color: var(--accent-text); }
 [hidden] { display: none !important; }
 
 .container { max-width: var(--max-width); margin-inline: auto; padding-inline: var(--gutter); }
@@ -53,31 +65,36 @@ img, svg, canvas { vertical-align: middle; }
 .noscript-notice { padding: 16px var(--gutter) 0; font: 400 0.75rem var(--font-mono); color: var(--text-secondary); text-align: center; }
 
 /* Buttons. One shape, three sizes; the accent fill is kept for downloads. */
-.button { display: inline-flex; align-items: center; justify-content: center; gap: 10px; padding: 16px 26px; border: 1px solid transparent; border-radius: 8px; font: 500 0.875rem/1.3 var(--font-mono); white-space: nowrap; transition: background 160ms, border-color 160ms, color 160ms; }
+.button { display: inline-flex; align-items: center; justify-content: center; gap: 10px; padding: 15px 26px; border: 1px solid transparent; border-radius: 999px; font: 500 0.9375rem/1.3 var(--font-body); white-space: nowrap; transition: background 160ms, border-color 160ms, color 160ms; }
 .button-primary { background: var(--accent); color: var(--on-accent); }
 .button-primary:hover { background: var(--accent-hover); color: var(--on-accent); }
 .button-outline { border-color: var(--border-strong); color: var(--text); }
 .button-outline:hover { border-color: var(--text-muted); color: var(--text); }
-.button-small { padding: 9px 16px; border-radius: 6px; font-size: 0.8125rem; }
+.button-small { padding: 9px 16px; font-size: 0.8125rem; }
 .button-large { padding: 18px 30px; font-size: 0.9375rem; }
 
 /* Segmented control: the language switch, hotkey modes and screen tabs. */
-.segmented { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--border); border-radius: 8px; }
-.segmented > * { display: inline-flex; align-items: center; padding: 7px 12px; border-radius: 6px; font: 500 0.75rem var(--font-mono); color: var(--text-muted); transition: background 160ms, color 160ms; }
-.segmented > :is(a, button):hover { color: var(--text); }
-.segmented > .is-current, .segmented > [aria-pressed="true"], .segmented > [aria-selected="true"] { background: var(--border-strong); color: var(--text); }
+.segmented { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); }
+.segmented > * { display: inline-flex; align-items: center; padding: 7px 14px; border-radius: 999px; font: 500 0.8125rem var(--font-body); color: var(--text-muted); transition: background 160ms, color 160ms; }
+.segmented > :is(a, button):not(.is-current, [aria-pressed="true"], [aria-selected="true"]):hover { color: var(--text); }
+.segmented > .is-current, .segmented > [aria-pressed="true"], .segmented > [aria-selected="true"] { background: var(--text); color: var(--bg); }
 
-.brand { display: inline-flex; align-items: center; gap: 10px; color: var(--text); font: 500 1.0625rem/1 var(--font-display); }
+.brand { display: inline-flex; align-items: center; gap: 10px; color: var(--text); font: 600 1.0625rem/1 var(--font-body); letter-spacing: -0.02em; }
 .brand:hover { color: var(--text); }
 .brand-icon { width: 28px; height: 28px; border-radius: 7px; }
 
 /* Section scaffolding shared by every block on the landing page. */
 .section { padding-bottom: var(--section-gap); scroll-margin-top: 70px; }
 .section-head { display: flex; flex-direction: column; gap: 18px; margin-bottom: 48px; }
-.section-label { font: 400 0.8125rem var(--font-mono); color: var(--text-muted); }
-.section-title { max-width: 820px; font: 500 clamp(1.875rem, 4.2vw, 3.25rem)/1.12 var(--font-display); letter-spacing: -0.03em; text-wrap: balance; }
+.section-label { font: 500 0.75rem var(--font-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); }
+.section-title { max-width: 820px; font: 600 clamp(1.875rem, 4.2vw, 3.25rem)/1.06 var(--font-body); letter-spacing: -0.035em; text-wrap: balance; }
 .section-lede { max-width: 640px; font-size: 1.0625rem; line-height: 1.6; color: var(--text-secondary); text-wrap: pretty; }
 .section-note { display: block; margin-top: 16px; font: 400 0.75rem/1.6 var(--font-mono); color: var(--text-muted); }
 
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; }
+/* Short names in a row of rounded tags; the current one carries the accent. */
+.pill-list { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; }
+.pill-list li { padding: 4px 10px; border: 1px solid var(--border); border-radius: 999px; font: 400 0.75rem var(--font-mono); color: var(--text-secondary); }
+.pill-list .is-on { border-color: var(--accent); color: var(--text); }
+@keyframes fade-in { from { opacity: 0; } }
 .mono { font-family: var(--font-mono); }

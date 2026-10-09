@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_EDGE_OFFSET, overlayLayout, overlayPreferences } from "./overlayPreferences";
 import { overlayPalette, paletteTone, paletteVariables } from "./overlayPalette";
-import { accentVariables, resolveAccent } from "../accent";
+import { accentVariables, DEFAULT_ACCENT, resolveAccent } from "../accent";
 
 describe("overlay preferences", () => {
   it("normalizes older and hand-edited configs without losing valid fields", () => {
@@ -34,8 +34,8 @@ describe("overlay preferences", () => {
   it("accepts any hex interface colour and refuses anything else", () => {
     expect(resolveAccent("#0A0B0C")).toBe("#0a0b0c");
     expect(resolveAccent("#9b75ef")).toBe("#9b75ef");
-    expect(resolveAccent("red")).toBe("#e68a3d");
-    expect(resolveAccent(undefined)).toBe("#e68a3d");
+    expect(resolveAccent("red")).toBe(DEFAULT_ACCENT);
+    expect(resolveAccent(undefined)).toBe(DEFAULT_ACCENT);
   });
   it("writes readable text on a light and on a dark interface colour", () => {
     // The ink is what is printed on the accent: it has to flip, or a navy

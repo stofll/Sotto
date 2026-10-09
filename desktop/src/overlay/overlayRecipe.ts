@@ -45,7 +45,8 @@ export const STYLE_OPTIONS = {
   font: ["sans", "mono"],
 } as const;
 export type RecipeStyle = { [K in keyof typeof STYLE_OPTIONS]: typeof STYLE_OPTIONS[K][number] };
-export const DEFAULT_STYLE: RecipeStyle = { radius: "round", stroke: "rim", fill: "palette", glow: "1", font: "sans" };
+/** A bare shell: the stroke, rim or hairline, is something to add in the constructor. */
+export const DEFAULT_STYLE: RecipeStyle = { radius: "round", stroke: "none", fill: "palette", glow: "1", font: "sans" };
 
 export const MOTIONS = ["quiet", "soft", "spring", "pixel"] as const;
 export type Motion = typeof MOTIONS[number];

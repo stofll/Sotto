@@ -27,15 +27,11 @@ export interface Behaviour {
 }
 
 export interface RuntimeStrings {
-  /** Typed out by the voice demo, in order. */
-  phrases: string[];
   /** Download button labels once the reader's system is known. */
   downloadWindows: string;
   downloadMac: string;
   /** `{shown}` of `{total}`, for the model filter. */
   modelCount: string;
-  /** Labels of the screenshot tour's play/pause button. */
-  tour: { pause: string; play: string };
   /** The shape comes from the dictionary. An approximate Record would hide a
    *  mismatch until runtime, where `steps.map` would throw on undefined. */
   dialog: Dictionary['dialog'];

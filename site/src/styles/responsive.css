@@ -1,11 +1,6 @@
 /* Most of the layout reflows on its own through auto-fit grids and clamp().
    These are the few places where the arrangement itself has to change. */
 @media (max-width: 640px) {
-  /* Half the width is too narrow for one line, so the words wrap there instead. */
-  /* A fixed three-line box, so a phrase wrapping onto another line does not
-     re-centre it and shift the text. */
-  .voice-output { white-space: normal; font-size: 0.875rem; line-height: 1.5; display: block; height: 4.5em; }
-  .voice-caret { display: inline-block; vertical-align: text-bottom; }
   .hero-buttons { width: 100%; }
   .hero-buttons .button { flex: 1; }
   .dialog-inner { padding: 22px; }

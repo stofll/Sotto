@@ -1,0 +1,17 @@
+---
+import { models } from '../data/product';
+import { format } from '../i18n';
+import { translationsFor } from '../i18n/context';
+
+/** The FAQ's short facts, lifted under the hero where a reader decides whether to keep going. */
+const { t } = translationsFor(Astro.currentLocale);
+const total = models.length;
+---
+
+<section class="container facts-strip" aria-label={t.faq.factsLabel} data-reveal>
+  <dl class="facts">
+    {t.faq.facts.map(([label, value]) => (
+      <div><dt>{label}</dt><dd>{format(value, { total })}</dd></div>
+    ))}
+  </dl>
+</section>

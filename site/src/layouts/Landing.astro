@@ -1,5 +1,8 @@
 ---
+import AppsBand from '../components/AppsBand.astro';
+import Cleanup from '../components/Cleanup.astro';
 import DownloadDialog from '../components/DownloadDialog.astro';
+import Facts from '../components/Facts.astro';
 import Faq from '../components/Faq.astro';
 import Features from '../components/Features.astro';
 import FinalCall from '../components/FinalCall.astro';
@@ -7,7 +10,6 @@ import Footer from '../components/Footer.astro';
 import Header from '../components/Header.astro';
 import Hero from '../components/Hero.astro';
 import Models from '../components/Models.astro';
-import Screens from '../components/Screens.astro';
 import Start from '../components/Start.astro';
 import Base from './Base.astro';
 import { translationsFor } from '../i18n/context';
@@ -21,8 +23,10 @@ const { t } = translationsFor(Astro.currentLocale);
   <main id="main-content">
     <noscript><p class="noscript-notice">{t.nav.noscript}</p></noscript>
     <Hero />
+    <Cleanup />
     <Features />
-    <Screens />
+    <Facts />
+    <AppsBand />
     <Models />
     <Faq />
     <Start />

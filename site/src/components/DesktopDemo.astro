@@ -1,0 +1,136 @@
+---
+import Icon from './Icon.astro';
+import Overlay from './Overlay.astro';
+import { defaultHotkey } from '../data/desktop-demo';
+import type { IconName } from '../data/icons';
+import wallSmall from '../assets/wallpaper/hills-1200.webp';
+import wallLarge from '../assets/wallpaper/hills-2400.webp';
+import { paletteTone, paletteVariables } from '../../../desktop/src/overlay/overlayPalette';
+import { format } from '../i18n';
+import { translationsFor } from '../i18n/context';
+
+const { t } = translationsFor(Astro.currentLocale);
+const d = t.hero.demo;
+const open = d.chats[0]!;
+/** Avatar fills, one per chat in order; muted so the window stays the quiet part. */
+const avatars = ['#5b7be0', '#3fa58c', '#c77a48', '#8e6cc9', '#d0596a'];
+/** Other apps in the taskbar and the Dock; the messenger is the running one. */
+const apps: { icon: IconName; fill: string; running?: boolean }[] = [
+  { icon: 'folder', fill: '#4f8fd8' },
+  { icon: 'globe', fill: '#3fa58c' },
+  { icon: 'mail', fill: '#6f7fd6' },
+  { icon: 'chat', fill: '#2f8be0', running: true },
+  { icon: 'note', fill: '#d9a93c' },
+];
+const total = d.steps.length;
+const tune = d.tune;
+const looks = Object.keys(tune.looks) as (keyof typeof tune.looks)[];
+const palettes = Object.keys(tune.palettes) as (keyof typeof tune.palettes)[];
+/** Each palette's swatch is its level colour, from the app's own palette. */
+const swatch = (palette: (typeof palettes)[number]) => {
+  const { palette_hue, palette_chroma } = paletteTone({ palette, palette_hue: 0, palette_chroma: 0 });
+  return (paletteVariables(palette_hue, palette_chroma) as Record<string, string>)['--overlay-wave-mid'];
+};
+---
+
+{/* One dictation on a desktop at real scale: the hotkey, the overlay listening,
+    and the cleaned text landing in a messenger's field. The subtitle says the
+    same in words, so the picture is hidden from assistive tech. Without scripts
+    it holds the moment after the paste on Windows; scripts/platform.ts switches
+    `data-os` to the reader's own system. */}
+<div class="desk-shell container">
+  <div class="desk" data-desk data-os="windows" data-phase="done" data-step={total}
+    style={`--wall: image-set(url(${wallSmall.src}) 1x, url(${wallLarge.src}) 2x)`} aria-hidden="true">
+    <div class="desk-menubar">
+      <span class="desk-menus"><b>{d.app}</b>{d.menus.map((menu) => <span>{menu}</span>)}</span>
+      <span class="desk-status">
+        <img class="desk-sotto" src="/brand/sotto-icon-56.webp" alt="" width="16" height="16" />
+        <Icon name="wifi" size={14} /><span>{d.menuClock}</span>
+      </span>
+    </div>
+
+    <div class="desk-window">
+      <div class="desk-titlebar">
+        <span>{d.app}</span>
+        <span class="desk-controls"><Icon name="minus" size={14} /><Icon name="square" size={12} /><Icon name="close" size={14} /></span>
+      </div>
+      <div class="desk-side">
+        <span class="desk-lights"><i></i><i></i><i></i></span>
+        <span class="desk-search"><Icon name="search" size={13} />{d.search}</span>
+        {d.chats.map(([name, preview, time, unread], index) => (
+          <div class:list={['desk-chat', index === 0 && 'is-open']}>
+            <span class="desk-avatar" style={`background:${avatars[index]}`}>{name.slice(0, 1)}</span>
+            <b>{name}</b><time>{time}</time><small><span>{preview}</span>{unread && <span class="desk-unread">{unread}</span>}</small>
+          </div>
+        ))}
+      </div>
+      <div class="desk-main">
+        <div class="desk-head">
+          <span class="desk-avatar" style={`background:${avatars[0]}`}>{open[0].slice(0, 1)}</span>
+          <span><b>{open[0]}</b><small>{d.status}</small></span>
+          <span class="desk-actions"><Icon name="search" size={17} /><Icon name="phone" size={17} /><Icon name="more" size={17} /></span>
+        </div>
+        <div class="desk-messages">
+          <span class="desk-day">{d.today}</span>
+          {d.messages.map((message) => (
+            <p class:list={['desk-message', message.mine && 'is-mine']}>
+              {message.text}<time>{message.time}{message.mine && <Icon name="checks" size={13} />}</time>
+            </p>
+          ))}
+        </div>
+        <div class="desk-compose">
+          <Icon name="paperclip" size={18} />
+          <span class="desk-field"><span class="desk-placeholder">{d.placeholder}</span><span data-desk-text>{d.pasted}</span><i class="desk-caret"></i></span>
+          <Icon name="smile" size={18} />
+          <span class="desk-send"><Icon name="arrow-right" size={14} /></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="desk-taskbar">
+      <span class="desk-taskbar-apps">
+        <span class="desk-start"><i></i><i></i><i></i><i></i></span>
+        {apps.map((app) => <span class:list={['desk-app', app.running && 'is-running']} style={`--fill:${app.fill}`}><Icon name={app.icon} size={16} /></span>)}
+      </span>
+      <span class="desk-status">
+        <img class="desk-sotto" src="/brand/sotto-icon-56.webp" alt="" width="16" height="16" />
+        <Icon name="wifi" size={15} /><Icon name="volume" size={15} />
+        <span class="desk-clock"><span>{d.clock}</span><span>{d.date}</span></span>
+      </span>
+    </div>
+    <div class="desk-dock">
+      {apps.map((app) => <span class:list={['desk-app', app.running && 'is-running']} style={`--fill:${app.fill}`}><Icon name={app.icon} size={20} /></span>)}
+    </div>
+
+    <div class="desk-keys">{defaultHotkey.map((key) => <kbd>{key}</kbd>)}</div>
+    <Overlay draft={d.spoken} count={d.pasted.length} phase="done" />
+    {/* scripts/app-overlay/island.ts draws the app's own overlay here once
+        loaded; until then, and without scripts, the pill above stands in. */}
+    <div class="desk-ovs" data-desk-island></div>
+    <p class="desk-caption">
+      {d.steps.map((step, index) => (
+        <span data-for-step={index + 1}><small>{format(d.stepCount, { n: index + 1, total })}</small>{step}</span>
+      ))}
+    </p>
+  </div>
+
+  {/* Shown once the app's overlay has loaded: until a look is picked, every
+      dictation takes the next one. */}
+  <div class="desk-tune" data-desk-tune hidden>
+    <span class="desk-tune-label" id="desk-tune-label">{tune.label}</span>
+    <div class="segmented" role="group" aria-labelledby="desk-tune-label">
+      <button type="button" data-look="" aria-pressed="true">{tune.auto}</button>
+      {looks.map((look) => <button type="button" data-look={look} aria-pressed="false">{tune.looks[look]}</button>)}
+    </div>
+    <div class="segmented" role="group" aria-label={tune.textLabel} title={tune.textHint}>
+      <button type="button" data-streaming="true" aria-pressed="true">{tune.streaming}</button>
+      <button type="button" data-streaming="false" aria-pressed="false">{tune.after}</button>
+    </div>
+    <div class="desk-swatches" role="group" aria-label={tune.paletteLabel}>
+      {palettes.map((palette, index) => (
+        <button type="button" data-palette={palette} aria-pressed={index === 0 ? "true" : "false"} aria-label={tune.palettes[palette]}
+          title={tune.palettes[palette]} style={`--swatch:${swatch(palette)}`}></button>
+      ))}
+    </div>
+  </div>
+</div>

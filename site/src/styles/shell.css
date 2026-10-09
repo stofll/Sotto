@@ -1,5 +1,5 @@
 /* The header stays put and lets the page show through, softened. */
-.header { position: sticky; top: 0; z-index: 20; background: rgba(12,11,10,.74); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-bottom: 1px solid var(--border-subtle); }
+.header { position: sticky; top: 0; z-index: 20; background: color-mix(in srgb, var(--bg) 80%, transparent); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-bottom: 1px solid var(--border-subtle); }
 .header-inner { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding-block: 16px; }
 .desktop-nav { display: flex; align-items: center; gap: 28px; margin-left: auto; font: 400 0.8125rem var(--font-mono); }
 .desktop-nav a, .mobile-nav a { color: var(--text-muted); transition: color 160ms; }
@@ -7,8 +7,11 @@
 .header-actions { display: flex; align-items: center; gap: 16px; }
 .locale-switcher { border-radius: 6px; }
 .locale-switcher > * { padding: 5px 10px; border-radius: 4px; font-size: 0.6875rem; }
-.menu-toggle { display: none; width: 38px; height: 38px; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: 6px; color: var(--text-muted); }
-.menu-toggle:hover { color: var(--text); }
+.icon-button { display: inline-flex; width: 38px; height: 38px; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: 6px; color: var(--text-muted); }
+.icon-button:hover { color: var(--text); }
+.menu-toggle { display: none; }
+/* The switch shows the theme it turns on. */
+.theme-toggle[aria-pressed="true"] .theme-moon, .theme-toggle:not([aria-pressed="true"]) .theme-sun { display: none; }
 .mobile-nav { display: flex; flex-direction: column; gap: 18px; padding-block: 8px 24px; font: 400 0.9375rem var(--font-mono); }
 .mobile-nav-locale { align-self: flex-start; }
 

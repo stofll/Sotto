@@ -26,7 +26,13 @@ pnpm og          # regenerate the social preview images, one per locale
 
 `desktop/src-tauri/icons/icon-source-1024.png` is the only source of truth for the mark. `pnpm brand` copies the plated icon out of it twice: a 96 px PNG for the favicon and the social images, and a 56 px WebP for the header and the download dialog. Do not hand-place another copy: the site once drifted onto the previous icon exactly that way.
 
-The page is dark only, on a warm near-black, with three steps each for backgrounds, text and borders in `src/styles/base.css`. One hue, `--accent` (orange), is kept for the download buttons, the second line of the headline and live state: the voice line, the caret and progress. Links in running text are underlined rather than coloured. Text colours clear WCAG AA against the page and the cards; `--text-muted` was lifted from the design draft's tone for exactly that reason.
+The palette is called Quiet: cool paper, ink and one pen blue by day, cool graphite with the same blue at night, with three steps each for backgrounds, text and borders in `src/styles/base.css`. Each token names its light and dark value once with `light-dark()`. It is chosen to sit apart from the orange-on-black look of developer tools, and its grey matches the overlay's default Graphite preset and the graphite icon. One hue, `--accent`, is kept for the download buttons, the second line of the headline, live state (the caret, the paste and progress) and the current step in the cleanup pipeline. The cleanup marks tell their steps apart by shape rather than by colour. Links in running text are underlined rather than coloured. Text colours clear WCAG AA against the page, the cards and the raised surface in both themes. On the dark page the button blue is too dim to read as text, so text and marks use `--accent-text`, which equals `--accent` by day.
+
+The theme follows the system until the reader picks the other one with the switch in the header; a pick that matches the system is forgotten, so the page follows it again. The pick is kept in the browser's storage and applied by a one-line inline script in `<head>` before the first paint. The Content Security Policy in `public/_headers` allows that script by its hash, and `tests/headers.test.mjs` fails the build's tests when the two drift apart. A script that reads a colour token from CSS gets the `light-dark()` expression back, not a colour; read an element's computed `color` instead, as the voice lines do.
+
+The overlay is the app's own, in its own colours rather than the site's tokens: the hero loads it from `desktop/src/overlay/`, and the stand-in pill that precedes it is drawn in the Graphite preset of `overlayPalette.ts`. The messenger on the hero's desktop draws another app, so its greys are its own.
+
+The hero's desktop and the features stage share one wallpaper: misty hills in `src/assets/wallpaper/`, drawn by `scripts/wallpaper.html` rather than photographed, so it carries no licence and matches the palette. To redraw it, open that file in a browser, call `draw(2400, 1500, 4242)`, save the PNG and encode it to WebP at 2400 and 1200 pixels wide with quality 78. `pnpm og` reuses the large file for the social images.
 
 ## Download buttons
 
@@ -34,25 +40,37 @@ The page is dark only, on a warm near-black, with three steps each for backgroun
 
 ## Type
 
-Two self-hosted families: Unbounded for headings, as the static 500 cut every heading uses, and Onest for running text, as one variable file for its three weights. Labels use the system's monospace face, which costs nothing to load. Only the Latin and Cyrillic subsets are loaded. `Base.astro` preloads the Latin heading and body files on every page, since spaces, digits and product names come from them, and the Cyrillic ones on Russian pages.
+One self-hosted family, Golos Text, sets headings and running text from one variable file per subset; headings differ by weight and tracking rather than by a second face. Labels use the system's monospace face, which costs nothing to load. Only the Latin and Cyrillic subsets are loaded. `Base.astro` preloads the Latin file on every page, since spaces, digits and product names come from it, and the Cyrillic one on Russian pages. `pnpm og` draws the social images from the static 400 and 600 cuts of the same family, because fontkit cannot instance a variable WOFF2.
 
 Sizes are in rem and the root size is never pinned, so a reader who has enlarged their browser default gets a larger page. Page copy has a floor of 12px and labels a floor of 11px.
 
-## Screenshots
+## Page story
 
-The interface gallery uses dedicated, synthetic captures in `src/assets/screens/`. All three screens share a 1088×736 viewport, the same sidebar state and the same application build. Both themes and locales have native 1× and 2× lossless WebP captures; the gallery uses density-aware sources and the enlarged view uses the 2× original. Dark is the default, with a light-theme switch; do not resize older README screenshots to make them fit.
+The page shows Sotto in use before it shows its settings. Three demonstrations come first: the hero's desktop, cleanup close up, and the features stage. The facts strip and the app band follow, then the models for readers who want depth.
 
-The nine-step walkthrough highlights features in the actual screenshots, with selectable numbered regions and explanations below the stationary window. Tabs, topic buttons and previous/next controls navigate manually. Automatic playback starts only on request and pauses outside the viewport, in a hidden tab, or on manual interaction. It stops at the last step. Incoming images are decoded before crossfading; loading failures preserve the current screen and allow retry. The hotspot coordinates in `src/data/screen-tour.ts` refer to the capture viewport and must be reviewed when app layout changes. Keyboard users can switch tabs with the arrow keys and close the enlarged view with Escape. Without JavaScript, all three screens and their original-image links remain available.
+The hero's desktop is drawn in HTML and CSS at real scale rather than recorded, so it reads its words from the locale and stays sharp at any density. It wears the reader's own system, Windows or macOS, as `src/scripts/platform.ts` detects it, and Windows otherwise. It plays the app's real sequence in a messenger: the default hotkey from `desktop/src-tauri/src/config.rs` starts a recording, the overlay streams the raw words, a second press stops it, and the cleaned text lands in the field. A caption names each of the three steps.
 
-To refresh the captures, use the isolated browser harness described in [`docs/ui-testing.md`](../docs/ui-testing.md), with `SOTTO_SITE_SHOTS_DIR` pointing to a temporary output directory. Run `uv run --locked --project tests/ui pytest tests/ui/test_site_screenshots.py --browser chromium` from the repository root, review the 24 PNGs, then run `node scripts/import-screens.mjs <capture-directory>` from `site/`. This validates dimensions and encodes the originals without resampling. The capture fixture never opens native application data.
+The overlay on that desktop is the app's own rather than a copy, because overlay customisation is a feature the page has to show and a copy would drift. Once the desk is in view, `src/scripts/app-overlay/island.ts` loads the app's overlay scene from `desktop/src/overlay/` with Preact standing in for React; the `sotto:app-overlay` plugin in `astro.config.mjs` resolves the app's imports against the site's own install and replaces the Tauri bridge and the app's dictionaries with stand-ins, so the site needs neither the app's `node_modules` nor its English dictionary. The island and its styles load in the background, about 25 KB compressed, plus the Glow look's beam when it is first shown. Until it arrives, and without JavaScript, a stand-in pill drawn in plain HTML and CSS holds its place. A choice beneath the desk then shows the looks in turn or holds one, words while speaking or only after, and the four palettes. The site workflow runs on changes to the app files the overlay is built from.
+
+Cleanup, close up, sets one sentence large. The raw words arrive while the voice line moves, then filler removal, dictionaries, replacements and finishing each change their own words, in the order the pipeline lists them. Its sample is the same one the features stage shows in its cleanup window.
+
+The app band names places Sotto pastes into, not integrations, and its note says so. The marks come from Simple Icons and are listed in `src/data/app-logos.ts`; brands missing from Simple Icons are left out rather than drawn by hand. `src/pages/app-logos.svg.ts` emits them as one cached sprite, because the band repeats every mark for its loop.
+
+The facts strip reuses the FAQ's facts.
+
+## Features
+
+The features share one stage on the wallpaper: a glass list on the left and one window at a time on the right, for voice, cleanup, models, the LLM profile, history and file transcription. The list walks through them by itself while the stage is on screen, until the reader points at, focuses or picks one. Panels overlap in one grid cell, so switching never moves the page.
+
+Every window shows something the app actually does, drawn from the app's own names and limits. The models window reads names, engines, languages and sizes from `src/data/product.ts`, the profile window lists the same providers as the models section, and the file window lists the formats from `src/data/capabilities.ts`, which names the app source it mirrors. When the app changes a feature, its window changes with it.
 
 The model section introduces four examples; the full catalog and its filters live in a native disclosure that also works without JavaScript. Privacy details live on the dedicated localized page, linked from the header and footer, with a short answer in the FAQ.
 
-For gallery, keyboard, zoom, model filtering, responsive layout and no-JavaScript regression checks, start `pnpm dev` or `pnpm preview`, set `SOTTO_SITE_URL` to its loopback URL, and run `uv run --locked --project tests/ui pytest tests/ui/test_site_browser.py --browser chromium` from the repository root. Set `SOTTO_SITE_CHECKS_DIR` to a temporary directory for visual review captures. These checks cover both locales, both screenshot themes, system appearances, 1×/2× displays, normal and reduced motion, and image-loading failure/retry. The website itself uses a fixed dark theme.
+For the demonstrations, the app band, keyboard, model filtering, responsive layout and no-JavaScript regression checks, start `pnpm dev` or `pnpm preview`, set `SOTTO_SITE_URL` to its loopback URL, and run `uv run --locked --project tests/ui pytest tests/ui/test_site_browser.py --browser chromium` from the repository root. Set `SOTTO_SITE_CHECKS_DIR` to a temporary directory for visual review captures. These checks cover both locales, system appearances, phone and desktop widths, and normal and reduced motion. The captures cover both themes.
 
 `src/components/` renders the markup. Sections read their strings through `translationsFor(Astro.currentLocale)` rather than receiving them as props.
 
-`src/scripts/` is progressive enhancement, one module per section. Nothing on the page requires it: with JavaScript disabled the copy, the links and the downloads all still work, the demos hold still, every screenshot is listed and the full model catalog can be expanded, and the controls that only filter or switch them are hidden. The voice animation runs only while one of its canvases is on screen, the tab is visible and reduced motion is off. The client scripts stay locale-agnostic by reading the strings that `RuntimeStrings.astro` renders into the page as JSON.
+`src/scripts/` is progressive enhancement, one module per section. Nothing on the page requires it: with JavaScript disabled the copy, the links and the downloads all still work, the desktop holds the moment after the paste, cleanup shows the cleaned sentence, every feature window is listed, the full model catalog can be expanded, and the controls that only switch or filter them are hidden. The demonstrations, the app band and the voice lines move only while on screen, in a visible tab and with reduced motion off. The client scripts stay locale-agnostic by reading the strings that `RuntimeStrings.astro` renders into the page as JSON or the text the page already shows.
 
 `src/styles/` is the stylesheet split by concern, imported in order by `global.css`. Load order matters: tokens first, breakpoints last. Astro inlines it into each page, which saves a render-blocking request.
 
@@ -100,8 +118,8 @@ These live in the Cloudflare and GitHub dashboards, not in this repository.
 
 `public/_headers` sends `default-src 'none'` and opens three holes, each of which is load-bearing:
 
-- `script-src` allows `static.cloudflareinsights.com`, the analytics beacon.
+- `script-src` allows `static.cloudflareinsights.com`, the analytics beacon, and the hash of the inline theme script from `src/scripts/theme.ts`, which runs before paint; editing that script means updating the hash.
 - `connect-src` allows `api.github.com`, which the download dialog queries for the latest release assets, and `cloudflareinsights.com`, where the beacon reports.
-- `style-src` allows `'unsafe-inline'`, because the components set geometry through `style` attributes. Removing those attributes would let this one close.
+- `style-src` allows `'unsafe-inline'`, because the components set geometry through `style` attributes and the app's overlay island injects `<style>` elements at runtime.
 
 Adding an external font, embed, or analytics script means widening this file, and forgetting to means the resource is silently blocked in the browser rather than at build time.

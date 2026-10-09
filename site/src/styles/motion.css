@@ -1,5 +1,5 @@
-.reveal-ready { transition: opacity .9s var(--ease), transform .9s var(--ease); }
-.reveal-ready:not(.is-visible) { opacity: 0; transform: translateY(28px); }
+.reveal-ready { transition: opacity .6s var(--ease), transform .6s var(--ease); }
+.reveal-ready:not(.is-visible) { opacity: 0; transform: translateY(20px); }
 
 /* Everything that moves by itself stops. The canvases are handled in
    scripts/voice.ts, which draws them once instead of looping. The 404 digits

@@ -1,5 +1,7 @@
 // @ts-check
-import { rename, rm } from 'node:fs/promises';
+import { readFile, rename, rm } from 'node:fs/promises';
+import { relative } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'astro/config';
 import sitemap from '@astrojs/sitemap';
 
@@ -51,6 +53,59 @@ function flattenLocaleNotFound() {
   };
 }
 
+const DESKTOP_SRC = fileURLToPath(new URL('../desktop/src/', import.meta.url));
+const SITE_ROOT = fileURLToPath(new URL('./', import.meta.url));
+const posix = (/** @type {string} */ path) => path.replaceAll('\\', '/');
+
+/** React as the app's components import it, and its Preact equivalent. */
+const PREACT = {
+  react: 'preact/compat',
+  'react-dom': 'preact/compat',
+  'react-dom/client': 'preact/compat/client',
+  'react/jsx-runtime': 'preact/jsx-runtime',
+  'react/jsx-dev-runtime': 'preact/jsx-dev-runtime',
+};
+/** The prefix of the app's stylesheets, which load with the overlay's chunk. */
+const LAZY_CSS = '\0sotto-app-overlay-css:';
+/** App modules the page cannot run (Tauri events, the app's dictionaries), by path under desktop/src/. */
+const STUBS = {
+  'bridge/events.ts': 'src/scripts/app-overlay/bridge-events.ts',
+  'i18n/index.ts': 'src/scripts/app-overlay/i18n.ts',
+};
+
+/**
+ * The hero draws the app's own overlay from desktop/src/overlay rather than a
+ * copy, so the two cannot drift. Imports made from the app's sources resolve
+ * against the site's install: React becomes Preact, and the modules above
+ * become the site's stand-ins. The site therefore needs neither the app's
+ * node_modules nor its English dictionary. The overlay's stylesheets arrive
+ * with its chunk and are added when it loads, rather than inlined into every
+ * page's first paint.
+ */
+function appOverlay() {
+  return {
+    name: 'sotto:app-overlay',
+    enforce: /** @type {const} */ ('pre'),
+    /** @param {string} source @param {string | undefined} importer @param {any} options @this {any} */
+    async resolveId(source, importer, options) {
+      if (!importer || !posix(importer).startsWith(posix(DESKTOP_SRC))) return null;
+      if (source in PREACT) {
+        return this.resolve(PREACT[/** @type {keyof typeof PREACT} */ (source)], `${SITE_ROOT}package.json`, { ...options, skipSelf: true });
+      }
+      const resolved = await this.resolve(source, importer, { ...options, skipSelf: true });
+      if (resolved && resolved.id.endsWith('.css')) return `${LAZY_CSS}${resolved.id}.js`;
+      const stub = resolved && STUBS[/** @type {keyof typeof STUBS} */ (posix(relative(DESKTOP_SRC, resolved.id.split('?')[0])))];
+      return stub ? fileURLToPath(new URL(stub, import.meta.url)) : resolved;
+    },
+    /** @param {string} id */
+    async load(id) {
+      if (!id.startsWith(LAZY_CSS)) return null;
+      const css = (await readFile(id.slice(LAZY_CSS.length, -3), 'utf8')).replace(/\/\*[\s\S]*?\*\//g, '').replace(/\s+/g, ' ');
+      return `document.head.append(Object.assign(document.createElement('style'), { textContent: ${JSON.stringify(css)} }));`;
+    },
+  };
+}
+
 export default defineConfig({
   site: SITE,
   // English stays at the root so the existing URL keeps working; Russian lives
@@ -81,4 +136,12 @@ export default defineConfig({
   // the render-blocking request Lighthouse measured at up to a second on a
   // slow mobile connection.
   build: { inlineStylesheets: 'always' },
+  vite: {
+    plugins: [appOverlay()],
+    // The dev server serves the app's overlay sources from outside the site.
+    server: { fs: { allow: [SITE_ROOT, DESKTOP_SRC] } },
+    // Found only once the overlay loads; listed so the dev server does not
+    // re-bundle them mid-session and fail that first load.
+    optimizeDeps: { include: ['preact', 'preact/hooks', 'preact/compat', 'preact/compat/client', 'preact/jsx-runtime', 'preact/jsx-dev-runtime'] },
+  },
 });

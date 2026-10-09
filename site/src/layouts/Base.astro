@@ -1,13 +1,12 @@
 ---
 import '../styles/global.css';
-import onestLatin from '@fontsource-variable/onest/files/onest-latin-wght-normal.woff2?url';
-import onestCyrillic from '@fontsource-variable/onest/files/onest-cyrillic-wght-normal.woff2?url';
-import unboundedLatin from '@fontsource/unbounded/files/unbounded-latin-500-normal.woff2?url';
-import unboundedCyrillic from '@fontsource/unbounded/files/unbounded-cyrillic-500-normal.woff2?url';
+import golosLatin from '@fontsource-variable/golos-text/files/golos-text-latin-wght-normal.woff2?url';
+import golosCyrillic from '@fontsource-variable/golos-text/files/golos-text-cyrillic-wght-normal.woff2?url';
 import RuntimeStrings from '../components/RuntimeStrings.astro';
 import PageSchema from '../components/PageSchema.astro';
 import StructuredData from '../components/StructuredData.astro';
 import { OG_IMAGE } from '../data/product';
+import { THEME_HEAD_SCRIPT } from '../scripts/theme';
 import { locales, localePath } from '../i18n';
 import { translationsFor } from '../i18n/context';
 
@@ -37,7 +36,7 @@ const pageDescription = description ?? t.meta.description;
 // largest text first, and the body face. Every page paints spaces, digits,
 // punctuation and product names from the Latin subset; only Russian pages also
 // need the Cyrillic one. The monospace labels can wait for the stylesheet.
-const preloadFonts = locale === 'ru' ? [unboundedCyrillic, onestCyrillic, unboundedLatin, onestLatin] : [unboundedLatin, onestLatin];
+const preloadFonts = locale === 'ru' ? [golosCyrillic, golosLatin] : [golosLatin];
 ---
 
 <!doctype html>
@@ -45,7 +44,11 @@ const preloadFonts = locale === 'ru' ? [unboundedCyrillic, onestCyrillic, unboun
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#0c0b0a" />
+    {/* The browser's bar takes the page colour of each theme; scripts/theme.ts
+        points both at the reader's own choice when they make one. */}
+    <meta name="theme-color" content="#f2f3f0" media="(prefers-color-scheme: light)" data-theme="light" />
+    <meta name="theme-color" content="#111317" media="(prefers-color-scheme: dark)" data-theme="dark" />
+    <script is:inline set:html={THEME_HEAD_SCRIPT}></script>
 
     {/* The fonts are referenced from the stylesheet, so they are discovered only
         after the CSS parses. Preloading starts them alongside the CSS instead and
@@ -95,12 +98,13 @@ const preloadFonts = locale === 'ru' ? [unboundedCyrillic, onestCyrillic, unboun
 
     <link rel="icon" href="/brand/sotto-icon.png" type="image/png" />
 
-    {/* Without scripts, expose every screenshot and keep navigation available. */}
+    {/* Without scripts, list every feature scene and keep navigation available. */}
     <noscript>
       <style is:inline>
         .js-only, .menu-toggle { display: none !important; }
-        .screens { gap: 32px; }
-        .screens .screen-window { grid-area: auto; visibility: visible !important; opacity: 1 !important; pointer-events: auto !important; }
+        .caps { grid-template-columns: minmax(0, 1fr); }
+        .caps-panels { gap: 32px; }
+        .caps-panel { grid-area: auto; }
         @media (max-width: 900px) {
           .desktop-nav { display: flex; flex-wrap: wrap; gap: 8px 18px; }
           .header-inner { flex-wrap: wrap; }

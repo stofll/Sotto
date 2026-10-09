@@ -1,11 +1,15 @@
 # Response headers for the static assets, read by Cloudflare Workers at deploy
 # time. The file itself is never served.
 #
+# The one inline script, which applies a stored theme before the first paint,
+# is allowed by its hash; tests/headers.test.mjs keeps it in step with
+# src/scripts/theme.ts.
+#
 # Deliberately no `no-transform`: Cloudflare Web Analytics injects its beacon by
 # rewriting the HTML on the way out, and `no-transform` forbids exactly that.
 
 /*
-  Content-Security-Policy: default-src 'none'; script-src 'self' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; connect-src 'self' https://api.github.com https://cloudflareinsights.com; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
+  Content-Security-Policy: default-src 'none'; script-src 'self' 'sha256-GGcwd35U+ITdFMj+1W8J5f1ig6Ev9xJb9GqWLtwgIMA=' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; connect-src 'self' https://api.github.com https://cloudflareinsights.com; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
   Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin

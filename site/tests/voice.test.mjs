@@ -16,9 +16,10 @@ test('voice animation draws only visible canvases and repaints on entry or pause
     IntersectionObserver: globalThis.IntersectionObserver,
     requestAnimationFrame: globalThis.requestAnimationFrame,
     cancelAnimationFrame: globalThis.cancelAnimationFrame,
+    getComputedStyle: globalThis.getComputedStyle,
   };
-  // The two kinds the page renders: the hero line and the closing call's backdrop.
-  const kinds = ['stage', 'ambient'];
+  // Two copies of the closing call's backdrop, entering and leaving separately.
+  const kinds = ['ambient', 'ambient'];
   const paints = [0, 0];
   const strokes = [0, 0];
   const canvases = kinds.map((voiceWave, index) => {
@@ -34,14 +35,15 @@ test('voice animation draws only visible canvases and repaints on entry or pause
       getContext: () => context,
     };
   });
-  const text = { textContent: '' };
   const frames = new Map();
   const listeners = new Map();
   let observer;
   let reduced = false;
   let nextFrame = 1;
   try {
-    globalThis.document = { hidden: false };
+    globalThis.document = { hidden: false, documentElement: {} };
+    // The line is drawn in the canvas's resolved colour.
+    globalThis.getComputedStyle = () => ({ color: '#2d4fd6' });
     globalThis.window = {
       devicePixelRatio: 1,
       addEventListener: (name, callback) => listeners.set(name, callback),
@@ -58,11 +60,10 @@ test('voice animation draws only visible canvases and repaints on entry or pause
     globalThis.cancelAnimationFrame = (id) => frames.delete(id);
 
     const voice = initVoice({
-      all: (selector) => selector.startsWith('canvas') ? canvases : [text],
+      all: () => canvases,
       signal: new AbortController().signal,
       observe: (value) => value,
       reduced: () => reduced,
-      strings: { phrases: ['Test phrase'] },
     });
     const enter = (index) => observer.callback([{ target: canvases[index], isIntersecting: true }]);
     const leave = (index) => observer.callback([{ target: canvases[index], isIntersecting: false }]);

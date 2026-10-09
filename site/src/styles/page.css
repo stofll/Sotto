@@ -2,10 +2,10 @@
    Measure is capped so lines stay readable regardless of window width. */
 .prose-page { padding-block: clamp(64px, 9vw, 110px) 96px; }
 .prose { max-width: 62ch; }
-.prose h1 { font: 500 clamp(1.875rem, 4.2vw, 2.75rem)/1.12 var(--font-display); letter-spacing: -0.03em; text-wrap: balance; }
+.prose h1 { font: 600 clamp(1.875rem, 4.2vw, 2.75rem)/1.12 var(--font-body); letter-spacing: -0.03em; text-wrap: balance; }
 .prose-lede { margin-top: 20px; font-size: 1.0625rem; line-height: 1.7; color: var(--text-secondary); }
 .prose section { margin-top: 46px; }
-.prose h2 { font: 500 1.125rem/1.3 var(--font-display); letter-spacing: -0.02em; }
+.prose h2 { font: 600 1.125rem/1.3 var(--font-body); letter-spacing: -0.02em; }
 .prose p { margin-top: 14px; font-size: 0.9375rem; line-height: 1.8; color: var(--text-secondary); }
 .prose ul { margin-top: 14px; padding-left: 20px; }
 .prose li { margin-top: 9px; font-size: 0.9375rem; line-height: 1.8; color: var(--text-secondary); }
@@ -20,7 +20,7 @@
 .lost-mark-figure { margin: 0 0 44px; }
 /* The number is set in the heading face, one step larger than anything else on
    the site. */
-.lost-mark-digits { margin: 0; font: 500 clamp(5.5rem, 17vw, 10.5rem)/.95 var(--font-display); letter-spacing: -0.05em; color: var(--text); }
+.lost-mark-digits { margin: 0; font: 600 clamp(5.5rem, 17vw, 10.5rem)/.95 var(--font-body); letter-spacing: -0.05em; color: var(--text); }
 .lost-mark-digits > span { display: inline-block; opacity: 0; animation: lost-mark-settle 620ms var(--ease) forwards; }
 .lost-mark-digits > span:nth-child(2) { animation-delay: 110ms; }
 .lost-mark-digits > span:nth-child(3) { animation-delay: 220ms; }

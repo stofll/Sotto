@@ -1,5 +1,5 @@
-import type { LanguageGroup, ScreenId } from '../data/product';
-import type { TourStepId } from '../data/screen-tour';
+import type { CapabilityId } from '../data/capabilities';
+import type { LanguageGroup } from '../data/product';
 
 /**
  * The shape every locale must satisfy. Adding a string here makes TypeScript
@@ -14,6 +14,11 @@ export interface Card {
   text: string;
 }
 
+/** A label and its value in a scene's detail list. */
+export type Detail = [string, string];
+
+export type CleanupKind = 'term' | 'rule' | 'tic' | 'finish';
+
 export interface Dictionary {
   meta: {
     locale: Locale;
@@ -26,15 +31,13 @@ export interface Dictionary {
   };
   nav: Record<
     | 'home' | 'main' | 'mobile' | 'features' | 'models' | 'privacy' | 'faq' | 'start' | 'download'
-    | 'openMenu' | 'closeMenu' | 'footerNav' | 'skipToContent' | 'noscript' | 'language',
+    | 'openMenu' | 'closeMenu' | 'darkTheme' | 'footerNav' | 'skipToContent' | 'noscript' | 'language',
     string
   >;
   hero: {
     eyebrow: string;
     titleLine1: string;
     titleLine2: string;
-    /** Typed out one by one in the demo. */
-    phrases: string[];
     subtitle: string;
     /** Shown when the reader's system is unknown; leads to both platforms. */
     download: string;
@@ -45,44 +48,82 @@ export interface Dictionary {
     meta: string;
     /** `{version}` of the latest release, resolved at build time. */
     version: string;
+    /** The messenger on the hero's desktop. */
+    demo: {
+      app: string;
+      /** The app's menus in the macOS menu bar, after its name. */
+      menus: string[];
+      /** The clock in the Windows taskbar, above `date`. */
+      clock: string;
+      date: string;
+      /** The day and time in the macOS menu bar. */
+      menuClock: string;
+      search: string;
+      /** Name, last message, time and unread count; the first chat is the open one. */
+      chats: [string, string, string, number?][];
+      status: string;
+      /** The divider above today's messages. */
+      today: string;
+      messages: { text: string; time: string; mine?: boolean }[];
+      placeholder: string;
+      /** Raw words, as the overlay's live draft shows them. */
+      spoken: string;
+      /** The text pasted into the field. */
+      pasted: string;
+      /** One caption per step: before, during and after speaking. */
+      steps: [string, string, string];
+      /** `{n}` of `{total}` steps. */
+      stepCount: string;
+      processing: string;
+      /** The overlay's note after a paste, `{n}` characters; worded as the app words it. */
+      inserted: string;
+      /** The choice under the desktop; look and palette names as the app names them. */
+      tune: {
+        label: string;
+        auto: string;
+        looks: Record<'pill' | 'glow' | 'caps' | 'scope' | 'mini' | 'bead' | 'term', string>;
+        textLabel: string;
+        /** Why both: words while speaking depend on the model, not on the overlay. */
+        textHint: string;
+        streaming: string;
+        after: string;
+        paletteLabel: string;
+        palettes: Record<'graphite' | 'copper' | 'lagoon' | 'violet', string>;
+      };
+    };
+  };
+  apps: {
+    eyebrow: string;
+    title: string;
+    text: string;
+  };
+  cleanup: {
+    eyebrow: string;
+    title: string;
+    text: string;
+    replay: string;
+    beforeLabel: string;
+    afterLabel: string;
+    /** Plain text, or what was recognised, what came out (`''` when removed) and the step that did it. */
+    sample: (string | [string, string, CleanupKind])[];
+    rows: Record<CleanupKind, Detail>;
   };
   features: {
     eyebrow: string;
     title: string;
-    modesLabel: string;
-    toggle: string;
-    pushToTalk: string;
-    toggleHint: string;
-    pushToTalkHint: string;
-    /** Misheard word, then the replacement that fixes it. */
-    replacements: [string, string][];
-    /** Time and text of sample history entries. */
-    historyRows: [string, string][];
-    anywhere: Card;
-    offline: Card;
-    live: Card;
-    custom: Card;
-    files: Card;
-    history: Card;
-  };
-  screens: {
-    eyebrow: string;
-    title: string;
-    tablistLabel: string;
-    enlarge: string;
-    close: string;
-    captions: Record<ScreenId, string>;
-    tourPause: string;
-    tourPlay: string;
-    themeLabel: string;
-    themes: { dark: string; light: string };
-    previous: string;
-    next: string;
-    stepLabel: string;
-    imageError: string;
-    steps: Record<TourStepId, Card>;
-    tabs: Record<ScreenId, string>;
-    alt: Record<ScreenId, string>;
+    listLabel: string;
+    items: Record<CapabilityId, { name: string; text: string }>;
+    /** The words the overlay streams in the voice card. */
+    draft: string;
+    models: { title: string };
+    profile: {
+      name: string;
+      model: string;
+      address: string;
+      prompt: string;
+    };
+    history: { title: string; entries: [string, string][] };
+    file: { title: string; name: string; done: string; result: string; note: string };
   };
   models: {
     eyebrow: string;
@@ -99,6 +140,14 @@ export interface Dictionary {
     streaming: string;
     punctuation: string;
     note: string;
+    providers: {
+      title: string;
+      local: string;
+      llm: string;
+      cloud: string;
+      /** Closes the LLM and cloud lists. */
+      compatible: string;
+    };
   };
   privacy: {
     link: string;

@@ -38,7 +38,7 @@ Palettes are picked as colors: **Overlay color** is a caption with a row of rect
 
 The overlay color is independent of the interface color. Older configurations using the retired app-accent, coal or amber palettes migrate to copper when loaded. The migration is written to disk on the next successful settings save.
 
-**Interface color** now lives in **Settings → Advanced**. Four presets are shortcuts; the swatch with the rainbow ring opens the system color picker and any `#rrggbb` value is accepted. The companion tokens are derived from it: hover gets a lighter shade, and the text printed on the accent flips between near-black and near-white so a pale yellow and a navy both stay readable. The color is applied while the picker is being dragged and written to the configuration once the dragging settles.
+**Interface color** now lives in **Settings → Advanced**. It starts in blue, the website's own; orange, green and purple are the other presets, and an installation that already saved its color, the earlier orange default included, keeps it. The swatch with the rainbow ring opens the system color picker and any `#rrggbb` value is accepted. The companion tokens are derived from it: hover gets a lighter shade, and the text printed on the accent flips between near-black and near-white so a pale yellow and a navy both stay readable. The color is applied while the picker is being dragged and written to the configuration once the dragging settles.
 
 The interface color is stored in the configuration and applies to Settings. Accent text and keyboard focus outlines adjust to the current light or dark theme to stay readable. If saving fails, the interface returns to its saved color; select the color again to retry.
 

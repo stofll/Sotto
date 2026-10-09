@@ -1,7 +1,8 @@
 name: Site
 
 # Site edits avoid the app's three-OS matrix. Pull requests also run it for the
-# native model manifest, which its catalog checks compare the site against.
+# native model manifest, which its catalog checks compare the site against, and
+# for the app's overlay sources, which the hero builds.
 #
 # Deployment hangs off two triggers. Push to main, because the landing page
 # lives on its own cycle: a typo in the copy should not wait for the next
@@ -13,6 +14,13 @@ on:
     branches: [main]
     paths:
       - 'site/**'
+      # The hero builds the app's own overlay from these.
+      - 'desktop/src/overlay/**'
+      - 'desktop/src/pages/overlayEditor/templates.ts'
+      - 'desktop/src/pages/overlayEditor/simulatedVoice.ts'
+      - 'desktop/src/components/Icon.tsx'
+      - 'desktop/src/color.ts'
+      - 'desktop/tsconfig.json'
       - '.node-version'
       - '.github/workflows/site.yml'
   release:
@@ -24,6 +32,13 @@ on:
       # Catalog regression tests compare the site with the native manifest.
       # A merged manifest change alone does not alter the deployed page.
       - 'desktop/src-tauri/src/model.rs'
+      # The hero builds the app's own overlay from these.
+      - 'desktop/src/overlay/**'
+      - 'desktop/src/pages/overlayEditor/templates.ts'
+      - 'desktop/src/pages/overlayEditor/simulatedVoice.ts'
+      - 'desktop/src/components/Icon.tsx'
+      - 'desktop/src/color.ts'
+      - 'desktop/tsconfig.json'
       - '.node-version'
       - '.github/workflows/site.yml'
   workflow_dispatch:

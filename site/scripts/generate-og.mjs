@@ -17,22 +17,17 @@ import { ru } from '../src/i18n/ru.ts';
 
 const WIDTH = 1200;
 const HEIGHT = 630;
-const COLORS = { bg: '#0c0b0a', text: '#edeae4', secondary: '#a39b91', muted: '#867e74', accent: '#ff7a2f' };
+const COLORS = { bg: '#f2f3f0', text: '#14171a', secondary: '#4e555d', accent: '#2d4fd6' };
 
 const root = new URL('../', import.meta.url);
 const path = (relative) => fileURLToPath(new URL(relative, root));
-const font = async (file) => fontkit.create(await readFile(path(`node_modules/${file}`)));
+/** Golos Text at one weight. fontkit cannot instance a variable WOFF2, so the card uses the static cuts. */
+const font = async (file) => fontkit.create(await readFile(path(`node_modules/@fontsource/golos-text/files/${file}`)));
 
-// Each family ships as a Latin and a Cyrillic file; a character is drawn from
+// The family ships as a Latin and a Cyrillic file; a character is drawn from
 // whichever of the pair has it.
-const display = [
-  await font('@fontsource/unbounded/files/unbounded-latin-500-normal.woff2'),
-  await font('@fontsource/unbounded/files/unbounded-cyrillic-500-normal.woff2'),
-];
-const body = [
-  await font('@fontsource-variable/onest/files/onest-latin-wght-normal.woff2'),
-  await font('@fontsource-variable/onest/files/onest-cyrillic-wght-normal.woff2'),
-];
+const display = [await font('golos-text-latin-600-normal.woff2'), await font('golos-text-cyrillic-600-normal.woff2')];
+const body = [await font('golos-text-latin-400-normal.woff2'), await font('golos-text-cyrillic-400-normal.woff2')];
 
 /** One line of text as a single SVG path, starting at (x, baseline). */
 const outline = (fonts, text, x, baseline, size, tracking = 0) => {
@@ -69,46 +64,28 @@ const wrap = (fonts, text, size, maxWidth) => {
 
 const icon = await readFile(path('public/brand/sotto-icon.png'));
 
-/** The voice line from the hero, still: seven detuned strands trailing into a dot. */
-const wave = () => {
-  const mid = 520;
-  const split = WIDTH - 150;
-  const strands = [];
-  for (let strand = 0; strand < 7; strand += 1) {
-    const points = [];
-    for (let x = 0; x <= split; x += 6) {
-      const u = x / split;
-      const taper = Math.pow(u, 1.4) * 44;
-      const y = mid + taper * (0.6 * Math.sin(x * 0.012 + 2.1 + strand * 1.1) + 0.4 * Math.sin(x * 0.031 - 3.4 + strand * 0.6));
-      points.push(`${x},${y.toFixed(1)}`);
-    }
-    strands.push(`<polyline points="${points.join(' ')}" fill="none" stroke="url(#fade)" stroke-width="${strand ? 1.2 : 2.4}"/>`);
-  }
-  return `${strands.join('')}<circle cx="${split}" cy="${mid}" r="16" fill="${COLORS.accent}" fill-opacity=".22"/><circle cx="${split}" cy="${mid}" r="7" fill="${COLORS.accent}"/>`;
-};
+// The hero's wallpaper as a band along the bottom. librsvg cannot read WebP, so it is passed as PNG.
+const BAND = 150;
+// The band is cut where the far ridges meet the mist, so it reads as a horizon rather than a dark stripe.
+const wallpaper = await sharp(path('src/assets/wallpaper/hills-2400.webp'))
+  .extract({ left: 0, top: 860, width: 2400, height: 300 }).resize(WIDTH, BAND).png().toBuffer();
 
 const render = async (locale, t) => {
   const left = 88;
-  const word = outline(display, 'sotto', left + 76, 124, 34);
-  const line1 = outline(display, t.hero.titleLine1, left, 258, 76, -0.035);
-  const line2 = outline(display, t.hero.titleLine2, left, 350, 76, -0.035);
-  const subtitle = wrap(body, t.meta.ogDescription, 30, WIDTH - left * 2)
-    .map((text, index) => outline(body, text, left, 424 + index * 42, 30).d);
+  const word = outline(display, 'sotto', left + 70, 122, 32, -0.02);
+  const line1 = outline(display, t.hero.titleLine1, left, 246, 80, -0.04);
+  const line2 = outline(display, t.hero.titleLine2, left, 330, 80, -0.04);
+  const subtitle = wrap(body, t.meta.ogDescription, 28, WIDTH - left * 2)
+    .map((text, index) => outline(body, text, left, 400 + index * 40, 28).d);
 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}">
-  <defs>
-    <linearGradient id="fade" x1="0" x2="1" y1="0" y2="0">
-      <stop offset="0" stop-color="${COLORS.accent}" stop-opacity="0"/>
-      <stop offset="1" stop-color="${COLORS.accent}" stop-opacity="1"/>
-    </linearGradient>
-  </defs>
   <rect width="${WIDTH}" height="${HEIGHT}" fill="${COLORS.bg}"/>
-  <image href="data:image/png;base64,${icon.toString('base64')}" x="${left}" y="88" width="52" height="52"/>
+  <image href="data:image/png;base64,${icon.toString('base64')}" x="${left}" y="90" width="48" height="48"/>
   <path d="${word.d}" fill="${COLORS.text}"/>
   <path d="${line1.d}" fill="${COLORS.text}"/>
   <path d="${line2.d}" fill="${COLORS.accent}"/>
   <path d="${subtitle.join('')}" fill="${COLORS.secondary}"/>
-  ${wave()}
+  <image href="data:image/png;base64,${wallpaper.toString('base64')}" x="0" y="${HEIGHT - BAND}" width="${WIDTH}" height="${BAND}"/>
 </svg>`;
 
   const png = await sharp(Buffer.from(svg)).png({ compressionLevel: 9 }).toBuffer();

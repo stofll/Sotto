@@ -1,0 +1,47 @@
+<!doctype html>
+<!-- Draws the wallpaper in src/assets/wallpaper/. Open in a browser and call draw(2400, 1500, 4242); it returns a PNG data URL. See "Brand and colour" in the README. -->
+<canvas id="c"></canvas><script>
+// A misty layered landscape: sky, a low sun, ridges fading with distance, grain.
+window.draw = (W, H, seed0) => {
+  const c = document.getElementById('c'); c.width = W; c.height = H;
+  const x = c.getContext('2d');
+  let seed = seed0;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const sky = x.createLinearGradient(0, 0, 0, H * 0.72);
+  sky.addColorStop(0, '#7F97BB'); sky.addColorStop(0.45, '#AFC0D6'); sky.addColorStop(0.8, '#E3E1DA'); sky.addColorStop(1, '#EFE8DC');
+  x.fillStyle = sky; x.fillRect(0, 0, W, H);
+  const sun = x.createRadialGradient(W * 0.68, H * 0.56, 0, W * 0.68, H * 0.56, W * 0.45);
+  sun.addColorStop(0, 'rgba(255,246,228,.95)'); sun.addColorStop(0.25, 'rgba(255,240,220,.45)'); sun.addColorStop(1, 'rgba(255,240,220,0)');
+  x.fillStyle = sun; x.fillRect(0, 0, W, H);
+  // Thin cloud streaks.
+  x.save(); x.filter = `blur(${W / 90}px)`;
+  for (let i = 0; i < 7; i++) { x.fillStyle = `rgba(255,255,255,${0.18 + rnd() * 0.2})`; x.beginPath(); x.ellipse(rnd() * W, H * (0.12 + rnd() * 0.32), W * (0.12 + rnd() * 0.2), H * (0.012 + rnd() * 0.02), 0, 0, Math.PI * 2); x.fill(); }
+  x.restore();
+  const ridge = (base, amp, color, haze, blur, freq) => {
+    const ph = [rnd() * 9, rnd() * 9, rnd() * 9];
+    x.save(); if (blur) x.filter = `blur(${blur}px)`;
+    const g = x.createLinearGradient(0, H * (base - amp), 0, H);
+    g.addColorStop(0, color); g.addColorStop(1, haze);
+    x.fillStyle = g; x.beginPath(); x.moveTo(0, H);
+    for (let px = 0; px <= W; px += 4) {
+      const u = px / W;
+      const y = base - amp * (0.55 * Math.sin(u * freq + ph[0]) + 0.3 * Math.sin(u * freq * 2.3 + ph[1]) + 0.15 * Math.sin(u * freq * 5.1 + ph[2]));
+      x.lineTo(px, H * y);
+    }
+    x.lineTo(W, H); x.closePath(); x.fill(); x.restore();
+  };
+  ridge(0.62, 0.05, '#B9C5D2', '#D9DDDD', W / 600, 5);
+  ridge(0.68, 0.06, '#98AABD', '#C3CBD0', W / 900, 4);
+  // Mist between the ridges.
+  const mist = x.createLinearGradient(0, H * 0.64, 0, H * 0.8);
+  mist.addColorStop(0, 'rgba(238,236,230,0)'); mist.addColorStop(0.5, 'rgba(238,236,230,.55)'); mist.addColorStop(1, 'rgba(238,236,230,0)');
+  x.fillStyle = mist; x.fillRect(0, H * 0.6, W, H * 0.25);
+  ridge(0.77, 0.07, '#6F859C', '#8C9AA6', 0, 3.2);
+  ridge(0.88, 0.08, '#4A5E73', '#56677A', 0, 2.4);
+  ridge(0.97, 0.06, '#2F3D4D', '#2A3542', 0, 1.8);
+  const img = x.getImageData(0, 0, W, H), d = img.data;
+  for (let i = 0; i < d.length; i += 4) { const n = (rnd() - 0.5) * 10; d[i] += n; d[i + 1] += n; d[i + 2] += n; }
+  x.putImageData(img, 0, 0);
+  return c.toDataURL('image/png');
+};
+</script>
