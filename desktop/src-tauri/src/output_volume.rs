@@ -107,6 +107,7 @@ struct Ducked {
     at: u64,
 }
 
+#[cfg_attr(not(windows), allow(dead_code))]
 fn now_secs() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
