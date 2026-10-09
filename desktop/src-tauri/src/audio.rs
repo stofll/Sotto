@@ -162,6 +162,10 @@ impl AudioRecorder {
     /// not a recording limit; the vector grows for longer sessions.
     const CAPACITY_SECONDS: usize = 60 * 5;
 
+    fn buffer_capacity(&self) -> usize {
+        (self.config.sample_rate_target as usize).saturating_mul(Self::CAPACITY_SECONDS)
+    }
+
     /// Create a new `AudioRecorder`. The default input device is queried
     /// lazily via `start()`, so a missing or broken device does not prevent
     /// `new()` from succeeding.
@@ -185,9 +189,7 @@ impl AudioRecorder {
             resampler: Arc::new(Mutex::new(None)),
             capture_error: Arc::new(Mutex::new(None)),
             first_frame_ms: Arc::new(AtomicU64::new(u64::MAX)),
-            audio_buffer: Arc::new(Mutex::new(Vec::with_capacity(
-                (config.sample_rate_target as usize).saturating_mul(Self::CAPACITY_SECONDS),
-            ))),
+            audio_buffer: Arc::new(Mutex::new(Vec::new())),
             level_ema_bits: Arc::new(AtomicU32::new(0.0_f32.to_bits())),
             live_tap: Arc::new(Mutex::new(None)),
             tap_sample_rate: AtomicU32::new(0),
@@ -252,7 +254,12 @@ impl AudioRecorder {
 
         // Clear stale samples from a previous session so that `stop()`
         // either returns None (empty) or returns ONLY this session's audio.
-        crate::mutex_recover::lock(&self.audio_buffer).clear();
+        // `stop()` hands the previous buffer away with its capacity, so it is
+        // reserved again here rather than regrown in the capture callback.
+        let mut buffer = crate::mutex_recover::lock(&self.audio_buffer);
+        buffer.clear();
+        buffer.reserve(self.buffer_capacity());
+        drop(buffer);
 
         // Arc references for the callback closure. The callback MUST be
         // `'static + Send` for cpal's real-time thread. Each branch of
