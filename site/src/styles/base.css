@@ -79,9 +79,8 @@ canvas[data-voice-wave] { color: var(--accent-text); }
 .segmented > :is(a, button):not(.is-current, [aria-pressed="true"], [aria-selected="true"]):hover { color: var(--text); }
 .segmented > .is-current, .segmented > [aria-pressed="true"], .segmented > [aria-selected="true"] { background: var(--text); color: var(--bg); }
 
-.brand { display: inline-flex; align-items: center; gap: 10px; color: var(--text); font: 600 1.0625rem/1 var(--font-body); letter-spacing: -0.02em; }
+.brand { display: inline-flex; align-items: center; color: var(--text); font: 600 1.0625rem/1 var(--font-body); letter-spacing: -0.02em; }
 .brand:hover { color: var(--text); }
-.brand-icon { width: 28px; height: 28px; border-radius: 7px; }
 
 /* Section scaffolding shared by every block on the landing page. */
 .section { padding-bottom: var(--section-gap); scroll-margin-top: 70px; }

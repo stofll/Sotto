@@ -1,6 +1,6 @@
 ---
 /**
- * The plated app icon and the lowercase wordmark, as the app itself shows them.
+ * The product name as a wordmark.
  * With `href` it is the home link, whose accessible name starts with the
  * visible word so voice control can target what it sees; without, it is
  * decoration.
@@ -15,12 +15,10 @@ const { href, label } = Astro.props;
 
 {href ? (
   <a class="brand" href={href}>
-    <img class="brand-icon" src="/brand/sotto-icon-56.webp" alt="" width="28" height="28" />
-    <span>sotto</span>{label && <span class="sr-only">, {label}</span>}
+    <span>Sotto</span>{label && <span class="sr-only">, {label}</span>}
   </a>
 ) : (
   <span class="brand" aria-hidden="true">
-    <img class="brand-icon" src="/brand/sotto-icon-56.webp" alt="" width="28" height="28" />
-    <span>sotto</span>
+    <span>Sotto</span>
   </span>
 )}

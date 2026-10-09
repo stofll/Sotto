@@ -1,4 +1,4 @@
-.hero { display: flex; flex-direction: column; gap: 22px; padding-top: clamp(48px, 8vw, 96px); container-type: inline-size; }
+.hero { display: flex; flex-direction: column; gap: 22px; padding-top: clamp(32px, 5vw, 56px); container-type: inline-size; }
 .hero-title { font: 600 clamp(1.75rem, 5.6cqi, 4.5rem)/1.08 var(--font-body); letter-spacing: -0.035em; }
 .hero-title > span { color: var(--accent-text); }
 /* Both halves share one line where they fit; the Russian headline is the longer one. */
