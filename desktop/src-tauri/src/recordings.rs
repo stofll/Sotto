@@ -217,10 +217,12 @@ impl Pending {
         pending.insert(session_id, saving);
     }
 
-    /// The file name for the dictation's history entry, once written.
-    pub async fn take(&self, session_id: u64) -> Option<String> {
-        let saving = crate::mutex_recover::lock(&self.0).remove(&session_id)?;
-        saving.await.ok().flatten()
+    /// Claim the dictation's recording for its history entry; the future
+    /// yields the file name once written. Claimed on the call, not on the
+    /// first poll, so a `release` that follows no longer finds it.
+    pub fn take(&self, session_id: u64) -> impl std::future::Future<Output = Option<String>> {
+        let saving = crate::mutex_recover::lock(&self.0).remove(&session_id);
+        async move { saving?.await.ok().flatten() }
     }
 
     /// The dictation ended without a history entry. A cancelled one must not
@@ -364,6 +366,18 @@ mod tests {
         }
         assert_eq!(block_on(pending.take(0)), None);
         assert!(block_on(pending.take(MAX_PENDING as u64 + 3)).is_some());
+    }
+
+    #[test]
+    fn a_recording_claimed_before_the_paste_survives_its_release() {
+        let pending = Pending::default();
+        pending.put(1, written("1000-1.wav"));
+        let name = pending.take(1);
+        pending.release(1, false);
+        assert_eq!(
+            tauri::async_runtime::block_on(name).as_deref(),
+            Some("1000-1.wav")
+        );
     }
 
     #[test]
