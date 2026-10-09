@@ -89,7 +89,7 @@ Cloud speech recognition is also available through configured provider profiles.
 
 ### Transcribe recordings
 
-Open **LLM processing → Process the text**, then choose or drop an audio file. For local file transcription, select a Whisper model; Sherpa-ONNX models support dictation but do not transcribe files. A configured cloud speech provider can also transcribe files when cloud recognition is selected.
+Open **LLM processing → Process the text**, then choose or drop an audio file. For local file transcription, select a Whisper, GigaAM, Parakeet Ultra or Qwen3 model; the other Sherpa-ONNX models support dictation but do not transcribe files. A configured cloud speech provider can also transcribe files when cloud recognition is selected.
 
 File transcription stays in that panel, separate from dictation history and automatic pasting. It does not require an LLM connection.
 
