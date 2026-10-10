@@ -1317,26 +1317,19 @@ pub fn model_engine(model_id: &str) -> Result<ModelEngine, String> {
     }
 }
 
-/// Whether the model decodes a long recording in bounded fragments. Whisper
-/// windows audio itself; GigaAM, Parakeet Ultra and Qwen3 are split by Sotto.
-/// The other Sherpa models take the whole buffer in one pass, which degrades
-/// badly past dictation length, so file transcription refuses them.
-pub fn handles_long_audio(model_id: &str) -> bool {
-    match model_engine(model_id) {
-        Ok(ModelEngine::Whisper | ModelEngine::SherpaNemoCtc) => true,
-        Ok(_) => segments_with_context(model_id),
-        Err(_) => false,
+/// The longest fragment an offline Sherpa model decodes in one pass. Parakeet
+/// punctuates and capitalises only with the sentence around it, and a fragment
+/// that starts mid-sentence comes back as bare lowercase words, so v3 and Ultra
+/// get fewer seams. Their attention grows quadratically: on the reference CPU
+/// two minutes add about 0.3 GB over the loaded model, five minutes 1.4–2 GB,
+/// and TDT aborts the whole process on ten. TDT v2 drops repeated phrases from
+/// a two-minute window, so it stays with the others at the short-utterance
+/// length they were trained on.
+pub fn fragment_seconds(model_id: &str) -> usize {
+    match normalize_model_id(model_id) {
+        Ok("parakeet-tdt-v3" | "parakeet-ultra") => 120,
+        _ => crate::vad::FRAGMENT_SECONDS,
     }
-}
-
-/// The offline models whose fragments are decoded with language and hotword
-/// context rather than through the GigaAM path.
-pub fn segments_with_context(model_id: &str) -> bool {
-    // Normalized like `model_engine`, so both answer for the same spelling.
-    matches!(
-        normalize_model_id(model_id),
-        Ok("parakeet-ultra" | "qwen3-asr-0.6b")
-    )
 }
 
 /// Explain the model's restriction in the UI language. It lives next to the
@@ -1909,28 +1902,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn file_transcription_accepts_only_models_that_split_long_audio() {
-        assert!(handles_long_audio("tiny"));
-        assert!(!handles_long_audio("not a catalog model"));
+    fn only_parakeet_v3_and_ultra_take_long_fragments() {
+        let short = crate::vad::FRAGMENT_SECONDS;
+        for id in ["tiny", "not a catalog model"] {
+            assert_eq!(fragment_seconds(id), short, "{id}");
+        }
         #[cfg(any(windows, target_os = "macos"))]
         {
-            for id in [
-                "gigaam-v3",
-                "gigaam-multilingual",
-                "parakeet-ultra",
-                "qwen3-asr-0.6b",
-                // Spelled the way the catalogue lookup accepts it.
-                " Parakeet-Ultra ",
-            ] {
-                assert!(handles_long_audio(id), "{id}");
+            for id in ["parakeet-tdt-v3", " Parakeet-Ultra "] {
+                assert!(fragment_seconds(id) > short, "{id}");
             }
             for id in [
-                "parakeet-tdt-v3",
+                "parakeet-tdt-v2-en",
+                "parakeet-streaming-en",
                 "zipformer-ru",
-                "nemotron-streaming",
-                "sense-voice",
+                "qwen3-asr-0.6b",
+                "canary-180m-flash",
             ] {
-                assert!(!handles_long_audio(id), "{id}");
+                assert_eq!(fragment_seconds(id), short, "{id}");
             }
         }
     }

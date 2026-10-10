@@ -107,8 +107,9 @@ async fn expanded_catalog_recognizes_speech_and_reuses_models_after_cancellation
         let start = std::time::Instant::now();
         let mut recognizer = SherpaRecognizer::open(engine, &files, 4).unwrap();
         eprintln!("{id} load: {:.2}s", start.elapsed().as_secs_f64());
+        let fragment_seconds = model::fragment_seconds(id);
         let baseline = recognizer
-            .transcribe_segmented(speech, Some("ru"), None, || false)
+            .transcribe_segmented(speech, fragment_seconds, Some("ru"), None, || false)
             .unwrap();
         eprintln!("{id} RU: {baseline}");
         assert!(
@@ -120,7 +121,13 @@ async fn expanded_catalog_recognizes_speech_and_reuses_models_after_cancellation
             "{id}: {baseline}"
         );
         let en = recognizer
-            .transcribe_segmented(&english, Some("en"), Some("Americans, country"), || false)
+            .transcribe_segmented(
+                &english,
+                fragment_seconds,
+                Some("en"),
+                Some("Americans, country"),
+                || false,
+            )
             .unwrap();
         eprintln!("{id} EN: {en}");
         assert!(en.to_lowercase().contains("country"), "{id}: {en}");
@@ -140,9 +147,10 @@ async fn expanded_catalog_recognizes_speech_and_reuses_models_after_cancellation
                 long.extend(std::iter::repeat_n(0.0, 8_000));
             }
         }
-        assert!(long.len() > 25 * 16_000);
+        // Long enough to cross a fragment boundary of this model.
+        assert!(long.len() > fragment_seconds * 16_000);
         let result = recognizer
-            .transcribe_segmented(&long, None, None, || false)
+            .transcribe_segmented(&long, fragment_seconds, None, None, || false)
             .unwrap();
         if id == "qwen3-asr-0.6b" {
             let result = result.to_lowercase();
@@ -159,7 +167,7 @@ async fn expanded_catalog_recognizes_speech_and_reuses_models_after_cancellation
         // Cancellation immediately after the first decode must discard its prefix.
         let checks = std::cell::Cell::new(0);
         assert!(recognizer
-            .transcribe_segmented(&long, Some("ru"), None, || {
+            .transcribe_segmented(&long, fragment_seconds, Some("ru"), None, || {
                 checks.set(checks.get() + 1);
                 checks.get() >= 3
             })
@@ -167,21 +175,27 @@ async fn expanded_catalog_recognizes_speech_and_reuses_models_after_cancellation
             .contains("cancelled"));
         assert_eq!(
             recognizer
-                .transcribe_segmented(speech, Some("ru"), None, || false)
+                .transcribe_segmented(speech, fragment_seconds, Some("ru"), None, || false)
                 .unwrap(),
             baseline
         );
         if id == "qwen3-asr-0.6b" {
             let hints = "Санкт-Петербург, ".repeat(1000);
             let text = recognizer
-                .transcribe_segmented(speech, Some("ru"), Some(&hints), || false)
+                .transcribe_segmented(speech, fragment_seconds, Some("ru"), Some(&hints), || false)
                 .unwrap();
             assert!(
                 text.to_lowercase().contains(last_word),
                 "large hints lost audio: {text}"
             );
             assert!(recognizer
-                .transcribe_segmented(&vec![0.0; 16_000], None, Some("OpenAI"), || false)
+                .transcribe_segmented(
+                    &vec![0.0; 16_000],
+                    fragment_seconds,
+                    None,
+                    Some("OpenAI"),
+                    || false
+                )
                 .unwrap()
                 .is_empty());
         }
@@ -189,7 +203,7 @@ async fn expanded_catalog_recognizes_speech_and_reuses_models_after_cancellation
         let mut reopened = SherpaRecognizer::open(engine, &files, 4).unwrap();
         assert_eq!(
             reopened
-                .transcribe_segmented(speech, Some("ru"), None, || false)
+                .transcribe_segmented(speech, fragment_seconds, Some("ru"), None, || false)
                 .unwrap(),
             baseline
         );
