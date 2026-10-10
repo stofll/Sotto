@@ -40,11 +40,15 @@ const MIN_SAVING_SECONDS: f32 = 1.0;
 
 const SAMPLE_RATE: usize = 16_000;
 
-/// GigaAM's short-form path is intended for at most 25 seconds. Keep every
-/// sample exactly once, preferring the middle of a pause near 20 seconds.
-pub(crate) fn recognition_segments(samples: &[f32]) -> Vec<Range<usize>> {
-    const MAX: usize = 25 * SAMPLE_RATE;
-    if samples.len() <= MAX {
+/// GigaAM's short-form path is intended for at most 25 seconds, and so are
+/// most offline models' training utterances.
+pub(crate) const FRAGMENT_SECONDS: usize = 25;
+
+/// Split a recording into fragments of at most `max_seconds`. Keep every
+/// sample exactly once, preferring the middle of a pause near four fifths of
+/// the limit.
+pub(crate) fn recognition_segments(samples: &[f32], max_seconds: usize) -> Vec<Range<usize>> {
+    if samples.len() <= max_seconds * SAMPLE_RATE {
         return std::iter::once(0..samples.len()).collect();
     }
     let mut detector = earshot::Detector::default_boxed();
@@ -55,20 +59,19 @@ pub(crate) fn recognition_segments(samples: &[f32]) -> Vec<Range<usize>> {
             (detector.predict_f32(frame) > SPEECH_THRESHOLD, energy)
         })
         .collect();
-    segment_ranges(samples.len(), &frames)
+    segment_ranges(samples.len(), &frames, max_seconds)
 }
 
-fn segment_ranges(length: usize, frames: &[(bool, f64)]) -> Vec<Range<usize>> {
-    const MIN: usize = 15 * SAMPLE_RATE;
-    const TARGET: usize = 20 * SAMPLE_RATE;
-    const MAX: usize = 25 * SAMPLE_RATE;
+fn segment_ranges(length: usize, frames: &[(bool, f64)], max_seconds: usize) -> Vec<Range<usize>> {
     const MIN_PAUSE_FRAMES: usize = 16; // 256 ms, leaving room on both sides.
+    let max_len = max_seconds * SAMPLE_RATE;
+    let (min_len, target_len) = (max_len * 3 / 5, max_len * 4 / 5);
     let mut ranges = Vec::new();
     let mut start = 0;
-    while length - start > MAX {
-        let low = (start + MIN).div_ceil(FRAME);
-        let high = ((start + MAX) / FRAME).min(frames.len());
-        let target = (start + TARGET) / FRAME;
+    while length - start > max_len {
+        let low = (start + min_len).div_ceil(FRAME);
+        let high = ((start + max_len) / FRAME).min(frames.len());
+        let target = (start + target_len) / FRAME;
         let mut pause_start = low;
         let mut best_pause = None;
         for (offset, speech) in frames[low..high]
@@ -290,7 +293,7 @@ mod tests {
                 *frame = (false, 0.0);
             }
         }
-        let ranges = segment_ranges(length, &frames);
+        let ranges = segment_ranges(length, &frames, FRAGMENT_SECONDS);
         assert_eq!(ranges.len(), 4);
         assert_eq!(ranges.first().unwrap().start, 0);
         assert_eq!(ranges.last().unwrap().end, length);
@@ -303,23 +306,49 @@ mod tests {
     }
 
     #[test]
-    fn continuous_speech_and_silence_have_bounded_fragments_and_keep_the_tail() {
-        for speech in [true, false] {
-            for seconds in [26, 51, 121, 600] {
-                let length = seconds * SAMPLE_RATE + 17;
-                let frames = vec![(speech, 1.0); length / FRAME];
-                let ranges = segment_ranges(length, &frames);
-                assert!(ranges
-                    .iter()
-                    .all(|r| !r.is_empty() && r.len() <= 25 * SAMPLE_RATE));
-                assert_eq!(ranges.iter().map(Range::len).sum::<usize>(), length);
-                assert_eq!(ranges.last().unwrap().end, length);
+    fn a_longer_limit_cuts_at_the_pause_nearest_four_fifths() {
+        let length = 250 * SAMPLE_RATE;
+        let mut frames = vec![(true, 1.0); length / FRAME];
+        for second in [80, 95, 190] {
+            for frame in
+                &mut frames[second * SAMPLE_RATE / FRAME..(second + 1) * SAMPLE_RATE / FRAME]
+            {
+                *frame = (false, 0.0);
             }
         }
-        for length in [0, 1, 25 * SAMPLE_RATE] {
-            let ranges = recognition_segments(&vec![0.0; length]);
-            assert_eq!(ranges.len(), 1);
-            assert_eq!(ranges[0], 0..length);
+        let ranges = segment_ranges(length, &frames, 120);
+        let cuts: Vec<usize> = ranges[..ranges.len() - 1]
+            .iter()
+            .map(|range| range.end / SAMPLE_RATE)
+            .collect();
+        assert_eq!(cuts, [95, 190]);
+        assert_eq!(ranges.iter().map(Range::len).sum::<usize>(), length);
+    }
+
+    #[test]
+    fn continuous_speech_and_silence_have_bounded_fragments_and_keep_the_tail() {
+        for (limit, lengths) in [
+            (FRAGMENT_SECONDS, [26, 51, 121, 600]),
+            (120, [121, 239, 600, 3600]),
+        ] {
+            for speech in [true, false] {
+                for seconds in lengths {
+                    let length = seconds * SAMPLE_RATE + 17;
+                    let frames = vec![(speech, 1.0); length / FRAME];
+                    let ranges = segment_ranges(length, &frames, limit);
+                    assert!(ranges
+                        .iter()
+                        .all(|r| !r.is_empty() && r.len() <= limit * SAMPLE_RATE));
+                    assert!(ranges.len() > 1);
+                    assert_eq!(ranges.iter().map(Range::len).sum::<usize>(), length);
+                    assert_eq!(ranges.last().unwrap().end, length);
+                }
+            }
+            for length in [0, 1, limit * SAMPLE_RATE] {
+                let ranges = recognition_segments(&vec![0.0; length], limit);
+                assert_eq!(ranges.len(), 1);
+                assert_eq!(ranges[0], 0..length);
+            }
         }
     }
 

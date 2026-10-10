@@ -850,9 +850,17 @@ fn decode_sherpa(
             == Some(crate::model::ModelEngine::SherpaNemoCtc)
         {
             recognizer.transcribe_gigaam(audio, || job.cancelled())
-        } else if model_id.is_some_and(crate::model::segments_with_context) {
-            recognizer.transcribe_segmented(audio, requested, initial_prompt, || job.cancelled())
-        } else if let Some(rest) = preview_rest.filter(|_| recognizer.is_streaming()) {
+        } else if !recognizer.is_streaming() {
+            let fragment_seconds =
+                model_id.map_or(crate::vad::FRAGMENT_SECONDS, crate::model::fragment_seconds);
+            recognizer.transcribe_segmented(
+                audio,
+                fragment_seconds,
+                requested,
+                initial_prompt,
+                || job.cancelled(),
+            )
+        } else if let Some(rest) = preview_rest {
             log::info!(
                 "session {}: final pass continues the live preview, {} of {} samples left",
                 job.session_id,
@@ -861,6 +869,7 @@ fn decode_sherpa(
             );
             recognizer.finish_preview(16_000, rest, || job.cancelled())
         } else {
+            // A streaming model carries context across any length itself.
             recognizer.transcribe_unless(16_000, audio, || job.cancelled())
         }
     })) {
