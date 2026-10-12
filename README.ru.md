@@ -14,7 +14,7 @@ Sotto превращает речь в текст и вставляет его �
 [![macOS](https://img.shields.io/badge/macOS-Apple%20Silicon-0b7285?style=flat-square)](docs/platforms.md)
 [![License](https://img.shields.io/github/license/stofll/Sotto?style=flat-square&color=0b7285)](LICENSE)
 
-**[Скачать Sotto](https://github.com/stofll/Sotto/releases/latest)** · [Возможности](#возможности) · [Конструктор оверлея](#соберите-свой-оверлей) · [Начало работы](#начало-работы) · [Документация](docs/README.md)
+**[Скачать Sotto](https://github.com/stofll/Sotto/releases/latest)** · [Сайт](https://sotto.today/ru/) · [Возможности](#возможности) · [Конструктор оверлея](#соберите-свой-оверлей) · [Начало работы](#начало-работы) · [Документация](docs/README.md)
 
 [English](README.md) · Русский
 

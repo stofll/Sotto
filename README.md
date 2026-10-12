@@ -14,7 +14,7 @@ Sotto turns speech into text and inserts it into your active app. Dictate messag
 [![macOS](https://img.shields.io/badge/macOS-Apple%20Silicon-0b7285?style=flat-square)](docs/platforms.md)
 [![License](https://img.shields.io/github/license/stofll/Sotto?style=flat-square&color=0b7285)](LICENSE)
 
-**[Download Sotto](https://github.com/stofll/Sotto/releases/latest)** · [Features](#features) · [Overlay constructor](#build-your-own-overlay) · [Get started](#get-started) · [Documentation](docs/README.md)
+**[Download Sotto](https://github.com/stofll/Sotto/releases/latest)** · [Website](https://sotto.today/) · [Features](#features) · [Overlay constructor](#build-your-own-overlay) · [Get started](#get-started) · [Documentation](docs/README.md)
 
 English · [Русский](README.ru.md)
 
