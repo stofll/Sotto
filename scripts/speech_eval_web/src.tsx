@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Card, CardHead } from "../../desktop/src/components/Shell";
-import { setLocale, t, useLocale, type Locale } from "../../desktop/src/i18n";
+import { LOCALE_LABELS, setLocale, useLocale, type Locale } from "../../desktop/src/i18n";
+import { t } from "./i18n";
 import "../../desktop/src/styles.css";
 import "./style.css";
 
@@ -138,7 +139,7 @@ function App() {
         <p className="page-sub">{t("Полный текст, короткие записи, только нужные исправления.")}</p></div>
       <div className="page-actions">
         <select className="field review-small" aria-label={t("Язык интерфейса")} value={locale} onChange={e => changeLocale(e.target.value as Locale)}>
-          <option value="ru">{t("Русский")}</option><option value="en">English</option>
+          <option value="ru">{LOCALE_LABELS.ru}</option><option value="en">{LOCALE_LABELS.en}</option>
         </select>
         <button className="btn btn--ghost" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>{theme === "dark" ? t("Светлая тема") : t("Тёмная тема")}</button>
       </div>

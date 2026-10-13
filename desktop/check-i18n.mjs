@@ -34,7 +34,7 @@ function walkFiles(dir, out = []) {
 const used = new Set();
 const bare = [];
 
-for (const file of [root, "../scripts/speech_eval_web"].flatMap(dir => walkFiles(dir))) {
+for (const file of walkFiles(root)) {
   const rel = path.relative(root, file).replace(/\\/g, "/");
   if (rel.startsWith("i18n/")) continue;
   const speechDomain = SPEECH_DOMAIN_FILES.has(rel);

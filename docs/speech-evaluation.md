@@ -104,7 +104,7 @@ Build the separate page with the repository's Node version and already installed
 pnpm exec tsc -p ../scripts/speech_eval_web/tsconfig.json
 pnpm exec vite build --config ../scripts/speech_eval_web/vite.config.mjs --configLoader native
 Push-Location ../scripts/speech_eval_web
-node ../../desktop/node_modules/eslint/bin/eslint.js --config eslint.config.mjs src.tsx --max-warnings 0
+node ../../desktop/node_modules/eslint/bin/eslint.js --config eslint.config.mjs src.tsx i18n.ts --max-warnings 0
 Pop-Location
 ```
 
@@ -120,7 +120,7 @@ Open `http://127.0.0.1:8765` on the same computer. The server binds only loopbac
 
 Saving writes an atomic revision history in `reviews.json` and rebuilds `annotations-web.jsonl`, preserving reviewed seed records outside the current batch. A stale tab cannot overwrite a later revision. A complete save approves only the ASR word sequence, while a partial save approves only resolved spans. Free full-text corrections take precedence over fragment choices; punctuation, cleanup, editing time and output usability are not inferred. Browser drafts survive navigation and reload when local storage is available, but disk review history is the source of approved references.
 
-Re-score both saved runs with the same `--annotations "$results\web-reviews\annotations-web.jsonl"` file, then use the paired comparison command above. Copy that overlay to a new immutable cycle snapshot when fixing the evaluation cohort; the live export changes as reviews arrive. Run `pnpm i18n:check` from `desktop/` and the Python tool tests below when changing this page or its saving behavior.
+Re-score both saved runs with the same `--annotations "$results\web-reviews\annotations-web.jsonl"` file, then use the paired comparison command above. Copy that overlay to a new immutable cycle snapshot when fixing the evaluation cohort; the live export changes as reviews arrive. The page keeps its own English dictionary in `scripts/speech_eval_web/i18n.ts`, outside the application's bundle and i18n check. Run the Python tool tests below when changing this page, its strings or its saving behavior; they also verify that every page string is translated.
 
 ## Tool checks
 

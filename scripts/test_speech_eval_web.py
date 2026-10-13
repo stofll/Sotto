@@ -2,6 +2,7 @@
 import hashlib
 import http.client
 import json
+import re
 import tempfile
 import threading
 import unittest
@@ -157,6 +158,18 @@ class WebReviewTests(unittest.TestCase):
         self.assertEqual(response.status, 200)
         response.read()
         self.assertEqual(len(self.store.annotations()), 1)
+
+
+class ReviewTranslationTests(unittest.TestCase):
+    """The review page keeps its own dictionary outside the application's i18n check."""
+
+    def test_every_review_string_has_an_english_translation(self):
+        web = Path(__file__).with_name('speech_eval_web')
+        used = set(re.findall(r'\bt\("([^"]*)"', (web / 'src.tsx').read_text(encoding='utf-8')))
+        translated = set(re.findall(r'^  "([^"]*)": ', (web / 'i18n.ts').read_text(encoding='utf-8'), re.M))
+        self.assertTrue(used)
+        self.assertEqual(used - translated, set())
+        self.assertEqual(translated - used, set())
 
 
 if __name__ == '__main__':

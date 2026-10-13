@@ -12,5 +12,5 @@
     "typeRoots": ["../../desktop/node_modules/@types", "../../desktop/node_modules"],
     "ignoreDeprecations": "6.0"
   },
-  "include": ["src.tsx"]
+  "include": ["src.tsx", "i18n.ts"]
 }
