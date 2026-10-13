@@ -33,7 +33,10 @@ const TERMS: &[(&str, &[&str])] = &[
         "AGENTS.md",
         &["agencmd", "agence md", "aжиnc md", "эдженс эмди"],
     ),
-    ("worktree", &["vork-tри", "vork-tre", "workри", "ворк-три"]),
+    (
+        "worktree",
+        &["vork-tри", "vork-tre", "workри", "ворк-три", "ворк три"],
+    ),
     // Cyrillic «мейн» is also the US state; only mixed-script spellings qualify.
     ("main", &["мaйн", "мaйn", "maйн"]),
     ("origin/main", &["origin mane", "originl mane"]),
@@ -49,16 +52,37 @@ const TERMS: &[(&str, &[&str])] = &[
         ],
     ),
     ("Playwright", &["playrihte", "playrit", "плейрайт"]),
-    ("Claude Code", &["клауд код", "клод код", "cloud coda"]),
+    (
+        "Claude Code",
+        &[
+            "клауд код",
+            "клод код",
+            "cloud coda",
+            "cloud code",
+            "cloudcode",
+            "клаудкод",
+            "клаудкода",
+        ],
+    ),
     ("Selenium", &["selnium", "селениум"]),
     ("JUnit", &["gunit", "джей юнит"]),
     ("LLM", &["llм", "ллм"]),
+    // A bare «МСП» is also a Russian business acronym and remains unchanged.
+    ("MCP", &["мцп", "мсип"]),
+    ("harness", &["харнаш"]),
     ("UI", &["юай"]),
     ("SQL", &["sqel", "эскюли", "эс кью эл"]),
+    ("Z.ai", &["zai"]),
     ("OpenAI", &["опен аи", "опен эй ай", "опн ай", "опенай"]),
     (
         "ChatGPT",
-        &["чат джипити", "чат джи пи ти", "чат гпт", "чатгпт"],
+        &[
+            "чат джипити",
+            "чат джи пи ти",
+            "чат гпт",
+            "чатгпт",
+            "чат gpt",
+        ],
     ),
     ("Anthropic", &["антропик", "антропика"]),
     // «Клод» is a given name (Клод Моне); only the longer product names qualify.

@@ -4,6 +4,15 @@ import pytest
 from playwright.sync_api import expect
 
 
+def test_pause_cleanup_is_opt_in(app, page):
+    ui = app()
+    ui.nav("text")
+    page.get_by_role("button", name=re.compile(r"^Очистка")).click()
+    expect(
+        page.get_by_role("button", name="Убирать многоточия пауз", exact=True)
+    ).to_have_attribute("aria-pressed", "false")
+
+
 @pytest.mark.parametrize("locale", ["ru", "en"])
 @pytest.mark.parametrize("theme", ["dark", "light"])
 @pytest.mark.parametrize(
@@ -11,6 +20,7 @@ from playwright.sync_api import expect
     [
         ("correct_spelling", "Исправлять опечатки", "Correct spelling"),
         ("split_paragraphs", "Разбивать текст на абзацы", "Split text into paragraphs"),
+        ("normalize_ellipsis", "Убирать многоточия пауз", "Remove pause ellipses"),
     ],
 )
 def test_local_cleanup_switch_persists_and_recovers_from_save_failure(
@@ -19,7 +29,13 @@ def test_local_cleanup_switch_persists_and_recovers_from_save_failure(
     from pathlib import Path
 
     page.set_viewport_size({"width": 1000, "height": 710})
-    ui = app(config={"ui_language": locale, "theme": theme})
+    ui = app(
+        config={
+            "ui_language": locale,
+            "theme": theme,
+            "text_formatting": {setting: True},
+        }
+    )
     ui.nav("text")
     title = "Очистка" if locale == "ru" else "Cleanup"
     page.get_by_role("button", name=re.compile("^" + title)).click()
