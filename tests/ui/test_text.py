@@ -8,9 +8,9 @@ def test_pause_cleanup_is_opt_in(app, page):
     ui = app()
     ui.nav("text")
     page.get_by_role("button", name=re.compile(r"^Очистка")).click()
-    expect(page.get_by_role("button", name="Убирать многоточия пауз", exact=True)).to_have_attribute(
-        "aria-pressed", "false"
-    )
+    expect(
+        page.get_by_role("button", name="Убирать многоточия пауз", exact=True)
+    ).to_have_attribute("aria-pressed", "false")
 
 
 @pytest.mark.parametrize("locale", ["ru", "en"])
@@ -29,8 +29,13 @@ def test_local_cleanup_switch_persists_and_recovers_from_save_failure(
     from pathlib import Path
 
     page.set_viewport_size({"width": 1000, "height": 710})
-    ui = app(config={"ui_language": locale, "theme": theme,
-                     "text_formatting": {setting: True}})
+    ui = app(
+        config={
+            "ui_language": locale,
+            "theme": theme,
+            "text_formatting": {setting: True},
+        }
+    )
     ui.nav("text")
     title = "Очистка" if locale == "ru" else "Cleanup"
     page.get_by_role("button", name=re.compile("^" + title)).click()
