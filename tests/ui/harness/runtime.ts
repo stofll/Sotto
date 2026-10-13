@@ -14,7 +14,8 @@ const config: ConfigResult = {
   text_formatting: {
     enabled: true, remove_hallucinations: true, remove_fillers: true,
     remove_parasites: true, remove_duplicates: true, collapse_phrase_loops: true,
-    clean_commas: true, normalize_spaces: true, correct_spelling: true, split_sentences: true,
+    clean_commas: true, normalize_spaces: true, normalize_ellipsis: false, correct_spelling: true,
+    split_sentences: true,
     split_paragraphs: true,
     capitalize_sentences: true, final_punctuation: true, custom_parasite_words: [],
     disabled_parasite_words: [],

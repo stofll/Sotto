@@ -7,6 +7,23 @@ use std::{ops::Range, sync::LazyLock};
 static ELLIPSIS: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"[ \t]*(?:\.{3,}|…)+[ \t]*").expect("valid ellipsis pattern"));
 
+/// A recognizer capitalizes the word after a pause that ends a sentence.
+/// Acronyms and a switch of alphabet («используй... Docker») stay inside the
+/// phrase; a capitalized name after a hesitation is the accepted ambiguity.
+fn sentence_follows(before: &str, after: &str) -> bool {
+    let mut next = after.chars();
+    let Some(first) = next.next().filter(|c| c.is_uppercase()) else {
+        return false;
+    };
+    let cyrillic = |c: char| matches!(c, '\u{0400}'..='\u{052f}');
+    next.next().is_none_or(|c| !c.is_uppercase())
+        && before
+            .chars()
+            .next_back()
+            .filter(|c| c.is_alphabetic())
+            .is_some_and(|previous| cyrillic(previous) == cyrillic(first))
+}
+
 pub(super) struct PauseNormalizer {
     pub enabled: bool,
 }
@@ -69,6 +86,10 @@ impl FormatStep for PauseNormalizer {
                     } else {
                         "."
                     }
+                } else if sentence_follows(before, after)
+                    && !before.ends_with(['.', '!', '?', ':', ';', ','])
+                {
+                    ". "
                 } else {
                     " "
                 }

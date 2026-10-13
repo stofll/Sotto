@@ -1451,5 +1451,5 @@ export const en: Record<string, string | string[]> = {
   "Перейти на локальную модель": "Switch to local model",
   "Полный перечень полей приведён в документации Sotto о приватности.": "The full list of fields is in Sotto's privacy documentation.",
   "Убирать многоточия пауз": "Remove pause ellipses",
-  "внутри фразы — пробел, в конце — точка; код, ссылки и числовые диапазоны сохраняются": "Use a space within a phrase and a period at its end; preserve code, links and numeric ranges",
+  "внутри фразы — пробел, на границе предложения — точка; код, ссылки и числовые диапазоны сохраняются": "Use a space within a phrase and a period at a sentence boundary; preserve code, links and numeric ranges",
 };

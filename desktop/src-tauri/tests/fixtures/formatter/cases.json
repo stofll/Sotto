@@ -2195,6 +2195,54 @@
     }
   },
   {
+    "id": "pause-ellipsis-before-capitalized-sentence",
+    "category": "pause-punctuation",
+    "input": "Я подумал... Может, позже",
+    "expected": "Я подумал. Может, позже.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "normalize_ellipsis": true
+      }
+    }
+  },
+  {
+    "id": "pause-ellipsis-before-capitalized-sentence-en",
+    "category": "pause-punctuation",
+    "input": "We tried... Then it worked",
+    "expected": "We tried. Then it worked.",
+    "config": {
+      "language": "en",
+      "text_formatting": {
+        "normalize_ellipsis": true
+      }
+    }
+  },
+  {
+    "id": "pause-ellipsis-before-latin-term",
+    "category": "pause-punctuation",
+    "input": "используй... Docker для сборки",
+    "expected": "Используй Docker для сборки.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "normalize_ellipsis": true
+      }
+    }
+  },
+  {
+    "id": "pause-ellipsis-before-acronym",
+    "category": "pause-punctuation",
+    "input": "добавь... SQL запрос",
+    "expected": "Добавь SQL запрос.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "normalize_ellipsis": true
+      }
+    }
+  },
+  {
     "id": "joined-claude-code-builtin-aliases",
     "category": "term-aliases",
     "input": "Сравни клаудкод и клаудкода.",
