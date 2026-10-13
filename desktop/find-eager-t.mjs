@@ -17,7 +17,7 @@ function walkFiles(dir, out = []) {
 }
 
 const hits = [];
-for (const file of walkFiles("src")) {
+for (const file of ["src", "../scripts/speech_eval_web"].flatMap(dir => walkFiles(dir))) {
   const rel = path.relative("src", file).replace(/\\/g, "/");
   if (rel.startsWith("i18n/")) continue;
   const src = ts.createSourceFile(file, fs.readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);

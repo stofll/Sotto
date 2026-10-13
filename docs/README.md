@@ -24,6 +24,7 @@ This is the public documentation index for Sotto. Start with the guides below; d
 - [Releasing](releasing.md) — contributor-facing release overview.
 - [Release process](RELEASE.md) — the maintainer's step-by-step runbook: signing, updater keys, asset order, rollback.
 - [Benchmarks](benchmarks.md) — performance measurements and regression budgets.
+- [Local speech evaluation](speech-evaluation.md) — isolated audio/text runs, scoring, annotation and development/holdout policy.
 
 ## Project context
 

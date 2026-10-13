@@ -1997,14 +1997,7 @@ pub(crate) fn custom_words_prompt(config: &crate::config::Config) -> Option<Stri
     // The effective dictionary, not just your own words: an enabled set must
     // hint the decoder exactly the same way, otherwise it would repair terms
     // after recognition without preventing them from being broken.
-    let words = text_formatting_config(config).effective_custom_words();
-    let joined = words
-        .iter()
-        .map(|word| word.trim())
-        .filter(|word| !word.is_empty())
-        .collect::<Vec<_>>()
-        .join(", ");
-    (!joined.is_empty()).then_some(joined)
+    text_formatting_config(config).recognition_prompt()
 }
 
 fn text_formatting_config(

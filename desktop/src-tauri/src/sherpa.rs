@@ -282,6 +282,28 @@ impl OfflineRecognizer {
         tokens_path: &Path,
         num_threads: i32,
     ) -> Result<Self, String> {
+        Self::transducer_with_beam(
+            encoder_path,
+            decoder_path,
+            joiner_path,
+            tokens_path,
+            num_threads,
+            None,
+        )
+    }
+
+    /// Explicit evaluation override. Normal application constructors stay greedy.
+    pub fn transducer_with_beam(
+        encoder_path: &Path,
+        decoder_path: &Path,
+        joiner_path: &Path,
+        tokens_path: &Path,
+        num_threads: i32,
+        beam_size: Option<i32>,
+    ) -> Result<Self, String> {
+        if beam_size.is_some_and(|size| !(1..=8).contains(&size)) {
+            return Err("SHERPA_INVALID_BEAM: beam size must be in 1..=8".into());
+        }
         check_threads(num_threads)?;
         let model_config = sherpa_onnx::OfflineModelConfig {
             transducer: sherpa_onnx::OfflineTransducerModelConfig {
@@ -293,7 +315,7 @@ impl OfflineRecognizer {
         };
         // Zipformer defaults to 80 bins. NeMo overrides this from feat_dim
         // metadata (128 for Parakeet TDT/Ultra) in the pinned runtime.
-        Self::create(model_config, Some((16_000, 80)))
+        Self::create_with_beam(model_config, Some((16_000, 80)), beam_size)
     }
 
     /// # Panics
@@ -302,12 +324,24 @@ impl OfflineRecognizer {
         model_config: sherpa_onnx::OfflineModelConfig,
         feat_config: Option<(i32, i32)>,
     ) -> Result<Self, String> {
+        Self::create_with_beam(model_config, feat_config, None)
+    }
+
+    fn create_with_beam(
+        model_config: sherpa_onnx::OfflineModelConfig,
+        feat_config: Option<(i32, i32)>,
+        beam_size: Option<i32>,
+    ) -> Result<Self, String> {
         let qwen3 = model_config.qwen3_asr.conv_frontend.is_some();
         let mut config = sherpa_onnx::OfflineRecognizerConfig {
             model_config,
             decoding_method: Some(DECODING_GREEDY.to_string()),
             ..Default::default()
         };
+        if let Some(size) = beam_size {
+            config.decoding_method = Some("modified_beam_search".into());
+            config.max_active_paths = size;
+        }
         // `None` means the zeroed feature config every family except the
         // transducer was created with before this crate owned the C calls —
         // those models carry their own front end and read this back. The

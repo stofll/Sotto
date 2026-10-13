@@ -2942,6 +2942,19 @@ impl TextFormattingConfig {
         crate::dictionaries::effective_words(self)
     }
 
+    /// Decoder conditioning uses the same effective vocabulary as term cleanup,
+    /// including when text formatting is disabled.
+    pub fn recognition_prompt(&self) -> Option<String> {
+        let joined = self
+            .effective_custom_words()
+            .iter()
+            .map(|word| word.trim())
+            .filter(|word| !word.is_empty())
+            .collect::<Vec<_>>()
+            .join(", ");
+        (!joined.is_empty()).then_some(joined)
+    }
+
     /// The built-in sets that are switched on.
     pub fn active_parasite_sets(&self) -> Vec<&'static ParasitePreset> {
         PARASITE_PRESETS
