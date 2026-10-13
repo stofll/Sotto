@@ -1,7 +1,7 @@
 //! Dataset runs alongside the public fixture benchmark. No app, history or network.
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use sotto_lib::{formatter, model, model_download, model_performance, sherpa};
+use sotto_lib::{formatter, model, model_download, model_performance, sherpa, whisper};
 use std::{collections::HashMap, error::Error, fs, io::Write, path::Path, time::Instant};
 
 type Decode = Box<dyn FnMut(&[f32], &str) -> Result<String, String>>;
@@ -220,31 +220,19 @@ async fn open_model(
                     },
                     None => whisper_rs::SamplingStrategy::Greedy { best_of: 1 },
                 };
-                let mut params = whisper_rs::FullParams::new(strategy);
-                params.set_n_threads(threads);
-                params.set_language(Some(if multilingual { language } else { "en" }));
-                params.set_print_special(false);
-                params.set_print_progress(false);
-                params.set_print_realtime(false);
-                params.set_print_timestamps(false);
-                if let Some(prompt) = &prompt {
-                    let sanitized: String = prompt.chars().filter(|c| *c != '\0').collect();
-                    if !sanitized.trim().is_empty() {
-                        params.set_initial_prompt(&sanitized);
-                    }
-                }
+                let params = whisper::decode_params(
+                    strategy,
+                    Some(language),
+                    multilingual,
+                    threads,
+                    prompt.as_deref(),
+                );
                 state.full(params, samples).map_err(|e| e.to_string())?;
                 let count = state.full_n_segments().map_err(|e| e.to_string())?;
                 let mut text = String::new();
                 for i in 0..count {
                     let segment = state.full_get_segment_text(i).map_err(|e| e.to_string())?;
-                    if !text.is_empty()
-                        && !text.ends_with(char::is_whitespace)
-                        && !segment.starts_with(char::is_whitespace)
-                    {
-                        text.push(' ');
-                    }
-                    text.push_str(&segment);
+                    whisper::push_segment(&mut text, &segment);
                 }
                 Ok(text)
             }))

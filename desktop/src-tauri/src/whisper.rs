@@ -450,47 +450,20 @@ impl Engine {
             );
         }
 
-        let mut params =
-            whisper_rs::FullParams::new(whisper_rs::SamplingStrategy::Greedy { best_of: 1 });
-        // Set the decode language explicitly. whisper.cpp's default is "en",
-        // which produces garbage (or empty) output for other languages; an
-        // empty/absent/"auto" value means auto-detect.
-        // English-only (`.en`) models would still run the detection pass for
-        // "auto", roughly doubling their time for a fixed answer.
         let multilingual = self
             .whisper_ctx
             .as_ref()
             .is_none_or(|ctx| ctx.is_multilingual());
-        match language {
-            _ if !multilingual => params.set_language(Some("en")),
-            Some(lang) if !lang.is_empty() && lang != "auto" => params.set_language(Some(lang)),
-            _ => params.set_language(Some("auto")),
-        }
-        // Thread count for the CPU parts of the graph — which is all of it
-        // when the context was built with `use_gpu = false`. whisper.cpp's
-        // default is min(4, hw) — bump to available parallelism so turbo
-        // isn't needlessly slow on many-core CPUs.
-        let n_threads = std::thread::available_parallelism()
-            .map(|n| n.get().min(8) as i32)
-            .unwrap_or(4);
-        params.set_n_threads(n_threads);
-        // Custom vocabulary, if any. `set_initial_prompt` panics on an
-        // interior null byte (it builds a CString), and config JSON can carry
-        // one, so the string is sanitised first.
-        if let Some(prompt) = initial_prompt {
-            let sanitized: String = prompt.chars().filter(|c| *c != '\0').collect();
-            if !sanitized.trim().is_empty() {
-                params.set_initial_prompt(&sanitized);
-            }
-        }
+        let n_threads = decode_threads();
+        let mut params = decode_params(
+            whisper_rs::SamplingStrategy::Greedy { best_of: 1 },
+            language,
+            multilingual,
+            n_threads,
+            initial_prompt,
+        );
         // SAFETY: `job` holds the flag's Arc for the whole `full()` call below.
         unsafe { abort_when(&mut params, &job.cancel_flag) };
-        // Silence whisper.cpp's own stdout/stderr chatter — in a windowed app
-        // there is no console and it only adds noise.
-        params.set_print_special(false);
-        params.set_print_progress(false);
-        params.set_print_realtime(false);
-        params.set_print_timestamps(false);
 
         // catch_unwind protects against Rust panics. C++ ggml SIGSEGV from
         // malformed input would still abort the process — that is mitigated
@@ -921,7 +894,56 @@ fn complete_inference(
 /// a leading space on the first segment and a double space between
 /// segments. We trim each segment and join with exactly one space so the
 /// pasted text has no leading space and no internal double spaces.
-fn push_segment(text: &mut String, segment: &str) {
+/// Thread count for the CPU parts of the graph — which is all of it when the
+/// context was built with `use_gpu = false`. whisper.cpp's default is
+/// min(4, hw) — bump to available parallelism so turbo isn't needlessly slow
+/// on many-core CPUs.
+pub fn decode_threads() -> i32 {
+    std::thread::available_parallelism()
+        .map(|n| n.get().min(8) as i32)
+        .unwrap_or(4)
+}
+
+/// Decoding parameters shared by the application and the offline evaluation
+/// runner, so a measured run decodes exactly as dictation does.
+pub fn decode_params<'a, 'b>(
+    strategy: whisper_rs::SamplingStrategy,
+    language: Option<&'a str>,
+    multilingual: bool,
+    n_threads: i32,
+    initial_prompt: Option<&str>,
+) -> whisper_rs::FullParams<'a, 'b> {
+    let mut params = whisper_rs::FullParams::new(strategy);
+    // Set the decode language explicitly. whisper.cpp's default is "en",
+    // which produces garbage (or empty) output for other languages; an
+    // empty/absent/"auto" value means auto-detect.
+    // English-only (`.en`) models would still run the detection pass for
+    // "auto", roughly doubling their time for a fixed answer.
+    match language {
+        _ if !multilingual => params.set_language(Some("en")),
+        Some(lang) if !lang.is_empty() && lang != "auto" => params.set_language(Some(lang)),
+        _ => params.set_language(Some("auto")),
+    }
+    params.set_n_threads(n_threads);
+    // Custom vocabulary, if any. `set_initial_prompt` panics on an interior
+    // null byte (it builds a CString), and config JSON can carry one, so the
+    // string is sanitised first.
+    if let Some(prompt) = initial_prompt {
+        let sanitized: String = prompt.chars().filter(|c| *c != '\0').collect();
+        if !sanitized.trim().is_empty() {
+            params.set_initial_prompt(&sanitized);
+        }
+    }
+    // Silence whisper.cpp's own stdout/stderr chatter — in a windowed app
+    // there is no console and it only adds noise.
+    params.set_print_special(false);
+    params.set_print_progress(false);
+    params.set_print_realtime(false);
+    params.set_print_timestamps(false);
+    params
+}
+
+pub fn push_segment(text: &mut String, segment: &str) {
     let seg = segment.trim();
     if seg.is_empty() {
         return;
