@@ -36,46 +36,25 @@ use std::collections::HashSet;
 use std::sync::LazyLock;
 
 mod paragraphs;
+mod pauses;
 mod term_aliases;
 
 // ---------------------------------------------------------------------------
 // Defaults
 // ---------------------------------------------------------------------------
 
-/// Default Russian parasite words.
+/// Russian discourse markers enabled by default.
 ///
-/// The rule this list must satisfy: a word belongs here only when deleting it
-/// cannot change what the sentence asserts. The step deletes every entry
-/// unconditionally, by word boundary, everywhere in the text, and the user is
-/// never shown which words those are — so a word that is padding in one
-/// position and load-bearing in another does not belong here at all.
-///
-/// Five entries were dropped from the Python original for failing that rule:
-///
-/// * «да», «нет» — the answer itself, not padding around it. «Он спросил
-///   приедешь ли я сказал нет» came out as «…я сказал», and «нет не надо это
-///   мержить» came out as the instruction to merge.
-/// * «вот» — a demonstrative particle carrying the emphasis of the sentence it
-///   opens.
-/// * «значит», «собственно» — parasites only as interjections. As ordinary
-///   words they are the predicate and the qualifier: «это значит, что мы
-///   опоздали» collapsed into «это, что мы опоздали», and «собственно код» lost
-///   the word that said which code was meant.
-///
-/// What is left is padding in every position it can occupy.
+/// Ambiguous verbs and qualifiers such as «понимаешь», «как бы» and «в общем»
+/// carry meaning in ordinary sentences. Leave them to explicit custom deletion.
+/// Context guards below protect lexical uses of «типа» and comparative «короче».
 pub const RU_PARASITE_WORDS: &[&str] = &[
     "ну",
     "типа",
-    "как бы",
-    "в общем",
     "короче",
     "это самое",
     "так сказать",
-    "понимаешь",
-    "понимаете",
     "блин",
-    "чё",
-    "че",
     "короч",
 ];
 
@@ -166,7 +145,8 @@ pub const PARASITE_PRESETS: &[ParasitePreset] = &[
 /// match a text written in any other alphabet, so there is nothing to gate.
 const RUSSIAN_FILLER_PATTERNS: &[&str] = &[
     r"\b[Ээ]э*(?:[-\s]+э+)*(?:-+|\b)",
-    r"\b(м+[-\s]*)+\b",
+    // A single «м» can be metres or a letter name; require a held/repeated sound.
+    r"\b(?:м{2,}(?:[-\s]+м+)*|м(?:[-\s]+м+)+)\b",
     r"\bМ(?:м+|[-\s]+м+)(?:[-\s]+м+)*\b",
     r"\b[Аа]а*(?:[-\s]*а+)+\b",
     r"\b[Оо]о*(?:[-\s]*о+)+\b",
@@ -746,7 +726,7 @@ pub trait FormatStep {
         false
     }
     fn protected_spans(&self, text: &str) -> Vec<std::ops::Range<usize>> {
-        crate::text_protection::technical_spans(text)
+        crate::text_protection::cleanup_spans(text)
     }
     fn apply(&self, text: &str) -> String {
         if self.edits_protected_text() {
@@ -1646,7 +1626,7 @@ pub struct CustomWordsCorrector {
     enabled: bool,
     terms: Vec<CustomTerm>,
     aliases: term_aliases::TermAliases,
-    /// Lower-cased terms ending in «й», whose inflected forms stay as spoken.
+    /// Lower-cased Russian consonant stems whose inflections stay as spoken.
     inflecting: Vec<String>,
     max_window: usize,
 }
@@ -1655,6 +1635,7 @@ struct CustomTerm {
     canonical: String,
     key: Vec<char>,
     acronym: bool,
+    cyrillic: bool,
     exact_only: bool,
 }
 
@@ -1699,6 +1680,9 @@ impl CustomWordsCorrector {
                 Some(CustomTerm {
                     exact_only: builtin.contains(&canonical.to_lowercase())
                         && term_aliases::exact_only(&canonical),
+                    cyrillic: canonical
+                        .chars()
+                        .any(|c| matches!(c, '\u{0400}'..='\u{052f}')),
                     canonical,
                     key: key.chars().collect(),
                     acronym,
@@ -1716,7 +1700,13 @@ impl CustomWordsCorrector {
         let inflecting = terms
             .iter()
             .map(|term| term.canonical.to_lowercase())
-            .filter(|canonical| canonical.ends_with('й'))
+            .filter(|canonical| {
+                canonical.ends_with('й')
+                    || (canonical.chars().all(|c| matches!(c, 'а'..='я' | 'ё'))
+                        && !canonical.ends_with([
+                            'а', 'е', 'ё', 'и', 'о', 'у', 'ы', 'э', 'ю', 'я', 'ь', 'ъ',
+                        ]))
+            })
             .collect();
         Self {
             enabled,
@@ -1800,16 +1790,25 @@ impl CustomWordsCorrector {
                 .trim_matches(|c: char| !c.is_alphanumeric())
                 .to_lowercase();
             if self.inflecting.iter().any(|canonical| {
-                let stem = canonical.strip_suffix('й').unwrap_or(canonical);
+                let soft_stem = canonical.strip_suffix('й');
+                let stem = soft_stem.unwrap_or(canonical);
                 let inflected = first_word.strip_prefix(stem).is_some_and(|ending| {
-                    matches!(
-                        ending,
-                        "я" | "ю" | "ем" | "е" | "и" | "ев" | "ям" | "ями" | "ях"
-                    )
+                    if soft_stem.is_some() {
+                        matches!(
+                            ending,
+                            "я" | "ю" | "ем" | "е" | "и" | "ев" | "ям" | "ями" | "ях"
+                        )
+                    } else {
+                        matches!(
+                            ending,
+                            "а" | "у" | "ом" | "е" | "ы" | "и" | "ов" | "ам" | "ами" | "ах"
+                        )
+                    }
                 });
-                let attached = first_word
-                    .strip_prefix(canonical.as_str())
-                    .is_some_and(|tail| tail.chars().count() >= 2);
+                let attached = soft_stem.is_some()
+                    && first_word
+                        .strip_prefix(canonical.as_str())
+                        .is_some_and(|tail| tail.chars().count() >= 2);
                 inflected || attached
             }) {
                 return None;
@@ -1836,11 +1835,11 @@ impl CustomWordsCorrector {
                 )
             });
             let folded: Vec<char> = folded.chars().collect();
-            let latin_word = n == 1
-                && words[start]
-                    .trim_matches(|c: char| !c.is_alphanumeric())
+            let latin_words = words[start..start + n].iter().all(|word| {
+                word.trim_matches(|c: char| !c.is_alphanumeric())
                     .chars()
-                    .all(|c| c.is_ascii_alphabetic());
+                    .all(|c| c.is_ascii_alphabetic())
+            });
             let function_edge = n > 1
                 && [words[start], words[start + n - 1]].iter().any(|word| {
                     matches!(
@@ -1864,15 +1863,26 @@ impl CustomWordsCorrector {
                             | "но"
                     )
                 });
+            // Joined sounds can match exactly while swallowing a function word
+            // ("скилл с" -> "skills"). Reviewed aliases were checked above.
+            if function_edge {
+                continue;
+            }
             for term in &self.terms {
                 let CustomTerm {
                     canonical,
                     key,
                     acronym,
+                    cyrillic,
                     exact_only,
                 } = term;
                 // Short catalog terms support exact aliases, never fuzzy guesses.
                 if *exact_only || key.len() < CUSTOM_WORD_MIN_CHARS {
+                    continue;
+                }
+                // A Cyrillic dictionary spelling is not a request to transliterate
+                // Latin prose. Cyrillic speech can still restore a Latin term.
+                if latin_words && *cyrillic {
                     continue;
                 }
                 let budget = edit_budget(key.len());
@@ -1885,8 +1895,8 @@ impl CustomWordsCorrector {
                     continue;
                 }
                 // Similarity alone cannot distinguish a technical identifier
-                // from a misspelling, or justify swallowing a preposition.
-                if ((latin_word && !acronym) || function_edge) && &folded != key {
+                // from a misspelling.
+                if latin_words && !acronym && &folded != key {
                     continue;
                 }
                 // A single edit in a short token can change the subject
@@ -2152,7 +2162,7 @@ impl FormatStep for ParasiteWordsRemover {
         "Remove parasites"
     }
     fn description(&self) -> &str {
-        "ну, типа, как бы, в общем..."
+        "ну, типа, короче..."
     }
     fn apply_unprotected(&self, text: &str) -> String {
         if !self.enabled {
@@ -2192,9 +2202,17 @@ impl FormatStep for ParasiteWordsRemover {
                         let after = out[matched.end()..].chars().next();
                         let prefix = out[..matched.start()].trim_end();
                         let suffix = out[matched.end()..].trim_start();
-                        // Preserve comparative «короче» inside a clause, the
-                        // meaningful «типа» and the fixed expression «в общем
-                        // и целом».
+                        // Recognition can omit «и» in the fixed expression;
+                        // preserve its remaining words rather than deleting more.
+                        let expression_follows =
+                            word == "в общем" && !suffix.starts_with(['.', '!', '?', '…']) && {
+                                let mut tail = suffix.split_whitespace().map(bare_word);
+                                match tail.next().as_deref() {
+                                    Some("целом") => true,
+                                    Some("и") => tail.next().as_deref() == Some("целом"),
+                                    _ => false,
+                                }
+                            };
                         let explicit_custom = self
                             .custom_words
                             .iter()
@@ -2211,12 +2229,7 @@ impl FormatStep for ParasiteWordsRemover {
                                     )
                                     && !(prefix.ends_with(',')
                                         && matched.as_str().ends_with(',')))
-                                || (word == "в общем"
-                                    && suffix
-                                        .split_whitespace()
-                                        .take(2)
-                                        .map(bare_word)
-                                        .eq(["и", "целом"])));
+                                || expression_follows);
                         // A word boundary also occurs inside «чё-то» and «ну-ка».
                         // Removing only one side would leave a dangling suffix.
                         if meaningful
@@ -2412,7 +2425,7 @@ fn collapse_phrase_loops(text: &str) -> String {
         // for a period-4 one and left half-collapsed.
         for n in 2..=MAX_LOOP_PHRASE_WORDS.min((tokens.len() - i) / 2) {
             let repeats = count_phrase_repeats(&tokens, i, n);
-            if repeats < min_repeats_for_phrase(n) {
+            if repeats < min_repeats_for_phrase(n) || follows_external_negation(&tokens, i) {
                 continue;
             }
             // Keep occurrence 1, drop the rest.
@@ -2442,12 +2455,54 @@ fn collapse_phrase_loops(text: &str) -> String {
     out
 }
 
+/// Preserve a possible positive restart after a negated phrase: deleting it
+/// can extend the negation over the following clause.
+fn follows_external_negation(tokens: &[LoopToken], start: usize) -> bool {
+    let Some(previous) = start.checked_sub(1) else {
+        return false;
+    };
+    if loop_scope_boundary(&tokens[previous], &tokens[start]) {
+        return false;
+    }
+    let is_negator = |word: &str| matches!(word, "не" | "ни" | "not" | "no" | "never");
+    if is_negator(&tokens[previous].normalized) {
+        return true;
+    }
+    // Look through one known modifier, not an arbitrary preceding clause.
+    if !matches!(
+        tokens[previous].normalized.as_str(),
+        "совсем" | "обязательно" | "сразу" | "exactly" | "necessarily" | "always"
+    ) {
+        return false;
+    }
+    previous.checked_sub(1).is_some_and(|negator| {
+        is_negator(&tokens[negator].normalized)
+            && !loop_scope_boundary(&tokens[negator], &tokens[previous])
+    })
+}
+
+fn loop_scope_boundary(left: &LoopToken, right: &LoopToken) -> bool {
+    let is_boundary = |c| matches!(c, '.' | '!' | '?' | '…' | ';' | ':');
+    left.separator.contains(['\n', '\r'])
+        || left
+            .text
+            .chars()
+            .rev()
+            .take_while(|c| !c.is_alphanumeric())
+            .any(is_boundary)
+        || right
+            .text
+            .chars()
+            .take_while(|c| !c.is_alphanumeric())
+            .any(is_boundary)
+}
+
 /// How many times a two-word phrase has to repeat before it counts as a
 /// loop rather than as speech.
 ///
 /// Two words landing next to themselves once is ordinary ("так так",
 /// "ну ладно, ну ладно") — three in a row is not. From three words up, a
-/// verbatim back-to-back repeat is already conclusive.
+/// back-to-back repeat meets the threshold; the negation guard can still keep it.
 fn min_repeats_for_phrase(phrase_words: usize) -> usize {
     if phrase_words == 2 {
         3
@@ -2823,6 +2878,9 @@ pub struct TextFormattingConfig {
     pub clean_commas: bool,
     #[serde(default = "default_true")]
     pub normalize_spaces: bool,
+    /// Opt-in: ellipses may be intentional in messages or quoted prose.
+    #[serde(default)]
+    pub normalize_ellipsis: bool,
     #[serde(default = "default_true")]
     pub correct_spelling: bool,
     #[serde(default)]
@@ -2915,6 +2973,7 @@ impl Default for TextFormattingConfig {
             collapse_phrase_loops: true,
             clean_commas: true,
             normalize_spaces: true,
+            normalize_ellipsis: false,
             correct_spelling: true,
             // Off by default: sentence splitting rewrites the user's
             // phrasing, which is a bigger intervention than the cleanup
@@ -2983,6 +3042,9 @@ impl Formatter {
 
         let steps: Vec<Box<dyn FormatStep>> = vec![
             Box::new(HallucinationCleaner::new(fmt.remove_hallucinations)),
+            Box::new(pauses::PauseNormalizer {
+                enabled: fmt.normalize_ellipsis,
+            }),
             Box::new(FillerWordsRemover::new(
                 fmt.remove_fillers,
                 config.language.as_deref(),
@@ -3211,6 +3273,7 @@ mod tests {
                 collapse_phrase_loops: true,
                 clean_commas: true,
                 normalize_spaces: true,
+                normalize_ellipsis: false,
                 correct_spelling: true,
                 split_sentences: false,
                 split_paragraphs: true,
@@ -3306,6 +3369,29 @@ mod tests {
     }
 
     #[test]
+    fn an_incomplete_fixed_expression_keeps_its_recognized_words() {
+        let formatter = Formatter::from_config(&default_fmt());
+        assert_eq!(
+            formatter.process("но в общем целом решение работает"),
+            "Но в общем целом решение работает."
+        );
+        assert_eq!(
+            formatter.process("в общем целом всё готово"),
+            "В общем целом всё готово."
+        );
+        let mut explicit = default_fmt();
+        explicit.text_formatting.custom_parasite_words = vec!["в общем".to_string()];
+        assert_eq!(
+            Formatter::from_config(&explicit).process("но в общем целом решение работает"),
+            "Но целом решение работает."
+        );
+        let remover = ParasiteWordsRemover::new(true, vec![], vec![], vec!["в общем"]);
+        assert_eq!(remover.apply("в общем.Целом"), ".Целом");
+        assert_eq!(remover.apply("в общем целиком"), "целиком");
+        assert_eq!(remover.apply("В ОБЩЕМ ЦЕЛОМ"), "В ОБЩЕМ ЦЕЛОМ");
+    }
+
+    #[test]
     fn spelling_preserves_explicit_replacement_triggers_and_output_spacing() {
         let mut config = default_fmt();
         config.replacement_rules = vec![word_rule("итогуу", "конец  проверки")];
@@ -3383,6 +3469,50 @@ mod tests {
 
     fn collapse(text: &str) -> String {
         PhraseLoopCollapser::new(true).apply(text)
+    }
+
+    #[test]
+    fn phrase_loops_preserve_external_negation() {
+        for input in [
+            "не с первого раза, с первого раза всё получилось",
+            "НЕ С первого раза с первого раза всё получилось",
+            "ни при каких условиях при каких условиях это допускается",
+            "не на работе на работе на работе",
+            "not after the first restart, after the first restart it worked",
+            "no more than three, more than three items were needed",
+            "never after the first restart, after the first restart it worked",
+            "не совсем с первого раза, с первого раза всё получилось",
+            "not exactly after the first restart, after the first restart it worked",
+        ] {
+            assert_eq!(collapse(input), input);
+        }
+    }
+
+    #[test]
+    fn preceding_negation_ends_at_sentence_and_paragraph_boundaries() {
+        for boundary in [". ", "! ", "? ", "… ", "; ", ": ", "\n", "\r\n"] {
+            let input = format!("не{boundary}с первого раза с первого раза всё получилось");
+            let expected = format!("не{boundary}с первого раза всё получилось");
+            assert_eq!(collapse(&input), expected);
+        }
+    }
+
+    #[test]
+    fn whole_negative_clause_loops_still_collapse() {
+        for (input, expected) in [
+            (
+                "это не моя задача. это не моя задача.",
+                "это не моя задача.",
+            ),
+            ("я не хочу. я не хочу.", "я не хочу."),
+            (
+                "we do not need this. we do not need this.",
+                "we do not need this.",
+            ),
+            ("not ready yet not ready yet", "not ready yet"),
+        ] {
+            assert_eq!(collapse(input), expected);
+        }
     }
 
     #[test]
@@ -4330,6 +4460,77 @@ mod custom_words_tests {
     #[test]
     fn already_correct_text_is_untouched() {
         assert_eq!(correct(&["Tauri"], "собрано в Tauri"), "собрано в Tauri");
+    }
+
+    #[test]
+    fn a_cyrillic_term_does_not_transliterate_latin_prose() {
+        assert_eq!(
+            correct(&["скролл"], "Please scroll down."),
+            "Please scroll down."
+        );
+        assert_eq!(correct(&["скролл"], "убери скрулл"), "убери скролл");
+    }
+
+    #[test]
+    fn an_exact_joined_sound_does_not_consume_a_preposition() {
+        assert_eq!(
+            correct(&["skills"], "скилл с созданием задач"),
+            "скилл с созданием задач"
+        );
+        assert_eq!(correct(&["skills"], "добавь скиллы"), "добавь skills");
+    }
+
+    #[test]
+    fn a_cyrillic_noun_keeps_its_spoken_inflections() {
+        for text in [
+            "горизонтальные скроллы",
+            "нет скролла",
+            "управляй скроллом",
+            "между скроллами",
+        ] {
+            assert_eq!(correct(&["скролл"], text), text);
+        }
+        assert_eq!(correct(&["скролл"], "убери скрулл"), "убери скролл");
+    }
+
+    #[test]
+    fn reviewed_harness_alias_requires_its_enabled_term() {
+        assert_eq!(correct(&["harness"], "настрой харнаш"), "настрой harness");
+        assert_eq!(correct(&[], "настрой харнаш"), "настрой харнаш");
+        assert_eq!(correct(&["harness"], "новый харнашик"), "новый харнашик");
+    }
+
+    #[test]
+    fn llama_cpp_uses_the_existing_dictionary_with_its_enabled_term() {
+        assert_eq!(
+            correct(&["llama.cpp"], "используй лама Cpp"),
+            "используй llama.cpp"
+        );
+        assert_eq!(correct(&[], "используй лама Cpp"), "используй лама Cpp");
+        assert_eq!(
+            correct(&["llama.cpp"], "здесь лама и Cpp"),
+            "здесь лама и Cpp"
+        );
+        assert_eq!(
+            correct(&["llama.cpp"], "используй lama Cpp"),
+            "используй llama.cpp"
+        );
+    }
+
+    #[test]
+    fn reviewed_mcp_aliases_require_their_enabled_term() {
+        assert_eq!(
+            correct(&["MCP"], "проверь Мцп и Мсип подключение"),
+            "проверь MCP и MCP подключение"
+        );
+        assert_eq!(
+            correct(&[], "проверь Мцп и Мсип подключение"),
+            "проверь Мцп и Мсип подключение"
+        );
+        assert_eq!(
+            correct(&["MCP"], "поддержка МСП и МЦПК"),
+            "поддержка МСП и МЦПК"
+        );
     }
 
     /// «ё» and «е» are indistinguishable by ear, and dictation confuses them.

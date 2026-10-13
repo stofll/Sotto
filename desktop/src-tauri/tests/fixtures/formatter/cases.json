@@ -1023,8 +1023,8 @@
   {
     "id": "claude-code-latin-alias",
     "category": "term-aliases",
-    "input": "уходим от айдентики Cloud Coda, а cloud code не трогаем",
-    "expected": "Уходим от айдентики Claude Code, а cloud code не трогаем.",
+    "input": "Открой Cloud Coda, cloud code и cloudcode.",
+    "expected": "Открой Claude Code, Claude Code и Claude Code.",
     "config": {
       "language": "ru",
       "text_formatting": {
@@ -1643,5 +1643,667 @@
     "category": "preservation",
     "input": "пункт 5 проверить логи пункт 6 перезапустить сервис",
     "expected": "Пункт 5 проверить логи пункт 6 перезапустить сервис."
+  },
+  {
+    "id": "metres-after-number",
+    "category": "preservation",
+    "input": "высота 123 м и ширина 20 м",
+    "expected": "Высота 123 м и ширина 20 м."
+  },
+  {
+    "id": "metres-decimal-and-range",
+    "category": "preservation",
+    "input": "длина 3,5 м, запас 10–12 м.",
+    "expected": "Длина 3,5 м, запас 10–12 м."
+  },
+  {
+    "id": "cyrillic-letter-name",
+    "category": "preservation",
+    "input": "буква м обозначает метры",
+    "expected": "Буква м обозначает метры."
+  },
+  {
+    "id": "units-en",
+    "category": "preservation",
+    "input": "the length is 12 m and the width is 3 mm",
+    "expected": "The length is 12 m and the width is 3 mm.",
+    "config": {"language": "en"}
+  },
+  {
+    "id": "held-m-still-removed",
+    "category": "fillers",
+    "input": "ммм, проверим длину 12 м",
+    "expected": "Проверим длину 12 м."
+  },
+  {
+    "id": "english-compound-is-prose",
+    "category": "preservation",
+    "input": "it comes back down almost instantly",
+    "expected": "It comes back down almost instantly.",
+    "config": {"language": "en", "text_formatting": {"enabled_presets": ["development", "ai_voice"]}}
+  },
+  {
+    "id": "english-compound-in-russian-mode",
+    "category": "preservation",
+    "input": "фраза back down не является термином",
+    "expected": "Фраза back down не является термином.",
+    "config": {"language": "ru", "text_formatting": {"enabled_presets": ["development"]}}
+  },
+  {
+    "id": "explicit-compound-alias-still-corrected",
+    "category": "term-aliases",
+    "input": "configure cloud flayer for this project",
+    "expected": "Configure Cloudflare for this project.",
+    "config": {"language": "en", "text_formatting": {"custom_words": ["Cloudflare"]}}
+  },
+  {
+    "id": "transliterated-term-still-corrected",
+    "category": "term-aliases",
+    "input": "сохрани маркдаун",
+    "expected": "Сохрани Markdown.",
+    "config": {"language": "ru", "text_formatting": {"enabled_presets": ["development"]}}
+  },
+  {
+    "id": "millimetres-kept",
+    "category": "preservation",
+    "input": "толщина 35 мм и запас 2мм",
+    "expected": "Толщина 35 мм и запас 2мм."
+  },
+  {
+    "id": "millimetres-decimal-range-and-nbsp",
+    "category": "preservation",
+    "input": "длина 3,5 мм, запас 10–12 мм",
+    "expected": "Длина 3,5 мм, запас 10–12 мм."
+  },
+  {
+    "id": "millimetres-and-hesitation",
+    "category": "fillers",
+    "input": "ммм, толщина 35 мм, мм, проверим",
+    "expected": "Толщина 35 мм, проверим."
+  },
+  {
+    "id": "era-abbreviation-kept",
+    "category": "preservation",
+    "input": "это произошло в 120 году н. э. и продолжалось до 125 года",
+    "expected": "Это произошло в 120 году н. э. и продолжалось до 125 года."
+  },
+  {
+    "id": "before-era-abbreviation-kept",
+    "category": "preservation",
+    "input": "в 200 году до н.э. появилась запись",
+    "expected": "В 200 году до н.э. появилась запись."
+  },
+  {
+    "id": "measurements-formatting-disabled",
+    "category": "preservation",
+    "input": "ммм толщина 35 мм в 120 году н. э.",
+    "expected": "ммм толщина 35 мм в 120 году н. э.",
+    "config": {"language":"ru","text_formatting":{"enabled":false}}
+  },
+  {
+    "id": "explicit-measurement-replacement",
+    "category": "replacements",
+    "input": "толщина 35 мм",
+    "expected": "Толщина 35 миллиметров.",
+    "config": {"language":"ru","replacement_rules":[{"id":"unit","find":"мм","replace":"миллиметров","enabled":true,"match":"word","stage":"pre_llm"}]}
+  },
+  {
+    "id": "cyrillic-term-keeps-english-prose",
+    "category": "dictionary-preservation",
+    "input": "Please scroll down.",
+    "expected": "Please scroll down.",
+    "config": {"language":"en","text_formatting":{"enabled":true,"custom_words":["скролл"],"enabled_presets":[],"remove_parasites":false}}
+  },
+  {
+    "id": "custom-term-keeps-following-preposition",
+    "category": "dictionary-preservation",
+    "input": "Есть скилл с созданием задач.",
+    "expected": "Есть скилл с созданием задач.",
+    "config": {"language":"ru","text_formatting":{"enabled":true,"custom_words":["skills"],"enabled_presets":[],"remove_parasites":false}}
+  },
+  {
+    "id": "cyrillic-term-corrects-cyrillic-spelling",
+    "category": "dictionary-correction",
+    "input": "Убери горизонтальный скрулл.",
+    "expected": "Убери горизонтальный скролл.",
+    "config": {"language":"ru","text_formatting":{"enabled":true,"custom_words":["скролл"],"enabled_presets":[],"remove_parasites":false}}
+  },
+  {
+    "id": "latin-term-restores-cyrillic-spelling",
+    "category": "dictionary-correction",
+    "input": "Добавь эти скиллы.",
+    "expected": "Добавь эти skills.",
+    "config": {"language":"ru","text_formatting":{"enabled":true,"custom_words":["skills"],"enabled_presets":[],"remove_parasites":false}}
+  },
+  {
+    "id": "explicit-rule-can-transliterate-latin-word",
+    "category": "replacements",
+    "input": "Please scroll down.",
+    "expected": "Please скролл down.",
+    "config": {"language":"en","text_formatting":{"custom_words":["скролл"],"enabled_presets":[]},"replacement_rules":[{"id":"term","find":"scroll","replace":"скролл","enabled":true,"match":"word","stage":"pre_llm"}]}
+  },
+  {
+    "id": "cyrillic-consonant-term-keeps-inflections",
+    "category": "dictionary-preservation",
+    "input": "проверь скроллы, нет скролла, управляй скроллом, между скроллами",
+    "expected": "Проверь скроллы, нет скролла, управляй скроллом, между скроллами.",
+    "config": {"language":"ru","text_formatting":{"custom_words":["скролл"],"enabled_presets":[]}}
+  },
+  {
+    "id": "latin-term-keeps-explicit-canonical-spelling",
+    "category": "dictionary-correction",
+    "input": "используй другие harnessы",
+    "expected": "Используй другие harness.",
+    "config": {"language":"ru","text_formatting":{"custom_words":["harness"],"enabled_presets":[]}}
+  },
+  {
+    "id": "reviewed-mcp-aliases-when-enabled",
+    "category": "term-aliases",
+    "input": "проверь Мцп и Мсип подключение",
+    "expected": "Проверь MCP и MCP подключение.",
+    "config": {"language":"ru","text_formatting":{"custom_words":["MCP"],"enabled_presets":[]}}
+  },
+  {
+    "id": "reviewed-mcp-aliases-when-disabled",
+    "category": "dictionary-preservation",
+    "input": "проверь Мцп и Мсип подключение",
+    "expected": "Проверь Мцп и Мсип подключение.",
+    "config": {"language":"ru","text_formatting":{"custom_words":[],"enabled_presets":[]}}
+  },
+  {
+    "id": "mcp-keeps-other-acronyms",
+    "category": "dictionary-preservation",
+    "input": "поддержка МСП и МЦПК",
+    "expected": "Поддержка МСП и МЦПК.",
+    "config": {"language":"ru","text_formatting":{"custom_words":["MCP"],"enabled_presets":[]}}
+  },
+  {
+    "id": "reviewed-harness-alias",
+    "category": "term-aliases",
+    "input": "настрой харнаш",
+    "expected": "Настрой harness.",
+    "config": {"language":"ru","text_formatting":{"custom_words":["harness"],"enabled_presets":[]}}
+  },
+  {
+    "id": "explicit-rule-can-change-inflected-term",
+    "category": "replacements",
+    "input": "настрой скроллы",
+    "expected": "Настрой scrollbars.",
+    "config": {"language":"ru","text_formatting":{"custom_words":["скролл"],"enabled_presets":[]},"replacement_rules":[{"id":"plural","find":"скроллы","replace":"scrollbars","enabled":true,"match":"word","stage":"pre_llm"}]}
+  },
+  {
+    "id": "incomplete-fixed-expression-keeps-recognized-words",
+    "category": "preservation",
+    "input": "но в общем целом решение работает",
+    "expected": "Но в общем целом решение работает."
+  },
+  {
+    "id": "incomplete-fixed-expression-honors-custom-deletion",
+    "category": "custom-cleanup",
+    "input": "но в общем целом решение работает",
+    "expected": "Но целом решение работает.",
+    "config": {"language":"ru","text_formatting":{"custom_parasite_words":["в общем"]}}
+  },
+  {
+    "id": "similar-padding-remains-removable",
+    "category": "cleanup",
+    "input": "в общем целиком всё готово",
+    "expected": "Целиком всё готово.",
+    "config": {"language":"ru","text_formatting":{"custom_parasite_words":["в общем"]}}
+  },
+  {
+    "id": "llama-cpp-personal-term-restores-technical-name",
+    "category": "dictionary-correction",
+    "input": "используй лама Cpp",
+    "expected": "Используй llama.cpp.",
+    "config": {"language":"ru","text_formatting":{"custom_words":["llama.cpp"],"enabled_presets":[]}}
+  },
+  {
+    "id": "llama-cpp-absent-term-keeps-raw-name",
+    "category": "dictionary-preservation",
+    "input": "используй лама Cpp",
+    "expected": "Используй лама Cpp.",
+    "config": {"language":"ru","text_formatting":{"custom_words":[],"enabled_presets":[]}}
+  },
+  {
+    "id": "llama-cpp-preserves-a-conjunction",
+    "category": "dictionary-preservation",
+    "input": "здесь лама и Cpp",
+    "expected": "Здесь лама и Cpp.",
+    "config": {"language":"ru","text_formatting":{"custom_words":["llama.cpp"],"enabled_presets":[]}}
+  },
+  {
+    "id": "negative-phrase-restart-preserves-scope",
+    "category": "preservation",
+    "input": "не с первого раза, с первого раза всё получилось",
+    "expected": "Не с первого раза, с первого раза всё получилось."
+  },
+  {
+    "id": "negative-number-phrase-restart-preserves-scope",
+    "category": "preservation",
+    "input": "не через пять минут, через пять минут я буду занят",
+    "expected": "Не через пять минут, через пять минут я буду занят."
+  },
+  {
+    "id": "negative-phrase-restart-after-filler-cleanup",
+    "category": "preservation",
+    "input": "ну не с первого раза типа с первого раза всё получилось",
+    "expected": "Не с первого раза с первого раза всё получилось."
+  },
+  {
+    "id": "negative-phrase-restart-after-word-deduplication",
+    "category": "preservation",
+    "input": "не с первого первого раза, с первого раза всё получилось",
+    "expected": "Не с первого раза, с первого раза всё получилось."
+  },
+  {
+    "id": "negative-phrase-restart-with-modifier",
+    "category": "preservation",
+    "input": "не совсем с первого раза, с первого раза всё получилось",
+    "expected": "Не совсем с первого раза, с первого раза всё получилось."
+  },
+  {
+    "id": "english-negative-phrase-restart",
+    "category": "preservation",
+    "input": "not after the first restart, after the first restart it worked",
+    "expected": "Not after the first restart, after the first restart it worked.",
+    "config": {"language":"en"}
+  },
+  {
+    "id": "whole-negative-clause-loop-still-collapses",
+    "category": "cleanup",
+    "input": "это не моя задача. это не моя задача.",
+    "expected": "Это не моя задача."
+  },
+  {
+    "id": "lexical-understanding-verb",
+    "category": "preservation",
+    "input": "ты понимаешь этот алгоритм?",
+    "expected": "Ты понимаешь этот алгоритм?"
+  },
+  {
+    "id": "lexical-understanding-verb-formal",
+    "category": "preservation",
+    "input": "вы понимаете эту задачу?",
+    "expected": "Вы понимаете эту задачу?"
+  },
+  {
+    "id": "lexical-colloquial-question-word",
+    "category": "preservation",
+    "input": "пришли чё нашли",
+    "expected": "Пришли чё нашли."
+  },
+  {
+    "id": "lexical-modality-phrase",
+    "category": "preservation",
+    "input": "как бы нам не потерять данные?",
+    "expected": "Как бы нам не потерять данные?"
+  },
+  {
+    "id": "lexical-general-case-qualifier",
+    "category": "preservation",
+    "input": "в общем случае это неверно",
+    "expected": "В общем случае это неверно."
+  },
+  {
+    "id": "explicit-ambiguous-word-cleanup-still-wins",
+    "category": "custom-cleanup",
+    "input": "ты понимаешь этот алгоритм?",
+    "expected": "Ты этот алгоритм?",
+    "config": {"language":"ru","text_formatting":{"custom_parasite_words":["понимаешь"]}}
+  },
+  {
+    "id": "explicit-negative-restart-replacement-still-wins",
+    "category": "replacements",
+    "input": "не с первого раза, с первого раза всё получилось",
+    "expected": "Со второй попытки всё получилось.",
+    "config": {"language":"ru","replacement_rules":[{"id":"restart","find":"не с первого раза, с первого раза","replace":"со второй попытки","enabled":true,"match":"phrase","stage":"pre_llm"}]}
+  },
+  {
+    "id": "pause-ellipsis-inline",
+    "category": "pause-punctuation",
+    "input": "можно... добавить изменения",
+    "expected": "Можно добавить изменения.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "normalize_ellipsis": true
+      }
+    }
+  },
+  {
+    "id": "pause-ellipsis-joined",
+    "category": "pause-punctuation",
+    "input": "можно…добавить изменения",
+    "expected": "Можно добавить изменения.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "normalize_ellipsis": true
+      }
+    }
+  },
+  {
+    "id": "pause-ellipsis-end",
+    "category": "pause-punctuation",
+    "input": "Готово...",
+    "expected": "Готово.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "normalize_ellipsis": true
+      }
+    }
+  },
+  {
+    "id": "pause-ellipsis-question",
+    "category": "pause-punctuation",
+    "input": "Готово...?",
+    "expected": "Готово?",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "normalize_ellipsis": true
+      }
+    }
+  },
+  {
+    "id": "pause-ellipsis-leading",
+    "category": "pause-punctuation",
+    "input": "... продолжим",
+    "expected": "Продолжим.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "normalize_ellipsis": true
+      }
+    }
+  },
+  {
+    "id": "pause-ellipsis-empty",
+    "category": "pause-punctuation",
+    "input": "... \n …",
+    "expected": "",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "normalize_ellipsis": true
+      }
+    }
+  },
+  {
+    "id": "pause-ellipsis-paragraph",
+    "category": "pause-punctuation",
+    "input": "Готово...\n\nПродолжим",
+    "expected": "Готово.\n\nПродолжим.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "normalize_ellipsis": true
+      }
+    }
+  },
+  {
+    "id": "pause-ellipsis-code",
+    "category": "pause-punctuation",
+    "input": "пример: `fn(...args)`",
+    "expected": "Пример: `fn(...args)`",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "normalize_ellipsis": true
+      }
+    }
+  },
+  {
+    "id": "pause-ellipsis-url",
+    "category": "pause-punctuation",
+    "input": "см https://example.org/a...b",
+    "expected": "См https://example.org/a...b.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "normalize_ellipsis": true
+      }
+    }
+  },
+  {
+    "id": "pause-ellipsis-range",
+    "category": "pause-punctuation",
+    "input": "диапазон 1...5 и 1 … 5",
+    "expected": "Диапазон 1...5 и 1 … 5.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "normalize_ellipsis": true
+      }
+    }
+  },
+  {
+    "id": "pause-ellipsis-filename",
+    "category": "pause-punctuation",
+    "input": "Cargo.toml... проверим",
+    "expected": "Cargo.toml проверим.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "normalize_ellipsis": true
+      }
+    }
+  },
+  {
+    "id": "pause-ellipsis-plain-marks",
+    "category": "pause-punctuation",
+    "input": "готово. Продолжим? Да!",
+    "expected": "Готово. Продолжим? Да!",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "normalize_ellipsis": true
+      }
+    }
+  },
+  {
+    "id": "pause-ellipsis-default-off",
+    "category": "pause-punctuation",
+    "input": "Можно... продолжить…",
+    "expected": "Можно... Продолжить…"
+  },
+  {
+    "id": "pause-ellipsis-formatting-off",
+    "category": "pause-punctuation",
+    "input": "готово...",
+    "expected": "готово...",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "normalize_ellipsis": true,
+        "enabled": false
+      }
+    }
+  },
+  {
+    "id": "pause-ellipsis-explicit-replacement",
+    "category": "pause-punctuation",
+    "input": "готово...",
+    "expected": "Принято.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "normalize_ellipsis": true
+      },
+      "replacement_rules": [
+        {
+          "id": "manual",
+          "find": "готово...",
+          "replace": "принято",
+          "match": "phrase",
+          "enabled": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "pause-ellipsis-quoted-ending",
+    "category": "pause-punctuation",
+    "input": "он сказал «готово...»",
+    "expected": "Он сказал «готово».",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "normalize_ellipsis": true
+      }
+    }
+  },
+  {
+    "id": "pause-ellipsis-independent-switch",
+    "category": "pause-punctuation",
+    "input": "Можно ... продолжить ...",
+    "expected": "Можно продолжить.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "normalize_ellipsis": true,
+        "normalize_spaces": false,
+        "capitalize_sentences": false,
+        "final_punctuation": false
+      }
+    }
+  },
+  {
+    "id": "pause-ellipsis-English",
+    "category": "pause-punctuation",
+    "input": "We can... continue…",
+    "expected": "We can continue.",
+    "config": {
+      "language": "en",
+      "text_formatting": {
+        "normalize_ellipsis": true
+      }
+    }
+  },
+  {
+    "id": "pause-ellipsis-number-before-word",
+    "category": "pause-punctuation",
+    "input": "через 15...минут продолжим",
+    "expected": "Через 15 минут продолжим.",
+    "config": {
+      "language": "ru",
+      "text_formatting": {
+        "normalize_ellipsis": true
+      }
+    }
+  },
+  {
+    "id": "joined-claude-code-builtin-aliases",
+    "category": "term-aliases",
+    "input": "Сравни клаудкод и клаудкода.",
+    "expected": "Сравни Claude Code и Claude Code.",
+    "config": {"language":"ru","text_formatting":{"enabled_presets":["development"]}}
+  },
+  {
+    "id": "spaced-worktree-builtin-alias",
+    "category": "term-aliases",
+    "input": "Проверь ворк три перед запуском.",
+    "expected": "Проверь worktree перед запуском.",
+    "config": {"language":"ru","text_formatting":{"enabled_presets":["development"]}}
+  },
+  {
+    "id": "mixed-chatgpt-builtin-alias",
+    "category": "term-aliases",
+    "input": "Открой чат GPT для проверки.",
+    "expected": "Открой ChatGPT для проверки.",
+    "config": {"language":"ru","text_formatting":{"enabled_presets":["ai_voice"]}}
+  },
+  {
+    "id": "short-dotted-personal-term-alias",
+    "category": "term-aliases",
+    "input": "Выбери ZAI для проверки.",
+    "expected": "Выбери Z.ai для проверки.",
+    "config": {"language":"ru","text_formatting":{"custom_words":["Z.ai"],"enabled_presets":[]}}
+  },
+  {
+    "id": "new-aliases-stay-disabled",
+    "category": "dictionary-preservation",
+    "input": "Проверь клаудкод, ворк три, чат GPT и ZAI.",
+    "expected": "Проверь клаудкод, ворк три, чат GPT и ZAI.",
+    "config": {"language":"ru","text_formatting":{"enabled_presets":[],"custom_words":[]}}
+  },
+  {
+    "id": "new-aliases-do-not-cross-punctuation",
+    "category": "dictionary-preservation",
+    "input": "Проверь ворк, три и чат, GPT.",
+    "expected": "Проверь ворк, три и чат, GPT.",
+    "config": {"language":"ru","text_formatting":{"enabled_presets":["development","ai_voice"]}}
+  },
+  {
+    "id": "joined-aliases-keep-suffixes",
+    "category": "dictionary-preservation",
+    "input": "Проверь cloud coder, cloudcodes, клаудкодер и ворк трижды.",
+    "expected": "Проверь cloud coder, cloudcodes, клаудкодер и ворк трижды.",
+    "config": {"language":"ru","text_formatting":{"enabled_presets":["development"]}}
+  },
+  {
+    "id": "new-aliases-keep-technical-spans",
+    "category": "dictionary-preservation",
+    "input": "Проверь `клаудкод ворк три чат GPT ZAI` и https://example.org/ZAI, файл ZAI.txt и mail@ZAI.test.",
+    "expected": "Проверь `клаудкод ворк три чат GPT ZAI` и https://example.org/ZAI, файл ZAI.txt и mail@ZAI.test.",
+    "config": {"language":"ru","text_formatting":{"enabled_presets":["development","ai_voice"],"custom_words":["Z.ai"]}}
+  },
+  {
+    "id": "joined-alias-obeys-explicit-replacement",
+    "category": "replacements",
+    "input": "Проверь клаудкод.",
+    "expected": "Проверь локальный инструмент.",
+    "config": {"language":"ru","text_formatting":{"enabled_presets":["development"]},"replacement_rules":[{"id":"local","find":"клаудкод","replace":"локальный инструмент","enabled":true,"match":"word","stage":"pre_llm"}]}
+  },
+  {
+    "id": "short-alias-preserves-unrelated-words",
+    "category": "dictionary-preservation",
+    "input": "Проверь Zain, bazai и Z.AI.",
+    "expected": "Проверь Zain, bazai и Z.AI.",
+    "config": {"language":"ru","text_formatting":{"custom_words":["Z.ai"],"enabled_presets":[]}}
+  },
+  {
+    "id": "new-aliases-respect-disabled-formatting",
+    "category": "dictionary-preservation",
+    "input": "клаудкод ворк три чат GPT ZAI",
+    "expected": "клаудкод ворк три чат GPT ZAI",
+    "config": {"language":"ru","text_formatting":{"enabled":false,"enabled_presets":["development","ai_voice"],"custom_words":["Z.ai"]}}
+  },
+  {
+    "id": "claude-code-English-aliases-personal-term",
+    "category": "term-aliases",
+    "input": "Use cloud code and cloudcode.",
+    "expected": "Use Claude Code and Claude Code.",
+    "config": {"language":"en","text_formatting":{"enabled_presets":[],"custom_words":["Claude Code"]}}
+  },
+  {
+    "id": "claude-code-English-aliases-disabled",
+    "category": "dictionary-preservation",
+    "input": "Use cloud code and cloudcode.",
+    "expected": "Use cloud code and cloudcode.",
+    "config": {"language":"en","text_formatting":{"enabled_presets":[],"custom_words":[]}}
+  },
+  {
+    "id": "claude-code-English-aliases-technical-spans",
+    "category": "dictionary-preservation",
+    "input": "Проверь `cloud code cloudcode`, https://example.org/cloudcode, cloudcode.txt и C:\\cloudcode\\src.",
+    "expected": "Проверь `cloud code cloudcode`, https://example.org/cloudcode, cloudcode.txt и C:\\cloudcode\\src.",
+    "config": {"language":"ru","text_formatting":{"enabled_presets":["development"]}}
+  },
+  {
+    "id": "claude-code-English-aliases-literal-terms-win",
+    "category": "dictionary-preservation",
+    "input": "Use Cloud Code and Cloudcode.",
+    "expected": "Use Cloud Code and Cloudcode.",
+    "config": {"language":"en","text_formatting":{"enabled_presets":["development"],"custom_words":["Cloud Code","Cloudcode"]}}
+  },
+  {
+    "id": "claude-code-English-aliases-explicit-rule-wins",
+    "category": "replacements",
+    "input": "Открой cloud code и cloudcode.",
+    "expected": "Открой локальный инструмент и Claude Code.",
+    "config": {"language":"ru","text_formatting":{"enabled_presets":["development"]},"replacement_rules":[{"id":"local","find":"cloud code","replace":"локальный инструмент","enabled":true,"match":"word","stage":"pre_llm"}]}
   }
 ]

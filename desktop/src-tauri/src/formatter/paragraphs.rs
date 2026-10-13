@@ -5,7 +5,7 @@ pub(super) fn split(text: &str) -> String {
     if text.contains(['\n', '\r']) || text.chars().take(350).count() < 350 {
         return text.to_owned();
     }
-    let protected = crate::text_protection::technical_spans(text);
+    let protected = crate::text_protection::cleanup_spans(text);
     let chars: Vec<(usize, char)> = text.char_indices().collect();
     let mut boundaries = Vec::new();
     let mut nesting = 0usize;

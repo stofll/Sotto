@@ -11,6 +11,26 @@ static EMAIL: LazyLock<Regex> = LazyLock::new(|| {
         .expect("valid email pattern")
 });
 
+// Speech language: numeric context separates the millimetre unit from hesitation.
+static MILLIMETRES: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?i)\b[0-9]+(?:[.,][0-9]+)?(?:[–-][0-9]+(?:[.,][0-9]+)?)?[ \t\u{00a0}\u{202f}]*мм\b",
+    )
+    .expect("valid millimetre pattern")
+});
+
+// Speech language: era abbreviations contain punctuation, not sentence boundaries.
+static ERA: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)\b(?:до[ \t\u{00a0}\u{202f}]+)?н\.[ \t\u{00a0}\u{202f}]*э\.")
+        .expect("valid era pattern")
+});
+
+// Ellipses between numbers can denote a range rather than a speech pause.
+static NUMBER_RANGE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\b[0-9]+(?:[.,][0-9]+)?[ \t]*(?:\.{3,}|…)[ \t]*[0-9]+(?:[.,][0-9]+)?\b")
+        .expect("valid number range pattern")
+});
+
 /// Recognize backtick code spans/fences and whitespace-delimited technical tokens.
 /// An unfinished code span is protected to the end while the user is typing.
 pub(crate) fn code_spans(text: &str) -> Vec<Range<usize>> {
@@ -87,6 +107,14 @@ pub(crate) fn technical_spans(text: &str) -> Vec<Range<usize>> {
         }
         offset += part.len();
     }
+    spans
+}
+
+pub(crate) fn cleanup_spans(text: &str) -> Vec<Range<usize>> {
+    let mut spans = technical_spans(text);
+    spans.extend(MILLIMETRES.find_iter(text).map(|m| m.range()));
+    spans.extend(ERA.find_iter(text).map(|m| m.range()));
+    spans.extend(NUMBER_RANGE.find_iter(text).map(|m| m.range()));
     spans
 }
 
