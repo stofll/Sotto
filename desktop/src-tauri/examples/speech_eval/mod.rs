@@ -559,18 +559,28 @@ mod tests {
         .unwrap();
         let args = HashMap::from([
             ("--mode".to_string(), "stt".to_string()),
-            ("--model".to_string(), "qwen3-asr-0.6b".to_string()),
+            ("--model".to_string(), "turbo".to_string()),
             ("--hints".to_string(), "config".to_string()),
         ]);
         assert_eq!(
             vocabulary_prompt(&args, &cfg).unwrap().as_deref(),
             Some("Cargo")
         );
-        for (key, value) in [
-            ("--model", "parakeet-ultra"),
-            ("--hints", "empty"),
-            ("--mode", "format"),
-        ] {
+        // Sherpa models are only in the catalog where the Sherpa runtime ships.
+        let sherpa = cfg!(any(windows, target_os = "macos"));
+        if sherpa {
+            let mut qwen = args.clone();
+            qwen.insert("--model".to_string(), "qwen3-asr-0.6b".to_string());
+            assert_eq!(
+                vocabulary_prompt(&qwen, &cfg).unwrap().as_deref(),
+                Some("Cargo")
+            );
+        }
+        let ultra = sherpa.then_some(("--model", "parakeet-ultra"));
+        for (key, value) in [("--hints", "empty"), ("--mode", "format")]
+            .into_iter()
+            .chain(ultra)
+        {
             let mut changed = args.clone();
             changed.insert(key.to_string(), value.to_string());
             assert!(vocabulary_prompt(&changed, &cfg).unwrap().is_none());
@@ -667,6 +677,8 @@ mod tests {
             .contains_key("--beam-size"));
     }
 
+    // Fragment probes target Parakeet Ultra, a Sherpa model absent on Linux.
+    #[cfg(any(windows, target_os = "macos"))]
     #[test]
     fn ultra_accepts_an_explicit_shorter_fragment_limit() {
         let args = options(
@@ -695,6 +707,7 @@ mod tests {
         assert_eq!(args["--fragment-seconds"], "30");
     }
 
+    #[cfg(any(windows, target_os = "macos"))]
     #[test]
     fn fragment_probes_reject_invalid_limits_and_unsupported_modes_or_models() {
         let base = [
