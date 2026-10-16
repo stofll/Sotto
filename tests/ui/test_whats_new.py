@@ -171,6 +171,27 @@ def test_whats_new_renders_a_list_written_under_its_heading(app, page):
     expect(dialog).not_to_contain_text("* Faster")
 
 
+def test_whats_new_lists_item_summaries_and_leaves_detail_on_github(app, page):
+    app(
+        whats_new={
+            **RELEASE,
+            "notes": "Sotto 0.2.0 is faster.\n\n## Faster\n\n"
+            "- **Whisper is faster.** Builds were compiled without optimization."
+            " ([#1](https://github.com/stofll/Sotto/pull/1))\n"
+            "- **Cancel stops at once.** A running decode is interrupted.\n"
+            "- Plain item with **bold** words\n",
+        }
+    )
+    dialog = page.get_by_role("dialog")
+    expect(dialog).to_contain_text("Sotto 0.2.0 is faster.")
+    items = dialog.get_by_role("listitem")
+    expect(items).to_have_text(
+        ["Whisper is faster.", "Cancel stops at once.", "Plain item with bold words"]
+    )
+    expect(dialog).not_to_contain_text("without optimization")
+    expect(dialog.get_by_role("link")).to_have_count(0)
+
+
 def test_whats_new_remote_markup_is_inert(app, page):
     app(
         whats_new={

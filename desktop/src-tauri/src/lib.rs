@@ -1373,8 +1373,12 @@ pub fn run() {
 
             // Started by the OS at login: the user did not ask to look at
             // the app, only to have the hotkey available. Everything else
-            // (tray, engine, hotkey) is set up exactly as usual.
-            if std::env::args().any(|arg| arg == AUTOSTART_ARG) {
+            // (tray, engine, hotkey) is set up exactly as usual. An update
+            // restart inherits that flag, but the user was looking at the window.
+            // The marker is read on every launch so a stale one cannot outlive it.
+            let by_update = crate::updater::launched_by_update(app.handle());
+            let autostart = std::env::args().any(|arg| arg == AUTOSTART_ARG) && !by_update;
+            if autostart {
                 if let Some(window) = app.get_webview_window("main") {
                     let _ = window.hide();
                 }
@@ -1501,7 +1505,6 @@ pub fn run() {
             let telemetry =
                 crate::telemetry::Telemetry::new(db_arc.clone(), startup_config.as_ref());
             app.manage(telemetry.clone());
-            let autostart = std::env::args().any(|arg| arg == AUTOSTART_ARG);
             let ui_language = startup_config
                 .as_ref()
                 .and_then(|config| config.get_string("ui_language"))

@@ -13,6 +13,15 @@ function childTokens(token: Token): Token[] {
   return "tokens" in token ? token.tokens ?? [] : [];
 }
 
+/** Sotto's release notes open an item with a bold sentence and explain it
+ * after; the dialog keeps that sentence and leaves the detail to the GitHub
+ * release. Bold words inside an ordinary item are not a summary. */
+function itemSummary(tokens: Token[]): Token[] {
+  const first = tokens[0];
+  const lead = first?.type === "text" || first?.type === "paragraph" ? childTokens(first)[0] : undefined;
+  return lead?.type === "strong" && /[.!?]$/.test(lead.text.trim()) ? childTokens(lead) : tokens;
+}
+
 /** Render tokens as React elements; remote HTML and images stay inert text. */
 export default function ReleaseNotes({ text, onOpenUrl }: { text: string; onOpenUrl: (url: string) => void }) {
   const tokens = useMemo(() => lexer(text), [text]);
@@ -49,7 +58,7 @@ export default function ReleaseNotes({ text, onOpenUrl }: { text: string; onOpen
           break;
         }
         case "list": {
-          const items = (token.items as Token[]).map((item, i) => <li key={i}>{render(childTokens(item))}</li>);
+          const items = (token.items as Token[]).map((item, i) => <li key={i}>{render(itemSummary(childTokens(item)))}</li>);
           node = token.ordered ? <ol start={token.start}>{items}</ol> : <ul>{items}</ul>;
           break;
         }

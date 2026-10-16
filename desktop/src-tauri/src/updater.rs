@@ -23,6 +23,9 @@ use tauri::{AppHandle, Emitter};
 use tauri_plugin_updater::{Update, UpdaterExt};
 
 const RELEASES_URL: &str = "https://api.github.com/repos/stofll/Sotto/releases?per_page=20";
+/// Served from github.com like the release downloads: the API host is
+/// rate-limited per IP and is unreachable on some networks that still download.
+const RELEASES_FEED_URL: &str = "https://github.com/stofll/Sotto/releases.atom";
 const UPDATE_TIMEOUT: Duration = Duration::from_secs(20);
 const MAX_RELEASE_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
 
@@ -86,7 +89,22 @@ fn newest_release(releases: &[GithubRelease], current: &Version) -> Option<Versi
         .max_by(Version::cmp_precedence)
 }
 
-async fn fetch_releases(url: &str) -> Result<Vec<GithubRelease>, String> {
+/// The newest eligible version linked from the releases feed. The feed carries
+/// neither the prerelease flag nor the assets and can list a tag whose release
+/// is still a draft, so the tag alone decides the channel and a missing
+/// manifest makes [`available_update`] fall back to the stable channel.
+fn newest_feed_release(feed: &str, current: &Version) -> Option<Version> {
+    feed.split("/releases/tag/v")
+        .skip(1)
+        .filter_map(|rest| {
+            let tag = &rest[..rest.find(['"', '<', '/']).unwrap_or(rest.len())];
+            Version::parse(tag).ok()
+        })
+        .filter(|version| is_channel_version(version) && allowed_upgrade(current, version, true))
+        .max_by(Version::cmp_precedence)
+}
+
+async fn fetch_bounded(url: &str, accept: &str) -> Result<Vec<u8>, String> {
     let client = crate::http_client::builder()
         .timeout(UPDATE_TIMEOUT)
         .user_agent(concat!("Sotto/", env!("CARGO_PKG_VERSION")))
@@ -94,7 +112,7 @@ async fn fetch_releases(url: &str) -> Result<Vec<GithubRelease>, String> {
         .map_err(|e| e.to_string())?;
     let mut response = client
         .get(url)
-        .header("Accept", "application/vnd.github+json")
+        .header("Accept", accept)
         .send()
         .await
         .and_then(reqwest::Response::error_for_status)
@@ -112,32 +130,48 @@ async fn fetch_releases(url: &str) -> Result<Vec<GithubRelease>, String> {
         }
         bytes.extend_from_slice(&chunk);
     }
+    Ok(bytes)
+}
+
+async fn fetch_releases(url: &str) -> Result<Vec<GithubRelease>, String> {
+    let bytes = fetch_bounded(url, "application/vnd.github+json").await?;
     serde_json::from_slice(&bytes).map_err(|e| e.to_string())
 }
 
-async fn available_update(app: &AppHandle) -> Result<Option<Update>, String> {
-    // Read the persisted choice for both checking and installation. A previously
-    // displayed beta must not bypass a subsequently disabled preference.
-    let beta = beta_enabled(crate::config::Config::load(app)?.as_value());
-    let selected = if beta {
-        match fetch_releases(RELEASES_URL).await {
-            Ok(releases) => {
-                let Some(version) = newest_release(&releases, &app.package_info().version) else {
-                    return Ok(None);
-                };
-                Some(version)
-            }
-            // The unauthenticated list is rate-limited per IP and may be blocked
-            // separately from release downloads. A stable update must still reach
-            // a beta subscriber then.
-            Err(error) => {
-                log::warn!("beta release list unavailable, checking stable: {error}");
-                None
-            }
+struct BetaRelease {
+    version: Version,
+    /// Chosen from the feed, whose tag may not have a published manifest.
+    from_feed: bool,
+}
+
+/// The newest beta-channel release, or `Err` when neither source answered.
+async fn newest_beta(current: &Version) -> Result<Option<BetaRelease>, String> {
+    let api_error = match fetch_releases(RELEASES_URL).await {
+        Ok(releases) => {
+            return Ok(
+                newest_release(&releases, current).map(|version| BetaRelease {
+                    version,
+                    from_feed: false,
+                }),
+            )
         }
-    } else {
-        None
+        Err(error) => error,
     };
+    log::warn!("beta release list unavailable, reading the feed: {api_error}");
+    let feed = fetch_bounded(RELEASES_FEED_URL, "application/atom+xml").await?;
+    Ok(
+        newest_feed_release(&String::from_utf8_lossy(&feed), current).map(|version| BetaRelease {
+            version,
+            from_feed: true,
+        }),
+    )
+}
+
+/// Check one manifest: the selected beta's, or the stable endpoint for `None`.
+async fn check_manifest(
+    app: &AppHandle,
+    selected: Option<Version>,
+) -> Result<Option<Update>, String> {
     let mut builder = app.updater_builder().timeout(UPDATE_TIMEOUT);
     if let Some(version) = &selected {
         let url =
@@ -160,6 +194,49 @@ async fn available_update(app: &AppHandle) -> Result<Option<Update>, String> {
         .check()
         .await
         .map_err(|e| e.to_string())
+}
+
+async fn available_update(app: &AppHandle) -> Result<Option<Update>, String> {
+    // Read the persisted choice for both checking and installation. A previously
+    // displayed beta must not bypass a subsequently disabled preference.
+    let beta = beta_enabled(crate::config::Config::load(app)?.as_value());
+    let mut beta_unknown = false;
+    let selected = if beta {
+        match newest_beta(&app.package_info().version).await {
+            Ok(Some(release)) => Some(release),
+            Ok(None) => return Ok(None),
+            // A stable update must still reach a beta subscriber then.
+            Err(error) => {
+                log::warn!("beta releases unavailable, checking stable: {error}");
+                beta_unknown = true;
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let update = match selected {
+        Some(BetaRelease {
+            version,
+            from_feed: true,
+        }) => match check_manifest(app, Some(version)).await {
+            Ok(update) => update,
+            Err(error) => {
+                log::warn!("beta manifest from the feed unavailable, checking stable: {error}");
+                beta_unknown = true;
+                check_manifest(app, None).await?
+            }
+        },
+        selected => check_manifest(app, selected.map(|release| release.version)).await?,
+    };
+    // "Up to date" would be a guess while the beta releases stayed unknown, and
+    // it would also postpone the next automatic check for hours.
+    if update.is_none() && beta_unknown {
+        return Err(crate::ui_text::t(
+            "Не удалось проверить бета-версии. Проверьте подключение и попробуйте ещё раз.",
+        ));
+    }
+    Ok(update)
 }
 
 /// Download progress event. `total` comes from `Content-Length` and may be
@@ -217,6 +294,29 @@ pub fn unsupported_reason() -> Option<String> {
         .then(|| crate::ui_text::t("обновления работают только в собранном приложении"))
 }
 
+/// Records which version an update installs. The updater restarts Sotto with
+/// the arguments of the running process, so an app that the OS started at login
+/// would come back with `--autostart` and hide the window the user just saw.
+fn restart_marker_path(app: &AppHandle) -> Option<std::path::PathBuf> {
+    crate::config::config_path(app)
+        .ok()
+        .map(|path| path.with_file_name("update-restart"))
+}
+
+/// Whether this launch is the restart of an update to `current`. The marker is
+/// consumed either way: an update that never installed leaves the old version
+/// running, and that launch must keep its usual startup.
+fn take_restart_marker_at(path: &std::path::Path, current: &str) -> bool {
+    let target = std::fs::read_to_string(path).ok();
+    let _ = std::fs::remove_file(path);
+    target.is_some_and(|target| target.trim() == current)
+}
+
+pub fn launched_by_update(app: &AppHandle) -> bool {
+    restart_marker_path(app)
+        .is_some_and(|path| take_restart_marker_at(&path, &app.package_info().version.to_string()))
+}
+
 /// Ask the server about an update.
 pub async fn check(app: &AppHandle) -> Result<UpdateInfo, String> {
     let current = app.package_info().version.to_string();
@@ -251,6 +351,12 @@ pub async fn install(app: &AppHandle) -> Result<(), String> {
 
     crate::release_notes::cache_update(app, &update.version, update.body.as_deref()).await;
 
+    let marker = restart_marker_path(app);
+    if let Some(path) = &marker {
+        if let Err(error) = std::fs::write(path, &update.version) {
+            log::warn!("could not record the update restart: {error}");
+        }
+    }
     let app_for_progress = app.clone();
     let mut downloaded: u64 = 0;
     update
@@ -263,7 +369,12 @@ pub async fn install(app: &AppHandle) -> Result<(), String> {
             || log::info!("update downloaded, installing"),
         )
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| {
+            if let Some(path) = &marker {
+                let _ = std::fs::remove_file(path);
+            }
+            e.to_string()
+        })?;
 
     // The Windows plugin exits after launching the signed setup with /UPDATE /R;
     // setup runs NSIS silently and NSIS restarts Sotto. Other platforms restart here.
@@ -368,6 +479,57 @@ mod tests {
             release("0.1.0", false, false, true),
         ];
         assert!(newest_release(&releases, &current).is_none());
+    }
+
+    #[test]
+    fn restart_marker_matches_only_the_installed_version_and_is_consumed() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("update-restart");
+        assert!(!take_restart_marker_at(&path, "0.3.6"));
+        std::fs::write(&path, "0.3.6").unwrap();
+        assert!(take_restart_marker_at(&path, "0.3.6"));
+        assert!(!path.exists());
+        // An update that never installed leaves the old version running.
+        std::fs::write(&path, "0.3.6").unwrap();
+        assert!(!take_restart_marker_at(&path, "0.3.5"));
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn feed_selection_reads_tags_and_keeps_the_channel_rules() {
+        let current = Version::parse("0.3.5").unwrap();
+        let entry = |tag: &str| {
+            format!(
+                "<entry><id>tag:github.com,2008:Repository/1/{tag}</id>\
+                 <link rel=\"alternate\" href=\"https://github.com/stofll/Sotto/releases/tag/{tag}\"/>\
+                 <content>&lt;a href=&quot;https://github.com/stofll/Sotto/compare/v0.3.4...{tag}&quot;&gt;</content>\
+                 </entry>"
+            )
+        };
+        let feed: String = [
+            "v0.3.6-beta.2",
+            "v0.3.6-beta.1",
+            "v0.3.7-rc.1",
+            "v0.3.6-beta.0",
+            "vbroken",
+            "v0.3.5",
+            "v0.3.4",
+        ]
+        .map(entry)
+        .concat();
+        assert_eq!(
+            newest_feed_release(&feed, &current).unwrap().to_string(),
+            "0.3.6-beta.2"
+        );
+        let promoted = format!("{}{feed}", entry("v0.3.6"));
+        assert_eq!(
+            newest_feed_release(&promoted, &current)
+                .unwrap()
+                .to_string(),
+            "0.3.6"
+        );
+        assert!(newest_feed_release(&entry("v0.3.5"), &current).is_none());
+        assert!(newest_feed_release("<feed></feed>", &current).is_none());
     }
 
     #[tokio::test]

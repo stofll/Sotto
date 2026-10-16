@@ -220,6 +220,18 @@ def test_quiet_background_checks_retry_later(app, page, response):
     expect(page.get_by_test_id("update-notice")).to_be_visible()
 
 
+def test_failed_background_check_retries_within_the_hour(app, page):
+    page.clock.install()
+    ui = app(responses={"check_update": [{"error": "Offline"}]})
+    page.wait_for_function(
+        "window.__sottoTest.calls.some(call => call.command === 'check_update')"
+    )
+    ui.queue("check_update", {"result": UPDATE})
+    page.clock.fast_forward(30 * 60 * 1000 + 1_000)
+    expect(page.get_by_test_id("update-notice")).to_be_visible()
+    assert len(ui.calls("check_update")) == 2
+
+
 def test_old_beta_check_cannot_show_after_channel_changes(app, page):
     ui = app(
         config={"receive_beta_updates": True},

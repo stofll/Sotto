@@ -372,7 +372,7 @@ The release itself already exists by this point: `tauri-action` opened it as a d
 3. Write the release description using the [template below](#whats-new-template). Review merged PRs or `git log --oneline <previous tag>..vX.Y.Z` as source material, then describe the changes in user-facing language.
 4. Publish the draft.
 
-Publishing makes a release available to its update channel. Stable checks use `releases/latest/download/latest.json`; beta checks select the newest eligible published version from GitHub Releases and use that tag's manifest. Drafts are invisible to both channels. The manifest contains the notes captured during the build; the post-update dialog retrieves the published release description as described below.
+Publishing makes a release available to its update channel. Stable checks use `releases/latest/download/latest.json`; beta checks select the newest eligible published version from the GitHub Releases API and use that tag's manifest. When the API is rate-limited or unreachable, the beta check reads the releases Atom feed on github.com instead; the feed carries no prerelease flag or asset list and can link a tag whose release is still a draft, so the tag decides the channel and a selected tag without a reachable `latest.json` falls back to the stable check. If the beta releases stay unknown and no stable update exists, the check reports an error rather than "up to date". Drafts are invisible to both channels. The manifest contains the notes captured during the build; the post-update dialog retrieves the published release description as described below.
 
 Installed copies receive stable versions by default, including copies installed from a beta installer. **Help → Updates → Receive beta builds** opts into newer beta and stable releases. Disabling it clears the displayed update and checks the stable channel again; it never downgrades an installed beta, which can return to stable when a newer stable version is published. Checking and installation both read the persisted choice, and every installation still verifies the updater signature.
 
@@ -382,16 +382,18 @@ Write release notes in English. Start with the main benefit, then describe obser
 
 The description also appears in Sotto's update dialog. Keep it concise, and remove empty sections, placeholder text, and authoring comments before publishing. A small patch may need only a short introduction and a `Fixed` section.
 
+Open each bullet with a bold sentence that ends in a period, such as `- **Cancel stops at once.** Cancelling now interrupts…`. The dialog shows only that sentence for such bullets and leaves the explanation and PR links to the GitHub release; a bullet without a bold opening sentence is shown in full.
+
 ```markdown
 <!-- Briefly describe the main benefit of this release. -->
 
 ## New and improved
 
-- [Describe a new capability or improvement and where to use it.]
+- **[Name the improvement in one sentence.]** [Describe where to use it.]
 
 ## Fixed
 
-- [Describe the affected scenario and the corrected behavior.]
+- **[Name the fix in one sentence.]** [Describe the affected scenario and the corrected behavior.]
 
 ## Update notes
 
