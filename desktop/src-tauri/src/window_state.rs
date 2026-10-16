@@ -12,8 +12,8 @@ use std::time::{Duration, Instant};
 
 use tauri::{Manager, WindowEvent};
 
-/// Matches `tauri.conf.json` → `app.windows[0]`: `minWidth` and `minHeight` are
-/// set there too, so smaller sizes can never be the saved ones.
+/// Matches `tauri.conf.json` → `app.windows[0]` `minWidth` and `minHeight`. A
+/// frameless window can still save a pixel less; `restored_size` clamps it.
 const DEFAULT_WIDTH: f64 = 1000.0;
 const DEFAULT_HEIGHT: f64 = 710.0;
 const WRITE_INTERVAL: Duration = Duration::from_secs(1);

@@ -89,10 +89,10 @@ fn newest_release(releases: &[GithubRelease], current: &Version) -> Option<Versi
         .max_by(Version::cmp_precedence)
 }
 
-/// The newest eligible version linked from the releases feed. The feed lists
-/// published releases only and carries neither the prerelease flag nor the
-/// assets, so the tag alone decides the channel and a missing manifest
-/// surfaces as a failed check.
+/// The newest eligible version linked from the releases feed. The feed carries
+/// neither the prerelease flag nor the assets and can list a tag whose release
+/// is still a draft, so the tag alone decides the channel and a missing
+/// manifest makes [`available_update`] fall back to the stable channel.
 fn newest_feed_release(feed: &str, current: &Version) -> Option<Version> {
     feed.split("/releases/tag/v")
         .skip(1)
@@ -138,18 +138,62 @@ async fn fetch_releases(url: &str) -> Result<Vec<GithubRelease>, String> {
     serde_json::from_slice(&bytes).map_err(|e| e.to_string())
 }
 
+struct BetaRelease {
+    version: Version,
+    /// Chosen from the feed, whose tag may not have a published manifest.
+    from_feed: bool,
+}
+
 /// The newest beta-channel release, or `Err` when neither source answered.
-async fn newest_beta(current: &Version) -> Result<Option<Version>, String> {
+async fn newest_beta(current: &Version) -> Result<Option<BetaRelease>, String> {
     let api_error = match fetch_releases(RELEASES_URL).await {
-        Ok(releases) => return Ok(newest_release(&releases, current)),
+        Ok(releases) => {
+            return Ok(
+                newest_release(&releases, current).map(|version| BetaRelease {
+                    version,
+                    from_feed: false,
+                }),
+            )
+        }
         Err(error) => error,
     };
     log::warn!("beta release list unavailable, reading the feed: {api_error}");
     let feed = fetch_bounded(RELEASES_FEED_URL, "application/atom+xml").await?;
-    Ok(newest_feed_release(
-        &String::from_utf8_lossy(&feed),
-        current,
-    ))
+    Ok(
+        newest_feed_release(&String::from_utf8_lossy(&feed), current).map(|version| BetaRelease {
+            version,
+            from_feed: true,
+        }),
+    )
+}
+
+/// Check one manifest: the selected beta's, or the stable endpoint for `None`.
+async fn check_manifest(
+    app: &AppHandle,
+    selected: Option<Version>,
+) -> Result<Option<Update>, String> {
+    let mut builder = app.updater_builder().timeout(UPDATE_TIMEOUT);
+    if let Some(version) = &selected {
+        let url =
+            format!("https://github.com/stofll/Sotto/releases/download/v{version}/latest.json");
+        builder = builder
+            .endpoints(vec![url
+                .parse::<reqwest::Url>()
+                .map_err(|e| e.to_string())?])
+            .map_err(|e| e.to_string())?;
+    }
+    builder
+        .version_comparator(move |current, release| {
+            allowed_upgrade(&current, &release.version, selected.is_some())
+                && selected
+                    .as_ref()
+                    .is_none_or(|expected| expected == &release.version)
+        })
+        .build()
+        .map_err(|e| e.to_string())?
+        .check()
+        .await
+        .map_err(|e| e.to_string())
 }
 
 async fn available_update(app: &AppHandle) -> Result<Option<Update>, String> {
@@ -159,7 +203,7 @@ async fn available_update(app: &AppHandle) -> Result<Option<Update>, String> {
     let mut beta_unknown = false;
     let selected = if beta {
         match newest_beta(&app.package_info().version).await {
-            Ok(Some(version)) => Some(version),
+            Ok(Some(release)) => Some(release),
             Ok(None) => return Ok(None),
             // A stable update must still reach a beta subscriber then.
             Err(error) => {
@@ -171,28 +215,20 @@ async fn available_update(app: &AppHandle) -> Result<Option<Update>, String> {
     } else {
         None
     };
-    let mut builder = app.updater_builder().timeout(UPDATE_TIMEOUT);
-    if let Some(version) = &selected {
-        let url =
-            format!("https://github.com/stofll/Sotto/releases/download/v{version}/latest.json");
-        builder = builder
-            .endpoints(vec![url
-                .parse::<reqwest::Url>()
-                .map_err(|e| e.to_string())?])
-            .map_err(|e| e.to_string())?;
-    }
-    let update = builder
-        .version_comparator(move |current, release| {
-            allowed_upgrade(&current, &release.version, selected.is_some())
-                && selected
-                    .as_ref()
-                    .is_none_or(|expected| expected == &release.version)
-        })
-        .build()
-        .map_err(|e| e.to_string())?
-        .check()
-        .await
-        .map_err(|e| e.to_string())?;
+    let update = match selected {
+        Some(BetaRelease {
+            version,
+            from_feed: true,
+        }) => match check_manifest(app, Some(version)).await {
+            Ok(update) => update,
+            Err(error) => {
+                log::warn!("beta manifest from the feed unavailable, checking stable: {error}");
+                beta_unknown = true;
+                check_manifest(app, None).await?
+            }
+        },
+        selected => check_manifest(app, selected.map(|release| release.version)).await?,
+    };
     // "Up to date" would be a guess while the beta releases stayed unknown, and
     // it would also postpone the next automatic check for hours.
     if update.is_none() && beta_unknown {
@@ -443,6 +479,20 @@ mod tests {
             release("0.1.0", false, false, true),
         ];
         assert!(newest_release(&releases, &current).is_none());
+    }
+
+    #[test]
+    fn restart_marker_matches_only_the_installed_version_and_is_consumed() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("update-restart");
+        assert!(!take_restart_marker_at(&path, "0.3.6"));
+        std::fs::write(&path, "0.3.6").unwrap();
+        assert!(take_restart_marker_at(&path, "0.3.6"));
+        assert!(!path.exists());
+        // An update that never installed leaves the old version running.
+        std::fs::write(&path, "0.3.6").unwrap();
+        assert!(!take_restart_marker_at(&path, "0.3.5"));
+        assert!(!path.exists());
     }
 
     #[test]

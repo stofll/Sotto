@@ -1375,8 +1375,9 @@ pub fn run() {
             // the app, only to have the hotkey available. Everything else
             // (tray, engine, hotkey) is set up exactly as usual. An update
             // restart inherits that flag, but the user was looking at the window.
-            let autostart = std::env::args().any(|arg| arg == AUTOSTART_ARG)
-                && !crate::updater::launched_by_update(app.handle());
+            // The marker is read on every launch so a stale one cannot outlive it.
+            let by_update = crate::updater::launched_by_update(app.handle());
+            let autostart = std::env::args().any(|arg| arg == AUTOSTART_ARG) && !by_update;
             if autostart {
                 if let Some(window) = app.get_webview_window("main") {
                     let _ = window.hide();
