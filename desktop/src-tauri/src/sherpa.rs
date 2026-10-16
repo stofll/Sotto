@@ -42,6 +42,9 @@ const DECODING_GREEDY: &str = "greedy_search";
 const LANG_EN: &str = "en";
 #[cfg(any(windows, target_os = "macos"))]
 const LANG_AUTO: &str = "auto";
+/// Audio a streaming recognizer accepts per native call on a final pass.
+#[cfg(any(windows, target_os = "macos"))]
+const FEED_PIECE_SECONDS: usize = 30;
 
 #[cfg(any(windows, target_os = "macos"))]
 pub struct OfflineRecognizer {
@@ -279,6 +282,28 @@ impl OfflineRecognizer {
         tokens_path: &Path,
         num_threads: i32,
     ) -> Result<Self, String> {
+        Self::transducer_with_beam(
+            encoder_path,
+            decoder_path,
+            joiner_path,
+            tokens_path,
+            num_threads,
+            None,
+        )
+    }
+
+    /// Explicit evaluation override. Normal application constructors stay greedy.
+    pub fn transducer_with_beam(
+        encoder_path: &Path,
+        decoder_path: &Path,
+        joiner_path: &Path,
+        tokens_path: &Path,
+        num_threads: i32,
+        beam_size: Option<i32>,
+    ) -> Result<Self, String> {
+        if beam_size.is_some_and(|size| !(1..=8).contains(&size)) {
+            return Err("SHERPA_INVALID_BEAM: beam size must be in 1..=8".into());
+        }
         check_threads(num_threads)?;
         let model_config = sherpa_onnx::OfflineModelConfig {
             transducer: sherpa_onnx::OfflineTransducerModelConfig {
@@ -290,7 +315,7 @@ impl OfflineRecognizer {
         };
         // Zipformer defaults to 80 bins. NeMo overrides this from feat_dim
         // metadata (128 for Parakeet TDT/Ultra) in the pinned runtime.
-        Self::create(model_config, Some((16_000, 80)))
+        Self::create_with_beam(model_config, Some((16_000, 80)), beam_size)
     }
 
     /// # Panics
@@ -299,12 +324,24 @@ impl OfflineRecognizer {
         model_config: sherpa_onnx::OfflineModelConfig,
         feat_config: Option<(i32, i32)>,
     ) -> Result<Self, String> {
+        Self::create_with_beam(model_config, feat_config, None)
+    }
+
+    fn create_with_beam(
+        model_config: sherpa_onnx::OfflineModelConfig,
+        feat_config: Option<(i32, i32)>,
+        beam_size: Option<i32>,
+    ) -> Result<Self, String> {
         let qwen3 = model_config.qwen3_asr.conv_frontend.is_some();
         let mut config = sherpa_onnx::OfflineRecognizerConfig {
             model_config,
             decoding_method: Some(DECODING_GREEDY.to_string()),
             ..Default::default()
         };
+        if let Some(size) = beam_size {
+            config.decoding_method = Some("modified_beam_search".into());
+            config.max_active_paths = size;
+        }
         // `None` means the zeroed feature config every family except the
         // transducer was created with before this crate owned the C calls —
         // those models carry their own front end and read this back. The
@@ -545,6 +582,7 @@ mod tests {
         let text = transcribe_segments(
             &audio,
             false,
+            crate::vad::FRAGMENT_SECONDS,
             || false,
             |fragment| {
                 assert!(fragment.len() <= 25 * 16_000);
@@ -561,6 +599,7 @@ mod tests {
         assert!(transcribe_segments(
             &audio,
             false,
+            crate::vad::FRAGMENT_SECONDS,
             || true,
             |_| {
                 decoded = true;
@@ -805,8 +844,10 @@ impl OnlineRecognizer {
     }
 
     /// [`Self::feed`] that stops decoding once `cancelled` turns true and
-    /// returns `false`. A whole recording is one `feed`, and on a slow model
-    /// its decode runs for minutes.
+    /// returns `false`. A whole recording arrives as one call, and on a slow
+    /// model its decode runs for minutes. It is accepted in bounded pieces: feature
+    /// extraction is one uncancellable native call per piece, and a
+    /// multi-hour file would otherwise spend it all before the first check.
     pub fn feed_unless(
         &mut self,
         sample_rate: u32,
@@ -814,8 +855,16 @@ impl OnlineRecognizer {
         cancelled: &dyn Fn() -> bool,
     ) -> Result<bool, String> {
         validate_audio(sample_rate, samples)?;
-        self.accept(sample_rate, samples);
-        Ok(self.decode_ready(cancelled).is_some())
+        if samples.is_empty() {
+            return Ok(self.decode_ready(cancelled).is_some());
+        }
+        for piece in samples.chunks(FEED_PIECE_SECONDS * sample_rate as usize) {
+            self.accept(sample_rate, piece);
+            if self.decode_ready(cancelled).is_none() {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 
     fn accept(&mut self, sample_rate: u32, samples: &[f32]) {
@@ -968,24 +1017,36 @@ pub enum SherpaRecognizer {
 }
 
 impl SherpaRecognizer {
-    /// Shared bounded path for new offline models. Options belong to a fresh
+    /// Bounded path for every offline model except GigaAM: an offline encoder
+    /// sees the whole buffer at once and degrades past short utterances.
+    /// Language and hotwords reach only Qwen3. Options belong to a fresh
     /// stream, so changing a dictionary never reloads weights or leaks hints.
     pub fn transcribe_segmented(
         &mut self,
         samples: &[f32],
+        fragment_seconds: usize,
         language: Option<&str>,
         prompt: Option<&str>,
         cancelled: impl Fn() -> bool,
     ) -> Result<String, String> {
         let hotwords = prompt.map(qwen3::bounded_hotwords);
-        transcribe_segments(samples, false, cancelled, |fragment| match self {
-            Self::Offline(recognizer) => {
-                recognizer.transcribe_with_context(16_000, fragment, language, hotwords.as_deref())
-            }
-            Self::Online(_) => {
-                Err("SHERPA_WRONG_ENGINE: segmentation requires an offline model".into())
-            }
-        })
+        transcribe_segments(
+            samples,
+            false,
+            fragment_seconds,
+            cancelled,
+            |fragment| match self {
+                Self::Offline(recognizer) => recognizer.transcribe_with_context(
+                    16_000,
+                    fragment,
+                    language,
+                    hotwords.as_deref(),
+                ),
+                Self::Online(_) => {
+                    Err("SHERPA_WRONG_ENGINE: segmentation requires an offline model".into())
+                }
+            },
+        )
     }
 
     /// Bounded GigaAM recognition shared by microphone and file transcription.
@@ -1100,12 +1161,19 @@ fn transcribe_gigaam_segments(
     cancelled: impl Fn() -> bool,
     decode: impl FnMut(&[f32]) -> Result<String, String>,
 ) -> Result<String, String> {
-    transcribe_segments(samples, true, cancelled, decode)
+    transcribe_segments(
+        samples,
+        true,
+        crate::vad::FRAGMENT_SECONDS,
+        cancelled,
+        decode,
+    )
 }
 
 fn transcribe_segments(
     samples: &[f32],
     recover_boundary: bool,
+    fragment_seconds: usize,
     cancelled: impl Fn() -> bool,
     mut decode: impl FnMut(&[f32]) -> Result<String, String>,
 ) -> Result<String, String> {
@@ -1113,7 +1181,7 @@ fn transcribe_segments(
     if cancelled() {
         return Err(cancel_error());
     }
-    let ranges = crate::vad::recognition_segments(samples);
+    let ranges = crate::vad::recognition_segments(samples, fragment_seconds);
     let mut text = String::new();
     for range in ranges {
         if cancelled() {

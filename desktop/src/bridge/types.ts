@@ -57,6 +57,7 @@ export interface TextFormattingConfig {
   collapse_phrase_loops: boolean;
   clean_commas: boolean;
   normalize_spaces: boolean;
+  normalize_ellipsis: boolean;
   correct_spelling: boolean;
   split_sentences: boolean;
   split_paragraphs: boolean;

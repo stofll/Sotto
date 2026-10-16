@@ -2,6 +2,7 @@
 //! Usage: cargo run --release --locked --example model_benchmark -- tiny base
 #[path = "../tests/common/mod.rs"]
 mod common;
+mod speech_eval;
 
 use sotto_lib::{model, model_download, model_performance, sherpa};
 use std::io::Write;
@@ -168,6 +169,9 @@ fn completed(
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    if std::env::args().nth(1).as_deref() == Some("--eval") {
+        return speech_eval::run(std::env::args().skip(2)).await;
+    }
     let options = Options::parse(std::env::args().skip(1))?;
     if cfg!(debug_assertions) {
         return Err("Reference measurements require --release".into());
@@ -325,9 +329,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             model::ModelLoadSpec::Sherpa { engine, files } => {
                 let mut recognizer = sherpa::SherpaRecognizer::open(engine, &files, threads)?;
+                let fragment_seconds = model::fragment_seconds(id);
                 Box::new(move |language| {
                     if engine == model::ModelEngine::SherpaQwen3Asr {
-                        recognizer.transcribe_segmented(speech, Some(language), None, || false)
+                        recognizer.transcribe_segmented(
+                            speech,
+                            fragment_seconds,
+                            Some(language),
+                            None,
+                            || false,
+                        )
                     } else {
                         recognizer.transcribe(16000, speech)
                     }

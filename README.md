@@ -14,7 +14,7 @@ Sotto turns speech into text and inserts it into your active app. Dictate messag
 [![macOS](https://img.shields.io/badge/macOS-Apple%20Silicon-0b7285?style=flat-square)](docs/platforms.md)
 [![License](https://img.shields.io/github/license/stofll/Sotto?style=flat-square&color=0b7285)](LICENSE)
 
-**[Download Sotto](https://github.com/stofll/Sotto/releases/latest)** · [Features](#features) · [Overlay constructor](#build-your-own-overlay) · [Get started](#get-started) · [Documentation](docs/README.md)
+**[Download Sotto](https://github.com/stofll/Sotto/releases/latest)** · [Website](https://sotto.today/) · [Features](#features) · [Overlay constructor](#build-your-own-overlay) · [Get started](#get-started) · [Documentation](docs/README.md)
 
 English · [Русский](README.ru.md)
 
@@ -89,7 +89,7 @@ Cloud speech recognition is also available through configured provider profiles.
 
 ### Transcribe recordings
 
-Open **LLM processing → Process the text**, then choose or drop an audio file. For local file transcription, select a Whisper, GigaAM, Parakeet Ultra or Qwen3 model; the other Sherpa-ONNX models support dictation but do not transcribe files. A configured cloud speech provider can also transcribe files when cloud recognition is selected.
+Open **LLM processing → Process the text**, then choose or drop an audio file. Any downloaded local model can transcribe files. A configured cloud speech provider can also transcribe files when cloud recognition is selected.
 
 File transcription stays in that panel, separate from dictation history and automatic pasting. It does not require an LLM connection.
 
