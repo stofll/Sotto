@@ -5,7 +5,7 @@ import type { UpdateInfo } from "../bridge/types";
 import { t } from "../i18n";
 import { Card } from "./Shell";
 import { Icon } from "./Icon";
-import { UPDATE_CHECK_INTERVAL, UPDATE_NOTICE_DURATION, updateReminderDue } from "./updateReminder";
+import { UPDATE_CHECK_INTERVAL, UPDATE_NOTICE_DURATION, UPDATE_RETRY_INTERVAL, updateReminderDue } from "./updateReminder";
 
 const DIALOG_SELECTOR = '[role="dialog"], [role="alertdialog"]';
 
@@ -54,7 +54,13 @@ export function UpdateNotice({ receiveBeta, ready, lastShownAt = 0, onShown, onU
       try {
         const result = await checkUpdate(receiveBeta);
         if (!disposed) setChecked({ receiveBeta, info: result });
-      } catch { /* Automatic checks remain quiet offline; the Help page offers retry. */ }
+      } catch {
+        // Automatic checks remain quiet offline; the Help page offers retry.
+        if (disposed) return;
+        lastCheck = now - UPDATE_CHECK_INTERVAL + UPDATE_RETRY_INTERVAL;
+        window.clearTimeout(timer);
+        timer = window.setTimeout(() => void check(), UPDATE_RETRY_INTERVAL);
+      }
     }
     checkOnActivity.current = () => { void check(); };
     void check();

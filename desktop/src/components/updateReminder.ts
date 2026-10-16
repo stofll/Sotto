@@ -1,4 +1,6 @@
 export const UPDATE_CHECK_INTERVAL = 6 * 60 * 60 * 1000;
+/** A failed check proves nothing about the release, so it is retried sooner. */
+export const UPDATE_RETRY_INTERVAL = 30 * 60 * 1000;
 export const UPDATE_REMINDER_INTERVAL = 24 * 60 * 60 * 1000;
 export const UPDATE_NOTICE_DURATION = 12_000;
 

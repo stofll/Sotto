@@ -156,6 +156,7 @@ fn en(key: &str) -> Option<&'static str> {
         }
         "обновление больше недоступно" => "the update is no longer available",
         "Ответ сервера обновлений слишком большой." => "The update server response is too large.",
+        "Не удалось проверить бета-версии. Проверьте подключение и попробуйте ещё раз." => "Could not check for beta builds. Check your connection and try again.",
         // Feedback report and diagnostics.
         "Не удалось прочитать логи" => "Could not read the logs",
         "Отчёт слишком большой" => "The report is too large",

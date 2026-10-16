@@ -3,8 +3,9 @@
 //! Writing is deliberately decoupled from the `Resized` event: one drag of the
 //! frame makes Windows send dozens of events, and writing each would mean dozens
 //! of consecutive disk writes — all with intermediate sizes nobody needs. The
-//! current geometry lives in memory, reaches disk at most once a second, and the
-//! final state is flushed when the window closes.
+//! current geometry lives in memory and reaches disk at most once a second; the
+//! last size of a drag follows once that second is over. The updater ends the
+//! process without closing the window, so waiting for the close would lose it.
 
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -28,12 +29,15 @@ struct State {
     geometry: Option<Geometry>,
     /// Changes that have not reached disk yet.
     dirty: bool,
+    /// A deferred write is already waiting for the interval to pass.
+    flush_pending: bool,
     last_write: Option<Instant>,
 }
 
 static STATE: Mutex<State> = Mutex::new(State {
     geometry: None,
     dirty: false,
+    flush_pending: false,
     last_write: None,
 });
 
@@ -80,6 +84,18 @@ fn merge(old: Option<Geometry>, width: f64, height: f64, maximized: bool) -> Geo
     }
 }
 
+/// The saved size within the window's minimum. A frameless window can report
+/// a pixel less than `minWidth`, and rejecting that would drop the whole size.
+fn restored_size(geometry: &Geometry) -> Option<(f64, f64)> {
+    let valid = |value: f64| value.is_finite() && value > 0.0;
+    (valid(geometry.width) && valid(geometry.height)).then(|| {
+        (
+            geometry.width.max(DEFAULT_WIDTH),
+            geometry.height.max(DEFAULT_HEIGHT),
+        )
+    })
+}
+
 fn due_for_write(last_write: Option<Instant>, now: Instant) -> bool {
     match last_write {
         None => true,
@@ -110,12 +126,8 @@ pub fn restore(app: &tauri::AppHandle) {
     };
     let geometry = read(app);
     if let Some(g) = geometry {
-        if g.width.is_finite()
-            && g.height.is_finite()
-            && g.width >= DEFAULT_WIDTH
-            && g.height >= DEFAULT_HEIGHT
-        {
-            let _ = window.set_size(tauri::LogicalSize::new(g.width, g.height));
+        if let Some((width, height)) = restored_size(&g) {
+            let _ = window.set_size(tauri::LogicalSize::new(width, height));
             if g.maximized {
                 let _ = window.maximize();
             }
@@ -164,9 +176,19 @@ pub fn handle(window: &tauri::Window, event: &WindowEvent) {
         let now = Instant::now();
         guard.geometry = Some(geometry.clone());
         if !due_for_write(guard.last_write, now) {
-            // The intermediate size stays in memory: it will be written either
-            // by the next event after a pause, or by the window closing.
             guard.dirty = true;
+            if !guard.flush_pending {
+                guard.flush_pending = true;
+                let wait = guard.last_write.map_or(Duration::ZERO, |last| {
+                    WRITE_INTERVAL.saturating_sub(now.duration_since(last))
+                });
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(wait).await;
+                    crate::mutex_recover::lock(&STATE).flush_pending = false;
+                    flush(&app);
+                });
+            }
             return;
         }
         guard.dirty = false;
@@ -211,6 +233,22 @@ mod tests {
         assert_eq!(merged.width, 1400.0);
         assert_eq!(merged.height, 900.0);
         assert!(!merged.maximized);
+    }
+
+    #[test]
+    fn a_size_just_under_the_minimum_is_kept_within_it() {
+        let saved = |width, height| Geometry {
+            width,
+            height,
+            maximized: false,
+        };
+        assert_eq!(
+            restored_size(&saved(999.0, 721.0)),
+            Some((DEFAULT_WIDTH, 721.0))
+        );
+        assert_eq!(restored_size(&saved(1280.0, 800.0)), Some((1280.0, 800.0)));
+        assert_eq!(restored_size(&saved(f64::NAN, 800.0)), None);
+        assert_eq!(restored_size(&saved(1280.0, 0.0)), None);
     }
 
     #[test]
