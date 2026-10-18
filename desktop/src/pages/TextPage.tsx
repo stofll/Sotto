@@ -78,8 +78,6 @@ const FORMAT_DEFAULTS: TextFormattingConfig = {
   remove_parasites: true,
   remove_duplicates: true,
   collapse_phrase_loops: true,
-  clean_commas: true,
-  normalize_spaces: true,
   normalize_ellipsis: false,
   correct_spelling: true,
   split_sentences: false,
@@ -92,29 +90,52 @@ const FORMAT_DEFAULTS: TextFormattingConfig = {
   enabled_presets: [],
 };
 
-type FormatRule = { key: keyof TextFormattingConfig; title: string; sub: string };
+/** One switch in «Очистка». Steps nobody wants apart share a switch and write
+ * all their flags at once; the backend still runs each step on its own flag. */
+type CleanGroup = { id: string; keys: Array<keyof TextFormattingConfig>; title: string; sub: string };
 
-// The master switch for the whole local pass stands apart from the list: it
-// goes into the header of the «Очистка» card rather than into its body.
-const MASTER_RULE = (): FormatRule => (
-  { key: "enabled", title: t("Включить форматирование"), sub: t("Главный переключатель всего локального пайплайна") }
+const MASTER_HINT = () => t("Главный переключатель всего локального пайплайна");
+
+const CLEAN_GROUPS = (): CleanGroup[] => ([
+  { id: "glitches", keys: ["remove_hallucinations", "collapse_phrase_loops"], title: t("Убирать сбои распознавания"), sub: t("«субтитры сделал…», [Music], зациклившиеся фразы; если кроме них ничего нет — вставка отменяется") },
+  { id: "disfluencies", keys: ["remove_fillers", "remove_duplicates"], title: t("Убирать запинки и повторы"), sub: t("э-э, ммм, «я я хочу» → «я хочу»; английские uh, umm — при английской диктовке") },
+  { id: "parasites", keys: ["remove_parasites"], title: t("Удалять слова-паразиты"), sub: t("встроенный список только русский; свои слова работают на любом языке") },
+  { id: "spelling", keys: ["correct_spelling"], title: t("Исправлять опечатки"), sub: t("при русском языке диктовки: однозначные исправления по встроенному словарю, без LLM") },
+]);
+
+const PARAGRAPHS_GROUP = (): CleanGroup => (
+  { id: "paragraphs", keys: ["split_paragraphs"], title: t("Разбивать текст на абзацы"), sub: t("группировать готовые предложения без изменения слов; сохранять существующие переносы") }
 );
 
-const CLEAN_RULES = (): FormatRule[] => ([
-  { key: "remove_hallucinations", title: t("Убирать артефакты распознавания"), sub: t("«субтитры сделал…», «спасибо за просмотр», [Music]; если кроме них ничего нет — вставка отменяется") },
-  { key: "remove_fillers", title: t("Удалять заполнители"), sub: t("э-э, ммм, а-а и похожие звуки; английские uh, umm, hmm — при английской диктовке") },
-  { key: "remove_parasites", title: t("Удалять слова-паразиты"), sub: t("встроенный список только русский; свои слова работают на любом языке") },
-  { key: "remove_duplicates", title: t("Удалять повторы"), sub: t("я я хочу -> я хочу") },
-  { key: "collapse_phrase_loops", title: t("Схлопывать зациклившиеся фразы"), sub: t("я думаю что. я думаю что. я думаю что. -> я думаю что.") },
-  { key: "clean_commas", title: t("Чистить запятые"), sub: t("двойные запятые и запятая в начале текста") },
-  { key: "normalize_ellipsis", title: t("Убирать многоточия пауз"), sub: t("внутри фразы — пробел, на границе предложения — точка; код, ссылки и числовые диапазоны сохраняются") },
-  { key: "normalize_spaces", title: t("Нормализовать пробелы"), sub: t("лишние пробелы и пропущенные пробелы после знаков в русском тексте") },
-  { key: "correct_spelling", title: t("Исправлять опечатки"), sub: t("при русском языке диктовки: однозначные исправления по встроенному словарю, без LLM") },
-  { key: "split_sentences", title: t("Разбивать длинные предложения"), sub: t("мягкое разделение длинных фраз по связкам") },
-  { key: "split_paragraphs", title: t("Разбивать текст на абзацы"), sub: t("группировать готовые предложения без изменения слов; сохранять существующие переносы") },
-  { key: "capitalize_sentences", title: t("Капитализация предложений"), sub: t("заглавная буква в начале текста и после точки") },
-  { key: "final_punctuation", title: t("Финальная пунктуация"), sub: t("добавлять точку, если фраза без знака в конце") },
+// Opinionated steps that change the wording or layout more than cleanup does.
+const ADVANCED_GROUPS = (): CleanGroup[] => ([
+  { id: "ellipsis", keys: ["normalize_ellipsis"], title: t("Убирать многоточия пауз"), sub: t("внутри фразы — пробел, на границе предложения — точка; код, ссылки и числовые диапазоны сохраняются") },
+  { id: "split", keys: ["split_sentences"], title: t("Разбивать длинные предложения"), sub: t("мягкое разделение длинных фраз по связкам") },
 ]);
+
+const groupIsOn = (formatting: TextFormattingConfig, group: CleanGroup) => group.keys.some((key) => Boolean(formatting[key]));
+
+type SentenceStyle = "letter" | "no_dot" | "chat";
+
+const SENTENCE_STYLES = (): Array<SelectOption<SentenceStyle>> => ([
+  { value: "letter", label: t("Заглавные и точка") },
+  { value: "no_dot", label: t("Без точки в конце") },
+  { value: "chat", label: t("Как в чате"), meta: t("строчные, без точки") },
+]);
+
+const SENTENCE_STYLE_FLAGS: Record<SentenceStyle, Pick<TextFormattingConfig, "capitalize_sentences" | "final_punctuation">> = {
+  letter: { capitalize_sentences: true, final_punctuation: true },
+  no_dot: { capitalize_sentences: true, final_punctuation: false },
+  chat: { capitalize_sentences: false, final_punctuation: false },
+};
+
+/** Lowercase with a final dot is not offered — nobody writes like that on
+ * purpose. A config that holds it shows as «Как в чате», and the next choice
+ * writes both flags. */
+function sentenceStyle(formatting: TextFormattingConfig): SentenceStyle {
+  if (!formatting.capitalize_sentences) return "chat";
+  return formatting.final_punctuation ? "letter" : "no_dot";
+}
 
 function normalizeTextFormatting(config: ConfigResult | null): TextFormattingConfig {
   return { ...FORMAT_DEFAULTS, ...(config?.text_formatting ?? {}) };
@@ -427,9 +448,35 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
   const normalizedFilter = filter.trim().toLowerCase();
   const visibleRules = normalizedFilter ? rules.filter((rule) => `${rule.find}\n${rule.replace}`.toLowerCase().includes(normalizedFilter)) : rules;
   const activeCount = rules.filter((rule) => rule.enabled).length;
-  const cleanRules = CLEAN_RULES();
-  const activeCleanCount = cleanRules.filter((rule) => Boolean(formatting[rule.key])).length;
-  const masterRule = MASTER_RULE();
+  const cleanGroups = CLEAN_GROUPS();
+  const paragraphsGroup = PARAGRAPHS_GROUP();
+  const advancedGroups = ADVANCED_GROUPS();
+  const currentSentenceStyle = sentenceStyle(formatting);
+  const switchGroups = [...cleanGroups, paragraphsGroup, ...advancedGroups];
+  // The sentence style counts as a rule of its own: «Как в чате» is it off.
+  const activeCleanCount = switchGroups.filter((group) => groupIsOn(formatting, group)).length + (currentSentenceStyle === "chat" ? 0 : 1);
+  const cleanRuleCount = switchGroups.length + 1;
+  const advancedOpen = Boolean(folds.cleanMore);
+  const cleanRowStyle = { padding: "10px 12px", borderBottom: "1px solid var(--line-soft)", display: "flex", alignItems: "center", gap: 10, opacity: formatting.enabled ? 1 : 0.55 } as const;
+  const renderGroup = (group: CleanGroup, last = false) => (
+    <div key={group.id} style={last ? { ...cleanRowStyle, borderBottom: "none" } : cleanRowStyle}>
+      <div className="flex-grow" style={{ minWidth: 0 }}>
+        <div style={{ font: "500 13px/1.2 var(--font-sans)", color: "var(--ink)" }}>{group.title}</div>
+        <div style={{ font: "400 11.5px/1.4 var(--font-sans)", color: "var(--ink-mute)", marginTop: 2 }}>{group.sub}</div>
+        {/* The word list opens from the row it belongs to. The summary keeps
+            the point of showing it at all: how many words the step removes,
+            and how many you stopped. */}
+        {group.id === "parasites" && parasiteSets.length > 0 &&
+          <button type="button" className="btn btn--ghost" style={{ marginTop: 6, height: 26 }} onClick={() => setParasitesOpen(true)}>
+            <Icon name="sliders" size={12}/>{t("Список")}: {parasiteSummary}
+          </button>}
+      </div>
+      {/* A group that disagrees with itself — one flag on, one off, from a
+          config saved before the groups — shows as on; switching it writes
+          every flag the same. */}
+      <Switch label={group.title} on={groupIsOn(formatting, group)} onChange={(next) => void saveFormatting(Object.fromEntries(group.keys.map((key) => [key, next])))}/>
+    </div>
+  );
   // The backend does not apply paused replacements in the full pass, while the
   // preview of that single stage always applies them — otherwise it would be
   // useless exactly when the rules are being set up. The discrepancy is
@@ -456,34 +503,37 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
             onToggle={() => toggleFold("clean")}
             title={t("Очистка")}
             hint={t("Удаляет из распознанного текста слова-паразиты, повторы и лишние пробелы, исправляет пунктуацию. Применяются только включённые правила.")}
-            summary={<span className="head-count">{activeCleanCount}/{cleanRules.length}</span>}
+            summary={<span className="head-count">{activeCleanCount}/{cleanRuleCount}</span>}
             /* There is no "enabled" pill next to the switch: it said exactly
                what the switch's position said, and in a narrow column it pushed
                the header onto a second line. */
-            aside={<Hint text={masterRule.sub}><Switch on={formatting.enabled} onChange={(next) => void saveFormatting({ enabled: next })}/></Hint>}
+            aside={<Hint text={MASTER_HINT()}><Switch on={formatting.enabled} onChange={(next) => void saveFormatting({ enabled: next })}/></Hint>}
           >
             <div className="fold__rows">
-              {cleanRules.map((opt, i) => {
-                const value = Boolean(formatting[opt.key]);
-                return (
-                  <div key={String(opt.key)} style={{ padding: "10px 12px", borderBottom: i === cleanRules.length - 1 ? "none" : "1px solid var(--line-soft)", display: "flex", alignItems: "center", gap: 10, opacity: formatting.enabled ? 1 : 0.55 }}>
-                    <div className="flex-grow" style={{ minWidth: 0 }}>
-                      <div style={{ font: "500 13px/1.2 var(--font-sans)", color: "var(--ink)" }}>{opt.title}</div>
-                      <div style={{ font: "400 11.5px/1.4 var(--font-sans)", color: "var(--ink-mute)", marginTop: 2 }}>{opt.sub}</div>
-                      {/* The word list opens from the row it belongs to. It
-                          used to sit at the bottom of the card, ten rows away
-                          from its own switch, where it read as loose clutter.
-                          The summary keeps the point of showing it at all: how
-                          many words the step removes, and how many you stopped. */}
-                      {opt.key === "remove_parasites" && parasiteSets.length > 0 &&
-                        <button type="button" className="btn btn--ghost" style={{ marginTop: 6, height: 26 }} onClick={() => setParasitesOpen(true)}>
-                          <Icon name="sliders" size={12}/>{t("Список")}: {parasiteSummary}
-                        </button>}
-                    </div>
-                    <Switch label={opt.title} on={value} onChange={(next) => void saveFormatting({ [opt.key]: next })}/>
-                  </div>
-                );
-              })}
+              {cleanGroups.map((group) => renderGroup(group))}
+              {/* One choice for two flags: of their four combinations only
+                  three are ever wanted, and a messenger reply without a final
+                  dot is the one two plain switches made awkward to find. */}
+              <div style={{ ...cleanRowStyle, display: "block" }}>
+                <div style={{ font: "500 13px/1.2 var(--font-sans)", color: "var(--ink)" }}>{t("Оформление предложений")}</div>
+                <div style={{ font: "400 11.5px/1.4 var(--font-sans)", color: "var(--ink-mute)", marginTop: 2 }}>{t("заглавная буква в начале предложений и точка в конце фразы")}</div>
+                <div style={{ marginTop: 8, maxWidth: 260 }}>
+                  <CustomSelect<SentenceStyle>
+                    value={currentSentenceStyle}
+                    options={SENTENCE_STYLES()}
+                    inlineMeta
+                    metaSeparator="dash"
+                    onChange={(next) => void saveFormatting(SENTENCE_STYLE_FLAGS[next])}
+                  />
+                </div>
+              </div>
+              {renderGroup(paragraphsGroup)}
+              <div style={{ padding: "6px 12px", borderBottom: advancedOpen ? "1px solid var(--line-soft)" : "none" }}>
+                <button type="button" className="btn btn--ghost" style={{ height: 26 }} aria-expanded={advancedOpen} onClick={() => toggleFold("cleanMore")}>
+                  <Icon name={advancedOpen ? "chev-up" : "chev-down"} size={12}/>{t("Дополнительно")} · {advancedGroups.length}
+                </button>
+              </div>
+              {advancedOpen && advancedGroups.map((group, i) => renderGroup(group, i === advancedGroups.length - 1))}
             </div>
           </Foldable>
 

@@ -77,7 +77,7 @@ The constructor preview and recording window render the same overlay components.
 
 ### Clean up text locally
 
-Remove filler sounds, verbal tics, repeated words, recognition artifacts, and extra spaces; adjust capitalization and final punctuation. Enable conservative Russian spelling correction or paragraph grouping when useful. Each cleanup step can be switched off, and the live before/after preview lets you try the result without dictating.
+Remove filler sounds, verbal tics, repeated words, recognition artifacts, and extra spaces; choose whether sentences get capitals and a final full stop, or read like a chat message. Enable conservative Russian spelling correction or paragraph grouping when useful. Every cleanup step except comma and space cleanup can be switched off, and the live before/after preview lets you try the result without dictating.
 
 Enable built-in term dictionaries or create your own sets for names, brands, and specialist vocabulary. Add explicit replacement rules for words, phrases, substrings, or regular expressions, with case controls and JSON import/export. See [Dictionaries and cleanup](docs/dictionaries.md) for matching behavior and limits.
 

@@ -8,9 +8,52 @@ def test_pause_cleanup_is_opt_in(app, page):
     ui = app()
     ui.nav("text")
     page.get_by_role("button", name=re.compile(r"^Очистка")).click()
+    page.get_by_role("button", name=re.compile(r"^Дополнительно")).click()
     expect(
         page.get_by_role("button", name="Убирать многоточия пауз", exact=True)
     ).to_have_attribute("aria-pressed", "false")
+
+
+def test_grouped_switch_writes_every_flag_of_its_group(app, page):
+    """A config saved before the groups may hold one flag on and one off. The
+    group shows as on, and switching it brings both flags into line."""
+    ui = app(config={"text_formatting": {"remove_fillers": True, "remove_duplicates": False}})
+    ui.nav("text")
+    page.get_by_role("button", name=re.compile(r"^Очистка")).click()
+    switch = page.get_by_role("button", name="Убирать запинки и повторы", exact=True)
+    expect(switch).to_have_attribute("aria-pressed", "true")
+    switch.click()
+    page.wait_for_function(
+        "(f => f.remove_fillers === false && f.remove_duplicates === false)"
+        "(window.__sottoTest.state.config.text_formatting)"
+    )
+    expect(switch).to_have_attribute("aria-pressed", "false")
+    switch.click()
+    page.wait_for_function(
+        "(f => f.remove_fillers === true && f.remove_duplicates === true)"
+        "(window.__sottoTest.state.config.text_formatting)"
+    )
+
+
+@pytest.mark.parametrize(
+    "choice,capitalize,final_dot",
+    [
+        ("Без точки в конце", True, False),
+        ("Как в чате", False, False),
+    ],
+)
+def test_sentence_style_sets_both_flags(app, page, choice, capitalize, final_dot):
+    ui = app()
+    ui.nav("text")
+    page.get_by_role("button", name=re.compile(r"^Очистка")).click()
+    page.get_by_role("button", name="Заглавные и точка", exact=True).click()
+    page.get_by_role("option", name=re.compile("^" + choice)).click()
+    page.wait_for_function(
+        f"(f => f.capitalize_sentences === {str(capitalize).lower()}"
+        f" && f.final_punctuation === {str(final_dot).lower()})"
+        "(window.__sottoTest.state.config.text_formatting)"
+    )
+    expect(page.get_by_role("button", name=re.compile("^" + choice))).to_be_visible()
 
 
 @pytest.mark.parametrize("locale", ["ru", "en"])
@@ -39,6 +82,10 @@ def test_local_cleanup_switch_persists_and_recovers_from_save_failure(
     ui.nav("text")
     title = "Очистка" if locale == "ru" else "Cleanup"
     page.get_by_role("button", name=re.compile("^" + title)).click()
+    if setting == "normalize_ellipsis":
+        # An advanced step; the disclosure stays open across the reload below.
+        more = "Дополнительно" if locale == "ru" else "Advanced"
+        page.get_by_role("button", name=re.compile("^" + more)).click()
     label = ru_label if locale == "ru" else en_label
     switch = page.get_by_role("button", name=label, exact=True)
     expect(switch).to_have_attribute("aria-pressed", "true")

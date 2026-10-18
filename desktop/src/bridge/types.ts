@@ -55,8 +55,6 @@ export interface TextFormattingConfig {
   remove_parasites: boolean;
   remove_duplicates: boolean;
   collapse_phrase_loops: boolean;
-  clean_commas: boolean;
-  normalize_spaces: boolean;
   normalize_ellipsis: boolean;
   correct_spelling: boolean;
   split_sentences: boolean;

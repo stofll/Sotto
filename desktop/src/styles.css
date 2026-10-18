@@ -48,7 +48,6 @@
   --warn: #fbbf24;     --warn-soft: rgba(251, 191, 36, 0.14);
   --err: #f87171;      --err-soft: rgba(248, 113, 113, 0.14);
   --info: #60a5fa;     --info-soft: rgba(96, 165, 250, 0.14);
-  --rec: #ef6f47;      --rec-soft: rgba(239, 111, 71, 0.14);
 
   /* Mic-meter zones. Separate from the status colours: these sit on the
      meter track as solid fills, so they are tuned for saturation rather
@@ -131,7 +130,6 @@
   --warn: #9a6205;     --warn-soft: rgba(154, 98, 5, 0.14);
   --err: #b3261e;      --err-soft: rgba(179, 38, 30, 0.11);
   --info: #1d4ed8;     --info-soft: rgba(29, 78, 216, 0.11);
-  --rec: #c2410c;      --rec-soft: rgba(194, 65, 12, 0.12);
 
   --meter-ok: #12905c;
   --meter-warn: #c07800;
@@ -333,7 +331,6 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 .tag { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border-radius: var(--radius-sm); font: 500 11px/1 var(--font-mono); letter-spacing: 0.01em; background: var(--bg-4); color: var(--ink-dim); border: 1px solid var(--line); white-space: nowrap; }
 .tag--accent { background: var(--accent-soft); color: var(--accent-text); border-color: var(--accent-soft-2); }
 .tag--ok { background: rgba(74,222,128,0.10); color: var(--ok); border-color: rgba(74,222,128,0.25); }
- .tag--rec { background: var(--rec-soft); color: var(--rec); border-color: rgba(239,111,71,0.32); }
  /* One card, four paddings. Every site used to spell its own out — 18, 14, 20,
     `12px 16px`, `10px 14px`, `4px 22px` for the same `.card` — so the same
     surface looked different on every page. The variants that turned out to be
@@ -792,7 +789,7 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 .mic-meter__seg[data-zone="ok"].is-peak { background: var(--meter-ok); box-shadow: 0 0 5px rgba(51,200,139,0.6); }
 .mic-meter__seg[data-zone="warn"].is-peak { background: var(--meter-warn); box-shadow: 0 0 5px rgba(255,180,84,0.6); }
 .mic-meter__seg[data-zone="hot"].is-peak { background: var(--meter-hot); box-shadow: 0 0 5px rgba(255,90,82,0.6); }
-.mic-meter--active { border-color: color-mix(in srgb, var(--rec) 40%, var(--line)); }
+.mic-meter--active { border-color: color-mix(in srgb, var(--ok) 40%, var(--line)); }
 .split-setting-grid { display: grid; grid-template-columns: 1fr 1fr; }
 .split-setting-cell { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 14px 0; }
 .split-setting-cell + .split-setting-cell { padding-left: 18px; margin-left: 18px; border-left: 1px solid var(--line); }
@@ -1092,7 +1089,14 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 .api-key-row .masked { font: 500 11px/1 var(--font-mono); color: var(--ink-dim); }
 .api-key-row .usage { font: 500 10px/1.2 var(--font-mono); color: var(--ink-mute); }
 
-@keyframes rec-halo { 0% { box-shadow: 0 0 0 0 rgba(239,111,71,0.45); } 100% { box-shadow: 0 0 0 14px rgba(239,111,71,0); } }
+/* The sidebar status dot. Its colour comes inline as `color`, so the rings and
+   the arc follow whatever state it shows. */
+.status-dot { position: relative; flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.status-dot::after { content: ""; position: absolute; border-radius: 50%; }
+.status-dot[data-motion="pulse"]::after { inset: 0; animation: status-pulse 1.4s ease-out infinite; }
+.status-dot[data-motion="spin"]::after { inset: -4px; border: 1.5px solid transparent; border-top-color: currentColor; animation: spin .9s linear infinite; }
+@keyframes status-pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 45%, transparent); } 100% { box-shadow: 0 0 0 7px color-mix(in srgb, currentColor 0%, transparent); } }
+@media (prefers-reduced-motion: reduce) { .status-dot::after { animation: none; } }
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
 @keyframes progress-sweep { 0% { transform: translateX(-110%); } 100% { transform: translateX(260%); } }

@@ -2854,7 +2854,7 @@ impl FormatStep for PunctuationFinalizer {
 /// any config that predates the `text_formatting` key — which is the
 /// common case, since the block is only written once the user visits
 /// the Formatting page. It MUST stay in sync with `FORMAT_DEFAULTS` in
-/// `desktop/src/pages/OtherPages.tsx`; the two are what the backend and
+/// `desktop/src/pages/TextPage.tsx`; the two are what the backend and
 /// the settings UI each believe is on.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TextFormattingConfig {
@@ -2874,10 +2874,6 @@ pub struct TextFormattingConfig {
     pub remove_duplicates: bool,
     #[serde(default = "default_true")]
     pub collapse_phrase_loops: bool,
-    #[serde(default = "default_true")]
-    pub clean_commas: bool,
-    #[serde(default = "default_true")]
-    pub normalize_spaces: bool,
     /// Opt-in: ellipses may be intentional in messages or quoted prose.
     #[serde(default)]
     pub normalize_ellipsis: bool,
@@ -2984,8 +2980,6 @@ impl Default for TextFormattingConfig {
             remove_parasites: true,
             remove_duplicates: true,
             collapse_phrase_loops: true,
-            clean_commas: true,
-            normalize_spaces: true,
             normalize_ellipsis: false,
             correct_spelling: true,
             // Off by default: sentence splitting rewrites the user's
@@ -3073,8 +3067,12 @@ impl Formatter {
             // reduced to "да", the phrase collapser cannot mistake a run of
             // one repeated word for a two-word loop.
             Box::new(PhraseLoopCollapser::new(fmt.collapse_phrase_loops)),
-            Box::new(CommaCleaner::new(fmt.clean_commas)),
-            Box::new(SpaceNormalizer::new(fmt.normalize_spaces)),
+            // Always on: double commas and stray spaces are never wanted, and
+            // neither step touches Latin text, numbers or links. Configs
+            // written before this keep `clean_commas`/`normalize_spaces`
+            // keys, which are now ignored.
+            Box::new(CommaCleaner::new(true)),
+            Box::new(SpaceNormalizer::new(true)),
             // After whitespace normalisation — word windows are cut on single
             // spaces rather than on random clumps. And before the replacement
             // rules: a user rule must see the already-corrected term rather than
@@ -3284,8 +3282,6 @@ mod tests {
                 remove_parasites: true,
                 remove_duplicates: true,
                 collapse_phrase_loops: true,
-                clean_commas: true,
-                normalize_spaces: true,
                 normalize_ellipsis: false,
                 correct_spelling: true,
                 split_sentences: false,
@@ -4248,6 +4244,17 @@ mod tests {
         });
         let out = format_with_config_value(&config, "Надо купить молока. Спасибо за просмотр!");
         assert_eq!(out, "Надо купить молока.");
+    }
+
+    #[test]
+    fn comma_and_space_cleanup_ignore_their_retired_switches() {
+        // These two steps lost their switches; a config saved while they
+        // still had them must not keep them off.
+        let config = serde_json::json!({
+            "text_formatting": { "clean_commas": false, "normalize_spaces": false },
+        });
+        let out = format_with_config_value(&config, "раз,,  и два");
+        assert_eq!(out, "Раз, и два.");
     }
 
     #[test]
