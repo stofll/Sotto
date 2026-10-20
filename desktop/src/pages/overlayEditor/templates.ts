@@ -28,6 +28,11 @@ export const SYSTEM_TEMPLATES = {
   caps: recipe("caps", { c1: "timer", c2: "level", lines: "draft" }, { timer: "plain" }, { stroke: "none", fill: "black", glow: "0" }, "soft"),
   term: recipe("pill", { start: "rec", center: "level", end: "timer", below: "draft" }, { rec: "REC", level: "ascii", timer: "plain" }, { radius: "soft", ...flat, font: "mono" }, "pixel"),
   mini: recipe("mini", { start: "level", end: "timer" }, { timer: "plain" }, {}, "soft"),
+  window: recipe("window", { body: "level", footL: "timer", footR: "mode" }, { level: "tide", timer: "plain", mode: "short" }, { radius: "sharp", ...flat, font: "mono" }, "pixel"),
+  receipt: recipe("receipt", { level: "level", print: "draft", total: "timer" }, { level: "halftone", timer: "plain", draft: "plain" }, { fill: "paper", glow: "0", font: "mono" }, "soft"),
+  split: recipe("split", { dot: "level", start: "timer", center: "mode" }, { level: "dorb", timer: "plain" }, {}, "soft"),
+  ring: recipe("ring", { hole: "timer" }, { timer: "plain" }, {}, "soft"),
+  notch: recipe("notch", { earL: "level", earR: "timer" }, { level: "tide" }, {}, "soft"),
 } satisfies Record<string, Recipe>;
 export type SystemTemplate = keyof typeof SYSTEM_TEMPLATES;
 export const QUICK_TEMPLATES: SystemTemplate[] = ["pill", "bead", "glow", "orb"];
@@ -35,6 +40,7 @@ export const QUICK_TEMPLATES: SystemTemplate[] = ["pill", "bead", "glow", "orb"]
 export const systemTemplateNames = (): Record<SystemTemplate, string> => ({
   pill: t("Пилюля"), bead: t("Бусина"), glow: t("Сияние"), orb: t("Сфера"), plank: t("Планка"), square: t("Квадрат"),
   stack: t("Стопка"), scope: t("Осциллограф"), caps: t("Субтитры"), term: t("Терминал"), mini: t("Мини"),
+  window: t("Окошко"), receipt: t("Чек"), split: t("Двойка"), ring: t("Кольцо"), notch: t("Чёлка"),
 });
 
 /** The recipe a config without one is drawn with, so the constructor opens on what the user already sees. */

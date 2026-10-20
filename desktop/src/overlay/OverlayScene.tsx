@@ -1,10 +1,15 @@
-import { useRef, type CSSProperties, type ReactNode, type RefObject } from "react";
+import { useMemo, useRef, type CSSProperties, type ReactNode, type RefObject } from "react";
 import { Icon } from "../components/Icon";
-import { CheckMark, DraftPart, LevelPart, ModePart, ProcessLead, RecPart, TimerPart } from "./sceneParts";
+import { dissolveAllowed, useShellDissolve } from "./shellDissolve";
+import { t } from "../i18n";
+import { CheckMark, DraftPart, FigurePart, FillLayers, LevelPart, ModePart, ProcessLead, RecPart, RingRim, TimerPart } from "./sceneParts";
+import { ringClip, ringHoleSize, tornEdgeClip } from "./shellShapes";
+import { sampleFigures, type SceneFigures } from "./recordingFigures";
+import type { SmokeFrame } from "./fillPainters";
 import type { LevelSource } from "./levelSource";
 import {
-  COMPACT_SHELLS, FONT_SCALE, PROCESS_PACE, SHELL_LAYOUT, SHELL_REGIONS, WINDOW_SIZE, firstKind, recipeLayout, regionOf, shellRadius, shellSize,
-  type ElementType, type OverlaySize, type Recipe, type ScenePhase,
+  COMPACT_SHELLS, FONT_SCALE, NOTCH_EAR, PROCESS_PACE, SHELL_LAYOUT, SHELL_REGIONS, WINDOW_SIZE, firstKind, recipeLayout, regionOf, shellRadius, shellSize,
+  type ElementType, type NotchFit, type OverlaySize, type Recipe, type ScenePhase, type Shell,
 } from "./overlayRecipe";
 import "./overlay.css";
 import "./overlayScene.css";
@@ -23,6 +28,10 @@ export type SceneProps = {
   draftPlaceholder: string;
   timer: string;
   limited: boolean;
+  /** The camera notch the notch shell sits around; none draws the band's own centre (no notch, or the constructor's stage). */
+  notch?: NotchFit | null;
+  /** What the data elements (limit, words, pace, engine, target) show; thumbnails get a sample. */
+  figures?: SceneFigures;
   /** The words of the current state: "processing", a pasted count, an error. */
   status: ReactNode;
   mode: { full: string; short: string };
@@ -33,9 +42,16 @@ export type SceneProps = {
   surfaceRef?: RefObject<HTMLDivElement | null>;
   /** Constructor mode: regions become targets with labels, and the targets outside the shell appear. */
   interactive?: { labels: Record<string, string>; ghosts: Record<string, string>; selected: ElementType | "cancel" | null; selectedRegion?: string | null; cancelLabel: string; hideCancel?: boolean };
+  /** The overlay is on its way out (the native "overlay-leaving"); with the dissolve exit the pasted note goes through a dither mask. */
+  leaving?: boolean;
   /** Thumbnails: no transitions. */
   still?: boolean;
 };
+
+/** How much of the shell's side a status sign takes when the shell is compact. */
+const SIGN_SCALE: Partial<Record<Shell, number>> = { mini: 0.8, ring: 0.42, notch: 0.7 };
+/** How many characters of the decoding text fit a shell's status row. */
+const DECODE_CHARS: Partial<Record<Shell, number>> = { island: 14, card: 30, receipt: 20 };
 
 export function OverlayScene(props: SceneProps) {
   const { recipe, size, phase, streaming, source, interactive, still } = props;
@@ -43,7 +59,7 @@ export function OverlayScene(props: SceneProps) {
   const needsText = props.needsText ?? phase === "error";
   const draftOpen = phase === "recording" && streaming && recipe.slots.below === "draft";
   const layout = recipeLayout(recipe, draftOpen, needsText);
-  const [shellWidth, shellHeight] = shellSize(recipe, size, layout, phase, shown);
+  const [shellWidth, shellHeight] = shellSize(recipe, size, layout, phase, shown, props.notch);
   const pad = recipe.style.stroke === "rim" ? 4 : 0;
   const [designWidth, designHeight] = WINDOW_SIZE[SHELL_LAYOUT[recipe.shell]][size];
   const box = recipe.shell === "stack" ? designWidth - 8 - 2 * pad : Math.min(designWidth, designHeight) - 8 - 2 * pad;
@@ -52,6 +68,14 @@ export function OverlayScene(props: SceneProps) {
   const regions = SHELL_REGIONS[recipe.shell];
   const localSurface = useRef<HTMLDivElement>(null);
   const surfaceRef = props.surfaceRef ?? localSurface;
+  const rootRef = useRef<HTMLDivElement>(null);
+  // The split's capsules show two parts of one smoke field; the first one moves it on.
+  const splitRef = useRef<HTMLDivElement>(null);
+  const splitSmoke = useRef<SmokeFrame>({ time: 0, drift: 0, energy: 0.18 });
+  // The receipt prints the time it was started at; the scene is rebuilt for every dictation.
+  const receiptTime = useMemo(() => new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), []);
+  const dissolving = !!props.leaving && phase === "pasted" && recipe.pasted.exit === "dissolve" && dissolveAllowed();
+  useShellDissolve(rootRef, dissolving);
 
   const element = (region: string) => {
     const type = recipe.slots[region];
@@ -61,11 +85,14 @@ export function OverlayScene(props: SceneProps) {
     switch (type) {
       case "level": return <LevelPart draw={draw} kind={kind} box={box} source={source} matrix={recipe.matrix}
         sharp={recipe.style.radius === "sharp"} size={size} phase={phase} surfaceRef={surfaceRef}/>;
-      case "timer": return <TimerPart draw={draw} kind={kind} text={props.timer}/>;
+      case "timer": return <TimerPart draw={draw} kind={kind} text={props.timer} limited={props.limited && phase === "recording"}/>;
       case "rec": return <RecPart draw={draw}/>;
       case "mode": return <ModePart draw={draw} {...props.mode}/>;
       case "draft": return <DraftPart draw={draw} text={props.draft} captions={region === "lines"} phase={phase}
-        placeholder={region === "below" || !streaming ? "" : props.draftPlaceholder}/>;
+        placeholder={region === "below" || region === "title" || !streaming ? "" : props.draftPlaceholder}/>;
+      case "limit": case "words": case "pace": case "engine": case "label": case "target":
+        return <FigurePart type={type} kind={kind} box={box} figures={props.figures ?? sampleFigures()} draft={props.draft} streaming={streaming}
+          limited={props.limited && phase === "recording"} label={recipe.label ?? ""} labelPlaceholder={interactive ? t("Метка") : undefined}/>;
     }
   };
   const target = (region: string) => {
@@ -91,10 +118,14 @@ export function OverlayScene(props: SceneProps) {
   let status: ReactNode = null;
   if (phase === "processing") {
     const sign = compact && !needsText;
+    const decode = processing.draw === "decode";
+    // The decoding scrambles the draft, or the status word while there is none.
+    const decoded = props.draft.trim() || (typeof props.status === "string" ? props.status : "");
     const lead = processing.draw === "none" ? null : <ProcessLead draw={processing.draw} matrix={recipe.matrix} sharp={sharp}
-      pace={PROCESS_PACE[processing.speed]} size={sign ? Math.round(box * (recipe.shell === "mini" ? 0.8 : 0.62)) : Math.round(rowHeight * 0.5)}/>;
+      pace={PROCESS_PACE[processing.speed]} size={sign ? Math.round(box * (SIGN_SCALE[recipe.shell] ?? 0.62)) : Math.round(rowHeight * 0.5)}
+      wide={!sign} text={decoded} chars={DECODE_CHARS[recipe.shell] ?? 26}/>;
     // Without the word on screen, the status still reaches a screen reader.
-    status = <>{lead}<span className={!sign && processing.words ? "ovs-lbl" : "sr-only"}>{props.status}</span></>;
+    status = <>{lead}<span className={!sign && processing.words && !decode ? "ovs-lbl" : "sr-only"}>{props.status}</span></>;
   } else if (phase === "pasted") {
     const sign = compact && !needsText;
     // An LLM warning always keeps its words: it is the reason the note needs text.
@@ -116,7 +147,16 @@ export function OverlayScene(props: SceneProps) {
       {closeLook}
     </button>;
   const at = (spot: string) => cancel.at === spot ? close : null;
-  const layers = <><div className="ovs-gfx"/><div className="ovs-bb"/><div className="ovs-flash"/></>;
+  // The band continues the black of the camera notch, so it ignores the fill; the error row is an ordinary pill.
+  const band = recipe.shell === "notch" && layout === "notch";
+  const fill = band ? "black" : recipe.style.fill;
+  const layers = <><FillLayers fill={fill} texture={recipe.style.texture} source={source} phase={phase} shown={shown} still={still}/><div className="ovs-gfx"/><div className="ovs-bb"/><div className="ovs-flash"/></>;
+
+  // The corner radius of the shell's own skin; the split and the ring give each skin theirs.
+  const radius = shellRadius(recipe, size);
+  const ringShape = recipe.shell === "ring" && layout === "ring";
+  const skinless = recipe.shell === "caps" || recipe.shell === "split" || recipe.shell === "ring" || band;
+  const shape = ringShape ? { clipPath: ringClip(shellWidth) } : recipe.shell === "receipt" ? { clipPath: tornEdgeClip(shellWidth, shellHeight) } : {};
 
   let body: ReactNode;
   if (recipe.shell === "caps") {
@@ -124,11 +164,62 @@ export function OverlayScene(props: SceneProps) {
       <div className="ovs-chip ovs-skin" ref={surfaceRef}>{layers}<div className="ovs-main-row">{at("start")}{R("c1")}{R("c2")}{stl}{at("end")}</div></div>
       {R("lines")}
     </div>;
+  } else if (recipe.shell === "split") {
+    // Two capsules with a transparent gap. Outside recording the right one is drawn in
+    // and the status takes the left; an error joins them into one row (see overlayScene.css).
+    const capLayers = (lead: boolean) => <><FillLayers fill={fill} texture={recipe.style.texture} source={source} phase={phase} shown={shown} still={still}
+      smoke={{ frame: splitSmoke, span: splitRef, lead }}/><div className="ovs-gfx"/><div className="ovs-bb"/><div className="ovs-flash"/></>;
+    body = <div className="ovs-split" ref={splitRef} style={{ "--capw": `${shellHeight}px` } as CSSProperties}>
+      <div className="ovs-skin ovs-cap ovs-cap-a" style={{ borderRadius: radius }}>{capLayers(true)}<div className="ovs-content">{R("dot")}</div></div>
+      <div className="ovs-skin ovs-cap ovs-cap-b" style={{ borderRadius: radius }}>{capLayers(false)}<div className="ovs-content ovs-split-row">{R("start")}{R("center")}</div></div>
+      {stl}{close}
+    </div>;
+  } else if (band) {
+    // The ears sit at the window's ends, so they stay either side of the notch whatever its width.
+    body = <>
+      <div className="ovs-skin ovs-band" style={{ borderRadius: `0 0 ${radius}px ${radius}px` }}>{layers}</div>
+      <div className="ovs-content ovs-band-row">
+        <div className="ovs-ear ovs-ear-l">{R("earL")}</div>
+        <div className="ovs-ear ovs-ear-r">{R("earR")}{stl}{close}</div>
+      </div>
+    </>;
+  } else if (recipe.shell === "ring") {
+    // The parts sit outside the skin: its clip-path would cut the hole's content away too.
+    body = <>
+      <div className="ovs-skin ovs-ring-skin" style={ringShape ? { ...shape, borderRadius: "50%" } : { borderRadius: radius }}>
+        {layers}
+        {ringShape && <RingRim size={shellWidth} mode={phase === "recording" ? "recording" : phase === "processing" ? "processing" : "idle"}
+          live={!still && shown && (phase === "recording" || phase === "processing")} source={source} pace={PROCESS_PACE[processing.speed]}
+          hairline={recipe.style.stroke !== "none"} sharp={sharp}/>}
+      </div>
+      <div className="ovs-content ovs-ring-hole">{R("hole")}{stl}{close}</div>
+    </>;
   } else {
     let content: ReactNode;
     if (recipe.shell === "pill" || recipe.shell === "island") content = <><div className="ovs-main-row">{at("start")}{R("start")}{R("center")}{R("end")}{stl}{at("end")}</div>{R("below")}</>;
     else if (recipe.shell === "card") content = <>{R("body")}<div className="ovs-foot">{at("footL")}{R("footL")}<div className="ovs-sp"/>{R("footR")}{at("footR")}</div>{stl}{at("corner")}</>;
     else if (recipe.shell === "mini") content = <div className="ovs-main-row">{at("start")}{R("start")}{R("end")}{stl}{at("end")}</div>;
+    else if (recipe.shell === "window") content = <>
+      <div className="ovs-win">
+        <div className="ovs-win-tb">
+          {cancel.at === "box" ? close : <i className="ovs-win-box"/>}
+          <div className="ovs-win-title">{R("title")}{!recipe.slots.title && !interactive && <span className="ovs-win-name">sotto</span>}</div>
+          <i className="ovs-win-box ovs-win-box--pad"/>
+        </div>
+        {R("body")}
+        <div className="ovs-win-ft">{at("footL")}{R("footL")}<div className="ovs-sp"/>{R("footR")}{at("footR")}</div>
+      </div>
+      {stl}
+    </>;
+    else if (recipe.shell === "receipt") content = <>
+      <div className="ovs-rc">
+        <div className="ovs-rc-hd"><b>SOTTO</b><span>{receiptTime}</span></div>
+        {R("level")}<div className="ovs-rc-rule"/>{R("print")}<div className="ovs-rc-rule"/>
+        <div className="ovs-rc-tot"><span>{t("ИТОГО")}</span>{R("total")}</div>
+      </div>
+      {stl}{at("corner")}
+    </>;
+    else if (recipe.shell === "notch") content = <div className="ovs-main-row">{R("earL")}{R("earR")}{stl}{close}</div>;
     else if (recipe.shell === "bead") content = <>{R("core")}{stl}{close}</>;
     else content = <>{R("top")}{R("bottom")}{stl}{close}</>;
     body = <>{layers}<div className="ovs-edgefx">{recipe.slots.edge ? element("edge") : null}</div><div className="ovs-content">{content}</div></>;
@@ -141,17 +232,20 @@ export function OverlayScene(props: SceneProps) {
     : null;
   const timerless = !regionOf(recipe, "timer");
 
-  return <div className={`ovs${still ? " ovs--still" : ""}`}
-    data-shell={recipe.shell} data-radius={recipe.style.radius} data-stroke={recipe.style.stroke} data-fill={recipe.style.fill}
+  return <div ref={rootRef} className={`ovs${still ? " ovs--still" : ""}`}
+    data-shell={recipe.shell} data-radius={recipe.style.radius} data-stroke={recipe.style.stroke} data-fill={fill} data-texture={recipe.style.texture}
     data-glow={recipe.style.glow} data-font={recipe.style.font} data-motion={recipe.motion} data-phase={phase}
     data-proc-edge={recipe.processing.edge ? "1" : "0"} data-proc-speed={recipe.processing.speed} data-pasted-flash={recipe.pasted.flash ? "1" : "0"}
     data-cancel-at={cancel.at} data-cancel-show={cancel.show}
-    data-shown={shown ? "1" : "0"} data-draft={draftOpen ? "1" : "0"} data-limit={props.limited && phase === "recording" ? "1" : "0"}
+    data-band={band ? "1" : undefined} data-shown={shown ? "1" : "0"} data-exit={dissolving ? "dissolve" : undefined} data-draft={draftOpen ? "1" : "0"} data-limit={props.limited && phase === "recording" ? "1" : "0"}
     data-notimer={timerless ? "1" : "0"} data-needs-text={needsText ? "1" : "0"} data-hovered={props.hovered ? "true" : "false"}
     data-edit={interactive ? "1" : undefined} data-cancel-hidden={interactive?.hideCancel ? "1" : undefined}
-    style={{ "--fs": FONT_SCALE[size], "--rowh": `${rowHeight}px` } as CSSProperties}>
-    <div className={`ovs-shell${recipe.shell === "caps" ? "" : " ovs-skin"}`} ref={recipe.shell === "caps" ? undefined : surfaceRef}
-      style={{ width: shellWidth, height: shellHeight, borderRadius: recipe.shell === "caps" ? undefined : shellRadius(recipe, size) }}>
+    style={{ "--fs": FONT_SCALE[size], "--rowh": `${rowHeight}px`, ...(recipe.shell === "notch" ? { "--ear": `${NOTCH_EAR[size]}px` } : {}) } as CSSProperties}>
+    <div className={`ovs-shell${skinless ? "" : " ovs-skin"}`} ref={recipe.shell === "caps" ? undefined : surfaceRef}
+      style={{
+        width: shellWidth, height: shellHeight, borderRadius: skinless ? undefined : radius,
+        ...(recipe.shell === "receipt" ? shape : {}), ...(recipe.shell === "ring" ? { "--hole": `${ringHoleSize(shellWidth)}px` } : {}),
+      } as CSSProperties}>
       {recipe.shell === "caps" ? <div className="ovs-chip-radius" style={{ "--ovs-radius": `${shellRadius(recipe, size)}px` } as CSSProperties}>{body}</div> : body}
     </div>
     {ghosts}

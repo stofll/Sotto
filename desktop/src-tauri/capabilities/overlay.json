@@ -13,7 +13,9 @@
     "allow-get-config",
     "allow-hide",
     "allow-open-history-entry",
+    "allow-overlay-notch",
     "allow-overlay-ready",
+    "allow-paste-target-name",
     "allow-set-overlay-presentation"
   ]
 }

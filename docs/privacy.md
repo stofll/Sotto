@@ -61,6 +61,8 @@ A recording is deleted with its History entry: when you delete the entry, clear 
 
 The folder is separate from the logs, so sharing the logs folder does not share your voice. Builds before this change kept recordings inside `logs`, and the first launch of a newer build moves them out.
 
+When an overlay recipe shows the **target** element, the overlay asks the application for the name of the focused program as it was when the recording started, so it can say where the text will go. The name stays in memory for that recording: it is not saved, written to the logs or sent anywhere, and telemetry never includes focused-window details.
+
 Pasting goes through the system clipboard, so the last dictated text stays there until something else is copied, and a clipboard history such as Windows' Win+V may keep it longer.
 
 Model cards take their speed from measurements bundled with the application and record nothing about your own dictations or model loads. Builds up to 0.1.3 kept such timings in the local database; a newer build deletes them on its first launch.

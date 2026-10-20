@@ -149,7 +149,7 @@ export function install(seed: any = {}) {
       case 'plugin:window|is_minimized': return seed.window_minimized ?? false;
       case 'plugin:window|is_focused': return seed.window_focused ?? true;
       case 'plugin:window|minimize': case 'plugin:window|toggle_maximize': case 'plugin:window|close':
-      case 'plugin:window|start_dragging': case 'overlay_ready': case 'hide':
+      case 'plugin:window|start_dragging': case 'overlay_ready': case 'hide': case 'paste_target_name': case 'overlay_notch':
       case 'set_overlay_presentation': case 'open_url':
       case 'start_microphone_test': case 'stop_microphone_test': case 'set_microphone_test_monitor':
       case 'preview_sound_cue': case 'preview_output_duck': case 'open_diagnostics_folder':

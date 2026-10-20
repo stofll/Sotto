@@ -7,7 +7,11 @@ import { overlayPalette } from "./overlayPalette";
 import { overlayDetail, recordingClock } from "./overlayDetail";
 import { OverlayWaveform } from "./OverlayWaveform";
 import { isOverlayBody, useOverlaySession, type OverlaySession } from "./useOverlaySession";
-import type { Recipe, ScenePhase } from "./overlayRecipe";
+import { regionOf, type Recipe, type ScenePhase } from "./overlayRecipe";
+import { limitSecondsOf, usesCloudEngine } from "./recordingFigures";
+import { useOverlayNotch } from "./useOverlayNotch";
+import { usePasteTarget } from "./usePasteTarget";
+import { recordingLimitMinutes } from "../pages/recordingLimitSettings";
 import { audioLevelSource } from "./levelSource";
 import type { SceneProps } from "./OverlayScene";
 
@@ -101,6 +105,8 @@ function RecipeOverlay({ session, recipe }: { session: OverlaySession; recipe: R
   const now = useNow(state === "recording" || state === "done");
   const surfaceRef = useRef<HTMLDivElement>(null);
   const entered = useEntered();
+  const target = usePasteTarget(regionOf(recipe, "target") !== null, session.dictationKey);
+  const notch = useOverlayNotch(recipe.shell === "notch");
   if (state === null) return null;
   const clock = recordingClock(session.recordingStartedAt, session.recordingStoppedAt, session.limitAt, now);
   const detail = overlayDetail({
@@ -117,16 +123,20 @@ function RecipeOverlay({ session, recipe }: { session: OverlaySession; recipe: R
     <Suspense fallback={<SceneFallback loading phase={scenePhase(state)} timer={clock.text} status={status}
       close={{ label: finished(state) ? t("Закрыть") : t("Отменить запись"), text: t("Отмена"), onClick: session.handleClose, disabled: session.isClosing }}/>}>
       <OverlayScene key={session.dictationKey} recipe={recipe} size={preferences.size} phase={scenePhase(state)}
-        streaming={session.streaming} needsText={state === "error" || state === "late" || (state === "pasted" && !!session.aiProblem)}
+        streaming={session.streaming} notch={notch} needsText={state === "error" || state === "late" || (state === "pasted" && !!session.aiProblem)}
         draft={session.previewText} draftPlaceholder={t("Говорите — текст появится здесь")}
         timer={state === "loading" ? "--:--" : clock.text} limited={clock.limited} status={status}
+        figures={{
+          elapsed: clock.elapsed, limitSeconds: limitSecondsOf(recordingLimitMinutes(config?.recording_limit_minutes)),
+          cloud: usesCloudEngine(config?.ai_processing?.pipeline_mode), target,
+        }}
         mode={{ full: config?.model ? `${language} · ${config.model}` : language, short: language }}
         close={{
           label: finished(state) ? t("Закрыть") : t("Отменить запись"),
           text: finished(state) ? t("Закрыть") : t("Отмена"),
           onClick: session.handleClose, disabled: session.isClosing,
         }}
-        hovered={session.hovered} surfaceRef={surfaceRef} source={audioLevelSource} shown={entered && !session.leaving}/>
+        hovered={session.hovered} surfaceRef={surfaceRef} source={audioLevelSource} shown={entered && !session.leaving} leaving={session.leaving}/>
     </Suspense>
   </div>;
 }

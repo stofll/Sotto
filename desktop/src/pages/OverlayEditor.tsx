@@ -11,11 +11,12 @@ import {
   DRAWINGS, MAX_TEMPLATES, COMPACT_SHELLS, SHELL_REGIONS, WINDOW_SIZE, compatible, recipeLayout, regionOf,
   type ElementType, type Recipe, type RecipeStyle, type Shell, type UserTemplate,
 } from "../overlay/overlayRecipe";
-import { CancelOptions, EditorLibrary, isWidePart, PartPreview, type LibraryTab } from "./overlayEditor/EditorLibrary";
+import { CancelOptions, EditorLibrary, isWidePart, LabelField, PartPreview, type LibraryTab } from "./overlayEditor/EditorLibrary";
+import { usesCloudEngine } from "../overlay/recordingFigures";
 import { cancelShowNames, cancelSpotNames, drawNames, elementNames, kindPlaces, processNames, regionNames, shellNames, styleNames } from "./overlayEditor/labels";
 import { currentRecipe, matchingTemplate, newTemplate, preferencesOf, templateLook, updatedTemplate, useOverlaySaver, type ConfigChange, type OverlayLook } from "./overlayEditor/overlayDraft";
 import { addPart, changeShell, drawingKinds, freePartsFor, partsFor, placeInto, removePart, restoreShell, type EditResult } from "./overlayEditor/recipeEdits";
-import { frameAt, PHASE_MODES, samplePhrase, simulatedVoice, silentVoice, useTicker, type PhaseMode } from "./overlayEditor/simulatedVoice";
+import { frameAt, PHASE_MODES, SIMULATED_LIMIT_SECONDS, samplePhrase, simulatedVoice, silentVoice, useTicker, type PhaseMode } from "./overlayEditor/simulatedVoice";
 import { RadiusHandle } from "./overlayEditor/RadiusHandle";
 import { NameDialog } from "./overlayEditor/TemplateTiles";
 import { SYSTEM_TEMPLATES, systemTemplateNames, type SystemTemplate } from "./overlayEditor/templates";
@@ -35,7 +36,9 @@ const lookOf = (preferences: ReturnType<typeof preferencesOf>): OverlayLook => (
 });
 
 /** The window's top-left corner on a 1920×1080 screen, as overlay_origin places it natively. */
-function windowOrigin(anchor: string, offset: number, width: number, height: number) {
+function windowOrigin(anchor: string, offset: number, width: number, height: number, flush: boolean) {
+  // The notch shell ignores the position: top centre, against the edge.
+  if (flush) return [(SCREEN.width - width) / 2, 0];
   const [vertical, horizontal] = anchor === "center" ? ["center", "center"] : anchor.split("-");
   const x = horizontal === "left" ? offset : horizontal === "right" ? SCREEN.width - width - offset : (SCREEN.width - width) / 2;
   const y = vertical === "top" ? offset : vertical === "bottom" ? SCREEN.height - height - offset : (SCREEN.height - height) / 2;
@@ -66,10 +69,11 @@ export function OverlayEditor({ config, onConfigChanged, onClose, template }: {
   const [radiusDraft, setRadiusDraft] = useState<RecipeStyle["radius"] | null>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const [stageBox, setStageBox] = useState({ width: 640, height: 360 });
-  // Only these phases change over time; the others are one still frame.
-  const now = useTicker(ANIMATED_PHASES.includes(phaseMode), 250);
+  // Only these phases change over time; the others are one still frame, except the pasted note, which
+  // loops through its leaving when the dissolving exit is chosen.
+  const now = useTicker(ANIMATED_PHASES.includes(phaseMode) || (phaseMode === "pasted" && recipe.pasted.exit === "dissolve"), 250);
   // `now` lags a phase picked since its last tick; a moment before the phase began is its start.
-  const frame = frameAt(phaseMode, Math.max(0, now - phaseSince));
+  const frame = frameAt(phaseMode, Math.max(0, now - phaseSince), recipe.pasted.exit);
 
   const names = { elements: elementNames(), draws: drawNames(), regions: regionNames(), shells: shellNames(), places: kindPlaces() };
 
@@ -277,7 +281,7 @@ export function OverlayEditor({ config, onConfigChanged, onClose, template }: {
   // A narrow window caps the stage's height, so the screen is letterboxed rather than cropped.
   const screenScale = Math.min(stageBox.width / SCREEN.width, stageBox.height / SCREEN.height);
   const screenLeft = (stageBox.width - SCREEN.width * screenScale) / 2;
-  const [originX, originY] = windowOrigin(preferences.anchor, preferences.edge_offset, windowWidth, windowHeight);
+  const [originX, originY] = windowOrigin(preferences.anchor, preferences.edge_offset, windowWidth, windowHeight, layout === "notch");
   const ghosts: Record<string, string> = {};
   if (SHELL_REGIONS[recipe.shell].below) ghosts.below = recipe.slots.below ? t("Черновик: раскроет карточку с первым словом") : t("строка текста · сюда черновик");
   if (SHELL_REGIONS[recipe.shell].edge) ghosts.edge = recipe.slots.edge ? t("Край: {p0}", { p0: names.draws.level[recipe.draw.level].toLowerCase() }) : t("край · сюда луч");
@@ -287,8 +291,9 @@ export function OverlayEditor({ config, onConfigChanged, onClose, template }: {
 
   const shownRecipe = radiusDraft ? { ...recipe, style: { ...recipe.style, radius: radiusDraft } } : recipe;
   const [radiusTitle, radiusNames] = styleNames().radius;
-  const scene = <OverlayScene recipe={shownRecipe} size={preferences.size} phase={frame.phase} shown={frame.shown} streaming={frame.streaming}
+  const scene = <OverlayScene recipe={shownRecipe} size={preferences.size} phase={frame.phase} shown={frame.shown} leaving={frame.leaving} streaming={frame.streaming}
     draft={frame.draft} draftPlaceholder={t("Говорите — текст появится здесь")} timer={frame.timer} limited={frame.limited}
+    figures={{ elapsed: frame.elapsed, limitSeconds: SIMULATED_LIMIT_SECONDS, cloud: usesCloudEngine(config?.ai_processing?.pipeline_mode), target: t("Заметки") }}
     status={statusText} mode={{ full: config?.model ? `${language} · ${config.model}` : language, short: language }}
     source={frame.phase === "recording" ? simulatedVoice : silentVoice} close={{ label: t("Отменить запись"), text: t("Отмена") }}
     interactive={view === "compose" ? { labels: names.regions, ghosts, selected: typeof selected === "string" ? selected : null,
@@ -397,6 +402,7 @@ export function OverlayEditor({ config, onConfigChanged, onClose, template }: {
               onClose={() => setSelected(null)}/>}
           {typeof selected === "string" && selected !== "cancel" && view === "compose" && <Popover recipe={recipe} type={selected} stageRef={stageRef} names={names}
             onPick={(draw) => { const region = regionOf(recipe, selected); if (region) apply(placeInto(recipe, selected, draw, region), t("{p0}: «{p1}»", { p0: names.elements[selected], p1: names.draws[selected][draw] })); }}
+            onRecipe={(next, message) => commitRecipe(next, message)}
             onRemove={() => { commitRecipe(removePart(recipe, selected), t("{p0} убран", { p0: names.elements[selected] })); setSelected(null); }}
             onMatrix={() => { setSelected(null); setTab("build"); requestAnimationFrame(() => document.getElementById("overlay-matrix-options")?.scrollIntoView({ block: "nearest", behavior: "smooth" })); }}
             onClose={() => setSelected(null)}/>}
@@ -432,9 +438,9 @@ export function OverlayEditor({ config, onConfigChanged, onClose, template }: {
 type Names = { elements: ReturnType<typeof elementNames>; draws: ReturnType<typeof drawNames>; regions: Record<string, string>; shells: ReturnType<typeof shellNames>; places: ReturnType<typeof kindPlaces> };
 
 /** Visual alternatives for the element picked in the scene. */
-function Popover({ recipe, type, stageRef, names, onPick, onRemove, onMatrix, onClose }: {
+function Popover({ recipe, type, stageRef, names, onPick, onRecipe, onRemove, onMatrix, onClose }: {
   recipe: Recipe; type: ElementType; stageRef: RefObject<HTMLDivElement | null>; names: Names;
-  onPick: (draw: string) => void; onRemove: () => void; onMatrix: () => void; onClose: () => void;
+  onPick: (draw: string) => void; onRecipe: (recipe: Recipe, message: string) => void; onRemove: () => void; onMatrix: () => void; onClose: () => void;
 }) {
   const region = regionOf(recipe, type);
   const [ref, position] = usePopoverPlace(stageRef, region ? `[data-region="${region}"]` : null, recipe);
@@ -458,6 +464,7 @@ function Popover({ recipe, type, stageRef, names, onPick, onRemove, onMatrix, on
         <span className="ove-part__meta"><b>{names.draws[type][draw]}</b></span>
       </button>)}
     </div>
+    {type === "label" && <LabelField recipe={recipe} onRecipe={onRecipe}/>}
     {others.length > 0 && <p className="ove-pop__note">{t("Сюда не помещаются: {p0}.", { p0: others.join(", ") })}</p>}
     {type === "level" && recipe.draw.level === "matrix" && <button type="button" className="btn" onClick={onMatrix}>{t("Узор и плотность матрицы")} <Icon name="arrow-right" size={13}/></button>}
   </div>;
@@ -532,17 +539,18 @@ function CancelPopover({ recipe, stageRef, onRecipe, onClose }: {
 const PASTED_SECONDS = { short: 1, normal: 1.8, long: 3.5 } as const;
 
 function AfterRecording({ recipe, preferences, names, place }: { recipe: Recipe; preferences: ReturnType<typeof preferencesOf>; names: Names; place: "stage" | "page" }) {
-  const shell = recipe.shell, round = COMPACT_SHELLS.includes(shell), draft = regionOf(recipe, "draft");
+  const shell = recipe.shell, round = COMPACT_SHELLS.includes(shell), opensIntoPill = round || shell === "window" || shell === "receipt", draft = regionOf(recipe, "draft");
   const pill = WINDOW_SIZE.pill[preferences.size].join("×"), stream = WINDOW_SIZE.streaming[preferences.size].join("×");
   const rows: Array<[string, string]> = [
     [t("Обработка"), t("«{p0}»; {p1}", { p0: processNames()[recipe.processing.draw], p1: round ? t("в центре корпуса")
       : shell === "card" ? t("статус встаёт в тело, остальное уходит") : shell === "caps" ? t("статус в чипе, по словам проходит блик")
-      : shell === "island" ? t("строка сжимается под статус") : t("статус занимает всю строку") })],
+      : shell === "island" ? t("строка сжимается под статус") : shell === "window" ? t("статус встаёт в тело окошка")
+      : shell === "receipt" ? t("статус печатается посередине ленты") : t("статус занимает всю строку") })],
     [t("Вставка"), t("{p0}; держится {p1} с", {
       p0: round || !recipe.pasted.words ? t("галочка в корпусе") : t("галочка и число вставленных символов"),
       p1: PASTED_SECONDS[recipe.pasted.hold].toLocaleString(localeTag()),
     })],
-    [t("Ошибка"), round ? t("корпус раскрывается в пилюлю {p0}", { p0: pill }) : t("текст ошибки на месте статуса")],
+    [t("Ошибка"), opensIntoPill ? t("корпус раскрывается в пилюлю {p0}", { p0: pill }) : t("текст ошибки на месте статуса")],
     [t("Текст модели"), !draft ? t("не показывается: черновика нет") : draft === "below" ? t("окно переходит в {p0}, пока идёт стриминг", { p0: stream }) : t("в области «{p0}»", { p0: names.regions[draft] })],
     [t("Отсчёт лимита"), regionOf(recipe, "timer") ? t("таймер считает назад цветом предупреждения") : t("таймера нет, отсчёт заменит детали внутри корпуса")],
     [t("Отмена"), t("{p0}; видна: {p1}", { p0: cancelSpotNames()[recipe.cancel.at], p1: cancelShowNames()[recipe.cancel.show].toLowerCase() })],
