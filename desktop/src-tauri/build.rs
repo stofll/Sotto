@@ -13,6 +13,8 @@ const APP_COMMANDS: &[&str] = &[
     "hide",
     "current_state",
     "overlay_ready",
+    "overlay_notch",
+    "paste_target_name",
     "open_url",
     "validate_hotkey",
     "fetch_provider_models",

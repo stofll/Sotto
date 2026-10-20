@@ -62,3 +62,6 @@ export function frameRunner(tick: FrameTick, linger = 600) {
     stop() { stop?.(); stop = null; },
   };
 }
+
+/** Whether the person asked the system for less motion. */
+export const prefersReducedMotion = () => typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;

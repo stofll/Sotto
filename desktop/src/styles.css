@@ -2085,6 +2085,13 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .ove-sil i { display: block; background: var(--overlay-surface); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--overlay-edge) 55%, transparent); }
 .ove-sil--card i { background: linear-gradient(0deg, color-mix(in srgb, var(--overlay-wave-mid) 45%, transparent), transparent 45%), var(--overlay-surface); }
 .ove-sil--island i { background: #000; }
+.ove-sil--window i { background: linear-gradient(var(--overlay-edge) 0 0) 0 26% / 100% 1px no-repeat, var(--overlay-surface); }
+.ove-sil--receipt i { clip-path: polygon(0 0, 100% 0, 100% 100%, 88% 88%, 76% 100%, 64% 88%, 52% 100%, 40% 88%, 28% 100%, 16% 88%, 4% 100%, 0 90%); }
+.ove-sil--split i { -webkit-mask: linear-gradient(90deg, #000 0 15%, transparent 15% 21%, #000 21%); mask: linear-gradient(90deg, #000 0 15%, transparent 15% 21%, #000 21%); }
+/* The band is flat against the top edge, as the real one is against the screen. */
+.ove-sil--notch { align-content: start; }
+.ove-sil--notch i { background: #000; border-top-left-radius: 0 !important; border-top-right-radius: 0 !important; }
+.ove-sil--ring i { -webkit-mask: radial-gradient(circle, transparent 38%, #000 40%); mask: radial-gradient(circle, transparent 38%, #000 40%); }
 .ove-sil--caps { align-content: center; gap: 3px; }
 .ove-sil--caps i { width: 44px; height: 5px; border-radius: 2px; background: #e8e6ef; opacity: 0.75; box-shadow: none; }
 .ove-sil--caps i:first-child { width: 16px; height: 7px; border-radius: 4px; background: var(--overlay-wave-mid); opacity: 1; }
@@ -2123,6 +2130,9 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .ove-cancel .ove-row { gap: 10px; flex-wrap: nowrap; }
 .ove-cancel .ove-row > .segmented { min-width: 0; overflow-x: auto; }
 .ove-cancel__label { flex: 0 0 38px; font: 500 12px/1.2 var(--font-sans); color: var(--ink-mute); }
+.ove-label { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.ove-label .field { flex: 1; min-width: 0; height: 30px; }
+.ove-cancel__note { font: 400 11.5px/1.35 var(--font-sans); color: var(--ink-mute); }
 /* The button as the overlay draws it: always on the dark overlay surface. */
 .ove-cancel__pv { display: grid; place-items: center; min-width: 26px; height: 26px; padding: 0 8px; border-radius: 13px; background: var(--overlay-surface); color: rgba(255, 255, 255, .84); font: 600 11px/1 var(--font-sans); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .09); }
 .ove-cancel__pv i { width: 9px; height: 9px; border-radius: 2px; background: currentColor; }
@@ -2135,6 +2145,14 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .ove-mini--fill[data-value="light"] { background: oklch(0.95 calc(var(--overlay-chroma) * .2) var(--overlay-hue)); color: oklch(0.5 var(--overlay-chroma) var(--overlay-hue)); }
 .ove-mini--fill[data-value="black"] { background: #0a0a0c; }
 .ove-mini--fill[data-value="none"] { background: repeating-conic-gradient(#3a3a44 0 25%, #24242b 0 50%) 0 0 / 8px 8px; }
+.ove-mini--fill[data-value="smoke"] { background: radial-gradient(ellipse at 30% 110%, color-mix(in srgb, var(--overlay-wave-mid) 60%, transparent), transparent 70%), radial-gradient(ellipse at 85% 10%, color-mix(in srgb, var(--overlay-wave-mid) 35%, transparent), transparent 60%), var(--overlay-surface); }
+.ove-mini--fill[data-value="paper"] { background: oklch(0.93 calc(var(--overlay-chroma) * .12) var(--overlay-hue)); color: oklch(0.5 var(--overlay-chroma) var(--overlay-hue)); }
+.ove-mini--texture { background-color: var(--overlay-surface); }
+.ove-mini--texture[data-value="grain"] { background-image: repeating-conic-gradient(rgba(255, 255, 255, .2) 0 25%, transparent 0 50%); background-size: 3px 3px; }
+.ove-mini--texture[data-value="scan"] { background-image: repeating-linear-gradient(0deg, rgba(255, 255, 255, .3) 0 1px, transparent 1px 3px); }
+.ove-mini--texture[data-value="screen"] { background-image: radial-gradient(circle, transparent 52%, rgba(255, 255, 255, .35) 54%); background-size: 4px 4px; }
+.ove-mini--texture[data-value="vignette"] { background-image: radial-gradient(ellipse at center, var(--overlay-wave-mid), transparent 75%); }
+.ove-mini--texture[data-value="chroma"] { box-shadow: inset 3px 0 0 rgb(255 40 90 / .8), inset -3px 0 0 rgb(40 210 255 / .8); }
 .ove-mini--glow[data-value="1"] { box-shadow: inset 0 0 8px var(--overlay-wave-mid); }
 .ove-mini--glow[data-value="2"] { box-shadow: inset 0 0 12px var(--overlay-wave-mid), 0 0 10px color-mix(in srgb, var(--overlay-wave-mid) 60%, transparent); }
 .ove-mini--font[data-value="mono"] { font-family: var(--font-mono); }

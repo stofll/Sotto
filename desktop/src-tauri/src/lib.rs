@@ -55,7 +55,9 @@ pub mod model_performance;
 pub mod mutex_recover;
 mod output_volume;
 mod overlay;
+mod overlay_notch;
 mod overlay_preferences;
+mod paste_target;
 mod portable;
 mod recordings;
 mod release_notes;
@@ -1760,6 +1762,8 @@ pub fn run() {
             overlay::hide,
             overlay::current_state,
             overlay::overlay_ready,
+            overlay::overlay_notch,
+            paste_target::paste_target_name,
             external_link::open_url,
             hotkey::validate_hotkey,
             ai::fetch_provider_models,

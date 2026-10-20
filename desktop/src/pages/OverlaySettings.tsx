@@ -7,10 +7,10 @@ import type { ConfigResult } from "../bridge/types";
 import { t } from "../i18n";
 import { DEFAULT_EDGE_OFFSET, OVERLAY_ANCHORS, overlayPreferences, type OverlayPreferences } from "../overlay/overlayPreferences";
 import { overlayPalette } from "../overlay/overlayPalette";
-import { OverlayScene } from "../overlay/OverlayScene";
 import { SHELL_LAYOUT, WINDOW_SIZE } from "../overlay/overlayRecipe";
 import { MyTemplates, SystemTemplates } from "./overlayEditor/TemplateTiles";
 import { currentRecipe, matchingTemplate, templateLook, useOverlaySaver } from "./overlayEditor/overlayDraft";
+import { StillScene } from "./overlayEditor/StillScene";
 import { stillVoice } from "./overlayEditor/simulatedVoice";
 import { QUICK_TEMPLATES, SYSTEM_TEMPLATES, systemTemplateNames } from "./overlayEditor/templates";
 
@@ -98,6 +98,8 @@ export function OverlaySettings({ config, onConfigChanged, onOpenEditor }: Props
     : match ? t("Сейчас: шаблон «{p0}»", { p0: systemTemplateNames()[match.key] })
     : null;
   const [sceneWidth, sceneHeight] = WINDOW_SIZE[SHELL_LAYOUT[recipe.shell]][draft.size];
+  // The notch shell sits at the top edge in the middle of the screen whatever the position says.
+  const flush = recipe.shell === "notch";
   return <section className="overlay-settings" aria-label={t("Оверлей")} data-testid="overlay-settings">
     <div className="overlay-templates">
       <div className="set-cell" role="group" aria-label={t("Шаблоны Sotto")}>
@@ -189,8 +191,8 @@ export function OverlaySettings({ config, onConfigChanged, onOpenEditor }: Props
         <div className="overlay-screen__scene" aria-hidden="true"
           style={{ width: PREVIEW_WIDTH, height: PREVIEW_HEIGHT, transform: `scale(${previewScale})` }}>
           {draft.recipe ? <span className="overlay-mini overlay-mini--scene" data-anchor={draft.anchor}
-            style={{ ...overlayPalette(draft), ...previewPlacement(draft.anchor, draft.edge_offset), width: sceneWidth, height: sceneHeight }}>
-            <OverlayScene still recipe={draft.recipe} size={draft.size} phase="recording" streaming={false} draft="" draftPlaceholder=""
+            style={{ ...overlayPalette(draft), ...previewPlacement(flush ? "top-center" : draft.anchor, flush ? 0 : draft.edge_offset), width: sceneWidth, height: sceneHeight }}>
+            <StillScene still recipe={draft.recipe} size={draft.size} phase="recording" streaming={false} draft="" draftPlaceholder=""
               timer="00:07" limited={false} status="" mode={{ full: "RU · large-v3", short: "RU" }} source={stillVoice} close={{ label: "", text: t("Отмена") }}/>
           </span> : <span className="overlay-mini" data-form={draft.form} data-size={draft.size}
             data-anchor={draft.anchor}
@@ -216,6 +218,7 @@ export function OverlaySettings({ config, onConfigChanged, onOpenEditor }: Props
         </div>
       </div>
     </div>
+    {flush && <p className="overlay-settings-hint" data-testid="notch-hint">{t("Чёлка всегда стоит у верхнего края по центру: положение на экране её не двигает.")}</p>}
     {(error || saver.error) && <p className="overlay-settings-error" role="alert">{error || saver.error}</p>}
   </section>;
 }

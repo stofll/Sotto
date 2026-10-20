@@ -1,7 +1,7 @@
 import { createContext, useEffect, useState } from "react";
 import { t } from "../../i18n";
 import type { LevelSource } from "../../overlay/levelSource";
-import type { ScenePhase } from "../../overlay/overlayRecipe";
+import type { PastedExit, ScenePhase } from "../../overlay/overlayRecipe";
 
 /** Only the settings constructor pauses on window inactivity; real dictation never uses this. */
 export const PreviewActivity = createContext(true);
@@ -55,28 +55,42 @@ const WORD_MS = 255;
 const mmss = (seconds: number) => `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
 export const samplePhrase = () => t("Коллеги, по итогам созвона: релиз переносим на четверг, Маша обновляет сборку, а я до вечера пришлю список правок и новые скриншоты для магазина приложений.");
 
-export type SimulatedFrame = { phase: ScenePhase; shown: boolean; streaming: boolean; draft: string; timer: string; limited: boolean };
+/** `leaving` is the overlay on its way out after the note, which is when the dissolve exit plays. */
+export type SimulatedFrame = { phase: ScenePhase; shown: boolean; streaming: boolean; draft: string; timer: string; limited: boolean; leaving?: boolean; elapsed: number };
 
-/** What the stage shows for the chosen phase, advanced four times a second. */
-export function frameAt(mode: PhaseMode, elapsed: number): SimulatedFrame {
+/** The limit the stage pretends is set, short enough that the ring is seen closing. */
+export const SIMULATED_LIMIT_SECONDS = 60;
+
+/** How long the pasted preview rests before it leaves, when the exit is worth watching. */
+const PASTED_REST_MS = 1800;
+const PASTED_LOOP_MS = 3000;
+
+/** What the stage shows for the chosen phase, advanced four times a second. With a dissolve exit the pasted phase also plays its leaving. */
+export function frameAt(mode: PhaseMode, elapsed: number, exit: PastedExit = "fade"): SimulatedFrame {
   const words = samplePhrase().split(" ");
   const spoken = (ms: number) => words.slice(0, Math.max(0, Math.min(words.length, Math.floor(ms / WORD_MS)))).join(" ");
   const clock = (ms: number) => mmss(Math.floor(ms / 1000) % 3600);
   switch (mode) {
     case "scenario": {
       const at = elapsed % 13000;
-      if (at < 500) return { phase: "recording", shown: false, streaming: true, draft: "", timer: "00:00", limited: false };
-      if (at < 8000) return { phase: "recording", shown: true, streaming: true, draft: spoken(at - 1700), timer: clock(at - 500), limited: false };
-      if (at < 10000) return { phase: "processing", shown: true, streaming: true, draft: words.join(" "), timer: "00:07", limited: false };
-      if (at < 11800) return { phase: "pasted", shown: true, streaming: true, draft: words.join(" "), timer: "00:07", limited: false };
-      return { phase: "pasted", shown: false, streaming: true, draft: "", timer: "00:07", limited: false };
+      if (at < 500) return { phase: "recording", shown: false, streaming: true, draft: "", timer: "00:00", limited: false, elapsed: 0 };
+      if (at < 8000) return { phase: "recording", shown: true, streaming: true, draft: spoken(at - 1700), timer: clock(at - 500), limited: false, elapsed: Math.floor((at - 500) / 1000) };
+      if (at < 10000) return { phase: "processing", shown: true, streaming: true, draft: words.join(" "), timer: "00:07", limited: false, elapsed: 7 };
+      if (at < 11800) return { phase: "pasted", shown: true, streaming: true, draft: words.join(" "), timer: "00:07", limited: false, elapsed: 7 };
+      return { phase: "pasted", shown: false, streaming: true, draft: "", timer: "00:07", limited: false, leaving: true, elapsed: 7 };
     }
-    case "streaming": return { phase: "recording", shown: true, streaming: true, draft: spoken((elapsed % 10500) - 900), timer: clock(elapsed), limited: false };
-    case "processing": return { phase: "processing", shown: true, streaming: true, draft: words.join(" "), timer: "00:07", limited: false };
-    case "pasted": return { phase: "pasted", shown: true, streaming: true, draft: words.join(" "), timer: "00:07", limited: false };
-    case "error": return { phase: "error", shown: true, streaming: false, draft: "", timer: "00:07", limited: false };
-    case "limit": return { phase: "recording", shown: true, streaming: false, draft: "", timer: mmss(Math.max(0, 59 - Math.floor(elapsed / 1000) % 60)), limited: true };
-    default: return { phase: "recording", shown: true, streaming: false, draft: "", timer: clock(elapsed), limited: false };
+    case "streaming": return { phase: "recording", shown: true, streaming: true, draft: spoken((elapsed % 10500) - 900), timer: clock(elapsed), limited: false, elapsed: Math.floor((elapsed % 10500) / 1000) };
+    case "processing": return { phase: "processing", shown: true, streaming: true, draft: words.join(" "), timer: "00:07", limited: false, elapsed: 7 };
+    case "pasted": {
+      const leaving = exit === "dissolve" && elapsed % PASTED_LOOP_MS >= PASTED_REST_MS;
+      return { phase: "pasted", shown: !leaving, streaming: true, draft: words.join(" "), timer: "00:07", limited: false, leaving, elapsed: 7 };
+    }
+    case "error": return { phase: "error", shown: true, streaming: false, draft: "", timer: "00:07", limited: false, elapsed: 7 };
+    case "limit": {
+      const remaining = Math.max(0, 59 - Math.floor(elapsed / 1000) % 60);
+      return { phase: "recording", shown: true, streaming: false, draft: "", timer: mmss(remaining), limited: true, elapsed: SIMULATED_LIMIT_SECONDS - remaining };
+    }
+    default: return { phase: "recording", shown: true, streaming: false, draft: "", timer: clock(elapsed), limited: false, elapsed: Math.floor(elapsed / 1000) % SIMULATED_LIMIT_SECONDS };
   }
 }
 

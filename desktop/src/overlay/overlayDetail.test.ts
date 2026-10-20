@@ -96,13 +96,13 @@ describe("overlayDetail", () => {
 
 describe("recording clock", () => {
   it("counts up until the limit warns, then down to the stop", () => {
-    expect(recordingClock(0, null, null, 65_400)).toEqual({ text: "01:05", limited: false });
-    expect(recordingClock(0, null, 900_000, 600_000)).toEqual({ text: "05:00", limited: true });
-    expect(recordingClock(0, null, 900_000, 899_100)).toEqual({ text: "00:01", limited: true });
-    expect(recordingClock(0, null, 900_000, 905_000)).toEqual({ text: "00:00", limited: true });
+    expect(recordingClock(0, null, null, 65_400)).toEqual({ text: "01:05", limited: false, elapsed: 65 });
+    expect(recordingClock(0, null, 900_000, 600_000)).toEqual({ text: "05:00", limited: true, elapsed: 600 });
+    expect(recordingClock(0, null, 900_000, 899_100)).toEqual({ text: "00:01", limited: true, elapsed: 899 });
+    expect(recordingClock(0, null, 900_000, 905_000)).toEqual({ text: "00:00", limited: true, elapsed: 905 });
   });
 
   it("shows the recorded length once the recording has stopped", () => {
-    expect(recordingClock(0, 900_000, 900_000, 950_000)).toEqual({ text: "15:00", limited: false });
+    expect(recordingClock(0, 900_000, 900_000, 950_000)).toEqual({ text: "15:00", limited: false, elapsed: 900 });
   });
 });

@@ -51,7 +51,9 @@ export function recordingClock(startedAt: number, stoppedAt: number | null, limi
     const limited = limitAt !== null && stoppedAt === null;
     const seconds = Math.max(0, limited ? Math.ceil((limitAt - end) / 1000) : Math.floor((end - startedAt) / 1000));
     const text = `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
-    return { text, limited };
+    // The seconds recorded, which the text no longer says once it counts down to the limit.
+    const elapsed = Math.max(0, Math.floor((end - startedAt) / 1000));
+    return { text, limited, elapsed };
 }
 
 export function overlayDetail(input: OverlayDetailInput): OverlayDetail {
