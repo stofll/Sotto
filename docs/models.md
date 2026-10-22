@@ -4,7 +4,7 @@ Local recognition runs on two engines, and the difference between them is visibl
 
 * **Whisper** via `whisper.cpp`: catalog GGML `.bin` files and user-provided `.bin` files placed in the models directory.
 
-  A user-supplied file must be compatible with `whisper.cpp`; the app checks the extension and size but cannot determine the architecture of an arbitrary GGML file before loading it.
+  A user-supplied file must use a supported Whisper GGML architecture. The native loader validates the model's dimensions, vocabulary, tensor layouts and complete weights as it reads them; malformed or incomplete files fail loading. The loader keeps the current inference engine and supports the original Whisper architectures, smaller/distilled exports and compatible quantized files.
 
   Multilingual builds (`tiny`, `base`, `small`, `medium`, `large-v3`, `turbo`) and English-only ones (`*.en`) sit side by side in the catalog; the language is a property of the model, not part of its name.
 * **sherpa-onnx** on Windows and macOS: a closed set of bundles, each with its own family and its own language list. Arbitrary ONNX files are deliberately not picked up: an incompatible graph can throw inside the C++ FFI and crash the process.
@@ -113,7 +113,7 @@ When a catalog entry is re-pinned to different artifacts, the installed folder s
 
 ## Native Sherpa libraries
 
-The `sherpa-onnx` 1.13.7 crate — the Rust API maintained in the Sherpa-ONNX repository itself — pulls in matching binary Sherpa-ONNX/ONNX Runtime libraries during the Cargo build.
+The `sherpa-onnx` 1.13.8 crate — the Rust API maintained in the Sherpa-ONNX repository itself — pulls in matching binary Sherpa-ONNX/ONNX Runtime libraries during the Cargo build.
 
 Its build script downloads the archive for the target platform unless `SHERPA_ONNX_LIB_DIR` points at one already on disk, and it does not verify what it downloads. The repository's Cargo configuration deliberately sets the variable to a file path by default; the build script rejects it before any download.
 

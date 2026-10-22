@@ -30,19 +30,30 @@ runs:
       working-directory: site
       run: pnpm audit --prod=false --audit-level high
 
-    # A prebuilt binary rather than rustsec/audit-check: that action runs
-    # `cargo install cargo-audit` without `--locked`, so a newly published
-    # dependency of cargo-audit itself can turn every open pull request red,
-    # and the source build costs minutes per run.
-    #
-    # The pinned cargo-audit version is deliberate and does not go stale on
-    # data: the advisory database is fetched from git at run time, not baked
-    # into the binary. Bump it only if cargo-audit stops reading the current
-    # Cargo.lock format.
-    - name: Install dependency audit tools
+    - name: Install Python dependency tool
       uses: taiki-e/install-action@94c31af3204a9f15ab40b35ad084410b905bbc73 # v2.87.17
       with:
-        tool: cargo-audit@0.22.2,uv@0.12.17
+        tool: uv@0.13.5
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch as of 2026-09-03
+
+    - name: Cache dependency audit build
+      uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      with:
+        workspaces: scripts/dependency-audit -> target
+        key: dependency-audit
+        cache-on-failure: false
+        save-if: ${{ github.ref == 'refs/heads/main' }}
+
+    # The upstream release binary still embeds vulnerable TLS dependencies.
+    # Build its public CLI with our reviewed lockfile, retaining all features
+    # and live advisory/yanked checks, then audit that same build graph below.
+    - name: Build dependency audit tool
+      shell: bash
+      run: |
+        cargo build --locked --release --manifest-path scripts/dependency-audit/Cargo.toml
+        echo "$GITHUB_WORKSPACE/scripts/dependency-audit/target/release" >> "$GITHUB_PATH"
 
     - name: Audit exact Python test dependencies
       shell: bash
@@ -56,9 +67,11 @@ runs:
         uv export --locked --project scripts/macos-dmg --format requirements-txt --no-emit-project --output-file "$RUNNER_TEMP/dmg-audit.txt"
         uvx --python 3.12 --from pip-audit==2.10.1 pip-audit --strict --disable-pip --require-hashes -r "$RUNNER_TEMP/dmg-audit.txt"
 
-    # Call the binary directly rather than through `cargo audit`: the rustup
-    # shim would read rust-toolchain.toml and download the whole pinned
-    # toolchain, which auditing a lockfile does not need.
+    - name: Audit dependency audit tool lockfile
+      shell: bash
+      working-directory: scripts/dependency-audit
+      run: cargo-audit audit
+
     - name: Audit Rust lockfile
       shell: bash
       working-directory: desktop/src-tauri

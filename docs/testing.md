@@ -55,6 +55,8 @@ For Windows packaging changes, run `node --test scripts/build-portable.test.mjs 
 
 Every PR runs deterministic tests without speech downloads, plus an explicitly selected real Whisper CPU smoke test on Windows, macOS and Linux. Windows and macOS also run the Sherpa smoke test. The ignored marker keeps network/model downloads out of an ordinary local `cargo test`; the CI commands explicitly include those tests.
 
+`cargo test --locked --test test_whisper_model_parser` checks synthetic malformed GGML files through both the file and buffer APIs in bounded child processes. It runs without downloads or application data. The real Whisper smoke below also checks very short PCM inputs before repeated recognition; run it after changing the vendored loader or its native build script.
+
 Whisper uses the repository's portable [CPU instruction baseline](RELEASE.md#cpu-instruction-baseline), including in GPU builds. CI cache keys include its configuration. When adopting or changing that baseline in an existing local build directory, run `cargo clean -p whisper-rs-sys` before rebuilding (also `cargo clean --release -p whisper-rs-sys` for release builds): Cargo does not track edits inside the CMake toolchain file. From the repository root, run `node scripts/check-ggml-baseline.mjs desktop/src-tauri/target/debug` to check the compiled debug baseline, or pass the full target directory to check all compiled profiles. Test the benchmark's argument validation with `cargo test --locked --example model_benchmark` from `desktop/src-tauri`.
 
 Reproduce the model tests locally from `desktop/src-tauri` when changing capture, resampling, model loading or inference:

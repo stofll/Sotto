@@ -223,6 +223,8 @@ pnpm exec tauri signer generate -w ~/.tauri/sotto.key
 - **Public half** — already committed as `plugins.updater.pubkey` in `desktop/src-tauri/tauri.conf.json`. An installed build refuses any update whose signature does not match it.
 - **Private half** — `~/.tauri/sotto.key`, never committed. Its contents go into the repository secret `TAURI_SIGNING_PRIVATE_KEY`, and the password (empty for this key) into `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
 
+The updater requires the announced version to match the version in the signature's authenticated trusted comment (`requireSignedVersion`). The pinned Tauri CLI includes it automatically for `tauri build`; manual signing must pass `tauri signer sign --app-version <version> <artifact>`, as the release workflow does for the Windows setup. The Windows manifest finalizer rejects signatures with a missing or mismatched version before publication; installed clients verify the cryptographic signature and version before installation. Keep this requirement enabled when updating the plugin or signing tools.
+
 Losing the private key means shipped installations can no longer be updated: they will reject artifacts signed by any replacement key, and every user has to reinstall by hand. Back it up somewhere other than this machine.
 
 ---

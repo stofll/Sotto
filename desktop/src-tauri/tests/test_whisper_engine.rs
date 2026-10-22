@@ -158,6 +158,13 @@ async fn whisper_download_load_and_recognize_speech() {
     )
     .unwrap();
     let mut state = context.create_state().unwrap();
+    // The native reflective pad must stay within very short input buffers.
+    // Exercise the public spectrogram API before reusing this state for speech.
+    for length in [0, 1, 2, 199, 200, 201, 202] {
+        state
+            .pcm_to_mel(&vec![0.0; length], 1)
+            .unwrap_or_else(|error| panic!("spectrogram failed for {length} samples: {error}"));
+    }
     let params = || {
         let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
         params.set_language(Some("en"));

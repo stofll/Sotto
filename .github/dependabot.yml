@@ -8,6 +8,7 @@ updates:
     directories:
       - /desktop/src-tauri
       - /desktop/setup/src-tauri
+      - /scripts/dependency-audit
     schedule:
       interval: monthly
     open-pull-requests-limit: 2

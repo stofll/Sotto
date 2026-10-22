@@ -35,6 +35,8 @@ While the settings window is visible and active, Sotto checks for updates on ope
 
 The reminder timestamp is saved locally in settings so restarting the app does not repeat it immediately. Debug and portable builds do not check for installable updates.
 
+Before installing an update, Sotto verifies its signature and requires the release version to match the version authenticated by that signature. Missing or mismatched signed versions are rejected.
+
 Review provider settings before enabling a cloud workflow. Do not put secrets, transcripts, recordings, or provider responses into public bug reports.
 
 ## LLM prompts

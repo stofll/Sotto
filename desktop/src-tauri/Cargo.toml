@@ -13,7 +13,7 @@ tauri-build = { version = "2.6.3", features = [] }
 
 [dependencies]
 semver = "1"
-tauri = { version = "2.12.0", features = ["macos-private-api", "tray-icon", "image-png"] }
+tauri = { version = "2.12.4", features = ["macos-private-api", "tray-icon", "image-png"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 raw-window-handle = "0.6"
@@ -37,7 +37,8 @@ tauri-plugin-single-instance = "2.4.5"
 # on GitHub Releases, verifying the minisign signature with the public key from
 # tauri.conf.json. Integrity — yes, publisher — no: SmartScreen's "unknown
 # publisher" is only cured by Authenticode.
-tauri-plugin-updater = "2"
+# Windows updates use the signed setup executable; ZIP extraction is unused.
+tauri-plugin-updater = { version = "2.14.0", default-features = false, features = ["rustls-tls", "system-proxy"] }
 # Synthesizes the paste keystroke on macOS and Linux. Windows does not use it
 # for the keystroke — `windows_util::send_ctrl_v_sendinput` sends the raw VK
 # instead, see `clipboard.rs` — though the crate is an unconditional dependency
@@ -74,7 +75,7 @@ rusqlite = { version = "0.40", features = ["bundled"] }
 earshot = "1.2.1"
 symphonia = { version = "0.6.1", features = ["mp3", "isomp4", "aac", "alac"] }
 rubato = "5.0.0"
-tauri-plugin-dialog = "2.8.0"
+tauri-plugin-dialog = "2.8.3"
 sysinfo = { version = "=0.39.6", default-features = false, features = ["system"] }
 spellbook = "=0.4.2"
 
@@ -89,7 +90,7 @@ tokio = { version = "1", features = ["test-util", "macros", "rt"] }
 # is built with /MT, while rustc-msvc links the dynamic CRT, and mixing the two
 # is not worth the DLL-free bundle. The build script drops the runtime DLLs
 # beside the Cargo executable, where `prepare-native-libs.ps1` picks them up.
-sherpa-onnx = { version = "=1.13.7", default-features = false, features = ["shared"] }
+sherpa-onnx = { version = "=1.13.8", default-features = false, features = ["shared"] }
 windows-sys = { version = "0.52", features = [
     "Win32_UI_WindowsAndMessaging",
     # SetWindowSubclass / DefSubclassProc for the overlay's non-client guard.
@@ -134,7 +135,7 @@ libc = "0.2"
 # result over through SHERPA_ONNX_LIB_DIR. CI and `pnpm tauri` prepare it first;
 # .cargo/config.toml prevents an unchecked download by direct Cargo commands
 # without that preparation.
-sherpa-onnx = { version = "=1.13.7" }
+sherpa-onnx = { version = "=1.13.8" }
 tempfile = "3"
 objc2 = "0.6"
 block2 = "0.6"
@@ -204,6 +205,12 @@ harness = false
 [profile.bench]
 opt-level = 3
 lto = "thin"
+
+[patch.crates-io]
+# Upstream still pins the vulnerable ZIP 2 build dependency; see vendor provenance.
+sherpa-onnx-sys = { path = "vendor/sherpa-onnx-sys" }
+# Keep the current inference engine with the model-loader hardening in vendor provenance.
+whisper-rs-sys = { path = "vendor/whisper-rs-sys" }
 
 [profile.release]
 opt-level = 3
