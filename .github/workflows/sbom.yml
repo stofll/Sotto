@@ -2,8 +2,8 @@ name: SBOM
 
 # An inventory of what the app is built from: CycloneDX for Rust and npm,
 # native sources and archives, plus a readable license report. Not computed on
-# every pull request — it follows dependency metadata and the local native
-# patches whose content is included in the inventory.
+# every pull request — the dependency graph only changes together with the
+# lockfiles, so it hangs off those.
 #
 # On a release tag it is called from release.yml, after tauri-action has
 # created the draft: the SBOM then goes into it as an asset rather than staying
@@ -16,7 +16,6 @@ on:
       - "desktop/package.json"
       - "desktop/src-tauri/Cargo.lock"
       - "desktop/src-tauri/Cargo.toml"
-      - "desktop/src-tauri/vendor/**"
       - "desktop/setup/src-tauri/Cargo.lock"
       - "desktop/setup/src-tauri/Cargo.toml"
       - "scripts/sherpa-runtime.lock"

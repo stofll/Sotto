@@ -4,30 +4,8 @@
     "crateVersion": "0.13.1",
     "version": "1.7.4",
     "license": "MIT",
-    "evidence": "desktop/src-tauri/vendor/whisper-rs-sys/whisper.cpp/CMakeLists.txt; local modifications are recorded in localPatches",
+    "evidence": "whisper-rs-sys 0.13.1: whisper.cpp/CMakeLists.txt",
     "source": "https://crates.io/crates/whisper-rs-sys/0.13.1"
-  },
-  "localPatches": {
-    "whisper-rs-sys": {
-      "crateVersion": "0.13.1",
-      "license": "Unlicense",
-      "path": "desktop/src-tauri/vendor/whisper-rs-sys",
-      "source": "https://crates.io/crates/whisper-rs-sys/0.13.1",
-      "sourceSha256": "1c86f1b993f216594b1ad9a9bb00a26014fb7c512e12664a2d401c7897d2ef7d",
-      "description": "Strict model-loader validation and rebuild tracking for the patched native source.",
-      "provenance": "SOTTO-PATCH.md",
-      "files": ["build.rs", "whisper.cpp/src/whisper.cpp"]
-    },
-    "sherpa-onnx-sys": {
-      "crateVersion": "1.13.8",
-      "license": "Apache-2.0",
-      "path": "desktop/src-tauri/vendor/sherpa-onnx-sys",
-      "source": "https://crates.io/crates/sherpa-onnx-sys/1.13.8",
-      "sourceSha256": "14bbeabb73f73f1c1f4a278af0ee9ae90a19f9727482027047fb9422fa14f8fe",
-      "description": "Replace the vulnerable ZIP 2 build dependency with ZIP 9; native bindings and build logic are unchanged.",
-      "provenance": "SOTTO-PATCH.md",
-      "files": ["Cargo.toml"]
-    }
   },
   "sherpaVersion": "1.13.8",
   "onnxruntime": {

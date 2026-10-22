@@ -4,7 +4,7 @@ Local recognition runs on two engines, and the difference between them is visibl
 
 * **Whisper** via `whisper.cpp`: catalog GGML `.bin` files and user-provided `.bin` files placed in the models directory.
 
-  A user-supplied file must use a supported Whisper GGML architecture. The native loader validates the model's dimensions, vocabulary, tensor layouts and complete weights as it reads them; malformed or incomplete files fail loading. The loader keeps the current inference engine and supports the original Whisper architectures, smaller/distilled exports and compatible quantized files.
+  A user-supplied file must be compatible with `whisper.cpp`; the app checks the extension and size but cannot determine the architecture of an arbitrary GGML file before loading it.
 
   Multilingual builds (`tiny`, `base`, `small`, `medium`, `large-v3`, `turbo`) and English-only ones (`*.en`) sit side by side in the catalog; the language is a property of the model, not part of its name.
 * **sherpa-onnx** on Windows and macOS: a closed set of bundles, each with its own family and its own language list. Arbitrary ONNX files are deliberately not picked up: an incompatible graph can throw inside the C++ FFI and crash the process.

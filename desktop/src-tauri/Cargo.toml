@@ -206,12 +206,6 @@ harness = false
 opt-level = 3
 lto = "thin"
 
-[patch.crates-io]
-# Upstream still pins the vulnerable ZIP 2 build dependency; see vendor provenance.
-sherpa-onnx-sys = { path = "vendor/sherpa-onnx-sys" }
-# Keep the current inference engine with the model-loader hardening in vendor provenance.
-whisper-rs-sys = { path = "vendor/whisper-rs-sys" }
-
 [profile.release]
 opt-level = 3
 lto = true

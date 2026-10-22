@@ -158,13 +158,6 @@ async fn whisper_download_load_and_recognize_speech() {
     )
     .unwrap();
     let mut state = context.create_state().unwrap();
-    // The native reflective pad must stay within very short input buffers.
-    // Exercise the public spectrogram API before reusing this state for speech.
-    for length in [0, 1, 2, 199, 200, 201, 202] {
-        state
-            .pcm_to_mel(&vec![0.0; length], 1)
-            .unwrap_or_else(|error| panic!("spectrogram failed for {length} samples: {error}"));
-    }
     let params = || {
         let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
         params.set_language(Some("en"));
@@ -185,11 +178,8 @@ async fn whisper_download_load_and_recognize_speech() {
     );
     // Reusing a state must not leak the previous recognition into the next one.
     for _ in 0..2 {
-        state.full(params(), &speech).unwrap();
-        let mut text = String::new();
-        for segment in 0..state.full_n_segments().unwrap() {
-            text.push_str(&state.full_get_segment_text(segment).unwrap());
-        }
+        let text =
+            sotto_lib::whisper::run_whisper(&mut state, params(), &speech, || false).unwrap();
         let normalized: String = text
             .to_lowercase()
             .chars()
@@ -201,5 +191,14 @@ async fn whisper_download_load_and_recognize_speech() {
                 && words.contains("what you can do for your country"),
             "unexpected fixture transcript: {text}"
         );
+    }
+    // A press-and-release blip shorter than whisper.cpp's reflective pad
+    // completes empty, without the speech still held in the reused state.
+    // Lengths from 201 on reach whisper.cpp, which skips anything under 1 s.
+    for length in [0, 1, 2, 199, 200, 201, 202] {
+        let text =
+            sotto_lib::whisper::run_whisper(&mut state, params(), &vec![0.0; length], || false)
+                .unwrap_or_else(|error| panic!("{length} samples failed: {error}"));
+        assert_eq!(text, "", "{length} samples produced text");
     }
 }
