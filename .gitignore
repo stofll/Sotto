@@ -17,6 +17,7 @@ ENV/
 node_modules/
 dist/
 .vite/
+*.tsbuildinfo
 *.local
 
 # --- Rust / Tauri ---

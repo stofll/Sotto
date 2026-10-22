@@ -7,6 +7,7 @@
 // claiming work that finished long ago.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { RecordingState } from "./recording";
 
 type Handler = (payload: unknown) => void;
 
@@ -33,9 +34,10 @@ const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 async function subscribe() {
   const mod = await import("./recording");
-  mod.onRecordingStateChange(() => {});
+  const states: RecordingState[] = [];
+  mod.onRecordingStateChange((state) => states.push(state));
   await flush();
-  return mod;
+  return states;
 }
 
 beforeEach(() => {
@@ -58,23 +60,23 @@ describe("recording bridge session routing", () => {
     // A window opened midway through a dictation never saw `recording-started`
     // and so has no id to compare against. There is no newer session to
     // protect here, and refusing the event strands the UI in "processing".
-    const mod = await subscribe();
+    const states = await subscribe();
 
     emit("recording-stopped", 7);
-    expect(mod.getRecordingState()).toBe("processing");
+    expect(states).toEqual(["processing"]);
 
     emit("paste-done", { session_id: 7, length: 12 });
-    expect(mod.getRecordingState()).toBe("done");
+    expect(states).toEqual(["processing", "done"]);
   });
 
   it("ignores an event from a session other than the tracked one", async () => {
-    const mod = await subscribe();
+    const states = await subscribe();
 
     emit("recording-started", 8);
-    expect(mod.getRecordingState()).toBe("recording");
+    expect(states).toEqual(["recording"]);
 
     emit("paste-done", { session_id: 7, length: 12 });
-    expect(mod.getRecordingState()).toBe("recording");
+    expect(states).toEqual(["recording"]);
   });
 
   it("advances the state and releases the id on the same terminal event", async () => {
@@ -82,57 +84,57 @@ describe("recording bridge session routing", () => {
     // separate `listen` registrations, whose invocation order nothing
     // guarantees — and in the losing order the reset ran first and the state
     // transition was then discarded as stale.
-    const mod = await subscribe();
+    const states = await subscribe();
 
     emit("recording-started", 8);
     emit("whisper-done", { session_id: 8, text: "привет" });
-    expect(mod.getRecordingState()).toBe("processing");
+    expect(states).toEqual(["recording", "processing"]);
     // The LLM pass still belongs to session 8; another session cannot finish it.
     emit("paste-done", { session_id: 7, length: 12 });
-    expect(mod.getRecordingState()).toBe("processing");
+    expect(states).toEqual(["recording", "processing"]);
 
     emit("paste-done", { session_id: 8, length: 6 });
-    expect(mod.getRecordingState()).toBe("done");
+    expect(states).toEqual(["recording", "processing", "done"]);
     // Once finished, accept a session whose start this window did not observe.
     emit("recording-stopped", 9);
-    expect(mod.getRecordingState()).toBe("processing");
+    expect(states).toEqual(["recording", "processing", "done", "processing"]);
   });
 
   it("preserves the active cycle when another start is refused", async () => {
-    const mod = await subscribe();
+    const states = await subscribe();
 
     emit("recording-started", 8);
     emit("whisper-failed", { message: "Идёт транскрипция файла" });
 
-    expect(mod.getRecordingState()).toBe("recording");
+    expect(states).toEqual(["recording"]);
     emit("paste-done", { session_id: 9, length: 12 });
-    expect(mod.getRecordingState()).toBe("recording");
+    expect(states).toEqual(["recording"]);
     emit("recording-stopped", 8);
-    expect(mod.getRecordingState()).toBe("processing");
+    expect(states).toEqual(["recording", "processing"]);
   });
 
   it("keeps recording through model events and finishes after a scoped error", async () => {
-    const mod = await subscribe();
+    const states = await subscribe();
     emit("recording-started", 8);
     emit("whisper-loading", "tiny");
     emit("whisper-ready", "tiny");
-    expect(mod.getRecordingState()).toBe("recording");
+    expect(states).toEqual(["recording"]);
     emit("whisper-failed", { session_id: 8, message: "capture failed" });
-    expect(mod.getRecordingState()).toBe("error");
+    expect(states).toEqual(["recording", "error"]);
     emit("recording-stopped", 9);
-    expect(mod.getRecordingState()).toBe("processing");
+    expect(states).toEqual(["recording", "error", "processing"]);
     emit("recording-started", 9);
     emit("whisper-cancelled", 8);
     emit("recording-stopped", 9);
     emit("paste-done", { session_id: 9 });
-    expect(mod.getRecordingState()).toBe("done");
+    expect(states).toEqual(["recording", "error", "processing", "recording", "processing", "done"]);
   });
 
   it("leaves model loading when the Rust model becomes ready", async () => {
-    const mod = await subscribe();
+    const states = await subscribe();
     emit("whisper-loading", "tiny");
-    expect(mod.getRecordingState()).toBe("loading");
+    expect(states).toEqual(["loading"]);
     emit("whisper-ready", "tiny");
-    expect(mod.getRecordingState()).toBe("idle");
+    expect(states).toEqual(["loading", "idle"]);
   });
 });

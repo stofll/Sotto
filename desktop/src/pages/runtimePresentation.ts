@@ -15,17 +15,3 @@ export function actualModelLabel(
   const loaded = (hasEffectiveRoute ? runtime?.active_model : runtime?.loaded_model)?.trim();
   return loaded || fallback;
 }
-
-export function actualEngineLabel(
-  runtime: Pick<RuntimeStatusResult, "engine" | "active_engine"> | null | undefined,
-): string {
-  const hasEffectiveRoute = !!runtime && "active_engine" in runtime;
-  return (hasEffectiveRoute ? runtime?.active_engine : runtime?.engine)?.trim() || "STT";
-}
-
-export function actualDeviceLabel(
-  runtime: Pick<RuntimeStatusResult, "device" | "active_device"> | null | undefined,
-): string {
-  const hasEffectiveRoute = !!runtime && "active_device" in runtime;
-  return (hasEffectiveRoute ? runtime?.active_device : runtime?.device)?.trim() || "—";
-}

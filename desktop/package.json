@@ -30,7 +30,6 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.4",
-    "@tauri-apps/plugin-dialog": "^2.8.3",
     "marked": "^18.1.1",
     "react": "^19.2.9",
     "react-dom": "^19.2.9"
