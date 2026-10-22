@@ -12,7 +12,7 @@ const input = {
 };
 const options = {
   version: input.version, repository: "stofll/Sotto", executable: Buffer.from("MZ-fixture"),
-  signature: Buffer.from("untrusted comment: fixture\nunsigned fixture\ntrusted comment: fixture\n").toString("base64"),
+  signature: Buffer.from(`untrusted comment: fixture\nunsigned fixture\ntrusted comment: timestamp:0\tfile:setup.exe\tversion:${input.version}\n`).toString("base64"),
 };
 test("selects the signed setup for both old and new Windows clients without changing macOS or release metadata", () => {
   const result = withSetupUpdater(input, options);
@@ -29,4 +29,10 @@ test("refuses incomplete or mismatched releases", () => {
   assert.throws(() => withSetupUpdater(input, { ...options, signature: "" }), /signature/);
   assert.throws(() => withSetupUpdater(input, { ...options, executable: Buffer.from("bad") }), /executable/);
   assert.throws(() => withSetupUpdater({ ...input, platforms: {} }, options), /target/);
+});
+test("refuses signatures without the announced version in the trusted comment", () => {
+  for (const comment of ["timestamp:0\tfile:setup.exe", "timestamp:0\tfile:setup.exe\tversion:1.2.2"]) {
+    const signature = Buffer.from(`untrusted comment: fixture\nunsigned fixture\ntrusted comment: ${comment}\n`).toString("base64");
+    assert.throws(() => withSetupUpdater(input, { ...options, signature }), /signature version/i);
+  }
 });

@@ -168,6 +168,10 @@ Dependabot (`.github/dependabot.yml`) proposes monthly Cargo, pnpm, uv and GitHu
 
 The lockfile audit lives in `.github/actions/dependency-audit`. The required `Dependency security audit` check runs it on application pull requests, and `security-audit.yml` runs it every Monday, which is what catches an advisory published against an unchanged `main` or the landing page's lockfile.
 
+CI builds the upstream auditor through [scripts/dependency-audit](../scripts/dependency-audit/README.md) with its own reviewed lockfile, then checks that graph as well as both application Rust graphs. This keeps fixes to the tool's own TLS dependencies reproducible while retaining advisory and yanked checks. A cold build takes longer than downloading the upstream binary; CI caches the compiled tool.
+
+An advisory that cannot reach the shipped app may be ignored in `desktop/src-tauri/.cargo/audit.toml`, next to the reason it does not apply and the condition for removing it. Everything else fails the check.
+
 ## Dependency inventory
 
 `.github/workflows/sbom.yml` produces separate CycloneDX SBOMs for the application Rust graph, Windows setup Rust graph and desktop npm graph, plus a readable license report, and uploads them as a run artifact.

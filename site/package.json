@@ -15,11 +15,11 @@
     "og": "node scripts/generate-og.mjs"
   },
   "dependencies": {
-    "astro": "7.3.5",
-    "preact": "10.26.4"
+    "astro": "7.4.1",
+    "preact": "10.29.8"
   },
   "devDependencies": {
-    "@astrojs/check": "0.9.10",
+    "@astrojs/check": "0.9.11",
     "@astrojs/sitemap": "3.7.4",
     "@fontsource-variable/golos-text": "5.3.0",
     "@fontsource/golos-text": "5.3.0",

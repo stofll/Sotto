@@ -470,34 +470,16 @@ impl Engine {
         // by the SHA-256 model check + PCM finite-32 guard elsewhere.
         log::info!("session {session_id}: calling whisper .full() on {n_threads} threads");
         let state = self.whisper_state.as_mut().expect("state created above");
-        let panic_result = std::panic::catch_unwind(AssertUnwindSafe(|| state.full(params, audio)));
+        let panic_result = std::panic::catch_unwind(AssertUnwindSafe(|| {
+            run_whisper(state, params, audio, || job.cancelled())
+        }));
         log::info!(
             "session {session_id}: whisper .full() returned in {}ms (ok={})",
             started.elapsed().as_millis(),
             panic_result.is_ok()
         );
         match panic_result {
-            Ok(Ok(_rc)) => {
-                // NOTE: whisper-rs 0.14 returns `Result<c_int, WhisperError>`
-                // from full_n_segments (not a bare usize).
-                let n_segments = state
-                    .full_n_segments()
-                    .map_err(|e| format!("n_segments: {e}"))?;
-                let mut text = String::new();
-                for i in 0..n_segments {
-                    // Per-interval cancellation, best-effort: a long .full()
-                    // call cannot be interrupted mid-C++ execution without
-                    // engine redesign, but the tail can be skipped.
-                    if job.cancelled() {
-                        break;
-                    }
-                    match state.full_get_segment_text(i) {
-                        Ok(seg) => push_segment(&mut text, &seg),
-                        Err(e) => log::warn!("segment {i} read failed: {e}"),
-                    }
-                }
-                Ok((text, None))
-            }
+            Ok(Ok(text)) => Ok((text, None)),
             Ok(Err(_)) if job.cancelled() => Err("whisper transcribe cancelled".to_string()),
             Ok(Err(e)) => Err(format!("whisper error: {e}")),
             Err(_) => {
@@ -941,6 +923,39 @@ pub fn decode_params<'a, 'b>(
     params.set_print_realtime(false);
     params.set_print_timestamps(false);
     params
+}
+
+/// whisper.cpp 1.7.4 reflect-pads the input by 200 samples on each side and
+/// reads past the end of a shorter buffer. It returns no segments for input
+/// under one second anyway, so such input is not passed in.
+const MIN_WHISPER_SAMPLES: usize = 201;
+
+/// One Whisper pass over `audio`, its segments joined into text.
+pub fn run_whisper(
+    state: &mut whisper_rs::WhisperState,
+    params: whisper_rs::FullParams<'_, '_>,
+    audio: &[f32],
+    cancelled: impl Fn() -> bool,
+) -> Result<String, whisper_rs::WhisperError> {
+    let mut text = String::new();
+    if audio.len() < MIN_WHISPER_SAMPLES {
+        // The state still holds the previous pass's segments.
+        return Ok(text);
+    }
+    state.full(params, audio)?;
+    for i in 0..state.full_n_segments()? {
+        // Per-interval cancellation, best-effort: a long .full() call cannot
+        // be interrupted mid-C++ execution without engine redesign, but the
+        // tail can be skipped.
+        if cancelled() {
+            break;
+        }
+        match state.full_get_segment_text(i) {
+            Ok(seg) => push_segment(&mut text, &seg),
+            Err(e) => log::warn!("segment {i} read failed: {e}"),
+        }
+    }
+    Ok(text)
 }
 
 pub fn push_segment(text: &mut String, segment: &str) {

@@ -1,17 +1,13 @@
 import { useEffect, useId, useMemo, useRef, type CSSProperties } from "react";
 import { audioLevelSource, type LevelSource } from "./levelSource";
-import { themePresets, generateVoiceBeamCSS } from "./voice-glow/styles";
-import { resolveVoiceDefaults, resolveVoiceStyle } from "./voice-glow/presets";
+import { themePreset as PRESET, generateVoiceBeamCSS } from "./voice-glow/styles";
+import { voiceDefaults as DEFAULTS } from "./voice-glow/presets";
 import { registerVoiceInstance, type VoiceDriverConfig } from "./voice-glow/voiceDriver";
 import type { OverlayPreferences } from "./overlayPreferences";
 
 export type GlowMode = "listen" | "process" | "idle";
 
 const BAND_COLORS = { core: "255, 255, 255", above: "255, 70, 80", mid: "90, 255, 150", below: "80, 140, 255" } as const;
-const THEME = "dark" as const;
-const DEFAULTS = resolveVoiceDefaults("default", THEME);
-const PRESET = themePresets[THEME];
-const TYPE_STYLE = resolveVoiceStyle("default", THEME);
 const SCALE = DEFAULTS.scale;
 const BORDER_WIDTH = 1;
 const DISTORTION_ON = DEFAULTS.distortion > 0;
@@ -74,11 +70,8 @@ export function OverlayGlow({ mode, size, source = audioLevelSource }: { mode: G
         innerOpacity: PRESET.innerOpacity * TUNING.innerOpacity,
         bloomOpacity: PRESET.bloomOpacity * TUNING.bloomOpacity,
         innerShadow: PRESET.innerShadow,
-        colorVariant: "colorful",
         brightness: TUNING.brightness,
         saturation: TUNING.saturation,
-        theme: THEME,
-        hueBase: PRESET.hueBase ?? 0,
         glowSize: DEFAULTS.glowSize * SCALE,
         glowWidth: DEFAULTS.glowWidth * SCALE,
         glowHeight: DEFAULTS.glowHeight * SCALE,
@@ -88,9 +81,6 @@ export function OverlayGlow({ mode, size, source = audioLevelSource }: { mode: G
         bloomScale: DEFAULTS.bloomScale,
         bloomHeight: DEFAULTS.bloomHeight,
         coreSize: DEFAULTS.coreSize * SCALE,
-        coreLight: DEFAULTS.coreLight,
-        coreLightWidth: DEFAULTS.coreLightWidth,
-        coreLightHeight: DEFAULTS.coreLightHeight,
         rangeWidth: DEFAULTS.rangeWidth * SCALE,
         rangeHeight: DEFAULTS.rangeHeight * SCALE,
         softness: DEFAULTS.softness,
@@ -111,10 +101,6 @@ export function OverlayGlow({ mode, size, source = audioLevelSource }: { mode: G
   const driverConfig = useMemo<VoiceDriverConfig>(
     () => ({
       id,
-      // The level arrives already mapped to 0..1 by `display_level` in
-      // audio.rs, and the driver applies `sensitivity` only on its own
-      // Web Audio path, so this stays at unity.
-      sensitivity: 1,
       threshold: 0.015,
       attack: TUNING.attack,
       release: TUNING.release,
@@ -122,7 +108,6 @@ export function OverlayGlow({ mode, size, source = audioLevelSource }: { mode: G
       breatheDuration: TUNING.breatheDuration,
       reach: TUNING.reach,
       spread: DEFAULTS.spread,
-      bands: true,
       flow: TUNING.flow * SCALE,
       lobeSpacing: Math.max(0.1, DEFAULTS.lobeSpacing * SCALE),
       bend: TUNING.bend * SCALE,
@@ -140,10 +125,8 @@ export function OverlayGlow({ mode, size, source = audioLevelSource }: { mode: G
       bandAberration: DEFAULTS.bandAberration,
       rangeWidth: DEFAULTS.rangeWidth * SCALE,
       rangeHeight: DEFAULTS.rangeHeight * SCALE,
-      theme: THEME,
       bandColors: BAND_COLORS,
       distortion: DISTORTION_ON ? DEFAULTS.distortion : 0,
-      coreLight: DEFAULTS.coreLight,
       scale: SCALE,
       radius,
       processing: mode === "process",
@@ -156,11 +139,9 @@ export function OverlayGlow({ mode, size, source = audioLevelSource }: { mode: G
       processingEase: 0.75,
       processingTravel: 1,
       cornerFollow: 0,
-      hueRange: PRESET.hueRange ?? 24,
+      hueRange: 24,
       hueDuration: TUNING.hueDuration,
-      staticColors: false,
       reducedMotion: typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches,
-      paused: false,
     }),
     [id, mode, radius],
   );
@@ -195,7 +176,7 @@ export function OverlayGlow({ mode, size, source = audioLevelSource }: { mode: G
         data-active=""
         data-processing={mode === "process" ? "" : undefined}
         aria-hidden="true"
-        style={{ "--voice-strength": TYPE_STYLE.strength ?? PRESET.strength ?? 1 } as CSSProperties}
+        style={{ "--voice-strength": 1 } as CSSProperties}
       >
         <div data-voice-beam-bloom />
         {DISTORTION_ON && (

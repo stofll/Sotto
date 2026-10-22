@@ -1,0 +1,17 @@
+# Read by `cargo-audit audit` run from this directory (see
+# .github/actions/dependency-audit).
+
+[advisories]
+# ZIP 2 extraction advisories (SUID bits, symlink targets and permissions
+# outside the destination). The only path to `zip` is a build dependency of
+# sherpa-onnx-sys 1.13.8, whose build script calls `ZipArchive::extract` only
+# for the iOS xcframework archive. Sotto does not target iOS, and its Windows
+# and macOS builds take the SHA-256-verified runtime through
+# SHERPA_ONNX_LIB_DIR instead of downloading an archive. Nothing from `zip`
+# runs in the app. Remove these once a sherpa-onnx-sys release depends on
+# zip >= 9.
+ignore = [
+    "RUSTSEC-2026-0367",
+    "RUSTSEC-2026-0368",
+    "RUSTSEC-2026-0369",
+]
