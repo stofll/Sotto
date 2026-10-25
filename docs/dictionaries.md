@@ -1,8 +1,12 @@
 # Dictionaries
 
-Open **Processing → Text → Dictionaries** to manage names, brands and specialist terms. Open a set by its name to inspect every term and search its contents before enabling it; its switch controls whether it participates in processing.
+Open **Processing → Text → Dictionaries** to manage names, brands and specialist terms. Open a set by its name to inspect every term before enabling it; its switch controls whether it participates in processing.
 
 Several sets can be enabled together. Sotto combines their terms without repeating identical entries; disabling or deleting one set does not remove a term that remains in another enabled set.
+
+A dictionary says how a term is spelled, and Sotto decides which recognised fragments it fixes. A replacement rule under **Replacements** changes exactly the text you specify, including ordinary words, and always takes priority. Use a dictionary for names and terms that recognition distorts in unpredictable ways; use a replacement for a fixed conversion or for an ordinary word that a dictionary deliberately leaves alone.
+
+The set view groups its terms by how they fire: **Exact spellings** change only the listed reviewed variants, **By similar sound** terms also correct fragments that sound almost the same, and **Model hint only** terms never change the text. **Check a word** runs that set alone, enabled or not, on a spelling you type and shows the result and which route produced it. The text preview lists dictionary corrections separately from the replacement rules that fired.
 
 ## Built-in sets
 

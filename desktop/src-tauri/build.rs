@@ -64,6 +64,8 @@ const APP_COMMANDS: &[&str] = &[
     "clear_logs",
     "dictionary_presets",
     "parasite_sets",
+    "term_matching",
+    "check_dictionary_text",
     "analyze_dictionary",
 ];
 

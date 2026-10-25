@@ -1234,6 +1234,9 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .preview-card__step { margin: 12px 0 6px; font: 500 10.5px/1 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-mute); }
 .preview-card__step--after { color: var(--accent-text); }
 .preview-card__step + .preview-result { margin-top: 0; }
+/* What fired, one row per block, labelled with the block's name. */
+.preview-matches { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; }
+.preview-matches__label { font: 500 11px/1 var(--font-sans); color: var(--ink-mute); min-width: 56px; }
 
 .grid-auto { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
 /* The padding step for `.page` at 1100 px is gone. It came from web layout,
@@ -1587,7 +1590,11 @@ button.card { appearance: none; font: inherit; color: inherit; }
   border: 1px solid var(--line);
 }
 
-.dictionary-library { padding: var(--pad-4); display: grid; gap: var(--pad-3); }
+/* The list runs edge to edge with the same row rhythm as «Очистка» above it:
+   a card padding, a row padding and a button padding stacked up used to give
+   three short rows the height of a page. Notes and errors keep an inset. */
+.dictionary-library { display: grid; }
+.dictionary-library > p, .dictionary-library > .inline-error { margin: 10px 12px 0; }
 .parasite-modal { width: min(520px, calc(100vw - 2 * var(--pad-4))); }
 .parasite-body { padding: var(--pad-4); display: grid; gap: var(--pad-4); overflow-y: auto; min-height: 0; }
 .parasite-heading { margin: 0; font: 600 13px/1.2 var(--font-sans); color: var(--ink); }
@@ -1612,12 +1619,13 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .parasite-chip__remove:hover { background: var(--bg-2); color: var(--err); }
 .dictionary-toolbar, .dictionary-row { display: flex; align-items: center; gap: var(--pad-3); }
 .dictionary-toolbar { justify-content: space-between; flex-wrap: wrap; }
-.dictionary-row { padding: var(--pad-3) 0; border-bottom: 1px solid var(--line-soft); }
+.dictionary-row { padding: 3px 12px 3px 4px; border-bottom: 1px solid var(--line-soft); }
 .dictionary-row:last-child { border-bottom: 0; }
-.dictionary-open { display: grid; gap: var(--pad-2); flex: 1; min-width: 0; text-align: left; background: transparent; border: 0; color: var(--ink); cursor: pointer; padding: var(--pad-2); border-radius: var(--radius-sm); }
+.dictionary-row .dictionary-note { font-size: 11.5px; line-height: 1.4; }
+.dictionary-open { display: grid; gap: 2px; flex: 1; min-width: 0; text-align: left; background: transparent; border: 0; color: var(--ink); cursor: pointer; padding: 5px 8px; border-radius: var(--radius-sm); }
 .dictionary-open:hover { background: var(--bg-4); }
 .dictionary-open:focus-visible { outline: none; box-shadow: var(--ring); }
-.dictionary-name { font: 600 13px/1.4 var(--font-sans); overflow-wrap: anywhere; }
+.dictionary-name { font: 500 13px/1.2 var(--font-sans); overflow-wrap: anywhere; }
 .dictionary-note { margin: 0; color: var(--ink-mute); font: 400 12px/1.5 var(--font-sans); overflow-wrap: anywhere; }
 .dictionary-fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
 .dictionary-fieldset:disabled { opacity: 0.65; }
@@ -1630,8 +1638,21 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .dictionary-label .field { width: 100%; }
 .dictionary-words { min-height: 180px; padding: var(--pad-3); resize: vertical; line-height: 1.5; }
 .dictionary-term-heading { display: flex; align-items: baseline; gap: var(--pad-2); }
-.dictionary-term-list { list-style: none; margin: 0; padding: 0; font: 400 12px/1.6 var(--font-mono); }
-.dictionary-term-list li { padding: var(--pad-2) 0; overflow-wrap: anywhere; }
+/* A set's terms, grouped by how they fire: a heading and one line of
+   explanation per group, then the terms as compact chips — a column with a
+   caption under every term was long and repeated itself. */
+.dictionary-term-list { display: grid; gap: var(--pad-4); align-content: start; }
+.dictionary-group { display: grid; gap: 6px; }
+.dictionary-group__title { margin: 0; font: 600 12.5px/1.3 var(--font-sans); color: var(--ink); display: flex; align-items: baseline; gap: 6px; }
+.dictionary-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.dictionary-chips .pill { font-size: 11.5px; }
+.dictionary-chip--hint { border-style: dashed; background: transparent; color: var(--ink-dim); }
+.dictionary-variants { display: grid; }
+.dictionary-variants__row { display: grid; grid-template-columns: minmax(110px, 160px) minmax(0, 1fr); gap: 10px; padding: 5px 0; border-top: 1px solid var(--line-soft); font-size: 12px; overflow-wrap: anywhere; }
+.dictionary-check { display: grid; gap: 6px; }
+.dictionary-check__result { margin: 0; display: grid; gap: 4px; font: 400 12px/1.5 var(--font-sans); }
+.dictionary-check__result > span { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.dictionary-check__to { color: var(--ok); }
 
 /* A set open for reading scrolls its term list and nothing else, so the search
    field and the heading stay in place while it does. The list reaches into the
@@ -1639,7 +1660,7 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .dictionary-modal--view .modal__body { overflow: hidden; padding-bottom: 0; }
 .dictionary-modal--view .dictionary-fieldset { display: flex; flex-direction: column; min-height: 0; }
 .dictionary-modal--view .dictionary-fieldset > :not(.dictionary-term-list) { flex-shrink: 0; }
-.dictionary-modal--view .dictionary-term-list { overflow-y: auto; min-height: 0; max-height: 280px; margin-right: -18px; padding-right: 18px; }
+.dictionary-modal--view .dictionary-term-list { overflow-y: auto; min-height: 0; max-height: 340px; margin-right: -18px; padding-right: 18px; }
 
 /* The discard question carries no header: the question is the body. */
 .dictionary-modal.modal--ask .modal__body { padding: var(--pad-4); }

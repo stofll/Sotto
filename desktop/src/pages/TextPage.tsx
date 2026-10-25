@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "../bridge";
-import type { ConfigResult, PreviewFormatResult, PreviewReplacementsResult, ReplacementMatchMode, ReplacementRule, TextFormattingConfig } from "../bridge/types";
+import type { ConfigResult, DictionaryMatch, PreviewFormatResult, PreviewReplacementsResult, ReplacementMatchMode, ReplacementRule, TextFormattingConfig } from "../bridge/types";
 import { Card, PageHeader, Segmented, Switch } from "../components/Shell";
 import { Icon } from "../components/Icon";
 import { Foldable } from "../components/Foldable";
@@ -202,6 +202,7 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
   const previewText = textPreview(previewDraft);
   const [previewResult, setPreviewResult] = useState("");
   const [previewMatches, setPreviewMatches] = useState<PreviewReplacementsResult["matched_rules"]>([]);
+  const [dictionaryMatches, setDictionaryMatches] = useState<DictionaryMatch[]>([]);
   const [previewError, setPreviewError] = useState<string | null>(null);
 
   const [folds, setFolds] = useState<Record<string, boolean>>(() => {
@@ -244,12 +245,14 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
           if (cancelled) return;
           setPreviewResult(format.formatted || "");
           setPreviewMatches(replacements.matched_rules ?? []);
+          setDictionaryMatches(format.dictionary_matches ?? []);
           setPreviewError(null);
         })
         .catch((e) => {
           if (cancelled) return;
           setPreviewResult("");
           setPreviewMatches([]);
+          setDictionaryMatches([]);
           setPreviewError(e instanceof Error ? e.message : String(e));
         });
     }, 180);
@@ -592,6 +595,7 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
             open={Boolean(folds.repl)}
             onToggle={() => toggleFold("repl")}
             title={t("Замены")}
+            hint={t("Точное правило: меняет именно то, что вы указали, — в том числе обычные слова. Правило всегда важнее словаря.")}
             summary={!saved ? <span className="pill warn">{t("не сохранено")}</span> : undefined}
             aside={<Hint text={paused ? t("Замены на паузе") : t("Замены применяются")}><Switch on={!paused} onChange={(next) => void setPaused(!next)}/></Hint>}
           >
@@ -669,10 +673,16 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
                   ? <DiffText before={previewText} after={previewResult}/>
                   : <span style={{ color: "var(--ink-mute)" }}>{t("Введите текст для предпросмотра")}</span>}
             </div>
-            {/* Only the rules that fired. «Сработало 0 правил» was a permanent
-                pill reporting that nothing had happened. */}
-            {!previewError && previewMatches?.length ? <div className="flex-row" style={{ flexWrap: "wrap", gap: 6, marginTop: 10 }}>
+            {/* Only what fired, and from which block: a replacement rule and a
+                dictionary term can both change a word, and seeing which one
+                did is how the difference between them becomes clear. */}
+            {!previewError && previewMatches?.length ? <div className="preview-matches">
+              <span className="preview-matches__label">{t("Замены")}</span>
               {previewMatches.map((item) => <span className={matchesAreHypothetical ? "pill" : "pill ok"} key={`${item.id}-${item.find}`}>{item.find}: {item.count}</span>)}
+            </div> : null}
+            {!previewError && dictionaryMatches.length ? <div className="preview-matches">
+              <span className="preview-matches__label">{t("Словари")}</span>
+              {dictionaryMatches.map((item) => <span className="pill" key={`${item.from}-${item.to}`}>{item.from} → {item.to}{item.count > 1 ? ` ×${item.count}` : ""}</span>)}
             </div> : null}
             {!previewError && matchesAreHypothetical && previewMatches?.length ? <div style={{ marginTop: 6, font: "400 11px/1.4 var(--font-sans)", color: "var(--warn)" }}>{t("Замены на паузе: правила совпали бы, но в результат выше не попали.")}</div> : null}
           </Card>

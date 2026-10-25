@@ -174,8 +174,8 @@ def test_dictionary_create_read_search_delete(app, page):
     ).click()
     dialog = page.get_by_role("dialog", name="Synthetic vocabulary")
     expect(dialog.get_by_text("Playwright", exact=True)).to_be_visible()
-    dialog.get_by_label("Поиск по набору", exact=True).fill("absent")
-    expect(dialog.get_by_text("Ничего не найдено", exact=True)).to_be_visible()
+    dialog.get_by_label("Проверить слово", exact=True).fill("absent")
+    expect(dialog.get_by_text("Не меняется", exact=True)).to_be_visible()
     dialog.get_by_role("button", name="Удалить", exact=True).click()
     dialog.get_by_role("alert").get_by_role(
         "button", name="Удалить", exact=True
@@ -244,15 +244,15 @@ def test_thematic_dictionary_catalog_toggle_search_and_copy(
     page.get_by_role("button", name=re.compile("^" + re.escape(names[1]) + " ")).click()
     dialog = page.get_by_role("dialog", name=names[1], exact=True)
     expect(dialog.get_by_text("Meta", exact=True)).to_be_visible()
-    search = dialog.get_by_label(
-        "Поиск по набору" if ru else "Search this set", exact=True
-    )
-    search.fill("meta")
-    expect(dialog.locator(".dictionary-term-list li")).to_have_count(2)
     expect(dialog.get_by_text("Meta AI", exact=True)).to_be_visible()
-    search.fill("")
-    search.focus()
-    expect(search).to_be_focused()
+    check = dialog.get_by_label("Проверить слово" if ru else "Check a word", exact=True)
+    check.fill("absent")
+    expect(
+        dialog.get_by_text("Не меняется" if ru else "Unchanged", exact=True)
+    ).to_be_visible()
+    check.fill("")
+    check.focus()
+    expect(check).to_be_focused()
     Path(output_path).mkdir(parents=True, exist_ok=True)
     page.screenshot(path=str(Path(output_path) / "ai-voice.png"), animations="disabled")
     dialog.get_by_role(
@@ -637,7 +637,11 @@ def test_dictionary_copy_layout_and_discard(app, page, locale, theme):
     heading = dialog.get_by_text(
         "Термины" if ru else "Terms", exact=True
     ).bounding_box()
-    count = dialog.get_by_text("60", exact=True).bounding_box()
+    count = (
+        dialog.locator(".dictionary-term-heading")
+        .get_by_text("60", exact=True)
+        .bounding_box()
+    )
     assert abs(heading["y"] - count["y"]) < 2
     assert 0 < count["x"] - heading["x"] - heading["width"] <= 12
     body = dialog.locator(".modal__body")
@@ -645,7 +649,7 @@ def test_dictionary_copy_layout_and_discard(app, page, locale, theme):
     expect(body).to_have_css("overflow-y", "hidden")
     expect(dialog.locator(".card")).to_have_count(0)
     search = dialog.get_by_label(
-        "Поиск по набору" if ru else "Search this set", exact=True
+        "Проверить слово" if ru else "Check a word", exact=True
     )
     search_top = search.bounding_box()["y"]
     term_list.evaluate("e => e.scrollTop = e.scrollHeight")
@@ -776,7 +780,9 @@ def test_text_section_hints(app, page, locale):
     ui = app(config={"ui_language": locale})
     ui.nav("text")
     for title in (
-        ["Очистка", "Словари"] if locale == "ru" else ["Cleanup", "Dictionaries"]
+        ["Очистка", "Замены", "Словари"]
+        if locale == "ru"
+        else ["Cleanup", "Replacements", "Dictionaries"]
     ):
         toggle = page.get_by_role("button", name=re.compile("^" + title))
         hint = toggle.locator("..").locator(".hint")
@@ -788,3 +794,32 @@ def test_text_section_hints(app, page, locale):
         page.keyboard.press("Escape")
         expect(page.get_by_role("tooltip")).not_to_be_visible()
         expect(toggle).to_have_attribute("aria-expanded", expanded)
+
+
+def test_preview_names_dictionary_corrections_apart_from_rules(app, page):
+    ui = app()
+    ui.nav("text")
+    page.get_by_placeholder("Введите текст для проверки обработки").fill(
+        "залил на гидхап"
+    )
+    row = page.locator(".preview-matches", has_text="Словари")
+    expect(row).to_contain_text("гидхап → GitHub")
+    expect(page.locator(".preview-matches", has_text="Замены")).to_have_count(0)
+
+
+def test_set_view_shows_what_each_term_reacts_to(app, page):
+    ui = app()
+    ui.nav("text")
+    page.get_by_role("button", name=re.compile(r"^Словари")).click()
+    page.get_by_role("button", name=re.compile(r"^Test terms ")).click()
+    dialog = page.get_by_role("dialog", name="Test terms")
+    exact = dialog.locator(".dictionary-group", has_text="Точные написания")
+    expect(exact).to_contain_text("Sotto")
+    expect(exact).to_contain_text("сотто")
+    hint = dialog.locator(".dictionary-group", has_text="Только подсказка модели")
+    expect(hint).to_contain_text("Playwright")
+    # The check runs the set itself and names the route it took.
+    dialog.get_by_label("Проверить слово", exact=True).fill("сотто")
+    result = dialog.locator(".dictionary-check__result")
+    expect(result).to_contain_text("сотто → Sotto")
+    expect(result).to_contain_text("точное написание")

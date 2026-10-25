@@ -346,6 +346,29 @@ pub(crate) struct ParasiteSetInfo {
 /// Which sets are ON is not reported here — that lives in the config, which the
 /// frontend already holds. This is the catalogue, and `default_on` is what a
 /// config that has never been touched resolves to.
+/// How each of `words` is matched, so the set editor can show what a term
+/// reacts to: its reviewed spellings, and whether similar sounds count too.
+#[tauri::command]
+pub(crate) fn term_matching(
+    words: Vec<String>,
+    builtin: bool,
+) -> Vec<crate::formatter::TermMatching> {
+    words
+        .iter()
+        .map(|word| crate::formatter::term_matching(word, builtin))
+        .collect()
+}
+
+/// What one set alone makes of `text`, for the check field in the set editor.
+#[tauri::command]
+pub(crate) fn check_dictionary_text(
+    text: String,
+    words: Vec<String>,
+    builtin: bool,
+) -> Vec<crate::formatter::DictionaryMatch> {
+    crate::formatter::check_terms(&text, words, builtin)
+}
+
 #[tauri::command]
 pub(crate) fn parasite_sets() -> Vec<ParasiteSetInfo> {
     crate::formatter::PARASITE_PRESETS

@@ -358,9 +358,26 @@ export interface ApiKeyInfo {
 
 export type ApiKeyStatus = Record<string, ApiKeyInfo>;
 
+/** One dictionary correction in the preview: `from` became `to`, `count` times. */
+export interface DictionaryMatch {
+  from: string;
+  to: string;
+  count: number;
+}
+
 export interface PreviewFormatResult {
   original: string;
   formatted: string;
+  dictionary_matches?: DictionaryMatch[];
+}
+
+/** How the corrector treats one dictionary term. */
+export interface TermMatching {
+  term: string;
+  /** Reviewed recognition spellings that always become the term. */
+  variants: string[];
+  /** Whether similar-sounding spellings are corrected too. */
+  fuzzy: boolean;
 }
 
 export interface HistoryEntry {
