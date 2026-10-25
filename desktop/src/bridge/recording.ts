@@ -9,10 +9,6 @@ let _subscribed = false;
 let _settledStateTimer: ReturnType<typeof window.setTimeout> | null = null;
 let _currentSessionId: number | null = null;
 
-export function getRecordingState(): RecordingState {
-  return _state;
-}
-
 export function onRecordingStateChange(cb: (state: RecordingState) => void): () => void {
   _stateListeners.push(cb);
   ensureSubscribed();

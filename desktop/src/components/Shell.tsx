@@ -291,7 +291,7 @@ export function PageHeader({ title, sub, actions }: { title: string; sub?: strin
  *  `4px 22px` on neighbouring pages. See `.card` in styles.css for what each
  *  name means. */
 export function Card({ pad = "default", accent, className, style, children }: {
-  pad?: "default" | "rows" | "settings" | "flush";
+  pad?: "default" | "rows";
   accent?: boolean;
   className?: string;
   style?: CSSProperties;

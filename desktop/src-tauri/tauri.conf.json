@@ -28,6 +28,7 @@
   },
   "plugins": {
     "updater": {
+      "requireSignedVersion": true,
       "endpoints": [
         "https://github.com/stofll/Sotto/releases/latest/download/latest.json"
       ],

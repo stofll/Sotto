@@ -11,7 +11,7 @@
 #
 # Format: <target key> <archive file name> <sha256>
 
-version 1.13.7
+version 1.13.8
 
-win-x64-shared sherpa-onnx-v1.13.7-win-x64-shared-MT-Release-lib.tar.bz2 7a362a9f339a2937e7f8806e904f3e8a031a7774982eea08bca8336b2c257529
-osx-arm64-static sherpa-onnx-v1.13.7-osx-arm64-static-lib.tar.bz2 126daa2e8c09a4c5d54dc985722c43bd22f598adc56445905b377454b1b27e38
+win-x64-shared sherpa-onnx-v1.13.8-win-x64-shared-MT-Release-lib.tar.bz2 b8eedf41bd6d3779218887b48367bb7a3ece5aaa7667f01f69ee823a12b0a9e7
+osx-arm64-static sherpa-onnx-v1.13.8-osx-arm64-static-lib.tar.bz2 9091bf160dc7fdacedbc906b212badf53c2993f4e5277a0e03998e96c31d60da

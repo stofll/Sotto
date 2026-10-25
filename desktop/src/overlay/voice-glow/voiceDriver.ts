@@ -29,7 +29,6 @@ import { voiceLobes, LOBE_SPAN } from './styles';
 
 export interface VoiceDriverConfig {
   id: string;
-  sensitivity: number;
   threshold: number;
   attack: number;
   release: number;
@@ -37,7 +36,6 @@ export interface VoiceDriverConfig {
   breatheDuration: number;
   reach: number;
   spread: number;
-  bands: boolean;
   /** Flow speed in px/s at full level; negative flows right-to-left. */
   flow: number;
   /** Multiplies the resting distance between lobes (and so the flow ring). */
@@ -66,13 +64,10 @@ export interface VoiceDriverConfig {
   /** The ceiling's tuned size multipliers, so the band can sit on it. */
   rangeWidth: number;
   rangeHeight: number;
-  theme: 'dark' | 'light';
   /** Band colours as `r, g, b` triples: the core and its fringes. */
   bandColors: { core: string; above: string; mid: string; below: string };
   /** Horizontal distortion of the glow under the band, 0–1. */
   distortion: number;
-  /** The epicentre wash's opacity; above 0 the band-line clips are written even without distortion. */
-  coreLight: number;
   /** The effect's overall scale, for the few px values not carried by the geometry props. */
   scale: number;
   /** The element's corner radius, px — the travelling beam follows its arc while processing. */
@@ -91,15 +86,12 @@ export interface VoiceDriverConfig {
   processingLevel: number;
   hueRange: number;
   hueDuration: number;
-  staticColors: boolean;
   reducedMotion: boolean;
-  /** Hold the frame: the clock stops and the source is not read, but a changed config still repaints. */
-  paused: boolean;
 }
 
 export interface VoiceSource {
   /** Manual 0–1 level, sampled every frame. */
-  getLevel?: () => number;
+  getLevel: () => number;
 }
 
 /**
@@ -116,7 +108,7 @@ interface VoiceState {
   scanA: number;
   /** Processing clock in seconds, running while processing. */
   scanT: number;
-  /** The instance's own clock in seconds — advances only while running, so a pause holds every drift and resumes without a jump. */
+  /** The instance's own clock in seconds, kept across re-registrations. */
   t: number;
   lastTs: number;
   /** The distortion's share, 0–1: 1 while listening, settling to 0 for processing. */
@@ -127,7 +119,6 @@ interface VoiceInstance {
   el: HTMLElement;
   config: VoiceDriverConfig;
   source: VoiceSource;
-  onLevel?: (level: number) => void;
   /** The band canvas and its context, when the element carries one. */
   canvas: HTMLCanvasElement | null;
   ctx: CanvasRenderingContext2D | null;
@@ -142,8 +133,6 @@ interface VoiceInstance {
   /** The filter region's top last written, as a fraction of the host's height (-1 before the first). */
   filterTop: number;
   s: VoiceState;
-  /** The config last painted, so a paused instance repaints only when it changes. */
-  paintedConfig: VoiceDriverConfig | null;
   /** The CSS blur last written for the band canvas (WebKit fallback). */
   cssBlur: string | null;
   /** Whether the wrapper is marked `data-voice-warp="off"`: the distortion dropped for processing. */
@@ -436,7 +425,6 @@ function drawBand(inst: VoiceInstance, f: BandFrame, pts: Array<[number, number]
   const alpha = Math.min(1, 0.6 * config.bandStrength * f.strength);
   if (alpha < 0.005 || config.bandWidth <= 0) return;
 
-  const isDark = config.theme === 'dark';
   const bw = config.bandWidth * (1 + 0.35 * f.level);
   const split = config.bandAberration * (0.35 + 0.65 * f.level);
   const dy = (4 + 12 * split) * config.scale;
@@ -454,7 +442,7 @@ function drawBand(inst: VoiceInstance, f: BandFrame, pts: Array<[number, number]
   // green between, and a wide soft halo under all of it — subtle, so it
   // reads as a luminous ridge in the glow rather than a line drawn on it.
   const colours = { r: config.bandColors.above, g: config.bandColors.mid, c: config.bandColors.core, b: config.bandColors.below };
-  const base = (isDark ? 0.42 : 0.4) * alpha;
+  const base = 0.42 * alpha;
   const thickness = 14 * bw;
   // The old rim was a gradient in a blurred layer: soften every pass with
   // a canvas blur where the browser has one. WebKit's 2D context has no
@@ -585,26 +573,20 @@ function frame(ts: number): void {
 
   instances.forEach((inst) => {
     const { el, config, source, s } = inst;
-    // Paused: the frame holds. It is repainted once per config change so
-    // the controls still shape the frozen frame; nothing advances.
-    const paused = config.paused;
-    if (paused && inst.paintedConfig === config) return;
-    const dt = paused ? 0 : s.lastTs ? Math.min(0.05, (ts - s.lastTs) / 1000) : 1 / 60;
+    const dt = s.lastTs ? Math.min(0.05, (ts - s.lastTs) / 1000) : 1 / 60;
     s.lastTs = ts;
     s.t += dt;
     const tSec = s.t;
 
     // ── Raw level and bands from the source ─────────────────────────
-    if (!paused) {
-      const raw = source.getLevel ? clamp01(source.getLevel()) : 0;
-      scratch.level = raw;
-      // No spectrum to read, so give the bands a little independent life —
-      // slow, out-of-phase wobbles scaled by the level — so the lobes still
-      // ripple rather than pumping in lockstep.
-      scratch.bands[0] = raw;
-      scratch.bands[1] = raw * (0.72 + 0.28 * Math.sin(tSec * 9.1));
-      scratch.bands[2] = raw * (0.6 + 0.4 * Math.sin(tSec * 13.7 + 2));
-    }
+    const raw = clamp01(source.getLevel());
+    scratch.level = raw;
+    // No spectrum to read, so give the bands a little independent life —
+    // slow, out-of-phase wobbles scaled by the level — so the lobes still
+    // ripple rather than pumping in lockstep.
+    scratch.bands[0] = raw;
+    scratch.bands[1] = raw * (0.72 + 0.28 * Math.sin(tSec * 9.1));
+    scratch.bands[2] = raw * (0.6 + 0.4 * Math.sin(tSec * 13.7 + 2));
 
     // ── Shape and follow ─────────────────────────────────────────────
     const target = shape(scratch.level, config.threshold);
@@ -667,7 +649,6 @@ function frame(ts: number): void {
       s.phase = (((s.phase + config.flow * eff * (1 - morph) * dt) % span) + span) % span;
     }
 
-    el.style.setProperty(`--vb-level-${config.id}`, s.level.toFixed(3));
     el.style.setProperty(`--vb-cx-${config.id}`, `${cx.toFixed(1)}px`);
     el.style.setProperty(`--vb-mw-${config.id}`, maskWidth.toFixed(3));
 
@@ -678,7 +659,6 @@ function frame(ts: number): void {
     const lift = config.bend * eff;
     el.style.setProperty(`--vb-bh-${config.id}`, `${Math.max(0, lift).toFixed(1)}px`);
     const bendA = config.bend > 0 ? Math.min(1, lift / config.bend) : 0;
-    el.style.setProperty(`--vb-bendA-${config.id}`, bendA.toFixed(3));
     // The band sits on that ceiling, fading in with the bend and reacting
     // to the voice on its own (thickness and chromatic split).
     // The band line is computed even when the band is invisible: the
@@ -712,7 +692,7 @@ function frame(ts: number): void {
     }
     if (cw && ch && (inst.ctx || inst.displace)) {
       const pts = bandPoints(config, frame, cw, ch);
-      if ((inst.displace && !warpOff) || config.coreLight > 0) writeClips(el, config.id, pts, cw, ch);
+      if (inst.displace && !warpOff) writeClips(el, config.id, pts, cw, ch);
       if (inst.filter && !warpOff && FILTER_REGION_OK) fitFilterRegion(inst, pts, ch);
       if (inst.ctx) drawBand(inst, frame, pts);
     }
@@ -734,7 +714,7 @@ function frame(ts: number): void {
     for (let i = 0; i < voiceLobes.length; i++) {
       const lobe = voiceLobes[i];
       const x = wrapX(lobe.x * config.lobeSpacing + s.phase, span);
-      const bandLift = config.bands ? 0.6 + 0.7 * s.bands[lobe.band] : 1;
+      const bandLift = 0.6 + 0.7 * s.bands[lobe.band];
       el.style.setProperty(`--vb-x${i}-${config.id}`, `${(x * gather).toFixed(1)}px`);
       el.style.setProperty(`--vb-l${i}-${config.id}`, (bandLift * edgeEnvelope(x, span)).toFixed(3));
       const lobeAbsX = cw / 2 + (cx + x * gather) * w;
@@ -743,13 +723,10 @@ function frame(ts: number): void {
 
     // ── Hue drift ────────────────────────────────────────────────────
     const hue =
-      config.staticColors || config.reducedMotion || config.hueRange === 0
+      config.reducedMotion || config.hueRange === 0
         ? 0
         : -config.hueRange + 2 * config.hueRange * pingPong(tSec / config.hueDuration);
     el.style.setProperty(`--vb-hue-${config.id}`, `${hue.toFixed(2)}deg`);
-
-    inst.onLevel?.(s.level);
-    inst.paintedConfig = config;
   });
 }
 
@@ -778,14 +755,12 @@ function stopLoopIfIdle(): void {
 export function registerVoiceInstance(
   el: HTMLElement,
   config: VoiceDriverConfig,
-  source: VoiceSource,
-  onLevel?: (level: number) => void
+  source: VoiceSource
 ): () => void {
   const inst: VoiceInstance = {
     el,
     config,
     source,
-    onLevel,
     canvas: null,
     ctx: null,
     haloCanvas: null,
@@ -795,7 +770,6 @@ export function registerVoiceInstance(
     filter: null,
     filterTop: -1,
     s: stateFor(el),
-    paintedConfig: null,
     cssBlur: null,
     // Match the mark a previous registration may have left on the element.
     warpOff: el.hasAttribute('data-voice-warp'),
@@ -815,7 +789,7 @@ export function registerVoiceInstance(
       inst.haloCtx = halo.getContext('2d');
     }
   }
-  // A fresh registration after a pause must not integrate the gap.
+  // A fresh registration must not integrate time spent unregistered.
   inst.s.lastTs = 0;
 
   instances.add(inst);

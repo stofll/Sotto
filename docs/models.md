@@ -113,7 +113,7 @@ When a catalog entry is re-pinned to different artifacts, the installed folder s
 
 ## Native Sherpa libraries
 
-The `sherpa-onnx` 1.13.7 crate — the Rust API maintained in the Sherpa-ONNX repository itself — pulls in matching binary Sherpa-ONNX/ONNX Runtime libraries during the Cargo build.
+The `sherpa-onnx` 1.13.8 crate — the Rust API maintained in the Sherpa-ONNX repository itself — pulls in matching binary Sherpa-ONNX/ONNX Runtime libraries during the Cargo build.
 
 Its build script downloads the archive for the target platform unless `SHERPA_ONNX_LIB_DIR` points at one already on disk, and it does not verify what it downloads. The repository's Cargo configuration deliberately sets the variable to a file path by default; the build script rejects it before any download.
 

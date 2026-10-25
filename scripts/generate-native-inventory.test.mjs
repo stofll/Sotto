@@ -11,8 +11,8 @@ test('inventory includes each pinned archive and its platform-specific ONNX Runt
   const inventory = nativeInventory(cargo, runtime, components);
   assert.equal(inventory.vendored[0].name, 'whisper.cpp');
   assert.equal(inventory.archives.length, 2);
-  assert.equal(inventory.archives.find((a) => a.target === 'win-x64-shared').components[1].version, '1.27.1');
-  assert.equal(inventory.archives.find((a) => a.target === 'osx-arm64-static').components[1].version, '1.28.1');
+  assert.equal(inventory.archives.find((a) => a.target === 'win-x64-shared').components[1].version, '1.28.2');
+  assert.equal(inventory.archives.find((a) => a.target === 'osx-arm64-static').components[1].version, '1.28.2');
   assert.match(inventory.lockfiles['scripts/sherpa-runtime.lock'], /^[a-f0-9]{64}$/);
 });
 

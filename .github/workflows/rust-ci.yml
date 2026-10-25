@@ -290,7 +290,7 @@ jobs:
         run: |
           set -eu
           python3 -m venv "$RUNNER_TEMP/dmg-bootstrap"
-          "$RUNNER_TEMP/dmg-bootstrap/bin/pip" install uv==0.12.17
+          "$RUNNER_TEMP/dmg-bootstrap/bin/pip" install uv==0.13.5
           export PATH="$RUNNER_TEMP/dmg-bootstrap/bin:$PATH"
           uv run --locked --project scripts/macos-dmg python scripts/macos-dmg/test_dmg.py
 

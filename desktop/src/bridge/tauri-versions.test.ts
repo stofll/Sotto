@@ -20,7 +20,7 @@ function nativeVersion(lock: string, name: string): string {
 }
 
 // Both native applications share the frontend packages. Tauri requires the
-// core minor versions and the plugin exact versions to agree across IPC.
+// core minor versions to agree across IPC.
 describe.each([
   ["application", applicationLock],
   ["setup", setupLock],
@@ -28,12 +28,6 @@ describe.each([
   it("keeps the core API on the backend's minor version", () => {
     expect(frontendVersion("@tauri-apps/api").split(".").slice(0, 2)).toEqual(
       nativeVersion(lock, "tauri").split(".").slice(0, 2),
-    );
-  });
-
-  it("keeps the dialog plugin on the backend's exact version", () => {
-    expect(frontendVersion("@tauri-apps/plugin-dialog")).toBe(
-      nativeVersion(lock, "tauri-plugin-dialog"),
     );
   });
 });

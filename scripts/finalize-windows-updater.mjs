@@ -10,6 +10,10 @@ export function withSetupUpdater(manifest, { version, repository, signature, exe
   if (!decoded.startsWith("untrusted comment:") || !decoded.includes("trusted comment:")) {
     throw new Error("Setup signature is missing or invalid");
   }
+  const trustedComment = decoded.split(/\r?\n/).find(line => line.startsWith("trusted comment: "));
+  const signedVersion = trustedComment?.slice("trusted comment: ".length).split("\t")
+    .find(field => field.startsWith("version:"))?.slice("version:".length);
+  if (signedVersion !== version) throw new Error("Setup signature version is missing or does not match the release");
   const platforms = { ...manifest.platforms };
   const keys = ["windows-x86_64", "windows-x86_64-nsis"].filter(key => platforms[key]);
   if (!keys.length) throw new Error("Manifest has no Windows x64 NSIS target");

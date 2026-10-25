@@ -1,7 +1,7 @@
 """Opt-in synthetic screenshots for the public README and website."""
 
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -23,7 +23,7 @@ MODELS, REVISIONS = catalog()
 ASSESSMENTS = assessments(MODELS, REVISIONS)
 
 
-CAPTURE_TIME = datetime(2026, 10, 3, 17, 30, tzinfo=timezone.utc)
+CAPTURE_TIME = datetime(2026, 10, 3, 17, 30, tzinfo=UTC)
 
 
 def history_entries(locale):

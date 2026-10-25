@@ -54,7 +54,7 @@ jobs:
       - name: Install Python test environment
         run: |
           python3 -m venv "$RUNNER_TEMP/ui-bootstrap"
-          "$RUNNER_TEMP/ui-bootstrap/bin/pip" install uv==0.12.17
+          "$RUNNER_TEMP/ui-bootstrap/bin/pip" install uv==0.13.5
           echo "$RUNNER_TEMP/ui-bootstrap/bin" >> "$GITHUB_PATH"
           "$RUNNER_TEMP/ui-bootstrap/bin/uv" sync --locked --project tests/ui --python 3.12
       - name: Install browsers

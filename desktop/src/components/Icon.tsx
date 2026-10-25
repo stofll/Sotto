@@ -34,7 +34,6 @@ export function Icon({ name, size = 16, ...rest }: IconProps) {
     case "test": return <svg {...props}><path d="M6 2v3.5L3 11.5a2 2 0 0 0 1.7 3h6.6a2 2 0 0 0 1.7-3L10 5.5V2"/><path d="M5 2h6"/></svg>;
     case "eye": return <svg {...props}><path d="M1.5 8c1.5-3 3.8-4.5 6.5-4.5S13 5 14.5 8C13 11 10.7 12.5 8 12.5S3 11 1.5 8z"/><circle cx="8" cy="8" r="2"/></svg>;
     case "eye-off": return <svg {...props}><path d="M3 3l10 10M5.5 5.5C3.8 6.3 2.5 7.5 1.5 8c1.5 3 3.8 4.5 6.5 4.5 1.2 0 2.3-.3 3.2-.8M9.8 4.3A6.6 6.6 0 0 1 14.5 8c-.5 1-1.1 1.8-1.9 2.4"/><path d="M6.8 6.8a2 2 0 0 0 2.4 2.4"/></svg>;
-    case "chip": return <svg {...props}><rect x="4" y="4" width="8" height="8" rx="1"/><path d="M6.5 4V2.5M9.5 4V2.5M6.5 13.5V12M9.5 13.5V12M2.5 6.5H4M2.5 9.5H4M12 6.5h1.5M12 9.5h1.5"/></svg>;
     case "kbd": return <svg {...props}><rect x="1.5" y="3.5" width="13" height="9" rx="1.5"/><path d="M4 6.5h.01M7 6.5h.01M10 6.5h.01M4 9.5h6"/></svg>;
     case "sparkle": return <svg {...props}><path d="M8 1.5c.5 3.3 3.2 6 6.5 6.5-3.3.5-6 3.2-6.5 6.5-.5-3.3-3.2-6-6.5-6.5 3.3-.5 6-3.2 6.5-6.5z"/></svg>;
     case "spark": return <svg {...props}><path d="M8 2v3M8 11v3M2 8h3M11 8h3M3.8 3.8l2 2M10.2 10.2l2 2M3.8 12.2l2-2M10.2 5.8l2-2"/></svg>;
@@ -51,8 +50,6 @@ export function Icon({ name, size = 16, ...rest }: IconProps) {
     case "arrow-right": return <svg {...props}><path d="M3 8h10M9 4l4 4-4 4"/></svg>;
     case "download": return <svg {...props}><path d="M8 2v8M4.5 6.5L8 10l3.5-3.5M3 13h10"/></svg>;
     case "more": return <svg {...props}><circle cx="4" cy="8" r="1"/><circle cx="8" cy="8" r="1"/><circle cx="12" cy="8" r="1"/></svg>;
-    case "compare": return <svg {...props}><path d="M5 2v12M11 2v12M2 5l3-3 3 3M14 11l-3 3-3-3"/></svg>;
-    case "filter": return <svg {...props}><path d="M2 3h12l-4.5 5.5V13L6.5 11.5V8.5z"/></svg>;
     case "refresh": return <svg {...props}><path d="M13 5a5.5 5.5 0 0 0-9.4-1.9L2.5 4.2M3 11a5.5 5.5 0 0 0 9.4 1.9l1.1-1.1"/><path d="M2.5 1.8v2.4h2.4M13.5 14.2v-2.4h-2.4"/></svg>;
     case "sun": return <svg {...props}><circle cx="8" cy="8" r="2.5"/><path d="M8 1.5v1.2M8 13.3v1.2M1.5 8h1.2M13.3 8h1.2M3.4 3.4l.9.9M11.7 11.7l.9.9M3.4 12.6l.9-.9M11.7 4.3l.9-.9"/></svg>;
     case "moon": return <svg {...props}><path d="M12.8 10.4A5.5 5.5 0 0 1 5.6 3.2 5.7 5.7 0 1 0 12.8 10.4z"/></svg>;
@@ -60,13 +57,7 @@ export function Icon({ name, size = 16, ...rest }: IconProps) {
     // a lone chevron pointing left — the same glyph that means "back" everywhere
     // else, and that is exactly how people read it.
     case "panel": return <svg {...props}><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2"/><path d="M6.25 2.75v10.5"/><path d="M1.75 4.75a2 2 0 0 1 2-2h2.5v10.5h-2.5a2 2 0 0 1-2-2z" fill="currentColor" stroke="none"/></svg>;
-    case "brand-openai": return <svg {...props} viewBox="0 0 16 16"><path d="M8 1.8 10 3l2.2.1 1.2 2-.3 2.2.9 2-1.3 1.8-2.1.6L9.2 13.4H6.8l-1.4-1.7-2.1-.6L2 9.3l.9-2-.3-2.2 1.2-2L6 3z"/><path d="M5.1 6.2 8 4.5l2.9 1.7v3.6L8 11.5 5.1 9.8zM8 4.5v7M5.1 6.2l5.8 3.6M10.9 6.2 5.1 9.8"/></svg>;
-    case "brand-anthropic": return <svg {...props} viewBox="0 0 16 16"><path d="M3 13 7.1 3h1.8L13 13h-2l-.8-2.2H5.8L5 13z"/><path d="M6.4 9.1h3.2L8 4.8z"/></svg>;
-    case "brand-gemini": return <svg {...props} viewBox="0 0 16 16"><path d="M8 1.8c.7 3 2.2 4.5 5.2 5.2C10.2 7.8 8.7 9.3 8 14.2 7.3 9.3 5.8 7.8 2.8 7 5.8 6.3 7.3 4.8 8 1.8z"/><path d="M12.2 1.8c.2 1 .7 1.5 1.7 1.8-1 .2-1.5.8-1.7 1.8-.3-1-.8-1.6-1.8-1.8 1-.3 1.5-.8 1.8-1.8z"/></svg>;
-    case "brand-opencode": return <svg {...props} viewBox="0 0 16 16"><path d="M6.2 4 2.6 8l3.6 4M9.8 4l3.6 4-3.6 4"/><path d="M8.8 3.2 7.2 12.8"/></svg>;
     case "brand-compatible": return <svg {...props} viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.8"/><path d="M2.6 8h10.8M8 2.2c1.4 1.5 2.1 3.5 2.1 5.8s-.7 4.3-2.1 5.8C6.6 12.3 5.9 10.3 5.9 8S6.6 3.7 8 2.2z"/><path d="M4.1 4.3c1 .7 2.4 1.1 3.9 1.1s2.9-.4 3.9-1.1M4.1 11.7c1-.7 2.4-1.1 3.9-1.1s2.9.4 3.9 1.1"/></svg>;
-    case "flag-ru": return <svg width={size} height={(size / 16) * 12} viewBox="0 0 16 12" fill="none"><rect width="16" height="4" fill="#fff"/><rect y="4" width="16" height="4" fill="#0039A6"/><rect y="8" width="16" height="4" fill="#D52B1E"/></svg>;
-    case "flag-en": return <svg width={size} height={(size / 16) * 12} viewBox="0 0 16 12" fill="none"><rect width="16" height="12" fill="#012169"/><path d="M0 0l16 12M16 0L0 12" stroke="#fff" strokeWidth="2"/><path d="M8 0v12M0 6h16" stroke="#fff" strokeWidth="3"/><path d="M8 0v12M0 6h16" stroke="#C8102E" strokeWidth="1.5"/></svg>;
     default: return null;
   }
 }

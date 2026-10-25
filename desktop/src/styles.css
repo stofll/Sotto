@@ -83,7 +83,6 @@
      pinned to the top — Windows fixes their place — while the name breathes. */
   --titlebar-h: 50px;
   --titlebar-button-h: 24px;
-  --footer-h: 44px;
 
   /* No Inter / JetBrains Mono: Google Fonts loaded them from index.html, and
      the CDN is gone — the app must not go to the network for a font. They are
@@ -173,12 +172,12 @@ button, input, textarea, select { font: inherit; }
    Dialogs and select menus are portalled into body — outside `.app-frame` — so
    the rule above never reaches them and neither would a `.app-frame …` rule of
    ours; each of them has to be named here, in every one of these selectors. */
-:is(.app-frame .scroll-visible, .scroll-visible, .modal *, .custom-select__menu, .model-select__menu) { scrollbar-width: thin; scrollbar-color: var(--bg-5) transparent; }
-:is(.app-frame .scroll-visible, .scroll-visible, .modal *, .custom-select__menu, .model-select__menu)::-webkit-scrollbar { width: 10px; height: 10px; }
-:is(.app-frame .scroll-visible, .scroll-visible, .modal *, .custom-select__menu, .model-select__menu)::-webkit-scrollbar-track { background: transparent; }
-:is(.app-frame .scroll-visible, .scroll-visible, .modal *, .custom-select__menu, .model-select__menu)::-webkit-scrollbar-thumb { background: var(--bg-5); border: 2px solid transparent; background-clip: padding-box; border-radius: 999px; }
-:is(.app-frame .scroll-visible, .scroll-visible, .modal *, .custom-select__menu, .model-select__menu)::-webkit-scrollbar-thumb:hover { background: var(--accent-soft-2); background-clip: padding-box; }
-:is(.scroll-visible, .modal *, .custom-select__menu, .model-select__menu)::-webkit-scrollbar-corner { background: transparent; }
+:is(.app-frame .scroll-visible, .scroll-visible, .modal *, .custom-select__menu) { scrollbar-width: thin; scrollbar-color: var(--bg-5) transparent; }
+:is(.app-frame .scroll-visible, .scroll-visible, .modal *, .custom-select__menu)::-webkit-scrollbar { width: 10px; height: 10px; }
+:is(.app-frame .scroll-visible, .scroll-visible, .modal *, .custom-select__menu)::-webkit-scrollbar-track { background: transparent; }
+:is(.app-frame .scroll-visible, .scroll-visible, .modal *, .custom-select__menu)::-webkit-scrollbar-thumb { background: var(--bg-5); border: 2px solid transparent; background-clip: padding-box; border-radius: 999px; }
+:is(.app-frame .scroll-visible, .scroll-visible, .modal *, .custom-select__menu)::-webkit-scrollbar-thumb:hover { background: var(--accent-soft-2); background-clip: padding-box; }
+:is(.scroll-visible, .modal *, .custom-select__menu)::-webkit-scrollbar-corner { background: transparent; }
 
 .btn { appearance: none; border: 1px solid var(--line-strong); background: var(--bg-2); color: var(--ink); font: 500 13px/1 var(--font-sans); height: 32px; padding: 0 12px; border-radius: var(--radius-sm); display: inline-flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer; transition: background .12s ease, border-color .12s ease, color .12s ease; }
 /* Optical, not geometric, centring of a label that starts with an icon.
@@ -330,19 +329,14 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 .number-field:focus-within .number-field__steppers { border-left-color: var(--accent-soft-2); }
 .tag { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border-radius: var(--radius-sm); font: 500 11px/1 var(--font-mono); letter-spacing: 0.01em; background: var(--bg-4); color: var(--ink-dim); border: 1px solid var(--line); white-space: nowrap; }
 .tag--accent { background: var(--accent-soft); color: var(--accent-text); border-color: var(--accent-soft-2); }
-.tag--ok { background: rgba(74,222,128,0.10); color: var(--ok); border-color: rgba(74,222,128,0.25); }
- /* One card, four paddings. Every site used to spell its own out — 18, 14, 20,
+ /* One card, two paddings. Every site used to spell its own out — 18, 14, 20,
     `12px 16px`, `10px 14px`, `4px 22px` for the same `.card` — so the same
     surface looked different on every page. The variants that turned out to be
     real live here; nothing else may set a card's padding inline.
       default   — a content card with a heading (18)
-      --rows    — a card that is a strip of setting rows (12/16)
-      --settings— a card of `.setting` rows, which bring their own 12px vertical
-      --flush   — the card is a frame around a list or a table (0) */
+      --rows    — a card that is a strip of setting rows (12/16) */
  .card { background: var(--bg-3); border: 1px solid var(--line); border-radius: var(--radius); padding: var(--pad-5); }
  .card--rows { padding: 12px 16px; }
- .card--settings { padding: 4px var(--pad-6); }
- .card--flush { padding: 0; }
 
  /* The vertical rhythm between cards on a page, instead of a marginBottom on
     each one — which was written on every card but the last, and forgotten
@@ -513,15 +507,8 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
    captions. We catch up with them using an animation of the same duration. */
 .status-pill__text { animation: status-pill-text-in .3s ease-out both; }
 @keyframes status-pill-text-in { from { opacity: 0; } to { opacity: 1; } }
-.main-header { flex: 0 0 auto; padding: 22px 32px 16px; border-bottom: 1px solid var(--line); display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; }
-.main-header h1 { margin: 0; font: 600 22px/1.1 var(--font-sans); letter-spacing: -0.02em; }
-.main-header p { margin: 4px 0 0; font: 400 13px/1.4 var(--font-sans); color: var(--ink-dim); }
 .main-body { padding: 24px 32px 28px; overflow: auto; display: flex; flex-direction: column; gap: 24px; min-height: 0; }
 .loading-state { flex: 1; min-height: 0; display: grid; place-items: center; color: var(--ink-mute); }
-.settings-body { gap: 22px; }
-.settings-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; padding: 0 0 18px; border-bottom: 1px solid var(--line); }
-.settings-header h1 { margin: 0; font: 600 22px/1.1 var(--font-sans); letter-spacing: -0.02em; }
-.settings-header p { margin: 4px 0 0; font: 400 13px/1.4 var(--font-sans); color: var(--ink-dim); }
 /* One geometry for the hint icon. The reference is the «Горячая клавиша» row
    in settings: a 14 px icon, 5 px to the caption. The distance is set by the
    row's gap, so every container with a hint keeps the same value. */
@@ -551,19 +538,6 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
   animation: hint-bubble-in .12s ease-out both;
 }
 @keyframes hint-bubble-in { from { opacity: 0; } to { opacity: 1; } }
-.compact-setting-row { display: grid; grid-template-columns: minmax(124px, 160px) minmax(0, 1fr); gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); }
-.compact-setting-row:last-child { border-bottom: 0; }
-.compact-setting-row__label h3,
-.split-setting-cell h3 { margin: 0 0 4px; font: 500 14px/1.2 var(--font-sans); letter-spacing: -0.01em; display: inline-flex; align-items: center; gap: 5px; }
-.compact-setting-row__label p,
-.split-setting-cell p { margin: 0; font: 400 12px/1.45 var(--font-sans); color: var(--ink-dim); }
-.compact-setting-row__label p { display: none; }
-.settings-quick { display: grid; grid-template-columns: minmax(315px, 1fr) minmax(250px, 0.75fr); align-items: center; gap: 12px; padding: 14px 16px; }
-.settings-quick .compact-setting-row { grid-template-columns: auto minmax(0, 1fr); gap: 10px; padding: 0; border-bottom: 0; }
-.settings-quick .compact-setting-row__label h3 { margin: 0; white-space: nowrap; }
-.settings-quick .hotkey-display { gap: 6px; }
-.settings-quick .hotkey-display__keys { height: 30px; gap: 4px; padding: 0 8px; }
-.settings-quick .hotkey-display .btn { width: 30px; height: 30px; padding: 0; justify-content: center; overflow: hidden; font-size: 0; gap: 0; }
 .hotkey-display { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; min-width: 0; }
 .hotkey-display__keys { display: inline-flex; align-items: center; gap: 5px; height: var(--control-h); padding: 0 10px; background: var(--bg-2); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); flex: 0 0 auto; }
 .hotkey-display .btn { flex: 0 0 auto; height: var(--control-h); padding: 0 9px; }
@@ -580,29 +554,6 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 .hotkey-cancel-btn { color: var(--ink-dim); }
 .hotkey-cancel-btn:hover:not(:disabled) { color: var(--err); background: var(--err-soft); }
 @keyframes hotkey-record-chip-in { from { opacity: 0; transform: translateY(-2px); } to { opacity: 1; transform: translateY(0); } }
-.recording-segment { display: inline-flex; width: fit-content; max-width: 100%; padding: 3px; gap: 3px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--bg-2); }
-.recording-segment__button { appearance: none; min-width: 112px; min-height: 34px; display: flex; flex-direction: column; justify-content: center; gap: 3px; padding: 6px 10px; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--ink); text-align: left; cursor: pointer; }
-.recording-segment__button:hover:not(:disabled) { background: var(--bg-4); }
-.recording-segment__button[aria-pressed="true"] { background: var(--bg-2); border-color: var(--ring-color); box-shadow: var(--ring); }
-.recording-segment__button span { font: 600 12px/1.05 var(--font-sans); white-space: nowrap; }
-.recording-segment__button small { font: 500 9px/1 var(--font-mono); color: var(--ink-mute); white-space: nowrap; }
-.choice-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
-.choice-button,
-.choice-button > * { min-width: 0; }
-.device-grid { grid-template-columns: repeat(2, minmax(132px, 1fr)); gap: 8px; }
-.device-grid .choice-button { padding: 10px !important; }
-.device-grid .choice-button div { min-width: 0; }
-.device-grid .choice-button svg { flex: 0 0 auto; }
-.device-grid .choice-button div div { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.language-segment { display: inline-flex; gap: 6px; padding: 3px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--bg-2); }
-.language-segment .choice-button { min-width: 52px; height: 32px; padding: 0 12px !important; display: inline-flex; align-items: center; justify-content: center; }
-.inline-settings-grid { display: grid; grid-template-columns: minmax(260px, 0.95fr) minmax(330px, 1.05fr); gap: 14px; padding: 12px 0; border-bottom: 1px solid var(--line); }
-.inline-setting { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 12px; }
-.inline-setting h3 { margin: 0; font: 500 14px/1.2 var(--font-sans); display: inline-flex; align-items: center; gap: 6px; width: max-content; max-width: 100%; white-space: nowrap; }
-.inline-setting--wide { grid-template-columns: minmax(150px, auto) minmax(0, 1fr); }
-.select-shell { position: relative; width: 100%; }
-.compact-select { appearance: none; height: 38px; padding-right: 34px; cursor: pointer; color: var(--ink); background: var(--bg-2); }
-.select-shell__icon { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: var(--ink-dim); pointer-events: none; }
 .custom-select { position: relative; width: 100%; min-width: 0; }
 .custom-select--language { width: min(100%, 190px); }
 .custom-select--mic { width: 100%; }
@@ -692,42 +643,6 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 .custom-select__menu--no-icons .custom-select__option { grid-template-columns: minmax(0, 1fr) 18px; }
 .custom-select__menu--no-icons .custom-select__option > .custom-select__text { grid-column: 1; }
 .custom-select__menu--no-icons .custom-select__option > .custom-select__check { grid-column: 2; }
-/* A card with an open menu used to be lifted above its neighbours: the menu
-   lay inside it and fell under stacking contexts created by the fade-in
-   animation. Now all three menus leave via a portal into body and compete with
-   nobody. */
-.model-select { position: relative; }
-.model-select__summary-state { font: 500 10.5px/1 var(--font-sans); color: var(--ink-mute); white-space: nowrap; }
-.model-select__summary-state--loaded { color: var(--ok); }
-/* The menu matches the width of the tile that controls it. A two-line row
-   shows the size and RAM without a wide separate column and «i» icons. */
-.model-select__menu, .model-select__menu * { box-sizing: border-box; }
-.model-select__menu { position: fixed; max-width: calc(100vw - 32px); overflow: auto; padding: 0; border: 1px solid var(--line-strong); border-radius: var(--radius); background: color-mix(in srgb, var(--bg-3) 96%, black); box-shadow: var(--shadow-modal); font-family: var(--font-sans); color: var(--ink); z-index: 1100; }
-.model-select__option { appearance: none; position: relative; width: 100%; min-height: 48px; display: grid; grid-template-columns: minmax(0, 1fr) 20px 20px; gap: 7px; align-items: center; padding: 6px 10px 6px 14px; border: 0; border-top: 1px solid var(--line); border-radius: 0; background: transparent; color: var(--ink); text-align: left; cursor: pointer; }
-.model-select__option:not([aria-selected="true"]) { grid-template-columns: minmax(0, 1fr) 20px; }
-.model-select__option:not([aria-selected="true"]) .model-select__check { display: none; }
-.model-select__option:hover:not(:disabled) { background: var(--bg-2); }
-.model-select__option[aria-selected="true"] { background: linear-gradient(90deg, var(--accent-soft-2), var(--accent-soft)); }
-.model-select__option[aria-selected="true"]::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; border-radius: 0; background: var(--accent); }
-/* Subgroups in the model menu. The heading carries the family, so the rows
-   themselves no longer need to print the engine and compatibility. The menu is
-   dense on purpose: it is a list of seven rows, not a page. */
-.model-select__group + .model-select__group { margin-top: 0; border-top: 1px solid var(--line-strong); padding-top: 0; }
-.model-select__group-label { padding: 9px 14px 7px; font: 500 9.5px/1 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-faint); }
-.model-select__option-main { min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
-.model-select__option-heading { min-width: 0; width: 100%; display: flex; align-items: center; gap: 7px; }
-.model-select__option-name { font: 600 12.5px/1.25 var(--font-mono); color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.model-select__option-meta { max-width: 100%; font: 500 10px/1.15 var(--font-mono); color: var(--ink-mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.model-select__loaded-text { flex: 0 0 auto; font: 500 9px/1 var(--font-sans); color: var(--ok); white-space: nowrap; }
-.model-select__option[aria-selected="true"] .model-select__option-name { color: var(--accent-text); }
-/* A status inside a row is noticeably more compact than the usual UI pills. */
-.model-select__option .tag { height: 15px; padding: 0 5px; font-size: 8.5px; gap: 3px; flex: 0 0 auto; }
-.model-select__action { display: grid; place-items: center; }
-.model-select__check { color: var(--accent); display: grid; place-items: center; }
-.model-select__delete { width: 20px; height: 20px; border-radius: var(--radius-sm); display: grid; place-items: center; color: var(--ink-mute); cursor: pointer; }
-.model-select__delete:hover:not(:disabled) { color: var(--err); background: rgba(239,94,107,0.12); }
-.model-select__download { width: 20px; height: 20px; border-radius: var(--radius-sm); display: grid; place-items: center; color: var(--ink-mute); cursor: pointer; }
-.model-select__download:hover:not(:disabled) { color: var(--accent); background: rgba(251,191,36,0.12); }
 /* The toast is rendered through a portal into body — .app-frame's box model
    and font do not reach it, so they are set here. */
 .model-download-toast, .model-download-toast * { box-sizing: border-box; }
@@ -790,29 +705,7 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 .mic-meter__seg[data-zone="warn"].is-peak { background: var(--meter-warn); box-shadow: 0 0 5px rgba(255,180,84,0.6); }
 .mic-meter__seg[data-zone="hot"].is-peak { background: var(--meter-hot); box-shadow: 0 0 5px rgba(255,90,82,0.6); }
 .mic-meter--active { border-color: color-mix(in srgb, var(--ok) 40%, var(--line)); }
-.split-setting-grid { display: grid; grid-template-columns: 1fr 1fr; }
-.split-setting-cell { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 14px 0; }
-.split-setting-cell + .split-setting-cell { padding-left: 18px; margin-left: 18px; border-left: 1px solid var(--line); }
-.memory-control { display: flex; gap: 8px; align-items: center; min-width: 0; }
-.memory-control span { font: 500 12px/1 var(--font-sans); color: var(--ink-dim); white-space: nowrap; }
-.typing-speed-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 18px; padding: 16px 18px; }
-.typing-speed-card__copy { min-width: 0; }
-.typing-speed-card__copy h3 { margin: 0; display: inline-flex; align-items: center; gap: 6px; font: 600 14px/1.2 var(--font-sans); letter-spacing: -0.01em; }
-.typing-speed-card__copy p { margin: 5px 0 0; font: 400 12px/1.4 var(--font-sans); color: var(--ink-dim); }
-.typing-speed-control { display: flex; align-items: center; justify-content: flex-end; gap: 10px; min-width: 0; }
-.typing-speed-input { display: inline-flex; align-items: center; gap: 8px; padding: 4px 9px 4px 4px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--bg-2); }
-.typing-speed-input .field { width: 70px; height: 28px; padding: 0 8px; border: 0; background: transparent; box-shadow: none; font-weight: 600; }
-.typing-speed-input span { font: 500 10px/1 var(--font-mono); color: var(--ink-mute); white-space: nowrap; }
-.typing-speed-presets { display: inline-flex; padding: 3px; gap: 2px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--bg-2); }
-.typing-speed-presets button { appearance: none; height: 26px; min-width: 40px; padding: 0 9px; border: 0; border-radius: var(--radius-xs); background: transparent; color: var(--ink-dim); font: 600 11px/1 var(--font-mono); cursor: pointer; }
-.typing-speed-presets button:hover:not(:disabled) { color: var(--ink); background: var(--bg-4); }
-.typing-speed-presets button[data-active="true"] { color: var(--ink); background: var(--bg-5); box-shadow: 0 1px 0 var(--inset-highlight) inset, 0 1px 2px rgba(0,0,0,0.2); }
-.model-strip { display: flex; gap: 10px; overflow-x: auto; overflow-y: visible; padding: 8px 2px 10px; scroll-snap-type: x proximity; scrollbar-width: thin; scrollbar-color: var(--bg-5) transparent; }
-.model-strip::-webkit-scrollbar { height: 6px; }
-.model-strip::-webkit-scrollbar-track { background: transparent; }
-.model-strip::-webkit-scrollbar-thumb { background: var(--bg-5); border-radius: 999px; }
 .model-card { scroll-snap-align: start; }
-.model-card__status { max-width: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .shimmer { background: linear-gradient(90deg, var(--ink-mute) 30%, var(--ink) 50%, var(--ink-mute) 70%); background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: shimmer 1.6s linear infinite; }
 
 .heatmap-cell { position: relative; cursor: default; transition: transform .1s ease, box-shadow .1s ease; }
@@ -840,44 +733,8 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 .heatmap-cell:hover .heatmap-popover { opacity: 1; transform: translateX(-50%) translateY(0); }
 .heatmap-popover__title { color: var(--ink); font: 700 12px/1.25 var(--font-sans); margin-bottom: 6px; }
 
-@media (max-width: 1120px) {
-  .model-card__status {
-    justify-content: center;
-    width: 26px;
-    max-width: 26px;
-    padding: 0;
-    color: transparent;
-    font-size: 0;
-    letter-spacing: 0;
-  }
-
-  .model-card__status::before {
-    content: "";
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: currentColor;
-    box-shadow: 0 0 0 1px currentColor;
-  }
-
-  .model-card__status.tag--ok::before {
-    background: var(--ok);
-    box-shadow: 0 0 0 1px rgba(74,222,128,0.32);
-  }
-
-  .model-card__status:not(.tag--ok)::before {
-    background: var(--ink-mute);
-    box-shadow: 0 0 0 1px var(--line-strong);
-  }
-}
-
 @media (max-width: 980px) {
   .main-body { padding-left: 22px; padding-right: 22px; }
-  .settings-quick { gap: 12px; padding-left: 18px; padding-right: 18px; }
-  .settings-quick .compact-setting-row { gap: 10px; }
-  .inline-settings-grid { grid-template-columns: minmax(250px, 0.95fr) minmax(315px, 1.05fr); gap: 12px; padding: 10px 0; }
-  .inline-setting,
-  .inline-setting--wide { gap: 10px; padding: 0; }
   .custom-select--language { width: min(100%, 190px); }
 }
 
@@ -890,30 +747,12 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
   .nav__item { justify-content: center; gap: 0; padding: 0; }
   .sidebar-actions { padding: 0 12px 12px; }
   .theme-toggle { justify-content: center; padding: 0; }
-  .main-header, .main-body { padding-left: 18px; padding-right: 18px; }
+  .main-body { padding-left: 18px; padding-right: 18px; }
   .setting { grid-template-columns: 1fr; gap: 10px; }
-  .settings-quick { grid-template-columns: 1fr; }
-  .settings-quick .compact-setting-row { grid-template-columns: 1fr; }
-  .compact-setting-row { grid-template-columns: 1fr; gap: 10px; }
-  .inline-settings-grid { grid-template-columns: 1fr; }
-  .inline-setting,
-  .inline-setting--wide { grid-template-columns: 1fr; gap: 10px; }
-  .choice-grid { grid-template-columns: 1fr; }
-  .device-grid { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
-  .recording-segment { width: 100%; }
-  .recording-segment__button { flex: 1 1 0; min-width: 0; }
   .mic-control { display: grid; grid-template-columns: minmax(0, 1fr) var(--control-h) var(--control-h); }
   .mic-control .custom-select--mic { width: 100%; flex: initial; }
   .mic-status-chip { grid-column: 1 / -1; margin-left: 0; justify-self: start; }
   .mic-meter { grid-column: 1 / -1; flex-basis: auto; }
-  .split-setting-grid { grid-template-columns: 1fr; }
-  .split-setting-cell { grid-template-columns: 1fr; gap: 10px; }
-  .split-setting-cell + .split-setting-cell { padding-left: 0; margin-left: 0; border-left: 0; border-top: 1px solid var(--line); }
-  .typing-speed-card { grid-template-columns: 1fr; align-items: flex-start; }
-  .typing-speed-control { justify-content: flex-start; flex-wrap: wrap; }
-  /* A model menu row no longer wraps on narrow windows: after the size and RAM
-     moved under the «i» icon, all that is left in it is the name and two 20px
-     icons. */
 }
 
 /* AI page — profile list (compact rows) */
@@ -930,16 +769,6 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 /* The profile the mode above will be routed through. */
 .ai-mode-grid + .active-profile,
 .ai-mode-grid + .list-empty { margin-top: 14px; }
-.profile-add { appearance: none; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 32px; padding: 0 12px; border-radius: var(--radius-sm); border: 1px dashed var(--line-strong); background: transparent; color: var(--ink-dim); font: 500 12px/1 var(--font-sans); }
-.profile-add:hover:not(:disabled) { background: var(--bg-2); color: var(--ink); border-color: var(--accent-soft-2); }
-.profile-add--primary { background: var(--accent); color: var(--accent-ink); border-style: solid; border-color: transparent; box-shadow: 0 1px 0 rgba(255,255,255,0.18) inset, 0 1px 0 rgba(0,0,0,0.18); }
-.profile-add--primary:hover:not(:disabled) { background: var(--accent-strong); color: var(--accent-ink); border-color: transparent; }
-
-/* Inline save indicator next to a field */
-.save-indicator { display: inline-flex; align-items: center; gap: 4px; font: 500 10px/1 var(--font-mono); color: var(--ink-mute); }
-.save-indicator[data-state="dirty"] { color: var(--warn); }
-.save-indicator[data-state="saved"] { color: var(--ok); }
-.save-indicator[data-state="error"] { color: var(--err); }
 
 /* Model combobox — text input with dropdown suggestions */
 .combobox { position: relative; }
@@ -1081,14 +910,6 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
   .audio-drop__actions { margin-left: 42px; }
 }
 
-/* API keys page rows */
-.api-key-row { display: grid; grid-template-columns: auto minmax(0, 1.4fr) minmax(0, 1fr) auto auto; gap: 12px; align-items: center; padding: 10px 12px; background: var(--bg-3); border: 1px solid var(--line); border-radius: var(--radius-sm); }
-.api-key-row .dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
-.api-key-row .title { font: 600 12px/1.2 var(--font-sans); color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.api-key-row .sub { font: 500 10px/1 var(--font-mono); color: var(--ink-mute); margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.api-key-row .masked { font: 500 11px/1 var(--font-mono); color: var(--ink-dim); }
-.api-key-row .usage { font: 500 10px/1.2 var(--font-mono); color: var(--ink-mute); }
-
 /* The sidebar status dot. Its colour comes inline as `color`, so the rings and
    the arc follow whatever state it shows. */
 .status-dot { position: relative; flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
@@ -1133,8 +954,7 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 
 /* JS-driven sidebar collapse (mirrors the 820px media-query rules
    but triggered by the React state so the manual handle works too). */
-.win__layout.collapsed .nav__count,
-.win__layout.collapsed .accent-swatch-row { display: none; }
+.win__layout.collapsed .nav__count { display: none; }
 /* Collapsing: the text fades first (120 ms), only then does the geometry move.
    Expanding is the reverse — the panel opens and the captions appear in a place
    already prepared. In neither direction does the text travel with the edge. */
@@ -1155,13 +975,6 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 
 .win__layout.collapsed .nav__item span:first-child { color: inherit; }
 
-/* Accent picker (sidebar footer) */
-.accent-swatch-row { display: flex; align-items: center; gap: 6px; padding: 0 4px 4px; }
-.accent-swatch-row__label { font: 500 10px/1 var(--font-mono); color: var(--ink-mute); letter-spacing: 0.06em; text-transform: uppercase; margin-right: auto; }
-.accent-swatch { appearance: none; width: 18px; height: 18px; padding: 0; border-radius: var(--radius-xs); border: 1px solid var(--line-strong); cursor: pointer; transition: transform .12s, box-shadow .12s; }
-.accent-swatch:hover:not(:disabled) { transform: translateY(-1px); }
-.accent-swatch[data-active="true"] { box-shadow: 0 0 0 2px var(--bg-1), 0 0 0 3px currentColor; }
-
 /* ================================================================
    Redesign additions (Stage 2) — page wrapper, pill, card head,
    grid helpers, row-item. Names don't collide
@@ -1174,8 +987,6 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 
 .page-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 22px; flex-wrap: wrap; }
 .page-header__main { min-width: 0; }
-.crumbs { font: 500 10.5px/1 var(--font-mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-mute); margin-bottom: 6px; }
-.crumbs .sep { margin: 0 8px; opacity: 0.5; }
 .page-title { font: 600 26px/1.1 var(--font-sans); margin: 0; letter-spacing: -0.02em; color: var(--ink); }
 .page-sub { color: var(--ink-mute); margin: 4px 0 0; font: 400 13px/1.45 var(--font-sans); }
 .page-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -1217,9 +1028,6 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .flex-row { display: flex; align-items: center; gap: 8px; }
 .flex-col { display: flex; flex-direction: column; gap: 8px; }
 .flex-grow { flex: 1; min-width: 0; }
-
-/* Grid templates */
-.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 /* The preview result: the typed text again, with the changes marked. The
    dashed edge keeps it from reading as a second input. */
 .preview-result {
@@ -1238,7 +1046,6 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .preview-matches { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; }
 .preview-matches__label { font: 500 11px/1 var(--font-sans); color: var(--ink-mute); min-width: 56px; }
 
-.grid-auto { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
 /* The padding step for `.page` at 1100 px is gone. It came from web layout,
    where a window can be 320 px and the padding has to shrink; the app's window
    is never narrower than 1000 px (`minWidth` in tauri.conf.json), and 1100 fell
@@ -1248,15 +1055,7 @@ button.card { appearance: none; font: inherit; color: inherit; }
    The 820 px step is kept: it is below the minimum window width and therefore
    never fires, but it describes the behaviour should that minimum ever be
    lowered. */
-@media (max-width: 820px) { .grid-2 { grid-template-columns: 1fr; } .page { padding: 16px 16px 24px; } }
-
-/* Row-item (hoverable list row, e.g. for compact lists) */
-.row-item { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: var(--radius-sm); border: 1px solid var(--line); background: var(--bg-3); transition: border-color .15s, background .15s; }
-.row-item:hover:not(:disabled) { border-color: var(--line-strong); background: var(--bg-4); }
-.row-item + .row-item { margin-top: 6px; }
-
-/* Hairline divider for in-card row stacks */
-.hair-divider { border-top: 1px solid var(--line-soft); }
+@media (max-width: 820px) { .page { padding: 16px 16px 24px; } }
 
 /* Search input wrapper — input with leading icon */
 .input-search { position: relative; display: flex; align-items: center; flex: 1; min-width: 0; }
@@ -1368,7 +1167,6 @@ button.card { appearance: none; font: inherit; color: inherit; }
   column-gap: 16px;
   align-items: stretch;
 }
-.capture-row .model-select { width: 100%; max-width: none; }
 /* In these three rows the switch stands next to full-size controls and must
    match their height. Around a segment there is 3px of padding and 1px of border
    on each side — those are subtracted so the segment does not fall behind
@@ -1489,11 +1287,6 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .advanced > summary svg { transform: rotate(-90deg); transition: transform 160ms ease; }
 .advanced[open] > summary svg { transform: none; }
 
-/* Compact summary tile for inline pickers (model summary, etc.) */
-.summary-tile { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: var(--bg-2); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); min-height: 32px; flex-wrap: wrap; cursor: pointer; transition: border-color .12s, background .12s; }
-.summary-tile:hover:not(:disabled) { background: var(--bg-3); border-color: var(--line-strong); }
-.summary-tile:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
-
 /* Pickers inside a set-cell take full width of the cell */
 .set-cell .custom-select { width: 100%; max-width: none; }
 .set-cell .hotkey-display { flex-wrap: wrap; }
@@ -1537,8 +1330,7 @@ button.card { appearance: none; font: inherit; color: inherit; }
   color: inherit; font: inherit;
 }
 .prov-row:hover:not(:disabled) { background: var(--bg-4); }
-.prov-row + .prov-row,
-.prov-divider + .prov-row { border-top: 1px solid var(--line-soft); }
+.prov-row + .prov-row { border-top: 1px solid var(--line-soft); }
 .prov-chev { transition: transform .18s, color .12s; display: inline-flex; flex-shrink: 0; }
 .prov-chev[data-open="true"] { transform: rotate(90deg); color: var(--accent); }
 .prov-chev[data-open="false"] { color: var(--ink-faint); }
@@ -1550,19 +1342,7 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .prov-id__name { font: 600 13.5px/1 var(--font-sans); white-space: nowrap; color: var(--ink); }
 .prov-id__sub { font: 500 10.5px/1.2 var(--font-mono); color: var(--ink-mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.prov-mid { flex: 1 1 200px; min-width: 0; display: flex; align-items: center; }
-.prov-default {
-  font: 500 11.5px/1 var(--font-mono); color: var(--ink-dim);
-  background: var(--bg-2); padding: 3px 8px; border-radius: var(--radius-sm);
-  border: 1px solid var(--line);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  max-width: 240px;
-}
-
 .prov-meta { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
-.prov-profiles-count { font: 500 11px/1 var(--font-sans); color: var(--ink-mute); white-space: nowrap; min-width: 84px; text-align: right; }
-.prov-profiles-count strong { color: var(--accent-text); font-weight: 600; }
-.prov-profiles-count .empty { color: var(--ink-mute); }
 
 .prov-exp {
   padding: 12px 14px 14px 40px;
@@ -1575,20 +1355,11 @@ button.card { appearance: none; font: inherit; color: inherit; }
 /* Base URL keeps its own line — a URL needs the room — but stops at the width
    of two columns rather than running the full width of the card. */
 .prov-exp > .set-cell { max-width: 614px; }
-.prov-exp__desc { font: 400 12px/1.5 var(--font-sans); color: var(--ink-mute); padding: 6px 0; }
-.prov-exp__divider { border-top: 1px solid var(--line-soft); padding-top: 12px; margin-top: 4px; }
 .prov-exp__actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-top: 12px; border-top: 1px solid var(--line-soft); }
 /* «This profile is the one in use» — a statement, in the same green as the dot
    in the list, not a button that cannot be pressed. */
 .prov-exp__active { display: inline-flex; align-items: center; gap: 6px; height: 34px; font: 500 12.5px/1 var(--font-sans); color: var(--ok); }
 .prov-exp__actions .grow { flex: 1 1 auto; }
-
-.prov-chip {
-  display: inline-flex; align-items: center;
-  font: 500 11px/1 var(--font-mono); color: var(--ink-dim);
-  background: var(--bg-2); padding: 3px 8px; border-radius: var(--radius-sm);
-  border: 1px solid var(--line);
-}
 
 /* The list runs edge to edge with the same row rhythm as «Очистка» above it:
    a card padding, a row padding and a button padding stacked up used to give
@@ -1675,24 +1446,6 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .onboarding-fallback__actions { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--pad-3); }
 .dictionary-actions { flex-wrap: wrap; }
 
-.preset-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 8px;
-}
-.preset-card {
-  display: flex; flex-direction: column;
-  padding: 8px 10px;
-  background: var(--bg-3); border: 1px solid var(--line);
-  border-radius: var(--radius-sm); cursor: pointer; text-align: left;
-  transition: border-color .12s, background .12s;
-  min-width: 0; color: inherit; font: inherit;
-}
-.preset-card:hover:not(:disabled) { border-color: var(--accent-soft-2); background: var(--bg-4); }
-.preset-card__name { font: 600 12.5px/1.2 var(--font-sans); color: var(--ink); margin-bottom: 2px; }
-.preset-card__url { font: 500 10.5px/1.3 var(--font-mono); color: var(--ink-mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.preset-card__model { font: 500 10.5px/1 var(--font-mono); color: var(--ink-dim); background: var(--bg-2); padding: 2px 6px; border-radius: var(--radius-xs); border: 1px solid var(--line); align-self: flex-start; margin-top: 5px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
 /* «This one is in use» — the same dot in the profile list and in the key list.
    It stands beside the provider mark, not in place of it: the active row used
    to be the one row without a logo. */
@@ -1701,7 +1454,6 @@ button.card { appearance: none; font: inherit; color: inherit; }
 
 @media (max-width: 800px) {
   .prov-row { flex-wrap: wrap; }
-  .prov-mid { flex-basis: 100%; padding-left: 38px; }
   .prov-meta { padding-left: 38px; }
   .prov-exp { padding-left: 14px; }
 }
@@ -1725,7 +1477,6 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .keys-row__actions { display: flex; gap: 4px; flex-shrink: 0; }
 .keys-row .icon-btn { appearance: none; border: 0; background: transparent; color: var(--ink-mute); width: 26px; height: 26px; border-radius: var(--radius-sm); display: grid; place-items: center; cursor: pointer; }
 .keys-row .icon-btn:hover:not(:disabled) { background: var(--bg-2); color: var(--ink); }
-.keys-row .icon-btn--danger:hover:not(:disabled) { background: rgba(239,94,107,0.12); color: var(--err); }
 /* The «показать ключ» button beside a key field. As a ghost button it was an
    icon floating in the dark next to the input: no border, no surface, nothing
    saying it could be pressed. Now it is a square button that stretches to the
@@ -1748,21 +1499,6 @@ button.card { appearance: none; font: inherit; color: inherit; }
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
 }
 .list-empty > span { flex: 1 1 260px; }
-
-.keys-helper {
-  padding: 16px; margin-top: 14px;
-  background: var(--bg-2);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  display: flex; gap: 12px; align-items: flex-start;
-}
-.keys-helper__icon {
-  width: 32px; height: 32px; border-radius: var(--radius-sm);
-  background: var(--bg-4); display: grid; place-items: center;
-  color: var(--accent); flex-shrink: 0;
-}
-.keys-helper__title { font: 600 13px/1.2 var(--font-sans); color: var(--ink); margin-bottom: 2px; }
-.keys-helper__text { font: 400 12px/1.5 var(--font-sans); color: var(--ink-mute); }
 
 @media (max-width: 700px) {
   .keys-row { gap: 10px; }
@@ -1864,19 +1600,6 @@ button.card { appearance: none; font: inherit; color: inherit; }
 /* ================================================================
    Redesign additions (Stage 8) — AiPage (mode cards, profile gradient)
    ================================================================ */
-
-.ai-active-banner {
-  background: linear-gradient(180deg, var(--accent-soft) 0%, var(--bg-3) 100%);
-  border: 1px solid var(--accent-soft-2);
-  border-radius: var(--radius);
-  padding: 12px 14px;
-}
-.ai-active-banner__dot {
-  width: 8px; height: 8px; border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
-  flex-shrink: 0;
-}
 
 .ai-mode-grid {
   display: grid;
@@ -2053,7 +1776,6 @@ button.card { appearance: none; font: inherit; color: inherit; }
 }
 .icon-btn:hover:not(:disabled) { background: var(--bg-2); color: var(--ink); }
 .icon-btn:disabled { opacity: .4; cursor: default; }
-.icon-btn--danger:hover:not(:disabled) { background: rgba(239,94,107,0.12); color: var(--err); }
 
 /* A profile row is no longer one big button: a pencil, a copy, a delete and a
    rename field go inside it, and a button inside a button is invalid. */
@@ -2107,8 +1829,6 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .overlay-settings-grid > .set-cell { flex: 1 1 150px; }
 .overlay-settings-hint { color: var(--ink-mute); font: 400 12px/1.5 var(--font-sans); margin: 12px 0; }
 .overlay-settings-error { color: var(--err); font: 400 12px/1.5 var(--font-sans); }
-.overlay-lab { border-top: 1px dashed var(--line-strong); padding-top: 12px; }
-.overlay-lab__note { flex: 1 0 100%; margin: 0; }
 /* Cells that hold a segmented control, the anchor pad or the offset field are
    as wide as what is in them: stretched to the row they left a strip of empty
    frame to the right of two buttons. */
@@ -2403,7 +2123,6 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .ove-cancel .ove-row { gap: 10px; flex-wrap: nowrap; }
 .ove-cancel .ove-row > .segmented { min-width: 0; overflow-x: auto; }
 .ove-cancel__label { flex: 0 0 38px; font: 500 12px/1.2 var(--font-sans); color: var(--ink-mute); }
-.ove-cancel__note { font: 400 11.5px/1.35 var(--font-sans); color: var(--ink-mute); }
 /* The button as the overlay draws it: always on the dark overlay surface. */
 .ove-cancel__pv { display: grid; place-items: center; min-width: 26px; height: 26px; padding: 0 8px; border-radius: 13px; background: var(--overlay-surface); color: rgba(255, 255, 255, .84); font: 600 11px/1 var(--font-sans); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .09); }
 .ove-cancel__pv i { width: 9px; height: 9px; border-radius: 2px; background: currentColor; }
