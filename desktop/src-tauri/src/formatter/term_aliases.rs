@@ -166,6 +166,14 @@ const TERMS: &[(&str, &[&str])] = &[
     ("Cursor", &[]),
 ];
 
+/// The reviewed spellings of `term`, empty for a term outside the catalog.
+pub(super) fn aliases_of(term: &str) -> &'static [&'static str] {
+    TERMS
+        .iter()
+        .find(|(canonical, _)| canonical.eq_ignore_ascii_case(term))
+        .map_or(&[], |(_, aliases)| aliases)
+}
+
 pub(super) fn supported(term: &str) -> bool {
     TERMS
         .iter()

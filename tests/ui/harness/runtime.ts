@@ -14,7 +14,7 @@ const config: ConfigResult = {
   text_formatting: {
     enabled: true, remove_hallucinations: true, remove_fillers: true,
     remove_parasites: true, remove_duplicates: true, collapse_phrase_loops: true,
-    clean_commas: true, normalize_spaces: true, normalize_ellipsis: false, correct_spelling: true,
+    normalize_ellipsis: false, correct_spelling: true,
     split_sentences: true,
     split_paragraphs: true,
     capitalize_sentences: true, final_punctuation: true, custom_parasite_words: [],
@@ -127,9 +127,13 @@ export function install(seed: any = {}) {
         { id: 'ru', language: 'ru', words: ['ну', 'типа', 'короче'], default_on: true },
         { id: 'en', language: 'en', words: ['basically', 'like'], default_on: false },
       ];
+      case 'check_dictionary_text': return args.words.includes('Sotto') && args.text.trim().toLowerCase() === 'сотто' ? [{ from: 'сотто', to: 'Sotto', count: 1 }] : [];
+      case 'term_matching': return args.words.map((term: string) => ({ term, variants: term === 'Sotto' ? ['сотто'] : [], fuzzy: !args.builtin }));
       case 'analyze_dictionary': return { effective_count: 0, conflicts: [], unsupported_words: [] };
       // Processing outputs are fixtures, not a second implementation of the Rust engines.
-      case 'preview_format': return { original: args.text, formatted: args.text };
+      // A dictionary correction is reported for one synthetic spelling only, so
+      // a test can show the preview naming it.
+      case 'preview_format': return { original: args.text, formatted: args.text, dictionary_matches: args.text.includes('гидхап') ? [{ from: 'гидхап', to: 'GitHub', count: 1 }] : [] };
       case 'preview_replacements': return { original: args.text, result: args.text, applied_count: 0, matched_rules: [] };
       case 'fetch_provider_models': return ['synthetic-model'];
       case 'check_update': return { available: false, current_version: '0.0.5-test' };

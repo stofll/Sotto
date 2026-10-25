@@ -13,13 +13,60 @@ def test_pause_cleanup_is_opt_in(app, page):
     ).to_have_attribute("aria-pressed", "false")
 
 
+def test_grouped_switch_writes_every_flag_of_its_group(app, page):
+    """A config saved before the groups may hold one flag on and one off. The
+    group shows as on, and switching it brings both flags into line."""
+    ui = app(
+        config={"text_formatting": {"remove_fillers": True, "remove_duplicates": False}}
+    )
+    ui.nav("text")
+    page.get_by_role("button", name=re.compile(r"^Очистка")).click()
+    switch = page.get_by_role("button", name="Убирать запинки и повторы", exact=True)
+    expect(switch).to_have_attribute("aria-pressed", "true")
+    switch.click()
+    page.wait_for_function(
+        "(f => f.remove_fillers === false && f.remove_duplicates === false)"
+        "(window.__sottoTest.state.config.text_formatting)"
+    )
+    expect(switch).to_have_attribute("aria-pressed", "false")
+    switch.click()
+    page.wait_for_function(
+        "(f => f.remove_fillers === true && f.remove_duplicates === true)"
+        "(window.__sottoTest.state.config.text_formatting)"
+    )
+
+
+@pytest.mark.parametrize(
+    "choice,capitalize,final_dot",
+    [
+        ("Без точки в конце", True, False),
+        ("Как в чате: строчные, без точки", False, False),
+    ],
+)
+def test_sentence_style_sets_both_flags(app, page, choice, capitalize, final_dot):
+    ui = app()
+    ui.nav("text")
+    page.get_by_role("button", name=re.compile(r"^Очистка")).click()
+    expect(
+        page.get_by_role("button", name="Заглавные и точка", exact=True)
+    ).to_have_attribute("aria-pressed", "true")
+    segment = page.get_by_role("button", name=choice, exact=True)
+    segment.click()
+    page.wait_for_function(
+        f"(f => f.capitalize_sentences === {str(capitalize).lower()}"
+        f" && f.final_punctuation === {str(final_dot).lower()})"
+        "(window.__sottoTest.state.config.text_formatting)"
+    )
+    expect(segment).to_have_attribute("aria-pressed", "true")
+
+
 @pytest.mark.parametrize("locale", ["ru", "en"])
 @pytest.mark.parametrize("theme", ["dark", "light"])
 @pytest.mark.parametrize(
     "setting,ru_label,en_label",
     [
         ("correct_spelling", "Исправлять опечатки", "Correct spelling"),
-        ("split_paragraphs", "Разбивать текст на абзацы", "Split text into paragraphs"),
+        ("split_paragraphs", "Разбивать на абзацы", "Split into paragraphs"),
         ("normalize_ellipsis", "Убирать многоточия пауз", "Remove pause ellipses"),
     ],
 )
@@ -96,6 +143,7 @@ def test_preview_backend_error(app, page):
 def test_replacement_example_persists(app, page):
     ui = app()
     ui.nav("text")
+    page.get_by_role("button", name=re.compile(r"^Замены")).click()
     page.get_by_role("button", name=re.compile(r"щас.*сейчас")).click()
     page.get_by_role("button", name="Сохранить", exact=True).click()
     page.wait_for_function(
@@ -103,7 +151,7 @@ def test_replacement_example_persists(app, page):
     )
     ui.nav("settings")
     ui.nav("text")
-    page.get_by_role("button", name=re.compile(r"^Замены")).click()
+    # The block was opened to reach the examples, and stays open.
     expect(page.get_by_placeholder("что искать", exact=True)).to_have_value("щас")
 
 
@@ -126,8 +174,8 @@ def test_dictionary_create_read_search_delete(app, page):
     ).click()
     dialog = page.get_by_role("dialog", name="Synthetic vocabulary")
     expect(dialog.get_by_text("Playwright", exact=True)).to_be_visible()
-    dialog.get_by_label("Поиск по набору", exact=True).fill("absent")
-    expect(dialog.get_by_text("Ничего не найдено", exact=True)).to_be_visible()
+    dialog.get_by_label("Проверить слово", exact=True).fill("absent")
+    expect(dialog.get_by_text("Не меняется", exact=True)).to_be_visible()
     dialog.get_by_role("button", name="Удалить", exact=True).click()
     dialog.get_by_role("alert").get_by_role(
         "button", name="Удалить", exact=True
@@ -196,15 +244,15 @@ def test_thematic_dictionary_catalog_toggle_search_and_copy(
     page.get_by_role("button", name=re.compile("^" + re.escape(names[1]) + " ")).click()
     dialog = page.get_by_role("dialog", name=names[1], exact=True)
     expect(dialog.get_by_text("Meta", exact=True)).to_be_visible()
-    search = dialog.get_by_label(
-        "Поиск по набору" if ru else "Search this set", exact=True
-    )
-    search.fill("meta")
-    expect(dialog.locator(".dictionary-term-list li")).to_have_count(2)
     expect(dialog.get_by_text("Meta AI", exact=True)).to_be_visible()
-    search.fill("")
-    search.focus()
-    expect(search).to_be_focused()
+    check = dialog.get_by_label("Проверить слово" if ru else "Check a word", exact=True)
+    check.fill("absent")
+    expect(
+        dialog.get_by_text("Не меняется" if ru else "Unchanged", exact=True)
+    ).to_be_visible()
+    check.fill("")
+    check.focus()
+    expect(check).to_be_focused()
     Path(output_path).mkdir(parents=True, exist_ok=True)
     page.screenshot(path=str(Path(output_path) / "ai-voice.png"), animations="disabled")
     dialog.get_by_role(
@@ -285,6 +333,7 @@ def test_dictionary_rejected_save_shows_reason_in_editor(app, page):
 def test_replacement_save_failure_keeps_retry_available(app, page):
     ui = app()
     ui.nav("text")
+    page.get_by_role("button", name=re.compile(r"^Замены")).click()
     page.get_by_role("button", name=re.compile(r"щас.*сейчас")).click()
     ui.queue("save_config", {"error": "Synthetic replacement save failure"})
     page.get_by_role("button", name="Сохранить", exact=True).click()
@@ -315,7 +364,8 @@ def test_replacement_import_export_roundtrip(app, page):
         "usage_count": 0,
     }
     with page.expect_file_chooser() as chooser:
-        page.get_by_role("button", name="Импорт", exact=True).click()
+        page.get_by_role("button", name="Экспорт и импорт правил", exact=True).click()
+        page.get_by_role("menuitem", name="Импорт", exact=True).click()
     chooser.value.set_files(
         {
             "name": "rules.json",
@@ -329,10 +379,34 @@ def test_replacement_import_export_roundtrip(app, page):
         "window.__sottoTest.state.config.replacement_rules.length === 1"
     )
     with page.expect_download() as download:
-        page.get_by_role("button", name="Экспорт", exact=True).click()
+        page.get_by_role("button", name="Экспорт и импорт правил", exact=True).click()
+        page.get_by_role("menuitem", name="Экспорт", exact=True).click()
     exported = json.loads(download.value.path().read_text())
     assert exported["replacement_rules"][0]["find"] == "sotto"
     assert exported["replacement_rules"][0]["replace"] == "Sotto"
+
+
+def test_replacement_options_live_behind_the_row_menu(app, page):
+    """A rule is one line; its matching options open from «⋯», and a mode
+    other than the default stays visible on the row."""
+    ui = app()
+    ui.nav("text")
+    page.get_by_role("button", name=re.compile(r"^Замены")).click()
+    expect(page.get_by_role("button", name="Сохранить", exact=True)).to_have_count(0)
+    page.get_by_role("button", name=re.compile(r"щас.*сейчас")).click()
+    expect(page.get_by_role("button", name="Сохранить", exact=True)).to_be_visible()
+    page.get_by_role("button", name="Действия с правилом", exact=True).click()
+    page.get_by_role("menuitem", name="Параметры", exact=True).click()
+    page.get_by_role("button", name="Слово", exact=True).click()
+    page.get_by_role("option", name="Фраза", exact=True).click()
+    page.get_by_role("button", name="Сохранить", exact=True).click()
+    page.wait_for_function(
+        "window.__sottoTest.state.config.replacement_rules.some(r => r.match === 'phrase')"
+    )
+    expect(page.get_by_role("button", name="Сохранить", exact=True)).to_have_count(0)
+    expect(
+        page.get_by_test_id("page-text").locator(".pill", has_text="Фраза")
+    ).to_have_count(1)
 
 
 def test_invalid_replacement_import_preserves_rules(app, page):
@@ -340,7 +414,8 @@ def test_invalid_replacement_import_preserves_rules(app, page):
     ui.nav("text")
     page.get_by_role("button", name=re.compile(r"^Замены")).click()
     with page.expect_file_chooser() as chooser:
-        page.get_by_role("button", name="Импорт", exact=True).click()
+        page.get_by_role("button", name="Экспорт и импорт правил", exact=True).click()
+        page.get_by_role("menuitem", name="Импорт", exact=True).click()
     chooser.value.set_files(
         {"name": "invalid.json", "mimeType": "application/json", "buffer": b"not json"}
     )
@@ -562,7 +637,11 @@ def test_dictionary_copy_layout_and_discard(app, page, locale, theme):
     heading = dialog.get_by_text(
         "Термины" if ru else "Terms", exact=True
     ).bounding_box()
-    count = dialog.get_by_text("60", exact=True).bounding_box()
+    count = (
+        dialog.locator(".dictionary-term-heading")
+        .get_by_text("60", exact=True)
+        .bounding_box()
+    )
     assert abs(heading["y"] - count["y"]) < 2
     assert 0 < count["x"] - heading["x"] - heading["width"] <= 12
     body = dialog.locator(".modal__body")
@@ -570,7 +649,7 @@ def test_dictionary_copy_layout_and_discard(app, page, locale, theme):
     expect(body).to_have_css("overflow-y", "hidden")
     expect(dialog.locator(".card")).to_have_count(0)
     search = dialog.get_by_label(
-        "Поиск по набору" if ru else "Search this set", exact=True
+        "Проверить слово" if ru else "Check a word", exact=True
     )
     search_top = search.bounding_box()["y"]
     term_list.evaluate("e => e.scrollTop = e.scrollHeight")
@@ -715,3 +794,32 @@ def test_text_section_hints(app, page, locale):
         page.keyboard.press("Escape")
         expect(page.get_by_role("tooltip")).not_to_be_visible()
         expect(toggle).to_have_attribute("aria-expanded", expanded)
+
+
+def test_preview_names_dictionary_corrections_apart_from_rules(app, page):
+    ui = app()
+    ui.nav("text")
+    page.get_by_placeholder("Введите текст для проверки обработки").fill(
+        "залил на гидхап"
+    )
+    row = page.locator(".preview-matches", has_text="Словари")
+    expect(row).to_contain_text("гидхап → GitHub")
+    expect(page.locator(".preview-matches", has_text="Замены")).to_have_count(0)
+
+
+def test_set_view_shows_what_each_term_reacts_to(app, page):
+    ui = app()
+    ui.nav("text")
+    page.get_by_role("button", name=re.compile(r"^Словари")).click()
+    page.get_by_role("button", name=re.compile(r"^Test terms ")).click()
+    dialog = page.get_by_role("dialog", name="Test terms")
+    exact = dialog.locator(".dictionary-group", has_text="Точные написания")
+    expect(exact).to_contain_text("Sotto")
+    expect(exact).to_contain_text("сотто")
+    hint = dialog.locator(".dictionary-group", has_text="Только подсказка модели")
+    expect(hint).to_contain_text("Playwright")
+    # The check runs the set itself and names the route it took.
+    dialog.get_by_label("Проверить слово", exact=True).fill("сотто")
+    result = dialog.locator(".dictionary-check__result")
+    expect(result).to_contain_text("сотто → Sotto")
+    expect(result).to_contain_text("точное написание")

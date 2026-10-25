@@ -33,7 +33,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashSet;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock, Mutex};
 
 mod paragraphs;
 mod pauses;
@@ -1629,6 +1629,70 @@ pub struct CustomWordsCorrector {
     /// Lower-cased Russian consonant stems whose inflections stay as spoken.
     inflecting: Vec<String>,
     max_window: usize,
+    /// Where the preview collects what the dictionary changed; dictation
+    /// passes none and pays nothing for it.
+    log: Option<DictionaryLog>,
+}
+
+type DictionaryLog = Arc<Mutex<Vec<DictionaryMatch>>>;
+
+/// One dictionary correction as the preview and the set check report it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DictionaryMatch {
+    pub from: String,
+    pub to: String,
+    pub count: usize,
+}
+
+/// How the corrector treats one term, for the set editor to explain.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TermMatching {
+    pub term: String,
+    /// Reviewed recognition spellings that always become this term.
+    pub variants: Vec<String>,
+    /// Whether similar-sounding spellings are corrected too.
+    pub fuzzy: bool,
+}
+
+/// `builtin` is whether the term comes from a built-in set: catalog terms
+/// there match their reviewed spellings only, while the same term in a
+/// personal set also matches by sound.
+/// Run one set's terms alone over `text`, as a built-in set when `builtin`:
+/// the set editor's check field shows what the set would make of a spelling.
+pub(crate) fn check_terms(text: &str, words: Vec<String>, builtin: bool) -> Vec<DictionaryMatch> {
+    let builtin_words: HashSet<String> = if builtin {
+        words
+            .iter()
+            .map(|word| word.trim().to_lowercase())
+            .collect()
+    } else {
+        HashSet::new()
+    };
+    let log = DictionaryLog::default();
+    CustomWordsCorrector::with_builtin(true, words, &builtin_words)
+        .with_log(Some(log.clone()))
+        .apply(text.trim());
+    let mut log = log.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    std::mem::take(&mut *log)
+}
+
+pub(crate) fn term_matching(term: &str, builtin: bool) -> TermMatching {
+    let canonical = term.trim();
+    let key_len = canonical
+        .split_whitespace()
+        .map(fold_for_match)
+        .collect::<String>()
+        .chars()
+        .count();
+    let exact_only = builtin && term_aliases::exact_only(canonical);
+    TermMatching {
+        term: canonical.to_string(),
+        variants: term_aliases::aliases_of(canonical)
+            .iter()
+            .map(|alias| alias.to_string())
+            .collect(),
+        fuzzy: !exact_only && key_len >= CUSTOM_WORD_MIN_CHARS,
+    }
 }
 
 struct CustomTerm {
@@ -1714,6 +1778,32 @@ impl CustomWordsCorrector {
             aliases,
             inflecting,
             max_window,
+            log: None,
+        }
+    }
+
+    fn with_log(mut self, log: Option<DictionaryLog>) -> Self {
+        self.log = log;
+        self
+    }
+
+    fn record(&self, from: &str, to: &str) {
+        let Some(log) = &self.log else { return };
+        let from = from.trim_matches(|c: char| !c.is_alphanumeric());
+        if from == to {
+            return;
+        }
+        let mut log = log.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        match log
+            .iter_mut()
+            .find(|item| item.from == from && item.to == to)
+        {
+            Some(item) => item.count += 1,
+            None => log.push(DictionaryMatch {
+                from: from.to_string(),
+                to: to.to_string(),
+                count: 1,
+            }),
         }
     }
 
@@ -2035,11 +2125,13 @@ impl FormatStep for CustomWordsCorrector {
                     out.push_str(first.gap);
                     out.push_str(leading_punctuation(first.raw));
                     let matched = raws[i..i + n].join(" ");
-                    if term_aliases::supported(canonical) {
-                        out.push_str(canonical);
+                    let corrected = if term_aliases::supported(canonical) {
+                        canonical.to_string()
                     } else {
-                        out.push_str(&apply_case_of(&matched, canonical));
-                    }
+                        apply_case_of(&matched, canonical)
+                    };
+                    self.record(&matched, &corrected);
+                    out.push_str(&corrected);
                     out.push_str(trailing_punctuation(last.raw));
                     i += n;
                 }
@@ -2854,7 +2946,7 @@ impl FormatStep for PunctuationFinalizer {
 /// any config that predates the `text_formatting` key — which is the
 /// common case, since the block is only written once the user visits
 /// the Formatting page. It MUST stay in sync with `FORMAT_DEFAULTS` in
-/// `desktop/src/pages/OtherPages.tsx`; the two are what the backend and
+/// `desktop/src/pages/TextPage.tsx`; the two are what the backend and
 /// the settings UI each believe is on.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TextFormattingConfig {
@@ -2874,10 +2966,6 @@ pub struct TextFormattingConfig {
     pub remove_duplicates: bool,
     #[serde(default = "default_true")]
     pub collapse_phrase_loops: bool,
-    #[serde(default = "default_true")]
-    pub clean_commas: bool,
-    #[serde(default = "default_true")]
-    pub normalize_spaces: bool,
     /// Opt-in: ellipses may be intentional in messages or quoted prose.
     #[serde(default)]
     pub normalize_ellipsis: bool,
@@ -2984,8 +3072,6 @@ impl Default for TextFormattingConfig {
             remove_parasites: true,
             remove_duplicates: true,
             collapse_phrase_loops: true,
-            clean_commas: true,
-            normalize_spaces: true,
             normalize_ellipsis: false,
             correct_spelling: true,
             // Off by default: sentence splitting rewrites the user's
@@ -3036,6 +3122,10 @@ pub struct Formatter {
 impl Formatter {
     /// Build a pipeline from the typed settings and prepare its matchers once.
     pub fn from_config(config: &FormatterConfig) -> Self {
+        Self::build(config, None)
+    }
+
+    fn build(config: &FormatterConfig, dictionary_log: Option<DictionaryLog>) -> Self {
         let fmt = &config.text_formatting;
         let rules = if config.replacements_paused {
             Vec::new()
@@ -3073,17 +3163,24 @@ impl Formatter {
             // reduced to "да", the phrase collapser cannot mistake a run of
             // one repeated word for a two-word loop.
             Box::new(PhraseLoopCollapser::new(fmt.collapse_phrase_loops)),
-            Box::new(CommaCleaner::new(fmt.clean_commas)),
-            Box::new(SpaceNormalizer::new(fmt.normalize_spaces)),
+            // Always on: double commas and stray spaces are never wanted, and
+            // neither step touches Latin text, numbers or links. Configs
+            // written before this keep `clean_commas`/`normalize_spaces`
+            // keys, which are now ignored.
+            Box::new(CommaCleaner::new(true)),
+            Box::new(SpaceNormalizer::new(true)),
             // After whitespace normalisation — word windows are cut on single
             // spaces rather than on random clumps. And before the replacement
             // rules: a user rule must see the already-corrected term rather than
             // what the engine thought it heard.
-            Box::new(CustomWordsCorrector::with_builtin(
-                !words.is_empty(),
-                words,
-                &crate::dictionaries::builtin_only_words(fmt),
-            )),
+            Box::new(
+                CustomWordsCorrector::with_builtin(
+                    !words.is_empty(),
+                    words,
+                    &crate::dictionaries::builtin_only_words(fmt),
+                )
+                .with_log(dictionary_log),
+            ),
             Box::new(crate::spelling::RussianSpellingCorrector::new(
                 fmt.correct_spelling,
                 config.language.as_deref(),
@@ -3160,6 +3257,9 @@ impl Formatter {
 pub struct PreviewFormatResult {
     pub original: String,
     pub formatted: String,
+    /// What the dictionaries changed, so the preview can tell their work
+    /// apart from the replacement rules'.
+    pub dictionary_matches: Vec<DictionaryMatch>,
 }
 
 /// Returned by `preview_replacements`. Mirrors Python's
@@ -3219,10 +3319,15 @@ pub fn preview_format(text: &str, config: &Value) -> Result<PreviewFormatResult,
     // duplicate cleaners, comma/space normalizers, sentence splitter,
     // pre-LLM replacements, capitalizer, punctuation finalizer) — the same
     // `Formatter` the live dictation path uses.
-    let formatted = format_with_config_value(config, text);
+    let fmt_cfg: FormatterConfig = serde_json::from_value(config.clone()).unwrap_or_default();
+    let log = DictionaryLog::default();
+    let formatted = Formatter::build(&fmt_cfg, Some(log.clone())).process(text);
+    let dictionary_matches =
+        std::mem::take(&mut *log.lock().unwrap_or_else(|poisoned| poisoned.into_inner()));
     Ok(PreviewFormatResult {
         original: text.to_string(),
         formatted,
+        dictionary_matches,
     })
 }
 
@@ -3284,8 +3389,6 @@ mod tests {
                 remove_parasites: true,
                 remove_duplicates: true,
                 collapse_phrase_loops: true,
-                clean_commas: true,
-                normalize_spaces: true,
                 normalize_ellipsis: false,
                 correct_spelling: true,
                 split_sentences: false,
@@ -4092,6 +4195,54 @@ mod tests {
         assert_eq!(result.formatted, "эээ ну текст");
     }
 
+    /// The preview names what the dictionary changed, once per spelling,
+    /// without the punctuation around it; untouched terms are not reported.
+    #[test]
+    fn preview_format_reports_dictionary_corrections() {
+        let config = serde_json::json!({
+            "text_formatting": { "enabled": true, "custom_words": ["GitHub", "Tauri"] },
+            "replacement_rules": [],
+        });
+        let result = preview_format("гидхап и гидхап, потом Tauri", &config).unwrap();
+        assert!(result.formatted.contains("GitHub и GitHub"));
+        assert_eq!(
+            result.dictionary_matches,
+            vec![DictionaryMatch {
+                from: "гидхап".into(),
+                to: "GitHub".into(),
+                count: 2,
+            }]
+        );
+    }
+
+    #[test]
+    fn check_terms_runs_one_set_as_built_in_or_personal() {
+        let words = || vec!["OpenRouter".to_string(), "pull request".to_string()];
+        let reviewed = check_terms("опн роутер", words(), true);
+        assert_eq!(reviewed[0].to, "OpenRouter");
+        assert_eq!(
+            check_terms("пул реквест", words(), true)[0].to,
+            "pull request"
+        );
+        // A catalog term in a built-in set does not match by sound.
+        assert!(check_terms("опенраутер", words(), true).is_empty());
+        assert!(check_terms("обычный текст", words(), false).is_empty());
+    }
+
+    #[test]
+    fn term_matching_tells_reviewed_spellings_from_sound_matching() {
+        let builtin = term_matching("OpenRouter", true);
+        assert!(builtin.variants.contains(&"опн роутер".to_string()));
+        assert!(!builtin.fuzzy);
+        // The same catalog term in a personal set also matches by sound.
+        assert!(term_matching("OpenRouter", false).fuzzy);
+        let own = term_matching("Tauri", false);
+        assert!(own.variants.is_empty());
+        assert!(own.fuzzy);
+        // Too short for sound matching, with no reviewed spellings either.
+        assert!(!term_matching("Vue", false).fuzzy);
+    }
+
     #[test]
     fn removes_trailing_subtitle_hallucination() {
         let formatter = Formatter::from_config(&default_fmt());
@@ -4248,6 +4399,17 @@ mod tests {
         });
         let out = format_with_config_value(&config, "Надо купить молока. Спасибо за просмотр!");
         assert_eq!(out, "Надо купить молока.");
+    }
+
+    #[test]
+    fn comma_and_space_cleanup_ignore_their_retired_switches() {
+        // These two steps lost their switches; a config saved while they
+        // still had them must not keep them off.
+        let config = serde_json::json!({
+            "text_formatting": { "clean_commas": false, "normalize_spaces": false },
+        });
+        let out = format_with_config_value(&config, "раз,,  и два");
+        assert_eq!(out, "Раз, и два.");
     }
 
     #[test]

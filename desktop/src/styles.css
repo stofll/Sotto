@@ -48,7 +48,6 @@
   --warn: #fbbf24;     --warn-soft: rgba(251, 191, 36, 0.14);
   --err: #f87171;      --err-soft: rgba(248, 113, 113, 0.14);
   --info: #60a5fa;     --info-soft: rgba(96, 165, 250, 0.14);
-  --rec: #ef6f47;      --rec-soft: rgba(239, 111, 71, 0.14);
 
   /* Mic-meter zones. Separate from the status colours: these sit on the
      meter track as solid fills, so they are tuned for saturation rather
@@ -130,7 +129,6 @@
   --warn: #9a6205;     --warn-soft: rgba(154, 98, 5, 0.14);
   --err: #b3261e;      --err-soft: rgba(179, 38, 30, 0.11);
   --info: #1d4ed8;     --info-soft: rgba(29, 78, 216, 0.11);
-  --rec: #c2410c;      --rec-soft: rgba(194, 65, 12, 0.12);
 
   --meter-ok: #12905c;
   --meter-warn: #c07800;
@@ -330,7 +328,7 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 .number-field__steppers button:active { background: var(--accent-soft-2); }
 .number-field:focus-within .number-field__steppers { border-left-color: var(--accent-soft-2); }
 .tag { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border-radius: var(--radius-sm); font: 500 11px/1 var(--font-mono); letter-spacing: 0.01em; background: var(--bg-4); color: var(--ink-dim); border: 1px solid var(--line); white-space: nowrap; }
- .tag--rec { background: var(--rec-soft); color: var(--rec); border-color: rgba(239,111,71,0.32); }
+.tag--accent { background: var(--accent-soft); color: var(--accent-text); border-color: var(--accent-soft-2); }
  /* One card, two paddings. Every site used to spell its own out — 18, 14, 20,
     `12px 16px`, `10px 14px`, `4px 22px` for the same `.card` — so the same
     surface looked different on every page. The variants that turned out to be
@@ -706,7 +704,7 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
 .mic-meter__seg[data-zone="ok"].is-peak { background: var(--meter-ok); box-shadow: 0 0 5px rgba(51,200,139,0.6); }
 .mic-meter__seg[data-zone="warn"].is-peak { background: var(--meter-warn); box-shadow: 0 0 5px rgba(255,180,84,0.6); }
 .mic-meter__seg[data-zone="hot"].is-peak { background: var(--meter-hot); box-shadow: 0 0 5px rgba(255,90,82,0.6); }
-.mic-meter--active { border-color: color-mix(in srgb, var(--rec) 40%, var(--line)); }
+.mic-meter--active { border-color: color-mix(in srgb, var(--ok) 40%, var(--line)); }
 .model-card { scroll-snap-align: start; }
 .shimmer { background: linear-gradient(90deg, var(--ink-mute) 30%, var(--ink) 50%, var(--ink-mute) 70%); background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: shimmer 1.6s linear infinite; }
 
@@ -912,7 +910,14 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
   .audio-drop__actions { margin-left: 42px; }
 }
 
-@keyframes rec-halo { 0% { box-shadow: 0 0 0 0 rgba(239,111,71,0.45); } 100% { box-shadow: 0 0 0 14px rgba(239,111,71,0); } }
+/* The sidebar status dot. Its colour comes inline as `color`, so the rings and
+   the arc follow whatever state it shows. */
+.status-dot { position: relative; flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.status-dot::after { content: ""; position: absolute; border-radius: 50%; }
+.status-dot[data-motion="pulse"]::after { inset: 0; animation: status-pulse 1.4s ease-out infinite; }
+.status-dot[data-motion="spin"]::after { inset: -4px; border: 1.5px solid transparent; border-top-color: currentColor; animation: spin .9s linear infinite; }
+@keyframes status-pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 45%, transparent); } 100% { box-shadow: 0 0 0 7px color-mix(in srgb, currentColor 0%, transparent); } }
+@media (prefers-reduced-motion: reduce) { .status-dot::after { animation: none; } }
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
 @keyframes progress-sweep { 0% { transform: translateX(-110%); } 100% { transform: translateX(260%); } }
@@ -1023,30 +1028,24 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .flex-row { display: flex; align-items: center; gap: 8px; }
 .flex-col { display: flex; flex-direction: column; gap: 8px; }
 .flex-grow { flex: 1; min-width: 0; }
-/* A «до → после» pair: the middle column holds the direction arrow. The
-   columns are specifically minmax(0, 1fr) rather than 1fr — otherwise the
-   textarea and a long diff stop them shrinking and the row runs off the
-   edge. */
-.preview-pair { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 14px; align-items: stretch; }
-/* The vertical variant of the same arrow: under «Замены» the cards lie one
-   under another and there is nothing to the right for it to point at. */
-.preview-pair__arrow--down { align-self: center; transform: rotate(90deg); }
-.preview-pair__arrow {
-  align-self: center;
-  display: grid; place-items: center;
-  width: 26px; height: 26px;
-  border: 1px solid var(--line); border-radius: 50%;
-  background: var(--bg-2); color: var(--ink-mute);
+/* The preview result: the typed text again, with the changes marked. The
+   dashed edge keeps it from reading as a second input. */
+.preview-result {
+  margin-top: 10px; padding: 10px 12px;
+  border: 1px dashed var(--line-strong); border-radius: var(--radius-sm);
+  background: var(--bg-3);
+  font: 400 13px/1.55 var(--font-sans); color: var(--ink);
+  white-space: pre-wrap; overflow-wrap: break-word;
 }
-/* The header of the preview cards: a block heading with a hint, and the step's
-   caption under it. Both cards keep the caption in the same place — left edge
-   above their own content — so «до» and «после» read as one pair. */
-.preview-card__head { display: grid; justify-items: start; gap: 12px; margin-bottom: 10px; }
 .preview-card__title { margin: 0; font: 600 14px/1.2 var(--font-sans); color: var(--ink); display: inline-flex; align-items: center; gap: 5px; }
-.preview-card__step { font: 500 10.5px/1 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-mute); }
-/* The result is the accented step: the colour is left over from the former
-   pill, the background is gone. */
+/* «До» and «После» label the two halves of the preview card. */
+.preview-card__step { margin: 12px 0 6px; font: 500 10.5px/1 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-mute); }
 .preview-card__step--after { color: var(--accent-text); }
+.preview-card__step + .preview-result { margin-top: 0; }
+/* What fired, one row per block, labelled with the block's name. */
+.preview-matches { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; }
+.preview-matches__label { font: 500 11px/1 var(--font-sans); color: var(--ink-mute); min-width: 56px; }
+
 /* The padding step for `.page` at 1100 px is gone. It came from web layout,
    where a window can be 320 px and the padding has to shrink; the app's window
    is never narrower than 1000 px (`minWidth` in tauri.conf.json), and 1100 fell
@@ -1057,12 +1056,6 @@ button.card { appearance: none; font: inherit; color: inherit; }
    never fires, but it describes the behaviour should that minimum ever be
    lowered. */
 @media (max-width: 820px) { .page { padding: 16px 16px 24px; } }
-/* In a single column the arrow stops pointing right — it turns downward, to
-   where the result now lies. */
-@media (max-width: 820px) {
-  .preview-pair { grid-template-columns: minmax(0, 1fr); }
-  .preview-pair__arrow { justify-self: center; transform: rotate(90deg); }
-}
 
 /* Search input wrapper — input with leading icon */
 .input-search { position: relative; display: flex; align-items: center; flex: 1; min-width: 0; }
@@ -1368,7 +1361,11 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .prov-exp__active { display: inline-flex; align-items: center; gap: 6px; height: 34px; font: 500 12.5px/1 var(--font-sans); color: var(--ok); }
 .prov-exp__actions .grow { flex: 1 1 auto; }
 
-.dictionary-library { padding: var(--pad-4); display: grid; gap: var(--pad-3); }
+/* The list runs edge to edge with the same row rhythm as «Очистка» above it:
+   a card padding, a row padding and a button padding stacked up used to give
+   three short rows the height of a page. Notes and errors keep an inset. */
+.dictionary-library { display: grid; }
+.dictionary-library > p, .dictionary-library > .inline-error { margin: 10px 12px 0; }
 .parasite-modal { width: min(520px, calc(100vw - 2 * var(--pad-4))); }
 .parasite-body { padding: var(--pad-4); display: grid; gap: var(--pad-4); overflow-y: auto; min-height: 0; }
 .parasite-heading { margin: 0; font: 600 13px/1.2 var(--font-sans); color: var(--ink); }
@@ -1393,12 +1390,13 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .parasite-chip__remove:hover { background: var(--bg-2); color: var(--err); }
 .dictionary-toolbar, .dictionary-row { display: flex; align-items: center; gap: var(--pad-3); }
 .dictionary-toolbar { justify-content: space-between; flex-wrap: wrap; }
-.dictionary-row { padding: var(--pad-3) 0; border-bottom: 1px solid var(--line-soft); }
+.dictionary-row { padding: 3px 12px 3px 4px; border-bottom: 1px solid var(--line-soft); }
 .dictionary-row:last-child { border-bottom: 0; }
-.dictionary-open { display: grid; gap: var(--pad-2); flex: 1; min-width: 0; text-align: left; background: transparent; border: 0; color: var(--ink); cursor: pointer; padding: var(--pad-2); border-radius: var(--radius-sm); }
+.dictionary-row .dictionary-note { font-size: 11.5px; line-height: 1.4; }
+.dictionary-open { display: grid; gap: 2px; flex: 1; min-width: 0; text-align: left; background: transparent; border: 0; color: var(--ink); cursor: pointer; padding: 5px 8px; border-radius: var(--radius-sm); }
 .dictionary-open:hover { background: var(--bg-4); }
 .dictionary-open:focus-visible { outline: none; box-shadow: var(--ring); }
-.dictionary-name { font: 600 13px/1.4 var(--font-sans); overflow-wrap: anywhere; }
+.dictionary-name { font: 500 13px/1.2 var(--font-sans); overflow-wrap: anywhere; }
 .dictionary-note { margin: 0; color: var(--ink-mute); font: 400 12px/1.5 var(--font-sans); overflow-wrap: anywhere; }
 .dictionary-fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
 .dictionary-fieldset:disabled { opacity: 0.65; }
@@ -1411,8 +1409,21 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .dictionary-label .field { width: 100%; }
 .dictionary-words { min-height: 180px; padding: var(--pad-3); resize: vertical; line-height: 1.5; }
 .dictionary-term-heading { display: flex; align-items: baseline; gap: var(--pad-2); }
-.dictionary-term-list { list-style: none; margin: 0; padding: 0; font: 400 12px/1.6 var(--font-mono); }
-.dictionary-term-list li { padding: var(--pad-2) 0; overflow-wrap: anywhere; }
+/* A set's terms, grouped by how they fire: a heading and one line of
+   explanation per group, then the terms as compact chips — a column with a
+   caption under every term was long and repeated itself. */
+.dictionary-term-list { display: grid; gap: var(--pad-4); align-content: start; }
+.dictionary-group { display: grid; gap: 6px; }
+.dictionary-group__title { margin: 0; font: 600 12.5px/1.3 var(--font-sans); color: var(--ink); display: flex; align-items: baseline; gap: 6px; }
+.dictionary-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.dictionary-chips .pill { font-size: 11.5px; }
+.dictionary-chip--hint { border-style: dashed; background: transparent; color: var(--ink-dim); }
+.dictionary-variants { display: grid; }
+.dictionary-variants__row { display: grid; grid-template-columns: minmax(110px, 160px) minmax(0, 1fr); gap: 10px; padding: 5px 0; border-top: 1px solid var(--line-soft); font-size: 12px; overflow-wrap: anywhere; }
+.dictionary-check { display: grid; gap: 6px; }
+.dictionary-check__result { margin: 0; display: grid; gap: 4px; font: 400 12px/1.5 var(--font-sans); }
+.dictionary-check__result > span { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.dictionary-check__to { color: var(--ok); }
 
 /* A set open for reading scrolls its term list and nothing else, so the search
    field and the heading stay in place while it does. The list reaches into the
@@ -1420,7 +1431,7 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .dictionary-modal--view .modal__body { overflow: hidden; padding-bottom: 0; }
 .dictionary-modal--view .dictionary-fieldset { display: flex; flex-direction: column; min-height: 0; }
 .dictionary-modal--view .dictionary-fieldset > :not(.dictionary-term-list) { flex-shrink: 0; }
-.dictionary-modal--view .dictionary-term-list { overflow-y: auto; min-height: 0; max-height: 280px; margin-right: -18px; padding-right: 18px; }
+.dictionary-modal--view .dictionary-term-list { overflow-y: auto; min-height: 0; max-height: 340px; margin-right: -18px; padding-right: 18px; }
 
 /* The discard question carries no header: the question is the body. */
 .dictionary-modal.modal--ask .modal__body { padding: var(--pad-4); }

@@ -109,13 +109,22 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
+type StatusMotion = "pulse" | "spin";
+
+/** Rings spread while recording; an arc turns while recognising or loading. */
+function StatusDot({ color, motion }: { color: string; motion?: StatusMotion }) {
+  return <span className="status-dot" data-motion={motion} style={{ color }}/>;
+}
+
 export function StatusPill({ state, pipelineMode, loadedModel, loadsOnDemand, downloadProgress, compact }: { state?: RecordingState; pipelineMode?: string; loadedModel?: string | null; loadsOnDemand?: boolean; downloadProgress?: DownloadProgress | null; compact?: boolean }) {
-  const map: Record<RecordingState, { dot: string; text: string; sub: string }> = {
+  // Every working state is green — the app is fine and doing its job — and
+  // red is left to an error alone. The states differ by motion instead.
+  const map: Record<RecordingState, { dot: string; motion?: StatusMotion; text: string; sub: string }> = {
     idle: { dot: "var(--ok)", text: t("Готово"), sub: "" },
-    recording: { dot: "var(--rec)", text: t("Идёт запись"), sub: "" },
-    processing: { dot: "var(--accent)", text: t("Распознаю"), sub: "" },
+    recording: { dot: "var(--ok)", motion: "pulse", text: t("Идёт запись"), sub: "" },
+    processing: { dot: "var(--ok)", motion: "spin", text: t("Распознаю"), sub: "" },
     done: { dot: "var(--ok)", text: t("Готово"), sub: "" },
-    loading: { dot: "var(--accent)", text: t("Загружаю модель"), sub: "..." },
+    loading: { dot: "var(--ok)", motion: "spin", text: t("Загружаю модель"), sub: "..." },
     error: { dot: "var(--err)", text: t("Ошибка"), sub: "" },
   };
   const current = state || "idle";
@@ -136,6 +145,7 @@ export function StatusPill({ state, pipelineMode, loadedModel, loadsOnDemand, do
     ? (loadsOnDemand ? t("Модель выгружена") : t("Модель не загружена"))
     : s.text;
   const dot = idleWithoutModel ? "var(--ink-mute)" : s.dot;
+  const motion = idleWithoutModel ? undefined : s.motion;
   const modelLabel = model || t("Модель не загружена");
   const idleDetail = [loadsOnDemand ? t("вернётся при диктовке") : "", pipelineLabel]
     .filter(Boolean)
@@ -152,7 +162,7 @@ export function StatusPill({ state, pipelineMode, loadedModel, loadsOnDemand, do
     const title = detail ? `${headline} · ${detail}` : headline;
     return (
       <Hint asChild text={title}><div style={{ display: "grid", placeItems: "center", height: 42, borderRadius: "var(--radius)", background: "var(--bg-2)", border: isCloud ? "1px solid var(--accent-soft-2)" : "1px solid var(--line)" }}>
-        <span style={{ width: 8, height: 8, borderRadius: "50%", background: dot, boxShadow: active ? `0 0 0 4px ${dot}22` : "none", animation: active ? "rec-halo 1.4s ease-out infinite" : "none" }}/>
+        <StatusDot color={dot} motion={motion}/>
       </div></Hint>
     );
   }
@@ -168,7 +178,7 @@ export function StatusPill({ state, pipelineMode, loadedModel, loadsOnDemand, do
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: "10px 12px", background: "var(--bg-2)", border: "1px solid var(--line)", borderRadius: "var(--radius)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ width: 8, height: 8, borderRadius: "50%", background: s.dot, boxShadow: `0 0 0 4px ${s.dot}22`, animation: "rec-halo 1.4s ease-out infinite", flex: "0 0 auto" }}/>
+          <StatusDot color={s.dot} motion={s.motion}/>
           <div style={{ minWidth: 0, flex: 1 }}>
             <div style={{ font: "500 12px/1.1 var(--font-sans)", color: "var(--ink)" }}>{headline}</div>
             <div style={{ font: "500 10px/1 var(--font-mono)", color: "var(--ink-mute)", marginTop: 3, letterSpacing: "0.04em" }}>{detail}</div>
@@ -186,9 +196,9 @@ export function StatusPill({ state, pipelineMode, loadedModel, loadsOnDemand, do
 
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: "var(--bg-2)", border: isCloud ? "1px solid var(--accent-soft-2)" : "1px solid var(--line)", borderRadius: "var(--radius)" }}>
-      <span style={{ width: 8, height: 8, borderRadius: "50%", background: dot, boxShadow: active ? `0 0 0 4px ${dot}22` : "none", animation: active ? "rec-halo 1.4s ease-out infinite" : "none", flex: "0 0 auto" }}/>
+      <StatusDot color={dot} motion={motion}/>
       <div className="status-pill__text" style={{ minWidth: 0, flex: 1 }}>
-        <div style={{ font: "500 12px/1.1 var(--font-sans)", color: "var(--ink)", display: "flex", alignItems: "center", gap: 6 }}>{headline}{isCloud && <span className="tag tag--rec" style={{ height: 16, fontSize: 9, padding: "0 5px" }}>Cloud</span>}</div>
+        <div style={{ font: "500 12px/1.1 var(--font-sans)", color: "var(--ink)", display: "flex", alignItems: "center", gap: 6 }}>{headline}{isCloud && <span className="tag tag--accent" style={{ height: 16, fontSize: 9, padding: "0 5px" }}>Cloud</span>}</div>
         {detail && <Hint asChild ifClipped text={detail}><div style={{ font: "500 10px/1.2 var(--font-mono)", color: "var(--ink-mute)", marginTop: 3, letterSpacing: "0.04em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{detail}</div></Hint>}
       </div>
     </div>
@@ -337,8 +347,8 @@ export function Switch({ on, onChange, label, disabled }: { on: boolean; onChang
  * The styles moved into CSS: neither the transition nor respect for
  * `prefers-reduced-motion`.
  */
-export function Segmented({ value, options, onChange, disabled = false }: { value: string; options: Array<string | { value: string; label: string; icon?: string }>; onChange?: (value: string) => void; disabled?: boolean }) {
-  const items = options.map((opt) => (typeof opt === "string" ? { value: opt, label: opt, icon: undefined } : opt));
+export function Segmented({ value, options, onChange, disabled = false }: { value: string; options: Array<string | { value: string; label: string; icon?: string; hint?: string }>; onChange?: (value: string) => void; disabled?: boolean }) {
+  const items = options.map((opt) => (typeof opt === "string" ? { value: opt, label: opt, icon: undefined, hint: undefined } : opt));
   const rootRef = useRef<HTMLDivElement>(null);
   const [thumb, setThumb] = useState<{ left: number; width: number } | null>(null);
   const selectedIndex = items.findIndex((item) => item.value === value);
@@ -373,19 +383,25 @@ export function Segmented({ value, options, onChange, disabled = false }: { valu
           the left on mount: the element is born already in place, and the
           transition starts working from the next change of selection. */}
       {thumb && <span className="segmented__thumb" aria-hidden="true" style={{ transform: `translateX(${thumb.left}px)`, width: thumb.width }}/>}
-      {items.map((item) => (
-        <button
-          key={item.value}
-          type="button"
-          className="segmented__option"
-          data-selected={item.value === value ? "true" : "false"}
-          aria-pressed={item.value === value}
-          disabled={disabled}
-          onClick={() => onChange?.(item.value)}
-        >
-          {item.icon && <Icon name={item.icon} size={13}/>} {item.label}
-        </button>
-      ))}
+      {items.map((item) => {
+        // A `hint` is for a segment whose caption is a symbol rather than a
+        // word («Aa.»): it names the choice on hover and to a screen reader.
+        const button = (
+          <button
+            key={item.value}
+            type="button"
+            className="segmented__option"
+            data-selected={item.value === value ? "true" : "false"}
+            aria-pressed={item.value === value}
+            aria-label={item.hint}
+            disabled={disabled}
+            onClick={() => onChange?.(item.value)}
+          >
+            {item.icon && <Icon name={item.icon} size={13}/>} {item.label}
+          </button>
+        );
+        return item.hint ? <Hint key={item.value} asChild text={item.hint}>{button}</Hint> : button;
+      })}
     </div>
   );
 }

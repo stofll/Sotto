@@ -53,6 +53,7 @@ If a subtree needs different rules, place an `AGENTS.md` there and keep those ru
 - Use [docs/testing.md](docs/testing.md) as the checklist rather than maintaining another full copy here. [.github/workflows/rust-ci.yml](.github/workflows/rust-ci.yml) defines the actual CI jobs, platform matrix, and preparation steps.
 - For UI text/i18n changes, also run `pnpm i18n:check` from `desktop/`.
 - Before native checks on a clean checkout, build the frontend with `pnpm build` from `desktop/`. On Windows, follow CI's Sherpa runtime preparation before direct Cargo builds/tests; plain Cargo does not run Tauri's bundling hook. Run Cargo commands in `desktop/src-tauri/`, using `--locked` where CI does.
+- Reuse the default Cargo target directory. Do not create a per-task `CARGO_TARGET_DIR` inside the repository: each full build costs several gigabytes and is never cleaned up. Keep logs, screenshots, and reports out of `target/`; put them in a temporary directory outside the repository.
 - Ordinary Rust checks use CPU defaults. Enable `gpu-vulkan` or `gpu-metal` only for the appropriate platform and task; do not use `--all-features` as a generic check because these GPU backends are platform-specific.
 - Add or update regression tests for behavior changes. During development, run checks relevant to the change; before a PR, follow the required checklist.
 - Test observable behavior and meaningful logic, including failure paths; avoid tests that merely repeat implementation details or assert callback wiring.

@@ -1,8 +1,12 @@
 # Dictionaries
 
-Open **Processing → Text → Dictionaries** to manage names, brands and specialist terms. Open a set by its name to inspect every term and search its contents before enabling it; its switch controls whether it participates in processing.
+Open **Processing → Text → Dictionaries** to manage names, brands and specialist terms. Open a set by its name to inspect every term before enabling it; its switch controls whether it participates in processing.
 
 Several sets can be enabled together. Sotto combines their terms without repeating identical entries; disabling or deleting one set does not remove a term that remains in another enabled set.
+
+A dictionary says how a term is spelled, and Sotto decides which recognised fragments it fixes. A replacement rule under **Replacements** changes exactly the text you specify, including ordinary words, and always takes priority. Use a dictionary for names and terms that recognition distorts in unpredictable ways; use a replacement for a fixed conversion or for an ordinary word that a dictionary deliberately leaves alone.
+
+The set view groups its terms by how they fire: **Exact spellings** change only the listed reviewed variants, **By similar sound** terms also correct fragments that sound almost the same, and **Model hint only** terms never change the text. **Check a word** runs that set alone, enabled or not, on a spelling you type and shows the result and which route produced it. The text preview lists dictionary corrections separately from the replacement rules that fired.
 
 ## Built-in sets
 
@@ -64,9 +68,9 @@ Enabled replacement rules take priority over automatic cleanup: their actual mat
 
 Dictation and file transcription retain the original text if incidental cleanup removes everything. Silence hallucinations and explicit replacement rules that delete the whole input deliberately produce an empty result. The preview shows the cleanup result itself, including an empty result from removing only filler sounds.
 
-Comma cleanup removes duplicate commas and a leading comma; it preserves commas before conjunctions. Removing a verbal tic also removes its following comma and leaves hyphenated words intact. Space normalization repairs missing spaces after punctuation in Cyrillic prose; a missing space after a period is restored only before a capital letter, to avoid treating lowercase domain names as sentences.
+Comma and space cleanup always run while **Cleanup** is on; they have no switches of their own. Comma cleanup removes duplicate commas and a leading comma; it preserves commas before conjunctions. Removing a verbal tic also removes its following comma and leaves hyphenated words intact. Space normalization repairs missing spaces after punctuation in Cyrillic prose; a missing space after a period is restored only before a capital letter, to avoid treating lowercase domain names as sentences.
 
-**Processing → Text → Cleanup → Remove pause ellipses** optionally replaces `...` and `…` with a space inside a phrase and a period at its end. A capitalized word in the same alphabet after an ellipsis starts a new sentence, so «Я подумал... Может, позже» becomes «Я подумал. Может, позже.»; acronyms and a Latin term after Russian text stay inside the phrase. A capitalized name after a hesitation is indistinguishable from a new sentence and also receives a period. Leading ellipses disappear; adjacent punctuation and existing line breaks are preserved. A result containing only ellipses becomes empty, including in dictation and file delivery. The option is off by default because ellipses can be intentional. It interprets punctuation in text, not audio silence, and does not reconstruct missing words or change the following word's case.
+**Processing → Text → Cleanup → Advanced → Remove pause ellipses** optionally replaces `...` and `…` with a space inside a phrase and a period at its end. A capitalized word in the same alphabet after an ellipsis starts a new sentence, so «Я подумал... Может, позже» becomes «Я подумал. Может, позже.»; acronyms and a Latin term after Russian text stay inside the phrase. A capitalized name after a hesitation is indistinguishable from a new sentence and also receives a period. Leading ellipses disappear; adjacent punctuation and existing line breaks are preserved. A result containing only ellipses becomes empty, including in dictation and file delivery. The option is off by default because ellipses can be intentional. It interprets punctuation in text, not audio silence, and does not reconstruct missing words or change the following word's case.
 
 Pause cleanup preserves backtick code, links, paths, email addresses, dotted filenames and numeric ranges such as `1...5`. Explicit replacement matches keep priority.
 
@@ -88,8 +92,8 @@ The built-in words come in sets, one per language, and the set for the language 
 
 Your own words are added below the sets and work in any language, whichever sets are enabled. Type a word or phrase and press Enter, or separate several with commas to add them at once; each one becomes a chip with its own remove button. Everything in this dialog is saved as you change it.
 
-Filler sounds are a separate switch, **Remove fillers**. The Russian sounds apply to every dictation, because Cyrillic cannot match text written in another alphabet. The English sounds — `uh`, `umm`, `hmm` — apply only when the dictation language is set to English, since `er` and `um` are ordinary words in German and Dutch; a dictation language of **Auto** does not enable them.
+Filler sounds share a separate switch with repeated words, **Remove hesitations and repeats**. The Russian sounds apply to every dictation, because Cyrillic cannot match text written in another alphabet. The English sounds — `uh`, `umm`, `hmm` — apply only when the dictation language is set to English, since `er` and `um` are ordinary words in German and Dutch; a dictation language of **Auto** does not enable them.
 
 Sound cleanup recognizes capitalized hesitations such as «А-а», «Э-э» and «Хмм», and a cut-off «э-». Punctuation right after a hesitation is removed at the start of a sentence or after another comma, so «два. А-а-а. Это» becomes «два. Это»; inside a clause the comma or sentence end is preserved because it may belong to the grammar. A drawn-out «И-и-и» becomes «И», preserving the conjunction.
 
-Single «а», «о», «и» and «м», uppercase abbreviations, initials, protected code and explicit replacement matches are preserved. Numeric millimetres such as «35 мм» and era abbreviations such as «н. э.» remain intact through automatic cleanup, including decimals, ranges and nonbreaking spaces; explicit replacement rules can still change them. Held or repeated «ммм» and «м-м-м» count as hesitations. Disabling **Remove fillers** also disables these sound corrections.
+Single «а», «о», «и» and «м», uppercase abbreviations, initials, protected code and explicit replacement matches are preserved. Numeric millimetres such as «35 мм» and era abbreviations such as «н. э.» remain intact through automatic cleanup, including decimals, ranges and nonbreaking spaces; explicit replacement rules can still change them. Held or repeated «ммм» and «м-м-м» count as hesitations. Disabling **Remove hesitations and repeats** also disables these sound corrections.

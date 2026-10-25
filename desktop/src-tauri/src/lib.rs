@@ -1644,6 +1644,8 @@ pub fn run() {
             debug::clear_logs,
             dictionaries::dictionary_presets,
             dictionaries::parasite_sets,
+            dictionaries::term_matching,
+            dictionaries::check_dictionary_text,
             dictionaries::analyze_dictionary,
         ])
         .build(tauri::generate_context!())

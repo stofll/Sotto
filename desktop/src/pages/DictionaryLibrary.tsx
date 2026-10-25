@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { DictionaryAnalysis, DictionarySet, TextFormattingConfig } from "../bridge/types";
-import { analyzeDictionary, getDictionaryPresets } from "../bridge/dictionaries";
+import type { DictionaryAnalysis, DictionaryMatch, DictionarySet, TermMatching, TextFormattingConfig } from "../bridge/types";
+import { analyzeDictionary, checkDictionaryText, getDictionaryPresets, getTermMatching } from "../bridge/dictionaries";
 import { Switch } from "../components/Shell";
 import { Icon } from "../components/Icon";
 import { Foldable } from "../components/Foldable";
@@ -83,7 +83,7 @@ export function DictionaryLibrary({ open, onToggle, formatting, onSave }: { open
 
   return <>
     <Foldable open={open} onToggle={onToggle} title={t("Словари")}
-      hint={t("Помогает исправлять похожие написания имён, брендов и терминов после распознавания. Активные наборы работают вместе; Whisper и Qwen3 также используют их как подсказку. Это не точная замена текста.")}
+      hint={t("Как пишется термин: подсказывает Whisper и Qwen3 при распознавании и исправляет похожие искажения после него. Обычные слова не трогает — для них нужна замена.")}
       summary={<span className="dictionary-note" role="status">{librarySummary(analysis, error)}</span>}
       aside={<button ref={createRef} type="button" className="btn btn--ghost btn--sm" disabled={busy || !analysis} onClick={() => setSession({ create: true, baseline: configKey })}><Icon name="plus" size={12}/>{t("Создать")}</button>}>
       <div className="dictionary-library">
@@ -106,11 +106,62 @@ export function DictionaryLibrary({ open, onToggle, formatting, onSave }: { open
   </>;
 }
 
+/** A set's terms grouped by how they fire. «По звучанию» on every row of one
+ * long column said nothing concrete; a group says it once, with an example,
+ * and the check field above lets you try a spelling for real. */
+function TermGroups({ words, matching }: { words: string[]; matching: Map<string, TermMatching> | null }) {
+  // Until the backend answers — or if it fails — the terms show ungrouped
+  // rather than in a group that might be wrong.
+  if (!matching) return <div className="dictionary-chips">{words.map((word, index) => <span key={`${index}:${word}`} className="pill mono">{word}</span>)}</div>;
+  const info = (word: string) => matching.get(word.trim());
+  const exact = words.filter((word) => info(word)?.variants.length);
+  const sound = words.filter((word) => !info(word)?.variants.length && info(word)?.fuzzy);
+  const hint = words.filter((word) => !info(word)?.variants.length && !info(word)?.fuzzy);
+  return <>
+    {exact.length > 0 && <section className="dictionary-group">
+      <h3 className="dictionary-group__title">{t("Точные написания")} <span className="dictionary-note">{exact.length}</span></h3>
+      <p className="dictionary-note">{t("Меняются только эти варианты, слово в слово.")}</p>
+      <div className="dictionary-variants">
+        {exact.map((word, index) => <div key={`${index}:${word}`} className="dictionary-variants__row">
+          <span className="mono">{word}</span>
+          <span className="dictionary-note">{info(word)!.variants.join(", ")}{info(word)!.fuzzy ? ` · ${t("и по звучанию")}` : ""}</span>
+        </div>)}
+      </div>
+    </section>}
+    {sound.length > 0 && <section className="dictionary-group">
+      <h3 className="dictionary-group__title">{t("По похожему звучанию")} <span className="dictionary-note">{sound.length}</span></h3>
+      <p className="dictionary-note">{t("Исправляется, если распознанное звучит почти так же: «пул реквест» → pull request. Обычные русские слова не трогаются.")}</p>
+      <div className="dictionary-chips">{sound.map((word, index) => <span key={`${index}:${word}`} className="pill mono">{word}</span>)}</div>
+    </section>}
+    {hint.length > 0 && <section className="dictionary-group">
+      <h3 className="dictionary-group__title">{t("Только подсказка модели")} <span className="dictionary-note">{hint.length}</span></h3>
+      <p className="dictionary-note">{t("Текст не исправляется: Whisper и Qwen3 просто чаще слышат правильно.")}</p>
+      <div className="dictionary-chips">{hint.map((word, index) => <span key={`${index}:${word}`} className="pill mono dictionary-chip--hint">{word}</span>)}</div>
+    </section>}
+  </>;
+}
+
+/** The answer of the check field: what the set turned the spelling into, and
+ * by which route — or that it leaves it alone. */
+function CheckResult({ probe, result, matching }: { probe: string; result: DictionaryMatch[] | null; matching: Map<string, TermMatching> | null }) {
+  if (!probe.trim()) return <p className="dictionary-note">{t("Введите, как модель могла услышать слово, — увидите, во что его превратит этот набор.")}</p>;
+  if (!result) return null;
+  if (!result.length) return <p className="dictionary-note">{t("Не меняется")}</p>;
+  return <p className="dictionary-check__result">{result.map((item) => {
+    const exact = matching?.get(item.to)?.variants.some((variant) => variant.toLowerCase() === item.from.toLowerCase());
+    return <span key={`${item.from}-${item.to}`}>
+      <span className="mono">{item.from}</span> → <span className="mono dictionary-check__to">{item.to}</span>
+      <span className="pill">{exact ? t("точное написание") : t("по звучанию")}</span>
+    </span>;
+  })}</p>;
+}
+
 function DictionaryDialog({ session, formatting, onSave, onClose }: { session: Session; formatting: TextFormattingConfig; onSave: (next: TextFormattingConfig, onError?: (message: string) => void) => Promise<boolean>; onClose: () => void }) {
   const [entry, setEntry] = useState<Entry>(() => session.entry ?? { id: crypto.randomUUID(), name: "", description: "", words: [], enabled: false });
   const [editing, setEditing] = useState(Boolean(session.create));
   const [words, setWords] = useState(entry.words.join("\n"));
-  const [filter, setFilter] = useState("");
+  const [probe, setProbe] = useState("");
+  const [probeResult, setProbeResult] = useState<DictionaryMatch[] | null>(null);
   const [choices, setChoices] = useState<string[]>(session.draft?.dictionary_spellings ?? formatting.dictionary_spellings ?? []);
   const [analysis, setAnalysis] = useState<DictionaryAnalysis | null>(null);
   const [analysisKey, setAnalysisKey] = useState("");
@@ -166,10 +217,37 @@ function DictionaryDialog({ session, formatting, onSave, onClose }: { session: S
 
   function copy() {
     const next = { ...entry, id: crypto.randomUUID(), name: t("{name} — копия", { name: dictionaryName(entry) }), enabled: false, builtin: false };
-    setEntry(next); setWords(next.words.join("\n")); setEditing(true); setFilter("");
+    setEntry(next); setWords(next.words.join("\n")); setEditing(true); setProbe("");
   }
 
-  const shownWords = entry.words.filter((word) => word.toLowerCase().includes(filter.trim().toLowerCase()));
+  // What each term reacts to, for the read-only view. A failure leaves the
+  // list bare rather than misdescribing it.
+  const [matching, setMatching] = useState<Map<string, TermMatching> | null>(null);
+  const viewedWords = !editing && !session.draft ? entry.words : null;
+  useEffect(() => {
+    if (!viewedWords?.length) return;
+    let cancelled = false;
+    getTermMatching(viewedWords, Boolean(entry.builtin))
+      .then((items) => { if (!cancelled) setMatching(new Map(items.map((item) => [item.term, item]))); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by the terms shown, not the array identity.
+  }, [JSON.stringify(viewedWords), entry.builtin]);
+
+  // The set runs on its own, enabled or not, so the answer is about this set
+  // rather than whatever else happens to be switched on.
+  useEffect(() => {
+    setProbeResult(null);
+    if (!viewedWords || !probe.trim()) return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      checkDictionaryText(probe, viewedWords, Boolean(entry.builtin))
+        .then((result) => { if (!cancelled) setProbeResult(result); })
+        .catch(() => {});
+    }, 180);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by the terms shown, not the array identity.
+  }, [probe, JSON.stringify(viewedWords), entry.builtin]);
   const unsupported = analysis?.unsupported_words.filter((word) => (editing ? parseDictionaryWords(words) : entry.words).includes(word)) ?? [];
   const title = session.draft ? t("Выберите написание") : editing ? t("Редактор набора") : dictionaryName(entry);
 
@@ -193,11 +271,16 @@ function DictionaryDialog({ session, formatting, onSave, onClose }: { session: S
             <p className="dictionary-note">{t("По одному слову или фразе в строке. Также можно разделять запятыми.")}</p>
             <p className="dictionary-note">{t("Термин — до 128 символов и 8 слов. Во всех активных пользовательских наборах — до 1000 разных терминов.")}</p>
           </> : !session.draft && <>
-            <label className="dictionary-label">{t("Поиск по набору")}<input className="field" value={filter} onChange={(event) => setFilter(event.target.value)}/></label>
+            <div className="dictionary-check">
+              <label className="dictionary-label">{t("Проверить слово")}<input className="field" value={probe} onChange={(event) => setProbe(event.target.value)} placeholder={t("например: пул реквест")}/></label>
+              <div aria-live="polite"><CheckResult probe={probe} result={probeResult} matching={matching}/></div>
+            </div>
             <div className="dictionary-label"><div className="dictionary-term-heading"><span>{t("Термины")}</span><span className="dictionary-note">{entry.words.length}</span></div></div>
-            <ul className="dictionary-term-list">{shownWords.map((word, index) => <li key={`${index}:${word}`}>{word}</li>)}</ul>{!shownWords.length && <p className="dictionary-note">{entry.words.length ? t("Ничего не найдено") : t("В наборе пока нет терминов")}</p>}
+            {entry.words.length
+              ? <div className="dictionary-term-list"><TermGroups words={entry.words} matching={matching}/></div>
+              : <p className="dictionary-note">{t("В наборе пока нет терминов")}</p>}
           </>}
-          {unsupported.length > 0 && <p className="dictionary-note">{t("Эти термины слишком короткие для коррекции текста, но могут использоваться как подсказки распознавания:")} <span className="mono">{unsupported.join(", ")}</span></p>}
+          {editing && unsupported.length > 0 && <p className="dictionary-note">{t("Эти термины слишком короткие для коррекции текста, но могут использоваться как подсказки распознавания:")} <span className="mono">{unsupported.join(", ")}</span></p>}
           {(editing || session.draft || deleting) && analysis?.conflicts.map((conflict) => <div className="dictionary-label" role="group" aria-label={t("Написание термина «{term}»", { term: conflict.key })} key={conflict.key}>
             <span>{t("Написание термина «{term}»", { term: conflict.key })}</span>
             <div className="dictionary-toolbar">{conflict.variants.map((word) => <button type="button" className={conflict.selected === word ? "btn btn--primary" : "btn btn--ghost"} key={word} aria-pressed={conflict.selected === word}
