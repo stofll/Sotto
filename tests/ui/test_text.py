@@ -8,7 +8,6 @@ def test_pause_cleanup_is_opt_in(app, page):
     ui = app()
     ui.nav("text")
     page.get_by_role("button", name=re.compile(r"^Очистка")).click()
-    page.get_by_role("button", name=re.compile(r"^Дополнительно")).click()
     expect(
         page.get_by_role("button", name="Убирать многоточия пауз", exact=True)
     ).to_have_attribute("aria-pressed", "false")
@@ -17,7 +16,9 @@ def test_pause_cleanup_is_opt_in(app, page):
 def test_grouped_switch_writes_every_flag_of_its_group(app, page):
     """A config saved before the groups may hold one flag on and one off. The
     group shows as on, and switching it brings both flags into line."""
-    ui = app(config={"text_formatting": {"remove_fillers": True, "remove_duplicates": False}})
+    ui = app(
+        config={"text_formatting": {"remove_fillers": True, "remove_duplicates": False}}
+    )
     ui.nav("text")
     page.get_by_role("button", name=re.compile(r"^Очистка")).click()
     switch = page.get_by_role("button", name="Убирать запинки и повторы", exact=True)
@@ -39,21 +40,24 @@ def test_grouped_switch_writes_every_flag_of_its_group(app, page):
     "choice,capitalize,final_dot",
     [
         ("Без точки в конце", True, False),
-        ("Как в чате", False, False),
+        ("Как в чате: строчные, без точки", False, False),
     ],
 )
 def test_sentence_style_sets_both_flags(app, page, choice, capitalize, final_dot):
     ui = app()
     ui.nav("text")
     page.get_by_role("button", name=re.compile(r"^Очистка")).click()
-    page.get_by_role("button", name="Заглавные и точка", exact=True).click()
-    page.get_by_role("option", name=re.compile("^" + choice)).click()
+    expect(
+        page.get_by_role("button", name="Заглавные и точка", exact=True)
+    ).to_have_attribute("aria-pressed", "true")
+    segment = page.get_by_role("button", name=choice, exact=True)
+    segment.click()
     page.wait_for_function(
         f"(f => f.capitalize_sentences === {str(capitalize).lower()}"
         f" && f.final_punctuation === {str(final_dot).lower()})"
         "(window.__sottoTest.state.config.text_formatting)"
     )
-    expect(page.get_by_role("button", name=re.compile("^" + choice))).to_be_visible()
+    expect(segment).to_have_attribute("aria-pressed", "true")
 
 
 @pytest.mark.parametrize("locale", ["ru", "en"])
@@ -62,7 +66,7 @@ def test_sentence_style_sets_both_flags(app, page, choice, capitalize, final_dot
     "setting,ru_label,en_label",
     [
         ("correct_spelling", "Исправлять опечатки", "Correct spelling"),
-        ("split_paragraphs", "Разбивать текст на абзацы", "Split text into paragraphs"),
+        ("split_paragraphs", "Разбивать на абзацы", "Split into paragraphs"),
         ("normalize_ellipsis", "Убирать многоточия пауз", "Remove pause ellipses"),
     ],
 )
@@ -82,10 +86,6 @@ def test_local_cleanup_switch_persists_and_recovers_from_save_failure(
     ui.nav("text")
     title = "Очистка" if locale == "ru" else "Cleanup"
     page.get_by_role("button", name=re.compile("^" + title)).click()
-    if setting == "normalize_ellipsis":
-        # An advanced step; the disclosure stays open across the reload below.
-        more = "Дополнительно" if locale == "ru" else "Advanced"
-        page.get_by_role("button", name=re.compile("^" + more)).click()
     label = ru_label if locale == "ru" else en_label
     switch = page.get_by_role("button", name=label, exact=True)
     expect(switch).to_have_attribute("aria-pressed", "true")
@@ -143,6 +143,7 @@ def test_preview_backend_error(app, page):
 def test_replacement_example_persists(app, page):
     ui = app()
     ui.nav("text")
+    page.get_by_role("button", name=re.compile(r"^Замены")).click()
     page.get_by_role("button", name=re.compile(r"щас.*сейчас")).click()
     page.get_by_role("button", name="Сохранить", exact=True).click()
     page.wait_for_function(
@@ -150,7 +151,7 @@ def test_replacement_example_persists(app, page):
     )
     ui.nav("settings")
     ui.nav("text")
-    page.get_by_role("button", name=re.compile(r"^Замены")).click()
+    # The block was opened to reach the examples, and stays open.
     expect(page.get_by_placeholder("что искать", exact=True)).to_have_value("щас")
 
 
@@ -332,6 +333,7 @@ def test_dictionary_rejected_save_shows_reason_in_editor(app, page):
 def test_replacement_save_failure_keeps_retry_available(app, page):
     ui = app()
     ui.nav("text")
+    page.get_by_role("button", name=re.compile(r"^Замены")).click()
     page.get_by_role("button", name=re.compile(r"щас.*сейчас")).click()
     ui.queue("save_config", {"error": "Synthetic replacement save failure"})
     page.get_by_role("button", name="Сохранить", exact=True).click()
@@ -362,7 +364,8 @@ def test_replacement_import_export_roundtrip(app, page):
         "usage_count": 0,
     }
     with page.expect_file_chooser() as chooser:
-        page.get_by_role("button", name="Импорт", exact=True).click()
+        page.get_by_role("button", name="Экспорт и импорт правил", exact=True).click()
+        page.get_by_role("menuitem", name="Импорт", exact=True).click()
     chooser.value.set_files(
         {
             "name": "rules.json",
@@ -376,10 +379,34 @@ def test_replacement_import_export_roundtrip(app, page):
         "window.__sottoTest.state.config.replacement_rules.length === 1"
     )
     with page.expect_download() as download:
-        page.get_by_role("button", name="Экспорт", exact=True).click()
+        page.get_by_role("button", name="Экспорт и импорт правил", exact=True).click()
+        page.get_by_role("menuitem", name="Экспорт", exact=True).click()
     exported = json.loads(download.value.path().read_text())
     assert exported["replacement_rules"][0]["find"] == "sotto"
     assert exported["replacement_rules"][0]["replace"] == "Sotto"
+
+
+def test_replacement_options_live_behind_the_row_menu(app, page):
+    """A rule is one line; its matching options open from «⋯», and a mode
+    other than the default stays visible on the row."""
+    ui = app()
+    ui.nav("text")
+    page.get_by_role("button", name=re.compile(r"^Замены")).click()
+    expect(page.get_by_role("button", name="Сохранить", exact=True)).to_have_count(0)
+    page.get_by_role("button", name=re.compile(r"щас.*сейчас")).click()
+    expect(page.get_by_role("button", name="Сохранить", exact=True)).to_be_visible()
+    page.get_by_role("button", name="Действия с правилом", exact=True).click()
+    page.get_by_role("menuitem", name="Параметры", exact=True).click()
+    page.get_by_role("button", name="Слово", exact=True).click()
+    page.get_by_role("option", name="Фраза", exact=True).click()
+    page.get_by_role("button", name="Сохранить", exact=True).click()
+    page.wait_for_function(
+        "window.__sottoTest.state.config.replacement_rules.some(r => r.match === 'phrase')"
+    )
+    expect(page.get_by_role("button", name="Сохранить", exact=True)).to_have_count(0)
+    expect(
+        page.get_by_test_id("page-text").locator(".pill", has_text="Фраза")
+    ).to_have_count(1)
 
 
 def test_invalid_replacement_import_preserves_rules(app, page):
@@ -387,7 +414,8 @@ def test_invalid_replacement_import_preserves_rules(app, page):
     ui.nav("text")
     page.get_by_role("button", name=re.compile(r"^Замены")).click()
     with page.expect_file_chooser() as chooser:
-        page.get_by_role("button", name="Импорт", exact=True).click()
+        page.get_by_role("button", name="Экспорт и импорт правил", exact=True).click()
+        page.get_by_role("menuitem", name="Импорт", exact=True).click()
     chooser.value.set_files(
         {"name": "invalid.json", "mimeType": "application/json", "buffer": b"not json"}
     )
@@ -748,9 +776,7 @@ def test_text_section_hints(app, page, locale):
     ui = app(config={"ui_language": locale})
     ui.nav("text")
     for title in (
-        ["Очистка", "Замены", "Словари"]
-        if locale == "ru"
-        else ["Cleanup", "Replacements", "Dictionaries"]
+        ["Очистка", "Словари"] if locale == "ru" else ["Cleanup", "Dictionaries"]
     ):
         toggle = page.get_by_role("button", name=re.compile("^" + title))
         hint = toggle.locator("..").locator(".hint")

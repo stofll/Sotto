@@ -1220,30 +1220,20 @@ button.card { appearance: none; font: inherit; color: inherit; }
 
 /* Grid templates */
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-/* A «до → после» pair: the middle column holds the direction arrow. The
-   columns are specifically minmax(0, 1fr) rather than 1fr — otherwise the
-   textarea and a long diff stop them shrinking and the row runs off the
-   edge. */
-.preview-pair { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 14px; align-items: stretch; }
-/* The vertical variant of the same arrow: under «Замены» the cards lie one
-   under another and there is nothing to the right for it to point at. */
-.preview-pair__arrow--down { align-self: center; transform: rotate(90deg); }
-.preview-pair__arrow {
-  align-self: center;
-  display: grid; place-items: center;
-  width: 26px; height: 26px;
-  border: 1px solid var(--line); border-radius: 50%;
-  background: var(--bg-2); color: var(--ink-mute);
+/* The preview result: the typed text again, with the changes marked. The
+   dashed edge keeps it from reading as a second input. */
+.preview-result {
+  margin-top: 10px; padding: 10px 12px;
+  border: 1px dashed var(--line-strong); border-radius: var(--radius-sm);
+  background: var(--bg-3);
+  font: 400 13px/1.55 var(--font-sans); color: var(--ink);
+  white-space: pre-wrap; overflow-wrap: break-word;
 }
-/* The header of the preview cards: a block heading with a hint, and the step's
-   caption under it. Both cards keep the caption in the same place — left edge
-   above their own content — so «до» and «после» read as one pair. */
-.preview-card__head { display: grid; justify-items: start; gap: 12px; margin-bottom: 10px; }
 .preview-card__title { margin: 0; font: 600 14px/1.2 var(--font-sans); color: var(--ink); display: inline-flex; align-items: center; gap: 5px; }
-.preview-card__step { font: 500 10.5px/1 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-mute); }
-/* The result is the accented step: the colour is left over from the former
-   pill, the background is gone. */
+/* «До» and «После» label the two halves of the preview card. */
+.preview-card__step { margin: 12px 0 6px; font: 500 10.5px/1 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-mute); }
 .preview-card__step--after { color: var(--accent-text); }
+.preview-card__step + .preview-result { margin-top: 0; }
 
 .grid-auto { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
 /* The padding step for `.page` at 1100 px is gone. It came from web layout,
@@ -1256,12 +1246,6 @@ button.card { appearance: none; font: inherit; color: inherit; }
    never fires, but it describes the behaviour should that minimum ever be
    lowered. */
 @media (max-width: 820px) { .grid-2 { grid-template-columns: 1fr; } .page { padding: 16px 16px 24px; } }
-/* In a single column the arrow stops pointing right — it turns downward, to
-   where the result now lies. */
-@media (max-width: 820px) {
-  .preview-pair { grid-template-columns: minmax(0, 1fr); }
-  .preview-pair__arrow { justify-self: center; transform: rotate(90deg); }
-}
 
 /* Row-item (hoverable list row, e.g. for compact lists) */
 .row-item { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: var(--radius-sm); border: 1px solid var(--line); background: var(--bg-3); transition: border-color .15s, background .15s; }

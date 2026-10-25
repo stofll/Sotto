@@ -347,8 +347,8 @@ export function Switch({ on, onChange, label, disabled }: { on: boolean; onChang
  * The styles moved into CSS: neither the transition nor respect for
  * `prefers-reduced-motion`.
  */
-export function Segmented({ value, options, onChange, disabled = false }: { value: string; options: Array<string | { value: string; label: string; icon?: string }>; onChange?: (value: string) => void; disabled?: boolean }) {
-  const items = options.map((opt) => (typeof opt === "string" ? { value: opt, label: opt, icon: undefined } : opt));
+export function Segmented({ value, options, onChange, disabled = false }: { value: string; options: Array<string | { value: string; label: string; icon?: string; hint?: string }>; onChange?: (value: string) => void; disabled?: boolean }) {
+  const items = options.map((opt) => (typeof opt === "string" ? { value: opt, label: opt, icon: undefined, hint: undefined } : opt));
   const rootRef = useRef<HTMLDivElement>(null);
   const [thumb, setThumb] = useState<{ left: number; width: number } | null>(null);
   const selectedIndex = items.findIndex((item) => item.value === value);
@@ -383,19 +383,25 @@ export function Segmented({ value, options, onChange, disabled = false }: { valu
           the left on mount: the element is born already in place, and the
           transition starts working from the next change of selection. */}
       {thumb && <span className="segmented__thumb" aria-hidden="true" style={{ transform: `translateX(${thumb.left}px)`, width: thumb.width }}/>}
-      {items.map((item) => (
-        <button
-          key={item.value}
-          type="button"
-          className="segmented__option"
-          data-selected={item.value === value ? "true" : "false"}
-          aria-pressed={item.value === value}
-          disabled={disabled}
-          onClick={() => onChange?.(item.value)}
-        >
-          {item.icon && <Icon name={item.icon} size={13}/>} {item.label}
-        </button>
-      ))}
+      {items.map((item) => {
+        // A `hint` is for a segment whose caption is a symbol rather than a
+        // word («Aa.»): it names the choice on hover and to a screen reader.
+        const button = (
+          <button
+            key={item.value}
+            type="button"
+            className="segmented__option"
+            data-selected={item.value === value ? "true" : "false"}
+            aria-pressed={item.value === value}
+            aria-label={item.hint}
+            disabled={disabled}
+            onClick={() => onChange?.(item.value)}
+          >
+            {item.icon && <Icon name={item.icon} size={13}/>} {item.label}
+          </button>
+        );
+        return item.hint ? <Hint key={item.value} asChild text={item.hint}>{button}</Hint> : button;
+      })}
     </div>
   );
 }

@@ -683,8 +683,6 @@ export const en: Record<string, string | string[]> = {
   "Все": "All",
   "Шаг": "Step",
   "из 3": "of 3",
-  "До": "Before",
-  "После": "After",
   "Всего": "Total",
   "Значение": "Value",
   "Действия": "Actions",
@@ -840,16 +838,10 @@ export const en: Record<string, string | string[]> = {
   "Удалять слова-паразиты": "Remove verbal tics",
   "Исправлять опечатки": "Correct spelling",
   "при русском языке диктовки: однозначные исправления по встроенному словарю, без LLM": "when dictation language is Russian: unambiguous corrections using a built-in dictionary, without an LLM",
-  "Разбивать длинные предложения": "Split long sentences",
   "мягкое разделение длинных фраз по связкам": "gentle splitting of long phrases at conjunctions",
-  "Разбивать текст на абзацы": "Split text into paragraphs",
   "группировать готовые предложения без изменения слов; сохранять существующие переносы": "group existing sentences without changing words; preserve existing line breaks",
-  "Оформление предложений": "Sentence style",
-  "заглавная буква в начале предложений и точка в конце фразы": "a capital at the start of sentences and a full stop at the end",
   "Заглавные и точка": "Capitals and full stop",
   "Без точки в конце": "No final full stop",
-  "Как в чате": "Like a chat",
-  "строчные, без точки": "lowercase, no full stop",
   "Разработка": "Development",
   "ИИ и голос": "AI and voice",
   "Компании, модели, ассистенты и сервисы распознавания речи.": "Companies, models, assistants and speech recognition services.",
@@ -871,19 +863,29 @@ export const en: Record<string, string | string[]> = {
   "Введите слово или фразу и нажмите Enter. Несколько сразу можно разделить запятыми.":
     "Type a word or phrase and press Enter. Separate several with commas.",
   "Своё слово-паразит": "Your own verbal tic",
-  "Добавьте слово или фразу, которые нужно автоматически исправлять после распознавания.":
-    "Add a word or phrase to correct automatically after transcription.",
-  "Живой предпросмотр": "Live preview",
   "Введите текст для предпросмотра": "Enter some text to preview",
   "Diff: до LLM → финальный": "Diff: pre-LLM → final",
   "Свой файл": "Custom file",
 
   // ── Replacements ───────────────────────────────────────────────────────
   "Нет правил замены": "No replacement rules",
-  "— правил пока нет": "— no rules yet",
+  "Добавьте слово или фразу, которые нужно автоматически исправлять после распознавания.": "Add a word or phrase to correct automatically after transcription.",
+  "Нажмите, чтобы создать правило — оно сразу попадёт в список слева и в предпросмотр.": "Click to create a rule — it appears in the list on the left and in the preview straight away.",
   "Добавить правило-пример": "Add an example rule",
-  "Нажмите, чтобы создать правило — оно сразу попадёт в список слева и в предпросмотр.":
-    "Click to create a rule — it appears in the list on the left and in the preview straight away.",
+  "После": "After",
+  "До": "Before",
+  "Разбивать на абзацы": "Split into paragraphs",
+  "Разбивать длинные фразы": "Split long sentences",
+  "Предложения": "Sentences",
+  "Как в чате: строчные, без точки": "Like a chat: lowercase, no full stop",
+  "Предпросмотр": "Preview",
+  "Добавить правило": "Add rule",
+  "Действия с правилом": "Rule actions",
+  "Параметры": "Options",
+  "Скрыть параметры": "Hide options",
+  "Правило замены": "Replacement rule",
+  "пусто = удалить": "empty = delete",
+  "Экспорт и импорт правил": "Export and import rules",
   "Найти правило": "Find a rule",
   "что искать": "what to find",
   "на что заменить": "what to replace it with",
@@ -896,9 +898,7 @@ export const en: Record<string, string | string[]> = {
     "One rule changes nothing: the search text equals the replacement.",
   "Правила с одинаковым поиском и режимом совпадения конфликтуют между собой.":
     "Rules with the same search text and match mode conflict with each other.",
-  "Сработало 0 правил": "0 rules matched",
   "сраб.": "hits",
-  "удаляет текст": "deletes text",
   "без изменений": "unchanged",
 
   // ── LLM: profiles and providers ────────────────────────────────────────
@@ -1237,7 +1237,6 @@ export const en: Record<string, string | string[]> = {
   "день|дня|дней": ["day", "days"],
   "активный термин|активных термина|активных терминов": ["active term", "active terms"],
   "Удаляет из распознанного текста слова-паразиты, повторы и лишние пробелы, исправляет пунктуацию. Применяются только включённые правила.": "Removes filler words, repetitions and extra spaces from recognized text, and fixes punctuation. Only enabled rules are applied.",
-  "Заменяет найденные слова и фразы по вашим правилам: например, «щас» на «сейчас». Учитывает настройки регистра и совпадения каждого правила.": "Replaces matching words and phrases using your rules, such as “gonna” with “going to”. Respects each rule’s case and matching settings.",
   "Помогает исправлять похожие написания имён, брендов и терминов после распознавания. Активные наборы работают вместе; Whisper и Qwen3 также используют их как подсказку. Это не точная замена текста.": "Helps correct similar spellings of names, brands and terms after recognition. Active sets work together; Whisper and Qwen3 also use them as hints. This is not an exact text replacement.",
   "Нет активных": "None active",
   "Создать": "Create",
@@ -1251,13 +1250,10 @@ export const en: Record<string, string | string[]> = {
 
   // ── Processing → Text ──────────────────────────────────────────────────
   "Введите текст для проверки обработки": "Enter text to test processing",
-  "Весь локальный проход: очистка и замены — ровно то, что уходит в модель или во вставку.":
-    "The whole local pass: cleanup and replacements — exactly what goes to the model or into the paste.",
   "Замены на паузе: правила совпали бы, но в результат выше не попали.": "Replacements are paused: these rules would match, but they are not in the result above.",
   "не сохранено": "not saved",
   "Очистка": "Cleanup",
   "Словари": "Dictionaries",
-  "Diff: исходный → после обработки": "Diff: original → after processing",
 
   // ── Integrations ───────────────────────────────────────────────────────
   "Ключ сохранён. Привяжите его к профилю в поле «Key ref».": "Key saved. Bind it to a profile via the “Key ref” field.",

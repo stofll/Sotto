@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "../bridge";
 import type { ConfigResult, PreviewFormatResult, PreviewReplacementsResult, ReplacementMatchMode, ReplacementRule, TextFormattingConfig } from "../bridge/types";
-import { Card, PageHeader, Switch } from "../components/Shell";
+import { Card, PageHeader, Segmented, Switch } from "../components/Shell";
 import { Icon } from "../components/Icon";
 import { Foldable } from "../components/Foldable";
 import { Hint } from "../components/Hint";
 import { confirmDestructive } from "../components/ConfirmDialog";
 import { CustomSelect, type SelectOption } from "../components/CustomSelect";
-import { DiffBlock } from "../components/DiffBlock";
+import { DiffText } from "../components/DiffBlock";
+import { RowMenu } from "../components/RowMenu";
 import { t, tPlural } from "../i18n";
 import { textPreview, replacementExamples } from "./textExamples";
 import { DictionaryLibrary } from "./DictionaryLibrary";
@@ -63,10 +64,9 @@ function downloadTextFile(filename: string, text: string, mime = "application/js
 
 function ReplacementsEmptyState() {
   return (
-    <div style={{ display: "grid", placeItems: "center", padding: "46px 24px", color: "var(--ink-mute)", textAlign: "center" }}>
-      <div style={{ marginBottom: 12, opacity: 0.75 }}><Icon name="replace" size={32}/></div>
-      <div style={{ font: "500 14px/1.3 var(--font-sans)", color: "var(--ink-dim)" }}>{t("Нет правил замены")}</div>
-      <div style={{ marginTop: 6, maxWidth: 390, font: "400 12px/1.5 var(--font-sans)" }}>{t("Добавьте слово или фразу, которые нужно автоматически исправлять после распознавания.")}</div>
+    <div style={{ display: "grid", justifyItems: "center", gap: 4, padding: "18px 12px", textAlign: "center" }}>
+      <div style={{ font: "500 13px/1.3 var(--font-sans)", color: "var(--ink-dim)" }}>{t("Нет правил замены")}</div>
+      <div style={{ maxWidth: 360, font: "400 12px/1.5 var(--font-sans)", color: "var(--ink-mute)" }}>{t("Добавьте слово или фразу, которые нужно автоматически исправлять после распознавания.")}</div>
     </div>
   );
 }
@@ -91,36 +91,34 @@ const FORMAT_DEFAULTS: TextFormattingConfig = {
 };
 
 /** One switch in «Очистка». Steps nobody wants apart share a switch and write
- * all their flags at once; the backend still runs each step on its own flag. */
-type CleanGroup = { id: string; keys: Array<keyof TextFormattingConfig>; title: string; sub: string };
+ * all their flags at once; the backend still runs each step on its own flag.
+ *
+ * The details are an «i» hint beside the title, as elsewhere in the app, rather
+ * than two lines of fine print under every row. */
+type CleanGroup = { id: string; keys: Array<keyof TextFormattingConfig>; title: string; hint: string };
 
 const MASTER_HINT = () => t("Главный переключатель всего локального пайплайна");
 
 const CLEAN_GROUPS = (): CleanGroup[] => ([
-  { id: "glitches", keys: ["remove_hallucinations", "collapse_phrase_loops"], title: t("Убирать сбои распознавания"), sub: t("«субтитры сделал…», [Music], зациклившиеся фразы; если кроме них ничего нет — вставка отменяется") },
-  { id: "disfluencies", keys: ["remove_fillers", "remove_duplicates"], title: t("Убирать запинки и повторы"), sub: t("э-э, ммм, «я я хочу» → «я хочу»; английские uh, umm — при английской диктовке") },
-  { id: "parasites", keys: ["remove_parasites"], title: t("Удалять слова-паразиты"), sub: t("встроенный список только русский; свои слова работают на любом языке") },
-  { id: "spelling", keys: ["correct_spelling"], title: t("Исправлять опечатки"), sub: t("при русском языке диктовки: однозначные исправления по встроенному словарю, без LLM") },
-]);
-
-const PARAGRAPHS_GROUP = (): CleanGroup => (
-  { id: "paragraphs", keys: ["split_paragraphs"], title: t("Разбивать текст на абзацы"), sub: t("группировать готовые предложения без изменения слов; сохранять существующие переносы") }
-);
-
-// Opinionated steps that change the wording or layout more than cleanup does.
-const ADVANCED_GROUPS = (): CleanGroup[] => ([
-  { id: "ellipsis", keys: ["normalize_ellipsis"], title: t("Убирать многоточия пауз"), sub: t("внутри фразы — пробел, на границе предложения — точка; код, ссылки и числовые диапазоны сохраняются") },
-  { id: "split", keys: ["split_sentences"], title: t("Разбивать длинные предложения"), sub: t("мягкое разделение длинных фраз по связкам") },
+  { id: "glitches", keys: ["remove_hallucinations", "collapse_phrase_loops"], title: t("Убирать сбои распознавания"), hint: t("«субтитры сделал…», [Music], зациклившиеся фразы; если кроме них ничего нет — вставка отменяется") },
+  { id: "disfluencies", keys: ["remove_fillers", "remove_duplicates"], title: t("Убирать запинки и повторы"), hint: t("э-э, ммм, «я я хочу» → «я хочу»; английские uh, umm — при английской диктовке") },
+  { id: "parasites", keys: ["remove_parasites"], title: t("Удалять слова-паразиты"), hint: t("встроенный список только русский; свои слова работают на любом языке") },
+  { id: "spelling", keys: ["correct_spelling"], title: t("Исправлять опечатки"), hint: t("при русском языке диктовки: однозначные исправления по встроенному словарю, без LLM") },
+  { id: "ellipsis", keys: ["normalize_ellipsis"], title: t("Убирать многоточия пауз"), hint: t("внутри фразы — пробел, на границе предложения — точка; код, ссылки и числовые диапазоны сохраняются") },
+  { id: "paragraphs", keys: ["split_paragraphs"], title: t("Разбивать на абзацы"), hint: t("группировать готовые предложения без изменения слов; сохранять существующие переносы") },
+  { id: "split", keys: ["split_sentences"], title: t("Разбивать длинные фразы"), hint: t("мягкое разделение длинных фраз по связкам") },
 ]);
 
 const groupIsOn = (formatting: TextFormattingConfig, group: CleanGroup) => group.keys.some((key) => Boolean(formatting[key]));
 
 type SentenceStyle = "letter" | "no_dot" | "chat";
 
-const SENTENCE_STYLES = (): Array<SelectOption<SentenceStyle>> => ([
-  { value: "letter", label: t("Заглавные и точка") },
-  { value: "no_dot", label: t("Без точки в конце") },
-  { value: "chat", label: t("Как в чате"), meta: t("строчные, без точки") },
+// The segments show the result itself rather than its name; the name is the
+// hint and the accessible label. Latin «Aa» reads the same in both locales.
+const SENTENCE_STYLES = (): Array<{ value: SentenceStyle; label: string; hint: string }> => ([
+  { value: "letter", label: "Aa.", hint: t("Заглавные и точка") },
+  { value: "no_dot", label: "Aa", hint: t("Без точки в конце") },
+  { value: "chat", label: "aa", hint: t("Как в чате: строчные, без точки") },
 ]);
 
 const SENTENCE_STYLE_FLAGS: Record<SentenceStyle, Pick<TextFormattingConfig, "capitalize_sentences" | "final_punctuation">> = {
@@ -196,6 +194,8 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
   const [savingRules, setSavingRules] = useState(false);
   const [saved, setSaved] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // At most one rule shows its matching options at a time.
+  const [ruleOptionsId, setRuleOptionsId] = useState<string | null>(null);
   const findRef = useRef<HTMLInputElement>(null);
 
   // ── A shared preview of the whole local pass ───────────────────────────
@@ -447,30 +447,20 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
 
   const normalizedFilter = filter.trim().toLowerCase();
   const visibleRules = normalizedFilter ? rules.filter((rule) => `${rule.find}\n${rule.replace}`.toLowerCase().includes(normalizedFilter)) : rules;
-  const activeCount = rules.filter((rule) => rule.enabled).length;
   const cleanGroups = CLEAN_GROUPS();
-  const paragraphsGroup = PARAGRAPHS_GROUP();
-  const advancedGroups = ADVANCED_GROUPS();
-  const currentSentenceStyle = sentenceStyle(formatting);
-  const switchGroups = [...cleanGroups, paragraphsGroup, ...advancedGroups];
-  // The sentence style counts as a rule of its own: «Как в чате» is it off.
-  const activeCleanCount = switchGroups.filter((group) => groupIsOn(formatting, group)).length + (currentSentenceStyle === "chat" ? 0 : 1);
-  const cleanRuleCount = switchGroups.length + 1;
-  const advancedOpen = Boolean(folds.cleanMore);
-  const cleanRowStyle = { padding: "10px 12px", borderBottom: "1px solid var(--line-soft)", display: "flex", alignItems: "center", gap: 10, opacity: formatting.enabled ? 1 : 0.55 } as const;
-  const renderGroup = (group: CleanGroup, last = false) => (
-    <div key={group.id} style={last ? { ...cleanRowStyle, borderBottom: "none" } : cleanRowStyle}>
+  const cleanRowStyle = { padding: "9px 12px", borderBottom: "1px solid var(--line-soft)", display: "flex", alignItems: "center", gap: 10, opacity: formatting.enabled ? 1 : 0.55 } as const;
+  const renderGroup = (group: CleanGroup) => (
+    <div key={group.id} style={cleanRowStyle}>
       <div className="flex-grow" style={{ minWidth: 0 }}>
-        <div style={{ font: "500 13px/1.2 var(--font-sans)", color: "var(--ink)" }}>{group.title}</div>
-        <div style={{ font: "400 11.5px/1.4 var(--font-sans)", color: "var(--ink-mute)", marginTop: 2 }}>{group.sub}</div>
-        {/* The word list opens from the row it belongs to. The summary keeps
-            the point of showing it at all: how many words the step removes,
-            and how many you stopped. */}
-        {group.id === "parasites" && parasiteSets.length > 0 &&
-          <button type="button" className="btn btn--ghost" style={{ marginTop: 6, height: 26 }} onClick={() => setParasitesOpen(true)}>
-            <Icon name="sliders" size={12}/>{t("Список")}: {parasiteSummary}
-          </button>}
+        <div style={{ font: "500 13px/1.2 var(--font-sans)", color: "var(--ink)", display: "inline-flex", alignItems: "center", gap: 5 }}>{group.title}<Hint text={group.hint}/></div>
       </div>
+      {/* The word list opens from the row it belongs to. The summary keeps
+          the point of showing it at all: how many words the step removes,
+          and how many you stopped. */}
+      {group.id === "parasites" && parasiteSets.length > 0 &&
+        <button type="button" className="btn btn--ghost btn--sm" aria-label={`${t("Список")}: ${parasiteSummary}`} onClick={() => setParasitesOpen(true)}>
+          {parasiteSummary}<Icon name="chev-right" size={11}/>
+        </button>}
       {/* A group that disagrees with itself — one flag on, one off, from a
           config saved before the groups — shows as on; switching it writes
           every flag the same. */}
@@ -482,58 +472,44 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
   // useless exactly when the rules are being set up. The discrepancy is
   // labelled.
   const matchesAreHypothetical = paused;
-  // The diff is shown only when there is something to compare with; otherwise
-  // the result card holds an "enter some text" prompt.
   const showPreviewDiff = Boolean(previewText.trim() && previewResult);
+  // A search box over three rules is one more field to read past; it appears
+  // once the list is long enough to need it.
+  const showRuleSearch = rules.length > 6 || Boolean(filter);
 
   return (
     <div className="page">
       <input type="file" accept=".json,application/json" ref={fileInputRef} style={{ display: "none" }} onChange={(e) => { const file = e.target.files?.[0]; if (file) void importRules(file); }}/>
       {/* There are no state pills in the header: both duplicated what is
-          visible next to the blocks themselves — the rule counter sits on
-          «Замены», and «не сохранено» lights up right there by the save button.
-          A permanent green "saved" pill across the whole screen reported only
-          that nothing had happened. */}
+          visible next to the blocks themselves — «не сохранено» lights up
+          right on «Замены». A permanent green "saved" pill across the whole
+          screen reported only that nothing had happened. */}
       <PageHeader title={t("Текст")}/>
 
       <div className="text-grid">
         <div className="flex-col" style={{ gap: 12, minWidth: 0 }}>
+          {/* No «7/8» counter beside the title: it restated the switches below
+              and still left you to find which one was off. */}
           <Foldable
             open={Boolean(folds.clean)}
             onToggle={() => toggleFold("clean")}
             title={t("Очистка")}
             hint={t("Удаляет из распознанного текста слова-паразиты, повторы и лишние пробелы, исправляет пунктуацию. Применяются только включённые правила.")}
-            summary={<span className="head-count">{activeCleanCount}/{cleanRuleCount}</span>}
-            /* There is no "enabled" pill next to the switch: it said exactly
-               what the switch's position said, and in a narrow column it pushed
-               the header onto a second line. */
             aside={<Hint text={MASTER_HINT()}><Switch on={formatting.enabled} onChange={(next) => void saveFormatting({ enabled: next })}/></Hint>}
           >
             <div className="fold__rows">
-              {cleanGroups.map((group) => renderGroup(group))}
+              {cleanGroups.map(renderGroup)}
               {/* One choice for two flags: of their four combinations only
                   three are ever wanted, and a messenger reply without a final
                   dot is the one two plain switches made awkward to find. */}
-              <div style={{ ...cleanRowStyle, display: "block" }}>
-                <div style={{ font: "500 13px/1.2 var(--font-sans)", color: "var(--ink)" }}>{t("Оформление предложений")}</div>
-                <div style={{ font: "400 11.5px/1.4 var(--font-sans)", color: "var(--ink-mute)", marginTop: 2 }}>{t("заглавная буква в начале предложений и точка в конце фразы")}</div>
-                <div style={{ marginTop: 8, maxWidth: 260 }}>
-                  <CustomSelect<SentenceStyle>
-                    value={currentSentenceStyle}
-                    options={SENTENCE_STYLES()}
-                    inlineMeta
-                    metaSeparator="dash"
-                    onChange={(next) => void saveFormatting(SENTENCE_STYLE_FLAGS[next])}
-                  />
-                </div>
+              <div style={{ ...cleanRowStyle, borderBottom: "none" }}>
+                <div className="flex-grow" style={{ font: "500 13px/1.2 var(--font-sans)", color: "var(--ink)" }}>{t("Предложения")}</div>
+                <Segmented
+                  value={sentenceStyle(formatting)}
+                  options={SENTENCE_STYLES()}
+                  onChange={(next) => void saveFormatting(SENTENCE_STYLE_FLAGS[next as SentenceStyle])}
+                />
               </div>
-              {renderGroup(paragraphsGroup)}
-              <div style={{ padding: "6px 12px", borderBottom: advancedOpen ? "1px solid var(--line-soft)" : "none" }}>
-                <button type="button" className="btn btn--ghost" style={{ height: 26 }} aria-expanded={advancedOpen} onClick={() => toggleFold("cleanMore")}>
-                  <Icon name={advancedOpen ? "chev-up" : "chev-down"} size={12}/>{t("Дополнительно")} · {advancedGroups.length}
-                </button>
-              </div>
-              {advancedOpen && advancedGroups.map((group, i) => renderGroup(group, i === advancedGroups.length - 1))}
             </div>
           </Foldable>
 
@@ -616,85 +592,99 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
             open={Boolean(folds.repl)}
             onToggle={() => toggleFold("repl")}
             title={t("Замены")}
-            hint={t("Заменяет найденные слова и фразы по вашим правилам: например, «щас» на «сейчас». Учитывает настройки регистра и совпадения каждого правила.")}
-            summary={<>
-              <span className="head-count">{activeCount}/{rules.length}</span>
-              {!saved && <span className="pill warn">{t("не сохранено")}</span>}
-            </>}
+            summary={!saved ? <span className="pill warn">{t("не сохранено")}</span> : undefined}
             aside={<Hint text={paused ? t("Замены на паузе") : t("Замены применяются")}><Switch on={!paused} onChange={(next) => void setPaused(!next)}/></Hint>}
           >
-            <div style={{ padding: "10px 12px", display: "grid", gap: 10 }}>
-              <div className="flex-row" style={{ gap: 8, flexWrap: "wrap" }}>
-                <div className="input-search" style={{ flex: "1 1 180px" }}>
-                  <Icon name="search" size={13} className="input-search__icon"/>
-                  <input className="field" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder={t("Найти правило")} style={{ height: 32 }}/>
+            {showRuleSearch && <div style={{ padding: "8px 12px", borderBottom: "1px solid var(--line-soft)" }}>
+              <div className="input-search">
+                <Icon name="search" size={13} className="input-search__icon"/>
+                <input className="field" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder={t("Найти правило")} style={{ height: 30 }}/>
+              </div>
+            </div>}
+            {rules.length === 0 ? <ReplacementsEmptyState/> : visibleRules.map((rule, index) => {
+              const optionsOpen = ruleOptionsId === rule.id;
+              return (
+                // One line per rule. Matching mode, case and order are set once
+                // and rarely revisited, so they wait behind «⋯»; a mode other
+                // than the default stays visible as a pill, or a regex rule
+                // would read as a plain word.
+                <div key={rule.id} style={{ padding: "7px 12px", borderBottom: "1px solid var(--line-soft)", opacity: rule.enabled ? 1 : 0.66 }}>
+                  <div className="flex-row" style={{ gap: 8 }}>
+                    <Switch label={rule.find || t("Правило замены")} on={rule.enabled} onChange={(enabled) => updateRule(rule.id, { enabled })}/>
+                    <input ref={index === 0 ? findRef : undefined} className="field mono" value={rule.find} onChange={(e) => updateRule(rule.id, { find: e.target.value })} placeholder={t("что искать")} aria-label={t("что искать")} style={{ height: 28, flex: "1 1 0", minWidth: 0 }}/>
+                    <Icon name="arrow-right" size={12} style={{ color: "var(--ink-mute)", flexShrink: 0 }}/>
+                    {/* An empty replacement deletes the match. The placeholder
+                        says so in exactly the case it applies — the field is
+                        empty — instead of a warning pill on the row. */}
+                    <input className="field mono" value={rule.replace} onChange={(e) => updateRule(rule.id, { replace: e.target.value })} placeholder={t("пусто = удалить")} aria-label={t("на что заменить")} style={{ height: 28, flex: "1 1 0", minWidth: 0 }}/>
+                    {rule.match !== "word" && <span className="pill mono">{MATCH_LABELS()[rule.match]}</span>}
+                    <RowMenu label={t("Действия с правилом")} items={[
+                      { id: "options", label: optionsOpen ? t("Скрыть параметры") : t("Параметры"), icon: "sliders", onSelect: () => setRuleOptionsId(optionsOpen ? null : rule.id) },
+                      { id: "up", label: t("Поднять"), icon: "chev-up", disabled: index === 0, onSelect: () => moveRule(rule.id, -1) },
+                      { id: "down", label: t("Опустить"), icon: "chev-down", disabled: index === visibleRules.length - 1, onSelect: () => moveRule(rule.id, 1) },
+                      { id: "delete", label: t("Удалить"), icon: "trash", danger: true, onSelect: () => void deleteRule(rule.id) },
+                    ]}/>
+                  </div>
+                  {optionsOpen && <div className="flex-row" style={{ flexWrap: "wrap", gap: 8, marginTop: 8 }}>
+                    <div style={{ width: 130 }}><CustomSelect<string> value={rule.match} options={Object.entries(MATCH_LABELS()).map<SelectOption<string>>(([value, label]) => ({ value, label }))} onChange={(next) => updateRule(rule.id, { match: next as ReplacementMatchMode })}/></div>
+                    <label className="pill" style={{ justifyContent: "center", cursor: "pointer" }}><input className="checkbox" type="checkbox" checked={rule.case_sensitive} onChange={(e) => updateRule(rule.id, { case_sensitive: e.target.checked })}/> Aa</label>
+                    <label className="pill" style={{ justifyContent: "center", cursor: "pointer" }}><input className="checkbox" type="checkbox" checked={rule.preserve_case} onChange={(e) => updateRule(rule.id, { preserve_case: e.target.checked })}/>  {t("Регистр")}</label>
+                    <span className="pill mono">{rule.usage_count || 0}  {t("сраб.")}</span>
+                  </div>}
                 </div>
-                <button className="btn btn--ghost" onClick={() => addRule()} disabled={savingRules}><Icon name="plus" size={13}/>{t("Добавить")}</button>
-                <button className="btn btn--primary" onClick={() => void saveRules()} disabled={savingRules || saved}><Icon name="check" size={12}/>{savingRules ? t("Сохраняю") : t("Сохранить")}</button>
-              </div>
-
-              <div className="fold__rows">
-                {visibleRules.length === 0 ? <ReplacementsEmptyState/> : <div>{visibleRules.map((rule, index) => <div key={rule.id} style={{ padding: 10, display: "grid", gap: 8, borderBottom: index < visibleRules.length - 1 ? "1px solid var(--line-soft)" : "none", opacity: rule.enabled ? 1 : 0.66 }}>
-                  <div className="flex-row" style={{ gap: 8, flexWrap: "wrap" }}><Switch on={rule.enabled} onChange={(enabled) => updateRule(rule.id, { enabled })}/><span className="pill mono">{MATCH_LABELS()[rule.match]}</span><span className="pill mono">{rule.usage_count || 0}  {t("сраб.")}</span>{!rule.replace && <span className="pill warn">{t("удаляет текст")}</span>}<div style={{ marginLeft: "auto", display: "flex", gap: 4 }}><button className="btn btn--ghost" style={{ height: 24, padding: "0 7px" }} onClick={() => moveRule(rule.id, -1)} disabled={index === 0} aria-label={t("Поднять")}><Icon name="chev-down" size={12} style={{ transform: "rotate(180deg)" }}/></button><button className="btn btn--ghost" style={{ height: 24, padding: "0 7px" }} onClick={() => moveRule(rule.id, 1)} disabled={index === visibleRules.length - 1} aria-label={t("Опустить")}><Icon name="chev-down" size={12}/></button><button className="btn btn--ghost" style={{ height: 24, padding: "0 7px", color: "var(--err)" }} onClick={() => void deleteRule(rule.id)} aria-label={t("Удалить")}><Icon name="trash" size={12}/></button></div></div>
-                  <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 24px minmax(0, 1fr)", gap: 8, alignItems: "center" }}><input ref={index === 0 ? findRef : undefined} className="field mono" value={rule.find} onChange={(e) => updateRule(rule.id, { find: e.target.value })} placeholder={t("что искать")} style={{ height: 30 }}/><Icon name="arrow-right" size={13} style={{ color: "var(--ink-mute)" }}/><input className="field mono" value={rule.replace} onChange={(e) => updateRule(rule.id, { replace: e.target.value })} placeholder={t("на что заменить")} style={{ height: 30 }}/></div>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 8 }}><CustomSelect<string> value={rule.match} options={Object.entries(MATCH_LABELS()).map<SelectOption<string>>(([value, label]) => ({ value, label }))} onChange={(next) => updateRule(rule.id, { match: next as ReplacementMatchMode })}/><label className="pill" style={{ justifyContent: "center", cursor: "pointer" }}><input className="checkbox" type="checkbox" checked={rule.case_sensitive} onChange={(e) => updateRule(rule.id, { case_sensitive: e.target.checked })}/> Aa</label><label className="pill" style={{ justifyContent: "center", cursor: "pointer" }}><input className="checkbox" type="checkbox" checked={rule.preserve_case} onChange={(e) => updateRule(rule.id, { preserve_case: e.target.checked })}/>  {t("Регистр")}</label></div>
-                </div>)}</div>}
-                {formError && <div role="alert" style={{ padding: "10px 12px", color: "var(--err)", font: "500 12px/1.4 var(--font-sans)", borderTop: "1px solid var(--line)" }}>{formError}</div>}
-              </div>
-
-              {/* Export and import are one-off operations, and on one line with
-                  the search and «Сохранить» they stood between frequent actions.
-                  The captions are mandatory: without them «Импорт» is just a
-                  glyph. */}
-              <div className="flex-row" style={{ gap: 6, justifyContent: "flex-end" }}>
-                <button className="btn btn--ghost" style={{ height: 26 }} onClick={exportRules} disabled={rules.length === 0}><Icon name="download" size={12}/>{t("Экспорт")}</button>
-                <button className="btn btn--ghost" style={{ height: 26 }} onClick={() => fileInputRef.current?.click()}><Icon name="folder" size={12}/>{t("Импорт")}</button>
-              </div>
+              );
+            })}
+            {formError && <div role="alert" style={{ padding: "10px 12px", color: "var(--err)", font: "500 12px/1.4 var(--font-sans)", borderBottom: "1px solid var(--line-soft)" }}>{formError}</div>}
+            {/* Export and import are one-off operations, so they share a «⋯»
+                rather than standing beside the frequent ones. «Сохранить»
+                appears only when there is something to save. */}
+            <div className="flex-row" style={{ gap: 6, padding: "6px 12px" }}>
+              <button type="button" className="btn btn--ghost btn--sm" onClick={() => addRule()} disabled={savingRules}><Icon name="plus" size={12}/>{t("Добавить правило")}</button>
+              <div className="flex-grow"/>
+              <RowMenu label={t("Экспорт и импорт правил")} items={[
+                { id: "export", label: t("Экспорт"), icon: "download", disabled: rules.length === 0, onSelect: exportRules },
+                { id: "import", label: t("Импорт"), icon: "folder", onSelect: () => fileInputRef.current?.click() },
+              ]}/>
+              {!saved && <button type="button" className="btn btn--primary btn--sm" onClick={() => void saveRules()} disabled={savingRules}><Icon name="check" size={12}/>{savingRules ? t("Сохраняю") : t("Сохранить")}</button>}
             </div>
           </Foldable>
 
           <DictionaryLibrary open={Boolean(folds.dict)} onToggle={() => toggleFold("dict")} formatting={formatting} onSave={async (patch, onError) => Boolean(await onConfigChanged({ text_formatting: patch as TextFormattingConfig }, onError))}/>
         </div>
 
-        {/* The heading and the explanation live inside the first card rather
-            than above it: in the left column block headings sit inside the
-            border, and an external caption above the card read as alien. The
-            «до» and «после» steps are labelled with text — pills turned a
-            utility caption into an accent that competed with the card's own
-            content. */}
+        {/* One card for the whole preview: the text you type under «До», and
+            the same text with the changes marked under «После». The arrow and
+            the «Diff» caption of the former three cards are gone; the two
+            step labels stay, because they say what the right column is for. */}
         <div className="flex-col" style={{ gap: 12, minWidth: 0 }}>
           <Card>
-            <div className="preview-card__head">
-              <h2 className="preview-card__title">
-                {t("Живой предпросмотр")}
-                <Hint text={t("Весь локальный проход: очистка и замены — ровно то, что уходит в модель или во вставку.")}/>
-              </h2>
-              <span className="preview-card__step">{t("До")}</span>
+            <h2 className="preview-card__title">{t("Предпросмотр")}</h2>
+            <div className="preview-card__step">{t("До")}</div>
+            <textarea className="field mono" value={previewText} onChange={(e) => onPreviewDraftChange(e.target.value)} placeholder={t("Введите текст для проверки обработки")} aria-label={t("Введите текст для проверки обработки")} style={{ width: "100%", minHeight: 110, padding: 12, resize: "vertical", lineHeight: 1.55 }}/>
+            <div className="preview-card__step preview-card__step--after">{t("После")}</div>
+            <div className="preview-result">
+              {previewError
+                ? <span style={{ color: "var(--err)" }}>{previewError}</span>
+                : showPreviewDiff
+                  ? <DiffText before={previewText} after={previewResult}/>
+                  : <span style={{ color: "var(--ink-mute)" }}>{t("Введите текст для предпросмотра")}</span>}
             </div>
-            <textarea className="field mono" value={previewText} onChange={(e) => onPreviewDraftChange(e.target.value)} placeholder={t("Введите текст для проверки обработки")} style={{ width: "100%", minHeight: 145, padding: 12, resize: "vertical", lineHeight: 1.55 }}/>
+            {/* Only the rules that fired. «Сработало 0 правил» was a permanent
+                pill reporting that nothing had happened. */}
+            {!previewError && previewMatches?.length ? <div className="flex-row" style={{ flexWrap: "wrap", gap: 6, marginTop: 10 }}>
+              {previewMatches.map((item) => <span className={matchesAreHypothetical ? "pill" : "pill ok"} key={`${item.id}-${item.find}`}>{item.find}: {item.count}</span>)}
+            </div> : null}
+            {!previewError && matchesAreHypothetical && previewMatches?.length ? <div style={{ marginTop: 6, font: "400 11px/1.4 var(--font-sans)", color: "var(--warn)" }}>{t("Замены на паузе: правила совпали бы, но в результат выше не попали.")}</div> : null}
           </Card>
-          <div className="preview-pair__arrow preview-pair__arrow--down" aria-hidden="true"><Icon name="arrow-right" size={14}/></div>
-          <Card>
-            <div className="preview-card__head">
-              <span className="preview-card__step preview-card__step--after">{t("После")}</span>
-            </div>
-            {previewError ? <p style={{ margin: 0, font: "500 12px/1.55 var(--font-sans)", color: "var(--err)" }}>{previewError}</p> : <>
-              {/* The result shows only the diff: it is the processed text,
-                  simply with the changes highlighted. A separate paragraph above
-                  it printed the same string a second time. */}
-              {showPreviewDiff
-                ? <DiffBlock before={previewText} after={previewResult} title={t("Diff: исходный → после обработки")} />
-                : <p style={{ margin: 0, font: "400 13px/1.65 var(--font-sans)", color: "var(--ink-mute)", whiteSpace: "pre-wrap" }}>{t("Введите текст для предпросмотра")}</p>}
-              <div className="flex-row" style={{ flexWrap: "wrap", gap: 6, marginTop: 10 }}>{previewMatches?.length ? previewMatches.map((item) => <span className={matchesAreHypothetical ? "pill" : "pill ok"} key={`${item.id}-${item.find}`}>{item.find}: {item.count}</span>) : <span className="pill">{t("Сработало 0 правил")} {rules.length === 0 ? t("— правил пока нет") : ""}</span>}</div>
-              {matchesAreHypothetical && previewMatches?.length ? <div style={{ marginTop: 6, font: "400 11px/1.4 var(--font-sans)", color: "var(--warn)" }}>{t("Замены на паузе: правила совпали бы, но в результат выше не попали.")}</div> : null}
-            </>}
-          </Card>
+          {/* The examples stay in sight rather than inside «Замены»: one click
+              shows a rule working in the preview above, which is how the
+              feature explains itself. */}
           <Card pad="rows">
             <div style={{ font: "600 13px/1.2 var(--font-sans)", color: "var(--ink)", display: "inline-flex", alignItems: "center", gap: 5, marginBottom: 8 }}>
               {t("Добавить правило-пример")}
               <Hint text={t("Нажмите, чтобы создать правило — оно сразу попадёт в список слева и в предпросмотр.")}/>
             </div>
-            <div className="flex-row" style={{ flexWrap: "wrap", gap: 6 }}>{replacementExamples().map(([find, replace]) => <button key={find} className="btn btn--ghost" onClick={() => addRule(find, replace)} style={{ height: 26 }}><span className="mono">{find}</span><Icon name="arrow-right" size={11}/><span className="mono">{replace}</span></button>)}</div>
+            <div className="flex-row" style={{ flexWrap: "wrap", gap: 6 }}>{replacementExamples().map(([find, replace]) => <button key={find} type="button" className="btn btn--ghost btn--sm" onClick={() => addRule(find, replace)}><span className="mono">{find}</span><Icon name="arrow-right" size={11}/><span className="mono">{replace}</span></button>)}</div>
           </Card>
         </div>
       </div>
