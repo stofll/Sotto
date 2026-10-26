@@ -4402,7 +4402,7 @@ dependencies = [
 
 [[package]]
 name = "sotto"
-version = "0.3.6-beta.4"
+version = "0.3.6-beta.5"
 dependencies = [
  "block2",
  "cpal",
