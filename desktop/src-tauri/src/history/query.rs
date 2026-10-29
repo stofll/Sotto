@@ -231,6 +231,21 @@ pub fn list_history_page_from(
     policy: RetentionPolicy,
     query: &HistoryQuery,
 ) -> Result<HistoryPageResult, rusqlite::Error> {
+    // A single history page performs multiple SQL statements (retention tail,
+    // counts, focus position, entries, and selected IDs). On a separate WAL
+    // reader, a writer may commit between them. Keep all values on the same
+    // read snapshot without changing the caller's transaction state.
+    let savepoint = conn.unchecked_transaction()?;
+    let result = list_history_page_in_snapshot(&savepoint, policy, query)?;
+    savepoint.commit()?;
+    Ok(result)
+}
+
+fn list_history_page_in_snapshot(
+    conn: &Connection,
+    policy: RetentionPolicy,
+    query: &HistoryQuery,
+) -> Result<HistoryPageResult, rusqlite::Error> {
     let cutoff = if policy.max_age_seconds > 0 {
         unix_now()? - policy.max_age_seconds as f64
     } else {
@@ -408,6 +423,23 @@ mod tests {
 
     fn ids(result: &HistoryPageResult) -> Vec<u64> {
         result.entries.iter().map(|entry| entry.id).collect()
+    }
+
+    #[test]
+    fn history_page_does_not_leave_a_transaction_open() {
+        let conn = database();
+        insert(&conn, 1, 1.0, "entry", None);
+        let page = list_history_page_from(&conn, unlimited(), &HistoryQuery::default()).unwrap();
+        assert_eq!(page.total_count, 1);
+        assert!(conn.is_autocommit());
+        insert(&conn, 2, 2.0, "another", None);
+        assert_eq!(
+            list_history_page_from(&conn, unlimited(), &HistoryQuery::default())
+                .unwrap()
+                .total_count,
+            2
+        );
+        assert!(conn.is_autocommit());
     }
 
     #[test]
