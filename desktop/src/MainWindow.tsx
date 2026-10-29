@@ -189,7 +189,9 @@ export function MainWindow() {
   const [error, setError] = useState<string | null>(null);
   const [recordingState, setRecordingState] = useState<RecordingState>("idle");
   const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(null);
-  const [viewportWidth, setViewportWidth] = useState<number>(() => typeof window === "undefined" ? 1280 : window.innerWidth);
+  const [autoCollapsed, setAutoCollapsed] = useState(() =>
+    typeof window !== "undefined" && window.innerWidth < AUTO_COLLAPSE_BELOW,
+  );
   const [permissions, setPermissions] = useState<Array<{ permission: string; hint: string; message?: string }>>([]);
   const [manualCollapse, setManualCollapse] = useState<boolean | null>(() => {
     try {
@@ -209,7 +211,6 @@ export function MainWindow() {
     });
   }, [config]);
 
-  const autoCollapsed = viewportWidth < AUTO_COLLAPSE_BELOW;
   const collapsed = manualCollapse ?? autoCollapsed;
 
   useEffect(() => {
@@ -222,8 +223,9 @@ export function MainWindow() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const onResize = () => setViewportWidth(window.innerWidth);
+    const onResize = () => setAutoCollapsed(window.innerWidth < AUTO_COLLAPSE_BELOW);
     window.addEventListener("resize", onResize);
+    onResize();
     return () => window.removeEventListener("resize", onResize);
   }, []);
 

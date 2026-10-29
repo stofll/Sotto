@@ -64,6 +64,32 @@ def test_all_pages_render(app, page, locale, theme):
             expect(page.get_by_role("alert")).to_have_count(0)
 
 
+def test_sidebar_follows_width_boundary_until_manually_overridden(app, page):
+    page.set_viewport_size({"width": 1099, "height": 900})
+    app()
+    window = page.locator(".win")
+    expect(window).to_have_class("win collapsed")
+    page.set_viewport_size({"width": 1100, "height": 900})
+    expect(window).to_have_class("win")
+    page.set_viewport_size({"width": 1099, "height": 900})
+    expect(window).to_have_class("win collapsed")
+
+    page.get_by_role("button", name="Развернуть сайдбар", exact=True).click()
+    for width in [1200, 1000]:
+        page.set_viewport_size({"width": width, "height": 900})
+        expect(window).to_have_class("win")
+    page.reload()
+    expect(page.get_by_test_id("page-settings")).to_be_visible()
+    expect(window).to_have_class("win")
+
+    page.get_by_role("button", name="Свернуть сайдбар", exact=True).click()
+    page.set_viewport_size({"width": 1200, "height": 900})
+    expect(window).to_have_class("win collapsed")
+    page.reload()
+    expect(page.get_by_test_id("page-settings")).to_be_visible()
+    expect(window).to_have_class("win collapsed")
+
+
 def test_accessibility_notice_can_be_dismissed(app, page):
     ui = app(responses={"check_accessibility": [{"result": False}] * 8})
     notice = page.locator(".accessibility-notice")
