@@ -10,6 +10,15 @@ use std::path::{Path, PathBuf};
 use std::sync::{atomic::AtomicBool, Arc};
 use std::time::Instant;
 type Transcribe<'a> = Box<dyn FnMut(&str) -> Result<String, String> + 'a>;
+const BENCHMARK_SCHEMA: u64 = 2;
+
+fn speech_fixture(language: &str) -> Option<(&'static str, &'static str)> {
+    match language {
+        "ru" => Some(("https://huggingface.co/csukuangfj/sherpa-onnx-nemo-ctc-punct-giga-am-v3-russian-2025-12-16/resolve/4fb5407ff028a69fec516cdf4c10fac9ddea7c16/test_wavs/example.wav", "d8aaaa18a5098d7c6de0595ae7ac1e64cacd0d4022af3595213bdaf23be77e69")),
+        "en" => Some(("https://raw.githubusercontent.com/ggml-org/whisper.cpp/a8d002cfd879315632a579e73f0148d06959de36/samples/jfk.wav", "59dfb9a4acb36fe2a2affc14bacbee2920ff435cb13cc314a08c13f66ba7860e")),
+        _ => None,
+    }
+}
 
 #[derive(Debug, PartialEq)]
 struct Options {
@@ -125,15 +134,27 @@ fn validate_resume(
     machine: &str,
     hardware: &str,
     method: &str,
+    code: &serde_json::Value,
 ) -> Result<(), String> {
     for value in values {
-        if value["benchmark_schema"] != 1
+        if value["benchmark_schema"] != BENCHMARK_SCHEMA
             || value["machine"] != machine
             || value["hardware"] != hardware
             || value["method"] != method
             || value["compute"] != "cpu"
+            || value.get("code") != Some(code)
         {
-            return Err("This result file belongs to a different machine or benchmark method. Use a new --output file.".into());
+            return Err("This result file belongs to a different build, source, machine or benchmark method. Use a new --output file.".into());
+        }
+        let fixture_hash = value["fixture_language"]
+            .as_str()
+            .and_then(speech_fixture)
+            .map(|(_, hash)| hash);
+        if fixture_hash.is_none() || value["fixture_sha256"].as_str() != fixture_hash {
+            return Err(
+                "Speech fixture provenance is missing or has changed. Use a new --output file."
+                    .into(),
+            );
         }
         let valid_times = value["runs_ms"].as_array().is_some_and(|runs| {
             runs.len() == 5
@@ -202,9 +223,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .output
         .clone()
         .unwrap_or_else(|| root.join("references.json"));
+    let code = speech_eval::code_revision()?;
     let mut output = read_output(&output_path, options.resume)?;
     let context = model_performance::Profile::new(&options.ids[0], "cpu");
-    validate_resume(&output, &machine, &context.hardware, &context.method)?;
+    validate_resume(&output, &machine, &context.hardware, &context.method, &code)?;
     eprintln!("{machine}\nResults: {}", output_path.display());
     let client = sotto_lib::http_client::builder()
         .timeout(std::time::Duration::from_secs(600))
@@ -283,15 +305,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             model::verify_bundle_files(id)?;
         }
+        let (fixture_url, fixture_sha256) = speech_fixture(language).expect("validated language");
         if !fixtures.contains_key(language) {
-            let (url, hash) = if language == "ru" {
-                ("https://huggingface.co/csukuangfj/sherpa-onnx-nemo-ctc-punct-giga-am-v3-russian-2025-12-16/resolve/4fb5407ff028a69fec516cdf4c10fac9ddea7c16/test_wavs/example.wav", "d8aaaa18a5098d7c6de0595ae7ac1e64cacd0d4022af3595213bdaf23be77e69")
-            } else {
-                ("https://raw.githubusercontent.com/ggml-org/whisper.cpp/a8d002cfd879315632a579e73f0148d06959de36/samples/jfk.wav", "59dfb9a4acb36fe2a2affc14bacbee2920ff435cb13cc314a08c13f66ba7860e")
-            };
             fixtures.insert(
                 language.to_owned(),
-                common::speech_sample(&client, url, hash).await,
+                common::speech_sample(&client, fixture_url, fixture_sha256).await,
             );
         }
         let speech = &fixtures[language];
@@ -375,7 +393,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             times.sort_by(f64::total_cmp);
             let seconds = speech.len() as f64 / 16000.0;
             let result = serde_json::json!({
-                "benchmark_schema": 1, "hardware": profile.hardware, "runs_ms": runs_ms,
+                "benchmark_schema": BENCHMARK_SCHEMA, "hardware": profile.hardware, "runs_ms": runs_ms,
+                "code": code, "fixture_sha256": fixture_sha256, "fixture_url": fixture_url,
                 "measured_at_unix": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs(),
                 "rtfx": seconds / times[2],
                 "model_id": id, "revision": profile.revision, "method": profile.method,
@@ -383,6 +402,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "machine": machine, "fixture_language": language, "audio_seconds": seconds,
                 "median_ms": times[2] * 1000.0, "min_ms": times[0] * 1000.0, "max_ms": times[4] * 1000.0,
                 "load_ms": load_ms, "samples": 5,
+                "load_scope": "native context and state after weight verification; excludes verification; not a cold-cache measurement",
             });
             println!("{result}");
             output.push(result);
@@ -465,28 +485,59 @@ mod tests {
     #[test]
     fn resume_requires_complete_matching_measurements() {
         let profile = model_performance::Profile::new("tiny", "cpu");
+        let code = serde_json::json!({
+            "git_head": "commit", "native_source_sha256": "source",
+            "executable_sha256": "binary", "cargo_lock_sha256": "dependencies",
+        });
         let record = serde_json::json!({
-            "benchmark_schema": 1, "machine": "test", "hardware": profile.hardware,
+            "benchmark_schema": BENCHMARK_SCHEMA, "machine": "test", "hardware": profile.hardware,
             "method": profile.method, "compute": "cpu", "model_id": "tiny",
             "revision": profile.revision, "fixture_language": "ru", "language": "auto",
+            "fixture_sha256": speech_fixture("ru").unwrap().1, "code": code,
             "runs_ms": [100.0, 110.0, 105.0, 100.0, 105.0], "samples": 5, "rtf": 0.1,
         });
         let rows = vec![record.clone()];
-        assert!(validate_resume(&rows, "test", &profile.hardware, &profile.method).is_ok());
-        assert!(validate_resume(&rows, "other", &profile.hardware, &profile.method).is_err());
+        let validate = |values: &[serde_json::Value]| {
+            validate_resume(values, "test", &profile.hardware, &profile.method, &code)
+        };
+        assert!(validate(&rows).is_ok());
+        assert!(
+            validate_resume(&rows, "other", &profile.hardware, &profile.method, &code).is_err()
+        );
         assert!(completed(&rows, &profile, "ru", "auto"));
         assert!(!completed(&rows, &profile, "en", "auto"));
         assert!(!completed(&rows, &profile, "ru", "ru"));
         let mut revised = profile.clone();
         revised.revision = "new".into();
         assert!(!completed(&rows, &revised, "ru", "auto"));
-        for field in ["benchmark_schema", "runs_ms", "rtf", "samples"] {
+        for field in [
+            "benchmark_schema",
+            "runs_ms",
+            "rtf",
+            "samples",
+            "code",
+            "fixture_sha256",
+        ] {
             let mut incomplete = record.clone();
             incomplete.as_object_mut().unwrap().remove(field);
-            assert!(
-                validate_resume(&[incomplete], "test", &profile.hardware, &profile.method).is_err()
-            );
+            assert!(validate(&[incomplete]).is_err());
         }
+        for field in [
+            "git_head",
+            "native_source_sha256",
+            "executable_sha256",
+            "cargo_lock_sha256",
+        ] {
+            let mut changed = record.clone();
+            changed["code"][field] = "changed".into();
+            assert!(validate(&[changed]).is_err(), "accepted different {field}");
+        }
+        let mut old = record.clone();
+        old["benchmark_schema"] = 1.into();
+        assert!(validate(&[old]).is_err());
+        let mut fixture = record;
+        fixture["fixture_sha256"] = speech_fixture("en").unwrap().1.into();
+        assert!(validate(&[fixture]).is_err());
     }
 
     #[test]

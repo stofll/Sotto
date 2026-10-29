@@ -526,6 +526,9 @@ jobs:
       - name: Native dependency inventory regressions
         run: node --test scripts/generate-native-inventory.test.mjs
 
+      - name: Speech evaluation tool regressions
+        run: python3 -m unittest discover -s scripts -p '*speech_eval*.py'
+
       - name: Application version consistency
         run: sh scripts/check-version.sh
 

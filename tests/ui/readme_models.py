@@ -7,6 +7,7 @@ change fails the capture instead of silently falling back to a partial catalog.
 import hashlib
 import json
 import re
+import tomllib
 from pathlib import Path
 
 SOURCE_DIR = Path(__file__).resolve().parents[2] / "desktop/src-tauri/src"
@@ -99,8 +100,15 @@ def catalog():
 
 def assessments(models, revisions):
     references = json.loads((SOURCE_DIR / "model_reference.json").read_text())
-    performance = (SOURCE_DIR / "model_performance.rs").read_text(encoding="utf-8")
-    method = re.search(r'const METHOD: &str = "([^"]+)"', performance)[1]
+    lockfile = tomllib.loads((SOURCE_DIR.parent / "Cargo.lock").read_text())
+    versions = {package["name"]: package["version"] for package in lockfile["package"]}
+
+    def compatible(method, model):
+        engines = re.fullmatch(r"sotto-stt-v2-whisper-(.+)-sherpa-(.+)", method)
+        if engines is None:
+            return False
+        package, group = ("sherpa-onnx", 2) if model["cpu_only"] else ("whisper-rs", 1)
+        return engines[group] == versions[package]
     result = []
     for model in models:
         reference = next(
@@ -111,7 +119,7 @@ def assessments(models, revisions):
                 and row["revision"] == revisions[model["id"]]
                 and row["compute"] == "cpu"
                 and row["language"] == "auto"
-                and row["method"] == method
+                and compatible(row["method"], model)
             ),
             None,
         )

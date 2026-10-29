@@ -8,14 +8,14 @@
 //!   cargo bench --package sotto
 //!   cargo bench --package sotto --bench engine_bench
 //!
-//! Quick compile check (CI):
-//!   cargo bench --no-run --package sotto
+//! Compile/lint check (CI):
+//!   cargo clippy --locked --all-targets -- -D warnings
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use criterion::{criterion_group, criterion_main, Criterion, Throughput};
-use sotto_lib::cloud_stt::{audio_to_wav_bytes, build_multipart_body};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use sotto_lib::cloud_stt::multipart_upload;
 use sotto_lib::mutex_recover::lock;
 use sotto_lib::whisper::InferenceResult;
 
@@ -30,65 +30,36 @@ fn synth_audio(num_samples: usize) -> Vec<f32> {
         .collect()
 }
 
-/// A 5-second buffer at 16 kHz = 80 000 samples. This is the canonical
-/// "moderately long recording" used by the cloud STT path.
-const FIVE_SEC_SAMPLES: usize = 5 * 16_000; // 80_000
-
 // ---------------------------------------------------------------------------
-// Benchmark 1 – WAV encoding throughput
+// Production streaming WAV/multipart encoder, without network latency
 // ---------------------------------------------------------------------------
 
-fn wav_encoding_throughput(c: &mut Criterion) {
-    let audio = synth_audio(FIVE_SEC_SAMPLES);
-    let num_bytes = audio.len() * 2 + 44; // PCM i16 + WAV header
-
-    let mut group = c.benchmark_group("wav_encoding");
-    group.throughput(Throughput::Bytes(num_bytes as u64));
-    group.throughput(Throughput::Elements(audio.len() as u64));
-
-    group.bench_function("5s_audio", |b| {
-        b.iter(|| {
-            let wav = audio_to_wav_bytes(criterion::black_box(&audio));
-            criterion::black_box(wav);
-        });
-    });
-
-    group.finish();
-}
-
-// ---------------------------------------------------------------------------
-// Benchmark 2 – Multipart body construction with and without language
-// ---------------------------------------------------------------------------
-
-fn multipart_body_construction(c: &mut Criterion) {
-    let audio = synth_audio(FIVE_SEC_SAMPLES);
-    let wav_bytes = audio_to_wav_bytes(&audio);
-    let model = "whisper-large-v3-turbo";
-
-    let mut group = c.benchmark_group("multipart_body");
-
-    group.bench_function("without_language", |b| {
-        b.iter(|| {
-            let (body, ct) = build_multipart_body(
-                criterion::black_box(model),
-                criterion::black_box(None),
-                criterion::black_box(&wav_bytes),
-            );
-            criterion::black_box((body, ct));
-        });
-    });
-
-    group.bench_function("with_language", |b| {
-        b.iter(|| {
-            let (body, ct) = build_multipart_body(
-                criterion::black_box(model),
-                criterion::black_box(Some("ru")),
-                criterion::black_box(&wav_bytes),
-            );
-            criterion::black_box((body, ct));
-        });
-    });
-
+fn streaming_upload_encoding(c: &mut Criterion) {
+    let mut group = c.benchmark_group("streaming_upload");
+    for seconds in [5, 60, 600] {
+        let audio = Arc::new(synth_audio(seconds * 16_000));
+        for (label, language) in [("auto", None), ("ru", Some("ru"))] {
+            let size = multipart_upload(Arc::clone(&audio), "whisper-large-v3-turbo", language)
+                .unwrap()
+                .content_length;
+            group.throughput(Throughput::Bytes(size as u64));
+            group.bench_function(BenchmarkId::new(label, seconds), |b| {
+                b.iter(|| {
+                    let upload = multipart_upload(
+                        Arc::clone(criterion::black_box(&audio)),
+                        criterion::black_box("whisper-large-v3-turbo"),
+                        criterion::black_box(language),
+                    )
+                    .unwrap();
+                    // Drop each encoded chunk before requesting the next one,
+                    // matching the encoder's bounded production buffering.
+                    for chunk in upload {
+                        criterion::black_box(chunk);
+                    }
+                });
+            });
+        }
+    }
     group.finish();
 }
 
@@ -154,8 +125,7 @@ criterion_group!(
         .warm_up_time(Duration::from_millis(500))
         .measurement_time(Duration::from_secs(2))
         .sample_size(100);
-    targets = wav_encoding_throughput,
-              multipart_body_construction,
+    targets = streaming_upload_encoding,
               inference_result_clone,
               mutex_recover_lock_overhead
 );

@@ -1,3 +1,6 @@
+#[path = "build_support/engine_versions.rs"]
+mod engine_versions;
+
 /// Every command in `generate_handler!`. Declaring them makes Tauri check each
 /// call against the window's capability, so a window reaches only the
 /// commands `capabilities/<window>.json` grants it; the frontend test
@@ -70,6 +73,19 @@ const APP_COMMANDS: &[&str] = &[
 ];
 
 fn main() {
+    // Derive benchmark compatibility from the dependencies actually locked for
+    // this build. Historical reference files keep their original method label.
+    println!("cargo:rerun-if-changed=Cargo.lock");
+    println!("cargo:rerun-if-changed=../../scripts/sherpa-runtime.lock");
+    println!("cargo:rerun-if-changed=build_support/engine_versions.rs");
+    let lockfile = std::fs::read_to_string("Cargo.lock").expect("read Cargo.lock");
+    let runtime_lock = std::fs::read_to_string("../../scripts/sherpa-runtime.lock")
+        .expect("read Sherpa runtime lock");
+    let (whisper, sherpa) = engine_versions::versions(&lockfile, &runtime_lock)
+        .expect("identify locked speech engines");
+    println!("cargo:rustc-env=SOTTO_WHISPER_VERSION={whisper}");
+    println!("cargo:rustc-env=SOTTO_SHERPA_VERSION={sherpa}");
+
     // tauri_build only emits rerun-if-changed for tauri.conf.json, not for the
     // icon file *contents*. When an icon is replaced in-place (same filename),
     // Cargo therefore reuses the previously compiled resource and the EXE keeps

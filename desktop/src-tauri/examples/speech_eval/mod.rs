@@ -131,7 +131,7 @@ fn model_directory(path: &Path) -> Result<std::path::PathBuf, std::io::Error> {
     std::path::absolute(path)
 }
 
-fn code_revision() -> Result<Value, Box<dyn Error>> {
+pub(super) fn code_revision() -> Result<Value, Box<dyn Error>> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let head = std::process::Command::new("git")
         .args(["rev-parse", "HEAD"])
@@ -154,9 +154,15 @@ fn code_revision() -> Result<Value, Box<dyn Error>> {
     }
     visit(&root.join("desktop/src-tauri/src"), &mut files)?;
     visit(&root.join("desktop/src-tauri/examples"), &mut files)?;
+    visit(&root.join("desktop/src-tauri/build_support"), &mut files)?;
     files.extend([
         root.join("desktop/src-tauri/Cargo.lock"),
         root.join("desktop/src-tauri/Cargo.toml"),
+        root.join("desktop/src-tauri/build.rs"),
+        root.join("scripts/sherpa-runtime.lock"),
+        root.join("scripts/ggml-baseline.cmake"),
+        root.join(".cargo/config.toml"),
+        root.join("rust-toolchain.toml"),
     ]);
     files.sort();
     let mut hash = Sha256::new();

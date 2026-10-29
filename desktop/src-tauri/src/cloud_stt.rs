@@ -27,7 +27,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use futures_util::{stream, StreamExt};
+use futures_util::stream;
 use serde::Deserialize;
 
 const MAX_TRANSCRIPT_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
@@ -204,6 +204,71 @@ fn multipart_parts(model: &str, language: Option<&str>) -> (Vec<u8>, Vec<u8>, St
     (body, suffix, content_type)
 }
 
+/// The production upload encoder. Iteration encodes one bounded PCM chunk at
+/// a time, so consuming it in a benchmark exercises the same allocation and
+/// conversion path as HTTP backpressure does without contacting a provider.
+pub struct MultipartUpload {
+    pub content_length: usize,
+    pub content_type: String,
+    prefix: Option<Vec<u8>>,
+    header: Option<Vec<u8>>,
+    suffix: Option<Vec<u8>>,
+    audio: Arc<Vec<f32>>,
+    offset: usize,
+}
+
+impl Iterator for MultipartUpload {
+    type Item = Vec<u8>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(prefix) = self.prefix.take() {
+            return Some(prefix);
+        }
+        if let Some(header) = self.header.take() {
+            return Some(header);
+        }
+        if self.offset < self.audio.len() {
+            let end = self
+                .offset
+                .saturating_add(UPLOAD_CHUNK_SAMPLES)
+                .min(self.audio.len());
+            let bytes = wav_chunk(&self.audio[self.offset..end]);
+            self.offset = end;
+            return Some(bytes);
+        }
+        self.suffix.take()
+    }
+}
+
+pub fn multipart_upload(
+    audio: Arc<Vec<f32>>,
+    model: &str,
+    language: Option<&str>,
+) -> Result<MultipartUpload, String> {
+    let header = wav_header(audio.len())?;
+    let (prefix, suffix, content_type) = multipart_parts(model, language);
+    let content_length = prefix
+        .len()
+        .checked_add(header.len())
+        .and_then(|size| {
+            audio
+                .len()
+                .checked_mul(2)
+                .and_then(|pcm| size.checked_add(pcm))
+        })
+        .and_then(|size| size.checked_add(suffix.len()))
+        .ok_or_else(|| "cloud STT upload exceeds size limit".to_string())?;
+    Ok(MultipartUpload {
+        content_length,
+        content_type,
+        prefix: Some(prefix),
+        header: Some(header),
+        suffix: Some(suffix),
+        audio,
+        offset: 0,
+    })
+}
+
 /// Send the audio to the configured provider and return the
 /// transcribed text. Errors are returned as plain `String`s (not a
 /// typed enum) so the dispatcher can surface them in the existing
@@ -226,32 +291,10 @@ pub async fn transcribe(req: CloudSttRequest) -> Result<CloudSttResult, String> 
     }
 
     let started = Instant::now();
-    let wav_header = wav_header(req.audio.len())?;
-    let (prefix, suffix, content_type) = multipart_parts(&req.model, req.language.as_deref());
-    let content_length = prefix
-        .len()
-        .checked_add(wav_header.len())
-        .and_then(|size| size.checked_add(req.audio.len() * 2))
-        .and_then(|size| size.checked_add(suffix.len()))
-        .ok_or_else(|| "cloud STT upload exceeds size limit".to_string())?;
-    let chunks = stream::unfold(
-        (Arc::clone(&req.audio), 0usize),
-        |(audio, start)| async move {
-            if start == audio.len() {
-                None
-            } else {
-                let end = start.saturating_add(UPLOAD_CHUNK_SAMPLES).min(audio.len());
-                let bytes = wav_chunk(&audio[start..end]);
-                Some((Ok::<Vec<u8>, std::io::Error>(bytes), (audio, end)))
-            }
-        },
-    );
-    let upload = stream::iter([Ok::<Vec<u8>, std::io::Error>(prefix), Ok(wav_header)])
-        .chain(chunks)
-        .chain(stream::once(async move {
-            Ok::<Vec<u8>, std::io::Error>(suffix)
-        }));
-    let body = reqwest::Body::wrap_stream(upload);
+    let mut upload = multipart_upload(Arc::clone(&req.audio), &req.model, req.language.as_deref())?;
+    let content_length = upload.content_length;
+    let content_type = std::mem::take(&mut upload.content_type);
+    let body = reqwest::Body::wrap_stream(stream::iter(upload.map(Ok::<_, std::io::Error>)));
 
     let url = format!(
         "{}/audio/transcriptions",
@@ -327,6 +370,33 @@ pub async fn transcribe(req: CloudSttRequest) -> Result<CloudSttResult, String> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn upload_preserves_wire_bytes_and_bounds_pcm_chunks() {
+        for count in [
+            0,
+            1,
+            UPLOAD_CHUNK_SAMPLES - 1,
+            UPLOAD_CHUNK_SAMPLES,
+            UPLOAD_CHUNK_SAMPLES * 2 + 7,
+        ] {
+            let audio: Arc<Vec<f32>> = Arc::new((0..count).map(|i| (i as f32).sin()).collect());
+            for language in [None, Some("ru")] {
+                let (expected, content_type) =
+                    build_multipart_body("model", language, &audio_to_wav_bytes(&audio));
+                let mut upload = multipart_upload(Arc::clone(&audio), "model", language).unwrap();
+                assert_eq!(upload.content_length, expected.len());
+                assert_eq!(upload.content_type, content_type);
+                let mut actual = Vec::new();
+                for chunk in upload.by_ref() {
+                    assert!(chunk.len() <= UPLOAD_CHUNK_SAMPLES * 2);
+                    actual.extend(chunk);
+                }
+                assert_eq!(actual, expected);
+                assert!(upload.next().is_none());
+            }
+        }
+    }
 
     #[test]
     fn wav_wire_bytes_preserve_scaling_clipping_and_non_finite_silence() {
