@@ -179,8 +179,8 @@ fn register_matcher(conn: &Connection) -> Result<(), rusqlite::Error> {
             | FunctionFlags::SQLITE_DETERMINISTIC
             | FunctionFlags::SQLITE_INNOCUOUS,
         |ctx| {
-            let query = ctx.get::<String>(0)?;
-            let status = ctx.get::<String>(1)?;
+            let query = ctx.get_raw(0).as_str()?;
+            let status = ctx.get_raw(1).as_str()?;
             if status != "all" {
                 let ai = ctx
                     .get_raw(7)
@@ -219,7 +219,7 @@ fn register_matcher(conn: &Connection) -> Result<(), rusqlite::Error> {
                     text.push_str(field);
                 }
             }
-            Ok(text.to_lowercase().contains(&query))
+            Ok(text.to_lowercase().contains(query))
         },
     )
 }
@@ -476,6 +476,8 @@ mod tests {
             ("%", 2),
             ("_", 2),
             ("секрет", 3),
+            ("entry\nтест_100%", 2),
+            ("entry\nсекрет", 3),
             ("ОСОБЫЙ", 4),
             ("gigaam", 5),
         ] {
