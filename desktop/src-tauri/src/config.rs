@@ -439,8 +439,11 @@ pub fn validate(candidate: &Value) -> Result<(), String> {
     crate::dictionaries::validate(candidate)
 }
 
-/// Reject a speech language outside the selected model's declared languages.
+/// Reject a local route outside the selected model's declared languages.
 fn validate_speech_route(candidate: &Value) -> Result<(), String> {
+    if cloud_pipeline(candidate) {
+        return Ok(());
+    }
     let Some(model) = candidate.get("model").and_then(Value::as_str) else {
         return Ok(());
     };
@@ -565,11 +568,14 @@ fn save_config_locked(
     patch: Value,
 ) -> Result<Value, String> {
     let device_before = resolve_device(current_config.as_value());
+    let cloud_before = cloud_pipeline(current_config.as_value());
     // The configured-model half of the GigaAM language rule lives in
     // `config::validate`, which every writer goes through. This half cannot:
     // it asks what the engine has loaded right now, which no `Value` knows.
     let check_loaded_model = |candidate: &Config| {
-        if patch.get("language").is_none() && patch.get("model").is_none() {
+        if cloud_pipeline(candidate.as_value())
+            || (patch.get("language").is_none() && patch.get("model").is_none())
+        {
             return Ok(());
         }
         let language = candidate
@@ -594,14 +600,26 @@ fn save_config_locked(
     .as_value()
     .clone();
     let device_after = resolve_device(&saved);
+    let cloud_after = cloud_pipeline(&saved);
+    if cloud_before != cloud_after {
+        if cloud_after {
+            state.request_cloud_model_release();
+        } else {
+            state.retain_local_model();
+        }
+    }
     apply_runtime_config(app, &saved, &patch);
 
-    if device_before != device_after {
+    if !cloud_after && (device_before != device_after || cloud_before) {
         // Nothing to reload if no model is loaded — whatever loads next
-        // reads the new setting through `load_model_into_engine`.
+        // reads the new setting through `load_model_into_engine`. Returning
+        // from cloud also synchronizes a model explicitly kept in memory:
+        // its compute device may have changed while local STT was unused.
         let loaded = crate::mutex_recover::lock(&state.engine_current_model).clone();
-        if let Some(model) = loaded {
-            log::info!("device changed {device_before} → {device_after}, reloading {model}");
+        if let Some(model) = loaded.filter(|model| {
+            crate::model::model_engine(model).is_ok_and(|engine| !engine.is_sherpa())
+        }) {
+            log::info!("applying local compute device {device_after} to {model}");
             let reload_app = app.clone();
             let reload_tx = state.engine_cmd_tx.clone();
             tauri::async_runtime::spawn(async move {
@@ -609,7 +627,7 @@ fn save_config_locked(
                     &reload_app,
                     &reload_tx,
                     &model,
-                    crate::whisper::ModelLoadReason::Requested,
+                    crate::whisper::ModelLoadReason::DeviceChanged,
                 )
                 .await
                 {
@@ -620,6 +638,13 @@ fn save_config_locked(
     }
 
     Ok(saved)
+}
+
+pub(crate) fn cloud_pipeline(config: &Value) -> bool {
+    config
+        .pointer("/ai_processing/pipeline_mode")
+        .and_then(Value::as_str)
+        == Some("cloud")
 }
 
 /// Everything that has to happen inside the running app once a setting has
@@ -1519,6 +1544,37 @@ mod tests {
     fn validate_ignores_models_that_are_not_language_locked() {
         assert!(validate(&json!({ "model": "large-v3", "language": "en" })).is_ok());
         assert!(validate(&json!({ "language": "en" })).is_ok());
+    }
+
+    #[test]
+    fn cloud_language_is_independent_of_the_dormant_local_model() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        let original = json!({
+            "model": "small.en",
+            "language": "en",
+            "ai_processing": {"pipeline_mode": "local"}
+        });
+        std::fs::write(&path, original.to_string()).unwrap();
+        let cloud = save_with_merge_patch_at(
+            &path,
+            json!({"language": "ru", "ai_processing": {"pipeline_mode": "cloud"}}),
+        )
+        .unwrap();
+        assert_eq!(cloud["language"], "ru");
+        assert_eq!(cloud["model"], "small.en");
+
+        for mode in ["local", "hybrid"] {
+            let refused =
+                save_with_merge_patch_at(&path, json!({"ai_processing": {"pipeline_mode": mode}}));
+            assert!(refused.is_err());
+            assert_eq!(Config::load_at(&path).unwrap().as_value(), &cloud);
+        }
+        assert!(save_with_merge_patch_at(
+            &path,
+            json!({"model": "tiny", "ai_processing": {"pipeline_mode": "local"}}),
+        )
+        .is_ok());
     }
 
     /// The seam exists so that *every* writer is covered, not just the

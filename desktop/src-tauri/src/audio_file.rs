@@ -602,7 +602,11 @@ async fn transcribe_file_inner(
     );
 
     // The same queue orders restoration before file transcription as well.
-    crate::restore_unloaded_model(app, state);
+    if let Some(config) = config {
+        crate::restore_model_for_config(state, config.as_value());
+    } else {
+        crate::restore_unloaded_model(app, state);
+    }
 
     let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
     // Same branch as dictation's stop path: a cloud-configured user has no local

@@ -402,11 +402,24 @@ pub(crate) async fn load_model_into_engine(
     model: &str,
     reason: crate::whisper::ModelLoadReason,
 ) -> Result<(), String> {
+    let requested = std::time::Instant::now();
+    if !model_load_is_current(app, model, reason, None) {
+        return Ok(());
+    }
     let engine = crate::model::model_engine(model)?;
+    if reason == crate::whisper::ModelLoadReason::Requested {
+        // Reject malformed/unavailable choices before changing residency
+        // intent. This is metadata only; full verification stays off-thread.
+        if !crate::model::is_downloaded(model) {
+            return Err(format!("model {model} not downloaded"));
+        }
+        app.state::<AppState>().retain_local_model();
+    }
     // Hashing a bundle reads hundreds of megabytes: a blocking worker, not the
     // async one this runs on.
     let id = model.to_string();
     tauri::async_runtime::spawn_blocking(move || {
+        let started = std::time::Instant::now();
         if !crate::model::is_downloaded(&id) {
             return Err(format!("model {id} not downloaded"));
         }
@@ -414,7 +427,9 @@ pub(crate) async fn load_model_into_engine(
             // Mandatory closed-registry validation before crossing the Sherpa C
             // boundary. A malformed ONNX graph can abort the process via a C++
             // exception rather than return a Rust error.
-            crate::model::verify_bundle_files(&id)?;
+            let result = crate::model::verify_bundle_files(&id);
+            crate::whisper::log_model_timing("verify", reason.label(), started, result.is_ok());
+            result?;
         }
         Ok(())
     })
@@ -434,9 +449,11 @@ pub(crate) async fn load_model_into_engine(
         })
         .await
         .map_err(|e| format!("engine channel closed: {e}"))?;
-    reply_rx
+    let result = reply_rx
         .await
-        .map_err(|e| format!("engine reply dropped: {e}"))?
+        .map_err(|e| format!("engine reply dropped: {e}"))?;
+    crate::whisper::log_model_timing("request", reason.label(), requested, result.is_ok());
+    result
 }
 
 /// Queue a restore before any preview or transcription commands can follow.
@@ -445,17 +462,22 @@ pub(crate) async fn load_model_into_engine(
 /// including one still being restored, so preview can attach immediately.
 pub(crate) fn restore_unloaded_model(app: &AppHandle, state: &AppState) -> Option<String> {
     let config = crate::config::Config::load(app).ok()?;
+    restore_model_for_config(state, config.as_value())
+}
+
+/// File operations retain their configuration snapshot while decoding; a mode
+/// change must not prevent a local job already holding the engine from restoring.
+pub(crate) fn restore_model_for_config(state: &AppState, config: &Value) -> Option<String> {
     let loaded = crate::mutex_recover::lock(&state.engine_current_model).clone();
-    let model = recording_model(loaded.as_deref(), config.as_value())?;
+    let model = recording_model(loaded.as_deref(), config)?;
     if loaded.is_some() {
         return Some(model);
     }
     if !crate::model::is_downloaded(&model) {
         return None;
     }
-    let result =
-        crate::model::model_load_spec(&model, crate::config::device_uses_gpu(config.as_value()))
-            .and_then(|spec| queue_model_restore(&state.engine_cmd_tx, &model, spec));
+    let result = crate::model::model_load_spec(&model, crate::config::device_uses_gpu(config))
+        .and_then(|spec| queue_model_restore(&state.engine_cmd_tx, &model, spec));
     match result {
         Ok(()) => Some(model),
         Err(error) => {
@@ -466,11 +488,7 @@ pub(crate) fn restore_unloaded_model(app: &AppHandle, state: &AppState) -> Optio
 }
 
 fn recording_model(loaded: Option<&str>, config: &Value) -> Option<String> {
-    if config
-        .pointer("/ai_processing/pipeline_mode")
-        .and_then(Value::as_str)
-        == Some("cloud")
-    {
+    if crate::config::cloud_pipeline(config) {
         return None;
     }
     loaded
@@ -495,7 +513,9 @@ fn queue_model_restore(
 
 #[cfg(test)]
 mod model_restore_tests {
-    use super::{queue_model_restore, recording_model};
+    use super::{
+        automatic_model_load_matches, queue_model_restore, recording_model, startup_model,
+    };
     use crate::model::ModelLoadSpec;
     use crate::whisper::{EngineCommand, ModelLoadReason};
     use serde_json::json;
@@ -584,6 +604,100 @@ mod model_restore_tests {
             recording_model(Some("zipformer-ru-streaming"), &cloud),
             None
         );
+    }
+
+    #[test]
+    fn startup_only_loads_a_local_route_and_rechecks_the_selected_model() {
+        for mode in ["local", "hybrid"] {
+            let config = json!({"model": "tiny", "ai_processing": {"pipeline_mode": mode}});
+            assert_eq!(startup_model(&config), Some("tiny"));
+        }
+        assert_eq!(startup_model(&json!({"model": "tiny"})), Some("tiny"));
+        assert_eq!(startup_model(&json!({})), None);
+        let mut config = json!({"model": "tiny", "ai_processing": {"pipeline_mode": "cloud"}});
+        assert_eq!(startup_model(&config), None);
+        // An older startup task must also yield after a different model wins.
+        config["ai_processing"]["pipeline_mode"] = json!("local");
+        config["model"] = json!("small");
+        assert_ne!(startup_model(&config), Some("tiny"));
+    }
+
+    #[test]
+    fn late_automatic_loads_yield_to_cloud_or_a_new_model() {
+        let local = json!({"model": "tiny", "ai_processing": {"pipeline_mode": "local"}});
+        let cloud = json!({"model": "tiny", "ai_processing": {"pipeline_mode": "cloud"}});
+        for reason in [ModelLoadReason::Startup, ModelLoadReason::DeviceChanged] {
+            assert!(automatic_model_load_matches(
+                &local,
+                Some("tiny"),
+                "tiny",
+                reason,
+                None,
+            ));
+            assert!(!automatic_model_load_matches(
+                &cloud,
+                Some("tiny"),
+                "tiny",
+                reason,
+                None,
+            ));
+        }
+        assert!(!automatic_model_load_matches(
+            &local,
+            Some("small"),
+            "tiny",
+            ModelLoadReason::DeviceChanged,
+            None,
+        ));
+        // The model picker loads first and persists its selection afterwards.
+        // A startup task must yield even during that save gap.
+        assert!(!automatic_model_load_matches(
+            &local,
+            Some("small"),
+            "tiny",
+            ModelLoadReason::Startup,
+            None,
+        ));
+        assert!(!automatic_model_load_matches(
+            &local,
+            None,
+            "tiny",
+            ModelLoadReason::DeviceChanged,
+            None,
+        ));
+        // Explicit loads and a local file job's already-claimed restore stay
+        // valid; the cloud release policy waits until that operation ends.
+        for reason in [ModelLoadReason::Requested, ModelLoadReason::Restore] {
+            assert!(automatic_model_load_matches(
+                &cloud, None, "tiny", reason, None
+            ));
+        }
+    }
+
+    #[test]
+    fn automatic_reload_does_not_restore_an_outdated_compute_device() {
+        let config = json!({"model": "tiny", "device": "gpu"});
+        let cpu = unloaded_spec();
+        let gpu = ModelLoadSpec::Whisper {
+            path: "missing-test-model.bin".into(),
+            use_gpu: true,
+        };
+        for reason in [ModelLoadReason::Startup, ModelLoadReason::DeviceChanged] {
+            assert!(!automatic_model_load_matches(
+                &config,
+                Some("tiny"),
+                "tiny",
+                reason,
+                Some(&cpu)
+            ));
+            assert!(automatic_model_load_matches(
+                &config,
+                Some("tiny"),
+                "tiny",
+                reason,
+                Some(&gpu)
+            ));
+        }
     }
 
     #[cfg(any(windows, target_os = "macos"))]
@@ -1276,26 +1390,78 @@ fn spawn_model_autoload(app: AppHandle) {
                 return;
             }
         };
-        let Some(model) = config.get_string("model") else {
-            log::info!("no model in config, skipping auto-load");
+        let Some(model) = startup_model(config.as_value()) else {
+            log::info!("local model auto-load is not needed for the current configuration");
             return;
         };
-        if !crate::model::is_downloaded(&model) {
+        if !crate::model::is_downloaded(model) {
             log::info!("config.model={model} not downloaded, skipping auto-load");
             return;
         }
         match load_model_into_engine(
             &app,
             &engine,
-            &model,
-            crate::whisper::ModelLoadReason::Requested,
+            model,
+            crate::whisper::ModelLoadReason::Startup,
         )
         .await
         {
-            Ok(()) => log::info!("auto-loaded model {model} from saved config"),
+            Ok(()) => log::info!("startup model request completed for {model}"),
             Err(e) => log::warn!("auto-load failed: {e}"),
         }
     });
+}
+
+fn startup_model(config: &Value) -> Option<&str> {
+    (!crate::config::cloud_pipeline(config))
+        .then(|| config.get("model").and_then(Value::as_str))
+        .flatten()
+}
+
+pub(crate) fn model_load_is_current(
+    app: &AppHandle,
+    model: &str,
+    reason: crate::whisper::ModelLoadReason,
+    spec: Option<&crate::model::ModelLoadSpec>,
+) -> bool {
+    use crate::whisper::ModelLoadReason;
+    if matches!(
+        reason,
+        ModelLoadReason::Requested | ModelLoadReason::Restore
+    ) {
+        return true;
+    }
+    let Ok(config) = crate::config::Config::load(app) else {
+        return false;
+    };
+    let state = app.state::<AppState>();
+    let loaded = crate::mutex_recover::lock(&state.engine_current_model);
+    automatic_model_load_matches(config.as_value(), loaded.as_deref(), model, reason, spec)
+}
+
+fn automatic_model_load_matches(
+    config: &Value,
+    loaded: Option<&str>,
+    model: &str,
+    reason: crate::whisper::ModelLoadReason,
+    spec: Option<&crate::model::ModelLoadSpec>,
+) -> bool {
+    let route_matches = match reason {
+        crate::whisper::ModelLoadReason::Startup => {
+            startup_model(config) == Some(model) && loaded.is_none_or(|loaded| loaded == model)
+        }
+        crate::whisper::ModelLoadReason::DeviceChanged => {
+            !crate::config::cloud_pipeline(config) && loaded == Some(model)
+        }
+        _ => return true,
+    };
+    route_matches
+        && match spec {
+            Some(crate::model::ModelLoadSpec::Whisper { use_gpu, .. }) => {
+                *use_gpu == crate::config::device_uses_gpu(config)
+            }
+            _ => true,
+        }
 }
 
 /// The idle watchdog. It unloads nothing itself: the decision is made by the
@@ -1311,17 +1477,16 @@ fn spawn_idle_watchdog(app: AppHandle) {
         ticker.tick().await;
         loop {
             ticker.tick().await;
-            let Some(after) = idle_unload_after(&app) else {
-                continue;
-            };
             if crate::mutex_recover::lock(&state.engine_current_model).is_none() {
                 continue;
             }
             // `try_send`: a busy queue means the engine is not idle, so there
             // is nothing to ask it about.
-            let _ = state
-                .engine_cmd_tx
-                .try_send(crate::whisper::EngineCommand::UnloadIdle { after });
+            let command = match idle_unload_after(&app) {
+                Some(after) => crate::whisper::EngineCommand::UnloadIdle { after },
+                None => crate::whisper::EngineCommand::CheckModelResidency,
+            };
+            let _ = state.engine_cmd_tx.try_send(command);
         }
     });
 }
@@ -2017,9 +2182,7 @@ fn text_formatting_config(
 }
 
 /// Borrow the `ai_processing` sub-object from a loaded config, or a
-/// stable error string. Centralizes the lookup shared by the retry
-/// and cloud-STT paths (both need the same object and the same
-/// "missing ai_processing config" error message).
+/// stable error string, shared by the finalization and retry paths.
 pub(crate) fn ai_processing_config(config: &crate::config::Config) -> Result<&Value, String> {
     config
         .as_value()
@@ -2035,7 +2198,17 @@ pub(crate) fn build_cloud_stt_request(
     audio: &Arc<Vec<f32>>,
 ) -> Result<crate::cloud_stt::CloudSttRequest, String> {
     let config = crate::config::Config::load(app)?;
-    let ai = ai_processing_config(&config)?;
+    cloud_stt_request_from_config(config.as_value(), audio, crate::secret_store::get_key)
+}
+
+fn cloud_stt_request_from_config(
+    config: &Value,
+    audio: &Arc<Vec<f32>>,
+    load_key: impl FnOnce(&str) -> Result<Option<String>, String>,
+) -> Result<crate::cloud_stt::CloudSttRequest, String> {
+    let ai = config
+        .get("ai_processing")
+        .ok_or_else(|| "missing ai_processing config".to_string())?;
     let base_url = ai
         .get("base_url")
         .and_then(serde_json::Value::as_str)
@@ -2051,7 +2224,7 @@ pub(crate) fn build_cloud_stt_request(
         .get("api_key_ref")
         .and_then(serde_json::Value::as_str)
         .ok_or_else(|| "cloud STT requires 'api_key_ref' in ai_processing".to_string())?;
-    let api_key = crate::secret_store::get_key(api_key_ref)
+    let api_key = load_key(api_key_ref)
         .map_err(|error| format!("cloud STT api_key for '{api_key_ref}': {error}"))?
         .ok_or_else(|| {
             format!("cloud STT api_key for '{api_key_ref}' is empty (save it in API Keys)")
@@ -2060,9 +2233,14 @@ pub(crate) fn build_cloud_stt_request(
         .get("cloud_stt_timeout_seconds")
         .and_then(serde_json::Value::as_u64)
         .unwrap_or(45);
-    let language = ai
+    // Settings use one speech language for both local and cloud recognition.
+    // Omitting Auto lets the provider detect it; a stale nested value must not
+    // silently override the visible setting.
+    let language = config
         .get("language")
         .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|language| !language.is_empty() && *language != "auto")
         .map(str::to_string);
 
     Ok(crate::cloud_stt::CloudSttRequest {
@@ -2074,6 +2252,72 @@ pub(crate) fn build_cloud_stt_request(
         audio: Arc::clone(audio),
         timeout_seconds,
     })
+}
+
+#[cfg(test)]
+mod cloud_stt_request_tests {
+    use super::cloud_stt_request_from_config;
+    use serde_json::json;
+    use std::sync::Arc;
+
+    fn cloud_config() -> serde_json::Value {
+        json!({
+            "ai_processing": {
+                "pipeline_mode": "cloud",
+                "base_url": "https://speech.example.test/v1",
+                "stt_model": "test-speech-model",
+                "api_key_ref": "test-provider",
+                "language": "stale-nested-language"
+            }
+        })
+    }
+
+    #[test]
+    fn cloud_request_uses_the_visible_speech_language_and_shares_audio() {
+        let audio = Arc::new(vec![0.0; 160]);
+        for (language, expected) in [("ru", Some("ru")), ("en", Some("en")), ("auto", None)] {
+            let mut config = cloud_config();
+            config["language"] = json!(language);
+            let request = cloud_stt_request_from_config(&config, &audio, |slot| {
+                assert_eq!(slot, "test-provider");
+                Ok(Some("synthetic-test-key".into()))
+            })
+            .unwrap();
+            assert_eq!(request.language.as_deref(), expected);
+            assert_eq!(request.model, "test-speech-model");
+            assert_eq!(request.timeout_seconds, 45);
+            assert!(Arc::ptr_eq(&request.audio, &audio));
+        }
+    }
+
+    #[test]
+    fn absent_or_empty_cloud_language_does_not_use_a_legacy_nested_value() {
+        let audio = Arc::new(Vec::new());
+        for language in [None, Some(""), Some("  "), Some(" auto ")] {
+            let mut config = cloud_config();
+            if let Some(language) = language {
+                config["language"] = json!(language);
+            }
+            let request = cloud_stt_request_from_config(&config, &audio, |_| {
+                Ok(Some("synthetic-test-key".into()))
+            })
+            .unwrap();
+            assert!(request.language.is_none());
+        }
+    }
+
+    #[test]
+    fn cloud_request_still_requires_a_saved_key() {
+        let audio = Arc::new(Vec::new());
+        let error =
+            cloud_stt_request_from_config(&cloud_config(), &audio, |_| Ok(None)).unwrap_err();
+        assert!(error.contains("save it in API Keys"));
+        let error = cloud_stt_request_from_config(&cloud_config(), &audio, |_| {
+            Err("synthetic key-store failure".into())
+        })
+        .unwrap_err();
+        assert!(error.contains("synthetic key-store failure"));
+    }
 }
 
 #[cfg(test)]

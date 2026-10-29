@@ -64,6 +64,7 @@ fn channels_accept_all_engine_command_variants() {
             after: std::time::Duration::from_secs(300),
         })
         .is_ok());
+    assert!(tx.try_send(EngineCommand::CheckModelResidency).is_ok());
     assert!(tx
         .try_send(EngineCommand::Transcribe {
             session_id: 1,
