@@ -27,6 +27,7 @@ pub mod ai;
 mod audio;
 mod audio_file;
 mod audio_resampler;
+pub mod audio_samples;
 mod audio_worker;
 #[cfg(any(target_os = "macos", test))]
 mod autostart;
@@ -1102,15 +1103,26 @@ pub(crate) fn build_dictation_command(
     audio: Arc<Vec<f32>>,
     cancel_flag: Arc<AtomicBool>,
     reply: tokio::sync::oneshot::Sender<Result<crate::whisper::InferenceResult, String>>,
-) -> Result<crate::whisper::EngineCommand, String> {
-    let crate::vad::PreparedDictation {
+) -> Result<Option<crate::whisper::EngineCommand>, String> {
+    let Some(crate::vad::PreparedDictation {
         audio,
         offset,
         timing: speech_timing,
-    } = crate::vad::prepare_dictation(config.map(crate::config::Config::as_value), audio);
+    }) = crate::vad::prepare_dictation_unless(
+        config.map(crate::config::Config::as_value),
+        audio,
+        Arc::clone(&cancel_flag),
+    )
+    else {
+        return Ok(None);
+    };
+    if cancel_flag.load(Ordering::Acquire) {
+        speech_timing.resolve();
+        return Ok(None);
+    }
     let pipeline_mode = telemetry_pipeline_mode(config);
     if pipeline_mode != "cloud" {
-        return Ok(crate::whisper::EngineCommand::Transcribe {
+        return Ok(Some(crate::whisper::EngineCommand::Transcribe {
             session_id,
             audio,
             audio_offset: offset,
@@ -1122,12 +1134,17 @@ pub(crate) fn build_dictation_command(
             language: config.and_then(|cfg| cfg.get_string("language")),
             initial_prompt: config.and_then(custom_words_prompt),
             reply,
-        });
+        }));
     }
     // A cloud-configured user has no local model loaded, so sending
     // `Transcribe` would fail with «модель не загружена» for a reason that
     // has nothing to do with their setup.
-    let request = build_cloud_stt_request(app, &audio).map_err(|error| {
+    let request = build_cloud_stt_request(app, &audio);
+    if cancel_flag.load(Ordering::Acquire) {
+        speech_timing.resolve();
+        return Ok(None);
+    }
+    let request = request.map_err(|error| {
         log::error!("session {session_id}: cloud STT setup failed: {error}");
         app.state::<telemetry::Telemetry>().record_failed(
             telemetry::Source::Microphone,
@@ -1137,14 +1154,14 @@ pub(crate) fn build_dictation_command(
         );
         error
     })?;
-    Ok(crate::whisper::EngineCommand::TranscribeCloud {
+    Ok(Some(crate::whisper::EngineCommand::TranscribeCloud {
         session_id,
         audio,
         speech_timing,
         cancel_flag,
         request,
         reply,
-    })
+    }))
 }
 
 /// Everything that should happen when capture begins, beyond starting the
@@ -1833,8 +1850,8 @@ pub fn run() {
 ///
 /// `raw_text` is the untouched whisper output, `formatted_text` is the
 /// pre-LLM text (after local formatting), and `final_text` is what actually
-/// gets pasted. `ai_json` / `stats_json` are the serialized `ai_processing`
-/// and `processing_stats` blobs the history UI renders.
+/// gets pasted. `ai_json` and `timings` supply the processing details the
+/// history UI renders.
 pub(crate) struct ProcessedTranscription {
     pub(crate) raw_text: String,
     pub(crate) formatted_text: String,
@@ -1844,7 +1861,7 @@ pub(crate) struct ProcessedTranscription {
     /// stats aggregate needs the fields, and re-parsing our own JSON to get
     /// them back would be silly.
     pub(crate) ai_status: Option<crate::ai::step::AiStatus>,
-    stats_json: String,
+    timings: crate::stats::ProcessingTimings,
     system_prompt: Option<String>,
     /// An LLM request still running after its timeout. Only a dictation waits
     /// for it; a file transcription drops it, which cancels it.
@@ -2065,7 +2082,6 @@ pub(crate) async fn post_process_transcription(
     may_run_long: bool,
 ) -> ProcessedTranscription {
     let raw_text = inference.text.trim().to_string();
-    let whisper_seconds = inference.inference_time_ms as f64 / 1000.0;
     let config = crate::config::Config::load(app).ok();
 
     // 1. Local formatting (fillers, capitalization, replacements, …). Gated
@@ -2076,17 +2092,21 @@ pub(crate) async fn post_process_transcription(
     //    The shared formatter classifies intentional empty results after
     //    protecting code and replacement matches. Incidental empty cleanup
     //    falls back to raw text; hallucinations and explicit deletions do not.
-    let formatted_text = match &config {
+    let (formatted_text, format_elapsed) = match &config {
         Some(cfg) => {
-            let value = cfg.as_value().clone();
+            let config = cfg.clone();
             let text = raw_text.clone();
-            tauri::async_runtime::spawn_blocking(move || {
-                crate::formatter::format_transcription_with_config_value(&value, &text)
+            // This stage includes executor wait and the formatter/fallback,
+            // but starts after configuration loading and input preparation.
+            let started = std::time::Instant::now();
+            let formatted = tauri::async_runtime::spawn_blocking(move || {
+                crate::formatter::format_transcription_with_config_value(config.as_value(), &text)
             })
             .await
-            .unwrap_or_else(|_| raw_text.clone())
+            .unwrap_or_else(|_| raw_text.clone());
+            (formatted, started.elapsed())
         }
-        None => raw_text.clone(),
+        None => (raw_text.clone(), std::time::Duration::ZERO),
     };
 
     // 2. LLM cleanup step — hybrid mode only, see `llm_should_run`.
@@ -2124,14 +2144,11 @@ pub(crate) async fn post_process_transcription(
     };
 
     let llm_seconds = ai_status.as_ref().map(|s| s.elapsed_seconds).unwrap_or(0.0);
-    let stats_json = serde_json::json!({
-        "audio_seconds": inference.audio_seconds,
-        "speech_seconds": inference.speech_seconds,
-        "whisper_seconds": whisper_seconds,
-        "llm_seconds": llm_seconds,
-        "total_seconds": whisper_seconds + llm_seconds,
-    })
-    .to_string();
+    let timings = crate::stats::ProcessingTimings::new(
+        inference.inference_time_ms,
+        format_elapsed,
+        llm_seconds,
+    );
     let ai_json = ai_processing_json(ai_status.as_ref());
     let system_prompt = ai_value
         .as_ref()
@@ -2145,7 +2162,7 @@ pub(crate) async fn post_process_transcription(
         final_text,
         ai_json,
         ai_status,
-        stats_json,
+        timings,
         system_prompt,
         late_answer,
     }

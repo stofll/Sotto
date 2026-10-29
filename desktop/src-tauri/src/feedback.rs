@@ -49,6 +49,7 @@ fn project_logs(input: &str) -> String {
     static TIMING: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
         regex::Regex::new(concat!(
             r"^(capture timing: (first_callback_ms=[0-9]+|session=[0-9]+ queue_ms=[0-9]+ stream_ready_ms=[0-9]+)",
+            r"|stop timing: session=[0-9]+ queue_ms=[0-9]+ native_stop_ms=[0-9]+ processing_notice_ms=[0-9]+ prepare_ms=[0-9]+",
             r"|delivery timing: session=[0-9]+ (database_ms=[0-9]+|(main_)?queue_ms=[0-9]+ paste_ms=[0-9]+)",
             r"|model timing: stage=(verify|context|state|unload|request) reason=(startup|device|requested|restore|replace|idle|cloud|delete|first_inference) elapsed_ms=[0-9]+(\.[0-9]{3})? ok=(true|false)",
             r"|preview timing: session=[0-9]+ gap_count=[0-9]+ fallback_count=[0-9]+ reused=(true|false) pending_samples=[0-9]+)$",
@@ -191,6 +192,7 @@ mod tests {
         let messages = [
             "capture timing: first_callback_ms=42",
             "capture timing: session=7 queue_ms=2 stream_ready_ms=31",
+            "stop timing: session=7 queue_ms=2 native_stop_ms=5 processing_notice_ms=8 prepare_ms=13",
             "delivery timing: session=7 database_ms=3",
             "delivery timing: session=7 queue_ms=4 paste_ms=25",
             "delivery timing: session=7 main_queue_ms=4 paste_ms=25",
@@ -215,6 +217,7 @@ mod tests {
     fn timing_prefix_does_not_allow_free_form_diagnostics() {
         let messages = [
             "capture timing: session=7 queue_ms=2 stream_ready_ms=/Users/private",
+            "stop timing: session=7 queue_ms=2 native_stop_ms=5 processing_notice_ms=8 prepare_ms=13 text=private",
             "delivery timing: session=7 queue_ms=4 paste_ms=25 transcript=private",
             "model timing: stage=context reason=/Users/private elapsed_ms=1 ok=true",
             "model timing: stage=context reason=restore elapsed_ms=1 ok=true path=/Users/private",

@@ -700,6 +700,48 @@ mod tests {
     }
 
     #[test]
+    fn cancellation_reaches_preparation_without_waiting_for_the_audio_worker() {
+        let state = test_state();
+        let id = state.try_begin_dictation().unwrap();
+        assert!(state.claim_live_session(id));
+        let flag = Arc::new(AtomicBool::new(false));
+        state.register_cancel_flag(id, Arc::clone(&flag));
+        let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let worker_state = state.clone();
+        let worker_flag = Arc::clone(&flag);
+        state
+            .audio
+            .submit(move || {
+                entered_tx.send(()).unwrap();
+                release_rx.recv().unwrap();
+                let prepared = crate::vad::prepare_dictation_unless(
+                    Some(&serde_json::json!({})),
+                    Arc::new(vec![0.0; 16_000]),
+                    worker_flag,
+                );
+                let cancelled = prepared.is_none();
+                worker_state.finish_session(id);
+                done_tx.send(cancelled).unwrap();
+            })
+            .unwrap();
+        let timeout = std::time::Duration::from_secs(2);
+        entered_rx.recv_timeout(timeout).unwrap();
+
+        assert!(state.request_cancel(id));
+        assert!(flag.load(Ordering::Acquire));
+        assert!(state.is_engine_busy());
+        assert!(state.claim_engine().is_none());
+        assert!(state.try_begin_dictation().is_none());
+        release_tx.send(()).unwrap();
+
+        assert!(done_rx.recv_timeout(timeout).unwrap());
+        assert!(!state.is_engine_busy());
+        assert!(!state.is_session_active(id));
+    }
+
+    #[test]
     fn cancellation_marker_survives_stop_finalization_until_terminal_cleanup() {
         let state = test_state();
         let id = state.next_session_id();

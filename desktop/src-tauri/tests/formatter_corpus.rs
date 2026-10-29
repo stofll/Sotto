@@ -1,7 +1,8 @@
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sotto_lib::formatter::{
-    format_transcription_with_config_value, format_with_config_value, preview_format,
+    format_transcription_with_config_value, format_with_config_value, preview_format, Formatter,
+    FormatterConfig,
 };
 
 #[derive(Deserialize)]
@@ -31,6 +32,15 @@ fn reviewed_formatter_corpus() {
         assert!(!case.category.is_empty(), "missing category: {}", case.id);
         let config = case.config.unwrap_or_else(|| json!({"language": "ru"}));
         let actual = format_with_config_value(&config, &case.input);
+        let uncached =
+            Formatter::from_config(&FormatterConfig::deserialize(&config).unwrap_or_default())
+                .process(&case.input);
+        if uncached != actual {
+            failures.push(format!(
+                "{}: cached and freshly compiled output differ",
+                case.id
+            ));
+        }
         let preview = preview_format(&case.input, &config).unwrap().formatted;
         let delivered = format_transcription_with_config_value(&config, &case.input);
         let delivery_expected = case

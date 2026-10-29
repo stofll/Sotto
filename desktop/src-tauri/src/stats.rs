@@ -3,6 +3,7 @@
 //! Each operation locks the shared connection on its calling worker thread.
 
 use std::sync::Mutex;
+use std::time::Duration;
 
 use rusqlite::Connection;
 use serde::Serialize;
@@ -12,6 +13,44 @@ pub const TIME_SAVED_CPM_FALLBACK: f64 = 240.0;
 
 /// Days of daily_history retained in DB (mirror Python `HISTORY_DAYS = 365`).
 const DAILY_RETENTION_DAYS: i64 = 365;
+
+/// Measured processing stages for one delivered transcription. These exclude
+/// capture, the stop worker's preparation, model restoration, clipboard
+/// delivery and database work.
+#[derive(Debug, Clone, Copy)]
+pub struct ProcessingTimings {
+    whisper_seconds: f64,
+    format_seconds: f64,
+    llm_seconds: f64,
+}
+
+impl ProcessingTimings {
+    /// `format_elapsed` includes dispatch to the blocking executor and its
+    /// response, including fallback if the formatting worker fails.
+    pub fn new(inference_time_ms: u64, format_elapsed: Duration, llm_seconds: f64) -> Self {
+        Self {
+            whisper_seconds: inference_time_ms as f64 / 1000.0,
+            format_seconds: format_elapsed.as_secs_f64(),
+            llm_seconds,
+        }
+    }
+
+    fn total_seconds(self) -> f64 {
+        self.whisper_seconds + self.format_seconds + self.llm_seconds
+    }
+
+    pub(crate) fn history_json(self, audio_seconds: f64, speech_seconds: Option<f64>) -> String {
+        serde_json::json!({
+            "audio_seconds": audio_seconds,
+            "speech_seconds": speech_seconds,
+            "whisper_seconds": self.whisper_seconds,
+            "format_seconds": self.format_seconds,
+            "llm_seconds": self.llm_seconds,
+            "total_seconds": self.total_seconds(),
+        })
+        .to_string()
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Default)]
 pub struct StatsResult {
@@ -84,18 +123,20 @@ pub struct DailyEntry {
 /// ```
 ///
 /// NOTE: do NOT use `chars/5 / (cpm/60)` — that would be off by 5x.
+/// Processing totals include all three stages exactly once. LLM-specific
+/// counters are written separately by [`record_ai_outcome`].
 pub fn record_transcription(
     db: &Mutex<Connection>,
     text: &str,
     language: Option<&str>,
-    inference_time_ms: u64,
+    timings: ProcessingTimings,
     audio_seconds: f64,
     cpm: f64,
     speech_seconds: Option<f64>,
 ) -> Result<(), rusqlite::Error> {
     let conn = crate::mutex_recover::lock(db);
     let chars = text.chars().count() as i64;
-    let inference_seconds = inference_time_ms as f64 / 1000.0;
+    let inference_seconds = timings.whisper_seconds;
     // Guard against NaN/negative durations sneaking into the aggregate.
     let audio_seconds = if audio_seconds.is_finite() && audio_seconds > 0.0 {
         audio_seconds
@@ -124,8 +165,9 @@ pub fn record_transcription(
     upsert_total(&tx, "total_transcriptions", 1.0)?;
     upsert_total(&tx, "total_characters", chars as f64)?;
     upsert_total(&tx, "total_time_saved_seconds", time_saved)?;
-    upsert_total(&tx, "total_processing_seconds", inference_seconds)?;
+    upsert_total(&tx, "total_processing_seconds", timings.total_seconds())?;
     upsert_total(&tx, "total_whisper_seconds", inference_seconds)?;
+    upsert_total(&tx, "total_format_seconds", timings.format_seconds)?;
     upsert_total(&tx, "total_audio_seconds", audio_seconds)?;
     upsert_total(
         &tx,
@@ -150,8 +192,9 @@ pub fn record_transcription(
          count = count + 1, \
          chars = chars + ?1, \
          time_saved_seconds = time_saved_seconds + ?2, \
-         processing_seconds = processing_seconds + ?3, \
+         processing_seconds = processing_seconds + ?8, \
          whisper_seconds = whisper_seconds + ?3, \
+         format_seconds = format_seconds + ?9, \
          audio_seconds = audio_seconds + ?4, \
          excluded_silence_seconds = excluded_silence_seconds + ?6, \
          speech_timed_count = speech_timed_count + ?7 \
@@ -163,7 +206,9 @@ pub fn record_transcription(
             audio_seconds,
             today,
             excluded_silence_seconds,
-            speech_timed_count
+            speech_timed_count,
+            timings.total_seconds(),
+            timings.format_seconds
         ],
     )?;
 
@@ -189,6 +234,8 @@ pub fn record_transcription(
 /// Failures are also broken down by reason in `llm_fallback_reasons`, which
 /// is the part that answers *whose* problem it is: `provider_timeout` and
 /// `rate_limit` say the provider, `auth_error` and `bad_response` say us.
+/// This writes only LLM-specific counters; [`record_transcription`] adds the
+/// complete processing duration once from the shared stage measurements.
 pub fn record_ai_outcome(
     db: &Mutex<Connection>,
     status: &crate::ai::step::AiStatus,
@@ -778,10 +825,86 @@ mod tests {
         assert_eq!(total, 5000.0);
     }
 
+    fn stt_only(inference_ms: u64) -> ProcessingTimings {
+        ProcessingTimings::new(inference_ms, Duration::ZERO, 0.0)
+    }
+
+    #[test]
+    fn history_timing_json_includes_formatter_and_preserves_existing_fields() {
+        let timings = ProcessingTimings::new(500, Duration::from_millis(250), 1.5);
+        let json: serde_json::Value =
+            serde_json::from_str(&timings.history_json(4.0, Some(3.0))).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({
+                "audio_seconds": 4.0,
+                "speech_seconds": 3.0,
+                "whisper_seconds": 0.5,
+                "format_seconds": 0.25,
+                "llm_seconds": 1.5,
+                "total_seconds": 2.25,
+            })
+        );
+        let skipped: serde_json::Value =
+            serde_json::from_str(&stt_only(500).history_json(4.0, None)).unwrap();
+        assert_eq!(skipped["format_seconds"], 0.0);
+        assert_eq!(skipped["llm_seconds"], 0.0);
+        assert_eq!(skipped["total_seconds"], 0.5);
+        assert!(skipped["speech_seconds"].is_null());
+    }
+
+    #[test]
+    fn processing_aggregates_include_each_stage_once_with_and_without_llm() {
+        let db = fresh_db();
+        let status = ai_status(true, true, false);
+        record_ai_outcome(&db, &status).unwrap();
+        record_transcription(
+            &db,
+            "hybrid",
+            Some("en"),
+            ProcessingTimings::new(500, Duration::from_millis(250), status.elapsed_seconds),
+            4.0,
+            240.0,
+            Some(3.0),
+        )
+        .unwrap();
+        record_transcription(
+            &db,
+            "local",
+            Some("ru"),
+            ProcessingTimings::new(250, Duration::from_millis(125), 0.0),
+            2.0,
+            240.0,
+            None,
+        )
+        .unwrap();
+        let stats = get_stats_from(&db.lock().unwrap()).unwrap();
+        assert_eq!(stats.total_transcriptions, 2);
+        assert_eq!(stats.total_whisper_seconds, 0.75);
+        assert_eq!(stats.total_format_seconds, 0.375);
+        assert_eq!(stats.total_llm_seconds, 1.5);
+        assert_eq!(stats.total_processing_seconds, 2.625);
+        let day = &stats.daily_history[0];
+        assert_eq!(day.whisper_seconds, stats.total_whisper_seconds);
+        assert_eq!(day.format_seconds, stats.total_format_seconds);
+        assert_eq!(day.llm_seconds, stats.total_llm_seconds);
+        assert_eq!(day.processing_seconds, stats.total_processing_seconds);
+        assert_eq!(day.llm_attempts, 1);
+    }
+
     #[test]
     fn record_transcription_increments_totals_and_daily() {
         let db = fresh_db();
-        record_transcription(&db, "hello world", Some("en"), 250, 5.0, 240.0, None).unwrap();
+        record_transcription(
+            &db,
+            "hello world",
+            Some("en"),
+            stt_only(250),
+            5.0,
+            240.0,
+            None,
+        )
+        .unwrap();
         let stats = get_stats_from(&db.lock().unwrap()).unwrap();
         assert_eq!(stats.total_transcriptions, 1);
         assert_eq!(stats.total_characters, 11);
@@ -807,7 +930,7 @@ mod tests {
         // This validates the cpm parameter is actually plumbed through
         // (NOT hardcoded to the fallback constant).
         let db = fresh_db();
-        record_transcription(&db, "hello world", None, 100, 0.0, 60.0, None).unwrap();
+        record_transcription(&db, "hello world", None, stt_only(100), 0.0, 60.0, None).unwrap();
         let stats = get_stats_from(&db.lock().unwrap()).unwrap();
         assert!(
             (stats.total_time_saved_seconds - 11.0).abs() < 1e-6,
@@ -819,9 +942,18 @@ mod tests {
     #[test]
     fn silence_estimates_accumulate_without_rewriting_legacy_durations() {
         let db = fresh_db();
-        record_transcription(&db, "old", None, 100, 20.0, 240.0, None).unwrap();
-        record_transcription(&db, "new", None, 200, 30.0, 240.0, Some(10.0)).unwrap();
-        record_transcription(&db, "continuous", None, 300, 5.0, 240.0, Some(5.0)).unwrap();
+        record_transcription(&db, "old", None, stt_only(100), 20.0, 240.0, None).unwrap();
+        record_transcription(&db, "new", None, stt_only(200), 30.0, 240.0, Some(10.0)).unwrap();
+        record_transcription(
+            &db,
+            "continuous",
+            None,
+            stt_only(300),
+            5.0,
+            240.0,
+            Some(5.0),
+        )
+        .unwrap();
         let stats = get_stats_from(&db.lock().unwrap()).unwrap();
         assert_eq!(stats.total_audio_seconds, 55.0);
         assert_eq!(stats.total_excluded_silence_seconds, 20.0);
@@ -847,7 +979,8 @@ mod tests {
             Some(f64::INFINITY),
             Some(11.0),
         ] {
-            record_transcription(&db, "speech", None, 100, 10.0, 240.0, estimate).unwrap();
+            record_transcription(&db, "speech", None, stt_only(100), 10.0, 240.0, estimate)
+                .unwrap();
         }
         let stats = get_stats_from(&db.lock().unwrap()).unwrap();
         assert_eq!(stats.total_audio_seconds, 60.0);
@@ -867,7 +1000,7 @@ mod tests {
                 rusqlite::params![date],
             );
         }
-        record_transcription(&db, "test", None, 100, 1.0, 240.0, None).unwrap();
+        record_transcription(&db, "test", None, stt_only(100), 1.0, 240.0, None).unwrap();
         let count: i64 = db
             .lock()
             .unwrap()
@@ -928,7 +1061,7 @@ mod tests {
         assert!(joined.is_err(), "the holder thread should have panicked");
         assert!(db.is_poisoned(), "the connection mutex must be poisoned");
 
-        record_transcription(&db, "hello", None, 1000, 2.0, 240.0, None)
+        record_transcription(&db, "hello", None, stt_only(1000), 2.0, 240.0, None)
             .expect("write after poisoning should succeed");
         record_ai_outcome(&db, &ai_status(true, true, false))
             .expect("AI outcome after poisoning should succeed");

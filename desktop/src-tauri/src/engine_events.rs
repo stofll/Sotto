@@ -304,10 +304,11 @@ impl Dispatcher {
                 final_text,
                 ai_json,
                 ai_status,
-                stats_json,
+                timings,
                 system_prompt,
                 late_answer: _,
             } = processed;
+            let stats_json = timings.history_json(audio_seconds, speech_seconds);
             // LLM outcome first: it is the one aggregate that survives history
             // pruning, so it must not be skipped when a later write fails.
             if let Some(status) = &ai_status {
@@ -319,7 +320,7 @@ impl Dispatcher {
                 &db,
                 &final_text,
                 language.as_deref(),
-                inference_ms,
+                timings,
                 audio_seconds,
                 crate::stats::TIME_SAVED_CPM_FALLBACK,
                 speech_seconds,
