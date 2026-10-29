@@ -7,6 +7,26 @@ from playwright.sync_api import expect
 from test_navigation import TABS
 
 
+def banner_geometry(banner):
+    # Resize events can commit React state after a first animation query. Wait
+    # for style/layout frames, then read every rectangle in one browser task.
+    return banner.evaluate("""async element => {
+      await document.fonts.ready;
+      await new Promise(requestAnimationFrame);
+      await new Promise(requestAnimationFrame);
+      await Promise.all(document.getAnimations()
+        .filter(animation => animation instanceof CSSTransition)
+        .map(animation => animation.finished.catch(() => {})));
+      const rect = target => target.getBoundingClientRect().toJSON();
+      return {
+        card: rect(element),
+        copy: rect(element.querySelector('.window-banner__copy')),
+        actions: rect(element.querySelector('.window-banner__actions')),
+        overflow: element.scrollWidth - element.clientWidth,
+      };
+    }""")
+
+
 @pytest.mark.parametrize("locale", ["ru", "en"])
 @pytest.mark.parametrize("theme", ["dark", "light"])
 def test_titlebar_controls_and_sidebar(
@@ -120,11 +140,10 @@ def test_telemetry_notice_layout(app, page, locale, theme, output_path, tab_key)
     )
     banner = page.locator(".telemetry-consent")
     expect(banner).to_be_visible()
-    page.evaluate("() => document.fonts.ready.then(() => true)")
-    copy = banner.locator(".window-banner__copy").bounding_box()
-    actions = banner.locator(".window-banner__actions").bounding_box()
+    geometry = banner_geometry(banner)
+    copy, actions = geometry["copy"], geometry["actions"]
     assert actions["y"] >= copy["y"] + copy["height"]
-    assert copy["width"] > banner.bounding_box()["width"] * 0.8
+    assert copy["width"] > geometry["card"]["width"] * 0.8
     buttons = banner.get_by_role("button")
     buttons.first.focus()
     for index in range(buttons.count()):
@@ -150,18 +169,15 @@ def test_accessibility_notice_layout(app, page, locale, theme, output_path, tab_
     shots.mkdir(parents=True, exist_ok=True)
     for width in [1000, 1400]:
         page.set_viewport_size({"width": width, "height": 900})
-        # A resize across the sidebar breakpoint slides the sidebar and reflows
-        # the page beside it; measure after the transitions settle.
-        page.wait_for_function(
-            "() => !document.getAnimations().some("
-            "a => a instanceof CSSTransition && a.playState === 'running')"
+        # Wait for the responsive state before observing its CSS transitions.
+        expect(page.locator(".win")).to_have_class(
+            "win collapsed" if width == 1000 else "win"
         )
-        page.evaluate("() => document.fonts.ready.then(() => true)")
-        copy = card.locator(".window-banner__copy").bounding_box()
-        actions = card.locator(".window-banner__actions").bounding_box()
+        geometry = banner_geometry(card)
+        copy, actions = geometry["copy"], geometry["actions"]
         assert actions["y"] >= copy["y"] + copy["height"]
-        assert copy["width"] > card.bounding_box()["width"] * 0.8
-        assert card.evaluate("e => e.scrollWidth - e.clientWidth") <= 1
+        assert copy["width"] > geometry["card"]["width"] * 0.8
+        assert geometry["overflow"] <= 1
         card.screenshot(path=str(shots / f"accessibility-{width}.png"))
     buttons = card.get_by_role("button")
     buttons.first.focus()

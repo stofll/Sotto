@@ -16,20 +16,22 @@ BEAM_RECIPE = {
 def observe_preview_work(page):
     page.add_init_script("""(() => {
       const work = window.__previewWork = { frames: 0, intervals: 0, beamWrites: 0 };
+      window.__previewWorkAt = performance.now();
+      const record = key => { work[key]++; window.__previewWorkAt = performance.now(); };
       const frame = window.requestAnimationFrame;
       window.requestAnimationFrame = callback => frame.call(window, now => {
-        work.frames++;
+        record('frames');
         callback(now);
       });
       const interval = window.setInterval;
       window.setInterval = (callback, delay, ...args) => interval.call(window,
         typeof callback === 'function' ? (...values) => {
-          work.intervals++;
+          record('intervals');
           callback(...values);
         } : callback, delay, ...args);
       const setProperty = CSSStyleDeclaration.prototype.setProperty;
       CSSStyleDeclaration.prototype.setProperty = function (name, ...args) {
-        if (name.startsWith('--vb-')) work.beamWrites++;
+        if (name.startsWith('--vb-')) record('beamWrites');
         return setProperty.call(this, name, ...args);
       };
     })();""")
@@ -43,9 +45,28 @@ def preview_work(page):
     return {key: after[key] - before[key] for key in before}
 
 
+def expect_animated_preview(page):
+    # Require new frames and paint writes, not cumulative work from mounting or
+    # a short fixed sample that can land before a throttled browser resumes.
+    before = page.evaluate("({...window.__previewWork})")
+    page.wait_for_function(
+        "before => window.__previewWork.frames >= before.frames + 3 && "
+        "window.__previewWork.beamWrites >= before.beamWrites + 100",
+        arg=before,
+        polling=50,
+        timeout=10000,
+    )
+
+
 def expect_idle_preview(page):
-    # Level-driven drawings have a bounded 600 ms settling period.
-    page.wait_for_timeout(1000)
+    # A throttled browser can deliver the final 600 ms settling frame late.
+    # Observe a quiet period without adding a RAF sampler of our own, then
+    # require exactly zero further work. A recurring loop never becomes quiet.
+    page.wait_for_function(
+        "() => performance.now() - window.__previewWorkAt >= 750",
+        polling=50,
+        timeout=10000,
+    )
     assert preview_work(page) == {"frames": 0, "intervals": 0, "beamWrites": 0}
 
 
@@ -94,8 +115,7 @@ def test_constructor_pauses_on_native_blur_and_resumes_without_losing_recipe(
             "button", name="Обработка", exact=True
         ).click()
     expect(editor.locator(".ove-stage [data-voice-beam]")).to_be_visible()
-    page.wait_for_function("window.__previewWork.beamWrites > 100")
-    assert preview_work(page)["frames"] > 0
+    expect_animated_preview(page)
     recipe = ui.state()["config"]["overlay"]["recipe"]
 
     ui.emit("tauri://blur")
@@ -109,7 +129,7 @@ def test_constructor_pauses_on_native_blur_and_resumes_without_losing_recipe(
     expect(editor.locator(".ove-stage .ovs")).not_to_have_class(
         re.compile(r".*ovs--still.*")
     )
-    assert preview_work(page)["beamWrites"] > 0
+    expect_animated_preview(page)
     assert ui.state()["config"]["overlay"]["recipe"] == recipe
 
 
@@ -137,8 +157,7 @@ def test_unfocused_real_overlay_keeps_animating_and_stops_after_reset(
     ui.emit("recording-started", 42)
     expect(page.locator("[data-voice-beam]")).to_be_visible()
     ui.emit("audio-level", {"level": 0.7})
-    page.wait_for_function("window.__previewWork.beamWrites > 100")
-    assert preview_work(page)["beamWrites"] > 0
+    expect_animated_preview(page)
     ui.emit("overlay-reset")
     expect(page.locator("[data-voice-beam]")).to_have_count(0)
     expect_idle_preview(page)

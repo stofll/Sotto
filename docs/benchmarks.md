@@ -1,6 +1,6 @@
 # Engine Benchmarks
 
-The Criterion suite measures the production cloud upload encoder and selected primitive costs without a GPU, model files or external services. A separate explicit speech benchmark supplies the model catalog's comparative speed references. Neither suite measures desktop startup, native capture, stop-to-paste latency or model memory reclamation.
+The Criterion suite measures the production cloud upload encoder, live text formatting, history queries, capture sample conversion and VAD preparation without a GPU, model files or external services. A separate explicit speech benchmark supplies the model catalog's comparative speed references. These component measurements do not establish desktop startup, native callback scheduling, stop-to-paste latency or model memory reclamation.
 
 ## Model reference measurements
 
@@ -42,7 +42,7 @@ Cards use a compatible bundled CPU reference for the language selected in Settin
 
 The build derives engine versions from `Cargo.lock` and checks Sherpa against `scripts/sherpa-runtime.lock`. A reference must match its own engine: upgrading Sherpa invalidates Sherpa speed hints without invalidating unchanged Whisper measurements.
 
-Historical results keep their original method labels; incompatible rows remain available for review but appear as unmeasured in the application until a new run is reviewed. Speed comes only from this bundled reference; dictation performance is not recorded.
+Historical results keep their original method labels; incompatible rows remain available for review but appear as unmeasured in the application until a new run is reviewed. Live dictation timings do not update the bundled catalog reference.
 
 Pick the row to retain accordingly: multilingual Whisper's `auto` rows run 1.5–2x its explicit-language rows because of the detection pass, while the Sherpa and English-only Whisper rows differ by at most a few percent. The fixture language itself — Russian versus English speech of comparable length — moves RTF by 2–13%, so it is a note on the measurement rather than a second scale.
 
@@ -68,6 +68,12 @@ cargo bench --package sotto --bench engine_bench
 # Filtered by name (criterion supports substring matching)
 cargo bench --package sotto --bench engine_bench -- streaming_upload
 
+# Component suites can be run separately to keep a comparison bounded:
+cargo bench --locked --package sotto --bench engine_bench -- live_formatter
+cargo bench --locked --package sotto --bench engine_bench -- history_page
+cargo bench --locked --package sotto --bench engine_bench -- capture_samples
+cargo bench --locked --package sotto --bench engine_bench -- vad_prepare
+
 # Compile-only check
 cargo bench --no-run --package sotto
 ```
@@ -85,6 +91,30 @@ Cases cover 5, 60 and 600 seconds of synthetic 16 kHz mono audio, each with auto
 The former `wav_encoding` and `multipart_body` groups exercised full-buffer compatibility helpers that the production uploader no longer calls. Their historical results are not a baseline for the streaming group. Wire-equivalence tests compare the production iterator with those helpers across empty audio and chunk boundaries and verify chunk-size bounds.
 
 Establish a release benchmark baseline on a known machine before setting a streaming-encoder latency budget. A byte-size bound is not a measurement of whole-process peak memory: request buffering, the retained PCM input and the native application must be profiled separately.
+
+### `live_formatter`
+
+Every iteration calls the same `format_transcription_with_config_value` API as dictation and file delivery. The deterministic Russian text, personal vocabulary and replacement rules are in `benches/support/formatting.rs`. Cases cover default settings, 0/100/1,000 terms with 50 replacement rules, disabled formatting with the largest settings, alternating unrelated settings, and alternating replacement text that must rebuild the cached pipeline.
+
+Settings and input are prepared outside measurement. Warm repeated calls include typed configuration parsing, cache lookup and text processing; initial spelling-dictionary initialization is excluded. Compare a fresh process's first call separately, especially when checking disabled formatting. The relevant-setting case measures a cache miss on each alternation; the unrelated-setting case should reuse the same prepared matchers. Keep output equality and the reviewed formatter corpus alongside any timing comparison.
+
+### `history_page`
+
+The benchmark imports the production storage query module and measures a query plus JSON serialization of its result. A synthetic in-memory SQLite database contains 1,000, 10,000 or 100,000 retained rows, repeated timestamps, all three processing statuses, three transcript stages and pipeline JSON. One percent of rows contain a Russian search marker. The fixture uses the production history schema migrations and never opens application data.
+
+Cases request the first page, last page and a Unicode substring search, with 50 rows per page and unlimited retention for scaling. The 100,000-row case is an explicit stress case; the default retention cap is 1,000. Database construction is outside measurement. Counts and filtering still examine the retained dataset, and late offset pages can cost more than the first page. Bounded output does not imply constant query time.
+
+When comparing against the earlier full-history API, report returned rows and serialized bytes as well as query and serialization time. The earlier API sends the complete retained list before frontend filtering. This benchmark excludes IPC transport, recording-file checks, React rendering and filesystem I/O; measure those separately in the application.
+
+### `capture_samples`
+
+These cases call the production sample-conversion and stereo-to-mono helpers on 960 interleaved I16 or F32 samples (480 stereo frames). Scratch capacity is warmed before timing, matching repeated callbacks of the same size. They exclude CPAL scheduling, RMS calculation, resampling, recording-buffer locking and inference queues. A separate allocation counter is needed to establish allocation counts; elapsed time alone cannot establish that a callback allocates nothing.
+
+### `vad_prepare` and `vad_cancelled_before_prepare`
+
+Preparation uses the production VAD on 60 and 600 seconds of deterministic synthetic 16 kHz audio with trimming enabled. The active cases include the detector pass and any trim decision. Cancellation checks must preserve the same samples, offsets and speech timing when the flag stays clear.
+
+The cancelled case starts with the cancellation flag set and measures the early return, so it deliberately has no audio-throughput statistic. It verifies avoided work before recognition, not the delay from a real keypress or cancellation halfway through an operating-system callback. Synthetic audio timing does not evaluate speech-detection accuracy.
 
 ### `inference_result_clone`
 
@@ -113,6 +143,35 @@ cargo bench --package sotto --bench engine_bench -- --baseline main
 Keep the complete `target/criterion` directory with the measured revision and hardware/build context when retaining a baseline. The ordinary workflow does not run or upload Criterion measurements. Use an otherwise idle local machine or a dedicated runner with a consistent CPU for performance comparisons; shared hosted-runner timings are not a reliable small-regression gate.
 
 CI checks benchmark compilation through `cargo clippy --all-targets`, which runs in the `build-test` job on every target OS. A separate benchmark build was removed because it took 16 of that lint pass's 23 minutes.
+
+## Reproducible before/after comparisons
+
+Build both revisions with the pinned toolchain and the same optimization profile, target architecture and fixture definitions. Record the Git revisions, any uncommitted source hashes, complete lockfiles, executable hashes, CPU/OS, enabled features, thread count and whether the process and filesystem cache were warm. A benchmark introduced by the change must use the same harness and inputs on both implementations; changing the workload invalidates a percentage comparison.
+
+Run functional equivalence checks before timing. Use several fresh baseline/candidate process pairs, reversing their order on alternating pairs, and retain individual observations. Report the median of per-process medians and their range rather than choosing the fastest run. Avoid concurrent builds or tests during collection. These controls reduce local noise but do not turn a shared virtual machine into a dedicated performance runner.
+
+Where native prerequisites are unavailable, an isolated component harness may compile the unchanged production modules and their real dependencies. Keep the harness, exact source snapshots, lockfile and build command with its output. Explicitly label such results as component measurements and describe any omitted native wrapper. Source-import checks do not replace the application's platform builds or native UI verification.
+
+For memory, distinguish current resident memory from process peak RSS, allocator counts and GPU memory. A process-lifetime peak cannot show whether memory was released. Keep database population and audio-fixture allocation outside the timed query or detector region, and state whether those inputs are included in the reported memory baseline.
+
+## Native startup and model lifecycle protocol
+
+Run this protocol on the supported Windows and macOS targets with the same already-verified model files and an isolated test profile. Set `SOTTO_DATA_DIR`, `SOTTO_MODELS_DIR` and `SOTTO_LOG_DIR` to explicit test directories; a portable build's adjacent data directory takes precedence, so verify the resolved paths before launching. Keep the release build, selected engine, CPU/GPU setting, driver and application settings identical between revisions.
+
+| Scenario | Capture | Interpretation |
+| --- | --- | --- |
+| Fresh process, local mode | Launch-to-responsive-window, verification/context timings, current RSS and first-dictation latency | Separate UI readiness from model readiness and first Whisper state allocation. |
+| Fresh process, cloud mode | The same launch/RSS observations and model lifecycle log | Verify that startup does not create a local model context. No provider request is needed. |
+| Resident model, repeated dictation | At least five identical fixture runs, recognition time and delivery time | This is the warm path; report recognition and complete delivery separately. |
+| Restore after idle unload | Request/verification/context/state timings and current RSS before/after restore | Hash verification may warm the filesystem cache before context creation. |
+| Switch to cloud while idle and while busy | Time to safe unload, current RSS before unload and after 1/5/30 seconds | Active capture/file ownership must finish before the deferred release. |
+| Repeated load/release | Ten bounded cycles, current RSS/private memory and GPU memory after each settle period | Distinguish retained allocator/driver memory from an increasing residency trend. |
+
+The application logs `model timing` stages for request, verification, context creation, first-inference state and unload. A successful destructor timing proves the native object was released; it does not prove that the allocator or GPU driver returned every page immediately. Match events by the run and requested transition rather than adding overlapping timers together.
+
+Use the catalog pilot command above for a bounded CPU model comparison with existing weights. Its `load_ms` remains a single post-verification observation per model, and it does not measure application startup, idle policy or RSS. Call a new-process run "process cold" unless the filesystem-cache state was actually controlled and recorded. Do not flush the user's system caches or substitute a warmed catalog load for a cold-start result.
+
+If a supported native environment or verified model is unavailable, leave those observations unmeasured and state the missing prerequisite. Component benchmark improvements cannot supply those numbers.
 
 ## Adding new benchmarks
 
