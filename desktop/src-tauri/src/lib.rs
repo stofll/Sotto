@@ -89,7 +89,7 @@ mod windows {
 use crate::state::{AppFsm, AppState};
 use rusqlite::Connection;
 use serde_json::Value;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager};
 
