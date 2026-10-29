@@ -4,6 +4,7 @@ import type {
     HistoryAiPreview,
     HistoryEntry,
     HistoryListResult,
+    HistoryQuery,
     HistoryRetryAiResult,
 } from "./types";
 
@@ -13,6 +14,7 @@ export type {
     HistoryAiPreview,
     HistoryEntry,
     HistoryListResult,
+    HistoryQuery,
     HistoryRetryAiResult,
 };
 
@@ -28,8 +30,8 @@ export async function getStats(): Promise<StatsResult> {
     return await rustInvoke<StatsResult>("get_stats");
 }
 
-export async function listHistory(): Promise<HistoryListResult> {
-    return await rustInvoke<HistoryListResult>("list_history");
+export async function listHistory(query: HistoryQuery = {}): Promise<HistoryListResult> {
+    return await rustInvoke<HistoryListResult>("list_history", { query });
 }
 
 export async function deleteHistoryEntry(id: number): Promise<{ deleted: boolean }> {
@@ -71,8 +73,8 @@ export async function previewHistoryAiProcessing(
  * preview unchanged, so the row's badge and timings describe the run that was
  * accepted rather than an older attempt.
  *
- * Returns the refreshed entry so the caller can merge it into local state
- * without an extra `listHistory()` round-trip.
+ * Returns the refreshed entry for an immediate local update. The caller also
+ * refreshes its page because this write can change search/status membership.
  */
 export async function applyHistoryAiProcessing(
     id: number,

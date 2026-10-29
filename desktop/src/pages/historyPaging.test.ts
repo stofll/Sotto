@@ -1,22 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { HISTORY_PAGE_SIZE, historyPage, pagerItems } from "./HistoryPage";
-
-describe("historyPage", () => {
-  const items = Array.from({ length: 120 }, (_, index) => index);
-
-  it("slices fifty entries per page", () => {
-    expect(historyPage(items, 0).items).toEqual(items.slice(0, HISTORY_PAGE_SIZE));
-    expect(historyPage(items, 2)).toMatchObject({ page: 2, pageCount: 3, items: items.slice(100) });
-  });
-
-  it("lands on the last page when the list shrank under the current one", () => {
-    expect(historyPage(items.slice(0, 60), 2)).toMatchObject({ page: 1, pageCount: 2, items: items.slice(50, 60) });
-  });
-
-  it("keeps one empty page for an empty list", () => {
-    expect(historyPage([], 3)).toEqual({ items: [], page: 0, pageCount: 1 });
-  });
-});
+import { pagerItems } from "./HistoryPage";
 
 describe("pagerItems", () => {
   it("shows every page when there are few", () => {
@@ -26,5 +9,10 @@ describe("pagerItems", () => {
   it("keeps the ends and the neighbours of the current page", () => {
     expect(pagerItems(9, 19)).toEqual([0, "gap", 8, 9, 10, "gap", 18]);
     expect(pagerItems(0, 19)).toEqual([0, 1, "gap", 18]);
+  });
+
+  it("keeps the same compact controls for an unlimited archive", () => {
+    expect(pagerItems(50_000, 100_000)).toEqual([0, "gap", 49_999, 50_000, 50_001, "gap", 99_999]);
+    expect(pagerItems(99_999, 100_000)).toEqual([0, "gap", 99_998, 99_999]);
   });
 });

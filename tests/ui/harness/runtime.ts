@@ -1,6 +1,6 @@
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks';
 import { emit } from '@tauri-apps/api/event';
-import type { ConfigResult, ModelInfo, StatsResult } from '../../../desktop/src/bridge/types';
+import type { ConfigResult, HistoryEntry, HistoryQuery, ModelInfo, StatsResult } from '../../../desktop/src/bridge/types';
 
 const config: ConfigResult = {
   theme: 'dark', ui_language: 'ru', language: 'ru', model: 'tiny', device: 'cpu',
@@ -104,7 +104,33 @@ export function install(seed: any = {}) {
       case 'list_microphones': return [{ id: 'test-mic', name: 'Synthetic microphone' }];
       case 'get_runtime_status': return structuredClone(state.runtime);
       case 'get_stats': return structuredClone(state.stats);
-      case 'list_history': return { entries: structuredClone(state.history), max_age_seconds: 2592000, max_entries: 1000 };
+      case 'list_history': {
+        // Seeds describe the already-retained database. Filtering/paging here
+        // exercises the IPC contract; Rust tests own actual retention and SQL.
+        const query: HistoryQuery = args.query ?? {};
+        const retained: HistoryEntry[] = [...state.history].sort((a, b) => b.timestamp - a.timestamp || b.id - a.id);
+        const needle = (query.query ?? '').trim().toLowerCase();
+        const rows = retained.filter((entry) => {
+          if (query.ids && !query.ids.includes(entry.id)) return false;
+          if (query.since !== undefined && entry.timestamp < query.since) return false;
+          const ai = entry.ai_processing;
+          const status = ai?.attempted && ai.used ? 'processed' : ai?.attempted && ai.fallback ? 'fallback' : 'skipped';
+          if (query.status && query.status !== 'all' && query.status !== status) return false;
+          return !needle || [entry.text, entry.formatted_text, entry.raw_text, entry.system_prompt, entry.transcription_model]
+            .filter(Boolean).join('\n').toLowerCase().includes(needle);
+        });
+        const size = Math.min(100, Math.max(1, query.page_size ?? 50));
+        let page = Math.min(query.page ?? 0, Math.max(0, Math.ceil(rows.length / size) - 1));
+        const focused = rows.findIndex((entry) => entry.id === query.focus_id);
+        if (focused >= 0) page = Math.floor(focused / size);
+        return {
+          entries: structuredClone(rows.slice(page * size, (page + 1) * size)),
+          max_age_seconds: (state.config.history_retention_days ?? 30) * 86400,
+          max_entries: state.config.history_max_entries ?? 1000,
+          total_count: retained.length, filtered_count: rows.length, page, page_size: size,
+          known_ids: retained.filter((entry) => query.known_ids?.includes(entry.id)).map((entry) => entry.id),
+        };
+      }
       case 'delete_history_entry': state.history = state.history.filter((e: any) => e.id !== args.id); persist(); return { deleted: true };
       case 'clear_history': { const count = state.history.length; state.history = []; persist(); return { deleted: count }; }
       case 'history_recording': return silentWav(2);
@@ -170,6 +196,10 @@ export function install(seed: any = {}) {
   const invoke = internals.invoke;
   internals.invoke = async (command: string, args: any) => {
     const result = await invoke(command, args);
+    if (command === 'apply_history_ai_processing' && result?.updated && result.entry) {
+      state.history = state.history.map((entry: HistoryEntry) => entry.id === result.entry.id ? structuredClone(result.entry) : entry);
+      persist();
+    }
     if (command === 'plugin:event|listen') subscriptions[args.event] = (subscriptions[args.event] ?? 0) + 1;
     // An unlisten for an event that was never counted must not poison the
     // counter with NaN: emit() waits on `> 0` and would then never proceed.

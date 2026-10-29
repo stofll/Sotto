@@ -111,7 +111,7 @@ function pageFor(tab: TabId, data: {
     case "text": return <TextPage config={data.config} onConfigChanged={data.onConfigChanged} previewDraft={data.textPreviewDraft} onPreviewDraftChange={data.onTextPreviewDraftChange}/>;
     case "ai": return <AiPage config={data.config?.ai_processing ?? null} apiKeys={data.apiKeys} onConfigChanged={data.onConfigChanged} onNavigate={(t) => data.onNavigate(t)}/>;
     case "integrations": return <IntegrationsPage config={data.config?.ai_processing ?? null} apiKeys={data.apiKeys} onConfigChanged={data.onConfigChanged} onApiKeysChanged={data.onApiKeysChanged}/>;
-    case "history": return <HistoryPageLoader focus={data.historyFocus}/>;
+    case "history": return <HistoryPageLoader focus={data.historyFocus} config={data.config}/>;
     case "stats": return <StatsPage stats={data.stats} typingSpeedCpm={data.config?.typing_speed_cpm} onRefresh={data.onStatsRefresh}/>;
     case "info": return <InfoPage version={data.version} config={data.config} onConfigChanged={data.onConfigChanged} onStartOnboarding={data.onStartOnboarding} installRequested={data.updateInstallRequested} onInstallRequestHandled={data.onUpdateInstallRequestHandled}/>;
   }
@@ -123,7 +123,7 @@ function DataLoadingState({ failed = false, onRetry }: { failed?: boolean; onRet
   </div>;
 }
 
-function HistoryPageLoader({ focus }: { focus: HistoryFocus | null }) {
+function HistoryPageLoader({ focus, config }: { focus: HistoryFocus | null; config: ConfigResult }) {
   const [Page, setPage] = useState<typeof import("./pages/HistoryPage")["HistoryPage"] | null>(null);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
@@ -133,7 +133,7 @@ function HistoryPageLoader({ focus }: { focus: HistoryFocus | null }) {
       .catch(() => { if (!disposed) setFailed(true); });
     return () => { disposed = true; };
   }, []);
-  if (Page) return <Page focus={focus}/>;
+  if (Page) return <Page focus={focus} config={config}/>;
   return <div className="loading-state" role={failed ? "alert" : "status"}>
     {failed ? <div>
       <p>{t("Не удалось открыть историю.")}</p>

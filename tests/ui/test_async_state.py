@@ -245,12 +245,12 @@ def test_old_history_reply_cannot_replace_fresh_snapshot(app, page):
     }""")
     page.wait_for_function("n => window.delayedHistory.length > n", arg=before)
     page.evaluate(
-        "entry => window.delayedHistory[window.delayedHistory.length - 1]({ entries: [entry], max_age_seconds: 2592000, max_entries: 1000 })",
+        "entry => window.delayedHistory[window.delayedHistory.length - 1]({ entries: [entry], max_age_seconds: 2592000, max_entries: 1000, total_count: 1, filtered_count: 1, page: 0, page_size: 50, known_ids: [] })",
         NEW_ENTRY,
     )
     expect(page.get_by_test_id("history-entry-2")).to_be_visible()
     page.evaluate(
-        "entry => window.delayedHistory[0]({ entries: [entry], max_age_seconds: 2592000, max_entries: 1000 })",
+        "entry => window.delayedHistory[0]({ entries: [entry], max_age_seconds: 2592000, max_entries: 1000, total_count: 1, filtered_count: 1, page: 0, page_size: 50, known_ids: [] })",
         OLD_ENTRY,
     )
     expect(page.get_by_test_id("history-entry-2")).to_be_visible()

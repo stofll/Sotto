@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { invoke, subscribe } from "../bridge";
+import { subscribe } from "../bridge";
 import { isWindowShown, subscribeWindowActivity } from "../bridge/windowActivity";
 import {
     applyHistoryAiProcessing,
@@ -148,42 +148,18 @@ function entryHasDetails(entry: HistoryEntry): boolean {
   return false;
 }
 
-function filterEntries(entries: HistoryEntry[], query: string, status: StatusFilter, date: DateFilter): HistoryEntry[] {
-  const q = query.trim().toLowerCase();
-  const now = Date.now() / 1000;
-  const cutoff = date === "today" ? now - 24 * 3600 : date === "week" ? now - 7 * 24 * 3600 : 0;
-  return entries.filter((entry) => {
-    if (cutoff && entry.timestamp < cutoff) return false;
-    if (status !== "all") {
-      const kind = aiStatusKind(entry);
-      if (status === "processed" && kind !== "processed") return false;
-      if (status === "fallback" && kind !== "fallback") return false;
-      if (status === "skipped" && kind !== "skipped" && kind !== "none") return false;
-    }
-    if (!q) return true;
-    const haystack = [entry.text, entry.formatted_text, entry.raw_text, entry.system_prompt, entry.transcription_model]
-      .filter(Boolean).join("\n").toLowerCase();
-    return haystack.includes(q);
-  });
-}
-
 export const HISTORY_PAGE_SIZE = 50;
-
-/** One page of the filtered entries. A page past the end — the last entries
- *  were deleted, or a new dictation pushed the list — lands on the last one. */
-export function historyPage<T>(items: T[], page: number, size = HISTORY_PAGE_SIZE): { items: T[]; page: number; pageCount: number } {
-  const pageCount = Math.max(1, Math.ceil(items.length / size));
-  const current = Math.min(Math.max(0, page), pageCount - 1);
-  return { items: items.slice(current * size, (current + 1) * size), page: current, pageCount };
-}
 
 /** Page buttons to show: the first, the last and the neighbours of the
  *  current one, with a gap marker where pages are skipped. Zero-based. */
 export function pagerItems(page: number, pageCount: number): Array<number | "gap"> {
   const items: Array<number | "gap"> = [];
-  for (let index = 0; index < pageCount; index += 1) {
-    if (index === 0 || index === pageCount - 1 || Math.abs(index - page) <= 1) items.push(index);
-    else if (items[items.length - 1] !== "gap") items.push("gap");
+  const visible = [...new Set([0, page - 1, page, page + 1, pageCount - 1])]
+    .filter((index) => index >= 0 && index < pageCount).sort((a, b) => a - b);
+  for (const index of visible) {
+    const previous = items[items.length - 1];
+    if (typeof previous === "number" && index > previous + 1) items.push("gap");
+    items.push(index);
   }
   return items;
 }
@@ -219,12 +195,16 @@ function describeRetention(maxAgeSeconds: number, maxEntries: number): string {
   return t("Хранится {p0}", { p0: parts.join(t(", не больше ")) });
 }
 
-export function HistoryPage({ focus = null }: { focus?: { id: number; seq: number } | null } = {}) {
+export function HistoryPage({ focus = null, config = null }: { focus?: { id: number; seq: number } | null; config?: ConfigResult | null } = {}) {
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
   // Matches RetentionPolicy::default in src-tauri/src/history.rs.
   const [maxAgeSeconds, setMaxAgeSeconds] = useState(30 * 24 * 3600);
   const [maxEntries, setMaxEntries] = useState(1000);
   const [loading, setLoading] = useState(true);
+  const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [totalCount, setTotalCount] = useState(0);
+  const [filteredCount, setFilteredCount] = useState(0);
   const [copiedId, setCopiedId] = useState<number | null>(null);
   const [copiedBlockKey, setCopiedBlockKey] = useState<string | null>(null);
   const [expandedBlockKeys, setExpandedBlockKeys] = useState<Set<string>>(() => new Set());
@@ -242,16 +222,18 @@ export function HistoryPage({ focus = null }: { focus?: { id: number; seq: numbe
   // value it had when the request left.
   const reprocessRunRef = useRef(0);
   const [variantApplyingId, setVariantApplyingId] = useState<number | null>(null);
-  const [currentAiConfig, setCurrentAiConfig] = useState<AiConfig | null>(null);
+  const currentAiConfig = config?.ai_processing ?? null;
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   const [viewMode, setViewMode] = useState<ViewMode>("cards");
   const [groupedByDay, setGroupedByDay] = useState<boolean>(true);
   const [query, setQuery] = useState("");
+  const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [dateFilter, setDateFilter] = useState<DateFilter>("all");
   const [page, setPage] = useState(0);
+  const [displayPage, setDisplayPage] = useState(0);
   const pageTopRef = useRef<HTMLDivElement>(null);
 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set());
@@ -259,8 +241,28 @@ export function HistoryPage({ focus = null }: { focus?: { id: number; seq: numbe
   const [freshIds, setFreshIds] = useState<Set<number>>(() => new Set());
 
   const seenIdsRef = useRef<Set<number>>(new Set());
-  const initializedRef = useRef(false);
+  const seenContextRef = useRef("");
   const refreshGeneration = useRef(0);
+  const refreshRef = useRef<() => Promise<void>>(async () => {});
+  const historyMounted = useRef(false);
+  const knownIdsRef = useRef<number[]>([]);
+  const [missingIds, setMissingIds] = useState<Set<number>>(() => new Set());
+  const handledFocus = useRef(0);
+  const scrolledFocus = useRef(0);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSearch(query.trim()), 180);
+    return () => window.clearTimeout(timer);
+  }, [query]);
+
+  useEffect(() => {
+    if (!focus || focus.seq === handledFocus.current) return;
+    setQuery("");
+    setSearch("");
+    setStatusFilter("all");
+    setDateFilter("all");
+    setPage(0);
+  }, [focus]);
 
   const reportPlaybackError = useCallback((message: string) => {
     setError(t("Не удалось воспроизвести запись: {p0}", { p0: message }));
@@ -268,30 +270,46 @@ export function HistoryPage({ focus = null }: { focus?: { id: number; seq: numbe
   const player = useRecordingPlayer(historyRecording, reportPlaybackError);
   const playingId = player.state?.id;
   const stopPlayer = player.stop;
+  knownIdsRef.current = [...new Set([...selectedIds, ...(playingId === undefined ? [] : [playingId]), ...(reprocessId === null ? [] : [reprocessId])])];
 
   const refresh = useCallback(async () => {
+    if (!historyMounted.current) return;
     const generation = ++refreshGeneration.current;
+    const knownIds = knownIdsRef.current;
+    const pendingFocus = focus && focus.seq !== handledFocus.current ? focus : null;
+    // Preserve the existing rolling 24-hour / seven-day filters. The browser
+    // sends an epoch boundary; the database never interprets local date text.
+    const since = dateFilter === "today" ? Date.now() / 1000 - 24 * 3600
+      : dateFilter === "week" ? Date.now() / 1000 - 7 * 24 * 3600 : undefined;
+    setLoading(true);
     try {
-      const [result, config] = await Promise.all([
-        listHistory(),
-        invoke<ConfigResult>("get_config"),
-      ]);
+      const result = await listHistory({
+        page: pendingFocus ? 0 : page, page_size: HISTORY_PAGE_SIZE,
+        query: pendingFocus ? "" : search, status: pendingFocus ? "all" : statusFilter,
+        since: pendingFocus ? undefined : since, focus_id: pendingFocus?.id,
+        known_ids: knownIds,
+      });
       if (generation !== refreshGeneration.current) return;
-      const nextEntries = result.entries ?? [];
+      const nextEntries = result.entries;
       setEntries(nextEntries);
-      setMaxAgeSeconds(result.max_age_seconds ?? 30 * 24 * 3600);
-      setMaxEntries(result.max_entries ?? 1000);
-      setCurrentAiConfig(config.ai_processing ?? null);
-      setError(null);
+      setMaxAgeSeconds(result.max_age_seconds);
+      setMaxEntries(result.max_entries);
+      setTotalCount(result.total_count);
+      setFilteredCount(result.filtered_count);
+      setDisplayPage(result.page);
+      if (pendingFocus) handledFocus.current = pendingFocus.seq;
+      setPage(result.page);
+      setLoaded(true);
+      setLoadError(null);
+      const retained = new Set(result.known_ids);
+      setMissingIds(new Set(knownIds.filter((id) => !retained.has(id))));
 
       const currentIds = new Set(nextEntries.map((e) => e.id));
-      if (!initializedRef.current) {
-        seenIdsRef.current = currentIds;
-        initializedRef.current = true;
-      } else {
-        const fresh: number[] = [];
-        for (const id of currentIds) if (!seenIdsRef.current.has(id)) fresh.push(id);
-        seenIdsRef.current = currentIds;
+      const context = JSON.stringify([pendingFocus ? "" : search, pendingFocus ? "all" : statusFilter, pendingFocus ? "all" : dateFilter, result.page]);
+      // Paging into older rows is not a new dictation. Animate new arrivals
+      // only on the same first page, where the newest entries are visible.
+      if (result.page === 0 && seenContextRef.current === context) {
+        const fresh = [...currentIds].filter((id) => !seenIdsRef.current.has(id));
         if (fresh.length) {
           setFreshIds((prev) => {
             const next = new Set(prev);
@@ -308,21 +326,27 @@ export function HistoryPage({ focus = null }: { focus?: { id: number; seq: numbe
           }, 4500);
         }
       }
+      seenContextRef.current = context;
+      seenIdsRef.current = currentIds;
     } catch (e) {
-      if (generation === refreshGeneration.current) setError(e instanceof Error ? e.message : String(e));
+      if (generation === refreshGeneration.current) setLoadError(e instanceof Error ? e.message : String(e));
     } finally {
       if (generation === refreshGeneration.current) setLoading(false);
     }
-  }, []);
+  }, [dateFilter, focus, page, search, statusFilter]);
+  refreshRef.current = refresh;
 
   useEffect(() => {
     const generation = refreshGeneration;
+    historyMounted.current = true;
+    let disposed = false;
     void refresh();
     // A window hidden in the tray stays mounted: it reloads once it is back
     // rather than after every dictation.
     let stale = false;
     const unlisten = subscribe<unknown>("history-updated", () => {
       void isWindowShown().then((shown) => {
+        if (disposed) return;
         stale = !shown;
         if (shown) void refresh();
       });
@@ -337,6 +361,8 @@ export function HistoryPage({ focus = null }: { focus?: { id: number; seq: numbe
     const onVisible = () => { if (document.visibilityState === "visible") void refresh(); };
     document.addEventListener("visibilitychange", onVisible);
     return () => {
+      disposed = true;
+      historyMounted.current = false;
       generation.current++;
       unlisten();
       stopActivity();
@@ -356,30 +382,28 @@ export function HistoryPage({ focus = null }: { focus?: { id: number; seq: numbe
     return () => document.removeEventListener("mousedown", onDocClick);
   }, [openMenuId]);
 
-  // Drop selection / an open panel for entries that disappeared (TTL expiry,
-  // delete).
+  // Off-page selections and playback remain valid. The backend checks these
+  // ids against retention separately from the current page/search filters.
   useEffect(() => {
-    const ids = new Set(entries.map((e) => e.id));
     setSelectedIds((prev) => {
       let changed = false;
       const next = new Set<number>();
       for (const id of prev) {
-        if (ids.has(id)) next.add(id);
-        else changed = true;
+        if (missingIds.has(id)) changed = true;
+        else next.add(id);
       }
       return changed ? next : prev;
     });
-    if (reprocessId !== null && !ids.has(reprocessId)) setReprocessTarget(null);
-    if (playingId !== undefined && !ids.has(playingId)) stopPlayer();
-  }, [entries, reprocessId, playingId, stopPlayer]);
+    if (reprocessId !== null && missingIds.has(reprocessId)) setReprocessTarget(null);
+    if (playingId !== undefined && missingIds.has(playingId)) stopPlayer();
+  }, [missingIds, reprocessId, playingId, stopPlayer]);
 
   // «Открыть в истории» from the overlay's late-answer note: once the entry is
   // loaded, open what the LLM changed and bring it into view — once per request.
-  const handledFocus = useRef(0);
   useEffect(() => {
-    if (!focus || focus.seq === handledFocus.current) return;
+    if (!focus || focus.seq !== handledFocus.current || focus.seq === scrolledFocus.current) return;
     if (!entries.some((entry) => entry.id === focus.id)) return;
-    handledFocus.current = focus.seq;
+    scrolledFocus.current = focus.seq;
     setExpandedDetailIds((current) => new Set(current).add(focus.id));
     requestAnimationFrame(() => {
       document.getElementById(`history-entry-${focus.id}`)?.scrollIntoView({ block: "center" });
@@ -454,7 +478,9 @@ export function HistoryPage({ focus = null }: { focus?: { id: number; seq: numbe
     if (!await confirmDestructive(t("Удалить эту запись? Это действие нельзя отменить."))) return;
     try {
       await deleteHistoryEntry(entry.id);
+      refreshGeneration.current++;
       setEntries((current) => current.filter((e) => e.id !== entry.id));
+      await refreshRef.current();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -468,6 +494,7 @@ export function HistoryPage({ focus = null }: { focus?: { id: number; seq: numbe
     // entirely, leaving every row that *was* deleted on screen until the next
     // reload — the list then disagreed with the database about what exists.
     const results = await Promise.allSettled(ids.map((id) => deleteHistoryEntry(id)));
+    refreshGeneration.current++;
     const gone = new Set(ids.filter((_, index) => results[index].status === "fulfilled"));
     setEntries((current) => current.filter((e) => !gone.has(e.id)));
     setSelectedIds((current) => new Set(Array.from(current).filter((id) => !gone.has(id))));
@@ -476,16 +503,32 @@ export function HistoryPage({ focus = null }: { focus?: { id: number; seq: numbe
       const reason = (failed as PromiseRejectedResult).reason;
       setError(reason instanceof Error ? reason.message : String(reason));
     }
+    await refreshRef.current();
   }
 
   async function handleBulkCopy() {
-    const ids = selectedIds;
-    if (!ids.size) return;
-    const ordered = entries.filter((e) => ids.has(e.id));
-    const text = ordered.map((e) => e.text).join("\n\n---\n\n");
-    const ok = await copyToClipboard(text);
-    if (ok) flashNotice(t("Скопировано записей: {p0}", { p0: ordered.length }));
-    else setError(t("Не удалось скопировать."));
+    const ids = [...selectedIds];
+    if (!ids.length) return;
+    try {
+      // Selected entries can be on other pages. Fetch their actual retained
+      // rows only for this explicit action, still in bounded IPC responses.
+      // Partition ids instead of using offsets: a deletion between replies
+      // must not shift the next batch past an entry that is still retained.
+      const copied = new Map<number, HistoryEntry>();
+      for (let offset = 0; offset < ids.length; offset += 100) {
+        const result = await listHistory({ ids: ids.slice(offset, offset + 100), page: 0, page_size: 100 });
+        if (!historyMounted.current) return;
+        for (const entry of result.entries) copied.set(entry.id, entry);
+      }
+      const ordered = [...copied.values()].sort((a, b) => b.timestamp - a.timestamp || b.id - a.id);
+      const text = ordered.map((entry) => entry.text).join("\n\n---\n\n");
+      const ok = ordered.length === 0 || await copyToClipboard(text);
+      if (ok) flashNotice(t("Скопировано записей: {p0}", { p0: ordered.length }));
+      else setError(t("Не удалось скопировать."));
+      await refreshRef.current();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
   }
 
   // The panel opens on the profile the entry was processed with, when that
@@ -583,6 +626,8 @@ export function HistoryPage({ focus = null }: { focus?: { id: number; seq: numbe
         return;
       }
       setEntries((current) => current.map((item) => item.id === updated.id ? updated : item));
+      refreshGeneration.current++;
+      void refreshRef.current();
       if (stillOpen()) closeReprocess();
       flashNotice(t("Текст заменен результатом LLM"));
       // The closing panel takes its diff, often several screens of it, out
@@ -619,6 +664,8 @@ export function HistoryPage({ focus = null }: { focus?: { id: number; seq: numbe
         return;
       }
       setEntries((current) => current.map((item) => item.id === updated.id ? updated : item));
+      refreshGeneration.current++;
+      void refreshRef.current();
       flashNotice(t("Текст заменен вариантом LLM"));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -631,36 +678,35 @@ export function HistoryPage({ focus = null }: { focus?: { id: number; seq: numbe
     if (!await confirmDestructive(t("Очистить всю историю? Это действие нельзя отменить."), t("Очистить"))) return;
     try {
       await clearHistory();
+      refreshGeneration.current++;
       setEntries([]);
       clearSelection();
+      await refreshRef.current();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
   }
 
-  const filtered = useMemo(
-    () => filterEntries(entries, query, statusFilter, dateFilter),
-    [entries, query, statusFilter, dateFilter],
-  );
-  const paged = useMemo(() => historyPage(filtered, page), [filtered, page]);
+  const pageCount = Math.max(1, Math.ceil(filteredCount / HISTORY_PAGE_SIZE));
   const groups = useMemo(
     () => groupedByDay
-      ? groupByDay(paged.items)
-      : (paged.items.length ? [{ key: "all", label: "", entries: paged.items }] : []),
-    [paged, groupedByDay],
+      ? groupByDay(entries)
+      : (entries.length ? [{ key: "all", label: "", entries }] : []),
+    [entries, groupedByDay],
   );
 
   const filterIsActive = query.trim().length > 0 || statusFilter !== "all" || dateFilter !== "all";
   const retentionText = describeRetention(maxAgeSeconds, maxEntries);
   const subtitle = filterIsActive
-    ? t("Показано {p0} из {p1} · {p2}", { p0: filtered.length, p1: entries.length, p2: retentionText })
+    ? t("Показано {p0} из {p1} · {p2}", { p0: filteredCount, p1: totalCount, p2: retentionText })
     : retentionText;
 
-  const visibleIds = useMemo(() => paged.items.map((e) => e.id), [paged]);
+  const visibleIds = useMemo(() => entries.map((e) => e.id), [entries]);
   const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
 
   function resetFilters() {
     setQuery("");
+    setSearch("");
     setStatusFilter("all");
     setDateFilter("all");
     setPage(0);
@@ -687,23 +733,25 @@ export function HistoryPage({ focus = null }: { focus?: { id: number; seq: numbe
                 <Icon name="clock" size={12}/> {groupedByDay ? t("По дням") : t("Без групп")}
               </button>
             </Hint>
-            <button className="btn btn--ghost" onClick={() => void handleClearAll()} disabled={entries.length === 0}>
+            <button className="btn btn--ghost" onClick={() => void handleClearAll()} disabled={totalCount === 0}>
               <Icon name="trash" size={12}/>  {t("Очистить всё")} </button>
           </>
         }
       />
       <div style={{ display: "grid", gap: 12 }}>
-        {error && (
+        {(loadError || error) && (
           <div role="alert" style={{ padding: "10px 12px", borderRadius: "var(--radius-sm)", background: "var(--err-soft)", border: "1px solid color-mix(in srgb, var(--err) 35%, transparent)", color: "var(--err)", font: "500 12px/1.35 var(--font-sans)" }}>
-            {error}
-            <button className="btn btn--ghost" style={{ marginLeft: 8, height: 22 }} onClick={() => setError(null)}><Icon name="x" size={10}/>{t("Скрыть")}</button>
+            {loadError || error}
+            {loadError
+              ? <button className="btn btn--ghost" style={{ marginLeft: 8, height: 22 }} onClick={() => void refresh()}>{t("Повторить попытку")}</button>
+              : <button className="btn btn--ghost" style={{ marginLeft: 8, height: 22 }} onClick={() => setError(null)}><Icon name="x" size={10}/>{t("Скрыть")}</button>}
           </div>
         )}
         {notice && (
           <div role="status" aria-live="polite" style={{ padding: "10px 12px", borderRadius: "var(--radius-sm)", background: "var(--accent-soft-2)", border: "1px solid var(--accent-soft-2)", color: "var(--ink)", font: "500 12px/1.35 var(--font-sans)" }}>{notice}</div>
         )}
 
-        {entries.length > 0 && (
+        {totalCount > 0 && (
           <FiltersBar
             query={query}
             onQuery={(value) => { setQuery(value); setPage(0); }}
@@ -728,22 +776,23 @@ export function HistoryPage({ focus = null }: { focus?: { id: number; seq: numbe
           />
         )}
 
-        {loading && entries.length === 0 ? (
+        {(loading || query.trim() !== search) && loaded && <span role="status">{t("Загрузка…")}</span>}
+        {loading && !loaded ? (
           <EmptyState icon="clock" title={t("Загружаю…")} hint=""/>
-        ) : entries.length === 0 ? (
+        ) : !loaded ? null : totalCount === 0 ? (
           <EmptyState
             icon="clock"
             title={t("История пуста")}
             hint={t("Здесь будут появляться последние транскрипции. Хранятся локально, не покидают этот компьютер.")}
           />
-        ) : filtered.length === 0 ? (
+        ) : filteredCount === 0 ? (
           <EmptyState
             icon="search"
             title={t("Ничего не найдено")}
             hint={t("Попробуйте изменить запрос или сбросить фильтры.")}
           />
         ) : (
-          <div style={{ display: "grid", gap: groupedByDay ? 16 : 10 }}>
+          <div aria-busy={loading} style={{ display: "grid", gap: groupedByDay ? 16 : 10 }}>
             {groups.map((group) => (
               <section key={group.key} style={{ display: "grid", gap: 8 }}>
                 {group.label && (
@@ -794,7 +843,7 @@ export function HistoryPage({ focus = null }: { focus?: { id: number; seq: numbe
                 </div>
               </section>
             ))}
-            {paged.pageCount > 1 && <HistoryPager page={paged.page} pageCount={paged.pageCount} onPage={goToPage}/>}
+            {pageCount > 1 && <HistoryPager page={displayPage} pageCount={pageCount} onPage={goToPage}/>}
           </div>
         )}
       </div>
@@ -921,7 +970,7 @@ function BulkBar({ count, totalVisible, allVisibleSelected, onSelectAllVisible, 
       }}
     >
       <span style={{ font: "600 12px/1 var(--font-sans)", color: "var(--ink)" }}>{t("Выбрано:")} {count}</span>
-      {!allVisibleSelected && totalVisible > count && (
+      {!allVisibleSelected && totalVisible > 0 && (
         <button className="btn btn--ghost" onClick={onSelectAllVisible}><Icon name="check" size={11}/>{t("Выделить видимые ({p0})", { p0: totalVisible })}</button>
       )}
       <button className="btn btn--ghost" onClick={onCopy}><Icon name="copy" size={11}/>{t("Скопировать")}</button>
