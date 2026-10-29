@@ -395,12 +395,7 @@ mod tests {
         // The available pool and an already-loaded model's footprint are
         // independent u64 values. Their sum can exceed u64::MAX even though
         // the memory assessment should remain finite.
-        let assessment = memory_assessment(
-            Some(u64::MAX),
-            Some(u64::MAX),
-            true,
-            "cpu",
-        );
+        let assessment = memory_assessment(Some(u64::MAX), Some(u64::MAX), true, "cpu");
         assert_eq!(assessment.status, "loaded");
         assert!(assessment.score.unwrap().is_finite());
         assert_eq!(assessment.score, Some(0.375));
