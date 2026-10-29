@@ -202,6 +202,12 @@ test-commands = []
 name = "engine_bench"
 harness = false
 
+[patch.crates-io]
+# Upstream's ZIP security fix; the 1.13.8 FFI and native runtime are unchanged.
+# https://github.com/k2-fsa/sherpa-onnx/pull/4059
+# Remove this override when a compatible fixed version is published.
+sherpa-onnx-sys = { git = "https://github.com/k2-fsa/sherpa-onnx", rev = "1a9d234ab95567eba8c2e89873a87d70b79633e2" }
+
 [profile.bench]
 opt-level = 3
 lto = "thin"
