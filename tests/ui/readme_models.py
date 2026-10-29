@@ -109,6 +109,7 @@ def assessments(models, revisions):
             return False
         package, group = ("sherpa-onnx", 2) if model["cpu_only"] else ("whisper-rs", 1)
         return engines[group] == versions[package]
+
     result = []
     for model in models:
         reference = next(
