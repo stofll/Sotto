@@ -184,7 +184,7 @@ pub fn memory_assessment(
     // keeps the question the same one every other card answers — whether this
     // machine has room for this model — instead of leaving the one model that
     // demonstrably fits as the only card without a bar.
-    let budget = (available + if loaded { required } else { 0 }) as f64 * 0.8;
+    let budget = (available as f64 + if loaded { required as f64 } else { 0.0 }) * 0.8;
     result.status = if loaded {
         "loaded"
     } else if budget < required as f64 {
@@ -388,6 +388,22 @@ mod tests {
             assert_eq!(discrete.status, "gpu_unknown");
             assert_eq!(discrete.score, None);
         }
+    }
+
+    #[test]
+    fn loaded_memory_budget_does_not_overflow_at_large_values() {
+        // The available pool and an already-loaded model's footprint are
+        // independent u64 values. Their sum can exceed u64::MAX even though
+        // the memory assessment should remain finite.
+        let assessment = memory_assessment(
+            Some(u64::MAX),
+            Some(u64::MAX),
+            true,
+            "cpu",
+        );
+        assert_eq!(assessment.status, "loaded");
+        assert!(assessment.score.unwrap().is_finite());
+        assert_eq!(assessment.score, Some(0.375));
     }
 
     #[test]
