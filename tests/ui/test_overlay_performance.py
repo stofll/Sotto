@@ -16,13 +16,24 @@ BEAM_RECIPE = {
 def observe_preview_work(page):
     page.add_init_script("""(() => {
       const work = window.__previewWork = { frames: 0, intervals: 0, beamWrites: 0 };
+      const pendingFrames = window.__previewPendingFrames = new Set();
       window.__previewWorkAt = performance.now();
       const record = key => { work[key]++; window.__previewWorkAt = performance.now(); };
       const frame = window.requestAnimationFrame;
-      window.requestAnimationFrame = callback => frame.call(window, now => {
-        record('frames');
-        callback(now);
-      });
+      window.requestAnimationFrame = callback => {
+        const id = frame.call(window, now => {
+          pendingFrames.delete(id);
+          record('frames');
+          callback(now);
+        });
+        pendingFrames.add(id);
+        return id;
+      };
+      const cancelFrame = window.cancelAnimationFrame;
+      window.cancelAnimationFrame = id => {
+        pendingFrames.delete(id);
+        return cancelFrame.call(window, id);
+      };
       const interval = window.setInterval;
       window.setInterval = (callback, delay, ...args) => interval.call(window,
         typeof callback === 'function' ? (...values) => {
@@ -60,10 +71,11 @@ def expect_animated_preview(page):
 
 def expect_idle_preview(page):
     # A throttled browser can deliver the final 600 ms settling frame late.
-    # Observe a quiet period without adding a RAF sampler of our own, then
-    # require exactly zero further work. A recurring loop never becomes quiet.
+    # Quiet counters alone can miss a queued frame: require its delivery or
+    # cancellation, then a quiet period and exactly zero further work.
     page.wait_for_function(
-        "() => performance.now() - window.__previewWorkAt >= 750",
+        "() => window.__previewPendingFrames.size === 0 && "
+        "performance.now() - window.__previewWorkAt >= 750",
         polling=50,
         timeout=10000,
     )
