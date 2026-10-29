@@ -306,10 +306,29 @@ pub(crate) async fn list_history(
     let policy = crate::config::Config::load(&app)
         .map(|cfg| RetentionPolicy::from_config(cfg.as_value()))
         .unwrap_or_default();
-    let db = state.db.clone();
+    // Use a separate read-only connection. Long Unicode substring scans must
+    // not hold the writer connection's mutex and delay saving a dictation.
+    // The database is opened with WAL by db::open(); read transactions see a
+    // consistent snapshot while the writer continues appending records.
+    let _ = &state;
     let query = query.unwrap_or_default();
-    let mut result =
-        crate::run_db_op(db, move |conn| list_history_page_from(conn, policy, &query)).await?;
+    let mut result = tokio::task::spawn_blocking(move || {
+        let path = crate::user_data::data_dir().join("sotto.db");
+        let conn = rusqlite::Connection::open_with_flags(
+            path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
+                | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .map_err(|e| e.to_string())?;
+        conn.execute_batch("BEGIN DEFERRED TRANSACTION")
+            .map_err(|e| e.to_string())?;
+        let result = list_history_page_from(&conn, policy, &query)
+            .map_err(|e| e.to_string())?;
+        conn.execute_batch("COMMIT").map_err(|e| e.to_string())?;
+        Ok::<_, String>(result)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
     tokio::task::spawn_blocking(move || {
         mark_recordings_on_disk(&mut result.entries);
         result
