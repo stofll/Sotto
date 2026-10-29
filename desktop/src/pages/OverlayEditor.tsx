@@ -4,6 +4,7 @@ import { Hint } from "../components/Hint";
 import { Icon } from "../components/Icon";
 import { Card, Segmented } from "../components/Shell";
 import type { ConfigResult } from "../bridge/types";
+import { subscribeWindowActivity } from "../bridge/windowActivity";
 import { localeTag, t } from "../i18n";
 import { OverlayScene } from "../overlay/OverlayScene";
 import { overlayPalette } from "../overlay/overlayPalette";
@@ -15,7 +16,7 @@ import { CancelOptions, EditorLibrary, isWidePart, PartPreview, type LibraryTab 
 import { cancelShowNames, cancelSpotNames, drawNames, elementNames, kindPlaces, processNames, regionNames, shellNames, styleNames } from "./overlayEditor/labels";
 import { currentRecipe, matchingTemplate, newTemplate, preferencesOf, templateLook, updatedTemplate, useOverlaySaver, type ConfigChange, type OverlayLook } from "./overlayEditor/overlayDraft";
 import { addPart, changeShell, drawingKinds, freePartsFor, partsFor, placeInto, removePart, restoreShell, type EditResult } from "./overlayEditor/recipeEdits";
-import { frameAt, PHASE_MODES, samplePhrase, simulatedVoice, silentVoice, useTicker, type PhaseMode } from "./overlayEditor/simulatedVoice";
+import { frameAt, PHASE_MODES, PreviewActivity, samplePhrase, simulatedVoice, silentVoice, stillVoice, useTicker, type PhaseMode } from "./overlayEditor/simulatedVoice";
 import { RadiusHandle } from "./overlayEditor/RadiusHandle";
 import { NameDialog } from "./overlayEditor/TemplateTiles";
 import { SYSTEM_TEMPLATES, systemTemplateNames, type SystemTemplate } from "./overlayEditor/templates";
@@ -66,8 +67,10 @@ export function OverlayEditor({ config, onConfigChanged, onClose, template }: {
   const [radiusDraft, setRadiusDraft] = useState<RecipeStyle["radius"] | null>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const [stageBox, setStageBox] = useState({ width: 640, height: 360 });
-  // Only these phases change over time; the others are one still frame.
-  const now = useTicker(ANIMATED_PHASES.includes(phaseMode), 250);
+  const [previewActive, setPreviewActive] = useState(false);
+  useEffect(() => subscribeWindowActivity(setPreviewActive), []);
+  // A hidden settings window stays mounted, but its preview clocks can sleep.
+  const now = useTicker(previewActive && ANIMATED_PHASES.includes(phaseMode), 250);
   // `now` lags a phase picked since its last tick; a moment before the phase began is its start.
   const frame = frameAt(phaseMode, Math.max(0, now - phaseSince));
 
@@ -287,14 +290,14 @@ export function OverlayEditor({ config, onConfigChanged, onClose, template }: {
 
   const shownRecipe = radiusDraft ? { ...recipe, style: { ...recipe.style, radius: radiusDraft } } : recipe;
   const [radiusTitle, radiusNames] = styleNames().radius;
-  const scene = <OverlayScene recipe={shownRecipe} size={preferences.size} phase={frame.phase} shown={frame.shown} streaming={frame.streaming}
+  const scene = <OverlayScene recipe={shownRecipe} size={preferences.size} phase={frame.phase} shown={frame.shown} streaming={frame.streaming} still={!previewActive}
     draft={frame.draft} draftPlaceholder={t("Говорите — текст появится здесь")} timer={frame.timer} limited={frame.limited}
     status={statusText} mode={{ full: config?.model ? `${language} · ${config.model}` : language, short: language }}
-    source={frame.phase === "recording" ? simulatedVoice : silentVoice} close={{ label: t("Отменить запись"), text: t("Отмена") }}
+    source={frame.phase === "recording" ? previewActive ? simulatedVoice : stillVoice : silentVoice} close={{ label: t("Отменить запись"), text: t("Отмена") }}
     interactive={view === "compose" ? { labels: names.regions, ghosts, selected: typeof selected === "string" ? selected : null,
       selectedRegion: typeof selected === "object" ? selected?.region : null, cancelLabel: t("Кнопка отмены: где она и как выглядит"), hideCancel: !showCancel } : undefined}/>;
 
-  return <div className="page ove" data-testid="overlay-editor">
+  return <PreviewActivity.Provider value={previewActive}><div className="page ove" data-testid="overlay-editor">
     <div className="ove-head">
       <button type="button" className="btn btn--ghost" onClick={onClose}><Icon name="chev-left" size={14}/>{t("Настройки")}</button>
       <div className="ove-head__title"><h1 className="page-title">{t("Оверлей")}</h1>{subtitle && <span>{subtitle}</span>}</div>
@@ -426,7 +429,7 @@ export function OverlayEditor({ config, onConfigChanged, onClose, template }: {
     {naming && <NameDialog title={t("Сохранить как шаблон")} action={t("Сохранить")}
       initial={t("Мой оверлей {p0}", { p0: preferences.templates.length + 1 })} onCancel={() => setNaming(false)}
       onSubmit={(name) => { setNaming(false); const created = newTemplate(name, recipe, preferences); saveTemplates([...preferences.templates, created], created); }}/>}
-  </div>;
+  </div></PreviewActivity.Provider>;
 }
 
 type Names = { elements: ReturnType<typeof elementNames>; draws: ReturnType<typeof drawNames>; regions: Record<string, string>; shells: ReturnType<typeof shellNames>; places: ReturnType<typeof kindPlaces> };

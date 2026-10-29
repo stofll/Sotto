@@ -33,7 +33,7 @@ export type SceneProps = {
   surfaceRef?: RefObject<HTMLDivElement | null>;
   /** Constructor mode: regions become targets with labels, and the targets outside the shell appear. */
   interactive?: { labels: Record<string, string>; ghosts: Record<string, string>; selected: ElementType | "cancel" | null; selectedRegion?: string | null; cancelLabel: string; hideCancel?: boolean };
-  /** Thumbnails: no transitions. */
+  /** Thumbnails and paused previews: no ongoing animation. */
   still?: boolean;
 };
 
@@ -60,7 +60,7 @@ export function OverlayScene(props: SceneProps) {
     const kind = firstKind(type, draw, regions[region]);
     switch (type) {
       case "level": return <LevelPart draw={draw} kind={kind} box={box} source={source} matrix={recipe.matrix}
-        sharp={recipe.style.radius === "sharp"} size={size} phase={phase} surfaceRef={surfaceRef}/>;
+        sharp={recipe.style.radius === "sharp"} size={size} phase={phase} surfaceRef={surfaceRef} still={still}/>;
       case "timer": return <TimerPart draw={draw} kind={kind} text={props.timer}/>;
       case "rec": return <RecPart draw={draw}/>;
       case "mode": return <ModePart draw={draw} {...props.mode}/>;
@@ -92,7 +92,7 @@ export function OverlayScene(props: SceneProps) {
   if (phase === "processing") {
     const sign = compact && !needsText;
     const lead = processing.draw === "none" ? null : <ProcessLead draw={processing.draw} matrix={recipe.matrix} sharp={sharp}
-      pace={PROCESS_PACE[processing.speed]} size={sign ? Math.round(box * (recipe.shell === "mini" ? 0.8 : 0.62)) : Math.round(rowHeight * 0.5)}/>;
+      pace={PROCESS_PACE[processing.speed]} size={sign ? Math.round(box * (recipe.shell === "mini" ? 0.8 : 0.62)) : Math.round(rowHeight * 0.5)} still={still}/>;
     // Without the word on screen, the status still reaches a screen reader.
     status = <>{lead}<span className={!sign && processing.words ? "ovs-lbl" : "sr-only"}>{props.status}</span></>;
   } else if (phase === "pasted") {
@@ -108,7 +108,7 @@ export function OverlayScene(props: SceneProps) {
   const closeLook = cancel.draw === "x" ? <Icon name="x" size={14}/> : cancel.draw === "stop" ? <span className="ovs-close__stop"/> : props.close.text;
   // In the constructor the button is a target like the parts: it opens its own options.
   // A thumbnail sits inside a template's own button, so it only draws one.
-  const close = still
+  const close = still && !interactive
     ? <span className="ovs-close" data-draw={cancel.draw}>{closeLook}</span>
     : <button type="button" className={`ovs-close${interactive?.selected === "cancel" ? " ovs-sel" : ""}`} data-draw={cancel.draw}
       data-cancel={interactive ? "" : undefined} aria-label={interactive ? interactive.cancelLabel : props.close.label}

@@ -51,7 +51,7 @@ const TUNING = {
   hueDuration: 9,
 } as const;
 
-export function OverlayGlow({ mode, size, source = audioLevelSource }: { mode: GlowMode; size: OverlayPreferences["size"]; source?: LevelSource }) {
+export function OverlayGlow({ mode, size, source = audioLevelSource, still = false }: { mode: GlowMode; size: OverlayPreferences["size"]; source?: LevelSource; still?: boolean }) {
   const radius = { s: 19, m: 23, l: 27 }[size];
   const rawId = useId().replace(/:/g, "-");
   const id = `sotto${rawId}`;
@@ -159,8 +159,9 @@ export function OverlayGlow({ mode, size, source = audioLevelSource }: { mode: G
       {
         getLevel: () => (modeRef.current === "listen" ? levelRef.current : 0),
       },
+      !still,
     );
-  }, [driverConfig]);
+  }, [driverConfig, still]);
 
   const filterId = `vb-distort-${id}`;
   // Packaged Tauri pages authorize dynamic styles with the bundled style nonce.

@@ -20,13 +20,14 @@ const OverlayEditor = lazy(() => import("./OverlayEditor").then((m) => ({ defaul
 type Props = {
   config: ConfigResult | null;
   microphones: MicrophoneResult[];
+  microphonesLoading?: boolean;
   models: ModelInfo[];
   /** A portable copy does not manage autostart — see the row itself. */
   portable?: boolean;
   onConfigChanged: ConfigChanged;
 };
 
-export function SettingsPage({ config, microphones, models, portable, onConfigChanged }: Props) {
+export function SettingsPage({ config, microphones, microphonesLoading = false, models, portable, onConfigChanged }: Props) {
   const model = config?.model || "large-v3";
   // Settings need only the selected model — the speech language and the device
   // choice follow from its properties (language, CPU-only).
@@ -34,6 +35,7 @@ export function SettingsPage({ config, microphones, models, portable, onConfigCh
   const recordingMode = config?.recording_mode ?? "toggle";
   // Open constructor; `template` is the id of the user template being edited.
   const [editingOverlay, setEditingOverlay] = useState<{ template?: string } | null>(null);
+  const [overlayOpen, setOverlayOpen] = useState(false);
   if (editingOverlay) {
     return <Suspense fallback={null}>
       <OverlayEditor config={config} onConfigChanged={onConfigChanged} template={editingOverlay.template} onClose={() => setEditingOverlay(null)}/>
@@ -69,7 +71,7 @@ export function SettingsPage({ config, microphones, models, portable, onConfigCh
           <div className="lang-row">
             <div className="set-cell">
               <SetLabel title={t("Язык речи")} hint={t("Язык, на котором вы диктуете: модель распознаёт речь именно как его. «Авто» определяет язык по самой записи — это чуть медленнее и иногда ошибается на коротких фразах. На язык интерфейса не влияет.")}/>
-              <LanguagePicker language={config?.language} model={selectedModelInfo} models={models} onConfigChanged={onConfigChanged}/>
+              <LanguagePicker language={config?.language} model={config?.ai_processing?.pipeline_mode === "cloud" ? undefined : selectedModelInfo} models={models} onConfigChanged={onConfigChanged}/>
             </div>
             <div className="set-cell">
               <SetLabel title={t("Язык интерфейса")}/>
@@ -82,7 +84,8 @@ export function SettingsPage({ config, microphones, models, portable, onConfigCh
         <Card pad="rows">
           <div className="set-cell">
             <SetLabel title={t("Микрофон")}/>
-            <MicPicker microphone={config?.microphone} microphones={microphones} onConfigChanged={onConfigChanged}/>
+            {microphonesLoading ? <span role="status">{t("Загрузка…")}</span>
+              : <MicPicker microphone={config?.microphone} microphones={microphones} onConfigChanged={onConfigChanged}/>}
           </div>
         </Card>
 
@@ -92,9 +95,10 @@ export function SettingsPage({ config, microphones, models, portable, onConfigCh
           <BehaviorSection config={config} onConfigChanged={onConfigChanged}/>
         </Card>
 
-        <details className="card card--rows advanced" data-testid="overlay-disclosure">
+        <details className="card card--rows advanced" data-testid="overlay-disclosure" open={overlayOpen}
+          onToggle={(event) => setOverlayOpen(event.currentTarget.open)}>
           <summary><Icon name="chev-down" size={13}/>{t("Оверлей")}</summary>
-          <OverlaySettings config={config} onConfigChanged={onConfigChanged} onOpenEditor={(template) => setEditingOverlay({ template })}/>
+          {overlayOpen && <OverlaySettings config={config} onConfigChanged={onConfigChanged} onOpenEditor={(template) => setEditingOverlay({ template })}/>}
         </details>
 
         {/* 5. Everything that is configured once or never. Collapsed on purpose:

@@ -1,7 +1,10 @@
-import { useEffect, useState } from "react";
+import { createContext, useEffect, useState } from "react";
 import { t } from "../../i18n";
 import type { LevelSource } from "../../overlay/levelSource";
 import type { ScenePhase } from "../../overlay/overlayRecipe";
+
+/** Only the settings constructor pauses on window inactivity; real dictation never uses this. */
+export const PreviewActivity = createContext(true);
 
 // A voice for the constructor: bursts of syllables and pauses at the rate the
 // real `audio-level` event arrives. Every preview on the page shares one

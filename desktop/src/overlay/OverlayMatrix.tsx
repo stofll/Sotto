@@ -21,9 +21,10 @@ type Props = {
   sharp?: boolean;
   /** How many times faster than normal the processing pattern runs. */
   pace?: number;
+  still?: boolean;
 };
 
-export function OverlayMatrix({ mode, size, density, speech, process, surfaceRef, source = audioLevelSource, sharp = false, pace = 1 }: Props) {
+export function OverlayMatrix({ mode, size, density, speech, process, surfaceRef, source = audioLevelSource, sharp = false, pace = 1, still = false }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -93,7 +94,8 @@ export function OverlayMatrix({ mode, size, density, speech, process, surfaceRef
         draw(now);
       };
       let stopFrames = () => {}, timer = 0;
-      if (reduced) { tick(performance.now()); timer = window.setInterval(() => tick(performance.now()), 250); }
+      if (still) tick(started + 1200);
+      else if (reduced) { tick(performance.now()); timer = window.setInterval(() => tick(performance.now()), 250); }
       else stopFrames = onFrame(tick);
       return () => { stopFrames(); window.clearInterval(timer); observer?.disconnect(); };
     }
@@ -118,7 +120,7 @@ export function OverlayMatrix({ mode, size, density, speech, process, surfaceRef
       runner.wake();
     });
     return () => { stop(); runner.stop(); observer?.disconnect(); surface?.style.removeProperty("--overlay-energy"); };
-  }, [mode, size, density, speech, process, surfaceRef, source, sharp, pace]);
+  }, [mode, size, density, speech, process, surfaceRef, source, sharp, pace, still]);
 
   return <canvas ref={canvasRef} className={`overlay-matrix${size === undefined ? " overlay-matrix--row" : ""}`}
     style={size === undefined ? undefined : { width: size, height: size }} aria-hidden="true"/>;

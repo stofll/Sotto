@@ -76,6 +76,86 @@ def test_steps_resume_and_skips_never_download_or_change_telemetry(app, page):
     expect(page.get_by_test_id("onboarding")).to_have_count(0)
 
 
+def test_pending_catalog_keeps_onboarding_steps_usable(app, page, pytestconfig):
+    count = 2 if pytestconfig.getoption("--ui-mode") == "dev" else 1
+    ui = first_run(app, 1, responses={"list_models": [{"hold": True}] * count})
+    introduction = page.get_by_test_id("onboarding")
+    expect(introduction.get_by_role("status")).to_have_text("Загрузка…")
+    expect(page.get_by_role("alert")).to_have_count(0)
+    expect(
+        page.get_by_role("button", name="Скачать и продолжить", exact=True)
+    ).to_be_disabled()
+    page.get_by_role("button", name="Пропустить шаг", exact=True).click()
+    ui.saved("onboarding_step", 2)
+    ui.settle("list_models", result=MODELS)
+    page.get_by_role("button", name="Назад", exact=True).click()
+    expect(page.get_by_role("radio", name="Whisper turbo", exact=False)).to_be_checked()
+    expect(page.get_by_role("alert")).to_have_count(0)
+
+
+def test_onboarding_catalog_retry_recovers_shared_page_readiness(
+    app, page, pytestconfig
+):
+    count = 2 if pytestconfig.getoption("--ui-mode") == "dev" else 1
+    ui = first_run(
+        app,
+        1,
+        responses={"list_models": [{"error": "Synthetic catalog failure"}] * count},
+    )
+    expect(
+        page.get_by_role("alert").filter(has_text="Synthetic catalog failure")
+    ).to_be_visible()
+    page.get_by_role("button", name="Повторить", exact=True).click()
+    expect(page.get_by_role("radio", name="Whisper turbo", exact=False)).to_be_checked()
+    expect(page.get_by_role("alert")).to_have_count(0)
+    page.get_by_role("button", name="Пропустить введение", exact=True).click()
+    ui.saved("onboarding_completed", True)
+    expect(page.get_by_test_id("page-data-loading")).to_have_count(0)
+    expect(
+        page.get_by_role("heading", name="Модели распознавания", exact=True)
+    ).to_be_visible()
+
+
+def test_onboarding_model_refresh_wins_over_late_initial_catalog(
+    app, page, pytestconfig
+):
+    count = 2 if pytestconfig.getoption("--ui-mode") == "dev" else 1
+    ui = first_run(app, 1, responses={"list_models": [{"hold": True}] * count})
+    available = [{**model, "downloaded": True} for model in MODELS]
+    page.evaluate("models => window.__sottoTest.state.models = models", available)
+    ui.emit("model-ready")
+    expect(page.get_by_role("radio", name="Whisper turbo", exact=False)).to_be_checked()
+    expect(page.get_by_text("Скачана", exact=True)).to_have_count(3)
+    ui.settle("list_models", result=MODELS)
+    expect(page.get_by_text("Скачана", exact=True)).to_have_count(3)
+    page.get_by_role("button", name="Пропустить введение", exact=True).click()
+    expect(page.get_by_test_id("page-settings")).to_be_visible()
+
+
+def test_pending_microphones_do_not_look_disconnected_in_onboarding(
+    app, page, pytestconfig
+):
+    count = 2 if pytestconfig.getoption("--ui-mode") == "dev" else 1
+    ui = first_run(
+        app,
+        2,
+        config={"microphone": "test-mic"},
+        responses={"list_microphones": [{"hold": True}] * count},
+    )
+    introduction = page.get_by_test_id("onboarding")
+    expect(introduction.get_by_role("status")).to_have_text("Загрузка…")
+    expect(page.locator(".custom-select--mic")).to_have_count(0)
+    expect(page.get_by_text("Микрофон отключён", exact=True)).to_have_count(0)
+    page.get_by_role("button", name="Дальше", exact=True).click()
+    ui.saved("onboarding_step", 3)
+    ui.settle(
+        "list_microphones",
+        result=[{"id": "test-mic", "name": "Synthetic microphone"}],
+    )
+    page.get_by_role("button", name="Назад", exact=True).click()
+    expect(page.locator(".custom-select--mic")).to_contain_text("Synthetic microphone")
+
+
 def test_failed_step_save_stays_put_and_can_retry(app, page):
     ui = first_run(app)
     ui.queue("save_config", {"error": "Synthetic disk full"})

@@ -1365,7 +1365,6 @@ export const en: Record<string, string | string[]> = {
   "Можно не трогать": "These can stay as they are",
   "Нажали. Сказали. Текст уже там.": "Press. Speak. Your text is there.",
   "Начать диктовать": "Start dictating",
-  "Не удалось загрузить модели.": "Could not load the models.",
   "Не удалось получить список моделей. Откройте каталог или попробуйте ещё раз.": "Could not get the model list. Open the catalogue or try again.",
   "Необязательная обработка текста требует своего ключа. Настроить её можно позже в разделе «Провайдеры и ключи».": "Optional text processing requires your own key. You can set it up later in Providers and keys.",
   "Одна модель, чтобы начать": "One model to get started",

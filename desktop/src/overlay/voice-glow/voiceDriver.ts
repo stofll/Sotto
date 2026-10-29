@@ -571,163 +571,165 @@ function frame(ts: number): void {
   // frame never lands on it, and restarting would settle at 48 fps.
   lastFrame = lastFrame && sinceFrame < 2000 / 60 ? ts - (sinceFrame % (1000 / 60)) : ts;
 
-  instances.forEach((inst) => {
-    const { el, config, source, s } = inst;
-    const dt = s.lastTs ? Math.min(0.05, (ts - s.lastTs) / 1000) : 1 / 60;
-    s.lastTs = ts;
-    s.t += dt;
-    const tSec = s.t;
+  for (const inst of instances) paintInstance(inst, ts);
+}
 
-    // ── Raw level and bands from the source ─────────────────────────
-    const raw = clamp01(source.getLevel());
-    scratch.level = raw;
-    // No spectrum to read, so give the bands a little independent life —
-    // slow, out-of-phase wobbles scaled by the level — so the lobes still
-    // ripple rather than pumping in lockstep.
-    scratch.bands[0] = raw;
-    scratch.bands[1] = raw * (0.72 + 0.28 * Math.sin(tSec * 9.1));
-    scratch.bands[2] = raw * (0.6 + 0.4 * Math.sin(tSec * 13.7 + 2));
+function paintInstance(inst: VoiceInstance, ts: number): void {
+  const { el, config, source, s } = inst;
+  const dt = s.lastTs ? Math.min(0.05, (ts - s.lastTs) / 1000) : 1 / 60;
+  s.lastTs = ts;
+  s.t += dt;
+  const tSec = s.t;
 
-    // ── Shape and follow ─────────────────────────────────────────────
-    const target = shape(scratch.level, config.threshold);
-    s.level = follow(s.level, target, dt, config.attack, config.release);
-    for (let b = 0; b < 3; b++) {
-      const bt = shape(scratch.bands[b], config.threshold * 0.6);
-      s.bands[b] = follow(s.bands[b], bt, dt, config.attack, config.release * 1.15);
+  // ── Raw level and bands from the source ─────────────────────────
+  const raw = clamp01(source.getLevel());
+  scratch.level = raw;
+  // No spectrum to read, so give the bands a little independent life —
+  // slow, out-of-phase wobbles scaled by the level — so the lobes still
+  // ripple rather than pumping in lockstep.
+  scratch.bands[0] = raw;
+  scratch.bands[1] = raw * (0.72 + 0.28 * Math.sin(tSec * 9.1));
+  scratch.bands[2] = raw * (0.6 + 0.4 * Math.sin(tSec * 13.7 + 2));
+
+  // ── Shape and follow ─────────────────────────────────────────────
+  const target = shape(scratch.level, config.threshold);
+  s.level = follow(s.level, target, dt, config.attack, config.release);
+  for (let b = 0; b < 3; b++) {
+    const bt = shape(scratch.bands[b], config.threshold * 0.6);
+    s.bands[b] = follow(s.bands[b], bt, dt, config.attack, config.release * 1.15);
+  }
+
+  // ── Processing travel ────────────────────────────────────────────
+  // Like border-beam's line type: the lobes gather into one compact beam
+  // that travels the glow's range, left to right and back, eased at each
+  // end and looped. `scanA` blends the whole thing in over ~0.25 s when
+  // `processing` turns on and out when it stops; the glow is held at
+  // `processingLevel` meanwhile so the beam has colour.
+  const span = LOBE_SPAN * config.lobeSpacing;
+  // A fresh start begins the pass at the centre, heading right, so the
+  // beam grows out of the voice glow instead of jumping to one end.
+  const fresh = config.processing && s.scanA < 0.001 && s.scanT === 0;
+  if (fresh) s.scanT = Math.max(0.05, config.processingDuration) / 2;
+  const ease = Math.max(0.05, config.processingEase);
+  s.scanA = follow(s.scanA, config.processing ? 1 : 0, dt, ease * 0.9, ease * 0.8);
+  if (config.processing) s.scanT += dt;
+  else if (s.scanA < 0.001) s.scanT = 0;
+  // The morph itself runs on an eased copy of the blend — slow to start,
+  // slow to settle — so the gather, the narrowing and the travel read as
+  // one movement rather than a snap that then coasts.
+  const morph = s.scanA * s.scanA * (3 - 2 * s.scanA);
+  const cw = el.clientWidth;
+  const ch = el.clientHeight;
+  const passes = s.scanT / Math.max(0.05, config.processingDuration);
+  const pass = config.reducedMotion ? 0 : processingPosition(passes);
+  // The cluster: lobes pulled to 40% of their resting spread, the
+  // visible range narrowed to match, and — as the line type does — the
+  // beam a little wider mid-pass than at the turns.
+  const gather = 1 - morph * 0.6;
+  const maskWidth = 1 - morph * 0.45;
+  const passWidth = 1 + morph * 0.3 * (1 - pass * pass);
+
+  // ── Idle breathing folded under the voice ────────────────────────
+  const breathe = config.reducedMotion ? 0.5 : 0.5 + 0.5 * Math.sin((TWO_PI * tSec) / config.breatheDuration);
+  const voiced = s.level + (1 - s.level) * config.idle * breathe;
+  // The held level waits for the first quarter of the morph — the time
+  // the tail hooks take to collapse — so they never light up with it.
+  const heldT = Math.max(0, Math.min(1, (morph - 0.25) / 0.75));
+  const held = heldT * heldT * (3 - 2 * heldT);
+  const eff = Math.max(voiced, config.processingLevel * held);
+
+  const glow = 0.15 + 0.85 * eff;
+  const h = 0.5 + config.reach * eff;
+  const w = (0.85 + config.spread * eff) * passWidth;
+  // Cover the window, not the fixed lobe span. CSS scales cx by w;
+  // compensate so the centre stays inside the rounded surface at each end.
+  const travel = Math.max(0, cw / 2 - config.radius - 8) * Math.min(1, Math.max(0, config.processingTravel));
+  const cx = morph * travel * pass / w;
+
+  // Settle the internal flow as processing gathers the lobes into one beam.
+  // Otherwise the colours keep shifting even while the beam pauses at a turn.
+  if (config.flow !== 0 && !config.reducedMotion) {
+    s.phase = (((s.phase + config.flow * eff * (1 - morph) * dt) % span) + span) % span;
+  }
+
+  el.style.setProperty(`--vb-cx-${config.id}`, `${cx.toFixed(1)}px`);
+  el.style.setProperty(`--vb-mw-${config.id}`, maskWidth.toFixed(3));
+
+  // ── Bend: the glow's ceiling humps up at the centre ──────────────
+  // Extra height for the ellipse the glow is masked to, scaled by the
+  // level, and the 0–1 strength the rim along that contour fades with.
+  // Flat at silence.
+  const lift = config.bend * eff;
+  el.style.setProperty(`--vb-bh-${config.id}`, `${Math.max(0, lift).toFixed(1)}px`);
+  const bendA = config.bend > 0 ? Math.min(1, lift / config.bend) : 0;
+  // The band sits on that ceiling, fading in with the bend and reacting
+  // to the voice on its own (thickness and chromatic split).
+  // The band line is computed even when the band is invisible: the
+  // distortion is confined to the glow under it either way.
+  const frame: BandFrame = { cx, w, h, mw: maskWidth, lift, strength: bendA, level: s.level, corner: morph * config.cornerFollow };
+  // The beam's centre and every lobe lift along the corner arcs as they
+  // pass through them while processing, so the cluster wraps the corner
+  // the way the line type does instead of being cut off by it.
+  const beamAbsX = cw / 2 + cx * w;
+  const lobeReach = 30 * config.scale * w;
+  const arcRadius = paintedRadius(config.radius, cw, ch);
+  const cornerBlend = morph * config.cornerFollow;
+  el.style.setProperty(`--vb-cy-${config.id}`, `${(-cornerLift(beamAbsX, cw, arcRadius, lobeReach * 1.4) * cornerBlend).toFixed(1)}px`);
+  // ── Distortion: the glow under the band warps sideways ───────────
+  // A displacement map on the inner light and the bloom, its strength
+  // following the voice and its noise drifting slowly, so the colours
+  // shimmer and stretch horizontally like light through bent space.
+  // Processing drops it: the warp settles out fast (see WARP_OUT_TAU),
+  // and once it is gone the wrapper is marked so its two layers leave the
+  // paint and the base layers give up their split at the band line — the
+  // reference filter is the costliest thing here where SVG filters run in
+  // software, and the travelling beam is the one fast motion in the
+  // effect. It eases back the same way as processing ends.
+  s.warp = follow(s.warp, config.processing ? 0 : 1, dt, WARP_IN_TAU, WARP_OUT_TAU);
+  const warp = s.warp;
+  const warpOff = inst.displace != null && warp < WARP_OFF_BELOW;
+  if (warpOff !== inst.warpOff) {
+    inst.warpOff = warpOff;
+    if (warpOff) el.setAttribute('data-voice-warp', 'off');
+    else el.removeAttribute('data-voice-warp');
+  }
+  if (cw && ch && (inst.ctx || inst.displace)) {
+    const pts = bandPoints(config, frame, cw, ch);
+    if (inst.displace && !warpOff) writeClips(el, config.id, pts, cw, ch);
+    if (inst.filter && !warpOff && FILTER_REGION_OK) fitFilterRegion(inst, pts, ch);
+    if (inst.ctx) drawBand(inst, frame, pts);
+  }
+  if (inst.displace && !warpOff) {
+    const amount = config.reducedMotion ? 0 : config.distortion * 120 * config.scale * (0.15 + 0.85 * eff) * warp;
+    inst.displace.scale.baseVal = amount;
+    if (inst.noiseShift) {
+      inst.noiseShift.dx.baseVal = 8 * config.scale * Math.sin(tSec * 0.9);
+      inst.noiseShift.dy.baseVal = 4 * config.scale * Math.sin(tSec * 0.6 + 1.3);
     }
+  }
+  el.style.setProperty(`--vb-glow-${config.id}`, glow.toFixed(3));
+  el.style.setProperty(`--vb-h-${config.id}`, h.toFixed(3));
+  el.style.setProperty(`--vb-w-${config.id}`, w.toFixed(3));
 
-    // ── Processing travel ────────────────────────────────────────────
-    // Like border-beam's line type: the lobes gather into one compact beam
-    // that travels the glow's range, left to right and back, eased at each
-    // end and looped. `scanA` blends the whole thing in over ~0.25 s when
-    // `processing` turns on and out when it stops; the glow is held at
-    // `processingLevel` meanwhile so the beam has colour.
-    const span = LOBE_SPAN * config.lobeSpacing;
-    // A fresh start begins the pass at the centre, heading right, so the
-    // beam grows out of the voice glow instead of jumping to one end.
-    const fresh = config.processing && s.scanA < 0.001 && s.scanT === 0;
-    if (fresh) s.scanT = Math.max(0.05, config.processingDuration) / 2;
-    const ease = Math.max(0.05, config.processingEase);
-    s.scanA = follow(s.scanA, config.processing ? 1 : 0, dt, ease * 0.9, ease * 0.8);
-    if (config.processing) s.scanT += dt;
-    else if (s.scanA < 0.001) s.scanT = 0;
-    // The morph itself runs on an eased copy of the blend — slow to start,
-    // slow to settle — so the gather, the narrowing and the travel read as
-    // one movement rather than a snap that then coasts.
-    const morph = s.scanA * s.scanA * (3 - 2 * s.scanA);
-    const cw = el.clientWidth;
-    const ch = el.clientHeight;
-    const passes = s.scanT / Math.max(0.05, config.processingDuration);
-    const pass = config.reducedMotion ? 0 : processingPosition(passes);
-    // The cluster: lobes pulled to 40% of their resting spread, the
-    // visible range narrowed to match, and — as the line type does — the
-    // beam a little wider mid-pass than at the turns.
-    const gather = 1 - morph * 0.6;
-    const maskWidth = 1 - morph * 0.45;
-    const passWidth = 1 + morph * 0.3 * (1 - pass * pass);
+  // Each lobe: its offset along the flow, and its amplitude — the band it
+  // follows lifts it between 0.6× and 1.3× of the shared height, and the
+  // edge envelope fades it out toward the wrap.
+  for (let i = 0; i < voiceLobes.length; i++) {
+    const lobe = voiceLobes[i];
+    const x = wrapX(lobe.x * config.lobeSpacing + s.phase, span);
+    const bandLift = 0.6 + 0.7 * s.bands[lobe.band];
+    el.style.setProperty(`--vb-x${i}-${config.id}`, `${(x * gather).toFixed(1)}px`);
+    el.style.setProperty(`--vb-l${i}-${config.id}`, (bandLift * edgeEnvelope(x, span)).toFixed(3));
+    const lobeAbsX = cw / 2 + (cx + x * gather) * w;
+    el.style.setProperty(`--vb-y${i}-${config.id}`, `${(-cornerLift(lobeAbsX, cw, arcRadius, lobeReach) * cornerBlend).toFixed(1)}px`);
+  }
 
-    // ── Idle breathing folded under the voice ────────────────────────
-    const breathe = config.reducedMotion ? 0.5 : 0.5 + 0.5 * Math.sin((TWO_PI * tSec) / config.breatheDuration);
-    const voiced = s.level + (1 - s.level) * config.idle * breathe;
-    // The held level waits for the first quarter of the morph — the time
-    // the tail hooks take to collapse — so they never light up with it.
-    const heldT = Math.max(0, Math.min(1, (morph - 0.25) / 0.75));
-    const held = heldT * heldT * (3 - 2 * heldT);
-    const eff = Math.max(voiced, config.processingLevel * held);
-
-    const glow = 0.15 + 0.85 * eff;
-    const h = 0.5 + config.reach * eff;
-    const w = (0.85 + config.spread * eff) * passWidth;
-    // Cover the window, not the fixed lobe span. CSS scales cx by w;
-    // compensate so the centre stays inside the rounded surface at each end.
-    const travel = Math.max(0, cw / 2 - config.radius - 8) * Math.min(1, Math.max(0, config.processingTravel));
-    const cx = morph * travel * pass / w;
-
-    // Settle the internal flow as processing gathers the lobes into one beam.
-    // Otherwise the colours keep shifting even while the beam pauses at a turn.
-    if (config.flow !== 0 && !config.reducedMotion) {
-      s.phase = (((s.phase + config.flow * eff * (1 - morph) * dt) % span) + span) % span;
-    }
-
-    el.style.setProperty(`--vb-cx-${config.id}`, `${cx.toFixed(1)}px`);
-    el.style.setProperty(`--vb-mw-${config.id}`, maskWidth.toFixed(3));
-
-    // ── Bend: the glow's ceiling humps up at the centre ──────────────
-    // Extra height for the ellipse the glow is masked to, scaled by the
-    // level, and the 0–1 strength the rim along that contour fades with.
-    // Flat at silence.
-    const lift = config.bend * eff;
-    el.style.setProperty(`--vb-bh-${config.id}`, `${Math.max(0, lift).toFixed(1)}px`);
-    const bendA = config.bend > 0 ? Math.min(1, lift / config.bend) : 0;
-    // The band sits on that ceiling, fading in with the bend and reacting
-    // to the voice on its own (thickness and chromatic split).
-    // The band line is computed even when the band is invisible: the
-    // distortion is confined to the glow under it either way.
-    const frame: BandFrame = { cx, w, h, mw: maskWidth, lift, strength: bendA, level: s.level, corner: morph * config.cornerFollow };
-    // The beam's centre and every lobe lift along the corner arcs as they
-    // pass through them while processing, so the cluster wraps the corner
-    // the way the line type does instead of being cut off by it.
-    const beamAbsX = cw / 2 + cx * w;
-    const lobeReach = 30 * config.scale * w;
-    const arcRadius = paintedRadius(config.radius, cw, ch);
-    const cornerBlend = morph * config.cornerFollow;
-    el.style.setProperty(`--vb-cy-${config.id}`, `${(-cornerLift(beamAbsX, cw, arcRadius, lobeReach * 1.4) * cornerBlend).toFixed(1)}px`);
-    // ── Distortion: the glow under the band warps sideways ───────────
-    // A displacement map on the inner light and the bloom, its strength
-    // following the voice and its noise drifting slowly, so the colours
-    // shimmer and stretch horizontally like light through bent space.
-    // Processing drops it: the warp settles out fast (see WARP_OUT_TAU),
-    // and once it is gone the wrapper is marked so its two layers leave the
-    // paint and the base layers give up their split at the band line — the
-    // reference filter is the costliest thing here where SVG filters run in
-    // software, and the travelling beam is the one fast motion in the
-    // effect. It eases back the same way as processing ends.
-    s.warp = follow(s.warp, config.processing ? 0 : 1, dt, WARP_IN_TAU, WARP_OUT_TAU);
-    const warp = s.warp;
-    const warpOff = inst.displace != null && warp < WARP_OFF_BELOW;
-    if (warpOff !== inst.warpOff) {
-      inst.warpOff = warpOff;
-      if (warpOff) el.setAttribute('data-voice-warp', 'off');
-      else el.removeAttribute('data-voice-warp');
-    }
-    if (cw && ch && (inst.ctx || inst.displace)) {
-      const pts = bandPoints(config, frame, cw, ch);
-      if (inst.displace && !warpOff) writeClips(el, config.id, pts, cw, ch);
-      if (inst.filter && !warpOff && FILTER_REGION_OK) fitFilterRegion(inst, pts, ch);
-      if (inst.ctx) drawBand(inst, frame, pts);
-    }
-    if (inst.displace && !warpOff) {
-      const amount = config.reducedMotion ? 0 : config.distortion * 120 * config.scale * (0.15 + 0.85 * eff) * warp;
-      inst.displace.scale.baseVal = amount;
-      if (inst.noiseShift) {
-        inst.noiseShift.dx.baseVal = 8 * config.scale * Math.sin(tSec * 0.9);
-        inst.noiseShift.dy.baseVal = 4 * config.scale * Math.sin(tSec * 0.6 + 1.3);
-      }
-    }
-    el.style.setProperty(`--vb-glow-${config.id}`, glow.toFixed(3));
-    el.style.setProperty(`--vb-h-${config.id}`, h.toFixed(3));
-    el.style.setProperty(`--vb-w-${config.id}`, w.toFixed(3));
-
-    // Each lobe: its offset along the flow, and its amplitude — the band it
-    // follows lifts it between 0.6× and 1.3× of the shared height, and the
-    // edge envelope fades it out toward the wrap.
-    for (let i = 0; i < voiceLobes.length; i++) {
-      const lobe = voiceLobes[i];
-      const x = wrapX(lobe.x * config.lobeSpacing + s.phase, span);
-      const bandLift = 0.6 + 0.7 * s.bands[lobe.band];
-      el.style.setProperty(`--vb-x${i}-${config.id}`, `${(x * gather).toFixed(1)}px`);
-      el.style.setProperty(`--vb-l${i}-${config.id}`, (bandLift * edgeEnvelope(x, span)).toFixed(3));
-      const lobeAbsX = cw / 2 + (cx + x * gather) * w;
-      el.style.setProperty(`--vb-y${i}-${config.id}`, `${(-cornerLift(lobeAbsX, cw, arcRadius, lobeReach) * cornerBlend).toFixed(1)}px`);
-    }
-
-    // ── Hue drift ────────────────────────────────────────────────────
-    const hue =
-      config.reducedMotion || config.hueRange === 0
-        ? 0
-        : -config.hueRange + 2 * config.hueRange * pingPong(tSec / config.hueDuration);
-    el.style.setProperty(`--vb-hue-${config.id}`, `${hue.toFixed(2)}deg`);
-  });
+  // ── Hue drift ────────────────────────────────────────────────────
+  const hue =
+    config.reducedMotion || config.hueRange === 0
+      ? 0
+      : -config.hueRange + 2 * config.hueRange * pingPong(tSec / config.hueDuration);
+  el.style.setProperty(`--vb-hue-${config.id}`, `${hue.toFixed(2)}deg`);
 }
 
 function startLoop(): void {
@@ -755,7 +757,8 @@ function stopLoopIfIdle(): void {
 export function registerVoiceInstance(
   el: HTMLElement,
   config: VoiceDriverConfig,
-  source: VoiceSource
+  source: VoiceSource,
+  animate = true
 ): () => void {
   const inst: VoiceInstance = {
     el,
@@ -791,6 +794,25 @@ export function registerVoiceInstance(
   }
   // A fresh registration must not integrate time spent unregistered.
   inst.s.lastTs = 0;
+
+  if (!animate) {
+    // Thumbnails and paused previews keep a single settled frame. Resize may
+    // change the canvas backing store, but never starts the animation clock.
+    const paintStill = () => {
+      const level = shape(clamp01(source.getLevel()), config.threshold);
+      Object.assign(inst.s, {
+        level, bands: [level, level, level], phase: 0, t: 1.2, lastTs: 0,
+        scanA: config.processing ? 1 : 0,
+        scanT: config.processing ? config.processingDuration / 2 : 0,
+        warp: config.processing ? 0 : 1,
+      });
+      paintInstance(inst, 0);
+    };
+    paintStill();
+    const observer = new ResizeObserver(paintStill);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }
 
   instances.add(inst);
   startLoop();
