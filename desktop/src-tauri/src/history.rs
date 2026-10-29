@@ -316,14 +316,12 @@ pub(crate) async fn list_history(
         let path = crate::user_data::data_dir().join("sotto.db");
         let conn = rusqlite::Connection::open_with_flags(
             path,
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
-                | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
         )
         .map_err(|e| e.to_string())?;
         conn.execute_batch("BEGIN DEFERRED TRANSACTION")
             .map_err(|e| e.to_string())?;
-        let result = list_history_page_from(&conn, policy, &query)
-            .map_err(|e| e.to_string())?;
+        let result = list_history_page_from(&conn, policy, &query).map_err(|e| e.to_string())?;
         conn.execute_batch("COMMIT").map_err(|e| e.to_string())?;
         Ok::<_, String>(result)
     })
