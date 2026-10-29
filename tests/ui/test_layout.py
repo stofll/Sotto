@@ -1,5 +1,6 @@
 """Layout smoke checks and reviewable screenshots, not pixel-diff baselines."""
 
+import time
 from pathlib import Path
 
 import pytest
@@ -7,24 +8,30 @@ from playwright.sync_api import expect
 from test_navigation import TABS
 
 
-def banner_geometry(banner):
-    # Resize events can commit React state after a first animation query. Wait
-    # for style/layout frames, then read every rectangle in one browser task.
-    return banner.evaluate("""async element => {
-      await document.fonts.ready;
-      await new Promise(requestAnimationFrame);
-      await new Promise(requestAnimationFrame);
-      await Promise.all(document.getAnimations()
-        .filter(animation => animation instanceof CSSTransition)
-        .map(animation => animation.finished.catch(() => {})));
-      const rect = target => target.getBoundingClientRect().toJSON();
-      return {
-        card: rect(element),
-        copy: rect(element.querySelector('.window-banner__copy')),
-        actions: rect(element.querySelector('.window-banner__actions')),
-        overflow: element.scrollWidth - element.clientWidth,
-      };
-    }""")
+def banner_geometry(page, banner):
+    # Observe the geometry we assert, without waiting on unrelated document
+    # animations. Every snapshot is atomic, and a moving layout fails promptly.
+    deadline = time.monotonic() + 7
+    previous = None
+    stable = 0
+    while True:
+        geometry = banner.evaluate("""element => {
+          const rect = target => target.getBoundingClientRect().toJSON();
+          return {
+            fontsReady: document.fonts.status === 'loaded',
+            card: rect(element),
+            copy: rect(element.querySelector('.window-banner__copy')),
+            actions: rect(element.querySelector('.window-banner__actions')),
+            overflow: element.scrollWidth - element.clientWidth,
+          };
+        }""")
+        stable = stable + 1 if geometry["fontsReady"] and geometry == previous else 0
+        if stable >= 2:
+            return geometry
+        if time.monotonic() >= deadline:
+            pytest.fail(f"Banner geometry did not settle: {geometry}")
+        previous = geometry
+        page.wait_for_timeout(50)
 
 
 @pytest.mark.parametrize("locale", ["ru", "en"])
@@ -140,7 +147,7 @@ def test_telemetry_notice_layout(app, page, locale, theme, output_path, tab_key)
     )
     banner = page.locator(".telemetry-consent")
     expect(banner).to_be_visible()
-    geometry = banner_geometry(banner)
+    geometry = banner_geometry(page, banner)
     copy, actions = geometry["copy"], geometry["actions"]
     assert actions["y"] >= copy["y"] + copy["height"]
     assert copy["width"] > geometry["card"]["width"] * 0.8
@@ -173,7 +180,7 @@ def test_accessibility_notice_layout(app, page, locale, theme, output_path, tab_
         expect(page.locator(".win")).to_have_class(
             "win collapsed" if width == 1000 else "win"
         )
-        geometry = banner_geometry(card)
+        geometry = banner_geometry(page, card)
         copy, actions = geometry["copy"], geometry["actions"]
         assert actions["y"] >= copy["y"] + copy["height"]
         assert copy["width"] > geometry["card"]["width"] * 0.8

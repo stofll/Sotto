@@ -124,6 +124,9 @@ def test_history_initial_error_has_retry_without_false_empty_state(app, page):
 def test_page_error_keeps_previous_rows_and_retries_requested_page(app, page):
     ui = app(history=history_entries())
     ui.nav("history")
+    # The page container mounts before its first asynchronous query completes.
+    # Queue the failure only after page one arrived, so it targets page two.
+    expect(page.get_by_test_id("history-entry-120")).to_be_visible()
     pager = page.get_by_role("navigation", name="Страницы истории")
     ui.queue("list_history", {"error": "Synthetic page unavailable"})
     pager.get_by_role("button", name="Страница 2", exact=True).click()
