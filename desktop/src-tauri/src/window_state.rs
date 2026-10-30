@@ -53,6 +53,8 @@ fn read(app: &tauri::AppHandle) -> Option<Geometry> {
         .and_then(|bytes| serde_json::from_slice::<Geometry>(&bytes).ok())
 }
 
+/// Replaces the file through a sibling temporary one: the updater can end the
+/// process mid-write, and a truncated file would lose the size altogether.
 fn write(app: &tauri::AppHandle, geometry: &Geometry) {
     let Some(path) = path(app) else {
         return;
@@ -60,8 +62,12 @@ fn write(app: &tauri::AppHandle, geometry: &Geometry) {
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    if let Ok(bytes) = serde_json::to_vec(geometry) {
-        let _ = std::fs::write(path, bytes);
+    let Ok(bytes) = serde_json::to_vec(geometry) else {
+        return;
+    };
+    let tmp = path.with_extension("json.tmp");
+    if std::fs::write(&tmp, bytes).is_ok() {
+        let _ = std::fs::rename(&tmp, &path);
     }
 }
 
@@ -96,6 +102,37 @@ fn restored_size(geometry: &Geometry) -> Option<(f64, f64)> {
     })
 }
 
+/// The restored size no larger than the work area of the monitor the window
+/// opens on: it may have been saved on a bigger screen or at a lower scaling.
+/// The minimum still wins, as the OS enforces it anyway.
+fn fitted_size((width, height): (f64, f64), area: Option<(f64, f64)>) -> (f64, f64) {
+    let Some((area_width, area_height)) = area else {
+        return (width, height);
+    };
+    (
+        width.min(area_width).max(DEFAULT_WIDTH),
+        height.min(area_height).max(DEFAULT_HEIGHT),
+    )
+}
+
+/// Where to move a window that sticks out of the work area: centred in it, or
+/// at its top-left corner when the window is still the larger. `None` when the
+/// window already fits. Physical pixels: `(x, y, width, height)`.
+fn placed_within(window: (i64, i64, i64, i64), area: (i64, i64, i64, i64)) -> Option<(i64, i64)> {
+    let (x, y, width, height) = window;
+    let (area_x, area_y, area_width, area_height) = area;
+    let fits = x >= area_x
+        && y >= area_y
+        && x + width <= area_x + area_width
+        && y + height <= area_y + area_height;
+    (!fits).then(|| {
+        (
+            area_x + ((area_width - width) / 2).max(0),
+            area_y + ((area_height - height) / 2).max(0),
+        )
+    })
+}
+
 fn due_for_write(last_write: Option<Instant>, now: Instant) -> bool {
     match last_write {
         None => true,
@@ -126,8 +163,47 @@ pub fn restore(app: &tauri::AppHandle) {
     };
     let geometry = read(app);
     if let Some(g) = geometry {
-        if let Some((width, height)) = restored_size(&g) {
+        if let Some(size) = restored_size(&g) {
+            // Without a saved position the window opens where the OS puts it,
+            // so the monitor is known only now.
+            let monitor = window
+                .current_monitor()
+                .ok()
+                .flatten()
+                .or_else(|| window.primary_monitor().ok().flatten());
+            let area = monitor.as_ref().map(|monitor| {
+                let (rect, scale) = (monitor.work_area(), monitor.scale_factor());
+                (
+                    rect,
+                    scale,
+                    (
+                        f64::from(rect.size.width) / scale,
+                        f64::from(rect.size.height) / scale,
+                    ),
+                )
+            });
+            let (width, height) = fitted_size(size, area.map(|(_, _, logical)| logical));
             let _ = window.set_size(tauri::LogicalSize::new(width, height));
+            if let (Some((rect, scale, _)), Ok(origin)) = (area, window.outer_position()) {
+                let physical = |value: f64| (value * scale).round() as i64;
+                let target = placed_within(
+                    (
+                        i64::from(origin.x),
+                        i64::from(origin.y),
+                        physical(width),
+                        physical(height),
+                    ),
+                    (
+                        i64::from(rect.position.x),
+                        i64::from(rect.position.y),
+                        i64::from(rect.size.width),
+                        i64::from(rect.size.height),
+                    ),
+                );
+                if let Some((x, y)) = target {
+                    let _ = window.set_position(tauri::PhysicalPosition::new(x as i32, y as i32));
+                }
+            }
             if g.maximized {
                 let _ = window.maximize();
             }
@@ -249,6 +325,42 @@ mod tests {
         assert_eq!(restored_size(&saved(1280.0, 800.0)), Some((1280.0, 800.0)));
         assert_eq!(restored_size(&saved(f64::NAN, 800.0)), None);
         assert_eq!(restored_size(&saved(1280.0, 0.0)), None);
+    }
+
+    #[test]
+    fn a_size_saved_on_a_larger_screen_fits_the_work_area() {
+        assert_eq!(
+            fitted_size((2400.0, 1500.0), Some((1536.0, 816.0))),
+            (1536.0, 816.0)
+        );
+        assert_eq!(
+            fitted_size((1280.0, 800.0), Some((1920.0, 1032.0))),
+            (1280.0, 800.0)
+        );
+        // A screen below the minimum keeps the minimum: the OS would enforce it anyway.
+        assert_eq!(
+            fitted_size((1280.0, 800.0), Some((1093.0, 683.0))),
+            (1093.0, DEFAULT_HEIGHT)
+        );
+        assert_eq!(fitted_size((2400.0, 1500.0), None), (2400.0, 1500.0));
+    }
+
+    #[test]
+    fn a_window_sticking_out_of_the_work_area_is_centred_in_it() {
+        let area = (0, 0, 1920, 1032);
+        assert_eq!(placed_within((26, 26, 1280, 800), area), None);
+        assert_eq!(placed_within((26, 26, 1920, 1032), area), Some((0, 0)));
+        assert_eq!(placed_within((800, 400, 1280, 800), area), Some((320, 116)));
+        // A secondary monitor left of the primary one has a negative origin.
+        assert_eq!(
+            placed_within((-100, 50, 1000, 710), (-1920, 0, 1920, 1040)),
+            Some((-1460, 165))
+        );
+        // A window taller than the area is pinned to its top rather than pushed above it.
+        assert_eq!(
+            placed_within((0, 0, 1000, 710), (0, 0, 1093, 683)),
+            Some((46, 0))
+        );
     }
 
     #[test]
