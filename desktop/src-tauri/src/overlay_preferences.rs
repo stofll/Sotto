@@ -6,7 +6,9 @@ const DEFAULT_EDGE_OFFSET: f64 = 25.0;
 const FORMS: &[&str] = &["pill", "bead", "glow"];
 /// Mirrors `SHELLS` in overlayRecipe.ts. A saved recipe picks the window
 /// from its shell; without one the legacy `form` does.
-const SHELLS: &[&str] = &["pill", "card", "bead", "stack", "island", "caps", "mini"];
+const SHELLS: &[&str] = &[
+    "pill", "card", "bead", "stack", "island", "caps", "mini", "split", "ring", "notch",
+];
 /// Mirrors `MAX_TEMPLATES` in overlayRecipe.ts.
 const MAX_TEMPLATES: usize = 8;
 const MAX_NAME_CHARS: usize = 40;
@@ -94,6 +96,9 @@ impl OverlayPreferences {
                 "bead" => Layout::Bead,
                 "stack" => Layout::Stack,
                 "mini" => Layout::Mini,
+                "split" => Layout::Split,
+                "ring" => Layout::Ring,
+                "notch" => Layout::Notch,
                 // A pill or island opens only when the recipe has a draft row to show.
                 _ if streaming && self.draft_row => Layout::Streaming,
                 _ => Layout::Pill,
@@ -132,6 +137,16 @@ impl OverlayPreferences {
             (Layout::Mini, "s") => (132.0, 40.0),
             (Layout::Mini, "l") => (168.0, 48.0),
             (Layout::Mini, _) => (148.0, 44.0),
+            (Layout::Split, "s") => (240.0, 40.0),
+            (Layout::Split, "l") => (300.0, 50.0),
+            (Layout::Split, _) => (262.0, 44.0),
+            (Layout::Ring, "s") => (80.0, 80.0),
+            (Layout::Ring, "l") => (100.0, 100.0),
+            (Layout::Ring, _) => (88.0, 88.0),
+            // The size used where the screen has no notch; with one, overlay_notch.rs decides.
+            (Layout::Notch, "s") => (340.0, 30.0),
+            (Layout::Notch, "l") => (380.0, 36.0),
+            (Layout::Notch, _) => (356.0, 32.0),
         }
     }
 }
@@ -145,6 +160,9 @@ pub enum Layout {
     Glow,
     Stack,
     Mini,
+    Split,
+    Ring,
+    Notch,
 }
 
 // Loading repairs known retired values in memory; only a successful save writes them.
@@ -227,7 +245,9 @@ fn short_text(value: &Value, max: usize) -> bool {
 }
 
 /// The native side needs the shell; the rest of the recipe is flat maps of
-/// short tokens, numbers and flags the frontend normalises. Unknown tokens are its concern, but
+/// short tokens, numbers and flags the frontend normalises. The `label` is
+/// the user's own short text; the frontend keeps it to 24 characters and
+/// omits it when empty, so a blank one is refused here. Unknown tokens are its concern, but
 /// nothing nested or oversized reaches the config file.
 fn validate_recipe(recipe: &Value) -> Result<(), &'static str> {
     let object = recipe.as_object().ok_or("")?;
@@ -238,7 +258,11 @@ fn validate_recipe(recipe: &Value) -> Result<(), &'static str> {
     {
         return Err(".shell");
     }
-    for (key, field) in [("motion", ".motion"), ("process", ".process")] {
+    for (key, field) in [
+        ("motion", ".motion"),
+        ("process", ".process"),
+        ("label", ".label"),
+    ] {
         if object
             .get(key)
             .is_some_and(|token| !short_text(token, MAX_TOKEN_CHARS))
@@ -422,6 +446,25 @@ mod tests {
             Layout::Pill,
             "errors open into the pill row"
         );
+        for (shell, layout, medium) in [
+            ("split", Layout::Split, (262.0, 44.0)),
+            ("ring", Layout::Ring, (88.0, 88.0)),
+            ("notch", Layout::Notch, (356.0, 32.0)),
+        ] {
+            let shaped = with(json!({"shell":shell}));
+            assert_eq!(shaped.layout(false, false), layout);
+            assert_eq!(
+                shaped.layout(true, false),
+                layout,
+                "a draft does not open {shell}"
+            );
+            assert_eq!(shaped.window_size(layout), medium);
+            assert_eq!(
+                shaped.layout(false, true),
+                Layout::Pill,
+                "errors open {shell} into the pill row"
+            );
+        }
         let pill = with(json!({"shell":"pill","slots":{"center":"level"}}));
         assert_eq!(
             pill.layout(true, false),
@@ -448,8 +491,10 @@ mod tests {
 
     #[test]
     fn validates_recipes_and_templates() {
-        let recipe = json!({"shell":"pill","slots":{"start":"timer","below":null},"draw":{"level":"matrix"},"style":{"radius":"round"},"motion":"soft","processing":{"draw":"none","edge":false,"words":true,"speed":"fast"},"matrix":{"density":7},"cancel":{"at":"end","draw":"x","show":"hover"}});
+        let recipe = json!({"shell":"pill","slots":{"start":"timer","below":null},"draw":{"level":"matrix"},"style":{"radius":"round","fill":"smoke","texture":"grain"},"motion":"soft","processing":{"draw":"none","edge":false,"words":true,"speed":"fast"},"matrix":{"density":7},"cancel":{"at":"end","draw":"x","show":"hover"}});
         assert!(validate(&json!({"overlay":{"recipe":recipe.clone()}})).is_ok());
+        let labelled = json!({"shell":"pill","slots":{"start":"label"},"label":"✦ работа"});
+        assert!(validate(&json!({"overlay":{"recipe":labelled}})).is_ok());
         let template =
             json!({"id":"a1","name":"Мой","recipe":recipe.clone(),"palette":"violet","size":"l"});
         assert!(validate(&json!({"overlay":{"templates":[template.clone()]}})).is_ok());
@@ -459,6 +504,9 @@ mod tests {
             json!({"recipe":{"shell":"pill","slots":{"start":{"nested":true}}}}),
             json!({"recipe":{"shell":"pill","motion":""}}),
             json!({"recipe":{"shell":"pill","process":{"nested":true}}}),
+            json!({"recipe":{"shell":"pill","label":{"nested":true}}}),
+            json!({"recipe":{"shell":"pill","label":"  "}}),
+            json!({"recipe":{"shell":"pill","label":"я".repeat(MAX_TOKEN_CHARS + 1)}}),
             json!({"recipe":{"shell":"pill","processing":{"draw":{"nested":true}}}}),
             json!({"recipe":{"shell":"pill","pasted":{"hold":{"nested":true}}}}),
             json!({"recipe":{"shell":"pill","cancel":"end"}}),
@@ -467,6 +515,87 @@ mod tests {
             json!({"templates":vec![template.clone(); MAX_TEMPLATES + 1]}),
         ] {
             assert!(validate(&json!({"overlay":bad})).is_err(), "{bad}");
+        }
+    }
+    /// The frontend table of window sizes and the list of shells are the
+    /// source this side mirrors; both are read from the TypeScript file so a
+    /// change on one side fails here instead of resizing the window wrongly.
+    mod parity {
+        use super::*;
+
+        const RECIPE_TS: &str = include_str!("../../src/overlay/overlayRecipe.ts");
+
+        fn block<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
+            let from = source.find(start).expect(start) + start.len();
+            &source[from..from + source[from..].find(end).expect(end)]
+        }
+
+        fn quoted(list: &str) -> Vec<String> {
+            list.split('"')
+                .skip(1)
+                .step_by(2)
+                .map(str::to_string)
+                .collect()
+        }
+
+        #[test]
+        fn shells_match_the_frontend() {
+            let ts = quoted(block(RECIPE_TS, "export const SHELLS = [", "] as const"));
+            assert_eq!(ts, SHELLS);
+        }
+
+        #[test]
+        fn notch_ears_match_the_frontend() {
+            let line = block(RECIPE_TS, "export const NOTCH_EAR: ", ";");
+            let numbers: Vec<f64> = line
+                .rsplit('{')
+                .next()
+                .unwrap()
+                .split(|c: char| !c.is_ascii_digit())
+                .filter_map(|part| part.parse().ok())
+                .collect();
+            let ears: Vec<f64> = ["s", "m", "l"]
+                .into_iter()
+                .map(crate::overlay_notch::ear_width)
+                .collect();
+            assert_eq!(numbers, ears);
+        }
+
+        #[test]
+        fn window_sizes_match_the_frontend() {
+            let table = block(RECIPE_TS, "export const WINDOW_SIZE: ", "};");
+            let numbers = |line: &str| -> Vec<f64> {
+                line.split(|c: char| !c.is_ascii_digit())
+                    .filter_map(|part| part.parse().ok())
+                    .collect()
+            };
+            let layouts = [
+                ("pill", Layout::Pill),
+                ("bead", Layout::Bead),
+                ("streaming", Layout::Streaming),
+                ("glow", Layout::Glow),
+                ("stack", Layout::Stack),
+                ("mini", Layout::Mini),
+                ("split", Layout::Split),
+                ("ring", Layout::Ring),
+                ("notch", Layout::Notch),
+            ];
+            for (name, layout) in layouts {
+                let line = table
+                    .lines()
+                    .find(|line| line.trim_start().starts_with(&format!("{name}:")))
+                    .unwrap_or_else(|| panic!("{name} is missing from WINDOW_SIZE"));
+                let sizes = numbers(line);
+                assert_eq!(sizes.len(), 6, "{line}");
+                for (index, size) in ["s", "m", "l"].into_iter().enumerate() {
+                    let prefs = OverlayPreferences::from_config(&json!({"overlay":{"size":size}}));
+                    assert_eq!(
+                        prefs.window_size(layout),
+                        (sizes[index * 2], sizes[index * 2 + 1]),
+                        "{name} {size}"
+                    );
+                }
+            }
         }
     }
 }

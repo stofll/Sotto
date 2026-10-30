@@ -536,10 +536,11 @@ mod tests {
         let off = Formatter::from_config(&config).process("собрано в таури");
         assert!(off.contains("таури"), "{off}");
         config.text_formatting.dictionary_sets[0].enabled = true;
+        // The Cleanup switch does not govern dictionaries.
         config.text_formatting.enabled = false;
         assert_eq!(
             Formatter::from_config(&config).process("собрано в таури"),
-            "собрано в таури"
+            "собрано в Tauri"
         );
         assert_eq!(effective_words(&config.text_formatting), ["Tauri"]);
     }

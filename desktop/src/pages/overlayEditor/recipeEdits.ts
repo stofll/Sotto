@@ -1,33 +1,30 @@
 import {
-  DEFAULT_STYLE, DRAWINGS, SHELL_REGIONS, compatible, emptySlots, fitCancel, fitsShell, regionOf,
+  DRAWINGS, SHELL_REGIONS, compatible, defaultProcessing, emptySlots, fitCancel, fitProcessDraw, fitsShell, regionOf,
   type ElementType, type Recipe, type RegionKind, type Shell,
 } from "../../overlay/overlayRecipe";
 
 // Every edit the constructor makes to a recipe. Each returns a new recipe
 // or a reason it cannot be done; nothing here knows about the screen.
 
-const hasOrb = (recipe: Recipe) => recipe.draw.level === "orb" && regionOf(recipe, "level") !== null;
-
-/** The orb is the only drawing meant to float without a shell. When an edit
- *  takes it away, a shell that is still invisible gets its default look back,
- *  otherwise the new parts would hang in the air. */
-export function restoreShell(before: Recipe, after: Recipe): Recipe {
-  if (!hasOrb(before) || hasOrb(after) || after.style.fill !== "none" || after.style.stroke !== "none") return after;
-  return { ...after, style: { ...after.style, fill: DEFAULT_STYLE.fill, stroke: DEFAULT_STYLE.stroke, glow: DEFAULT_STYLE.glow } };
-}
+/** The figures (limit, words, pace, engine, label, target) go to the shell's side places, in this order. */
+const figures = (places: string[]): Partial<Record<ElementType, string[]>> =>
+  ({ limit: places, words: places, pace: places, engine: places, label: places, target: places });
 
 /** Where an element goes first when it is added without choosing a place. */
 const PREFERRED: Record<Shell, Partial<Record<ElementType, string[]>>> = {
-  pill: { level: ["center", "start", "end"], timer: ["start", "end", "center"], rec: ["start", "end", "center"], mode: ["end", "center", "start"], draft: ["below"] },
-  island: { level: ["center", "start", "end"], timer: ["start", "end", "center"], rec: ["start", "end", "center"], mode: ["end", "center", "start"], draft: ["below"] },
-  card: { level: ["edge", "body", "footR", "footL"], timer: ["footL", "footR", "body"], rec: ["footL", "footR", "body"], mode: ["footR", "footL", "body"], draft: ["body"] },
-  bead: { level: ["core"], rec: ["core"] },
+  pill: { level: ["center", "start", "end"], timer: ["start", "end", "center"], rec: ["start", "end", "center"], mode: ["end", "center", "start"], draft: ["below"], ...figures(["end", "start", "center"]) },
+  island: { level: ["center", "start", "end"], timer: ["start", "end", "center"], rec: ["start", "end", "center"], mode: ["end", "center", "start"], draft: ["below"], ...figures(["end", "start", "center"]) },
+  card: { level: ["edge", "body", "footR", "footL"], timer: ["footL", "footR", "body"], rec: ["footL", "footR", "body"], mode: ["footR", "footL", "body"], draft: ["body"], ...figures(["footR", "footL", "body"]) },
+  bead: { level: ["core"], rec: ["core"], limit: ["core"] },
   stack: { level: ["top", "bottom"], timer: ["bottom", "top"], rec: ["top", "bottom"], mode: ["bottom", "top"] },
-  caps: { draft: ["lines"], timer: ["c1", "c2"], level: ["c2", "c1"], rec: ["c1", "c2"], mode: ["c2", "c1"] },
-  mini: { level: ["start", "end"], timer: ["end", "start"], rec: ["start", "end"], mode: ["end", "start"] },
+  caps: { draft: ["lines"], timer: ["c1", "c2"], level: ["c2", "c1"], rec: ["c1", "c2"], mode: ["c2", "c1"], ...figures(["c1", "c2"]) },
+  mini: { level: ["start", "end"], timer: ["end", "start"], rec: ["start", "end"], mode: ["end", "start"], ...figures(["end", "start"]) },
+  split: { level: ["center", "dot", "start"], timer: ["start"], rec: ["dot", "start"], mode: ["center", "start"], ...figures(["start", "center"]), limit: ["dot", "start"] },
+  ring: { timer: ["hole"], rec: ["hole"], level: ["hole"], mode: ["hole"], ...figures(["hole"]) },
+  notch: { level: ["earL", "earR"], timer: ["earR", "earL"], rec: ["earR", "earL"], mode: ["earR", "earL"], ...figures(["earR", "earL"]) },
 };
 /** Placement order when a new shell has to take everything the old one held: the text first, it has one place. */
-const PLACEMENT_ORDER: ElementType[] = ["draft", "level", "timer", "rec", "mode"];
+const PLACEMENT_ORDER: ElementType[] = ["draft", "level", "timer", "rec", "mode", "limit", "words", "pace", "engine", "label", "target"];
 
 const clone = (recipe: Recipe): Recipe => structuredClone(recipe);
 const pickDraw = (type: ElementType, current: string, kinds: readonly RegionKind[]) =>
@@ -109,11 +106,12 @@ export function changeShell(recipe: Recipe, shell: Shell): EditResult & { ok: tr
       next.slots[region] = type;
     }
   }
+  next.processing = { ...next.processing, draw: fitProcessDraw(shell, next.processing.draw, defaultProcessing(next).draw) };
   return { ok: true, recipe: next, switched, left: placed.filter((type) => !regionOf(next, type)) };
 }
 
 /** The order parts are offered in, in the library and in an empty region. */
-export const PART_ORDER: ElementType[] = ["level", "timer", "rec", "draft", "mode"];
+export const PART_ORDER: ElementType[] = ["level", "timer", "rec", "draft", "mode", "limit", "words", "pace", "engine", "label", "target"];
 
 /** What an empty region can take: each element with the drawings that fit there. */
 export function partsFor(recipe: Recipe, region: string): Array<{ type: ElementType; draws: string[] }> {

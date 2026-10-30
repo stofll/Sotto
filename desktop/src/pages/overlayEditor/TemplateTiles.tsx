@@ -5,11 +5,11 @@ import { Modal } from "../../components/Modal";
 import { RowMenu } from "../../components/RowMenu";
 import { confirmDestructive } from "../../components/ConfirmDialog";
 import { t } from "../../i18n";
-import { OverlayScene } from "../../overlay/OverlayScene";
 import { overlayPalette } from "../../overlay/overlayPalette";
 import type { OverlayPreferences } from "../../overlay/overlayPreferences";
 import { MAX_TEMPLATES, SHELL_LAYOUT, TEMPLATE_NAME_MAX, WINDOW_SIZE, type OverlaySize, type Recipe, type UserTemplate } from "../../overlay/overlayRecipe";
 import { matchingTemplate, newTemplate, templateLook } from "./overlayDraft";
+import { StillScene } from "./StillScene";
 import { stillVoice } from "./simulatedVoice";
 import { sameRecipe, SYSTEM_TEMPLATES, systemTemplateNames, type SystemTemplate } from "./templates";
 
@@ -22,7 +22,7 @@ export function OverlayThumb({ recipe, preferences, size }: { recipe: Recipe; pr
   const scale = Math.min(THUMB.width / width, THUMB.height / height, 1);
   return <span className="ovt" style={overlayPalette(preferences)} aria-hidden="true">
     <span className="ovt__scene" style={{ width, height, transform: `translate(-50%, -50%) scale(${scale.toFixed(3)})` } as CSSProperties}>
-      <OverlayScene still recipe={recipe} size={size} phase="recording" streaming={false} draft="" draftPlaceholder=""
+      <StillScene still recipe={recipe} size={size} phase="recording" streaming={false} draft="" draftPlaceholder=""
         timer="00:07" limited={false} status="" mode={{ full: "RU · large-v3", short: "RU" }} source={stillVoice} close={{ label: "", text: t("Отмена") }}/>
     </span>
   </span>;

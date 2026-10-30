@@ -63,6 +63,10 @@ A recording is deleted with its History entry: when you delete the entry, clear 
 
 The folder is separate from the logs, so sharing the logs folder does not share your voice. Builds before this change kept recordings inside `logs`, and the first launch of a newer build moves them out.
 
+An audio file chosen as a sound cue is copied into the `sounds` folder as a short WAV, one per cue, and replaced when you choose another file for that cue. The settings keep only the original file's name to label it, not its location.
+
+When an overlay recipe shows the **target** element, the overlay asks the application for the name of the focused program as it was when the recording started, so it can say where the text will go. The name stays in memory for that recording: it is not saved, written to the logs or sent anywhere, and telemetry never includes focused-window details.
+
 Pasting goes through the system clipboard, so the last dictated text stays there until something else is copied, and a clipboard history such as Windows' Win+V may keep it longer.
 
 Model cards take their speed from measurements bundled with the application and record nothing about your own dictations or model loads. Builds up to 0.1.3 kept such timings in the local database; a newer build deletes them on its first launch.
@@ -72,7 +76,7 @@ Model cards take their speed from measurements bundled with the application and 
 | Data | Windows | macOS |
 | --- | --- | --- |
 | Settings (`config.json`) | `%APPDATA%\com.sotto.app` | `~/Library/Application Support/com.sotto.app` |
-| History and statistics database, logs, audio recordings | `%LOCALAPPDATA%\com.sotto.app` | `~/Library/Application Support/com.sotto.app` |
+| History and statistics database, logs, audio recordings, custom sound cues | `%LOCALAPPDATA%\com.sotto.app` | `~/Library/Application Support/com.sotto.app` |
 | Downloaded models | `%LOCALAPPDATA%\sotto\models` | `~/Library/Caches/sotto/models` |
 | API keys | Credential Manager, entries ending in `.sotto` | Keychain, service `sotto` |
 

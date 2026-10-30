@@ -1,10 +1,10 @@
 import { useRef, type CSSProperties } from "react";
 import { t } from "../../i18n";
+import { SLIDER_RELEASE_KEYS } from "../../components/sliderKeys";
 import { paletteTone } from "../../overlay/overlayPalette";
 import type { OverlayPreferences } from "../../overlay/overlayPreferences";
 
 type Palette = Pick<OverlayPreferences, "palette" | "palette_hue" | "palette_chroma">;
-const RELEASE_KEYS = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"];
 const MAX_CHROMA = 0.2;
 /** Saturation a grey preset takes on when its hue is moved, so the move shows. */
 const TINT_FROM_GREY = 0.1;
@@ -42,7 +42,7 @@ export function PaletteTone({ palette, onChange, onCommit }: {
           onChange({ palette: "custom", ...next });
         }}
         onPointerUp={commit}
-        onKeyUp={(event) => { if (RELEASE_KEYS.includes(event.key)) commit(); }}
+        onKeyUp={(event) => { if (SLIDER_RELEASE_KEYS.includes(event.key)) commit(); }}
         onBlur={commit}/>
     </label>)}
   </div>;

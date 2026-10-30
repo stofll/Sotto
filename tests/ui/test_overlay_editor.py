@@ -44,6 +44,54 @@ def test_recipe_save_failure_rolls_back_and_same_choice_retries(app, page):
     expect(editor.locator(".ove-stage .ovs")).to_have_attribute("data-shell", "mini")
 
 
+def test_tall_popover_scrolls_inside_the_window(app, page):
+    page.set_viewport_size({"width": 1000, "height": 560})
+    app(config={"overlay": {"recipe": RECIPE}})
+    editor = open_editor(page)
+    editor.locator('.ove-stage [data-filled="level"]').click()
+    pop = editor.get_by_role("dialog", name="Уровень: варианты")
+    expect(pop).to_be_visible()
+    box = wait_until_still(pop)
+    assert box["y"] >= 0 and box["y"] + box["height"] <= 560, box
+    assert pop.evaluate("el => el.scrollHeight > el.clientHeight")
+    # The nearest scrolling ancestor of the editor is the page the wheel used to move.
+    page_scroll = """el => {
+      for (let node = el.parentElement; node; node = node.parentElement) {
+        if (/auto|scroll/.test(getComputedStyle(node).overflowY)) return node.scrollTop;
+      }
+      return document.scrollingElement.scrollTop;
+    }"""
+    before = editor.evaluate(page_scroll)
+    page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    page.mouse.wheel(0, 2000)
+    page.wait_for_function(
+        "el => el.scrollTop + el.clientHeight >= el.scrollHeight - 1",
+        arg=pop.element_handle(),
+    )
+    assert editor.evaluate(page_scroll) == before
+
+
+@pytest.mark.parametrize(
+    "name,shell,width,height",
+    [
+        ("Двойка", "split", 254, 36),
+        ("Кольцо", "ring", 80, 80),
+        ("Чёлка", "notch", 356, 32),
+    ],
+)
+def test_new_shells_can_be_picked_and_keep_their_window(
+    app, page, name, shell, width, height
+):
+    app(config={"overlay": {"recipe": RECIPE}})
+    editor = open_editor(page)
+    editor.locator(".ove-shell").filter(has_text=name).click()
+    stage = editor.locator(".ove-stage .ovs")
+    expect(stage).to_have_attribute("data-shell", shell)
+    shell_box = stage.locator(".ovs-shell")
+    expect(shell_box).to_have_css("width", f"{width}px")
+    expect(shell_box).to_have_css("height", f"{height}px")
+
+
 def test_later_recipe_edit_survives_an_earlier_save_failure(app, page):
     ui = app(config={"overlay": {"recipe": RECIPE}})
     editor = open_editor(page)
@@ -206,6 +254,7 @@ def test_captions_long_error_keeps_close_inside_window(
             "OverlayMatrix",
             {"shell": "bead", "slots": {"core": "level"}, "draw": {"level": "matrix"}},
         ),
+        ("OverlayRing", {"shell": "ring", "slots": {"hole": "timer"}}),
     ],
 )
 def test_recipe_module_failure_keeps_cancel_available(
@@ -304,6 +353,9 @@ def test_existing_template_update_failure_can_be_retried(app, page):
         ("stack", 72, 112),
         ("card", 360, 100),
         ("caps", 520, 138),
+        ("split", 240, 40),
+        ("ring", 80, 80),
+        ("notch", 340, 30),
     ],
 )
 def test_timerless_limit_stays_inside_window(
@@ -322,7 +374,8 @@ def test_timerless_limit_stays_inside_window(
     ui.emit("recording-limit", {"session_id": 42, "remaining_seconds": 60})
     badge = page.locator(".ovs-limitb")
     expect(badge).to_be_visible()
-    bounds = badge.bounding_box()
+    # The notch band enters from above the screen edge, so measure where it settles.
+    bounds = wait_until_still(badge)
     assert bounds and bounds["x"] >= 0 and bounds["y"] >= 0
     assert bounds["x"] + bounds["width"] <= width
     assert bounds["y"] + bounds["height"] <= height
@@ -335,3 +388,140 @@ def test_timerless_limit_stays_inside_window(
     page.keyboard.press("Enter")
     expect(page.get_by_test_id("overlay")).not_to_be_visible()
     assert ui.calls("cancel_recording")[-1]["args"]["sessionId"] == 42
+
+
+def test_data_elements_name_the_target_and_the_engine(app, page):
+    page.set_viewport_size({"width": 308, "height": 64})
+    ui = app(
+        "overlay",
+        config={
+            "ai_processing": {"pipeline_mode": "cloud"},
+            "overlay": {
+                "recipe": {
+                    "shell": "pill",
+                    "slots": {"start": "engine", "center": "target", "end": "timer"},
+                    "draw": {"timer": "flip"},
+                }
+            },
+        },
+    )
+    ui.queue("paste_target_name", {"result": "Telegram"})
+    ui.emit("recording-started", 42)
+    scene = page.locator(".ovs")
+    expect(scene.locator(".ovs-rg-center")).to_contain_text("Telegram")
+    expect(scene.locator(".ovs-rg-start")).to_contain_text("облако")
+    expect(scene.locator(".ovs-flip")).to_be_visible()
+    assert len(ui.calls("paste_target_name")) == 1
+    ui.queue("paste_target_name", {"result": "Code"})
+    ui.emit("recording-started", 43)
+    expect(scene.locator(".ovs-rg-center")).to_contain_text("Code")
+    assert len(ui.calls("paste_target_name")) == 2
+
+
+def test_a_late_target_reply_cannot_replace_the_next_recordings_target(app, page):
+    ui = app(
+        "overlay",
+        config={
+            "overlay": {"recipe": {"shell": "pill", "slots": {"center": "target"}}}
+        },
+    )
+    ui.queue("paste_target_name", {"hold": True})
+    ui.emit("recording-started", 42)
+    page.wait_for_function("window.__sottoTest.pending('paste_target_name')")
+    ui.queue("paste_target_name", {"result": "Code"})
+    ui.emit("recording-started", 43)
+    target = page.locator(".ovs-rg-center")
+    expect(target).to_contain_text("Code")
+    ui.settle("paste_target_name", result="Telegram")
+    expect(target).to_contain_text("Code")
+    assert len(ui.calls("paste_target_name")) == 2
+
+
+def test_recipe_without_a_target_never_asks_for_the_application(app, page):
+    ui = app(
+        "overlay",
+        config={"overlay": {"recipe": {"shell": "pill", "slots": {"center": "level"}}}},
+    )
+    ui.emit("recording-started", 43)
+    expect(page.locator(".ovs")).to_have_attribute("data-phase", "recording")
+    assert ui.calls("paste_target_name") == []
+
+
+def test_notch_shell_ears_sit_either_side_of_the_native_notch(app, page):
+    # A 186 pt notch under 38 pt of menu bar, medium ears of 88 pt each.
+    page.set_viewport_size({"width": 362, "height": 38})
+    ui = app(
+        "overlay",
+        config={
+            "overlay": {
+                "recipe": {
+                    "shell": "notch",
+                    "slots": {"earL": "level", "earR": "timer"},
+                    "draw": {"level": "tide"},
+                }
+            }
+        },
+    )
+    ui.emit("recording-started", 44)
+    ui.emit("overlay-notch", {"width": 186, "height": 38})
+    shell = page.locator(".ovs-shell")
+    expect(shell).to_have_css("width", "362px")
+    expect(shell).to_have_css("height", "38px")
+    left = page.locator(".ovs-ear-l").bounding_box()
+    right = page.locator(".ovs-ear-r").bounding_box()
+    assert left and right
+    assert left["x"] == 0 and left["width"] == 88
+    assert right["x"] + right["width"] == 362 and right["width"] == 88
+    assert (
+        page.locator(".ovs-band").evaluate("e => getComputedStyle(e).backgroundColor")
+        == "rgb(0, 0, 0)"
+    )
+
+
+def test_notch_shell_without_a_notch_uses_the_named_size(app, page):
+    page.set_viewport_size({"width": 356, "height": 32})
+    ui = app("overlay", config={"overlay": {"recipe": {"shell": "notch"}}})
+    ui.emit("recording-started", 45)
+    shell = page.locator(".ovs-shell")
+    expect(shell).to_have_css("width", "356px")
+    expect(shell).to_have_css("height", "32px")
+    assert len(ui.calls("overlay_notch")) == 1
+
+
+def test_a_late_notch_reply_cannot_replace_the_current_screen(app, page):
+    ui = app(
+        "overlay",
+        config={"overlay": {"recipe": {"shell": "notch"}}},
+        responses={"overlay_notch": [{"hold": True}]},
+    )
+    ui.emit("recording-started", 44)
+    page.wait_for_function("window.__sottoTest.pending('overlay_notch')")
+    ui.emit("overlay-notch", {"width": 186, "height": 38})
+    shell = page.locator(".ovs-shell")
+    expect(shell).to_have_css("width", "362px")
+    ui.settle("overlay_notch", result=None)
+    expect(shell).to_have_css("width", "362px")
+    assert len(ui.calls("overlay_notch")) == 1
+
+
+def test_notch_shell_follows_a_move_to_a_screen_without_a_notch(app, page):
+    page.set_viewport_size({"width": 362, "height": 38})
+    ui = app("overlay", config={"overlay": {"recipe": {"shell": "notch"}}})
+    ui.emit("recording-started", 47)
+    ui.emit("overlay-notch", {"width": 186, "height": 38})
+    shell = page.locator(".ovs-shell")
+    expect(shell).to_have_css("width", "362px")
+    ui.emit("recording-started", 48)
+    ui.emit("overlay-notch", None)
+    expect(shell).to_have_css("width", "356px")
+    expect(shell).to_have_css("height", "32px")
+
+
+def test_notch_shell_error_opens_into_the_pill_row(app, page):
+    page.set_viewport_size({"width": 308, "height": 64})
+    ui = app("overlay", config={"overlay": {"recipe": {"shell": "notch"}}})
+    ui.emit("recording-started", 46)
+    ui.emit("whisper-failed", {"session_id": 46, "message": "Synthetic failure"})
+    expect(page.locator(".ovs")).to_have_attribute("data-phase", "error")
+    expect(page.locator(".ovs")).to_have_attribute("data-needs-text", "1")
+    expect(page.locator(".ovs-band")).to_have_count(0)

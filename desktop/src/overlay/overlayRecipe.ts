@@ -6,7 +6,7 @@ import { MATRIX_DENSITIES, MATRIX_PROCESS, MATRIX_SPEECH, type MatrixDensity, ty
 // side reads only the shell and whether the draft row is used (see
 // overlay_preferences.rs); everything else is normalised here.
 
-export const SHELLS = ["pill", "card", "bead", "stack", "island", "caps", "mini"] as const;
+export const SHELLS = ["pill", "card", "bead", "stack", "island", "caps", "mini", "split", "ring", "notch"] as const;
 export type Shell = typeof SHELLS[number];
 export type RegionKind = "small" | "wide" | "text" | "square" | "tall" | "edge";
 
@@ -18,9 +18,14 @@ export const SHELL_REGIONS: Record<Shell, Record<string, readonly RegionKind[]>>
   island: { start: ["small"], center: ["wide"], end: ["small"], below: ["text"] },
   caps: { c1: ["small"], c2: ["small"], lines: ["text"] },
   mini: { start: ["small"], end: ["small"] },
+  split: { dot: ["square"], start: ["small"], center: ["wide"] },
+  // The rim always draws the voice as ticks (OverlayRing.tsx); the hole is the only place for parts.
+  ring: { hole: ["small"] },
+  // The band continues the camera notch sideways: the level in the left ear, the recording sign and timer in the right.
+  notch: { earL: ["small"], earR: ["small"] },
 };
 
-export const ELEMENTS = ["level", "timer", "rec", "mode", "draft"] as const;
+export const ELEMENTS = ["level", "timer", "rec", "mode", "draft", "limit", "words", "pace", "engine", "label", "target"] as const;
 export type ElementType = typeof ELEMENTS[number];
 
 const ALL_SMALL: readonly RegionKind[] = ["small", "wide", "square", "tall"];
@@ -28,25 +33,47 @@ export const DRAWINGS: { [T in ElementType]: Record<string, readonly RegionKind[
   level: {
     bars: ["small", "wide"], wave: ["small", "wide"], qbars: ["small", "wide"], scope: ["small", "wide"],
     ascii: ["small", "wide"], caps: ALL_SMALL, matrix: ALL_SMALL, segments: ALL_SMALL,
-    ring: ["small", "wide", "square", "tall"], orb: ["small", "wide", "square", "tall"], beam: ["edge"],
+    ring: ["small", "wide", "square", "tall"], beam: ["edge"],
+    dorb: ["square", "tall"], tide: ["small", "wide"], static: ["small", "wide"], halftone: ["small", "wide"],
+    glitch: ["small", "wide"], lava: ["small", "wide"], cols: ["small", "wide"],
   },
-  timer: { capsule: ["small", "wide"], plain: ["small", "wide", "tall"], big: ["wide", "tall"] },
+  timer: {
+    capsule: ["small", "wide"], plain: ["small", "wide", "tall"], big: ["wide", "tall"],
+    seg: ["small", "wide"], flip: ["small", "wide"], led: ["small", "wide"], glyph: ["small", "wide"], binary: ["small", "wide"],
+  },
   rec: { dot: ["small", "wide", "tall", "square"], label: ["small", "wide"], REC: ["small", "wide", "tall"] },
   mode: { chip: ["wide"], short: ["small", "wide", "tall"] },
-  draft: { tail: ["text"], plain: ["text"] },
+  draft: { tail: ["text"], plain: ["text"], decode: ["text"] },
+  limit: { ring: ["square", "small"] },
+  words: { count: ["small"] },
+  pace: { rate: ["small"] },
+  engine: { chip: ["small"] },
+  label: { text: ["small", "wide"] },
+  target: { app: ["small", "wide"] },
 };
-export const DEFAULT_DRAW: Record<ElementType, string> = { level: "bars", timer: "capsule", rec: "dot", mode: "chip", draft: "tail" };
+export const DEFAULT_DRAW: Record<ElementType, string> = {
+  level: "bars", timer: "capsule", rec: "dot", mode: "chip", draft: "tail",
+  limit: "ring", words: "count", pace: "rate", engine: "chip", label: "text", target: "app",
+};
+
+/** The user's own word for the `label` element; the native validator allows a few more characters than this. */
+export const LABEL_MAX_CHARS = 24;
+/** A label as it is kept: trimmed, at most `LABEL_MAX_CHARS` characters, or nothing. */
+export function normalizeLabel(value: unknown): string {
+  return typeof value === "string" ? Array.from(value.trim()).slice(0, LABEL_MAX_CHARS).join("").trim() : "";
+}
 
 export const STYLE_OPTIONS = {
   radius: ["round", "soft", "sharp"],
   stroke: ["none", "hair", "rim"],
-  fill: ["palette", "light", "black", "none"],
+  fill: ["palette", "light", "black", "none", "smoke", "paper"],
+  texture: ["none", "grain", "scan", "screen", "vignette", "chroma"],
   glow: ["0", "1", "2"],
   font: ["sans", "mono"],
 } as const;
 export type RecipeStyle = { [K in keyof typeof STYLE_OPTIONS]: typeof STYLE_OPTIONS[K][number] };
 /** A bare shell: the stroke, rim or hairline, is something to add in the constructor. */
-export const DEFAULT_STYLE: RecipeStyle = { radius: "round", stroke: "none", fill: "palette", glow: "1", font: "sans" };
+export const DEFAULT_STYLE: RecipeStyle = { radius: "round", stroke: "none", fill: "palette", texture: "none", glow: "1", font: "sans" };
 
 export const MOTIONS = ["quiet", "soft", "spring", "pixel"] as const;
 export type Motion = typeof MOTIONS[number];
@@ -62,13 +89,14 @@ export type RecipeMatrix = { speech: MatrixSpeech; process: MatrixProcess; densi
 export const CANCEL_SPOTS: Record<Shell, readonly string[]> = {
   pill: ["end", "start"], island: ["end", "start"], card: ["footR", "footL", "corner"],
   bead: ["center"], stack: ["top", "bottom"], caps: ["end", "start"], mini: ["end", "start"],
+  split: ["dot"], ring: ["hole"], notch: ["ear"],
 };
 export const CANCEL_DRAWS = ["x", "stop", "text"] as const;
 export const CANCEL_SHOWS = ["hover", "always"] as const;
 export type RecipeCancel = { at: string; draw: typeof CANCEL_DRAWS[number]; show: typeof CANCEL_SHOWS[number] };
 /** Shells too small to give the cancel button a place of its own: it floats
  *  over the parts on hover, and a status is shown as a sign without words. */
-export const COMPACT_SHELLS: readonly Shell[] = ["bead", "stack", "mini"];
+export const COMPACT_SHELLS: readonly Shell[] = ["bead", "stack", "mini", "split", "ring", "notch"];
 /** A word needs a row. */
 export const cancelDraws = (shell: Shell): readonly RecipeCancel["draw"][] => COMPACT_SHELLS.includes(shell) ? ["x", "stop"] : CANCEL_DRAWS;
 /** In a compact shell the button sits over the parts, so it can only appear on hover. */
@@ -86,8 +114,17 @@ export const DEFAULT_MATRIX: RecipeMatrix = { speech: "rings", process: "perimet
 
 /** What the overlay shows while the text is decoded and polished: a sign
  *  (or none), a light running along the stroke, the word, and their pace. */
-export const PROCESS_DRAWS = ["dots", "arc", "matrix", "cursor", "none"] as const;
+export const PROCESS_DRAWS = ["dots", "arc", "matrix", "cursor", "none", "decode", "waves", "scan", "bar", "halftone"] as const;
 export type ProcessDraw = typeof PROCESS_DRAWS[number];
+/** Drawings that need a row to run in: the compact shells and the caption chip give them too little room. */
+const PROCESS_ROW_SHELLS: Partial<Record<ProcessDraw, readonly Shell[]>> = {
+  decode: ["pill", "island", "card"], bar: ["pill", "card"],
+};
+export const processDraws = (shell: Shell): readonly ProcessDraw[] =>
+  PROCESS_DRAWS.filter((draw) => PROCESS_ROW_SHELLS[draw]?.includes(shell) ?? true);
+/** The processing drawing a shell can have that is closest to `draw`. */
+export const fitProcessDraw = (shell: Shell, draw: ProcessDraw, fallback: ProcessDraw): ProcessDraw =>
+  processDraws(shell).includes(draw) ? draw : fallback;
 export const PROCESS_SPEEDS = ["slow", "normal", "fast"] as const;
 export type ProcessSpeed = typeof PROCESS_SPEEDS[number];
 /** How many times faster than normal each speed runs. */
@@ -98,8 +135,11 @@ export type RecipeProcessing = { draw: ProcessDraw; edge: boolean; words: boolea
  *  (the native side reads `hold`, see `pasted_hold_ms` in overlay_preferences.rs). */
 export const PASTED_HOLDS = ["short", "normal", "long"] as const;
 export type PastedHold = typeof PASTED_HOLDS[number];
-export type RecipePasted = { flash: boolean; words: boolean; hold: PastedHold };
-export const DEFAULT_PASTED: RecipePasted = { flash: true, words: true, hold: "normal" };
+/** How the overlay leaves after the note: the usual fade, or a dissolve through a dither mask. */
+export const PASTED_EXITS = ["fade", "dissolve"] as const;
+export type PastedExit = typeof PASTED_EXITS[number];
+export type RecipePasted = { flash: boolean; words: boolean; hold: PastedHold; exit: PastedExit };
+export const DEFAULT_PASTED: RecipePasted = { flash: true, words: true, hold: "normal", exit: "fade" };
 
 export type Recipe = {
   shell: Shell;
@@ -111,6 +151,8 @@ export type Recipe = {
   cancel: RecipeCancel;
   processing: RecipeProcessing;
   pasted: RecipePasted;
+  /** The text of the `label` element. Absent when empty: the native validator rejects an empty string. */
+  label?: string;
 };
 
 /** The processing a recipe showed before it was a choice of its own, so a
@@ -148,7 +190,9 @@ export function normalizeRecipe(raw: unknown): Recipe | null {
   if (!SHELLS.includes(value.shell as Shell)) return null;
   const shell = value.shell as Shell;
   const draw = { ...DEFAULT_DRAW };
-  const rawDraw = record(value.draw);
+  const rawDraw = { ...record(value.draw) };
+  // The retired orb level fitted every region the ring does, so a saved one keeps its place.
+  if (rawDraw.level === "orb") rawDraw.level = "ring";
   for (const type of ELEMENTS) if (typeof rawDraw[type] === "string" && DRAWINGS[type][rawDraw[type] as string]) draw[type] = rawDraw[type] as string;
   const slots = emptySlots(shell);
   const rawSlots = record(value.slots);
@@ -164,25 +208,27 @@ export function normalizeRecipe(raw: unknown): Recipe | null {
     [key, pick(options, rawStyle[key], DEFAULT_STYLE[key as keyof RecipeStyle])])) as RecipeStyle;
   const rawMatrix = record(value.matrix);
   const motion = pick(MOTIONS, value.motion, "soft");
+  const label = normalizeLabel(value.label);
   return {
     shell, slots, draw, style, motion,
+    ...(label ? { label } : {}),
     matrix: {
       speech: pick(MATRIX_SPEECH, rawMatrix.speech, DEFAULT_MATRIX.speech),
       process: pick(MATRIX_PROCESS, rawMatrix.process, DEFAULT_MATRIX.process),
       density: pick(MATRIX_DENSITIES, rawMatrix.density, DEFAULT_MATRIX.density),
     },
     cancel: fitCancel(shell, value.cancel),
-    processing: normalizeProcessing(value, defaultProcessing({ shell, slots, draw, motion })),
+    processing: normalizeProcessing(value, shell, defaultProcessing({ shell, slots, draw, motion })),
     pasted: normalizePasted(value.pasted),
   };
 }
 
 /** `processing` from saved JSON. A recipe saved while it was a single `process` sign keeps that sign. */
-function normalizeProcessing(value: Record<string, unknown>, fallback: RecipeProcessing): RecipeProcessing {
+function normalizeProcessing(value: Record<string, unknown>, shell: Shell, fallback: RecipeProcessing): RecipeProcessing {
   const raw = record(value.processing);
   const flag = (key: "edge" | "words") => typeof raw[key] === "boolean" ? raw[key] as boolean : fallback[key];
   return {
-    draw: pick(PROCESS_DRAWS, raw.draw ?? value.process, fallback.draw),
+    draw: pick(processDraws(shell), raw.draw ?? value.process, fallback.draw),
     edge: flag("edge"), words: flag("words"),
     speed: pick(PROCESS_SPEEDS, raw.speed, fallback.speed),
   };
@@ -191,10 +237,10 @@ function normalizeProcessing(value: Record<string, unknown>, fallback: RecipePro
 function normalizePasted(value: unknown): RecipePasted {
   const raw = record(value);
   const flag = (key: "flash" | "words") => typeof raw[key] === "boolean" ? raw[key] as boolean : DEFAULT_PASTED[key];
-  return { flash: flag("flash"), words: flag("words"), hold: pick(PASTED_HOLDS, raw.hold, DEFAULT_PASTED.hold) };
+  return { flash: flag("flash"), words: flag("words"), hold: pick(PASTED_HOLDS, raw.hold, DEFAULT_PASTED.hold), exit: pick(PASTED_EXITS, raw.exit, DEFAULT_PASTED.exit) };
 }
 
-export type RecipeLayout = "pill" | "bead" | "streaming" | "glow" | "stack" | "mini";
+export type RecipeLayout = "pill" | "bead" | "streaming" | "glow" | "stack" | "mini" | "split" | "ring" | "notch";
 /** Mirrors `OverlayPreferences::layout` for a saved recipe in overlay_preferences.rs. */
 export function recipeLayout(recipe: Recipe, streaming: boolean, needsText: boolean): RecipeLayout {
   if (recipe.shell === "card") return "glow";
@@ -202,7 +248,7 @@ export function recipeLayout(recipe: Recipe, streaming: boolean, needsText: bool
   if (needsText) return "pill";
   if (recipe.shell === "bead") return "bead";
   if (recipe.shell === "stack") return "stack";
-  if (recipe.shell === "mini") return "mini";
+  if (recipe.shell === "mini" || recipe.shell === "split" || recipe.shell === "ring" || recipe.shell === "notch") return recipe.shell;
   return streaming && recipe.slots.below === "draft" ? "streaming" : "pill";
 }
 
@@ -214,9 +260,17 @@ export const WINDOW_SIZE: Record<RecipeLayout, Record<OverlaySize, readonly [num
   bead: { s: [64, 64], m: [72, 72], l: [80, 80] },
   stack: { s: [72, 112], m: [80, 128], l: [88, 144] },
   mini: { s: [132, 40], m: [148, 44], l: [168, 48] },
+  split: { s: [240, 40], m: [262, 44], l: [300, 50] },
+  ring: { s: [80, 80], m: [88, 88], l: [100, 100] },
+  // Used where the screen has no camera notch; with one the native side sizes the window around it (overlay_notch.rs).
+  notch: { s: [340, 30], m: [356, 32], l: [380, 36] },
 };
+/** The width of each ear of the notch shell, mirroring `ear_width` in overlay_notch.rs. */
+export const NOTCH_EAR: Record<OverlaySize, number> = { s: 80, m: 88, l: 100 };
+/** The camera notch the native side placed the shell around, in points. */
+export type NotchFit = { width: number; height: number };
 /** The window a shell is designed around, before any state opens it wider. */
-export const SHELL_LAYOUT: Record<Shell, RecipeLayout> = { pill: "pill", island: "pill", card: "glow", bead: "bead", stack: "stack", caps: "streaming", mini: "mini" };
+export const SHELL_LAYOUT: Record<Shell, RecipeLayout> = { pill: "pill", island: "pill", card: "glow", bead: "bead", stack: "stack", caps: "streaming", mini: "mini", split: "split", ring: "ring", notch: "notch" };
 export const FONT_SCALE: Record<OverlaySize, number> = { s: 0.92, m: 1, l: 1.12 };
 
 /** The legacy form that comes closest, kept in sync so an older Sotto that
@@ -243,7 +297,9 @@ export function shellRadius(recipe: Recipe, size: OverlaySize) {
 export type ScenePhase = "recording" | "processing" | "pasted" | "error";
 /** Shell size inside the window: the window minus a 4 px margin, except the
  *  island, which rests small and widens for what it has to say. */
-export function shellSize(recipe: Recipe, size: OverlaySize, layout: RecipeLayout, phase: ScenePhase, shown: boolean): [number, number] {
+export function shellSize(recipe: Recipe, size: OverlaySize, layout: RecipeLayout, phase: ScenePhase, shown: boolean, notch?: NotchFit | null): [number, number] {
+  // The band reaches the window's edges: it is flush with the top of the screen and has no margin.
+  if (recipe.shell === "notch" && layout === "notch") return notch ? [notch.width + 2 * NOTCH_EAR[size], notch.height] : [...WINDOW_SIZE.notch[size]];
   const [width, height] = WINDOW_SIZE[layout][size];
   if (recipe.shell === "island" && layout === "pill") {
     if (!shown && recipe.motion !== "quiet") return [120, 28];

@@ -97,7 +97,7 @@ const FORMAT_DEFAULTS: TextFormattingConfig = {
  * than two lines of fine print under every row. */
 type CleanGroup = { id: string; keys: Array<keyof TextFormattingConfig>; title: string; hint: string };
 
-const MASTER_HINT = () => t("Главный переключатель всего локального пайплайна");
+const MASTER_HINT = () => t("Включает и выключает очистку. Замены и словари работают независимо от неё.");
 
 const CLEAN_GROUPS = (): CleanGroup[] => ([
   { id: "glitches", keys: ["remove_hallucinations", "collapse_phrase_loops"], title: t("Убирать сбои распознавания"), hint: t("«субтитры сделал…», [Music], зациклившиеся фразы; если кроме них ничего нет — вставка отменяется") },

@@ -87,7 +87,6 @@ export function DictionaryLibrary({ open, onToggle, formatting, onSave }: { open
       summary={<span className="dictionary-note" role="status">{librarySummary(analysis, error)}</span>}
       aside={<button ref={createRef} type="button" className="btn btn--ghost btn--sm" disabled={busy || !analysis} onClick={() => setSession({ create: true, baseline: configKey })}><Icon name="plus" size={12}/>{t("Создать")}</button>}>
       <div className="dictionary-library">
-        {!formatting.enabled && <p className="dictionary-note">{t("Форматирование выключено: словари не исправляют текст. Подсказки для Whisper и Qwen3 продолжают работать.")}</p>}
         {error && <div className="inline-error" role="alert">{t("Не удалось загрузить или сохранить словари. Изменения не применены.")} <button type="button" className="btn btn--ghost" onClick={() => setRevision((value) => value + 1)}>{t("Повторить")}</button></div>}
         {analysis && entries.length === 0 && <p className="dictionary-note">{t("Наборов пока нет. Создайте набор для своих имён и терминов.")}</p>}
         <fieldset className="dictionary-fieldset" disabled={busy}>

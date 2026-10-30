@@ -9,11 +9,12 @@ import { OverlayMatrix } from "../../overlay/OverlayMatrix";
 import { overlayPalette } from "../../overlay/overlayPalette";
 import type { OverlayPreferences } from "../../overlay/overlayPreferences";
 import {
-  CANCEL_DRAWS, CANCEL_SHOWS, CANCEL_SPOTS, COMPACT_SHELLS, DRAWINGS, PASTED_HOLDS, MOTIONS, PROCESS_DRAWS, PROCESS_PACE, PROCESS_SPEEDS, SHELLS, cancelDraws, cancelShows, SHELL_LAYOUT, STYLE_OPTIONS, WINDOW_SIZE, fitsShell, regionOf, shellRadius,
-  recipeHasMatrix, type ElementType, type ProcessDraw, type PastedHold, type ProcessSpeed, type Recipe, type RecipePasted, type RecipeProcessing, type RecipeMatrix, type RecipeStyle, type RegionKind, type Shell, type UserTemplate,
+  LABEL_MAX_CHARS, normalizeLabel, CANCEL_DRAWS, CANCEL_SHOWS, CANCEL_SPOTS, COMPACT_SHELLS, DRAWINGS, PASTED_EXITS, PASTED_HOLDS, MOTIONS, PROCESS_DRAWS, PROCESS_PACE, PROCESS_SPEEDS, SHELLS, cancelDraws, cancelShows, processDraws, SHELL_LAYOUT, STYLE_OPTIONS, WINDOW_SIZE, fitsShell, regionOf, shellRadius,
+  recipeHasMatrix, type ElementType, type ProcessDraw, type PastedExit, type PastedHold, type ProcessSpeed, type Recipe, type RecipePasted, type RecipeProcessing, type RecipeMatrix, type RecipeStyle, type RegionKind, type Shell, type UserTemplate,
 } from "../../overlay/overlayRecipe";
-import { DraftPart, LevelPart, ModePart, ProcessLead, RecPart, TimerPart } from "../../overlay/sceneParts";
-import { cancelDrawNames, cancelShowNames, cancelSpotNames, drawNames, elementNames, elementNotes, kindPlaces, motionNames, pastedHoldNames, processNames, processPatternNames, processSpeedNames, regionNames, shellNames, speechPatternNames, styleNames } from "./labels";
+import { DraftPart, FigurePart, LevelPart, ModePart, ProcessLead, RecPart, TimerPart } from "../../overlay/sceneParts";
+import { sampleFigures } from "../../overlay/recordingFigures";
+import { cancelDrawNames, cancelShowNames, cancelSpotNames, drawNames, elementNames, elementNotes, kindPlaces, motionNames, pastedExitNames, pastedHoldNames, processNames, processPatternNames, processSpeedNames, regionNames, shellNames, speechPatternNames, styleNames } from "./labels";
 import type { OverlayLook } from "./overlayDraft";
 import { drawingKinds, PART_ORDER } from "./recipeEdits";
 import { PreviewActivity, simulatedVoice, stillVoice, type PhaseMode } from "./simulatedVoice";
@@ -27,7 +28,8 @@ const ALL_SYSTEM = Object.keys(SYSTEM_TEMPLATES) as SystemTemplate[];
 /** The shape a part is previewed in: the place it most naturally goes. */
 function previewKind(type: ElementType, draw: string): RegionKind {
   const kinds = DRAWINGS[type][draw] ?? [];
-  if (kinds.includes("square") && (draw === "ring" || draw === "orb")) return "square";
+  if (type === "level" && kinds.includes("square") && (draw === "ring" || draw === "dorb")) return "square";
+  if (type === "limit") return "square";
   if (type === "level" && kinds.includes("wide")) return "wide";
   if (kinds.includes("text")) return "text";
   if (kinds.includes("edge")) return "edge";
@@ -41,7 +43,8 @@ function ProcessPreview({ draw, recipe }: { draw: ProcessDraw; recipe: Recipe })
   return <span className={`ovs ove-pv-root${active ? "" : " ovs--still"}`} data-radius={recipe.style.radius} data-fill={recipe.style.fill} data-motion={recipe.motion}
     data-phase="processing" data-proc-speed={speed} style={{ "--fs": 0.92 } as CSSProperties} aria-hidden="true">
     <span className="ove-pv ove-pv--small">{draw === "none" ? null
-      : <ProcessLead draw={draw} matrix={recipe.matrix} size={26} sharp={recipe.style.radius === "sharp"} pace={PROCESS_PACE[speed]} still={!active}/>}</span>
+      : <ProcessLead draw={draw} matrix={recipe.matrix} size={26} sharp={recipe.style.radius === "sharp"} pace={PROCESS_PACE[speed]}
+        wide text={t("Обрабатываю")} chars={12} still={!active}/>}</span>
   </span>;
 }
 
@@ -50,14 +53,19 @@ function ProcessingOptions({ recipe, onRecipe }: { recipe: Recipe; onRecipe: Pro
   const names = processNames(), speeds = processSpeedNames(), { processing } = recipe;
   const set = (patch: Partial<RecipeProcessing>, message: string) =>
     onRecipe({ ...recipe, processing: { ...processing, ...patch } }, message);
-  const noStroke = recipe.style.stroke === "none", compact = COMPACT_SHELLS.includes(recipe.shell);
+  const noStroke = recipe.style.stroke === "none", compact = COMPACT_SHELLS.includes(recipe.shell), decoding = processing.draw === "decode";
   return <div className="ove-cancel">
     <div className="ove-parts">
-      {PROCESS_DRAWS.map((draw) => <button key={draw} type="button" className="ove-part ove-part--pick" aria-pressed={processing.draw === draw}
-        onClick={() => set({ draw }, t("Обработка: «{p0}»", { p0: names[draw] }))}>
-        <span className="ove-part__pv"><ProcessPreview draw={draw} recipe={recipe}/></span>
-        <span className="ove-part__meta"><b>{names[draw]}</b></span>
-      </button>)}
+      {PROCESS_DRAWS.map((draw) => {
+        const fits = processDraws(recipe.shell).includes(draw);
+        return <Hint key={draw} asChild text={fits ? undefined : t("Этому корпусу не хватает места: расшифровке и полосе нужна строка текста.")}>
+          <button type="button" className="ove-part ove-part--pick" aria-pressed={processing.draw === draw} aria-disabled={!fits}
+            onClick={fits ? () => set({ draw }, t("Обработка: «{p0}»", { p0: names[draw] })) : undefined}>
+            <span className="ove-part__pv"><ProcessPreview draw={draw} recipe={recipe}/></span>
+            <span className="ove-part__meta"><b>{names[draw]}</b></span>
+          </button>
+        </Hint>;
+      })}
     </div>
     {/* One row: the three settings are short, and each explains itself behind its info icon. */}
     <div className="ove-procrow">
@@ -71,11 +79,11 @@ function ProcessingOptions({ recipe, onRecipe }: { recipe: Recipe; onRecipe: Pro
       </span>
       <span className="ove-procrow__item">
         <label className="checkbox-row ove-check">
-          <input className="checkbox" type="checkbox" checked={processing.words && !compact} disabled={compact}
+          <input className="checkbox" type="checkbox" checked={processing.words && !compact && !decoding} disabled={compact || decoding}
             onChange={(event) => set({ words: event.target.checked }, event.target.checked ? t("Обработка: с подписью") : t("Обработка: без подписи"))}/>
           {t("Подпись")}
         </label>
-        <Hint text={compact ? t("В маленьком корпусе места для слов нет: показывается только знак.")
+        <Hint text={decoding ? t("Бегущая расшифровка заменяет слово: подпись для неё не нужна.") : compact ? t("В маленьком корпусе места для слов нет: показывается только знак.")
           : t("Рядом со знаком пишется «Обрабатываю», а при долгой обработке ещё и сколько секунд она идёт.")}/>
       </span>
       <span className="ove-procrow__item">
@@ -99,14 +107,14 @@ function groupSummaries(recipe: Recipe): Record<GroupId, string> {
     process: [processNames()[processing.draw], edge && t("огонёк"), processing.words && !compact && t("подпись"),
       processSpeedNames()[processing.speed].toLowerCase()].filter(Boolean).join(" · "),
     pasted: [flash ? t("вспышка") : t("без вспышки"), pasted.words && !compact ? t("с подписью") : t("только галочка"),
-      pastedHoldNames()[pasted.hold].toLowerCase()].join(" · "),
+      pastedHoldNames()[pasted.hold].toLowerCase(), pasted.exit === "dissolve" && pastedExitNames().dissolve.toLowerCase()].filter(Boolean).join(" · "),
     cancel: [cancelDrawNames()[cancel.draw], cancelSpotNames()[cancel.at], cancelShowNames()[cancel.show].toLowerCase()].join(" · "),
   };
 }
 
 /** The "inserted" note: its flash, its words, and how long it stays. */
 function PastedOptions({ recipe, onRecipe }: { recipe: Recipe; onRecipe: Props["onRecipe"] }) {
-  const holds = pastedHoldNames(), { pasted } = recipe;
+  const holds = pastedHoldNames(), exits = pastedExitNames(), { pasted } = recipe;
   const set = (patch: Partial<RecipePasted>, message: string) => onRecipe({ ...recipe, pasted: { ...pasted, ...patch } }, message);
   const quiet = recipe.motion === "quiet", compact = COMPACT_SHELLS.includes(recipe.shell);
   return <div className="ove-procrow">
@@ -134,6 +142,12 @@ function PastedOptions({ recipe, onRecipe }: { recipe: Recipe; onRecipe: Props["
       <Segmented value={pasted.hold} onChange={(hold) => set({ hold: hold as PastedHold }, t("Вставка: держится {p0}", { p0: holds[hold as PastedHold].toLowerCase() }))}
         options={PASTED_HOLDS.map((hold) => ({ value: hold, label: holds[hold] }))}/>
     </span>
+    <span className="ove-procrow__item">
+      <span className="ove-check">{t("Исчезает")}</span>
+      <Hint text={t("Заметка угасает или растворяется в пикселях, когда оверлей уходит. Растворение занимает те же 0,18 с, что и угасание; при отключённой в системе анимации заметка просто угасает.")}/>
+      <Segmented value={pasted.exit} onChange={(exit) => set({ exit: exit as PastedExit }, t("Вставка: исчезает — {p0}", { p0: exits[exit as PastedExit].toLowerCase() }))}
+        options={PASTED_EXITS.map((exit) => ({ value: exit, label: exits[exit] }))}/>
+    </span>
   </div>;
 }
 
@@ -157,7 +171,9 @@ export function PartPreview({ type, draw, recipe }: { type: ElementType; draw: s
     case "timer": part = <TimerPart draw={draw} kind={kind} text="00:07"/>; break;
     case "rec": part = <RecPart draw={draw}/>; break;
     case "mode": part = <ModePart draw={draw} full="RU · large-v3" short="RU"/>; break;
-    case "draft": part = <DraftPart draw={draw} text={sample} captions={false} phase="recording" placeholder=""/>; break;
+    case "draft": part = <DraftPart draw={draw} text={sample} captions={false} phase="recording" placeholder="" still={!active}/>; break;
+    case "limit": case "words": case "pace": case "engine": case "label": case "target":
+      part = <FigurePart type={type} kind={kind} box={44} figures={sampleFigures()} draft={sample} streaming limited={false} label={recipe.label ?? t("✦ работа")}/>; break;
   }
   return <span className={`ovs ove-pv-root${active ? "" : " ovs--still"}`} data-radius={recipe.style.radius} data-fill={recipe.style.fill}
     data-font={recipe.style.font} data-phase="recording" style={{ "--fs": 0.92, "--rowh": "36px" } as CSSProperties} aria-hidden="true">
@@ -319,6 +335,7 @@ function BuildTab({ recipe, preferences, onShell, onAddPart, onPartPointerDown, 
           })}
         </div>
         {type === "level" && where && recipe.draw.level === "matrix" && <MatrixOptions recipe={recipe} onRecipe={onRecipe}/>}
+        {type === "label" && where && <LabelField recipe={recipe} onRecipe={onRecipe}/>}
       </section>;
     })}
     </Group>
@@ -338,6 +355,27 @@ function BuildTab({ recipe, preferences, onShell, onAddPart, onPartPointerDown, 
       <section className="ove-sec"><CancelOptions recipe={recipe} onRecipe={onRecipe}/></section>
     </Group>
   </>;
+}
+
+/** The text of the `label` element. Typing is local; the recipe changes when the field is left or Enter is pressed, so a word is one change. */
+export function LabelField({ recipe, onRecipe }: { recipe: Recipe; onRecipe: (recipe: Recipe, message: string) => void }) {
+  const saved = recipe.label ?? "";
+  const [text, setText] = useState(saved);
+  useEffect(() => setText(saved), [saved]);
+  const commit = () => {
+    const label = normalizeLabel(text);
+    setText(label);
+    if (label === saved) return;
+    const next: Recipe = { ...recipe };
+    if (label) next.label = label; else delete next.label;
+    onRecipe(next, label ? t("Метка: «{p0}»", { p0: label }) : t("Метка очищена"));
+  };
+  return <label className="ove-label">
+    <span className="ove-cancel__label">{t("Текст")}</span>
+    <input className="field" value={text} maxLength={LABEL_MAX_CHARS} placeholder={t("Например, «работа»")} aria-label={t("Текст метки")}
+      onChange={(event) => setText(event.target.value)} onBlur={commit}
+      onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commit(); } }}/>
+  </label>;
 }
 
 /** The cancel button's look, place and visibility. It has no "remove": see `CANCEL_SPOTS`. */

@@ -1,6 +1,7 @@
 //! Minimal RIFF/WAVE encoder.
 //!
-//! Shared PCM packaging for audio cues, debug recordings and cloud requests.
+//! Shared PCM packaging for audio cues, debug recordings and cloud requests,
+//! and the reader for the custom cues the app stores in this format.
 
 /// Wrap 16-bit mono PCM in a complete RIFF/WAVE image.
 pub fn encode_pcm16_mono(samples: &[i16], sample_rate: u32) -> Vec<u8> {
@@ -22,6 +23,33 @@ pub fn encode_pcm16_mono(samples: &[i16], sample_rate: u32) -> Vec<u8> {
         wav.extend_from_slice(&sample.to_le_bytes());
     }
     wav
+}
+
+/// Read back a WAV image produced by [`encode_pcm16_mono`]: samples and rate.
+///
+/// Only that exact layout is accepted. It reads files this app wrote itself,
+/// and anything else in their place is treated as damaged rather than parsed.
+#[cfg(any(windows, test))]
+pub fn decode_pcm16_mono(wav: &[u8]) -> Option<(Vec<i16>, u32)> {
+    let header = wav.get(..44)?;
+    let u16_at = |at: usize| u16::from_le_bytes([header[at], header[at + 1]]);
+    let u32_at = |at: usize| u32::from_le_bytes(header[at..at + 4].try_into().unwrap());
+    let layout = &header[0..4] == b"RIFF"
+        && &header[8..16] == b"WAVEfmt "
+        && u32_at(16) == 16
+        && u16_at(20) == 1
+        && u16_at(22) == 1
+        && u16_at(34) == 16
+        && &header[36..40] == b"data";
+    let data = &wav[44..];
+    if !layout || u32_at(40) as usize != data.len() || !data.len().is_multiple_of(2) {
+        return None;
+    }
+    let samples = data
+        .chunks_exact(2)
+        .map(|pair| i16::from_le_bytes([pair[0], pair[1]]))
+        .collect();
+    Some((samples, u32_at(24)))
 }
 
 /// Convert the pipeline's `f32` samples to 16-bit PCM.
@@ -66,6 +94,25 @@ mod tests {
         let wav = encode_pcm16_mono(&[], 16_000);
         assert_eq!(wav.len(), 44);
         assert_eq!(u32::from_le_bytes(wav[40..44].try_into().unwrap()), 0);
+    }
+
+    #[test]
+    fn decoding_reads_back_what_encoding_wrote() {
+        let wav = encode_pcm16_mono(&[0, 1, -1, i16::MAX], 44_100);
+        assert_eq!(
+            decode_pcm16_mono(&wav),
+            Some((vec![0, 1, -1, i16::MAX], 44_100))
+        );
+    }
+
+    #[test]
+    fn decoding_refuses_a_damaged_image() {
+        let wav = encode_pcm16_mono(&[0, 1, -1], 16_000);
+        assert_eq!(decode_pcm16_mono(&wav[..wav.len() - 1]), None);
+        assert_eq!(decode_pcm16_mono(&wav[..20]), None);
+        let mut stereo = wav.clone();
+        stereo[22] = 2;
+        assert_eq!(decode_pcm16_mono(&stereo), None);
     }
 
     #[test]

@@ -1,14 +1,30 @@
-import { lazy, Suspense, useEffect, useId, useRef, type CSSProperties, type RefObject } from "react";
+import { lazy, Suspense, useEffect, useRef, type ComponentProps, type CSSProperties, type RefObject } from "react";
 import { t } from "../i18n";
 import { OverlayWaveform } from "./OverlayWaveform";
-import { easeStep, frameRunner, type FrameTick } from "./frameClock";
+import { easeStep, frameRunner, onFrame, prefersReducedMotion, type FrameTick } from "./frameClock";
 import type { LevelSource } from "./levelSource";
+import type { SharedSmoke } from "./OverlayFill";
+import { decodeFrame, decodeFront, decodeTail, decodeWindow, randomGlyph, scramble } from "./processPainters";
 import type { OverlaySize, ProcessDraw, RecipeMatrix, RegionKind, ScenePhase } from "./overlayRecipe";
 
 // The heavier drawings load on first use, so a recipe without them costs nothing.
 const OverlayMatrix = lazy(() => import("./OverlayMatrix").then((m) => ({ default: m.OverlayMatrix }))
   .catch(() => ({ default: () => <></> })));
+const OverlayPixelLevel = lazy(() => import("./OverlayPixelLevel").then((m) => ({ default: m.OverlayPixelLevel }))
+  .catch(() => ({ default: () => <></> })));
+const OverlayProcessLead = lazy(() => import("./OverlayProcessLead").then((m) => ({ default: m.OverlayProcessLead }))
+  .catch(() => ({ default: () => <></> })));
+const OverlaySmoke = lazy(() => import("./OverlayFill").then((m) => ({ default: m.OverlaySmoke }))
+  .catch(() => ({ default: () => <></> })));
+const OverlayGrain = lazy(() => import("./OverlayFill").then((m) => ({ default: m.OverlayGrain }))
+  .catch(() => ({ default: () => <></> })));
 const OverlayGlow = lazy(() => import("./OverlayGlow").then((m) => ({ default: m.OverlayGlow }))
+  .catch(() => ({ default: () => <></> })));
+const FigureLazy = lazy(() => import("./OverlayFigure").then((m) => ({ default: m.FigurePart }))
+  .catch(() => ({ default: () => <></> })));
+const RingLazy = lazy(() => import("./OverlayRing").then((m) => ({ default: m.OverlayRing }))
+  .catch(() => ({ default: () => <></> })));
+const ClockLazy = lazy(() => import("./OverlayFigure").then((m) => ({ default: m.ClockPart }))
   .catch(() => ({ default: () => <></> })));
 
 const BLOCKS = "▁▂▃▄▅▆▇█";
@@ -70,7 +86,7 @@ export function LevelPart({ draw, kind, box, source, matrix, sharp, size, phase,
       </div>;
     case "ring": {
       // Only the bead's core is sized for the full ring. Elsewhere it is compact: a bar
-      // reaches 3 px past the radius, so a ring of radius 11 fits the small orb's 30 px.
+      // reaches 3 px past the radius, so a ring of radius 11 fits a 30 px box.
       const compact = kind !== "square";
       return <div className={`ovs-ring${compact ? " ovs-ring--small" : ""}`} style={{ "--overlay-ring-radius": `${compact ? 11 : Math.round(box * 0.36)}px` } as CSSProperties}>
         <OverlayWaveform source={source} surfaceRef={surfaceRef} circular compact={compact}/>
@@ -92,9 +108,28 @@ export function LevelPart({ draw, kind, box, source, matrix, sharp, size, phase,
     case "ascii": return <Ascii source={source} count={small ? 7 : 26}/>;
     case "caps": return <Capsules source={source} kind={kind} box={box}/>;
     case "segments": return <Segments source={source} unit={small || kind === "wide" ? 7 : Math.max(5, Math.round(box * 0.14))}/>;
-    case "orb": return <Orb source={source} side={small || kind === "wide" ? 30 : Math.round(box * (kind === "square" ? 1 : 0.7))}/>;
+    case "dorb":
+      return <Suspense fallback={null}><OverlayPixelLevel draw="dorb" source={source} sharp={sharp} size={Math.round(box * (kind === "square" ? 1 : 0.7))}/></Suspense>;
+    case "tide": case "static": case "halftone": case "glitch": case "lava": case "cols": {
+      const canvas = <Suspense fallback={null}><OverlayPixelLevel draw={draw} source={source} sharp={sharp}/></Suspense>;
+      // As with the matrix, a small region sizes to its content, so it needs a box of its own.
+      return small ? <div className="ovs-level ovs-level--small">{canvas}</div> : canvas;
+    }
     default: return null;
   }
+}
+
+/** The canvases of the smoke fill and the grain texture; a recipe with neither loads nothing. They move while recording and processing and rest otherwise. */
+export function FillLayers({ fill, texture, source, phase, shown, still, smoke }: {
+  fill: string; texture: string; source: LevelSource; phase: ScenePhase; shown: boolean; still?: boolean;
+  /** Several skins showing one smoke field (the split's capsules). */
+  smoke?: SharedSmoke;
+}) {
+  const live = !still && (phase === "recording" || phase === "processing");
+  return <>
+    {fill === "smoke" && <Suspense fallback={null}><OverlaySmoke source={source} live={live} recording={phase === "recording"} shown={shown} shared={smoke}/></Suspense>}
+    {texture === "grain" && <Suspense fallback={null}><OverlayGrain live={live} shown={shown}/></Suspense>}
+  </>;
 }
 
 function Scope({ source }: { source: LevelSource }) {
@@ -163,61 +198,27 @@ function Segments({ source, unit }: { source: LevelSource; unit: number }) {
   </div>;
 }
 
-/**
- * A drop of liquid that answers the voice. Everything follows a smoothed
- * level, so the drop swells and settles instead of twitching with each
- * reading. The blobs circle on their own slow ellipses, half of them the
- * other way round, and those paths drift over seconds, so the figure keeps
- * changing without jumping. Silence draws the blobs into the core, which
- * then only breathes. The goo filter's blur follows the size, otherwise a
- * small orb blurs below the alpha threshold and disappears when the room is
- * quiet.
- */
-function Orb({ source, side }: { source: LevelSource; side: number }) {
-  const filter = `ovs-goo-${useId().replace(/:/g, "")}`;
-  const refs = useRef<(HTMLElement | null)[]>([]);
-  const motion = useRef({ smooth: 0, angle: 0, own: [0, 0, 0, 0] });
-  const core = Math.round(side * 0.52), blob = Math.round(side * 0.28);
-  useLevelFrames(source, (readings, now, seconds) => {
-    const state = motion.current, level = Math.sqrt(readings[readings.length - 1] ?? 0);
-    state.smooth += (level - state.smooth) * easeStep(seconds, 0.18);
-    // Unlike easing, the spin integrates time linearly, so a stalled frame would jump it ahead.
-    state.angle += Math.min(seconds, 0.1) * (0.35 + state.smooth * 0.9);
-    const [ball, ...blobs] = refs.current;
-    const breath = 1 + 0.035 * Math.sin(now / 1100);
-    if (ball) ball.style.transform = `scale(${(breath + state.smooth * 0.12).toFixed(3)})`;
-    blobs.forEach((node, index) => {
-      const i = index + 1, direction = i % 2 ? 1 : -1;
-      // Each blob answers a slightly older reading, so they swell one after another.
-      state.own[index] += (Math.sqrt(readings[readings.length - 1 - i * 3] ?? 0) - state.own[index]) * easeStep(seconds, 0.22);
-      const own = state.own[index];
-      const drift = Math.sin(now / (5200 + i * 1300) + i * 1.7);
-      const a = direction * state.angle * (0.8 + i * 0.15) + i * 1.57 + drift * 0.6;
-      const reach = Math.min(0.5, 0.04 + state.smooth * (0.26 + own * 0.16)) * side;
-      // An ellipse that slowly turns instead of a fixed circle.
-      const wide = 1 + 0.22 * drift, tilt = i * 0.8 + now / 9000;
-      const x = Math.cos(a) * reach * wide, y = Math.sin(a) * reach / wide;
-      const grow = 0.55 + state.smooth * 0.4 + own * 0.2;
-      if (node) node.style.transform = `translate(${(x * Math.cos(tilt) - y * Math.sin(tilt)).toFixed(2)}px,${(x * Math.sin(tilt) + y * Math.cos(tilt)).toFixed(2)}px) scale(${grow.toFixed(3)})`;
-    });
-  });
-  return <div className="ovs-orb" style={{ width: side, height: side, filter: `url(#${filter})` }} aria-hidden="true">
-    <svg width="0" height="0" style={{ position: "absolute" }}>
-      <filter id={filter} x="-50%" y="-50%" width="200%" height="200%">
-        <feGaussianBlur in="SourceGraphic" stdDeviation={Math.max(1.2, side * 0.06).toFixed(2)}/>
-        <feColorMatrix values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 19 -8"/>
-      </filter>
-    </svg>
-    {[0, 1, 2, 3, 4].map((index) => <i key={index} ref={(node) => { refs.current[index] = node; }}
-      style={{ "--d": `${index ? blob : core}px` } as CSSProperties}/>)}
-  </div>;
-}
+/** The timer's canvas and flip drawings; they also show the limit countdown, in the warning colour. */
+const CLOCK_DRAWS = { seg: "seg", led: "led", glyph: "glyph", binary: "binary", flip: "flip" } as const;
 
-export function TimerPart({ draw, kind, text }: { draw: string; kind: RegionKind; text: string }) {
+export function TimerPart({ draw, kind, text, limited = false }: { draw: string; kind: RegionKind; text: string; limited?: boolean }) {
+  if (draw in CLOCK_DRAWS) {
+    return <Suspense fallback={null}><ClockLazy draw={CLOCK_DRAWS[draw as keyof typeof CLOCK_DRAWS]} text={text} warn={limited}/></Suspense>;
+  }
   if (draw === "capsule") return <div className="ovs-tcap"><span className="ovs-dot"/><span className="ovs-tt">{text}</span></div>;
   return <div className={draw === "big" ? "ovs-tbig" : "ovs-tplain"}>
     {kind === "tall" && draw === "plain" && <span className="ovs-dot"/>}<span className="ovs-tt">{text}</span>
   </div>;
+}
+
+/** The ring shell's rim of ticks; it loads only for that shell. */
+export function RingRim(props: ComponentProps<typeof RingLazy>) {
+  return <Suspense fallback={null}><RingLazy {...props}/></Suspense>;
+}
+
+/** The data elements: limit ring, words, pace, engine, label and target. */
+export function FigurePart(props: ComponentProps<typeof FigureLazy>) {
+  return <Suspense fallback={null}><FigureLazy {...props}/></Suspense>;
 }
 
 export function RecPart({ draw }: { draw: string }) {
@@ -230,29 +231,95 @@ export function ModePart({ draw, full, short }: { draw: string; full: string; sh
   return <span className="ovs-mode">{draw === "chip" ? full : short}</span>;
 }
 
+/** How many trailing characters of the hypothesis `decode` shows as glyphs. */
+const DECODE_TAIL = 3;
+
+/** The last characters of the hypothesis as flickering glyphs in the accent colour. */
+function GlyphTail({ pattern, still }: { pattern: string; still?: boolean }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (still) return;
+    const id = window.setInterval(() => { if (ref.current) ref.current.textContent = scramble(pattern, randomGlyph); }, prefersReducedMotion() ? 250 : 80);
+    return () => window.clearInterval(id);
+  }, [pattern, still]);
+  return <span className="ovs-draft__glyph" ref={ref}>{scramble(pattern, randomGlyph)}</span>;
+}
+
 /** The streaming draft. `tail` draws the last two words softer: they are the
- *  part of the hypothesis most likely to change. */
-export function DraftPart({ draw, text, captions, phase, placeholder }: { draw: string; text: string; captions: boolean; phase: ScenePhase; placeholder: string }) {
-  const words = text ? text.split(/\s+/).filter(Boolean) : [];
+ *  part of the hypothesis most likely to change. `decode` flickers its last
+ *  characters as glyphs while the text is still arriving. */
+export function DraftPart({ draw, text, captions, phase, placeholder, still }: { draw: string; text: string; captions: boolean; phase: ScenePhase; placeholder: string; still?: boolean }) {
+  const decoding = draw === "decode" && phase === "recording";
+  const { head, tail } = decoding ? decodeTail(text, DECODE_TAIL) : { head: text, tail: "" };
+  const words = head ? head.split(/\s+/).filter(Boolean) : [];
   const cut = draw === "tail" && phase === "recording" ? Math.max(0, words.length - 2) : words.length;
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => { if (ref.current) ref.current.scrollTop = ref.current.scrollHeight; }, [text]);
   if (captions) {
     return <div className="ovs-flow" ref={ref}>
-      {words.length > 0 && <span className="ovs-inl">
-        {words.map((word, index) => <span key={index} className={`ovs-w${index >= cut ? " ovs-w--tail" : ""}`} style={{ "--i": index } as CSSProperties}>{word}{index < words.length - 1 ? " " : ""}</span>)}
+      {(words.length > 0 || tail) && <span className="ovs-inl">
+        {words.map((word, index) => <span key={index} className={`ovs-w${index >= cut ? " ovs-w--tail" : ""}`} style={{ "--i": index } as CSSProperties}>{word}{index < words.length - 1 || (tail && /\s$/.test(head)) ? " " : ""}</span>)}
+        {tail && <GlyphTail pattern={tail} still={still}/>}
       </span>}
     </div>;
   }
-  if (!words.length) return <div className="ovs-draft ovs-draft--empty" ref={ref}>{placeholder}</div>;
+  if (!words.length && !tail) return <div className="ovs-draft ovs-draft--empty" ref={ref}>{placeholder}</div>;
+  if (decoding) return <div className="ovs-draft" ref={ref}>{head}<GlyphTail pattern={tail} still={still}/></div>;
   return <div className="ovs-draft" ref={ref}>
     {words.slice(0, cut).join(" ")}{cut < words.length && <> <span className="ovs-draft__tail">{words.slice(cut).join(" ")}</span></>}
   </div>;
 }
 
+/**
+ * The draft (or the status word) scrambled by a glyph front that sweeps from
+ * left to right and starts over: resolved text behind the front, glyphs on
+ * it, the dim hypothesis ahead. Painted straight into three spans, so the
+ * sweep does not render React per frame.
+ */
+function DecodeText({ text, chars, pace, still }: { text: string; chars: number; pace: number; still?: boolean }) {
+  const shown = decodeWindow(text, chars);
+  const textRef = useRef(shown);
+  textRef.current = shown;
+  const doneRef = useRef<HTMLSpanElement>(null), glyphRef = useRef<HTMLElement>(null), restRef = useRef<HTMLElement>(null);
+  // The front keeps its place when the text changes (a status word counts seconds), so it keeps looping.
+  const started = useRef(performance.now());
+  useEffect(() => {
+    const reduced = prefersReducedMotion();
+    let painted = -Infinity;
+    const paint = (now: number) => {
+      const frame = decodeFrame(textRef.current, decodeFront((now - started.current) / 1000 * pace, textRef.current.length), randomGlyph);
+      if (doneRef.current) doneRef.current.textContent = frame.done;
+      if (glyphRef.current) glyphRef.current.textContent = frame.glyphs;
+      if (restRef.current) restRef.current.textContent = frame.rest;
+    };
+    paint(performance.now());
+    if (still) return;
+    return onFrame((now) => {
+      if (now - painted < (reduced ? 250 : 50)) return;
+      painted = now;
+      paint(now);
+    });
+  }, [pace, still]);
+  return <span className="ovs-dec" aria-hidden="true"><span ref={doneRef}/><b ref={glyphRef}/><i ref={restRef}/></span>;
+}
+
 /** The processing look the recipe chose, `size` px tall: a row's height, or the middle of a round shell. */
-export function ProcessLead({ draw, matrix, size, sharp, pace = 1, still }: { draw: Exclude<ProcessDraw, "none">; matrix: RecipeMatrix; size: number; sharp: boolean; pace?: number; still?: boolean }) {
+export function ProcessLead({ draw, matrix, size, sharp, pace = 1, wide = false, text = "", chars = 26, still }: {
+  draw: Exclude<ProcessDraw, "none">; matrix: RecipeMatrix; size: number; sharp: boolean; pace?: number;
+  /** A row has room for a strip; the middle of a round shell only for a square. */
+  wide?: boolean;
+  /** What `decode` scrambles, and how many characters of it fit. */
+  text?: string; chars?: number;
+  still?: boolean;
+}) {
   switch (draw) {
+    case "waves": case "scan": case "halftone": case "bar": {
+      const width = draw === "bar" ? Math.round(size * 3.2) : wide ? Math.round(size * 2.4) : size;
+      return <Suspense fallback={<span className="ovs-pl" style={{ width, height: size }}/>}>
+        <OverlayProcessLead draw={draw} width={width} height={size} pace={pace} sharp={sharp} still={still}/>
+      </Suspense>;
+    }
+    case "decode": return <DecodeText text={text} chars={chars} pace={pace} still={still}/>;
     case "matrix": return <Suspense fallback={null}><OverlayMatrix mode="process" size={size} sharp={sharp} pace={pace} still={still} {...matrix}/></Suspense>;
     case "arc": return <span className="ovs-comet" style={{ width: size, height: size }}/>;
     case "cursor": return <span className="ovs-blk" style={{ "--blk-w": `${Math.max(6, Math.round(size * 0.36))}px`, "--blk-h": `${Math.max(12, Math.round(size * 0.64))}px` } as CSSProperties}/>;

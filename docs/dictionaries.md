@@ -34,7 +34,7 @@ New or edited user terms may contain at most 128 characters and 8 words. Up to 1
 
 User terms take precedence over built-in terms when they differ only in letter case. If enabled user sets contain multiple spellings of the same term after trimming surrounding whitespace and ignoring case, choose the desired spelling before saving. Phonetically similar terms are not spelling conflicts. The choice applies while that spelling is present in an enabled user set; output capitalization also follows the existing correction rules and the source text.
 
-The dictionary corrects similar spellings after recognition. Whisper and Qwen3 additionally receive enabled terms as recognition hints; disabling local formatting stops text correction but leaves these hints active. Qwen3 includes only the leading whole terms fitting 1,024 UTF-8 bytes to preserve space for audio in its context. Other engines do not necessarily support recognition hints, and dictionary entries do not guarantee that a term will be recognized or corrected.
+The dictionary corrects similar spellings after recognition. Whisper and Qwen3 additionally receive enabled terms as recognition hints. Dictionaries and replacement rules do not depend on the **Cleanup** switch: with it off they still correct the text, and only the cleanup steps stop. Qwen3 includes only the leading whole terms fitting 1,024 UTF-8 bytes to preserve space for audio in its context. Other engines do not necessarily support recognition hints, and dictionary entries do not guarantee that a term will be recognized or corrected.
 
 Reviewed recognition variants are matched literally: `Gidhap` becomes `GitHub`, `Ridmi` becomes `README`, and `постхоg` becomes `PostHog`. Enabled terms also restore «клаудкод», «клаудкода», `cloud code` and `cloudcode` to `Claude Code`, «ворк три» to `worktree`, and «чат GPT» to `ChatGPT`. An explicitly added literal term such as `Cloud Code` takes precedence over that alias; code, links and filenames remain protected.
 
@@ -56,7 +56,7 @@ The library and editor operate locally and do not require an LLM or cloud servic
 
 ## Local spelling and punctuation
 
-**Processing → Text → Cleanup → Correct spelling** checks lowercase Russian words when the dictation language is **Russian**. It uses a bundled Hunspell dictionary, works offline with every speech engine, and is enabled by default. **Auto** and other languages leave spelling unchanged: Cyrillic alone does not establish that a word is Russian. Switch it off independently or disable local formatting to keep the recognised spelling.
+**Processing → Text → Cleanup → Correct spelling** checks lowercase Russian words when the dictation language is **Russian**. It uses a bundled Hunspell dictionary, works offline with every speech engine, and is enabled by default. **Auto** and other languages leave spelling unchanged: Cyrillic alone does not establish that a word is Russian. Switch it off on its own, or switch **Cleanup** off, to keep the recognised spelling.
 
 The corrector changes an unknown word only when it finds a single valid candidate one letter edit away and the change repairs a mechanical error: a repeated letter, transposed neighbours in words of at least seven letters, a trailing filler sound «э», or a missing hyphen in an indefinite pronoun or adverb with «кое-», «-то», «-либо» or «-нибудь». Short transpositions are left unchanged because they can produce an unrelated valid word. Repeated final letters in the short function words «так», «как», «что», «это», «тут» and «там» have a separate narrow correction rule. Arbitrary letter substitutions, compound hyphens and word splits are never invented.
 
@@ -82,7 +82,7 @@ The spelling dictionary is prepared on a background worker at startup when neede
 
 **Processing → Text → Cleanup → Split text into paragraphs** is off by default and works without an LLM. The paragraph breaks are pasted into whatever field has focus, and a single-line field or a terminal handles them badly: the field may keep only the first paragraph, and a shell may run each line. It groups existing sentences in longer text, usually around four sentences or 350 characters, and avoids leaving a very short final paragraph. It preserves existing line breaks and does not change words or invent punctuation. Short messages and text without reliable sentence endings remain together.
 
-Paragraph detection protects code, links, common Russian and English abbreviations, initials and quoted or parenthesized text. It is a readability heuristic, not semantic topic detection. The separate **Split long sentences** option remains off by default and uses conjunction-based rules; it is not needed for paragraphs. Disabling local formatting also disables paragraph grouping.
+Paragraph detection protects code, links, common Russian and English abbreviations, initials and quoted or parenthesized text. It is a readability heuristic, not semantic topic detection. The separate **Split long sentences** option remains off by default and uses conjunction-based rules; it is not needed for paragraphs. Switching **Cleanup** off also disables paragraph grouping.
 
 ## Verbal tics
 

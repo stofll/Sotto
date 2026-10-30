@@ -2,11 +2,16 @@
    always dark, and so is its picture in the constructor, whatever the settings
    theme: the scene is a theme of its own and overrides the shared ink and
    status tokens, as [data-theme="light"] does, with the dark values; the light
-   fill below overrides them again. */
-.ovs {
+   fill below overrides them again. The ring's hole shows the desktop rather
+   than the fill, so its parts keep the dark values whatever the fill. */
+.ovs, .ovs[data-shell="ring"]:not([data-needs-text="1"]) .ovs-content {
   --ink: #ECEAF3; --ink-dim: #B8B4C5; --ink-mute: #8C889B;
   --ok: #4ade80; --warn: #fbbf24; --err: #f87171;
+}
+.ovs {
   --ovs-idle: rgba(255, 255, 255, .09);
+  /* The black fill; buttons drawn over it repeat it under their tint. */
+  --ovs-black: #0a0a0c;
   --ovs-ease: cubic-bezier(.2, .55, .25, 1); --ovs-spring: cubic-bezier(.3, 1.3, .5, 1);
   --fs: 1; --sd: .44s; --se: var(--ovs-ease); --fd: .18s; --fx: 4px; --pad: 0px;
   /* Appearing and leaving. The exit must stay under the native LEAVE_DURATION
@@ -30,13 +35,15 @@
 .ovs--still * { animation-play-state: paused !important; }
 .ovs--still .ovs-stl { animation: none !important; }
 .ovs[data-shown="0"] { opacity: 0; transform: var(--hidden); transition-duration: var(--out-d); transition-timing-function: var(--out-e); }
+/* The dissolve exit hides the scene with a mask (shellDissolve.ts), so the fade and the drop are off. */
+.ovs[data-exit="dissolve"][data-shown="0"] { opacity: 1; transform: none; transition: none; }
 .ovs[data-font="mono"] { font-family: var(--font-mono); }
 .ovs[data-stroke="rim"] { --pad: 4px; }
 
 .ovs-shell { position: relative; transition: width var(--sd) var(--se), height var(--sd) var(--se), border-radius var(--sd) var(--se); }
 .ovs-skin { position: relative; overflow: hidden; transition: width var(--sd) var(--se), height var(--sd) var(--se), border-radius var(--sd) var(--se), box-shadow .2s; }
-.ovs:is([data-fill="palette"], [data-fill="light"]) .ovs-skin { background: var(--overlay-surface); }
-.ovs[data-fill="black"] .ovs-skin { background: #0a0a0c; }
+.ovs:is([data-fill="palette"], [data-fill="light"], [data-fill="smoke"]) .ovs-skin { background: var(--overlay-surface); }
+.ovs[data-fill="black"] .ovs-skin { background: var(--ovs-black); }
 .ovs[data-fill="none"] .ovs-skin { background: transparent; }
 .ovs-skin::before, .ovs-skin::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: 4; }
 .ovs[data-stroke="rim"] .ovs-skin::before {
@@ -141,6 +148,8 @@
 .overlay-waveform--pixel > span[data-active="true"]::after { content: none; }
 .ovs-ring { position: absolute; inset: 0; }
 .ovs-ring--small { position: relative; inset: auto; width: 30px; height: 30px; }
+.ovs-px { display: block; flex: 0 0 auto; }
+.ovs-px--row { width: 100%; min-width: 0; height: 100%; min-height: 20px; }
 .ovs-scope { display: block; width: 100%; height: 100%; min-height: 24px; }
 .ovs-ascii { font: 500 calc(13px * var(--fs))/1 var(--font-mono); color: var(--overlay-wave-mid); white-space: pre; overflow: hidden; }
 .ovs-caps { display: flex; align-items: center; gap: calc(var(--u) * .45); }
@@ -152,8 +161,6 @@
 .ovs-seg i:nth-child(2) { height: calc(var(--u) * 2.3); }
 .ovs-seg i:nth-child(3) { height: calc(var(--u) * 3.4); }
 .ovs-seg i[data-on="true"] { background: var(--overlay-wave-mid); }
-.ovs-orb { position: relative; }
-.ovs-orb i { position: absolute; left: 50%; top: 50%; width: var(--d); height: var(--d); margin: calc(var(--d) / -2) 0 0 calc(var(--d) / -2); border-radius: 50%; background: radial-gradient(circle at 35% 30%, var(--overlay-wave-top), var(--overlay-wave-mid) 50%, var(--overlay-wave-bottom)); }
 
 /* Timer, indicator, mode */
 .ovs-tt { font: 600 calc(12.5px * var(--fs))/1 var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--ink); }
@@ -171,8 +178,42 @@
 .ovs-rlabel span:last-child { font: 500 calc(13px * var(--fs))/1 var(--font-sans); font-family: inherit; color: var(--ink-mute); white-space: nowrap; }
 .ovs-rec-text { font: 600 calc(12.5px * var(--fs))/1 var(--font-mono); color: var(--overlay-wave-mid); letter-spacing: .04em; white-space: nowrap; }
 .ovs-mode { font: 500 calc(11.5px * var(--fs))/1 var(--font-mono); color: var(--ink-dim); border: 1px solid rgba(255, 255, 255, .14); border-radius: 6px; padding: 5px 7px; white-space: nowrap; }
+/* Timer drawings: the canvas clocks (OverlayClock.tsx) and the flip cards. */
+.ovs-clock { display: block; flex: 0 0 auto; }
+.ovs-flip { display: flex; gap: 3px; font: 600 calc(16px * var(--fs))/1 var(--font-mono); color: var(--ink); perspective: 80px; }
+.ovs-flip > span { position: relative; width: calc(15px * var(--fs)); height: calc(24px * var(--fs)); display: grid; place-items: center; background: var(--ovs-idle); border-radius: 3px; }
+.ovs-flip > span::after { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: var(--overlay-surface); }
+.ovs[data-radius="sharp"] .ovs-flip > span { border-radius: 0; }
+.ovs-flip > .ovs-flip__colon { width: calc(6px * var(--fs)); background: none; }
+.ovs-flip > .ovs-flip__colon::after { content: none; }
+.ovs-flip > .ovs-flip__go { animation: ovs-flip .32s ease-out; }
+.ovs[data-limit="1"] .ovs-flip { color: var(--warn); }
+@keyframes ovs-flip { from { transform: rotateX(-90deg); } to { transform: rotateX(0); } }
+@media (prefers-reduced-motion: reduce) { .ovs-flip > .ovs-flip__go { animation: none; } }
+.ovs--still .ovs-flip > .ovs-flip__go { animation: none; }
+
+/* Data elements: the limit ring and the short figures (words, pace, engine, label, target). */
+.ovs-limit { display: block; flex: 0 0 auto; }
+.ovs-limit circle { fill: none; stroke-width: 3; }
+.ovs-limit__track { stroke: var(--ovs-idle); }
+.ovs-limit__arc { stroke: var(--overlay-wave-mid); stroke-linecap: round; transition: stroke-dashoffset .3s linear; }
+.ovs-limit__dot { fill: var(--err); stroke: none !important; }
+.ovs-limit[data-warn] .ovs-limit__arc { stroke: var(--warn); }
+.ovs[data-radius="sharp"] .ovs-limit__arc { stroke-linecap: butt; }
+.ovs-fig { display: flex; align-items: baseline; gap: 5px; min-width: 0; max-width: 100%; font: 500 calc(11.5px * var(--fs))/1 var(--font-mono); color: var(--ink-dim); white-space: nowrap; }
+.ovs-fig > b { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+.ovs-fig--empty { color: var(--ink-mute); }
+.ovs-fig__dot { align-self: center; width: 6px; height: 6px; border-radius: 50%; background: var(--ok); flex: 0 0 auto; }
+.ovs[data-radius="sharp"] .ovs-fig__dot { border-radius: 0; }
+.ovs-fig__dot[data-tone="warn"] { background: var(--warn); }
 .ovs-draft { font: 500 calc(14px * var(--fs))/1.45 var(--font-sans); font-family: inherit; color: var(--ink); overflow: hidden; text-align: left; width: 100%; height: 100%; word-break: break-word; }
 .ovs-draft__tail { opacity: .5; }
+.ovs-draft__glyph { color: var(--overlay-wave-mid); }
+/* Processing: the decoding text sits in the status row in fixed-width letters, so the glyphs do not shift it. */
+.ovs-dec { font: 500 calc(13px * var(--fs))/1.2 var(--font-mono); white-space: pre; overflow: hidden; min-width: 0; color: var(--ink); }
+.ovs-dec > b { font-weight: 500; color: var(--overlay-wave-mid); }
+.ovs-dec > i { font-style: normal; color: var(--ink-mute); }
+.ovs-pl { display: block; flex: 0 0 auto; }
 .ovs-draft--empty { font-size: calc(12px * var(--fs)); color: var(--ink-dim); opacity: .6; }
 .ovs[data-font="mono"] .ovs-draft { font-size: calc(13px * var(--fs)); }
 
@@ -191,7 +232,7 @@
 .ovs[data-shell="card"] .ovs-content { padding: calc(var(--pad) + 10px) calc(var(--pad) + 10px) calc(var(--pad) + 6px) calc(var(--pad) + 14px); }
 .ovs-rg-body { flex: 1; min-height: 0; align-items: flex-start; justify-content: flex-start; }
 /* Text and wide drawings start at the corner; a round one sits in the middle. */
-.ovs-rg-body > :is(.ovs-ring, .ovs-orb) { margin: auto; }
+.ovs-rg-body > .ovs-ring { margin: auto; }
 .ovs-foot { position: relative; display: flex; align-items: center; gap: 8px; min-height: 30px; }
 .ovs-sp { flex: 1; }
 /* After recording the footer is empty, so the status takes the middle of the whole card;
@@ -199,23 +240,73 @@
 .ovs[data-shell="card"] .ovs-content > .ovs-stl { position: absolute; inset: 0 46px; }
 
 /* Bead and stack; an error opens them into the pill row */
-.ovs-rg-core { position: absolute; inset: var(--pad); border-radius: inherit; }
-.ovs:is([data-shell="bead"], [data-shell="stack"]) .ovs-close { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+.ovs-rg-core, .ovs-rg-dot { position: absolute; inset: var(--pad); border-radius: inherit; }
+.ovs:is([data-shell="bead"], [data-shell="stack"], [data-shell="ring"]) .ovs-close { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
 .ovs[data-shell="stack"] .ovs-close { top: 22px; }
-.ovs:is([data-shell="bead"], [data-shell="stack"]) .ovs-content > .ovs-stl { position: absolute; inset: 0; }
+.ovs:is([data-shell="bead"], [data-shell="stack"], [data-shell="ring"]) .ovs-content > .ovs-stl { position: absolute; inset: 0; }
 /* Two fixed halves: a level that grows with the voice must not push the other part up and down. */
 .ovs[data-shell="stack"] .ovs-content { align-items: center; gap: 4px; padding: calc(var(--pad) + 6px); }
 /* Rounded like the capsule, so the constructor's outlines stay inside its ends. */
 .ovs[data-shell="stack"] :is(.ovs-rg-top, .ovs-rg-bottom) { flex: 1 1 0; min-height: 0; width: 100%; border-radius: 999px; }
-.ovs[data-needs-text="1"]:is([data-shell="bead"], [data-shell="stack"]) .ovs-rg { opacity: 0; }
-.ovs[data-needs-text="1"]:is([data-shell="bead"], [data-shell="stack"]) .ovs-content > .ovs-stl { justify-content: flex-start; padding: 0 46px 0 18px; }
-.ovs[data-needs-text="1"]:is([data-shell="bead"], [data-shell="stack"]) .ovs-close { left: auto; right: 10px; top: 50%; transform: translateY(-50%); }
+.ovs[data-needs-text="1"]:is([data-shell="bead"], [data-shell="stack"], [data-shell="ring"]) .ovs-rg { opacity: 0; }
+.ovs[data-needs-text="1"]:is([data-shell="bead"], [data-shell="stack"], [data-shell="ring"]) .ovs-content > .ovs-stl { justify-content: flex-start; padding: 0 46px 0 18px; }
+.ovs[data-needs-text="1"]:is([data-shell="bead"], [data-shell="stack"], [data-shell="ring"]) .ovs-close { left: auto; right: 10px; top: 50%; transform: translateY(-50%); }
 
 /* Mini: one short row, no words while recording; an error opens it into the pill row */
-.ovs[data-shell="mini"] .ovs-main-row { flex: 1 1 auto; height: 100%; justify-content: center; gap: 10px; padding: 0 12px; }
-.ovs[data-shell="mini"]:not([data-needs-text="1"]) .ovs-main-row > .ovs-stl { inset: 0; }
-.ovs[data-shell="mini"][data-needs-text="1"] .ovs-rg { opacity: 0; }
-.ovs[data-shell="mini"] .ovs-close { width: 24px; height: 24px; flex-basis: 24px; }
+.ovs:is([data-shell="mini"], [data-shell="notch"]) .ovs-main-row { flex: 1 1 auto; height: 100%; justify-content: center; gap: 10px; padding: 0 12px; }
+.ovs:is([data-shell="mini"], [data-shell="notch"]):not([data-needs-text="1"]) .ovs-main-row > .ovs-stl { inset: 0; }
+.ovs:is([data-shell="mini"], [data-shell="notch"])[data-needs-text="1"] .ovs-rg { opacity: 0; }
+.ovs:is([data-shell="mini"], [data-shell="notch"]) .ovs-close { width: 24px; height: 24px; flex-basis: 24px; }
+
+/* Notch: a black band that continues the camera notch sideways. It is pure black whatever the palette so it merges with the notch;
+   only the drawings carry colour. The ears sit at the window's ends and the middle is left to the notch (or, where the screen has
+   none, is just more of the band). An error opens it into the pill row like the mini, and that row is an ordinary shell. */
+.overlay:has(.ovs[data-band="1"]) { align-items: flex-start; }
+.ovs[data-band="1"] { transform-origin: 50% 0; }
+.ovs[data-band="1"]:not([data-motion="quiet"], [data-motion="pixel"]) { --hidden: translateY(-8px); }
+.ovs-band { position: absolute; inset: 0; }
+.ovs[data-band="1"] .ovs-skin.ovs-band { background: #000; box-shadow: none; }
+.ovs[data-band="1"] .ovs-skin::before, .ovs[data-band="1"] .ovs-skin::after, .ovs[data-band="1"] .ovs-gfx, .ovs[data-band="1"] .ovs-bb { display: none; }
+.ovs-band-row { flex-direction: row; justify-content: space-between; align-items: stretch; padding: 0; }
+.ovs-ear { position: relative; flex: 0 0 var(--ear); width: var(--ear); display: flex; align-items: center; justify-content: center; padding: 0 12px; }
+.ovs-ear > .ovs-rg { flex: 1 1 auto; height: 100%; }
+.ovs-ear > .ovs-stl { position: absolute; inset: 0 8px; }
+.ovs[data-shell="notch"] .ovs-level--small { width: 100%; height: 16px; }
+.ovs[data-shell="notch"] .ovs-tcap { height: 20px; min-width: 0; padding: 0 6px; background: none; }
+.ovs[data-shell="notch"] .ovs-chk--big { width: 18px; height: 18px; flex-basis: 18px; }
+.ovs[data-band="1"] .ovs-close { position: absolute; top: 50%; right: 6px; transform: translateY(-50%); width: 20px; height: 20px; flex-basis: 20px; background: linear-gradient(rgba(255, 255, 255, .12), rgba(255, 255, 255, .12)), #000; }
+/* The middle of the band is under the camera, so the limit warning moves into the right ear. */
+.ovs[data-band="1"] .ovs-limitb { left: auto; right: 6px; transform: translateY(-50%); }
+.ovs[data-shell="notch"][data-needs-text="1"] .ovs-close { top: 50%; right: 8px; }
+
+/* Split: two capsules with a transparent gap. After recording the right one is drawn in and the status takes the left; an error joins them into one row. */
+.ovs-split { position: absolute; inset: 0; display: flex; align-items: stretch; justify-content: center; gap: 8px; }
+.ovs-cap { height: 100%; transition: flex-basis var(--sd) var(--se), margin var(--sd) var(--se), opacity var(--fd) ease, border-radius var(--sd) var(--se), box-shadow .2s; }
+.ovs-cap-a { flex: 0 0 var(--capw); }
+.ovs-cap-b { flex: 1 1 0; min-width: 0; }
+.ovs-cap-a .ovs-content { align-items: center; justify-content: center; }
+.ovs-split-row { flex-direction: row; align-items: center; gap: 8px; padding: 0 12px; }
+.ovs[data-shell="split"]:not([data-phase="recording"]):not([data-needs-text="1"]) .ovs-cap-b { flex: 0 0 0; margin-left: -8px; opacity: 0; }
+.ovs[data-shell="split"][data-needs-text="1"] .ovs-cap-a { flex: 0 0 0; margin-right: -8px; opacity: 0; }
+.ovs-split > .ovs-stl { position: absolute; top: 0; bottom: 0; left: 50%; width: var(--capw); margin-left: calc(var(--capw) / -2); }
+.ovs[data-shell="split"][data-needs-text="1"] .ovs-split > .ovs-stl { left: 0; right: 0; width: auto; margin: 0; padding: 0 46px 0 18px; justify-content: flex-start; }
+.ovs-split > .ovs-close { position: absolute; top: 50%; left: calc(var(--capw) / 2); transform: translate(-50%, -50%); width: 24px; height: 24px; flex-basis: 24px; transition: opacity .12s ease, left var(--sd) var(--se); }
+.ovs[data-shell="split"]:not([data-phase="recording"]):not([data-needs-text="1"]) .ovs-split > .ovs-close { left: 50%; }
+.ovs[data-shell="split"][data-needs-text="1"] .ovs-split > .ovs-close { left: auto; right: 10px; transform: translateY(-50%); }
+.ovs[data-needs-text="1"][data-shell="split"] .ovs-rg { opacity: 0; }
+
+/* Ring: the rim is a canvas inside the clipped skin; the hole's parts sit outside it, over whatever is behind the window. */
+.ovs-ring-skin { position: absolute; inset: 0; }
+.ovs-ring-rim { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+.ovs[data-shell="ring"] .ovs-content { align-items: center; justify-content: center; padding: 0; }
+.ovs[data-shell="ring"]:not([data-needs-text="1"]) .ovs-content {
+  text-shadow: 0 0 6px rgba(0, 0, 0, .9), 0 0 2px #000;
+}
+.ovs-rg-hole { flex: 0 0 var(--hole); width: var(--hole); height: var(--hole); border-radius: 50%; overflow: hidden; }
+.ovs[data-shell="ring"] .ovs-level--small { width: calc(var(--hole) * .74); }
+.ovs[data-shell="ring"] .ovs-tcap { min-width: 0; padding: 0; background: none; }
+.ovs[data-shell="ring"] .ovs-close { width: calc(var(--hole) - 10px); height: calc(var(--hole) - 10px); flex-basis: calc(var(--hole) - 10px); }
+.ovs[data-shell="ring"][data-needs-text="1"] .ovs-close { width: 28px; height: 28px; flex-basis: 28px; }
 
 /* Captions: a chip above lines of text on no background */
 .ovs-chip-radius { position: absolute; inset: 0; }
@@ -276,13 +367,13 @@
 /* A hover-only button in a short row floats over its end instead of taking a slot:
    the row is short, and the level would give up that room for a button that is usually hidden.
    It gets the shell's own surface, so the part under it does not show through. */
-.ovs:is([data-shell="pill"], [data-shell="island"], [data-shell="mini"])[data-cancel-show="hover"] .ovs-main-row > .ovs-close {
+.ovs:is([data-shell="pill"], [data-shell="island"], [data-shell="mini"], [data-shell="notch"])[data-cancel-show="hover"] .ovs-main-row > .ovs-close {
   position: absolute; top: 50%; right: 8px; transform: translateY(-50%);
   background: linear-gradient(rgba(255, 255, 255, .12), rgba(255, 255, 255, .12)), var(--overlay-surface);
 }
-.ovs:is([data-shell="pill"], [data-shell="island"], [data-shell="mini"])[data-cancel-show="hover"][data-cancel-at="start"] .ovs-main-row > .ovs-close { right: auto; left: 10px; }
-.ovs[data-fill="black"]:is([data-shell="pill"], [data-shell="island"], [data-shell="mini"])[data-cancel-show="hover"] .ovs-main-row > .ovs-close { background: linear-gradient(rgba(255, 255, 255, .12), rgba(255, 255, 255, .12)), #0a0a0c; }
-.ovs[data-fill="light"]:is([data-shell="pill"], [data-shell="island"], [data-shell="mini"])[data-cancel-show="hover"] .ovs-main-row > .ovs-close { background: linear-gradient(rgba(0, 0, 0, .07), rgba(0, 0, 0, .07)), var(--overlay-surface); }
+.ovs:is([data-shell="pill"], [data-shell="island"], [data-shell="mini"], [data-shell="notch"])[data-cancel-show="hover"][data-cancel-at="start"] .ovs-main-row > .ovs-close { right: auto; left: 10px; }
+.ovs[data-fill="black"]:is([data-shell="pill"], [data-shell="island"], [data-shell="mini"], [data-shell="notch"])[data-cancel-show="hover"] .ovs-main-row > .ovs-close { background: linear-gradient(rgba(255, 255, 255, .12), rgba(255, 255, 255, .12)), var(--ovs-black); }
+.ovs:is([data-fill="light"], [data-fill="paper"]):is([data-shell="pill"], [data-shell="island"], [data-shell="mini"], [data-shell="notch"])[data-cancel-show="hover"] .ovs-main-row > .ovs-close { background: linear-gradient(rgba(0, 0, 0, .07), rgba(0, 0, 0, .07)), var(--overlay-surface); }
 .ovs[data-shell="stack"][data-cancel-at="bottom"] .ovs-close { top: calc(100% - 22px); }
 /* The constructor shows a hover-only button half visible, so its place is never a surprise. */
 .ovs[data-edit][data-cancel-show="hover"] .ovs-close { opacity: .5; }
@@ -290,10 +381,11 @@
 /* Hidden only in the constructor's preview; it keeps its place so the layout does not shift. */
 .ovs[data-cancel-hidden] .ovs-close { visibility: hidden; }
 
-/* A light fill: the same palette hue at inverted lightness, so the parts turn dark on a
-   light shell. It redefines the palette's own variables inside the scene, canvas
-   drawings included, instead of adding a second palette. */
-.ovs[data-fill="light"] {
+/* The light fills, light and paper: the same palette hue at inverted lightness, so the
+   parts turn dark on a light shell. They redefine the palette's own variables inside the
+   scene, and the canvas drawings read dark ink from the same fill (inkForFill), instead
+   of adding a second palette. */
+.ovs:is([data-fill="light"], [data-fill="paper"]) {
   --ink: #1c1a24; --ink-dim: #45414f; --ink-mute: #6c6879;
   --ok: #15803d; --warn: #b45309; --err: #b91c1c;
   --ovs-idle: rgba(0, 0, 0, .1);
@@ -305,8 +397,28 @@
   --overlay-wave-mid: oklch(0.5 var(--overlay-chroma) var(--overlay-hue));
   --overlay-wave-bottom: oklch(0.4 var(--overlay-chroma) var(--overlay-hue));
 }
-.ovs[data-fill="light"] .overlay-waveform > span:not([data-active="true"]) { background: var(--ovs-idle); }
-.ovs[data-fill="light"] .ovs-close { background: rgba(0, 0, 0, .07); color: rgba(0, 0, 0, .72); }
-.ovs[data-fill="light"] .ovs-mode { border-color: rgba(0, 0, 0, .16); }
-.ovs[data-fill="light"] [data-region][tabindex]:not([data-drop]) { outline-color: rgba(0, 0, 0, .3); }
-.ovs[data-fill="light"] .ovs-rg[tabindex]:not([data-filled])::before { color: rgba(0, 0, 0, .5); }
+.ovs:is([data-fill="light"], [data-fill="paper"]) .overlay-waveform > span:not([data-active="true"]) { background: var(--ovs-idle); }
+.ovs:is([data-fill="light"], [data-fill="paper"]) .ovs-close { background: rgba(0, 0, 0, .07); color: rgba(0, 0, 0, .72); }
+.ovs:is([data-fill="light"], [data-fill="paper"]) .ovs-mode { border-color: rgba(0, 0, 0, .16); }
+.ovs:is([data-fill="light"], [data-fill="paper"]) [data-region][tabindex]:not([data-drop]) { outline-color: rgba(0, 0, 0, .3); }
+.ovs:is([data-fill="light"], [data-fill="paper"]) .ovs-rg[tabindex]:not([data-filled])::before { color: rgba(0, 0, 0, .5); }
+
+/* Paper is the light fill on a warmer, slightly darker ground with a faint edge. */
+.ovs[data-fill="paper"] { --overlay-surface: oklch(0.93 calc(var(--overlay-chroma) * .12) var(--overlay-hue) / .98); }
+.ovs[data-fill="paper"] .ovs-skin { background: linear-gradient(oklch(0.95 calc(var(--overlay-chroma) * .12) var(--overlay-hue)), oklch(0.91 calc(var(--overlay-chroma) * .14) var(--overlay-hue))); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .12); }
+
+/* Smoke and grain are canvases (OverlayFill.tsx): the smoke behind the content, the grain over it. */
+.ovs-fill-smoke, .ovs-fill-grain { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: inherit; pointer-events: none; }
+.ovs-fill-smoke { z-index: 0; }
+.ovs-fill-grain { z-index: 3; }
+/* The smoke brightens with the voice; a halo in the shell's own colour keeps the words clear of it. */
+.ovs[data-fill="smoke"] :is(.ovs-draft, .ovs-lbl, .ovs-tt, .ovs-mode, .ovs-dec, .ovs-rlabel, .ovs-fig, .ovs-flip) { text-shadow: 0 0 5px var(--overlay-surface), 0 0 2px var(--overlay-surface); }
+
+/* Textures lie over the level drawing only, so the words stay as clear as without them. */
+.ovs:is([data-texture="scan"], [data-texture="screen"], [data-texture="vignette"])[data-phase="recording"] .ovs-rg[data-filled="level"]:not(.ovs-rg-edge)::after {
+  content: ""; position: absolute; inset: 0; z-index: 1; border-radius: inherit; pointer-events: none;
+}
+.ovs[data-texture="scan"] .ovs-rg[data-filled="level"]::after { background: repeating-linear-gradient(0deg, rgba(0, 0, 0, .38) 0 1px, transparent 1px 3px); }
+.ovs[data-texture="screen"] .ovs-rg[data-filled="level"]::after { background: radial-gradient(circle, transparent 52%, rgba(0, 0, 0, .42) 54%) 0 0 / 4px 4px; }
+.ovs[data-texture="vignette"] .ovs-rg[data-filled="level"]::after { background: radial-gradient(ellipse at center, transparent 45%, rgba(0, 0, 0, .65)); }
+.ovs[data-texture="chroma"][data-phase="recording"] .ovs-rg[data-filled="level"] > * { filter: drop-shadow(1.5px 0 0 rgb(255 40 90 / .75)) drop-shadow(-1.5px 0 0 rgb(40 210 255 / .75)); }

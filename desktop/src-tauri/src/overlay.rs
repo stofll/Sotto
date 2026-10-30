@@ -27,11 +27,14 @@ const OVERLAY_LABEL: &str = "overlay";
 const OFFSCREEN_X: i32 = -32000;
 const OFFSCREEN_Y: i32 = -32000;
 
-use crate::overlay_preferences::OverlayPreferences;
+use crate::overlay_notch::{ear_width, notch_origin, notch_window, NotchFit};
+use crate::overlay_preferences::{Layout, OverlayPreferences};
 
 static PREFERENCES: LazyLock<Mutex<OverlayPreferences>> =
     LazyLock::new(|| Mutex::new(OverlayPreferences::from_config(&serde_json::Value::Null)));
 static PRESENTATION: Mutex<(bool, bool)> = Mutex::new((false, false));
+/// The cut-out the notch shell was last placed around; `None` without one.
+static NOTCH: Mutex<Option<NotchFit>> = Mutex::new(None);
 
 fn preferences() -> OverlayPreferences {
     crate::mutex_recover::lock(&PREFERENCES).clone()
@@ -778,20 +781,76 @@ fn position_overlay(window: &tauri::WebviewWindow) -> Result<(), String> {
         // The late-answer note is all text and buttons, like an error.
         needs_text || matches!(state.as_deref(), Some("error" | "late")),
     );
-    let (width, height) = prefs.window_size(layout);
+    let (mut width, mut height) = prefs.window_size(layout);
     let scale = monitor.scale_factor();
+    let notched = layout == Layout::Notch;
+    if notched {
+        // The shell hugs the camera notch, so the screen decides its size and
+        // the anchor does not apply. Read again on every show: the overlay
+        // follows the focused window to another monitor.
+        let screen = screen_notch(window, (monitor_pos.x, monitor_pos.y), scale);
+        let (size, fit) = notch_window((width, height), ear_width(prefs.size), screen);
+        (width, height) = size;
+        *crate::mutex_recover::lock(&NOTCH) = fit;
+        // Sent before the state that shows the band: asking after
+        // "recording-started" could overtake this placement and read the last one.
+        let _ = window.emit("overlay-notch", fit);
+    }
     let win_size = tauri::PhysicalSize::new(
         (width * scale).round() as u32,
         (height * scale).round() as u32,
     );
-    let (x, y) = overlay_origin(
-        (monitor_pos.x, monitor_pos.y),
-        (monitor_size.width, monitor_size.height),
-        (win_size.width, win_size.height),
-        (prefs.edge_offset * scale).round() as i32,
-        prefs.anchor,
-    );
+    let (x, y) = if notched {
+        notch_origin(
+            (monitor_pos.x, monitor_pos.y),
+            (monitor_size.width, monitor_size.height),
+            win_size.width,
+        )
+    } else {
+        overlay_origin(
+            (monitor_pos.x, monitor_pos.y),
+            (monitor_size.width, monitor_size.height),
+            (win_size.width, win_size.height),
+            (prefs.edge_offset * scale).round() as i32,
+            prefs.anchor,
+        )
+    };
     apply_geometry(window, win_size, PhysicalPosition::new(x, y))
+}
+
+/// The camera notch of the screen whose top-left corner is `origin` in
+/// physical pixels. Only macOS has one; AppKit is read on the main thread, and
+/// a main thread that does not answer in time counts as no notch.
+#[cfg(target_os = "macos")]
+fn screen_notch(
+    window: &tauri::WebviewWindow,
+    origin: (i32, i32),
+    scale: f64,
+) -> Option<crate::overlay_notch::ScreenNotch> {
+    let points = (f64::from(origin.0) / scale, f64::from(origin.1) / scale);
+    let (tx, rx) = channel();
+    window
+        .run_on_main_thread(move || {
+            let _ = tx.send(crate::overlay_notch::read_screen_notch(points));
+        })
+        .ok()?;
+    rx.recv_timeout(Duration::from_millis(250)).ok().flatten()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn screen_notch(
+    _window: &tauri::WebviewWindow,
+    _origin: (i32, i32),
+    _scale: f64,
+) -> Option<crate::overlay_notch::ScreenNotch> {
+    None
+}
+
+/// The cut-out the notch shell sits around, or `None` when the screen has
+/// none and the scene draws the centre itself.
+#[tauri::command]
+pub fn overlay_notch() -> Option<NotchFit> {
+    *crate::mutex_recover::lock(&NOTCH)
 }
 
 trait OverlayGeometry {

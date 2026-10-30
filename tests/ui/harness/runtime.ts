@@ -93,6 +93,10 @@ export function install(seed: any = {}) {
           ...state.config, ...args.patch,
           overlay: { ...state.config.overlay, ...args.patch.overlay },
           text_formatting: { ...state.config.text_formatting, ...args.patch.text_formatting },
+          sound_cues: Object.fromEntries(
+            [...new Set([...Object.keys(state.config.sound_cues ?? {}), ...Object.keys(args.patch.sound_cues ?? {})])]
+              .map((cue) => [cue, { ...state.config.sound_cues?.[cue], ...args.patch.sound_cues?.[cue] }]),
+          ),
           // Like Rust's merge patch, a write that omits the section keeps it absent.
           ai_processing: state.config.ai_processing || args.patch.ai_processing
             ? { ...state.config.ai_processing, ...args.patch.ai_processing }
@@ -171,7 +175,7 @@ export function install(seed: any = {}) {
       case 'save_public_logs': return true;
       case 'current_state': return seed.overlay_state ?? null;
       case 'cancel_recording': await emit('whisper-cancelled', args.sessionId); return true;
-      case 'pick_audio_file': return null;
+      case 'pick_audio_file': case 'import_sound_cue': return null;
       case 'set_model': return null;
       case 'delete_model': state.models.forEach((m: ModelInfo) => { if (m.id === args.model) m.downloaded = false; }); persist(); return null;
       case 'plugin:window|is_maximized': return false;
@@ -179,7 +183,7 @@ export function install(seed: any = {}) {
       case 'plugin:window|is_minimized': return seed.window_minimized ?? false;
       case 'plugin:window|is_focused': return seed.window_focused ?? true;
       case 'plugin:window|minimize': case 'plugin:window|toggle_maximize': case 'plugin:window|close':
-      case 'plugin:window|start_dragging': case 'overlay_ready': case 'hide':
+      case 'plugin:window|start_dragging': case 'overlay_ready': case 'hide': case 'paste_target_name': case 'overlay_notch':
       case 'set_overlay_presentation': case 'open_url':
       case 'start_microphone_test': case 'stop_microphone_test': case 'set_microphone_test_monitor':
       case 'preview_sound_cue': case 'preview_output_duck': case 'open_diagnostics_folder':

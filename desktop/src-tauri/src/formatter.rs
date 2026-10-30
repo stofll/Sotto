@@ -3130,7 +3130,6 @@ pub struct FormatterConfig {
 }
 
 pub struct Formatter {
-    enabled: bool,
     split_paragraphs: bool,
     steps: Vec<Box<dyn FormatStep + Send + Sync>>,
     replacement_protection: Vec<Regex>,
@@ -3140,14 +3139,9 @@ impl Formatter {
     /// Build a pipeline from the typed settings and prepare its matchers once.
     pub fn from_config(config: &FormatterConfig) -> Self {
         let fmt = &config.text_formatting;
-        if !fmt.enabled {
-            return Self {
-                enabled: false,
-                split_paragraphs: false,
-                steps: Vec::new(),
-                replacement_protection: Vec::new(),
-            };
-        }
+        // `enabled` is the Cleanup switch. Replacements (paused by their own
+        // switch) and dictionaries are separate settings and run without it.
+        let clean = fmt.enabled;
         let rules = if config.replacements_paused {
             Vec::new()
         } else {
@@ -3165,31 +3159,33 @@ impl Formatter {
             .collect();
 
         let steps: Vec<Box<dyn FormatStep + Send + Sync>> = vec![
-            Box::new(HallucinationCleaner::new(fmt.remove_hallucinations)),
+            Box::new(HallucinationCleaner::new(
+                clean && fmt.remove_hallucinations,
+            )),
             Box::new(pauses::PauseNormalizer {
-                enabled: fmt.normalize_ellipsis,
+                enabled: clean && fmt.normalize_ellipsis,
             }),
             Box::new(FillerWordsRemover::new(
-                fmt.remove_fillers,
+                clean && fmt.remove_fillers,
                 config.language.as_deref(),
             )),
             Box::new(ParasiteWordsRemover::new(
-                fmt.remove_parasites,
+                clean && fmt.remove_parasites,
                 fmt.custom_parasite_words.clone(),
                 fmt.disabled_parasite_words.clone(),
                 fmt.active_parasite_words(),
             )),
-            Box::new(DuplicateWordsRemover::new(fmt.remove_duplicates)),
+            Box::new(DuplicateWordsRemover::new(clean && fmt.remove_duplicates)),
             // After the single-word dedupe: with "да да да да" already
             // reduced to "да", the phrase collapser cannot mistake a run of
             // one repeated word for a two-word loop.
-            Box::new(PhraseLoopCollapser::new(fmt.collapse_phrase_loops)),
-            // Always on: double commas and stray spaces are never wanted, and
-            // neither step touches Latin text, numbers or links. Configs
+            Box::new(PhraseLoopCollapser::new(clean && fmt.collapse_phrase_loops)),
+            // On with cleanup: double commas and stray spaces are never wanted,
+            // and neither step touches Latin text, numbers or links. Configs
             // written before this keep `clean_commas`/`normalize_spaces`
             // keys, which are now ignored.
-            Box::new(CommaCleaner::new(true)),
-            Box::new(SpaceNormalizer::new(true)),
+            Box::new(CommaCleaner::new(clean)),
+            Box::new(SpaceNormalizer::new(clean)),
             // After whitespace normalisation — word windows are cut on single
             // spaces rather than on random clumps. And before the replacement
             // rules: a user rule must see the already-corrected term rather than
@@ -3200,26 +3196,23 @@ impl Formatter {
                 &crate::dictionaries::builtin_only_words(fmt),
             )),
             Box::new(crate::spelling::RussianSpellingCorrector::new(
-                fmt.correct_spelling,
+                clean && fmt.correct_spelling,
                 config.language.as_deref(),
                 &spelling_terms,
             )),
-            Box::new(SentenceSplitter::new(fmt.split_sentences)),
+            Box::new(SentenceSplitter::new(clean && fmt.split_sentences)),
             Box::new(replacements),
-            Box::new(Capitalizer::new(fmt.capitalize_sentences)),
-            Box::new(PunctuationFinalizer::new(fmt.final_punctuation)),
+            Box::new(Capitalizer::new(clean && fmt.capitalize_sentences)),
+            Box::new(PunctuationFinalizer::new(clean && fmt.final_punctuation)),
         ];
         Self {
-            enabled: fmt.enabled,
-            split_paragraphs: fmt.split_paragraphs,
+            split_paragraphs: clean && fmt.split_paragraphs,
             steps,
             replacement_protection,
         }
     }
 
-    /// Apply the pipeline. `paused` short-circuits to the trimmed
-    /// input (Python parity for `TextFormatter.process` when
-    /// `text_formatting.enabled = False`).
+    /// Apply the pipeline.
     pub fn process(&self, text: &str) -> String {
         self.process_inner(text, false, None)
     }
@@ -3230,9 +3223,6 @@ impl Formatter {
         restore_accidental_empty: bool,
         matches: Option<&Mutex<Vec<DictionaryMatch>>>,
     ) -> String {
-        if !self.enabled {
-            return text.trim().to_string();
-        }
         let mut current = text.trim().to_string();
         if current.is_empty() {
             return current;
@@ -3340,19 +3330,13 @@ pub fn normalize_replacement_rules_value(value: Value) -> Value {
 /// (`post_process_transcription` in lib.rs) and the Settings `preview_format`
 /// command so the two can never diverge on how the formatter is built.
 pub fn format_with_config_value(config: &Value, text: &str) -> String {
-    formatter_from_value(config, &FORMATTER_CACHE).map_or_else(
-        || text.trim().to_string(),
-        |formatter| formatter.process(text),
-    )
+    formatter_from_value(config, &FORMATTER_CACHE).process(text)
 }
 
-fn formatter_from_value(config: &Value, cache: &Mutex<FormatterCache>) -> Option<Arc<Formatter>> {
+fn formatter_from_value(config: &Value, cache: &Mutex<FormatterCache>) -> Arc<Formatter> {
     // Deserialize the borrowed subtree fields, without cloning unrelated app
     // settings. Preserve whole-config fallback for malformed formatter fields.
     let mut config = FormatterConfig::deserialize(config).unwrap_or_default();
-    if !config.text_formatting.enabled {
-        return None;
-    }
     // These are editor metadata, absent from formatted text and from
     // DictionaryMatch (from/to/count). They must not invalidate matchers.
     for rule in &mut config.replacement_rules {
@@ -3363,7 +3347,7 @@ fn formatter_from_value(config: &Value, cache: &Mutex<FormatterCache>) -> Option
         set.description.clear();
     }
     if let Some(formatter) = crate::mutex_recover::lock(cache).matching(&config) {
-        return Some(formatter);
+        return formatter;
     }
     // A large preview must not hold the cache lock while compiling and block
     // a live caller whose settings are already cached.
@@ -3371,21 +3355,18 @@ fn formatter_from_value(config: &Value, cache: &Mutex<FormatterCache>) -> Option
     let previous = {
         let mut cache = crate::mutex_recover::lock(cache);
         if let Some(existing) = cache.matching(&config) {
-            return Some(existing);
+            return existing;
         }
         cache.entry.replace((config, Arc::clone(&formatter)))
     };
     drop(previous);
-    Some(formatter)
+    formatter
 }
 
 /// Dictation/file delivery keeps the raw text if incidental cleanup erased it.
 /// Silence hallucinations and explicit deletion rules deliberately stay empty.
 pub fn format_transcription_with_config_value(config: &Value, text: &str) -> String {
-    formatter_from_value(config, &FORMATTER_CACHE).map_or_else(
-        || text.trim().to_string(),
-        |formatter| formatter.process_inner(text, true, None),
-    )
+    formatter_from_value(config, &FORMATTER_CACHE).process_inner(text, true, None)
 }
 
 /// Run the full text-formatting pipeline on `text` using the given
@@ -3397,10 +3378,8 @@ pub fn preview_format(text: &str, config: &Value) -> Result<PreviewFormatResult,
     // pre-LLM replacements, capitalizer, punctuation finalizer) — the same
     // `Formatter` the live dictation path uses.
     let log = Mutex::new(Vec::new());
-    let formatted = formatter_from_value(config, &FORMATTER_CACHE).map_or_else(
-        || text.trim().to_string(),
-        |formatter| formatter.process_inner(text, false, Some(&log)),
-    );
+    let formatted =
+        formatter_from_value(config, &FORMATTER_CACHE).process_inner(text, false, Some(&log));
     let dictionary_matches = log
         .into_inner()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -3475,14 +3454,14 @@ mod cache_tests {
             "id": "personal", "name": "Terms", "description": "Description",
             "enabled": true, "words": ["Tauri"]
         }]);
-        let first = formatter_from_value(&config, &cache).unwrap();
+        let first = formatter_from_value(&config, &cache);
         config["theme"] = json!("light");
         config["ui_language"] = json!("ru");
         config["ai_processing"] = json!({"system_prompt": "unrelated"});
         config["replacement_rules"][0]["usage_count"] = json!(42);
         config["text_formatting"]["dictionary_sets"][0]["name"] = json!("Renamed");
         config["text_formatting"]["dictionary_sets"][0]["description"] = json!("Edited");
-        let reused = formatter_from_value(&config, &cache).unwrap();
+        let reused = formatter_from_value(&config, &cache);
         assert!(Arc::ptr_eq(&first, &reused));
         assert_eq!(reused.process("alpha"), "Beta.");
         let matches = Mutex::new(Vec::new());
@@ -3504,11 +3483,11 @@ mod cache_tests {
     fn language_rule_and_formatting_changes_replace_only_the_cached_entry() {
         let cache = Mutex::new(FormatterCache::default());
         let mut config = settings();
-        let first = formatter_from_value(&config, &cache).unwrap();
+        let first = formatter_from_value(&config, &cache);
         let previous = Arc::downgrade(&first);
         assert_eq!(first.process("Er kommt um acht"), "Kommt acht.");
         config["language"] = json!("de");
-        let german = formatter_from_value(&config, &cache).unwrap();
+        let german = formatter_from_value(&config, &cache);
         assert!(!Arc::ptr_eq(&first, &german));
         assert_eq!(german.process("Er kommt um acht"), "Er kommt um acht.");
         // An in-flight caller keeps the snapshot it acquired before the edit.
@@ -3517,20 +3496,16 @@ mod cache_tests {
         assert!(previous.upgrade().is_none());
 
         config["replacement_rules"][0]["replace"] = json!("gamma");
-        let changed_rule = formatter_from_value(&config, &cache).unwrap();
+        let changed_rule = formatter_from_value(&config, &cache);
         assert_eq!(changed_rule.process("alpha"), "Gamma.");
         config["replacements_paused"] = json!(true);
         assert_eq!(
-            formatter_from_value(&config, &cache)
-                .unwrap()
-                .process("alpha"),
+            formatter_from_value(&config, &cache).process("alpha"),
             "Alpha."
         );
         config["text_formatting"]["final_punctuation"] = json!(false);
         assert_eq!(
-            formatter_from_value(&config, &cache)
-                .unwrap()
-                .process("alpha"),
+            formatter_from_value(&config, &cache).process("alpha"),
             "Alpha"
         );
     }
@@ -3539,10 +3514,10 @@ mod cache_tests {
     fn dictionary_content_and_membership_invalidate_matchers() {
         let cache = Mutex::new(FormatterCache::default());
         let mut config = settings();
-        let no_terms = formatter_from_value(&config, &cache).unwrap();
+        let no_terms = formatter_from_value(&config, &cache);
         assert_eq!(no_terms.process("таури"), "Таури.");
         config["text_formatting"]["custom_words"] = json!(["Tauri"]);
-        let custom = formatter_from_value(&config, &cache).unwrap();
+        let custom = formatter_from_value(&config, &cache);
         assert!(!Arc::ptr_eq(&no_terms, &custom));
         assert_eq!(custom.process("таури"), "Tauri.");
         config["text_formatting"]["custom_words"] = json!([]);
@@ -3550,58 +3525,46 @@ mod cache_tests {
             "id": "personal", "name": "Terms", "enabled": false, "words": ["Tauri"]
         }]);
         assert_eq!(
-            formatter_from_value(&config, &cache)
-                .unwrap()
-                .process("таури"),
+            formatter_from_value(&config, &cache).process("таури"),
             "Таури."
         );
         config["text_formatting"]["dictionary_sets"][0]["enabled"] = json!(true);
         assert_eq!(
-            formatter_from_value(&config, &cache)
-                .unwrap()
-                .process("таури"),
+            formatter_from_value(&config, &cache).process("таури"),
             "Tauri."
         );
     }
 
     #[test]
-    fn disabled_formatting_does_not_build_or_replace_cached_matchers() {
+    fn disabled_cleanup_builds_its_own_matchers_and_cleans_nothing() {
         let cache = Mutex::new(FormatterCache::default());
         let mut config = settings();
-        let active = formatter_from_value(&config, &cache).unwrap();
+        let active = formatter_from_value(&config, &cache);
         config["text_formatting"]["enabled"] = json!(false);
         config["text_formatting"]["custom_words"] = json!(["Tauri"]);
-        assert!(formatter_from_value(&config, &cache).is_none());
-        assert!(Arc::ptr_eq(
-            &active,
-            &cache.lock().unwrap().entry.as_ref().unwrap().1
-        ));
-        let disabled = Formatter::from_config(&FormatterConfig::deserialize(&config).unwrap());
-        assert!(disabled.steps.is_empty());
-        assert!(disabled.replacement_protection.is_empty());
+        let disabled = formatter_from_value(&config, &cache);
+        assert!(!Arc::ptr_eq(&active, &disabled));
         assert_eq!(
-            format_transcription_with_config_value(&config, "  alpha таури  "),
-            "alpha таури"
+            format_transcription_with_config_value(&config, "  alpha,, таури  "),
+            "beta,, Tauri"
         );
         let preview = preview_format("  alpha таури  ", &config).unwrap();
-        assert_eq!(preview.formatted, "alpha таури");
-        assert!(preview.dictionary_matches.is_empty());
+        assert_eq!(preview.formatted, "beta Tauri");
+        assert_eq!(preview.dictionary_matches.len(), 1);
     }
 
     #[test]
     fn malformed_settings_and_invalid_regex_keep_existing_fallback_behavior() {
         let cache = Mutex::new(FormatterCache::default());
         let mut config = settings();
-        let good = formatter_from_value(&config, &cache).unwrap();
+        let good = formatter_from_value(&config, &cache);
         config["replacement_rules"][0]["match"] = json!("regex");
         config["replacement_rules"][0]["find"] = json!("[");
-        let skipped_regex = formatter_from_value(&config, &cache).unwrap();
+        let skipped_regex = formatter_from_value(&config, &cache);
         assert_eq!(skipped_regex.process("alpha"), "Alpha.");
         assert_eq!(good.process("alpha"), "Beta.");
         assert_eq!(
-            formatter_from_value(&settings(), &cache)
-                .unwrap()
-                .process("alpha"),
+            formatter_from_value(&settings(), &cache).process("alpha"),
             "Beta."
         );
         // A malformed formatter field has always reset the entire typed
@@ -3610,17 +3573,12 @@ mod cache_tests {
             "language": "en", "text_formatting": {"enabled": false},
             "replacement_rules": "invalid"
         });
-        let fallback = formatter_from_value(&malformed, &cache).unwrap();
+        let fallback = formatter_from_value(&malformed, &cache);
         assert_eq!(
             fallback.process("umm"),
             Formatter::from_config(&FormatterConfig::default()).process("umm")
         );
-        assert_eq!(
-            formatter_from_value(&settings(), &cache)
-                .unwrap()
-                .process("umm"),
-            ""
-        );
+        assert_eq!(formatter_from_value(&settings(), &cache).process("umm"), "");
     }
 
     #[test]
@@ -3628,7 +3586,7 @@ mod cache_tests {
         let cache = Mutex::new(FormatterCache::default());
         let config =
             json!({"text_formatting": {"custom_words": ["Tauri"], "correct_spelling": false}});
-        let formatter = formatter_from_value(&config, &cache).unwrap();
+        let formatter = formatter_from_value(&config, &cache);
         std::thread::scope(|scope| {
             for (text, count) in [("таури", 1), ("таури и таури", 2)] {
                 let formatter = Arc::clone(&formatter);
@@ -4476,6 +4434,30 @@ mod tests {
         let result = preview_format("эээ ну я я хочу проверить текст", &config).unwrap();
         assert_eq!(result.formatted, "Я хочу проверить текст.");
         assert_ne!(result.formatted, result.original);
+    }
+
+    /// The Cleanup switch turns off cleanup only: the user's replacements,
+    /// paused by their own switch, and dictionaries keep correcting the text.
+    #[test]
+    fn disabled_cleanup_keeps_replacements_and_dictionaries() {
+        let mut config = serde_json::json!({
+            "text_formatting": { "enabled": false, "custom_words": ["Tauri"] },
+            "replacement_rules": [{"find": "тейбл тенд", "replace": "тейбл-тент"}],
+        });
+        let input = "ну эээ тейбл тенд собран в таури";
+        assert_eq!(
+            preview_format(input, &config).unwrap().formatted,
+            "ну эээ тейбл-тент собран в Tauri"
+        );
+        assert_eq!(
+            format_transcription_with_config_value(&config, input),
+            "ну эээ тейбл-тент собран в Tauri"
+        );
+        config["replacements_paused"] = serde_json::json!(true);
+        assert_eq!(
+            format_transcription_with_config_value(&config, input),
+            "ну эээ тейбл тенд собран в Tauri"
+        );
     }
 
     #[test]
