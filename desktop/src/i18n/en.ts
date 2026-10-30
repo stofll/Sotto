@@ -918,6 +918,10 @@ export const en: Record<string, string | string[]> = {
 
   // ── LLM: profiles and providers ────────────────────────────────────────
   "Провайдер LLM не выбран. Настройте его в «Интеграциях».": "No LLM provider selected. Configure it in Integrations.",
+  "Провайдер профиля только распознаёт речь и не обрабатывает текст. Выберите профиль с LLM.":
+    "This profile's provider only transcribes speech and cannot process text. Choose a profile with an LLM.",
+  "Провайдер профиля не распознаёт речь. Для облачного распознавания выберите другой профиль.":
+    "This profile's provider does not transcribe speech. Choose another profile for cloud transcription.",
   "Для облачного распознавания укажите Base URL с http:// или https://.": "For cloud transcription, enter a Base URL starting with http:// or https://.",
   "Модель обработки не выбрана.": "No processing model selected.",
   "Для обработки нет сохранённого API-ключа.": "No saved API key for processing.",
@@ -972,8 +976,12 @@ export const en: Record<string, string | string[]> = {
     "Find the model ID on the OpenAI Platform: the Models docs, or GET /v1/models.",
   "Model ID смотри в Anthropic Console / документации Models, например claude-*.":
     "Find the model ID in the Anthropic Console or the Models docs, e.g. claude-*.",
-  "Model ID смотри в Google AI Studio / Gemini API docs, обычно gemini-*.":
-    "Find the model ID in Google AI Studio or the Gemini API docs, usually gemini-*.",
+  "Model ID смотри в Google AI Studio / Gemini API docs, обычно gemini-*. Для облачного распознавания — gemini-3.5-transcribe.":
+    "Find the model ID in Google AI Studio or the Gemini API docs, usually gemini-*. For cloud transcription, use gemini-3.5-transcribe.",
+  "Модели Scribe для облачного распознавания: scribe_v2 — основная. Обрабатывать текст через LLM этот провайдер не умеет.":
+    "Scribe models for cloud transcription: scribe_v2 is the main one. This provider cannot process text with an LLM.",
+  "MAI-Transcribe через Azure Speech, только облачное распознавание. Base URL — endpoint вашего ресурса Speech.":
+    "MAI-Transcribe via Azure Speech, for cloud transcription only. The Base URL is your Speech resource endpoint.",
   "OpenCode Go API принимает plain model id, например qwen3.6-plus.":
     "The OpenCode Go API takes a plain model id, e.g. qwen3.6-plus.",
   "Введите Model ID.": "Enter a model ID.",
@@ -1019,8 +1027,8 @@ export const en: Record<string, string | string[]> = {
   "Форматирование изменило распознанный текст": "Formatting changed the recognized text",
   "Форматирование не меняло распознанный текст": "Formatting left the recognized text unchanged",
   "Таймаут облачного STT": "Cloud STT timeout",
-  "Сколько ждать ответа /audio/transcriptions в облачном режиме. Распознавать больше нечем, поэтому по истечении диктовка завершится ошибкой. Значение общее для всех профилей.":
-    "How long to wait for /audio/transcriptions in cloud mode. There is nothing else to transcribe with, so dictation fails once it runs out. One value for every profile.",
+  "Сколько ждать ответа провайдера распознавания в облачном режиме. Распознавать больше нечем, поэтому по истечении диктовка завершится ошибкой. Значение общее для всех профилей.":
+    "How long to wait for the transcription provider in cloud mode. There is nothing else to transcribe with, so dictation fails once it runs out. One value for every profile.",
   "Сколько ждать ответа перед вставкой как минимум: для длинного текста время увеличивается само. Если провайдер не успеет, вставится локально обработанный текст, а с ответом поступят по настройке «Поздний ответ LLM». Значение своё у каждого профиля.":
     "The minimum wait for an answer before pasting: long text gets more time automatically. If the provider is too slow, the locally processed text is pasted, and its answer is handled as set in «Late LLM answer». Each profile has its own value.",
   "Поздний ответ LLM": "Late LLM answer",

@@ -22,7 +22,7 @@ See [telemetry.md](telemetry.md) for the versioned event contract. That file als
 
 The application may contact:
 
-- the configured cloud STT or LLM provider, sending the audio/text required by that provider;
+- the configured cloud STT or LLM provider, sending the audio/text required by that provider (Gemini cloud STT requests ask Google not to store the interaction);
 - the model hosting endpoint used by the model downloader;
 - GitHub Releases for automatic and manual update checks in installed release builds, for an update download after the user requests installation, and for release notes before installation or after an upgrade when they are not cached;
 - PostHog Cloud EU for telemetry, when the build includes an ingest token and you have allowed telemetry.

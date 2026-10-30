@@ -8,9 +8,11 @@ import {
   CATALOG_GROUPS,
   LogoMark,
   MODEL_HINTS,
+  needsBaseUrl,
   OPENCODE_GO_BASE_URL,
   PROVIDERS,
   PROVIDER_CATALOG,
+  providerById,
   type CompatiblePreset,
   type LlmProfile,
 } from "../pages/aiShared";
@@ -89,13 +91,14 @@ export function hasUnsavedInput({ step, isCustom, baseUrl }: { step: number; isC
 }
 
 /** The address field, asked for on the first step for the blank card and
- *  shown again on the last one for every OpenAI-compatible entry. */
-function BaseUrlField({ id, value, check, onChange, autoFocus }: {
+ *  shown again on the last one for every entry that needs an address. */
+function BaseUrlField({ id, value, check, onChange, autoFocus, placeholder = "https://api.example.com/v1" }: {
   id: string;
   value: string;
   check: UrlCheck;
   onChange: (next: string) => void;
   autoFocus?: boolean;
+  placeholder?: string;
 }) {
   // An empty field is not a remark worth printing: the placeholder shows the
   // shape of the address and «Далее» stays disabled until there is one. The
@@ -106,7 +109,7 @@ function BaseUrlField({ id, value, check, onChange, autoFocus }: {
     <label className="wizard-field">
       <span className="wizard-label">Base URL</span>
       <input className="field mono wizard-url-field" aria-label="Base URL" value={value} onChange={(e) => onChange(e.target.value)}
-        placeholder="https://api.example.com/v1" autoFocus={autoFocus}
+        placeholder={placeholder} autoFocus={autoFocus}
         aria-invalid={baseUrlBlocks(check)} aria-describedby={note ? id : undefined}/>
       <FieldCheckNote id={id} check={note} value={value}/>
     </label>
@@ -191,7 +194,8 @@ export function ProfileWizard({ apiKeys, existingProfiles, seed, onClose, onCrea
   // The address is checked where it is typed. `llmRouteBlocker` sees a broken
   // Base URL as well, but only in a config that has already been written — a
   // typo used to turn into a profile that quietly processed nothing.
-  const urlCheck = state.provider === "compatible" ? checkBaseUrl(state.baseUrl) : null;
+  const endpointExample = providerById(state.provider)?.endpointExample;
+  const urlCheck = needsBaseUrl(state.provider) ? checkBaseUrl(state.baseUrl, endpointExample ? "resource" : "api") : null;
   const urlBlocks = baseUrlBlocks(urlCheck);
 
   // A local server accepts any token, so the key step has nothing to ask for.
@@ -503,8 +507,8 @@ export function ProfileWizard({ apiKeys, existingProfiles, seed, onClose, onCrea
                 <input className="field" value={state.name} onChange={(e) => update({ name: e.target.value, nameEdited: e.target.value !== "" })}
                   placeholder={(isCustom && baseUrlLabel(state.baseUrl)) || t("Например: Cerebras gpt-oss-120b")} maxLength={64}/>
               </label>
-              {state.provider === "compatible" && (
-                <BaseUrlField id="wizard-url-review" value={state.baseUrl} check={urlCheck}
+              {needsBaseUrl(state.provider) && (
+                <BaseUrlField id="wizard-url-review" value={state.baseUrl} check={urlCheck} placeholder={endpointExample}
                   onChange={(baseUrl) => update({ baseUrl })}/>
               )}
               {/* The same field as on «Интеграции», refresh button and all: the

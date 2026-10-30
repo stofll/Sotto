@@ -4478,6 +4478,7 @@ dependencies = [
 name = "sotto"
 version = "0.3.6-beta.5"
 dependencies = [
+ "base64 0.22.1",
  "block2",
  "cpal",
  "criterion",

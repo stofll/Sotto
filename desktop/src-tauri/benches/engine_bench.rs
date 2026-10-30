@@ -276,7 +276,7 @@ fn inference_result_clone(c: &mut Criterion) {
         // Non-empty: the dispatcher clones the result along with the model id,
         // and an empty `None` would understate the clone cost by one string.
         model_id: Some("ggml-large-v3-turbo".into()),
-        stt_service: None,
+        cloud_stt: None,
         inference_time_ms: 1234,
         audio_seconds: 12.0,
         speech_seconds: None,

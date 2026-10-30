@@ -377,7 +377,9 @@ pub async fn ai_process_text_with_status(
     if config.pipeline_mode == "local" {
         return skipped(text, status, "local_mode");
     }
-    if config.provider.is_empty() {
+    // A transcription-only provider has no LLM to call, and `build_provider`
+    // would route it to its Anthropic fallback, with this provider's key.
+    if config.provider.is_empty() || crate::cloud_stt::transcription_only(&config.provider) {
         return skipped(text, status, "missing_provider");
     }
     if duration_below_threshold(
@@ -1286,6 +1288,24 @@ mod tests {
         cfg.provider = String::new();
         let outcome = runtime.block_on(ai_process_text_with_status("hello", &cfg, Some("sk-test")));
         assert_eq!(outcome.status.skipped_reason, "missing_provider");
+    }
+
+    /// A transcription-only profile in hybrid mode must not reach the LLM
+    /// fallback, which would hand its key to another provider's API.
+    #[test]
+    fn transcription_only_provider_skips_ai() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        for provider in ["elevenlabs", "azure-speech"] {
+            let mut cfg = base_config();
+            cfg.provider = provider.to_string();
+            let outcome =
+                runtime.block_on(ai_process_text_with_status("hello", &cfg, Some("xi-test")));
+            assert_eq!(outcome.status.skipped_reason, "missing_provider");
+            assert!(!outcome.status.attempted);
+        }
     }
 
     #[test]

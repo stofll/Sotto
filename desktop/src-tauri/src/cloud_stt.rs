@@ -1,25 +1,24 @@
-//! Cloud STT over one provider shape: OpenAI-compatible transcription at
-//! `{base_url}/audio/transcriptions` (Groq, Mistral, OpenAI itself, and any
-//! local server that mimics the shape):
+//! Cloud STT: the whole recording goes to one provider in one request and the
+//! transcript comes back. The adapter follows the profile's provider:
 //!
-//!   1. Encode the 16 kHz mono f32 audio as 16-bit PCM WAV in-memory.
-//!   2. POST `{base_url}/audio/transcriptions` with multipart/form-data:
-//!      - field `model`    — text
-//!      - field `language` — text (optional, when the user pinned one)
-//!      - field `file`     — WAV bytes
-//!
-//!      and `Authorization: Bearer {api_key}`.
-//!   3. Parse `{"text": "..."}` from the JSON response.
-//!
-//! All providers reuse the same shape — there is no provider-specific
-//! branching in this module. Adding a new OpenAI-compatible provider
-//! (Deepgram, Together, etc.) is a config change, not a code change.
+//! - `Compatible` — OpenAI-compatible `{base_url}/audio/transcriptions`
+//!   (Groq, Mistral, OpenAI itself, and any local server that mimics the
+//!   shape): multipart `model`, optional `language` and a WAV `file`, with
+//!   `Authorization: Bearer`. Reads `text`.
+//! - `ElevenLabs` — `{base_url}/speech-to-text`: multipart `model_id`,
+//!   optional `language_code` and the raw 16 kHz PCM as `file`, with
+//!   `xi-api-key`. Reads `text`.
+//! - `AzureSpeech` — the Azure Speech fast-transcription API that serves
+//!   MAI-Transcribe: multipart WAV `audio` and a `definition` JSON naming the
+//!   model, with `Ocp-Apim-Subscription-Key`. Reads `combinedPhrases[].text`.
+//! - `Gemini` — the Gemini Interactions API with the WAV inline as base64,
+//!   with `x-goog-api-key`. Reads the text of the model output.
 //!
 //! Errors are classified:
 //! - `transport: ...`     — reqwest connect/read failures
 //! - `timeout after Ns`   — server did not respond within the budget
 //! - `http 4xx/5xx`       — server rejected the request
-//! - `malformed: ...`     — non-JSON body, missing `text` field, etc.
+//! - `malformed: ...`     — non-JSON body, missing transcript, etc.
 //!
 //! These map cleanly to frontend toasts in the existing error banner.
 
@@ -27,22 +26,88 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use base64::Engine as _;
 use futures_util::stream;
-use serde::Deserialize;
+use serde_json::{json, Value};
+
+use crate::telemetry::ProviderService;
 
 const MAX_TRANSCRIPT_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
 const UPLOAD_CHUNK_SAMPLES: usize = 32 * 1024;
+/// An error body is read only for its reason code.
+const MAX_ERROR_RESPONSE_BYTES: usize = 64 * 1024;
+const MAX_ERROR_CODE_CHARS: usize = 48;
 
-/// Identifies the cloud STT provider. Currently only OpenAI-compatible
-/// is implemented; the field exists in config for forward-compat (a
-/// future `assemblyai` or `deepgram` variant would slot in here without
-/// a config migration).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "lowercase")]
-#[derive(Default)]
+const ELEVENLABS_BASE_URL: &str = "https://api.elevenlabs.io/v1";
+const GEMINI_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta";
+const AZURE_SPEECH_API_VERSION: &str = "2025-10-15";
+/// Gemini accepts inline audio only in a request under 20 MB, about seven
+/// minutes of 16 kHz WAV once base64-encoded. Longer audio would have to go
+/// through the Files API, which keeps the upload on Google's side for two days.
+const GEMINI_INLINE_LIMIT_BYTES: usize = 20_000_000;
+
+/// Which API the request speaks. Chosen from the profile's provider id by
+/// [`CloudSttProvider::for_profile`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CloudSttProvider {
     #[default]
     Compatible,
+    ElevenLabs,
+    AzureSpeech,
+    Gemini,
+}
+
+impl CloudSttProvider {
+    /// A provider without an adapter of its own speaks the OpenAI shape.
+    pub fn for_profile(provider: &str) -> Self {
+        match provider {
+            "elevenlabs" => Self::ElevenLabs,
+            "azure-speech" => Self::AzureSpeech,
+            "gemini" => Self::Gemini,
+            _ => Self::Compatible,
+        }
+    }
+
+    /// The fixed label telemetry reports for the adapter.
+    pub fn wire(self) -> &'static str {
+        match self {
+            Self::Compatible => "compatible",
+            Self::ElevenLabs => "elevenlabs",
+            Self::AzureSpeech => "azure_speech",
+            Self::Gemini => "gemini",
+        }
+    }
+}
+
+/// Providers that only transcribe and have no text API for the LLM step.
+pub fn transcription_only(provider: &str) -> bool {
+    matches!(provider, "elevenlabs" | "azure-speech")
+}
+
+/// The models a transcription-only provider offers. Neither serves a list
+/// of its speech models: ElevenLabs' `/v1/models` lists voices for synthesis,
+/// and an Azure Speech resource has no listing at all.
+pub fn transcription_models(provider: &str) -> Option<&'static [&'static str]> {
+    match provider {
+        "elevenlabs" => Some(&["scribe_v2", "scribe_v2_medical", "scribe_v1"]),
+        "azure-speech" => Some(&["MAI-Transcribe-2", "MAI-Transcribe-1.5"]),
+        _ => None,
+    }
+}
+
+/// The endpoint a profile transcribes with. Gemini has one public endpoint,
+/// as in its LLM adapter; ElevenLabs and OpenAI fall back to theirs; an Azure
+/// resource and an OpenAI-compatible server exist only at the address given.
+pub fn effective_base_url(provider: &str, configured: Option<&str>) -> String {
+    let configured = configured.map(str::trim).filter(|value| !value.is_empty());
+    match provider {
+        "gemini" => GEMINI_BASE_URL.to_string(),
+        "elevenlabs" => configured.unwrap_or(ELEVENLABS_BASE_URL).to_string(),
+        "openai" => configured
+            .unwrap_or(crate::ai::providers::OPENAI_BASE_URL)
+            .to_string(),
+        _ => configured.unwrap_or_default().to_string(),
+    }
 }
 
 /// Inputs for a cloud STT call. `audio` is mono 16 kHz f32 — the same
@@ -58,11 +123,18 @@ pub struct CloudSttRequest {
     pub timeout_seconds: u64,
 }
 
+/// What telemetry may say about a completed request: fixed labels only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CloudSttRoute {
+    pub provider: CloudSttProvider,
+    pub service: ProviderService,
+}
+
 /// Output of a successful cloud STT call.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct CloudSttResult {
     #[serde(skip)]
-    pub service: crate::telemetry::ProviderService,
+    pub route: CloudSttRoute,
     pub text: String,
     pub model: String,
     pub elapsed_ms: u64,
@@ -158,46 +230,68 @@ fn wav_chunk(samples: &[f32]) -> Vec<u8> {
 /// We do this by hand (no reqwest `multipart` feature) because:
 ///   1. It keeps the dependency surface minimal — reqwest is already
 ///      pulled in for the AI providers, no extra features.
-///   2. The body shape is small and stable (3 fields), so hand-rolling
-///      is cheaper than the alternative.
+///   2. The body shape is small and stable, so hand-rolling is cheaper
+///      than the alternative.
 pub fn build_multipart_body(
     model: &str,
     language: Option<&str>,
     file_bytes: &[u8],
 ) -> (Vec<u8>, String) {
-    let (mut body, suffix, content_type) = multipart_parts(model, language);
+    let (mut body, suffix, content_type) =
+        multipart_parts(&compatible_fields(model, language), WAV_FILE);
     body.extend_from_slice(file_bytes);
     body.extend_from_slice(&suffix);
     (body, content_type)
 }
 
-fn multipart_parts(model: &str, language: Option<&str>) -> (Vec<u8>, Vec<u8>, String) {
+/// The file part of a multipart upload.
+struct FormFile {
+    field: &'static str,
+    name: &'static str,
+    content_type: &'static str,
+}
+
+// The legacy Python code used `audio/wav`; we do the same to avoid servers
+// that sniff the declared type and reject `application/octet-stream`.
+const WAV_FILE: FormFile = FormFile {
+    field: "file",
+    name: "recording.wav",
+    content_type: "audio/wav",
+};
+
+fn compatible_fields<'a>(
+    model: &'a str,
+    language: Option<&'a str>,
+) -> Vec<(&'static str, &'a str)> {
+    let mut fields = vec![("model", model)];
+    if let Some(language) = language {
+        fields.push(("language", language));
+    }
+    fields
+}
+
+/// Everything before the file bytes, everything after them, and the
+/// `Content-Type` value: the file itself is streamed in between.
+fn multipart_parts(fields: &[(&str, &str)], file: FormFile) -> (Vec<u8>, Vec<u8>, String) {
     const BOUNDARY: &str = "----WhisperDesktopBoundary7MA4YWxkTrZu0gW";
     let mut body = Vec::with_capacity(1024);
-    let crlf = b"\r\n";
-
-    let push_field = |body: &mut Vec<u8>, name: &str, value: &str| {
+    for (name, value) in fields {
         body.extend_from_slice(format!("--{BOUNDARY}\r\n").as_bytes());
         body.extend_from_slice(
             format!("Content-Disposition: form-data; name=\"{name}\"\r\n\r\n").as_bytes(),
         );
         body.extend_from_slice(value.as_bytes());
-        body.extend_from_slice(crlf);
-    };
-
-    push_field(&mut body, "model", model);
-    if let Some(lang) = language {
-        push_field(&mut body, "language", lang);
+        body.extend_from_slice(b"\r\n");
     }
-
-    // File part with filename + content-type. The legacy Python code
-    // used `audio/wav`; we do the same to avoid servers that sniff the
-    // declared type and reject `application/octet-stream`.
     body.extend_from_slice(format!("--{BOUNDARY}\r\n").as_bytes());
     body.extend_from_slice(
-        b"Content-Disposition: form-data; name=\"file\"; filename=\"recording.wav\"\r\n",
+        format!(
+            "Content-Disposition: form-data; name=\"{}\"; filename=\"{}\"\r\n",
+            file.field, file.name
+        )
+        .as_bytes(),
     );
-    body.extend_from_slice(b"Content-Type: audio/wav\r\n\r\n");
+    body.extend_from_slice(format!("Content-Type: {}\r\n\r\n", file.content_type).as_bytes());
     let suffix = format!("\r\n--{BOUNDARY}--\r\n").into_bytes();
 
     let content_type = format!("multipart/form-data; boundary={BOUNDARY}");
@@ -240,33 +334,261 @@ impl Iterator for MultipartUpload {
     }
 }
 
+/// The OpenAI-compatible upload.
 pub fn multipart_upload(
     audio: Arc<Vec<f32>>,
     model: &str,
     language: Option<&str>,
 ) -> Result<MultipartUpload, String> {
-    let header = wav_header(audio.len())?;
-    let (prefix, suffix, content_type) = multipart_parts(model, language);
-    let content_length = prefix
+    encode_upload(audio, &compatible_fields(model, language), WAV_FILE, true)
+}
+
+/// A multipart upload whose file part is the audio as 16-bit PCM, preceded by
+/// a WAV header when `wav` is set.
+fn encode_upload(
+    audio: Arc<Vec<f32>>,
+    fields: &[(&str, &str)],
+    file: FormFile,
+    wav: bool,
+) -> Result<MultipartUpload, String> {
+    let header = wav.then(|| wav_header(audio.len())).transpose()?;
+    let (prefix, suffix, content_type) = multipart_parts(fields, file);
+    let content_length = audio
         .len()
-        .checked_add(header.len())
-        .and_then(|size| {
-            audio
-                .len()
-                .checked_mul(2)
-                .and_then(|pcm| size.checked_add(pcm))
-        })
+        .checked_mul(2)
+        .and_then(|size| size.checked_add(prefix.len()))
+        .and_then(|size| size.checked_add(header.as_ref().map_or(0, Vec::len)))
         .and_then(|size| size.checked_add(suffix.len()))
         .ok_or_else(|| "cloud STT upload exceeds size limit".to_string())?;
     Ok(MultipartUpload {
         content_length,
         content_type,
         prefix: Some(prefix),
-        header: Some(header),
+        header,
         suffix: Some(suffix),
         audio,
         offset: 0,
     })
+}
+
+/// A request ready to send. Multipart uploads are streamed so a long file is
+/// never held as a second, encoded copy in memory.
+struct Upload {
+    url: String,
+    auth: (&'static str, String),
+    content_type: String,
+    content_length: usize,
+    body: reqwest::Body,
+}
+
+fn pcm_upload(
+    url: String,
+    auth: (&'static str, String),
+    fields: &[(&str, &str)],
+    file: FormFile,
+    audio: &Arc<Vec<f32>>,
+    wav: bool,
+) -> Result<Upload, String> {
+    let mut upload = encode_upload(Arc::clone(audio), fields, file, wav)?;
+    Ok(Upload {
+        url,
+        auth,
+        content_type: std::mem::take(&mut upload.content_type),
+        content_length: upload.content_length,
+        body: reqwest::Body::wrap_stream(stream::iter(upload.map(Ok::<_, std::io::Error>))),
+    })
+}
+
+fn build_upload(req: &CloudSttRequest, language: Option<&str>) -> Result<Upload, String> {
+    let base = req.base_url.trim().trim_end_matches('/');
+    match req.provider {
+        CloudSttProvider::Compatible => pcm_upload(
+            format!("{base}/audio/transcriptions"),
+            ("Authorization", format!("Bearer {}", req.api_key)),
+            &compatible_fields(&req.model, language),
+            WAV_FILE,
+            &req.audio,
+            true,
+        ),
+        CloudSttProvider::ElevenLabs => {
+            // Raw PCM rather than WAV: the API documents lower latency for
+            // `pcm_s16le_16`. Audio-event tags such as «(laughter)» and word
+            // timestamps are of no use to dictation.
+            let mut fields = vec![
+                ("model_id", req.model.as_str()),
+                ("file_format", "pcm_s16le_16"),
+                ("tag_audio_events", "false"),
+                ("timestamps_granularity", "none"),
+            ];
+            if let Some(language) = language {
+                fields.push(("language_code", language));
+            }
+            pcm_upload(
+                format!("{base}/speech-to-text"),
+                ("xi-api-key", req.api_key.clone()),
+                &fields,
+                FormFile {
+                    field: "file",
+                    name: "recording.pcm",
+                    content_type: "application/octet-stream",
+                },
+                &req.audio,
+                false,
+            )
+        }
+        CloudSttProvider::AzureSpeech => {
+            let mut definition = json!({
+                "enhancedMode": { "enabled": true, "model": req.model },
+            });
+            if let Some(language) = language {
+                definition["locales"] = json!([language]);
+            }
+            let definition = definition.to_string();
+            pcm_upload(
+                format!(
+                    "{base}/speechtotext/transcriptions:transcribe?api-version={AZURE_SPEECH_API_VERSION}"
+                ),
+                ("Ocp-Apim-Subscription-Key", req.api_key.clone()),
+                &[("definition", definition.as_str())],
+                FormFile {
+                    field: "audio",
+                    ..WAV_FILE
+                },
+                &req.audio,
+                true,
+            )
+        }
+        CloudSttProvider::Gemini => {
+            // Sized from the sample count, so a long file is refused before
+            // it is encoded at all.
+            let wav_len = req.audio.len().saturating_mul(2).saturating_add(44);
+            if wav_len.div_ceil(3).saturating_mul(4) > GEMINI_INLINE_LIMIT_BYTES {
+                return Err(
+                    "cloud STT audio exceeds the Gemini inline limit (about 7 minutes)".to_string(),
+                );
+            }
+            let wav = audio_to_wav_bytes(&req.audio);
+            let mut body = json!({
+                "model": req.model,
+                // Interactions are kept on Google's side by default; a
+                // dictation needs no server-side history.
+                "store": false,
+                "input": [{
+                    "type": "audio",
+                    "mime_type": "audio/wav",
+                    "data": base64::engine::general_purpose::STANDARD.encode(&wav),
+                }],
+            });
+            if let Some(language) = language {
+                body["generation_config"] =
+                    json!({ "transcription_config": { "language_codes": [language] } });
+            }
+            let body = body.to_string().into_bytes();
+            Ok(Upload {
+                url: format!("{base}/interactions"),
+                auth: ("x-goog-api-key", req.api_key.clone()),
+                content_type: "application/json".to_string(),
+                content_length: body.len(),
+                body: body.into(),
+            })
+        }
+    }
+}
+
+/// The transcript in a successful response, by the adapter's response shape.
+fn transcript_text(provider: CloudSttProvider, parsed: &Value) -> Option<String> {
+    let texts = |items: &Value, kind: Option<&str>| -> Option<Vec<String>> {
+        let items = items.as_array()?;
+        Some(
+            items
+                .iter()
+                .filter(|item| {
+                    kind.is_none_or(|kind| item.get("type").and_then(Value::as_str) == Some(kind))
+                })
+                .filter_map(|item| item.get("text").and_then(Value::as_str))
+                .map(str::to_string)
+                .collect(),
+        )
+    };
+    match provider {
+        CloudSttProvider::Compatible | CloudSttProvider::ElevenLabs => parsed
+            .get("text")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        // One entry per channel, and the recording has one.
+        CloudSttProvider::AzureSpeech => {
+            texts(parsed.get("combinedPhrases")?, None).map(|texts| texts.join(" "))
+        }
+        // Since the May 2026 API revision the answer is a `model_output`
+        // step; earlier revisions return it in `outputs`.
+        CloudSttProvider::Gemini => match parsed.get("steps").and_then(Value::as_array) {
+            Some(steps) => {
+                let outputs: Vec<&Value> = steps
+                    .iter()
+                    .filter(|step| step.get("type").and_then(Value::as_str) == Some("model_output"))
+                    .collect();
+                if outputs.is_empty() {
+                    return None;
+                }
+                let parts = outputs
+                    .iter()
+                    .filter_map(|step| texts(step.get("content")?, Some("text")))
+                    .flatten()
+                    .collect::<Vec<_>>();
+                Some(parts.concat())
+            }
+            None => texts(parsed.get("outputs")?, Some("text")).map(|texts| texts.concat()),
+        },
+    }
+}
+
+/// The field named in the error when the transcript is missing.
+fn transcript_field(provider: CloudSttProvider) -> &'static str {
+    match provider {
+        CloudSttProvider::Compatible | CloudSttProvider::ElevenLabs => "text",
+        CloudSttProvider::AzureSpeech => "combinedPhrases",
+        CloudSttProvider::Gemini => "model_output",
+    }
+}
+
+/// The provider's machine-readable reason from an error body, and nothing else
+/// from it: the body can echo audio, transcript or credentials. Only a short
+/// identifier passes, so a message or a key in a `code` field is dropped.
+///
+/// Where each API puts it: ElevenLabs `detail.status`, Gemini `error.status`,
+/// Azure and OpenAI `error.code`, with OpenAI's `error.type` when the code is
+/// null.
+fn provider_error_code(body: &[u8]) -> Option<String> {
+    let parsed: Value = serde_json::from_slice(body).ok()?;
+    let error = parsed.get("error");
+    let code = [
+        parsed.get("detail").and_then(|detail| detail.get("status")),
+        error.and_then(|error| error.get("status")),
+        error.and_then(|error| error.get("code")),
+        error.and_then(|error| error.get("type")),
+    ]
+    .into_iter()
+    .flatten()
+    .filter_map(Value::as_str)
+    .find(|code| {
+        (1..=MAX_ERROR_CODE_CHARS).contains(&code.len())
+            && code.bytes().any(|byte| byte.is_ascii_alphabetic())
+            && code
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
+    })
+    .map(str::to_string);
+    code
+}
+
+/// Telemetry's service label. An Azure Speech resource lives on a host of its
+/// own, so the adapter itself names the service rather than the hostname.
+fn route(provider: CloudSttProvider, base_url: &str) -> CloudSttRoute {
+    let service = match provider {
+        CloudSttProvider::AzureSpeech => ProviderService::Azure,
+        _ => crate::telemetry::provider_service(base_url),
+    };
+    CloudSttRoute { provider, service }
 }
 
 /// Send the audio to the configured provider and return the
@@ -274,12 +596,6 @@ pub fn multipart_upload(
 /// typed enum) so the dispatcher can surface them in the existing
 /// error toast without a new error type on the Tauri boundary.
 pub async fn transcribe(req: CloudSttRequest) -> Result<CloudSttResult, String> {
-    if req.provider != CloudSttProvider::Compatible {
-        return Err(format!(
-            "unsupported cloud STT provider: {:?}",
-            req.provider
-        ));
-    }
     if req.base_url.trim().is_empty() {
         return Err("cloud_stt base_url is empty".to_string());
     }
@@ -289,26 +605,25 @@ pub async fn transcribe(req: CloudSttRequest) -> Result<CloudSttResult, String> 
     if req.model.trim().is_empty() {
         return Err("cloud_stt model is empty".to_string());
     }
+    // `auto` is the app's spelling of "detect it"; every API here says that by
+    // leaving the language out.
+    let language = req
+        .language
+        .as_deref()
+        .map(str::trim)
+        .filter(|language| !language.is_empty() && *language != "auto");
 
     let started = Instant::now();
-    let mut upload = multipart_upload(Arc::clone(&req.audio), &req.model, req.language.as_deref())?;
-    let content_length = upload.content_length;
-    let content_type = std::mem::take(&mut upload.content_type);
-    let body = reqwest::Body::wrap_stream(stream::iter(upload.map(Ok::<_, std::io::Error>)));
-
-    let url = format!(
-        "{}/audio/transcriptions",
-        req.base_url.trim_end_matches('/')
-    );
+    let upload = build_upload(&req, language)?;
     // The shared client keeps the connection to the provider open between
     // dictations, so only the first one pays for DNS, TCP and TLS.
     let response = crate::ai::providers::shared_client()
-        .post(&url)
+        .post(&upload.url)
         .timeout(Duration::from_secs(req.timeout_seconds.max(1)))
-        .header("Authorization", format!("Bearer {}", req.api_key))
-        .header("Content-Type", content_type)
-        .header("Content-Length", content_length.to_string())
-        .body(body)
+        .header(upload.auth.0, upload.auth.1)
+        .header("Content-Type", upload.content_type)
+        .header("Content-Length", upload.content_length.to_string())
+        .body(upload.body)
         .send()
         .await
         .map_err(|error| {
@@ -323,16 +638,21 @@ pub async fn transcribe(req: CloudSttRequest) -> Result<CloudSttResult, String> 
 
     let status = response.status();
     if !status.is_success() {
-        // A provider can echo audio, transcript or credentials in its error
-        // body, so neither collect nor log it.
         log::debug!("cloud STT http {}", status.as_u16());
-        return Err(format!(
+        let mut message = format!(
             "http {} {}",
             status.as_u16(),
             status.canonical_reason().unwrap_or("")
         )
         .trim_end()
-        .to_string());
+        .to_string();
+        // A 401 means anything from a mistyped key to a key without access to
+        // speech recognition; the provider's own code tells which.
+        let body = crate::http_client::read_bounded_body(response, MAX_ERROR_RESPONSE_BYTES).await;
+        if let Some(code) = body.ok().and_then(|body| provider_error_code(&body)) {
+            message.push_str(&format!(" ({code})"));
+        }
+        return Err(message);
     }
 
     let body = crate::http_client::read_bounded_body(response, MAX_TRANSCRIPT_RESPONSE_BYTES)
@@ -348,19 +668,20 @@ pub async fn transcribe(req: CloudSttRequest) -> Result<CloudSttResult, String> 
                 format!("transport: {error}")
             }
         })?;
-    let parsed: serde_json::Value = serde_json::from_slice(&body)
+    let parsed: Value = serde_json::from_slice(&body)
         .map_err(|error| format!("malformed: invalid JSON: {error}"))?;
 
-    let text = parsed
-        .get("text")
-        .and_then(|value| value.as_str())
-        // Not the response itself: whatever it holds instead of `text` may be
-        // the transcript.
-        .ok_or_else(|| "malformed: missing 'text' field in response".to_string())?
-        .to_string();
+    // Not the response itself: whatever it holds instead of the transcript
+    // may be the transcript.
+    let text = transcript_text(req.provider, &parsed).ok_or_else(|| {
+        format!(
+            "malformed: missing '{}' field in response",
+            transcript_field(req.provider)
+        )
+    })?;
 
     Ok(CloudSttResult {
-        service: crate::telemetry::provider_service(&req.base_url),
+        route: route(req.provider, &req.base_url),
         text,
         model: req.model,
         elapsed_ms: started.elapsed().as_millis() as u64,
@@ -548,7 +869,160 @@ mod tests {
     }
 
     #[test]
-    fn provider_default_is_compatible() {
-        assert_eq!(CloudSttProvider::default(), CloudSttProvider::Compatible);
+    fn profile_provider_selects_the_adapter() {
+        assert_eq!(
+            CloudSttProvider::for_profile("elevenlabs"),
+            CloudSttProvider::ElevenLabs
+        );
+        assert_eq!(
+            CloudSttProvider::for_profile("azure-speech"),
+            CloudSttProvider::AzureSpeech
+        );
+        assert_eq!(
+            CloudSttProvider::for_profile("gemini"),
+            CloudSttProvider::Gemini
+        );
+        // Presets (Groq, Mistral, local servers) are `compatible` profiles.
+        for provider in ["compatible", "openai", "opencode-go", "anthropic"] {
+            assert_eq!(
+                CloudSttProvider::for_profile(provider),
+                CloudSttProvider::Compatible
+            );
+        }
+    }
+
+    #[test]
+    fn base_url_falls_back_only_where_the_provider_has_one_endpoint() {
+        assert_eq!(
+            effective_base_url("elevenlabs", Some(" ")),
+            ELEVENLABS_BASE_URL
+        );
+        assert_eq!(
+            effective_base_url(
+                "elevenlabs",
+                Some("https://api.eu.residency.elevenlabs.io/v1")
+            ),
+            "https://api.eu.residency.elevenlabs.io/v1"
+        );
+        assert_eq!(
+            effective_base_url("openai", None),
+            crate::ai::providers::OPENAI_BASE_URL
+        );
+        // Gemini's adapter ignores base_url for the LLM as well.
+        assert_eq!(
+            effective_base_url("gemini", Some("https://proxy.test/v1")),
+            GEMINI_BASE_URL
+        );
+        // An Azure resource or a compatible server has no address to guess.
+        assert_eq!(effective_base_url("azure-speech", None), "");
+        assert_eq!(effective_base_url("compatible", Some("")), "");
+    }
+
+    #[test]
+    fn gemini_text_is_read_from_both_response_revisions() {
+        let steps = json!({ "steps": [
+            { "type": "thought", "summary": [{ "type": "text", "text": "ignored" }] },
+            { "type": "model_output", "content": [{ "type": "text", "text": "привет мир" }] },
+        ]});
+        assert_eq!(
+            transcript_text(CloudSttProvider::Gemini, &steps).as_deref(),
+            Some("привет мир")
+        );
+        let outputs = json!({ "outputs": [{ "type": "text", "text": "hello" }] });
+        assert_eq!(
+            transcript_text(CloudSttProvider::Gemini, &outputs).as_deref(),
+            Some("hello")
+        );
+        // A turn with no model output is not an empty transcript.
+        let no_output = json!({ "steps": [{ "type": "thought" }] });
+        assert_eq!(transcript_text(CloudSttProvider::Gemini, &no_output), None);
+    }
+
+    #[test]
+    fn error_code_is_read_where_each_provider_puts_it() {
+        let code = |body: Value| provider_error_code(body.to_string().as_bytes());
+        let elevenlabs = json!({ "detail": { "status": "missing_permissions", "message": "The API key you used is missing the permission speech_to_text" } });
+        assert_eq!(code(elevenlabs).as_deref(), Some("missing_permissions"));
+        let gemini =
+            json!({ "error": { "code": 400, "status": "INVALID_ARGUMENT", "message": "x" } });
+        assert_eq!(code(gemini).as_deref(), Some("INVALID_ARGUMENT"));
+        let azure = json!({ "error": { "code": "InvalidPayload", "message": "x" } });
+        assert_eq!(code(azure).as_deref(), Some("InvalidPayload"));
+        let openai = json!({ "error": { "message": "Incorrect API key", "type": "invalid_request_error", "code": null } });
+        assert_eq!(code(openai).as_deref(), Some("invalid_request_error"));
+    }
+
+    #[test]
+    fn error_code_never_carries_free_text() {
+        let code = |body: Value| provider_error_code(body.to_string().as_bytes());
+        assert_eq!(code(json!({ "error": "missing api key" })), None);
+        assert_eq!(
+            code(json!({ "detail": { "status": "the key sk-abc is wrong" } })),
+            None
+        );
+        assert_eq!(
+            code(json!({ "error": { "code": "x".repeat(MAX_ERROR_CODE_CHARS + 1) } })),
+            None
+        );
+        assert_eq!(code(json!({ "error": { "code": "401" } })), None);
+        assert_eq!(provider_error_code(b"<html>Unauthorized</html>"), None);
+    }
+
+    #[test]
+    fn azure_text_joins_the_combined_phrases() {
+        let parsed = json!({ "combinedPhrases": [{ "text": "Weather" }], "phrases": [] });
+        assert_eq!(
+            transcript_text(CloudSttProvider::AzureSpeech, &parsed).as_deref(),
+            Some("Weather")
+        );
+        // Silence comes back as no phrases, which is an empty transcript.
+        let silence = json!({ "combinedPhrases": [] });
+        assert_eq!(
+            transcript_text(CloudSttProvider::AzureSpeech, &silence).as_deref(),
+            Some("")
+        );
+        assert_eq!(
+            transcript_text(CloudSttProvider::AzureSpeech, &json!({ "text": "x" })),
+            None
+        );
+    }
+
+    #[test]
+    fn azure_is_reported_as_azure_whatever_the_resource_host() {
+        let route = route(
+            CloudSttProvider::AzureSpeech,
+            "https://my-resource.cognitiveservices.azure.com",
+        );
+        assert_eq!(route.service, ProviderService::Azure);
+        assert_eq!(
+            super::route(CloudSttProvider::ElevenLabs, ELEVENLABS_BASE_URL).service,
+            ProviderService::Elevenlabs
+        );
+    }
+
+    #[test]
+    fn gemini_refuses_audio_past_the_inline_limit_before_sending() {
+        let req = CloudSttRequest {
+            provider: CloudSttProvider::Gemini,
+            base_url: GEMINI_BASE_URL.into(),
+            api_key: "k".into(),
+            model: "gemini-3.5-transcribe".into(),
+            language: None,
+            // Eight minutes of 16 kHz audio.
+            audio: Arc::new(vec![0.0; 16_000 * 60 * 8]),
+            timeout_seconds: 5,
+        };
+        let error = build_upload(&req, None).err().unwrap();
+        assert!(error.contains("inline limit"), "{error}");
+        let upload = build_upload(
+            &CloudSttRequest {
+                audio: Arc::new(vec![0.0; 16_000 * 60 * 7]),
+                ..req
+            },
+            None,
+        )
+        .ok()
+        .unwrap();
+        assert!(upload.content_length < GEMINI_INLINE_LIMIT_BYTES);
     }
 }

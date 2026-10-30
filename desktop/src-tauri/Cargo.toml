@@ -22,6 +22,7 @@ reqwest = { version = "0.13.5", default-features = false, features = ["rustls-no
 # The crypto provider reqwest is built without; see src/http_client.rs.
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 futures-util = "0.3"
+base64 = "0.22"
 sha2 = "0.10"
 fs4 = { version = "1.1", default-features = false }
 regex = "1"

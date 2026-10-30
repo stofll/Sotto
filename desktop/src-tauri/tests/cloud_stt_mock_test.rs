@@ -1,14 +1,12 @@
-//! Mock HTTP tests for the cloud STT provider.
+//! Mock HTTP tests for the cloud STT adapters.
 //!
-//! Stands up a local `TcpListener` that mimics an OpenAI-compatible
-//! `/audio/transcriptions` endpoint, then drives `cloud_stt::transcribe`
-//! against it. Verifies:
-//!   - the multipart/form-data body has the right shape
+//! Stands up a local `TcpListener` that mimics a provider endpoint, then
+//! drives `cloud_stt::transcribe` against it. Verifies:
+//!   - each adapter's path, auth header and body shape
 //!   - WAV bytes are produced and embedded in the `file` field
-//!   - the `Authorization: Bearer <key>` header is set
 //!   - a non-2xx response surfaces as a typed error
 //!   - a malformed response surfaces as a typed error
-//!   - a successful response parses `text` out of JSON
+//!   - a successful response parses the adapter's transcript out of JSON
 
 use std::io::{Read, Write};
 use std::net::TcpListener;
@@ -202,7 +200,19 @@ struct Captured {
     path: String,
     auth_header: Option<String>,
     content_type: Option<String>,
+    headers: String,
     body: Vec<u8>,
+}
+
+impl Captured {
+    /// The value of a request header, by case-insensitive name.
+    fn header(&self, name: &str) -> Option<String> {
+        self.headers.lines().find_map(|line| {
+            let (key, value) = line.split_once(':')?;
+            key.eq_ignore_ascii_case(name)
+                .then(|| value.trim().to_string())
+        })
+    }
 }
 
 type Shared = Arc<Mutex<Captured>>;
@@ -288,6 +298,7 @@ fn spawn_mock(
             .lines()
             .find(|line| line.to_ascii_lowercase().starts_with("content-type:"))
             .map(|line| line.trim().to_string());
+        cap.headers = header_str.to_string();
         cap.body = body.to_vec();
 
         let response = format!(
@@ -358,6 +369,133 @@ async fn transcribe_sends_multipart_with_wav_file_and_parses_text() {
     assert!(wav_bytes.windows(4).any(|w| w == b"WAVE"));
 }
 
+fn request_for(provider: CloudSttProvider, base_url: String, model: &str) -> CloudSttRequest {
+    CloudSttRequest {
+        provider,
+        model: model.into(),
+        ..sample_request(base_url)
+    }
+}
+
+#[tokio::test]
+async fn elevenlabs_uploads_raw_pcm_with_its_own_key_header() {
+    let (base_url, captured) = spawn_mock(
+        "HTTP/1.1 200 OK",
+        r#"{"language_code":"ru","text":"привет","words":[]}"#,
+    );
+    let result = transcribe(request_for(
+        CloudSttProvider::ElevenLabs,
+        base_url,
+        "scribe_v2",
+    ))
+    .await
+    .unwrap();
+    assert_eq!(result.text, "привет");
+    assert_eq!(result.route.provider.wire(), "elevenlabs");
+    let cap = captured.lock().unwrap();
+    assert_eq!(cap.path, "/speech-to-text");
+    assert_eq!(cap.header("xi-api-key").as_deref(), Some("sk-test-key"));
+    // The key must not travel in the header another API reads.
+    assert!(cap.auth_header.is_none());
+    let body = String::from_utf8_lossy(&cap.body);
+    for field in [
+        "name=\"model_id\"\r\n\r\nscribe_v2\r\n",
+        "name=\"language_code\"\r\n\r\nru\r\n",
+        "name=\"file_format\"\r\n\r\npcm_s16le_16\r\n",
+        "name=\"tag_audio_events\"\r\n\r\nfalse\r\n",
+    ] {
+        assert!(body.contains(field), "missing {field:?}");
+    }
+    // Declared raw PCM, so no WAV header: 1600 samples are 3200 bytes.
+    let start = body.find("application/octet-stream\r\n\r\n").unwrap()
+        + "application/octet-stream\r\n\r\n".len();
+    let end = start + body[start..].find("\r\n------").unwrap();
+    assert_eq!(end - start, 3200);
+    assert!(!cap.body[start..end].starts_with(b"RIFF"));
+}
+
+#[tokio::test]
+async fn azure_speech_names_the_model_in_the_definition() {
+    let (base_url, captured) = spawn_mock(
+        "HTTP/1.1 200 OK",
+        r#"{"durationMilliseconds":100,"combinedPhrases":[{"text":"Погода"}],"phrases":[]}"#,
+    );
+    let result = transcribe(request_for(
+        CloudSttProvider::AzureSpeech,
+        base_url,
+        "MAI-Transcribe-2",
+    ))
+    .await
+    .unwrap();
+    assert_eq!(result.text, "Погода");
+    let cap = captured.lock().unwrap();
+    assert_eq!(
+        cap.path,
+        "/speechtotext/transcriptions:transcribe?api-version=2025-10-15"
+    );
+    assert_eq!(
+        cap.header("Ocp-Apim-Subscription-Key").as_deref(),
+        Some("sk-test-key")
+    );
+    assert!(cap.auth_header.is_none());
+    let body = String::from_utf8_lossy(&cap.body);
+    let start =
+        body.find("name=\"definition\"\r\n\r\n").unwrap() + "name=\"definition\"\r\n\r\n".len();
+    let end = start + body[start..].find("\r\n").unwrap();
+    let definition: serde_json::Value = serde_json::from_str(&body[start..end]).unwrap();
+    assert_eq!(
+        definition,
+        serde_json::json!({
+            "enhancedMode": { "enabled": true, "model": "MAI-Transcribe-2" },
+            "locales": ["ru"],
+        })
+    );
+    assert!(body.contains("name=\"audio\"; filename=\"recording.wav\""));
+}
+
+#[tokio::test]
+async fn gemini_sends_the_audio_inline_and_unstored() {
+    let (base_url, captured) = spawn_mock(
+        "HTTP/1.1 200 OK",
+        r#"{"id":"int_1","steps":[{"type":"model_output","content":[{"type":"text","text":"hello"}]}]}"#,
+    );
+    let mut request = request_for(CloudSttProvider::Gemini, base_url, "gemini-3.5-transcribe");
+    request.language = Some("auto".into());
+    let result = transcribe(request).await.unwrap();
+    assert_eq!(result.text, "hello");
+    let cap = captured.lock().unwrap();
+    assert_eq!(cap.path, "/interactions");
+    assert_eq!(cap.header("x-goog-api-key").as_deref(), Some("sk-test-key"));
+    assert!(cap.auth_header.is_none());
+    let body: serde_json::Value = serde_json::from_slice(&cap.body).unwrap();
+    assert_eq!(body["model"], "gemini-3.5-transcribe");
+    assert_eq!(body["store"], false);
+    assert_eq!(body["input"][0]["type"], "audio");
+    assert_eq!(body["input"][0]["mime_type"], "audio/wav");
+    // base64 of "RIFF".
+    assert!(body["input"][0]["data"]
+        .as_str()
+        .unwrap()
+        .starts_with("UklGR"));
+    // `auto` means "detect it", which the API spells by leaving the language out.
+    assert!(body.get("generation_config").is_none());
+}
+
+#[tokio::test]
+async fn a_response_without_the_adapters_transcript_is_malformed() {
+    // An OpenAI-shaped answer from an Azure endpoint is not a transcript.
+    let (base_url, _) = spawn_mock("HTTP/1.1 200 OK", r#"{"text":"hi"}"#);
+    let err = transcribe(request_for(
+        CloudSttProvider::AzureSpeech,
+        base_url,
+        "MAI-Transcribe-2",
+    ))
+    .await
+    .unwrap_err();
+    assert!(err.starts_with("malformed:"), "got: {err}");
+    assert!(err.contains("combinedPhrases"), "got: {err}");
+}
+
 #[tokio::test]
 async fn transcribe_propagates_4xx_as_http_error() {
     let (base_url, _captured) = spawn_mock(
@@ -368,6 +506,22 @@ async fn transcribe_propagates_4xx_as_http_error() {
     assert!(err.contains("http 401"), "got: {err}");
     // The error reaches the overlay and history; the provider's body does not.
     assert!(!err.contains("missing api key"), "got: {err}");
+}
+
+#[tokio::test]
+async fn http_error_names_the_providers_reason_but_not_its_message() {
+    let (base_url, _captured) = spawn_mock(
+        "HTTP/1.1 401 Unauthorized",
+        r#"{"detail":{"status":"missing_permissions","message":"The API key sk_secret is missing the permission speech_to_text"}}"#,
+    );
+    let err = transcribe(request_for(
+        CloudSttProvider::ElevenLabs,
+        base_url,
+        "scribe_v2",
+    ))
+    .await
+    .unwrap_err();
+    assert_eq!(err, "http 401 Unauthorized (missing_permissions)");
 }
 
 #[tokio::test]

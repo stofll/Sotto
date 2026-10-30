@@ -76,7 +76,7 @@ Emitted once for a successful microphone or file transcription. A paste failure 
 - `pipeline_mode`: `local`, `hybrid`, `cloud`, or `other`
 - `recording_mode`: `push_to_talk`, `toggle`, or `not_applicable`
 - `stt_engine`: `whisper`, `sherpa`, `cloud_stt`, or `other`
-- `stt_provider`: `local` or the fixed `compatible` adapter for completed cloud operations
+- `stt_provider`: `local`, or for a completed cloud operation the fixed adapter label: `compatible` (OpenAI-compatible), `elevenlabs`, `azure_speech` or `gemini`
 - `stt_model`: canonical local ID from the application's model catalogue (including all Whisper and Sherpa models available on the platform), `custom_local` for models outside the catalogue, or a sanitized/capped cloud model label. Known aliases are normalized to the catalogue ID.
 - `stt_model_name`: display name from the same catalogue, such as `SenseVoice small` or `Parakeet unified`. Omitted for unknown local models and cloud STT; never derived from a user filename or path.
 - `compute`: `cpu`, `gpu`, `cloud`, or `other` — `other` means the route never reached the engine, which is what every failure reports
@@ -109,7 +109,7 @@ An in-flight long transcription prevents the idle watcher from splitting that si
 
 ## Provider services
 
-`stt_provider` and `llm_provider` retain their existing adapter meaning. New `stt_service` and `llm_service` fields distinguish a fixed list of known services by parsing the actual request endpoint locally; unmatched endpoints become `custom`. Host matching is exact, not substring-based. Endpoints, credentials and user profile names never enter an event.
+`stt_provider` and `llm_provider` retain their existing adapter meaning. New `stt_service` and `llm_service` fields distinguish a fixed list of known services by parsing the actual request endpoint locally; unmatched endpoints become `custom`. Host matching is exact, not substring-based. The one exception is Azure Speech: every resource has a hostname of its own, so the `azure_speech` adapter reports `azure` without inspecting the host. Endpoints, credentials and user profile names never enter an event.
 
 The list covers every provider preset the app ships, so `custom` means a self-hosted or hand-entered endpoint rather than a service the allowlist forgot. Adding a preset without adding its host silently merges that traffic into `custom`.
 
@@ -167,12 +167,12 @@ The producer omits unavailable optional properties; it does not send a literal `
 | --- | --- | --- |
 | Which transcription routes are used? | `transcription.completed` → `pipeline_mode` | Always populated in the current producer: `local`, `hybrid`, `cloud`, or `other`. |
 | Which route dominates a usage session? | `usage_session.finished` → `dominant_pipeline_mode` | This event has no `pipeline_mode`; `app.started` has neither field. |
-| Which STT adapters complete work? | `transcription.completed` → `stt_provider` | `local` or `compatible`; cloud failures and cancellations can omit the provider. |
+| Which STT adapters complete work? | `transcription.completed` → `stt_provider` | `local`, `compatible`, `elevenlabs`, `azure_speech` or `gemini`; cloud failures and cancellations can omit the provider. |
 | Which LLM providers are used successfully? | `transcription.completed` → `llm_provider` | Filter `llm_used = true` and provider is set. |
 | Which LLM providers fall back? | `transcription.completed` → `llm_provider` | Filter `llm_fallback = true`; inspect missing providers separately. For a fallback rate, divide by relevant LLM operations, not all transcriptions. |
 | Which validated LLM models are used? | `transcription.completed` → `llm_model` | Filter model is set; rejected or skipped requests intentionally omit it. |
 
-Provider analytics describe operations, not saved settings. Local dictation without LLM processing has no `llm_provider` or `llm_model`, and an unrecognized provider is omitted by the allowlist. Cloud STT reports the fixed `compatible` adapter, not the service hostname or a custom profile name. Do not fill missing providers with the currently selected setting: that would report unused configurations as actual usage.
+Provider analytics describe operations, not saved settings. Local dictation without LLM processing has no `llm_provider` or `llm_model`, and an unrecognized provider is omitted by the allowlist. Cloud STT reports the fixed label of the adapter that served the request, not the service hostname or a custom profile name. Do not fill missing providers with the currently selected setting: that would report unused configurations as actual usage.
 
 Keep the unfiltered completed-transcription series as the denominator for LLM adoption. Filtering all series to provider is set would silently remove non-LLM dictations and inflate adoption. For an overview that retains every completed transcription, a [SQL breakdown](https://posthog.com/docs/sql/expressions) can use `coalesce(properties.llm_provider, 'not_reported')`; label this as not reported, since absence alone does not prove that LLM processing was disabled. Check `llm_attempted`, `llm_used` and `llm_fallback` to distinguish outcomes.
 
