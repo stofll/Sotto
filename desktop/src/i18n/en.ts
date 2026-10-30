@@ -214,6 +214,8 @@ export const en: Record<string, string | string[]> = {
   "Прилив": "Tide",
   "Помехи": "Static",
   "Растр": "Halftone",
+  "Столбцы символов": "Glyph columns",
+  "Точечный экран": "Dot screen",
   "Глитч": "Glitch",
   "Лава": "Lava",
   "Дым": "Smoke",

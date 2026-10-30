@@ -351,7 +351,8 @@ def test_timerless_limit_stays_inside_window(
     ui.emit("recording-limit", {"session_id": 42, "remaining_seconds": 60})
     badge = page.locator(".ovs-limitb")
     expect(badge).to_be_visible()
-    bounds = badge.bounding_box()
+    # The notch band enters from above the screen edge, so measure where it settles.
+    bounds = wait_until_still(badge)
     assert bounds and bounds["x"] >= 0 and bounds["y"] >= 0
     assert bounds["x"] + bounds["width"] <= width
     assert bounds["y"] + bounds["height"] <= height

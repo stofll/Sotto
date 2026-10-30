@@ -58,7 +58,7 @@ export const drawNames = (): Record<ElementType, Record<string, string>> => ({
   level: {
     bars: t("Столбики"), wave: t("Волна"), qbars: t("Пиксели"), scope: t("Осциллограф"), ascii: t("Символы"),
     caps: t("Капсулы"), matrix: t("Матрица"), segments: t("Сегменты"), ring: t("Кольцо"), orb: t("Сфера"), beam: t("Свечение по краю"),
-    dorb: t("Сфера из пикселей"), tide: t("Прилив"), static: t("Помехи"), halftone: t("Растр"), glitch: t("Глитч"), lava: t("Лава"), cols: t("Расшифровка"),
+    dorb: t("Сфера из пикселей"), tide: t("Прилив"), static: t("Помехи"), halftone: t("Растр"), glitch: t("Глитч"), lava: t("Лава"), cols: t("Столбцы символов"),
   },
   timer: {
     capsule: t("В капсуле"), plain: t("Цифры"), big: t("Крупные"),
@@ -92,7 +92,7 @@ export const styleNames = (): { [K in keyof RecipeStyle]: [string, Record<Recipe
   radius: [t("Скругление"), { round: t("Круглое"), soft: t("Мягкое"), sharp: t("Острое") }],
   stroke: [t("Обводка"), { none: t("Нет"), hair: t("Тонкая"), rim: t("Обод") }],
   fill: [t("Заливка"), { palette: t("Палитра"), light: t("Светлая"), black: t("Чёрная"), none: t("Нет"), smoke: t("Дым"), paper: t("Бумага") }],
-  texture: [t("Текстура"), { none: t("Нет"), grain: t("Зерно"), scan: t("Сканлайны"), screen: t("Растр"), vignette: t("Виньетка"), chroma: t("Хроматика") }],
+  texture: [t("Текстура"), { none: t("Нет"), grain: t("Зерно"), scan: t("Сканлайны"), screen: t("Точечный экран"), vignette: t("Виньетка"), chroma: t("Хроматика") }],
   glow: [t("Свечение от голоса"), { "0": t("Нет"), "1": t("Тихое"), "2": t("Яркое") }],
   font: [t("Шрифт"), { sans: t("Обычный"), mono: t("Моно") }],
 });

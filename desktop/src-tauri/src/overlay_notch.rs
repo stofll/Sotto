@@ -94,6 +94,11 @@ pub fn read_screen_notch(origin: (f64, f64)) -> Option<ScreenNotch> {
             return None;
         }
         let count: usize = msg_send![screens, count];
+        // While displays reconfigure the list can be empty, and `objectAtIndex:`
+        // past its end raises an Objective-C exception that aborts the process.
+        if count == 0 {
+            return None;
+        }
         let frame_of = |screen: *mut AnyObject| -> NSRect { msg_send![screen, frame] };
         // AppKit's y grows upwards from the primary screen's bottom edge; the
         // monitor origin the window code uses grows downwards from its top.
