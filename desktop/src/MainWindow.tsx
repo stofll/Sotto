@@ -402,9 +402,16 @@ export function MainWindow() {
       // lose the key from the UI on every restart.
       const slotRefs = (cfg?.ai_processing?.key_slots ?? []).map((s) => s.ref).filter(Boolean);
       const ids = Array.from(new Set([...defaults, ...profileRefs, ...slotRefs]));
+      // One unreadable credential slot must not block the AI and integration
+      // pages: it shows as missing, and the key can be saved again.
       const entries = await Promise.all(ids.map(async (key_id) => {
-        const result = await invoke<{ available: boolean; label?: string; masked?: string }>("has_api_key", { key_id });
-        return [key_id, { available: !!result.available, label: result.label ?? "", masked: result.masked ?? "" }] as const;
+        try {
+          const result = await invoke<{ available: boolean; label?: string; masked?: string }>("has_api_key", { key_id });
+          return [key_id, { available: !!result.available, label: result.label ?? "", masked: result.masked ?? "" }] as const;
+        } catch (e) {
+          console.warn("[MainWindow] has_api_key failed", key_id, e);
+          return [key_id, { available: false, label: "", masked: "" }] as const;
+        }
       }));
       return Object.fromEntries(entries) as ApiKeyStatus;
     }

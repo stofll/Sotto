@@ -157,12 +157,22 @@ def test_slow_optional_startup_read_keeps_settings_usable(
     expect(page.get_by_role("alert")).to_have_count(0)
 
 
+@pytest.mark.parametrize("tab", ["ai", "integrations"])
+def test_unreadable_key_slot_does_not_block_key_pages(app, page, tab):
+    ui = app(responses={"has_api_key": [{"error": "Synthetic keychain failure"}]})
+    ui.nav(tab)
+    expect(
+        page.get_by_test_id(f"page-{tab}").get_by_role("heading", level=1)
+    ).to_be_visible()
+    expect(page.get_by_test_id("page-data-loading")).to_have_count(0)
+    expect(page.get_by_text("Synthetic keychain failure")).to_have_count(0)
+
+
 @pytest.mark.parametrize(
     "command,tab",
     [
         ("get_stats", "stats"),
         ("list_models", "models"),
-        ("has_api_key", "integrations"),
     ],
 )
 def test_failed_startup_resource_retries_without_reloading_settings(
