@@ -771,7 +771,7 @@ export const en: Record<string, string | string[]> = {
   "Запись целиком уходит провайдеру и распознаётся у него. Локальная модель не нужна.":
     "The whole recording goes to the provider and is transcribed there. No local model needed.",
   "Режим обработки": "Processing mode",
-  "Главный переключатель всего локального пайплайна": "The master switch for the whole local pipeline",
+  "Включает и выключает очистку. Замены и словари работают независимо от неё.": "Turns cleanup on and off. Replacements and dictionaries work independently of it.",
 
   // ── Recording pipeline ─────────────────────────────────────────────────
   "Pipeline записи": "Recording pipeline",
@@ -1375,7 +1375,6 @@ export const en: Record<string, string | string[]> = {
   "Язык неизвестен": "Language unknown",
   "Мои слова": "My words",
   "Термины разработки: инструменты, языки и рабочие процессы.": "Development terms: tools, languages and workflows.",
-  "Форматирование выключено: словари не исправляют текст. Подсказки для Whisper и Qwen3 продолжают работать.": "Formatting is off: dictionaries do not correct text. Whisper and Qwen3 hints still apply.",
   "Не удалось загрузить или сохранить словари. Изменения не применены.": "Could not load or save dictionaries. Changes were not applied.",
   "Наборов пока нет. Создайте набор для своих имён и терминов.": "No sets yet. Create a set for your names and terms.",
   "Встроенный": "Built-in",

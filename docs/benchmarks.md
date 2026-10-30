@@ -94,7 +94,7 @@ Establish a release benchmark baseline on a known machine before setting a strea
 
 ### `live_formatter`
 
-Every iteration calls the same `format_transcription_with_config_value` API as dictation and file delivery. The deterministic Russian text, personal vocabulary and replacement rules are in `benches/support/formatting.rs`. Cases cover default settings, 0/100/1,000 terms with 50 replacement rules, disabled formatting with the largest settings, alternating unrelated settings, and alternating replacement text that must rebuild the cached pipeline.
+Every iteration calls the same `format_transcription_with_config_value` API as dictation and file delivery. The deterministic Russian text, personal vocabulary and replacement rules are in `benches/support/formatting.rs`. Cases cover default settings, 0/100/1,000 terms with 50 replacement rules, cleanup switched off with the largest settings (terms and rules still apply), alternating unrelated settings, and alternating replacement text that must rebuild the cached pipeline.
 
 Settings and input are prepared outside measurement. Warm repeated calls include typed configuration parsing, cache lookup and text processing; initial spelling-dictionary initialization is excluded. Compare a fresh process's first call separately, especially when checking disabled formatting. The relevant-setting case measures a cache miss on each alternation; the unrelated-setting case should reuse the same prepared matchers. Keep output equality and the reviewed formatter corpus alongside any timing comparison.
 

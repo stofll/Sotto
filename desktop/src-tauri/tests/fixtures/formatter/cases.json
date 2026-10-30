@@ -1128,10 +1128,10 @@
     }
   },
   {
-    "id": "brands-formatting-disabled",
+    "id": "brands-with-cleanup-off",
     "category": "term-aliases",
     "input": "Проверь Gidhap и Wisper",
-    "expected": "Проверь Gidhap и Wisper",
+    "expected": "Проверь GitHub и Whisper",
     "config": {
       "language": "ru",
       "text_formatting": {
@@ -2313,10 +2313,10 @@
     "config": {"language":"ru","text_formatting":{"custom_words":["Z.ai"],"enabled_presets":[]}}
   },
   {
-    "id": "new-aliases-respect-disabled-formatting",
-    "category": "dictionary-preservation",
+    "id": "new-aliases-apply-with-cleanup-off",
+    "category": "term-aliases",
     "input": "клаудкод ворк три чат GPT ZAI",
-    "expected": "клаудкод ворк три чат GPT ZAI",
+    "expected": "Claude Code worktree ChatGPT Z.ai",
     "config": {"language":"ru","text_formatting":{"enabled":false,"enabled_presets":["development","ai_voice"],"custom_words":["Z.ai"]}}
   },
   {
