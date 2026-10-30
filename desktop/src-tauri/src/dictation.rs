@@ -134,10 +134,11 @@ fn submit_stop(app: &AppHandle, state: &AppState, session_id: u64) -> Result<(),
     if session_id == 0 {
         return Ok(());
     }
+    let requested = Instant::now();
     let worker_app = app.clone();
     let worker_state = state.clone();
     if let Err(error) = state.audio.submit(move || {
-        stop_on_worker(&worker_app, &worker_state, session_id);
+        stop_on_worker(&worker_app, &worker_state, session_id, requested);
     }) {
         failed(app, state, session_id, &error);
         return Err(error);
@@ -146,13 +147,16 @@ fn submit_stop(app: &AppHandle, state: &AppState, session_id: u64) -> Result<(),
 }
 
 /// Every failure is reported through `failed`, which emits the terminal event.
-fn stop_on_worker(app: &AppHandle, state: &AppState, session_id: u64) {
+fn stop_on_worker(app: &AppHandle, state: &AppState, session_id: u64, requested: Instant) {
     // A failed start already emitted its terminal event. Its queued stop must
     // not stop a later recording or produce a second failure.
     if !state.is_session_active(session_id) {
         return;
     }
+    let queue_ms = requested.elapsed().as_millis();
+    let native_stop_started = Instant::now();
     let stopped = native_call(|| state.recorder.stop());
+    let native_stop_ms = native_stop_started.elapsed().as_millis();
     if state.is_cancelled(session_id) {
         cancelled(app, state, session_id);
         return;
@@ -176,28 +180,48 @@ fn stop_on_worker(app: &AppHandle, state: &AppState, session_id: u64) {
             return;
         }
     };
-    crate::on_recording_stopped(app, session_id, Some(&audio));
     let flag = Arc::new(AtomicBool::new(false));
     state.register_cancel_flag(session_id, flag.clone());
+    if flag.load(Ordering::Acquire) {
+        cancelled(app, state, session_id);
+        return;
+    }
+    // Capture has stopped. Saving and speech analysis may take time, but the
+    // UI can already show Processing and cancel the still-owned session.
+    crate::state::set_app_fsm(&state.app_fsm, AppFsm::Processing);
+    let _ = app.emit("recording-stopped", session_id);
+    let processing_notice_ms = requested.elapsed().as_millis();
+    let prepare_started = Instant::now();
+    crate::on_recording_stopped(app, session_id, Some(&audio));
     let (reply, _rx) = oneshot::channel();
     let config = Config::load(app).ok();
-    let command = match crate::build_dictation_command(
-        app,
-        config.as_ref(),
-        session_id,
-        audio,
-        flag,
-        reply,
-    ) {
-        Ok(command) => command,
+    let command =
+        crate::build_dictation_command(app, config.as_ref(), session_id, audio, flag, reply);
+    log::info!(
+        "stop timing: session={session_id} queue_ms={queue_ms} native_stop_ms={native_stop_ms} processing_notice_ms={processing_notice_ms} prepare_ms={}",
+        prepare_started.elapsed().as_millis()
+    );
+    if state.is_cancelled(session_id) {
+        drop(command);
+        cancelled(app, state, session_id);
+        return;
+    }
+    let command = match command {
+        Ok(Some(command)) => command,
+        Ok(None) => {
+            cancelled(app, state, session_id);
+            return;
+        }
         Err(error) => {
             failed(app, state, session_id, &error);
             return;
         }
     };
-    crate::state::set_app_fsm(&state.app_fsm, AppFsm::Processing);
-    let _ = app.emit("recording-stopped", session_id);
     if let Err(error) = state.engine_cmd_tx.try_send(command) {
+        if state.is_cancelled(session_id) {
+            cancelled(app, state, session_id);
+            return;
+        }
         crate::record_engine_queue_failure(app, config.as_ref());
         let message = format!("engine: {error}");
         failed(app, state, session_id, &message);

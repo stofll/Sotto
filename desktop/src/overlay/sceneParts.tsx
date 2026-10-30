@@ -58,9 +58,10 @@ type LevelProps = {
   size: OverlaySize;
   phase: ScenePhase;
   surfaceRef?: RefObject<HTMLDivElement | null>;
+  still?: boolean;
 };
 
-export function LevelPart({ draw, kind, box, source, matrix, sharp, size, phase, surfaceRef }: LevelProps) {
+export function LevelPart({ draw, kind, box, source, matrix, sharp, size, phase, surfaceRef, still }: LevelProps) {
   const small = kind === "small";
   switch (draw) {
     case "bars": case "wave": case "qbars":
@@ -77,7 +78,7 @@ export function LevelPart({ draw, kind, box, source, matrix, sharp, size, phase,
     }
     case "matrix": {
       const grid = <Suspense fallback={null}>
-        <OverlayMatrix mode="speech" source={source} surfaceRef={surfaceRef} sharp={sharp} {...matrix}
+        <OverlayMatrix mode="speech" source={source} surfaceRef={surfaceRef} sharp={sharp} still={still} {...matrix}
           size={kind === "wide" || small ? undefined : Math.round(box * (kind === "square" ? 0.66 : 0.7))}/>
       </Suspense>;
       // A row fills its box, and a small region sizes to its content, so it needs a box of its own.
@@ -85,7 +86,7 @@ export function LevelPart({ draw, kind, box, source, matrix, sharp, size, phase,
     }
     case "beam":
       return <Suspense fallback={null}>
-        <OverlayGlow mode={phase === "recording" ? "listen" : phase === "processing" ? "process" : "idle"} size={size} source={source}/>
+        <OverlayGlow mode={phase === "recording" ? "listen" : phase === "processing" ? "process" : "idle"} size={size} source={source} still={still}/>
       </Suspense>;
     case "scope": return small ? <div className="ovs-level ovs-level--small"><Scope source={source}/></div> : <Scope source={source}/>;
     case "ascii": return <Ascii source={source} count={small ? 7 : 26}/>;
@@ -250,9 +251,9 @@ export function DraftPart({ draw, text, captions, phase, placeholder }: { draw: 
 }
 
 /** The processing look the recipe chose, `size` px tall: a row's height, or the middle of a round shell. */
-export function ProcessLead({ draw, matrix, size, sharp, pace = 1 }: { draw: Exclude<ProcessDraw, "none">; matrix: RecipeMatrix; size: number; sharp: boolean; pace?: number }) {
+export function ProcessLead({ draw, matrix, size, sharp, pace = 1, still }: { draw: Exclude<ProcessDraw, "none">; matrix: RecipeMatrix; size: number; sharp: boolean; pace?: number; still?: boolean }) {
   switch (draw) {
-    case "matrix": return <Suspense fallback={null}><OverlayMatrix mode="process" size={size} sharp={sharp} pace={pace} {...matrix}/></Suspense>;
+    case "matrix": return <Suspense fallback={null}><OverlayMatrix mode="process" size={size} sharp={sharp} pace={pace} still={still} {...matrix}/></Suspense>;
     case "arc": return <span className="ovs-comet" style={{ width: size, height: size }}/>;
     case "cursor": return <span className="ovs-blk" style={{ "--blk-w": `${Math.max(6, Math.round(size * 0.36))}px`, "--blk-h": `${Math.max(12, Math.round(size * 0.64))}px` } as CSSProperties}/>;
     case "dots": return <span className="ovs-dots" style={{ "--dot": `${Math.max(5, Math.round(size * 0.2))}px` } as CSSProperties}><i/><i/><i/></span>;

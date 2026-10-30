@@ -71,7 +71,7 @@ dirs = "6"
 cpal = "0.16"
 # Bundled SQLite for the data layer (stats, history).
 # `bundled` compiles SQLite from source so we don't depend on the system libsqlite3.
-rusqlite = { version = "0.40", features = ["bundled"] }
+rusqlite = { version = "0.40", features = ["bundled", "functions"] }
 earshot = "1.2.1"
 symphonia = { version = "0.6.1", features = ["mp3", "isomp4", "aac", "alac"] }
 rubato = "5.0.0"
@@ -201,6 +201,12 @@ test-commands = []
 [[bench]]
 name = "engine_bench"
 harness = false
+
+[patch.crates-io]
+# Upstream's ZIP security fix; the 1.13.8 FFI and native runtime are unchanged.
+# https://github.com/k2-fsa/sherpa-onnx/pull/4059
+# Remove this override when a compatible fixed version is published.
+sherpa-onnx-sys = { git = "https://github.com/k2-fsa/sherpa-onnx", rev = "1a9d234ab95567eba8c2e89873a87d70b79633e2" }
 
 [profile.bench]
 opt-level = 3

@@ -64,6 +64,32 @@ def test_all_pages_render(app, page, locale, theme):
             expect(page.get_by_role("alert")).to_have_count(0)
 
 
+def test_sidebar_follows_width_boundary_until_manually_overridden(app, page):
+    page.set_viewport_size({"width": 1099, "height": 900})
+    app()
+    window = page.locator(".win")
+    expect(window).to_have_class("win collapsed")
+    page.set_viewport_size({"width": 1100, "height": 900})
+    expect(window).to_have_class("win")
+    page.set_viewport_size({"width": 1099, "height": 900})
+    expect(window).to_have_class("win collapsed")
+
+    page.get_by_role("button", name="Развернуть сайдбар", exact=True).click()
+    for width in [1200, 1000]:
+        page.set_viewport_size({"width": width, "height": 900})
+        expect(window).to_have_class("win")
+    page.reload()
+    expect(page.get_by_test_id("page-settings")).to_be_visible()
+    expect(window).to_have_class("win")
+
+    page.get_by_role("button", name="Свернуть сайдбар", exact=True).click()
+    page.set_viewport_size({"width": 1200, "height": 900})
+    expect(window).to_have_class("win collapsed")
+    page.reload()
+    expect(page.get_by_test_id("page-settings")).to_be_visible()
+    expect(window).to_have_class("win collapsed")
+
+
 def test_accessibility_notice_can_be_dismissed(app, page):
     ui = app(responses={"check_accessibility": [{"result": False}] * 8})
     notice = page.locator(".accessibility-notice")
@@ -79,6 +105,158 @@ def test_startup_error_is_visible(app, page):
     expect(page.get_by_role("alert")).to_contain_text("Synthetic startup failure")
     ui.nav("history")
     expect(page.get_by_text("История пуста", exact=True)).to_be_visible()
+
+
+@pytest.mark.parametrize(
+    "command,tab",
+    [
+        ("get_stats", "stats"),
+        ("list_models", "models"),
+        ("has_api_key", "integrations"),
+        ("list_microphones", None),
+    ],
+)
+def test_slow_optional_startup_read_keeps_settings_usable(
+    app, page, pytestconfig, command, tab
+):
+    # StrictMode repeats the initial effect; key checks begin only after the
+    # surviving configuration read. Hold its first key, not every key slot.
+    count = (
+        2
+        if pytestconfig.getoption("--ui-mode") == "dev" and command != "has_api_key"
+        else 1
+    )
+    ui = app(responses={command: [{"hold": True}] * count})
+    page.wait_for_function("c => window.__sottoTest.pending(c)", arg=command)
+    expect(page.get_by_test_id("startup-loading")).not_to_be_visible()
+    page.get_by_role("button", name="Включить светлую тему").click()
+    ui.saved("theme", "light")
+    expect(page.locator("html")).to_have_attribute("data-theme", "light")
+
+    if tab:
+        ui.nav(tab)
+        expect(page.get_by_test_id("page-data-loading")).to_have_text("Загрузка…")
+    else:
+        expect(page.locator(".custom-select--mic")).to_have_count(0)
+
+    state = ui.state()
+    results = {
+        "get_stats": state["stats"],
+        "list_models": state["models"],
+        "has_api_key": {"available": False},
+        "list_microphones": [{"id": "test-mic", "name": "Synthetic microphone"}],
+    }
+    ui.settle(command, result=results[command])
+    if tab:
+        expect(page.get_by_test_id("page-data-loading")).not_to_be_visible()
+        expect(
+            page.get_by_test_id(f"page-{tab}").get_by_role("heading", level=1)
+        ).to_be_visible()
+    else:
+        expect(page.locator(".custom-select--mic")).to_be_visible()
+    expect(page.get_by_role("alert")).to_have_count(0)
+
+
+@pytest.mark.parametrize("tab", ["ai", "integrations"])
+def test_unreadable_key_slot_does_not_block_key_pages(app, page, tab):
+    ui = app(responses={"has_api_key": [{"error": "Synthetic keychain failure"}]})
+    ui.nav(tab)
+    expect(
+        page.get_by_test_id(f"page-{tab}").get_by_role("heading", level=1)
+    ).to_be_visible()
+    expect(page.get_by_test_id("page-data-loading")).to_have_count(0)
+    expect(page.get_by_text("Synthetic keychain failure")).to_have_count(0)
+
+
+@pytest.mark.parametrize(
+    "command,tab",
+    [
+        ("get_stats", "stats"),
+        ("list_models", "models"),
+    ],
+)
+def test_failed_startup_resource_retries_without_reloading_settings(
+    app, page, pytestconfig, command, tab
+):
+    count = 2 if pytestconfig.getoption("--ui-mode") == "dev" else 1
+    ui = app(responses={command: [{"error": "Synthetic unavailable data"}] * count})
+    expect(page.get_by_role("alert")).to_contain_text("Synthetic unavailable data")
+    ui.nav(tab)
+    page.get_by_role("button", name="Повторить попытку", exact=True).click()
+    expect(page.get_by_test_id("page-data-loading")).not_to_be_visible()
+    expect(
+        page.get_by_test_id(f"page-{tab}").get_by_role("heading", level=1)
+    ).to_be_visible()
+    expect(page.get_by_role("alert")).to_have_count(0)
+
+
+def test_new_stats_refresh_wins_over_slow_startup_read(app, page, pytestconfig):
+    count = 2 if pytestconfig.getoption("--ui-mode") == "dev" else 1
+    ui = app(responses={"get_stats": [{"hold": True}] * count})
+    old = ui.state()["stats"]
+    current = {**old, "total_transcriptions": 42}
+    ui.queue("get_stats", {"result": current})
+    ui.emit("history-updated")
+    ui.nav("stats")
+    page.get_by_role("button", name="Всё время", exact=True).click()
+    expect(page.get_by_text("42", exact=True)).to_be_visible()
+    ui.settle("get_stats", result=old)
+    expect(page.get_by_text("42", exact=True)).to_be_visible()
+
+
+def test_background_model_refresh_preserves_catalog_state_and_latest_result(app, page):
+    ui = app()
+    ui.nav("models")
+    search = page.get_by_role("searchbox", name="Поиск по названию", exact=True)
+    search.fill("Tiny")
+    old = ui.state()["models"]
+    ui.queue("list_models", {"hold": True})
+    ui.emit("model-ready")
+    page.wait_for_function("window.__sottoTest.pending('list_models')")
+    expect(page.get_by_test_id("page-data-loading")).to_have_count(0)
+    expect(search).to_have_value("Tiny")
+
+    ui.queue("list_models", {"error": "Synthetic refresh failure"})
+    ui.emit("model-ready")
+    expect(page.get_by_role("alert")).to_contain_text("Synthetic refresh failure")
+    expect(search).to_have_value("Tiny")
+    expect(page.get_by_test_id("page-data-loading")).to_have_count(0)
+
+    current = [
+        {**model, "label": "Updated Whisper Tiny"} if model["id"] == "tiny" else model
+        for model in old
+    ]
+    ui.queue("list_models", {"result": current})
+    ui.emit("model-ready")
+    expect(page.get_by_test_id("model-tiny")).to_contain_text("Updated Whisper Tiny")
+    expect(page.get_by_role("alert")).to_have_count(0)
+    ui.settle("list_models", result=old)
+    expect(page.get_by_test_id("model-tiny")).to_contain_text("Updated Whisper Tiny")
+    expect(search).to_have_value("Tiny")
+
+
+def test_fresh_runtime_reply_releases_startup_while_old_read_is_pending(
+    app, page, pytestconfig
+):
+    # A native model event can refresh runtime while its first read is pending.
+    page.add_init_script("""(() => {
+      const timer = setInterval(() => {
+        const app = window.__sottoTest;
+        if (!app?.pending('get_runtime_status') || !app.subscriptions['model-restored']) return;
+        clearInterval(timer);
+        app.emit('model-restored');
+      }, 10);
+    })();""")
+    count = 2 if pytestconfig.getoption("--ui-mode") == "dev" else 1
+    ui = app(responses={"get_runtime_status": [{"hold": True}] * count})
+    expect(page.get_by_role("heading", name="Настройки", exact=True)).to_be_visible()
+    assert page.evaluate("window.__sottoTest.pending('get_runtime_status')")
+    ui.settle(
+        "get_runtime_status",
+        result={**ui.state()["runtime"], "loaded_model": "obsolete-runtime"},
+    )
+    expect(page.get_by_role("complementary")).not_to_contain_text("obsolete-runtime")
+    expect(page.get_by_role("complementary")).to_contain_text("tiny")
 
 
 @pytest.mark.parametrize("locale", ["ru", "en"])

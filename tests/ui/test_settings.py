@@ -88,6 +88,53 @@ def test_speech_language_labels_follow_the_interface_locale(app, page):
     expect(picker).to_contain_text("Auto")
 
 
+@pytest.mark.parametrize("pipeline_mode", ["cloud", "local", "hybrid"])
+def test_cloud_language_is_not_corrected_to_the_dormant_local_model(
+    app, page, pipeline_mode
+):
+    ui = app(
+        config={
+            "model": "small.en",
+            "language": "ru",
+            "ai_processing": {"pipeline_mode": pipeline_mode},
+        },
+        models=[
+            {
+                "id": "small.en",
+                "label": "English-only model",
+                "size": "1 MB",
+                "downloaded": True,
+                "selected": True,
+                "languages": ["en"],
+            },
+            {
+                "id": "tiny",
+                "label": "Multilingual model",
+                "size": "1 MB",
+                "downloaded": False,
+                "selected": False,
+                "languages": ["ru", "en"],
+            },
+        ],
+    )
+    picker = page.locator(".custom-select--language")
+    picker.get_by_role("button").click()
+    if pipeline_mode == "cloud":
+        expect(page.get_by_role("option", name="Русский", exact=False)).to_be_visible()
+        assert ui.state()["config"]["language"] == "ru"
+        assert not any(
+            "language" in call["args"]["patch"] for call in ui.calls("save_config")
+        )
+        page.get_by_role("option", name="Английский", exact=False).click()
+        ui.saved("language", "en")
+        picker.get_by_role("button").click()
+        page.get_by_role("option", name="Русский", exact=False).click()
+        ui.saved("language", "ru")
+    else:
+        ui.saved("language", "en")
+        expect(page.get_by_role("option", name="Русский", exact=False)).to_have_count(0)
+
+
 @pytest.mark.parametrize(
     "locale,next_locale,label", [("ru", "en", "English"), ("en", "ru", "Русский")]
 )

@@ -456,6 +456,25 @@ export interface HistoryListResult {
   entries: HistoryEntry[];
   max_age_seconds: number;
   max_entries: number;
+  total_count: number;
+  filtered_count: number;
+  page: number;
+  page_size: number;
+  known_ids: number[];
+}
+
+export interface HistoryQuery {
+  page?: number;
+  page_size?: number;
+  query?: string;
+  status?: "all" | "processed" | "fallback" | "skipped";
+  /** Epoch cutoff computed by the UI, independent of the backend timezone. */
+  since?: number;
+  focus_id?: number;
+  /** Explicit bulk-copy only; normal browsing does not fetch selected rows. */
+  ids?: number[];
+  /** Selection / playback ids to check against retention even off this page. */
+  known_ids?: number[];
 }
 
 export interface HistoryRetryAiResult {

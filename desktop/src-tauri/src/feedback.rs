@@ -46,7 +46,15 @@ pub async fn get_public_diagnostics(app: AppHandle) -> Result<String, String> {
 }
 
 fn project_logs(input: &str) -> String {
-    let timing = regex::Regex::new(r"^(capture timing: first_callback_ms=[0-9]+|delivery timing: session=[0-9]+ (database_ms=[0-9]+|main_queue_ms=[0-9]+ paste_ms=[0-9]+))$").unwrap();
+    static TIMING: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(concat!(
+            r"^(capture timing: (first_callback_ms=[0-9]+|session=[0-9]+ queue_ms=[0-9]+ stream_ready_ms=[0-9]+)",
+            r"|stop timing: session=[0-9]+ queue_ms=[0-9]+ native_stop_ms=[0-9]+ processing_notice_ms=[0-9]+ prepare_ms=[0-9]+",
+            r"|delivery timing: session=[0-9]+ (database_ms=[0-9]+|(main_)?queue_ms=[0-9]+ paste_ms=[0-9]+)",
+            r"|model timing: stage=(verify|context|state|unload|request) reason=(startup|device|requested|restore|replace|idle|cloud|delete|first_inference) elapsed_ms=[0-9]+(\.[0-9]{3})? ok=(true|false)",
+            r"|preview timing: session=[0-9]+ gap_count=[0-9]+ fallback_count=[0-9]+ reused=(true|false) pending_samples=[0-9]+)$",
+        )).unwrap()
+    });
     let mut out = String::from("Public diagnostic log: recent active-file tail (up to 256 KiB).\nFree-form messages, paths, source locations and recordings are excluded.\n");
     for line in input.lines() {
         let Ok(row) = serde_json::from_str::<Value>(line) else {
@@ -77,7 +85,7 @@ fn project_logs(input: &str) -> String {
             _ => "app",
         };
         let message = row["message"].as_str().unwrap_or("");
-        let detail = if message.len() < 200 && timing.is_match(message) {
+        let detail = if message.len() < 200 && TIMING.is_match(message) {
             message
         } else {
             "[message omitted]"
@@ -177,5 +185,51 @@ mod tests {
         assert!(!report.contains("token"));
         assert!(report.contains("first_callback_ms=42"));
         assert!(report.contains("ERROR ai"));
+    }
+
+    #[test]
+    fn export_preserves_numeric_capture_delivery_and_model_timings() {
+        let messages = [
+            "capture timing: first_callback_ms=42",
+            "capture timing: session=7 queue_ms=2 stream_ready_ms=31",
+            "stop timing: session=7 queue_ms=2 native_stop_ms=5 processing_notice_ms=8 prepare_ms=13",
+            "delivery timing: session=7 database_ms=3",
+            "delivery timing: session=7 queue_ms=4 paste_ms=25",
+            "delivery timing: session=7 main_queue_ms=4 paste_ms=25",
+            "model timing: stage=verify reason=startup elapsed_ms=120 ok=true",
+            "model timing: stage=state reason=first_inference elapsed_ms=8 ok=true",
+            "model timing: stage=context reason=device elapsed_ms=1.234 ok=true",
+            "model timing: stage=unload reason=cloud elapsed_ms=30 ok=true",
+            "model timing: stage=request reason=requested elapsed_ms=200 ok=false",
+            "preview timing: session=7 gap_count=1 fallback_count=1 reused=false pending_samples=16000",
+        ];
+        let input = messages.map(|message| {
+            serde_json::json!({"ts":"2026-09-14T12:00:00Z","level":"INFO","target":"sotto_lib::whisper","message":message}).to_string()
+        }).join("\n");
+        let report = project_logs(&input);
+        for message in messages {
+            assert!(report.contains(message), "missing timing: {message}");
+        }
+        assert!(!report.contains("[message omitted]"));
+    }
+
+    #[test]
+    fn timing_prefix_does_not_allow_free_form_diagnostics() {
+        let messages = [
+            "capture timing: session=7 queue_ms=2 stream_ready_ms=/Users/private",
+            "stop timing: session=7 queue_ms=2 native_stop_ms=5 processing_notice_ms=8 prepare_ms=13 text=private",
+            "delivery timing: session=7 queue_ms=4 paste_ms=25 transcript=private",
+            "model timing: stage=context reason=/Users/private elapsed_ms=1 ok=true",
+            "model timing: stage=context reason=restore elapsed_ms=1 ok=true path=/Users/private",
+            "preview timing: session=7 gap_count=0 fallback_count=0 reused=true pending_samples=1 token=private",
+            "capture timing: first_callback_ms=42\nprivate",
+        ];
+        let input = messages.map(|message| {
+            serde_json::json!({"ts":"2026-09-14T12:00:00Z","level":"INFO","target":"sotto_lib::audio","message":message}).to_string()
+        }).join("\n");
+        let report = project_logs(&input);
+        assert_eq!(report.matches("[message omitted]").count(), messages.len());
+        assert!(!report.contains("private"));
+        assert!(!report.contains("timing:"));
     }
 }

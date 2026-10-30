@@ -657,6 +657,27 @@ mod tests {
     }
 
     #[test]
+    fn cancellation_during_longform_detection_never_starts_native_decode() {
+        let checks = std::cell::Cell::new(0);
+        let mut decoded = false;
+        let audio = vec![0.0; 26 * 16_000];
+        let result = transcribe_gigaam_segments(
+            &audio,
+            || {
+                checks.set(checks.get() + 1);
+                checks.get() >= 12
+            },
+            |_| {
+                decoded = true;
+                Ok("must not be decoded".into())
+            },
+        );
+        assert!(result.unwrap_err().contains("cancelled"));
+        assert!(!decoded);
+        assert_eq!(checks.get(), 12);
+    }
+
+    #[test]
     fn longform_rechecks_the_seam_without_replacing_recognized_words() {
         let audio = vec![0.0; 26 * 16_000];
         for (context, expected) in [
@@ -1181,7 +1202,8 @@ fn transcribe_segments(
     if cancelled() {
         return Err(cancel_error());
     }
-    let ranges = crate::vad::recognition_segments(samples, fragment_seconds);
+    let ranges = crate::vad::recognition_segments_unless(samples, fragment_seconds, &cancelled)
+        .ok_or_else(cancel_error)?;
     let mut text = String::new();
     for range in ranges {
         if cancelled() {

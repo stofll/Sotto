@@ -22,112 +22,17 @@ use serde::Serialize;
 use serde_json::Value;
 use tauri::AppHandle;
 
-/// Config key: how many days of history to keep. `0` means "no age limit".
-const CONFIG_RETENTION_DAYS: &str = "history_retention_days";
-/// Config key: hard cap on stored entries. `0` means "no count limit".
-const CONFIG_MAX_ENTRIES: &str = "history_max_entries";
+mod query;
 
-const SECONDS_PER_DAY: i64 = 24 * 60 * 60;
-/// A month of history. Long enough to answer "what did I dictate last
-/// week?", short enough that the table stays small.
-const DEFAULT_RETENTION_DAYS: i64 = 30;
-/// Sized against the default retention: at ~20 dictations a day, a month is
-/// roughly 600 entries, so this cap does not quietly override the age limit.
-const DEFAULT_MAX_ENTRIES: i64 = 1000;
-/// Ten years. Not a meaningful limit, just a guard against a hand-edited
-/// config producing an absurd cutoff.
-const MAX_RETENTION_DAYS: i64 = 3650;
+#[cfg(test)]
+use query::SECONDS_PER_DAY;
+use query::{entry_from_row, list_history_page_from, unix_now, ENTRY_COLUMNS};
+pub use query::{HistoryEntry, HistoryPageResult, HistoryQuery, RetentionPolicy};
+
 /// Safety bound for `INSERT OR IGNORE` collision retries. 1000 ms = 1 second
 /// of accumulated clock skew; in practice the loop exits after 1-3 iterations
 /// because ms-collision requires two appends in the same millisecond.
 const APPEND_COLLISION_MAX_ITER: i64 = 1000;
-
-/// How much history to keep. Both limits apply; whichever bites first wins.
-///
-/// `0` disables a limit rather than meaning "keep nothing" — that reading
-/// would turn a plausible hand-edit into silent data loss.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct RetentionPolicy {
-    pub max_age_seconds: i64,
-    pub max_entries: i64,
-}
-
-impl Default for RetentionPolicy {
-    fn default() -> Self {
-        Self {
-            max_age_seconds: DEFAULT_RETENTION_DAYS * SECONDS_PER_DAY,
-            max_entries: DEFAULT_MAX_ENTRIES,
-        }
-    }
-}
-
-impl RetentionPolicy {
-    /// Read the policy out of a loaded config value. Missing or nonsensical
-    /// values fall back to the default rather than failing: history settings
-    /// are not worth breaking the History page over.
-    pub fn from_config(config: &Value) -> Self {
-        let default = Self::default();
-        let days = config
-            .get(CONFIG_RETENTION_DAYS)
-            .and_then(Value::as_i64)
-            .filter(|days| (0..=MAX_RETENTION_DAYS).contains(days))
-            .unwrap_or(DEFAULT_RETENTION_DAYS);
-        let max_entries = config
-            .get(CONFIG_MAX_ENTRIES)
-            .and_then(Value::as_i64)
-            .filter(|entries| *entries >= 0)
-            .unwrap_or(default.max_entries);
-        Self {
-            max_age_seconds: days * SECONDS_PER_DAY,
-            max_entries,
-        }
-    }
-
-    /// Whether a settings patch sets anything [`Self::from_config`] reads.
-    pub fn is_changed_by(patch: &Value) -> bool {
-        patch.get(CONFIG_RETENTION_DAYS).is_some() || patch.get(CONFIG_MAX_ENTRIES).is_some()
-    }
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct HistoryEntry {
-    pub id: u64,
-    pub timestamp: f64,
-    pub text: String,
-    #[serde(rename = "raw_text")]
-    pub raw_text: String,
-    #[serde(rename = "formatted_text")]
-    pub formatted_text: String,
-    /// Exact primary transcription model used by the engine thread. This is
-    /// intentionally separate from `ai_processing`, which describes the
-    /// optional post-processing provider/model.
-    pub transcription_model: Option<String>,
-    pub language: Option<String>,
-    #[serde(rename = "inference_time_ms")]
-    pub inference_time_ms: Option<u64>,
-    #[serde(rename = "ai_processing")]
-    pub ai_processing: Option<serde_json::Value>,
-    #[serde(rename = "processing_stats")]
-    pub processing_stats: Option<serde_json::Value>,
-    #[serde(rename = "system_prompt")]
-    pub system_prompt: Option<String>,
-    pub length: u32,
-    /// Whether the dictation's saved recording is still on disk. The file
-    /// name itself stays on this side of the bridge.
-    #[serde(rename = "has_recording")]
-    pub has_recording: bool,
-    #[serde(skip)]
-    pub recording_file: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct HistoryListResult {
-    pub entries: Vec<HistoryEntry>,
-    #[serde(rename = "max_age_seconds")]
-    pub max_age_seconds: u64,
-    #[serde(rename = "max_entries")]
-    pub max_entries: u32,
-}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct DeleteResult {
@@ -268,17 +173,6 @@ fn insert_entry_with_collision_retry(
     )))
 }
 
-fn unix_now() -> Result<f64, rusqlite::Error> {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_secs_f64())
-        .map_err(|e| {
-            rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::other(format!(
-                "system time: {e}"
-            ))))
-        })
-}
-
 /// Physically delete the rows outside `policy` and return the names of their
 /// recordings, which go with them: an entry History no longer shows must not
 /// leave its audio behind where nothing can reach it.
@@ -299,7 +193,7 @@ pub fn prune(conn: &Connection, policy: RetentionPolicy) -> Result<Vec<String>, 
     if policy.max_entries > 0 {
         recordings.extend(delete_returning_recordings(
             conn,
-            "DELETE FROM history WHERE id NOT IN (SELECT id FROM history ORDER BY timestamp DESC LIMIT ?1) \
+            "DELETE FROM history WHERE id NOT IN (SELECT id FROM history ORDER BY timestamp DESC, id DESC LIMIT ?1) \
              RETURNING recording_file",
             [policy.max_entries],
         )?);
@@ -340,65 +234,6 @@ fn prune_to_settings_at(config_path: &std::path::Path, db: &Mutex<Connection>) {
         Ok(Err(e)) => log::warn!("history prune failed (non-fatal): {e}"),
         Err(e) => log::warn!("history prune skipped, config unreadable: {e}"),
     }
-}
-
-/// The entries `policy` keeps, newest first. Read-only; see [`prune`].
-pub fn list_history_from(
-    conn: &Connection,
-    policy: RetentionPolicy,
-) -> Result<HistoryListResult, rusqlite::Error> {
-    let cutoff = if policy.max_age_seconds > 0 {
-        unix_now()? - policy.max_age_seconds as f64
-    } else {
-        f64::MIN
-    };
-    // `-1` is SQLite's "no limit".
-    let select_limit = if policy.max_entries > 0 {
-        policy.max_entries
-    } else {
-        -1
-    };
-    let mut stmt = conn.prepare(&format!(
-        "SELECT {ENTRY_COLUMNS} FROM history WHERE timestamp > ?1 ORDER BY timestamp DESC LIMIT ?2"
-    ))?;
-    let entries = stmt
-        .query_map(rusqlite::params![cutoff, select_limit], entry_from_row)?
-        .collect::<Result<Vec<_>, _>>()?;
-
-    Ok(HistoryListResult {
-        entries,
-        max_age_seconds: policy.max_age_seconds.max(0) as u64,
-        max_entries: policy.max_entries.max(0) as u32,
-    })
-}
-
-const ENTRY_COLUMNS: &str = "id, timestamp, text, raw_text, formatted_text, language, \
-     inference_time_ms, ai_processing_json, processing_stats_json, system_prompt, \
-     transcription_model, length, recording_file";
-
-/// One row selected with [`ENTRY_COLUMNS`]. `has_recording` is left to
-/// [`mark_recordings`], which needs the disk rather than the database.
-fn entry_from_row(r: &rusqlite::Row) -> Result<HistoryEntry, rusqlite::Error> {
-    Ok(HistoryEntry {
-        id: r.get::<_, i64>(0)? as u64,
-        timestamp: r.get(1)?,
-        text: r.get(2)?,
-        raw_text: r.get(3)?,
-        formatted_text: r.get(4)?,
-        language: r.get(5)?,
-        inference_time_ms: r.get::<_, Option<i64>>(6)?.map(|v| v as u64),
-        ai_processing: r
-            .get::<_, Option<String>>(7)?
-            .and_then(|s| serde_json::from_str(&s).ok()),
-        processing_stats: r
-            .get::<_, Option<String>>(8)?
-            .and_then(|s| serde_json::from_str(&s).ok()),
-        system_prompt: r.get(9)?,
-        transcription_model: r.get(10)?,
-        length: r.get::<_, i64>(11)? as u32,
-        has_recording: false,
-        recording_file: r.get(12)?,
-    })
 }
 
 /// Set `has_recording` from what is on disk: the recordings limit and the
@@ -460,18 +295,33 @@ pub fn clear_from(conn: &Connection) -> Result<(ClearResult, Vec<String>), rusql
     ))
 }
 
+/// One page read on its own connection: long Unicode substring scans must not
+/// hold the writer connection's mutex and delay saving a dictation.
+fn list_history_page_at(
+    path: &std::path::Path,
+    policy: RetentionPolicy,
+    query: &HistoryQuery,
+) -> Result<HistoryPageResult, rusqlite::Error> {
+    let conn = crate::db::open_reader(path)?;
+    list_history_page_from(&conn, policy, query)
+}
+
 #[tauri::command]
 pub(crate) async fn list_history(
     app: AppHandle,
-    state: tauri::State<'_, crate::state::AppState>,
-) -> Result<HistoryListResult, String> {
+    query: Option<HistoryQuery>,
+) -> Result<HistoryPageResult, String> {
     // Read the retention policy before handing off to the blocking worker —
     // config access needs the AppHandle, which does not cross that boundary.
     let policy = crate::config::Config::load(&app)
         .map(|cfg| RetentionPolicy::from_config(cfg.as_value()))
         .unwrap_or_default();
-    let db = state.db.clone();
-    let mut result = crate::run_db_op(db, move |conn| list_history_from(conn, policy)).await?;
+    let query = query.unwrap_or_default();
+    let mut result = tokio::task::spawn_blocking(move || {
+        list_history_page_at(&crate::db::path(), policy, &query).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())??;
     tokio::task::spawn_blocking(move || {
         mark_recordings_on_disk(&mut result.entries);
         result
@@ -853,7 +703,7 @@ fn accept_rejected_answer(ai_json: &str, text: &str) -> String {
 /// Replace the LLM leg of a row's `processing_stats` with a fresh
 /// measurement, leaving every other timing intact.
 ///
-/// A retry re-runs only the LLM: `audio_seconds`, `whisper_seconds` and
+/// A retry re-runs only the LLM: `audio_seconds`, `whisper_seconds`, `format_seconds` and
 /// anything else on the row was measured when the recording happened and
 /// is still true, so overwriting the whole object would throw away
 /// numbers nothing can recompute. `total_seconds` is rebased off the old
@@ -977,10 +827,64 @@ fn update_entry_ai(
 mod tests {
     use super::*;
 
+    fn list_history_from(
+        conn: &Connection,
+        policy: RetentionPolicy,
+    ) -> Result<HistoryPageResult, rusqlite::Error> {
+        list_history_page_from(conn, policy, &HistoryQuery::default())
+    }
+
     fn fresh_db() -> std::sync::Mutex<rusqlite::Connection> {
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         crate::db::run_migrations(&conn).unwrap();
         std::sync::Mutex::new(conn)
+    }
+
+    /// The command's path: a WAL file written by the shared connection and
+    /// read through a separate read-only one.
+    #[test]
+    fn history_command_reads_pages_beside_an_active_wal_writer() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sotto.db");
+        let writer = rusqlite::Connection::open(&path).unwrap();
+        writer
+            .execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;")
+            .unwrap();
+        crate::db::run_migrations(&writer).unwrap();
+        let writer = Mutex::new(writer);
+        for text in ["first", "second", "third"] {
+            append(&writer, text, None, None, 100, 1.0).unwrap();
+        }
+
+        let page =
+            list_history_page_at(&path, RetentionPolicy::default(), &HistoryQuery::default())
+                .unwrap();
+        assert_eq!(page.total_count, 3);
+        assert_eq!(
+            page.entries
+                .iter()
+                .map(|e| e.text.as_str())
+                .collect::<Vec<_>>(),
+            ["third", "second", "first"]
+        );
+
+        // An uncommitted write neither blocks the reader nor leaks into it.
+        {
+            let conn = writer.lock().unwrap();
+            conn.execute_batch("BEGIN IMMEDIATE").unwrap();
+            conn.execute("DELETE FROM history", []).unwrap();
+        }
+        let query = HistoryQuery {
+            query: "SECOND".into(),
+            ids: Some(page.entries.iter().map(|e| e.id).collect()),
+            ..HistoryQuery::default()
+        };
+        let filtered = list_history_page_at(&path, RetentionPolicy::default(), &query).unwrap();
+        assert_eq!(filtered.total_count, 3);
+        assert_eq!(filtered.filtered_count, 1);
+        writer.lock().unwrap().execute_batch("COMMIT").unwrap();
+        let emptied = list_history_page_at(&path, RetentionPolicy::default(), &query).unwrap();
+        assert_eq!(emptied.total_count, 0);
     }
 
     // ------------------------------------------------------------------
@@ -1665,6 +1569,27 @@ mod retry_ai_tests {
         // Only the LLM leg is replaced, and the total follows it.
         assert_eq!(merged["llm_seconds"], serde_json::json!(8.0));
         assert_eq!(merged["total_seconds"], serde_json::json!(8.5));
+    }
+
+    #[test]
+    fn repeated_llm_retries_preserve_the_measured_formatting_stage() {
+        let timings =
+            crate::stats::ProcessingTimings::new(500, std::time::Duration::from_millis(250), 3.0);
+        let mut stats: Value =
+            serde_json::from_str(&timings.history_json(19.2, Some(10.0))).unwrap();
+        for llm_seconds in [8.0, 2.0] {
+            stats =
+                serde_json::from_str(&stats_with_llm_timing(Some(&stats), llm_seconds)).unwrap();
+            assert_eq!(stats["audio_seconds"], serde_json::json!(19.2));
+            assert_eq!(stats["speech_seconds"], serde_json::json!(10.0));
+            assert_eq!(stats["whisper_seconds"], serde_json::json!(0.5));
+            assert_eq!(stats["format_seconds"], serde_json::json!(0.25));
+            assert_eq!(stats["llm_seconds"], serde_json::json!(llm_seconds));
+            assert_eq!(
+                stats["total_seconds"],
+                serde_json::json!(llm_seconds + 0.75)
+            );
+        }
     }
 
     #[test]

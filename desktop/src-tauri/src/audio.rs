@@ -3,6 +3,8 @@
 //! before flushing the resampler and handing off the complete audio buffer.
 
 use crate::audio_resampler::AudioResampler;
+use crate::audio_samples::{convert_samples, mono_samples};
+pub use crate::audio_samples::{i16_to_f32, u8_to_f32};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -33,28 +35,6 @@ pub enum RecorderState {
     Recording,
     Stopped, // audio buffered, engine call pending
     Error,
-}
-
-// ============================================================================
-// Sample format → f32 conversion
-// ============================================================================
-//
-// Each `cpal::SampleFormat` variant (I16, U8, F32, I32, F64) maps to a
-// deterministic f32 range. We mirror the ranges used by Python's
-// `sounddevice`/NumPy defaults so existing tests pass.
-//
-/// Convert an I16 PCM sample to a normalized f32 in [-1.0, 1.0).
-/// -32768 maps to -1.0; 32767 to ~0.99997; 0 to 0.0.
-#[inline]
-pub fn i16_to_f32(s: i16) -> f32 {
-    s as f32 / 32768.0
-}
-
-/// Convert a U8 PCM sample to a normalized f32.
-/// 0 maps to -1.0; 128 maps to ~0.0; 255 maps to ~0.969.
-#[inline]
-pub fn u8_to_f32(s: u8) -> f32 {
-    (s as f32 - 128.0) / 128.0
 }
 
 /// Lightweight device metadata returned by `AudioRecorder::list_devices`.
@@ -284,9 +264,9 @@ impl AudioRecorder {
         // `cpal::build_input_stream<T>` encodes the runtime sample format in
         // its `T` type parameter, so the match below builds one closure per
         // format. Exactly one arm runs, and each may move its own Arc clones.
-        // Non-F32 arms allocate one `Vec<f32>` per callback for the converted
-        // samples; F32 skips that step, and every format shares the mixdown,
-        // resampling and buffering downstream.
+        // Scratch buffers belong to the closure and retain capacity between
+        // callbacks. Larger native chunks can grow them; steady-sized chunks
+        // reuse both conversion and mixdown storage.
         let is_recording_cb = Arc::clone(&self.is_recording);
 
         // Each non-F32 arm below differs only in the sample type `T` and the
@@ -294,13 +274,18 @@ impl AudioRecorder {
         // visible while removing the ~13-line closure boilerplate that was
         // copy-pasted once per format. The F32 arm stays separate because it
         // needs no conversion: it forwards `&[f32]` straight to
-        // `process_samples`, which still allocates to downmix and resample.
+        // `process_samples`, borrowing mono input without a scratch copy.
         macro_rules! build_converting_stream {
             ($sample:ty, $to_f32:expr) => {{
                 let cb_is_recording = Arc::clone(&is_recording_cb);
                 let cb_sinks = self.capture_sinks();
+                let mut converted = Vec::new();
+                let mut mono = Vec::new();
                 let cb = move |data: &[$sample], _: &cpal::InputCallbackInfo| {
-                    let converted: Vec<f32> = data.iter().map($to_f32).collect();
+                    if !cb_is_recording.load(Ordering::Acquire) || data.is_empty() {
+                        return;
+                    }
+                    convert_samples(data, &mut converted, $to_f32);
                     process_samples(
                         &converted,
                         channels_for_cb,
@@ -308,6 +293,7 @@ impl AudioRecorder {
                         target_rate,
                         &cb_is_recording,
                         &cb_sinks,
+                        &mut mono,
                     );
                 };
                 device.build_input_stream::<$sample, _, _>(&stream_config, cb, err_cb.clone(), None)
@@ -318,6 +304,7 @@ impl AudioRecorder {
             SampleFormat::F32 => {
                 let cb_is_recording = Arc::clone(&is_recording_cb);
                 let cb_sinks = self.capture_sinks();
+                let mut mono = Vec::new();
                 let cb = move |data: &[f32], _: &cpal::InputCallbackInfo| {
                     process_samples(
                         data,
@@ -326,6 +313,7 @@ impl AudioRecorder {
                         target_rate,
                         &cb_is_recording,
                         &cb_sinks,
+                        &mut mono,
                     );
                 };
                 device.build_input_stream::<f32, _, _>(&stream_config, cb, err_cb, None)
@@ -604,6 +592,7 @@ fn process_samples(
     target_rate: u32,
     is_recording: &Arc<AtomicBool>,
     sinks: &CaptureSinks,
+    mono: &mut Vec<f32>,
 ) {
     if !is_recording.load(Ordering::Acquire) || data.is_empty() {
         return;
@@ -619,16 +608,7 @@ fn process_samples(
     sinks
         .level_bits
         .store((prev * 0.7 + rms * 0.3).to_bits(), Ordering::Release);
-    let mono;
-    let samples = if channels > 1 {
-        mono = data
-            .chunks_exact(channels as usize)
-            .map(|frame| frame.iter().sum::<f32>() / channels as f32)
-            .collect::<Vec<_>>();
-        mono.as_slice()
-    } else {
-        data
-    };
+    let samples = mono_samples(data, channels, mono);
     let result = (|| {
         let mut guard = crate::mutex_recover::lock(&sinks.resampler);
         if guard.is_none() {
@@ -644,7 +624,7 @@ fn process_samples(
 }
 
 /// Enumerate available microphones with index+id+name+label.
-/// Boot-blocking — called from `MainWindow.load()` via `Promise.all`.
+/// Settings loads this independently while its microphone picker is pending.
 ///
 /// Maps each device position to `index`/`id` (same value), and
 /// copies the device `name` into both `name` and `label` fields.
@@ -877,6 +857,7 @@ mod tests {
             target_rate,
             &is_recording,
             &sinks,
+            &mut Vec::new(),
         );
 
         let result = sinks.buffer.lock().unwrap();
@@ -958,8 +939,9 @@ mod tests {
         let (live, sinks) = recording_sink(0.0);
         let (tx, rx) = std::sync::mpsc::sync_channel(100);
         *sinks.live_tap.lock().unwrap() = Some(tx);
+        let mut mono = Vec::new();
         for chunk in vec![0.5; 88_200].chunks(882) {
-            process_samples(chunk, 2, 44_100, 16_000, &live, &sinks);
+            process_samples(chunk, 2, 44_100, 16_000, &live, &sinks, &mut mono);
         }
         flush_samples(&sinks).unwrap();
         let captured = sinks.buffer.lock().unwrap().clone();
@@ -978,8 +960,9 @@ mod tests {
         *sinks.live_tap.lock().unwrap() = Some(tx);
 
         let data = vec![0.5_f32; 4];
+        let mut mono = Vec::new();
         for _ in 0..3 {
-            process_samples(&data, 1, 16_000, 16_000, &is_recording, &sinks);
+            process_samples(&data, 1, 16_000, 16_000, &is_recording, &sinks, &mut mono);
         }
 
         assert_eq!(
@@ -997,7 +980,15 @@ mod tests {
         let is_recording = Arc::new(AtomicBool::new(true));
         let sinks = test_sinks(0.0);
         let data = vec![0.5_f32; 4];
-        process_samples(&data, 1, 16_000, 16_000, &is_recording, &sinks);
+        process_samples(
+            &data,
+            1,
+            16_000,
+            16_000,
+            &is_recording,
+            &sinks,
+            &mut Vec::new(),
+        );
         assert_eq!(sinks.buffer.lock().unwrap().len(), 4);
     }
 
@@ -1013,9 +1004,10 @@ mod tests {
         let recorder = AudioRecorder::new(AudioConfig::default()).unwrap();
         let sinks = recorder.capture_sinks();
         let live = Arc::new(AtomicBool::new(true));
-        process_samples(&[0.1; 160], 1, 16_000, 16_000, &live, &sinks);
+        let mut mono = Vec::new();
+        process_samples(&[0.1; 160], 1, 16_000, 16_000, &live, &sinks, &mut mono);
         let rx = recorder.attach_live_tap(8);
-        process_samples(&[0.2; 160], 1, 16_000, 16_000, &live, &sinks);
+        process_samples(&[0.2; 160], 1, 16_000, 16_000, &live, &sinks, &mut mono);
         let chunks: Vec<_> = rx
             .try_iter()
             .map(|chunk| (chunk.offset, chunk.samples.len()))
@@ -1028,10 +1020,58 @@ mod tests {
         // Non-zero prev so `prev * 0.7` is not the trivial 0 case.
         let (is_recording, sinks) = recording_sink(1.0);
         let data = vec![0.5_f32, 0.5, 0.5, 0.5];
-        process_samples(&data, 1, 16_000, 16_000, &is_recording, &sinks);
+        process_samples(
+            &data,
+            1,
+            16_000,
+            16_000,
+            &is_recording,
+            &sinks,
+            &mut Vec::new(),
+        );
         // RMS of [0.5,0.5,0.5,0.5] = 0.5; EMA = 1.0*0.7 + 0.5*0.3 = 0.85.
         let level = f32::from_bits(sinks.level_bits.load(Ordering::Acquire));
         assert!((level - 0.85).abs() < 1e-6, "level {level}");
         assert_eq!(&*sinks.buffer.lock().unwrap(), &[0.5, 0.5, 0.5, 0.5]);
+    }
+
+    #[test]
+    fn reused_integer_callback_buffers_preserve_resampled_recording() {
+        for rate in [16_000, 44_100, 48_000] {
+            let input: Vec<i16> = (0..rate / 7)
+                .flat_map(|frame| {
+                    let value = ((frame as f32 * 0.125).sin() * 20_000.0) as i16;
+                    [value, value / 2]
+                })
+                .collect();
+            let reference: Vec<f32> = input.iter().map(|&s| i16_to_f32(s)).collect();
+            let (live, expected) = recording_sink(0.0);
+            process_samples(
+                &reference,
+                2,
+                rate,
+                16_000,
+                &live,
+                &expected,
+                &mut Vec::new(),
+            );
+            flush_samples(&expected).unwrap();
+
+            for chunk_size in [64, 882, 2048] {
+                let (live, actual) = recording_sink(0.0);
+                let mut converted = Vec::new();
+                let mut mono = Vec::new();
+                for chunk in input.chunks(chunk_size) {
+                    convert_samples(chunk, &mut converted, |&s| i16_to_f32(s));
+                    process_samples(&converted, 2, rate, 16_000, &live, &actual, &mut mono);
+                }
+                flush_samples(&actual).unwrap();
+                assert_eq!(
+                    *crate::mutex_recover::lock(&actual.buffer),
+                    *crate::mutex_recover::lock(&expected.buffer),
+                    "rate {rate}, chunk {chunk_size}"
+                );
+            }
+        }
     }
 }

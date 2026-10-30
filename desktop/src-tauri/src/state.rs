@@ -146,6 +146,11 @@ pub struct AppState {
     /// accurate indicator separate from `downloaded` (file on disk).
     pub engine_current_model: Arc<Mutex<Option<String>>>,
 
+    /// A transition to cloud mode releases local weights after the current
+    /// dictation/file claim ends. It stays armed for loads already queued;
+    /// a later explicit load or return to local mode cancels it.
+    cloud_model_release: Arc<AtomicBool>,
+
     /// Download cancellation flags, keyed by model identifier.
     ///
     /// Separate from `cancel_flags`: those live per recognition session and are
@@ -187,6 +192,7 @@ impl AppState {
             db,
             microphone_test,
             engine_current_model,
+            cloud_model_release: Arc::new(AtomicBool::new(false)),
             download_cancels: Arc::new(Mutex::new(HashMap::new())),
             pending_recordings: Arc::default(),
         }
@@ -267,6 +273,31 @@ impl AppState {
 
     pub fn is_engine_busy(&self) -> bool {
         self.engine_busy.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn request_cloud_model_release(&self) {
+        self.cloud_model_release.store(true, Ordering::Release);
+        // A full queue already wakes the engine, which also checks after each
+        // command. The watchdog retries when a session finishes outside it.
+        let _ = self
+            .engine_cmd_tx
+            .try_send(crate::whisper::EngineCommand::CheckModelResidency);
+    }
+
+    pub(crate) fn retain_local_model(&self) {
+        self.cloud_model_release.store(false, Ordering::Release);
+    }
+
+    pub(crate) fn claim_cloud_model_release(&self) -> Option<EngineBusyGuard> {
+        if !self.cloud_model_release.load(Ordering::Acquire) {
+            return None;
+        }
+        // The same reservation protects capture and file decoding before an
+        // inference command reaches the owning engine thread.
+        let claim = self.claim_engine()?;
+        self.cloud_model_release
+            .load(Ordering::Acquire)
+            .then_some(claim)
     }
 
     pub fn next_session_id(&self) -> u64 {
@@ -669,6 +700,48 @@ mod tests {
     }
 
     #[test]
+    fn cancellation_reaches_preparation_without_waiting_for_the_audio_worker() {
+        let state = test_state();
+        let id = state.try_begin_dictation().unwrap();
+        assert!(state.claim_live_session(id));
+        let flag = Arc::new(AtomicBool::new(false));
+        state.register_cancel_flag(id, Arc::clone(&flag));
+        let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let worker_state = state.clone();
+        let worker_flag = Arc::clone(&flag);
+        state
+            .audio
+            .submit(move || {
+                entered_tx.send(()).unwrap();
+                release_rx.recv().unwrap();
+                let prepared = crate::vad::prepare_dictation_unless(
+                    Some(&serde_json::json!({})),
+                    Arc::new(vec![0.0; 16_000]),
+                    worker_flag,
+                );
+                let cancelled = prepared.is_none();
+                worker_state.finish_session(id);
+                done_tx.send(cancelled).unwrap();
+            })
+            .unwrap();
+        let timeout = std::time::Duration::from_secs(2);
+        entered_rx.recv_timeout(timeout).unwrap();
+
+        assert!(state.request_cancel(id));
+        assert!(flag.load(Ordering::Acquire));
+        assert!(state.is_engine_busy());
+        assert!(state.claim_engine().is_none());
+        assert!(state.try_begin_dictation().is_none());
+        release_tx.send(()).unwrap();
+
+        assert!(done_rx.recv_timeout(timeout).unwrap());
+        assert!(!state.is_engine_busy());
+        assert!(!state.is_session_active(id));
+    }
+
+    #[test]
     fn cancellation_marker_survives_stop_finalization_until_terminal_cleanup() {
         let state = test_state();
         let id = state.next_session_id();
@@ -797,6 +870,89 @@ mod tests {
         let capture = state.try_begin_dictation().unwrap();
         assert!(state.claim_engine().is_none());
         state.finish_session(capture);
+    }
+
+    #[test]
+    fn cloud_release_waits_for_capture_and_file_ownership() {
+        let state = test_state();
+        let capture = state.try_begin_dictation().unwrap();
+        state.request_cloud_model_release();
+        assert!(state.claim_cloud_model_release().is_none());
+        assert!(state.claim_live_session(capture));
+        // Stopping capture still leaves transcription/delivery protected.
+        assert!(state.claim_cloud_model_release().is_none());
+        state.finish_session(capture);
+
+        let file = state.claim_engine().unwrap();
+        assert!(state.claim_cloud_model_release().is_none());
+        drop(file);
+        let release = state.claim_cloud_model_release().unwrap();
+        assert!(state.try_begin_dictation().is_none());
+        assert!(state.claim_engine().is_none());
+        drop(release);
+        // A late automatic load is covered until a newer user choice.
+        assert!(state.claim_cloud_model_release().is_some());
+    }
+
+    #[test]
+    fn an_explicit_load_or_local_mode_cancels_deferred_cloud_release() {
+        let state = test_state();
+        let file = state.claim_engine().unwrap();
+        state.request_cloud_model_release();
+        state.retain_local_model();
+        drop(file);
+        assert!(state.claim_cloud_model_release().is_none());
+        assert!(!state.is_engine_busy());
+        // A subsequent cloud transition arms the policy again.
+        state.request_cloud_model_release();
+        assert!(state.claim_cloud_model_release().is_some());
+    }
+
+    #[test]
+    fn a_full_engine_queue_does_not_lose_cloud_release() {
+        let mut state = test_state();
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+        state.engine_cmd_tx = tx;
+        state
+            .engine_cmd_tx
+            .try_send(crate::whisper::EngineCommand::PreviewReset { session_id: 1 })
+            .unwrap();
+        state.request_cloud_model_release();
+        assert!(matches!(
+            rx.try_recv().unwrap(),
+            crate::whisper::EngineCommand::PreviewReset { .. }
+        ));
+        assert!(state.claim_cloud_model_release().is_some());
+    }
+
+    #[test]
+    fn cloud_release_and_a_new_capture_share_one_reservation() {
+        let state = test_state();
+        state.request_cloud_model_release();
+        let barrier = Arc::new(std::sync::Barrier::new(3));
+        let release = {
+            let (state, barrier) = (state.clone(), barrier.clone());
+            std::thread::spawn(move || {
+                barrier.wait();
+                state.claim_cloud_model_release()
+            })
+        };
+        let capture = {
+            let (state, barrier) = (state.clone(), barrier.clone());
+            std::thread::spawn(move || {
+                barrier.wait();
+                state.try_begin_dictation()
+            })
+        };
+        barrier.wait();
+        let release = release.join().unwrap();
+        let capture = capture.join().unwrap();
+        assert_ne!(release.is_some(), capture.is_some());
+        drop(release);
+        if let Some(session_id) = capture {
+            state.finish_session(session_id);
+        }
+        assert!(!state.is_engine_busy());
     }
 
     #[test]

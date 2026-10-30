@@ -88,12 +88,16 @@ pub async fn preview_format(
 /// result includes `applied_count` and `matched_rules` metadata
 /// so the UI can highlight which rules fired.
 #[tauri::command]
-pub fn preview_replacements(
+pub async fn preview_replacements(
     app: AppHandle,
     text: String,
     patch: Option<Value>,
 ) -> Result<crate::formatter::PreviewReplacementsResult, String> {
     let patch = resolve_patch(patch);
     let merged = load_config_apply_patch(&app, &patch)?;
-    crate::formatter::preview_replacements(&text, &merged)
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::formatter::preview_replacements(&text, &merged)
+    })
+    .await
+    .map_err(|_| "Formatting worker failed".to_string())?
 }

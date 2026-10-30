@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { Hint } from "../../components/Hint";
 import { Icon } from "../../components/Icon";
@@ -16,7 +16,7 @@ import { DraftPart, LevelPart, ModePart, ProcessLead, RecPart, TimerPart } from 
 import { cancelDrawNames, cancelShowNames, cancelSpotNames, drawNames, elementNames, elementNotes, kindPlaces, motionNames, pastedHoldNames, processNames, processPatternNames, processSpeedNames, regionNames, shellNames, speechPatternNames, styleNames } from "./labels";
 import type { OverlayLook } from "./overlayDraft";
 import { drawingKinds, PART_ORDER } from "./recipeEdits";
-import { simulatedVoice, type PhaseMode } from "./simulatedVoice";
+import { PreviewActivity, simulatedVoice, stillVoice, type PhaseMode } from "./simulatedVoice";
 import { PaletteTone } from "./PaletteTone";
 import { MyTemplates, SystemTemplates } from "./TemplateTiles";
 import { SYSTEM_TEMPLATES, type SystemTemplate } from "./templates";
@@ -36,11 +36,12 @@ function previewKind(type: ElementType, draw: string): RegionKind {
 
 /** A processing sign, drawn the way the pill row shows it, at the recipe's speed. */
 function ProcessPreview({ draw, recipe }: { draw: ProcessDraw; recipe: Recipe }) {
+  const active = useContext(PreviewActivity);
   const speed = recipe.processing.speed;
-  return <span className="ovs ove-pv-root" data-radius={recipe.style.radius} data-fill={recipe.style.fill} data-motion={recipe.motion}
+  return <span className={`ovs ove-pv-root${active ? "" : " ovs--still"}`} data-radius={recipe.style.radius} data-fill={recipe.style.fill} data-motion={recipe.motion}
     data-phase="processing" data-proc-speed={speed} style={{ "--fs": 0.92 } as CSSProperties} aria-hidden="true">
     <span className="ove-pv ove-pv--small">{draw === "none" ? null
-      : <ProcessLead draw={draw} matrix={recipe.matrix} size={26} sharp={recipe.style.radius === "sharp"} pace={PROCESS_PACE[speed]}/>}</span>
+      : <ProcessLead draw={draw} matrix={recipe.matrix} size={26} sharp={recipe.style.radius === "sharp"} pace={PROCESS_PACE[speed]} still={!active}/>}</span>
   </span>;
 }
 
@@ -147,17 +148,18 @@ export const isWidePart = (type: ElementType) => type === "draft";
 /** A part drawn alive, the way it will look in the shell with the current style. The stroke is the
  *  shell's outline, so it stays on the shell tiles rather than framing every part. */
 export function PartPreview({ type, draw, recipe }: { type: ElementType; draw: string; recipe: Recipe }) {
+  const active = useContext(PreviewActivity);
   const kind = previewKind(type, draw);
   const sample = t("Коллеги, по итогам созвона: релиз переносим на четверг");
   let part;
   switch (type) {
-    case "level": part = <LevelPart draw={draw} kind={kind} box={44} source={simulatedVoice} matrix={recipe.matrix} sharp={recipe.style.radius === "sharp"} size="m" phase="recording"/>; break;
+    case "level": part = <LevelPart draw={draw} kind={kind} box={44} source={active ? simulatedVoice : stillVoice} matrix={recipe.matrix} sharp={recipe.style.radius === "sharp"} size="m" phase="recording" still={!active}/>; break;
     case "timer": part = <TimerPart draw={draw} kind={kind} text="00:07"/>; break;
     case "rec": part = <RecPart draw={draw}/>; break;
     case "mode": part = <ModePart draw={draw} full="RU · large-v3" short="RU"/>; break;
     case "draft": part = <DraftPart draw={draw} text={sample} captions={false} phase="recording" placeholder=""/>; break;
   }
-  return <span className="ovs ove-pv-root" data-radius={recipe.style.radius} data-fill={recipe.style.fill}
+  return <span className={`ovs ove-pv-root${active ? "" : " ovs--still"}`} data-radius={recipe.style.radius} data-fill={recipe.style.fill}
     data-font={recipe.style.font} data-phase="recording" style={{ "--fs": 0.92, "--rowh": "36px" } as CSSProperties} aria-hidden="true">
     <span className={`ove-pv ove-pv--${kind}`}>{part}</span>
   </span>;
@@ -375,12 +377,13 @@ export function CancelOptions({ recipe, onRecipe }: { recipe: Recipe; onRecipe: 
 
 /** Patterns and density for the dot matrix, each drawn alive. */
 export function MatrixOptions({ recipe, onRecipe }: { recipe: Recipe; onRecipe: Props["onRecipe"] }) {
+  const active = useContext(PreviewActivity);
   const speech = speechPatternNames(), process = processPatternNames();
   const set = (patch: Partial<RecipeMatrix>, message: string) => onRecipe({ ...recipe, matrix: { ...recipe.matrix, ...patch } }, message);
   const sharp = recipe.style.radius === "sharp";
   const tile = (key: string, pressed: boolean, label: string, note: string, onClick: () => void, preview: RecipeMatrix, mode: "speech" | "process") =>
     <button key={key} type="button" className="ove-mxo" aria-pressed={pressed} onClick={onClick}>
-      <span className="ove-mxo__pv"><OverlayMatrix mode={mode} size={40} sharp={sharp} source={simulatedVoice} {...preview}/></span>
+      <span className="ove-mxo__pv"><OverlayMatrix mode={mode} size={40} sharp={sharp} source={active ? simulatedVoice : stillVoice} still={!active} {...preview}/></span>
       <b>{label}</b><span>{note}</span>
     </button>;
   return <div className="ove-matrix" id="overlay-matrix-options">

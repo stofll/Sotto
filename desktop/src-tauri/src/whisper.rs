@@ -19,10 +19,41 @@ use tokio::sync::{mpsc as tmpsc, oneshot};
 /// dictation that is being recorded perfectly well at that very moment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModelLoadReason {
-    /// The user picked a model, changed the device, or started the app.
+    /// The user explicitly picked a model.
     Requested,
+    /// Automatic startup work yields to a later mode or model selection.
+    Startup,
+    /// Reload the resident model after a compute-device change.
+    DeviceChanged,
     /// The model was brought back into memory after an idle unload.
     Restore,
+}
+
+impl ModelLoadReason {
+    pub(crate) const fn label(self) -> &'static str {
+        match self {
+            Self::Requested => "requested",
+            Self::Startup => "startup",
+            Self::DeviceChanged => "device",
+            Self::Restore => "restore",
+        }
+    }
+
+    fn shows_status(self) -> bool {
+        self != Self::Restore
+    }
+}
+
+pub(crate) fn log_model_timing(
+    stage: &'static str,
+    reason: &'static str,
+    started: std::time::Instant,
+    ok: bool,
+) {
+    log::info!(
+        "model timing: stage={stage} reason={reason} elapsed_ms={:.3} ok={ok}",
+        started.elapsed().as_secs_f64() * 1000.0
+    );
 }
 
 #[derive(Debug)]
@@ -97,6 +128,8 @@ pub enum EngineCommand {
     UnloadIdle {
         after: std::time::Duration,
     },
+    /// Retry a deferred cloud-mode release, including with idle unloading off.
+    CheckModelResidency,
     Shutdown,
 }
 
@@ -227,6 +260,8 @@ pub fn engine_thread_main(
         last_preview: String::new(),
         preview_session: None,
         preview_fed: None,
+        preview_gap_count: 0,
+        preview_fallback_count: 0,
         loaded_spec: None,
         last_activity: std::time::Instant::now(),
         events: event_tx,
@@ -240,7 +275,10 @@ pub fn engine_thread_main(
         //
         // The idle check itself does not count as work: otherwise the engine
         // would push its own timer forward on every tick and never reach it.
-        if !matches!(cmd, EngineCommand::UnloadIdle { .. }) {
+        if !matches!(
+            cmd,
+            EngineCommand::UnloadIdle { .. } | EngineCommand::CheckModelResidency
+        ) {
             engine.last_activity = std::time::Instant::now();
         }
         match cmd {
@@ -295,12 +333,14 @@ pub fn engine_thread_main(
             } => engine.preview_chunk(session_id, offset, &samples),
             EngineCommand::PreviewReset { session_id } => engine.preview_reset(session_id),
             EngineCommand::UnloadModel { reply } => {
-                engine.unload();
+                engine.unload("delete");
                 let _ = reply.send(());
             }
             EngineCommand::UnloadIdle { after } => engine.unload_idle(after),
+            EngineCommand::CheckModelResidency => {}
             EngineCommand::Shutdown => break,
         }
+        engine.release_cloud_model();
     }
     log::info!("whisper engine thread exiting");
 }
@@ -342,6 +382,9 @@ struct Engine {
     /// or a model change clears it, and the final pass then decodes the whole
     /// recording again.
     preview_fed: Option<usize>,
+    /// Gaps and final full-pass fallbacks in this preview session. No audio/text.
+    preview_gap_count: u64,
+    preview_fallback_count: u64,
     /// How the model in memory was loaded, to recognise a request for the same.
     loaded_spec: Option<crate::model::ModelLoadSpec>,
     /// When the engine last did work. Idleness is measured from here, and it
@@ -369,6 +412,24 @@ impl Engine {
             .take()
             .filter(|_| self.preview_session == Some(session_id));
         let rest = preview_fed.and_then(|fed| preview_rest(fed, audio, audio_offset));
+        if self
+            .sherpa
+            .as_ref()
+            .is_some_and(|model| model.is_streaming())
+            && self.preview_session == Some(session_id)
+            && !job.cancelled()
+        {
+            if rest.is_none() {
+                self.preview_fallback_count = self.preview_fallback_count.saturating_add(1);
+            }
+            log::info!(
+                "preview timing: session={session_id} gap_count={} fallback_count={} reused={} pending_samples={}",
+                self.preview_gap_count,
+                self.preview_fallback_count,
+                rest.is_some(),
+                rest.map_or(audio.len(), <[f32]>::len),
+            );
+        }
         let _ = self
             .events
             .blocking_send(EngineEvent::InferenceStarted { session_id });
@@ -444,10 +505,10 @@ impl Engine {
                     "Модель не загружена. Откройте раздел «Модели» и выберите модель.",
                 ));
             };
-            self.whisper_state = Some(
-                ctx.create_state()
-                    .map_err(|e| format!("create_state: {e}"))?,
-            );
+            let started = std::time::Instant::now();
+            let state = ctx.create_state().map_err(|e| format!("create_state: {e}"));
+            log_model_timing("state", "first_inference", started, state.is_ok());
+            self.whisper_state = Some(state?);
         }
 
         let multilingual = self
@@ -543,6 +604,12 @@ impl Engine {
         reason: ModelLoadReason,
         reply: oneshot::Sender<Result<(), String>>,
     ) {
+        // Verification can finish after the person switches to cloud or
+        // chooses another model. Automatic work must not undo that choice.
+        if !crate::model_load_is_current(&self.app, &name, reason, Some(&spec)) {
+            let _ = reply.send(Ok(()));
+            return;
+        }
         // A restore of what is already in memory is a restore that arrived
         // too late. Capture queues one whenever nothing is loaded, and
         // "loaded" only becomes true when the load finishes — so a second
@@ -562,12 +629,12 @@ impl Engine {
         if already_loaded(loaded, reason, self.loaded_spec.as_ref(), &spec) {
             log::debug!("model {name} is already in memory, skipping {reason:?} load");
             let _ = reply.send(Ok(()));
-            if reason == ModelLoadReason::Requested {
+            if reason.shows_status() {
                 let _ = self.events.blocking_send(EngineEvent::ModelReady { name });
             }
             return;
         }
-        if reason == ModelLoadReason::Requested {
+        if reason.shows_status() {
             let _ = self
                 .events
                 .blocking_send(EngineEvent::ModelLoading { name: name.clone() });
@@ -580,7 +647,9 @@ impl Engine {
             Ok(()) => {
                 let _ = reply.send(Ok(()));
                 let _ = self.events.blocking_send(match reason {
-                    ModelLoadReason::Requested => EngineEvent::ModelReady { name },
+                    ModelLoadReason::Requested
+                    | ModelLoadReason::Startup
+                    | ModelLoadReason::DeviceChanged => EngineEvent::ModelReady { name },
                     ModelLoadReason::Restore => EngineEvent::ModelRestored { name },
                 });
             }
@@ -591,7 +660,7 @@ impl Engine {
                 // same trouble in words about the model. A "failed to load"
                 // pill in the middle of a recording would explain it too early
                 // and to the wrong person.
-                if reason == ModelLoadReason::Requested {
+                if reason.shows_status() {
                     let _ = self.events.blocking_send(EngineEvent::ModelLoadFailed {
                         name,
                         error: err_msg.clone(),
@@ -614,7 +683,7 @@ impl Engine {
         spec: crate::model::ModelLoadSpec,
         reason: ModelLoadReason,
     ) -> Result<(), String> {
-        self.drop_models();
+        self.drop_models("replace");
         let loaded_spec = spec.clone();
         match spec {
             crate::model::ModelLoadSpec::Whisper { path, use_gpu } => {
@@ -625,20 +694,27 @@ impl Engine {
                     use_gpu,
                     ..Default::default()
                 };
+                let started = std::time::Instant::now();
                 let ctx = whisper_rs::WhisperContext::new_with_params(path_str, ctx_params)
-                    .map_err(|e| format!("model load: {e}"))?;
-                self.whisper_ctx = Some(ctx);
+                    .map_err(|e| format!("model load: {e}"));
+                log_model_timing("context", reason.label(), started, ctx.is_ok());
+                self.whisper_ctx = Some(ctx?);
             }
             crate::model::ModelLoadSpec::Sherpa { engine, files } => {
                 // Restores are queued synchronously at capture start. Hashing
                 // here keeps slow disk I/O ahead of all audio commands without
                 // blocking capture or the UI.
                 if reason == ModelLoadReason::Restore {
-                    crate::model::verify_bundle_files(name)?;
+                    let started = std::time::Instant::now();
+                    let verified = crate::model::verify_bundle_files(name);
+                    log_model_timing("verify", reason.label(), started, verified.is_ok());
+                    verified?;
                 }
+                let started = std::time::Instant::now();
                 let recognizer =
-                    crate::sherpa::SherpaRecognizer::open(engine, &files, sherpa_threads())?;
-                self.sherpa = Some(recognizer);
+                    crate::sherpa::SherpaRecognizer::open(engine, &files, sherpa_threads());
+                log_model_timing("context", reason.label(), started, recognizer.is_ok());
+                self.sherpa = Some(recognizer?);
             }
         }
         self.loaded_spec = Some(loaded_spec);
@@ -648,17 +724,42 @@ impl Engine {
     /// CRITICAL drop order: the Whisper state holds raw pointers into the
     /// context and must go first; dropping the context first leaves a
     /// use-after-free for the next `state.full()`.
-    fn drop_models(&mut self) {
+    fn drop_models(&mut self, reason: &'static str) {
+        let started = std::time::Instant::now();
+        let had_model = self.whisper_ctx.is_some() || self.sherpa.is_some();
         self.preview_fed = None;
         self.loaded_spec = None;
         self.whisper_state = None;
         self.sherpa = None;
         self.whisper_ctx = None;
+        if had_model {
+            log_model_timing("unload", reason, started, true);
+        }
     }
 
-    fn unload(&mut self) {
+    fn unload(&mut self, reason: &'static str) {
         *crate::mutex_recover::lock(&self.current_model) = None;
-        self.drop_models();
+        self.drop_models(reason);
+    }
+
+    fn release_cloud_model(&mut self) {
+        if self.whisper_ctx.is_none() && self.sherpa.is_none() {
+            return;
+        }
+        let claim = self
+            .app
+            .try_state::<crate::state::AppState>()
+            .and_then(|state| state.claim_cloud_model_release());
+        let Some(_claim) = claim else {
+            return;
+        };
+        let Some(name) = crate::mutex_recover::lock(&self.current_model).clone() else {
+            return;
+        };
+        self.unload("cloud");
+        let _ = self
+            .events
+            .blocking_send(EngineEvent::ModelUnloaded { name });
     }
 
     fn unload_idle(&mut self, after: std::time::Duration) {
@@ -674,7 +775,7 @@ impl Engine {
             idle.as_secs(),
             after.as_secs()
         );
-        self.unload();
+        self.unload("idle");
         let _ = self
             .events
             .blocking_send(EngineEvent::ModelUnloaded { name });
@@ -691,11 +792,16 @@ impl Engine {
                 self.preview_session = Some(session_id);
                 self.last_preview.clear();
                 self.preview_fed = Some(0);
+                self.preview_gap_count = 0;
+                self.preview_fallback_count = 0;
                 recognizer.reset_preview();
             }
             PreviewAction::Continue => {}
         }
         let fed = self.preview_fed.take();
+        if fed.is_some_and(|expected| expected != offset) {
+            self.preview_gap_count = self.preview_gap_count.saturating_add(1);
+        }
         let preview = recognizer.feed_preview(16_000, samples);
         if fed == Some(offset) && preview.is_ok() {
             self.preview_fed = Some(offset + samples.len());
@@ -724,6 +830,8 @@ impl Engine {
         self.preview_session = Some(session_id);
         self.last_preview.clear();
         self.preview_fed = Some(0);
+        self.preview_gap_count = 0;
+        self.preview_fallback_count = 0;
         if let Some(recognizer) = self.sherpa.as_mut() {
             recognizer.reset_preview();
         }

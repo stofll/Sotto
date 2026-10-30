@@ -8,16 +8,32 @@
 //!   cargo bench --package sotto
 //!   cargo bench --package sotto --bench engine_bench
 //!
-//! Quick compile check (CI):
-//!   cargo bench --no-run --package sotto
+//! Compile/lint check (CI):
+//!   cargo clippy --locked --all-targets -- -D warnings
 
-use std::sync::Mutex;
+use std::sync::{atomic::AtomicBool, Arc, Mutex};
 use std::time::Duration;
 
-use criterion::{criterion_group, criterion_main, Criterion, Throughput};
-use sotto_lib::cloud_stt::{audio_to_wav_bytes, build_multipart_body};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use sotto_lib::audio_samples::{convert_samples, i16_to_f32, mono_samples};
+use sotto_lib::cloud_stt::multipart_upload;
+use sotto_lib::formatter::format_transcription_with_config_value;
 use sotto_lib::mutex_recover::lock;
 use sotto_lib::whisper::InferenceResult;
+
+#[path = "support/formatting.rs"]
+mod formatting_cases;
+#[path = "support/history.rs"]
+mod history_cases;
+// Use the same storage queries as the command, without exposing native history
+// commands as library API merely for a benchmark.
+#[allow(dead_code)]
+#[path = "../src/history/query.rs"]
+mod history_query;
+// Criterion compiles cfg(test) modules without their #[test] function bodies.
+#[allow(dead_code, unused_imports)]
+#[path = "../src/vad.rs"]
+mod vad;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -30,66 +46,222 @@ fn synth_audio(num_samples: usize) -> Vec<f32> {
         .collect()
 }
 
-/// A 5-second buffer at 16 kHz = 80 000 samples. This is the canonical
-/// "moderately long recording" used by the cloud STT path.
-const FIVE_SEC_SAMPLES: usize = 5 * 16_000; // 80_000
-
 // ---------------------------------------------------------------------------
-// Benchmark 1 – WAV encoding throughput
+// Production streaming WAV/multipart encoder, without network latency
 // ---------------------------------------------------------------------------
 
-fn wav_encoding_throughput(c: &mut Criterion) {
-    let audio = synth_audio(FIVE_SEC_SAMPLES);
-    let num_bytes = audio.len() * 2 + 44; // PCM i16 + WAV header
-
-    let mut group = c.benchmark_group("wav_encoding");
-    group.throughput(Throughput::Bytes(num_bytes as u64));
-    group.throughput(Throughput::Elements(audio.len() as u64));
-
-    group.bench_function("5s_audio", |b| {
-        b.iter(|| {
-            let wav = audio_to_wav_bytes(criterion::black_box(&audio));
-            criterion::black_box(wav);
-        });
-    });
-
+fn streaming_upload_encoding(c: &mut Criterion) {
+    let mut group = c.benchmark_group("streaming_upload");
+    for seconds in [5, 60, 600] {
+        let audio = Arc::new(synth_audio(seconds * 16_000));
+        for (label, language) in [("auto", None), ("ru", Some("ru"))] {
+            let size = multipart_upload(Arc::clone(&audio), "whisper-large-v3-turbo", language)
+                .unwrap()
+                .content_length;
+            group.throughput(Throughput::Bytes(size as u64));
+            group.bench_function(BenchmarkId::new(label, seconds), |b| {
+                b.iter(|| {
+                    let upload = multipart_upload(
+                        Arc::clone(criterion::black_box(&audio)),
+                        criterion::black_box("whisper-large-v3-turbo"),
+                        criterion::black_box(language),
+                    )
+                    .unwrap();
+                    // Drop each encoded chunk before requesting the next one,
+                    // matching the encoder's bounded production buffering.
+                    for chunk in upload {
+                        criterion::black_box(chunk);
+                    }
+                });
+            });
+        }
+    }
     group.finish();
 }
 
 // ---------------------------------------------------------------------------
-// Benchmark 2 – Multipart body construction with and without language
+// Live formatter: repeated settings, disabled formatting and cache invalidation
 // ---------------------------------------------------------------------------
 
-fn multipart_body_construction(c: &mut Criterion) {
-    let audio = synth_audio(FIVE_SEC_SAMPLES);
-    let wav_bytes = audio_to_wav_bytes(&audio);
-    let model = "whisper-large-v3-turbo";
-
-    let mut group = c.benchmark_group("multipart_body");
-
-    group.bench_function("without_language", |b| {
+fn live_formatter(c: &mut Criterion) {
+    let mut group = c.benchmark_group("live_formatter");
+    group.sample_size(20);
+    group.throughput(Throughput::Bytes(formatting_cases::TEXT.len() as u64));
+    let defaults = formatting_cases::config(0, true, 0);
+    group.bench_function("default_settings", |b| {
         b.iter(|| {
-            let (body, ct) = build_multipart_body(
-                criterion::black_box(model),
-                criterion::black_box(None),
-                criterion::black_box(&wav_bytes),
-            );
-            criterion::black_box((body, ct));
+            criterion::black_box(format_transcription_with_config_value(
+                criterion::black_box(&defaults),
+                criterion::black_box(formatting_cases::TEXT),
+            ));
         });
     });
-
-    group.bench_function("with_language", |b| {
+    for terms in [0, 100, 1000] {
+        let config = formatting_cases::config(terms, true, 50);
+        // Dictionary initialization and the first pipeline build are separate
+        // cold-call measurements; these cases exercise repeated dictations.
+        criterion::black_box(format_transcription_with_config_value(
+            &config,
+            formatting_cases::TEXT,
+        ));
+        group.bench_function(BenchmarkId::new("same_settings", terms), |b| {
+            b.iter(|| {
+                criterion::black_box(format_transcription_with_config_value(
+                    criterion::black_box(&config),
+                    criterion::black_box(formatting_cases::TEXT),
+                ));
+            });
+        });
+    }
+    let disabled = formatting_cases::config(1000, false, 50);
+    group.bench_function("disabled_1000_terms_50_rules", |b| {
         b.iter(|| {
-            let (body, ct) = build_multipart_body(
-                criterion::black_box(model),
-                criterion::black_box(Some("ru")),
-                criterion::black_box(&wav_bytes),
-            );
-            criterion::black_box((body, ct));
+            criterion::black_box(format_transcription_with_config_value(
+                criterion::black_box(&disabled),
+                criterion::black_box(formatting_cases::TEXT),
+            ));
         });
     });
-
+    for relevant_change in [false, true] {
+        let first = formatting_cases::config(100, true, 50);
+        let mut second = first.clone();
+        let label = if relevant_change {
+            second["replacement_rules"][0]["replace"] = "итоговый результат".into();
+            "formatter_setting_change"
+        } else {
+            second["theme"] = "dark".into();
+            second["history_max_entries"] = 10000.into();
+            "unrelated_setting_change"
+        };
+        let settings = [first, second];
+        let mut index = 0;
+        group.bench_function(label, |b| {
+            b.iter(|| {
+                index ^= 1;
+                criterion::black_box(format_transcription_with_config_value(
+                    criterion::black_box(&settings[index]),
+                    criterion::black_box(formatting_cases::TEXT),
+                ));
+            });
+        });
+    }
     group.finish();
+}
+
+// ---------------------------------------------------------------------------
+// History: bounded result serialization with larger retained datasets
+// ---------------------------------------------------------------------------
+
+fn history_page(c: &mut Criterion) {
+    use history_query::{list_history_page_from, HistoryQuery, RetentionPolicy};
+
+    let mut group = c.benchmark_group("history_page");
+    group.sample_size(20);
+    for rows in [1000, 10000, 100000] {
+        let mut conn = rusqlite::Connection::open_in_memory().unwrap();
+        history_cases::populate(&mut conn, rows);
+        let policy = RetentionPolicy {
+            max_age_seconds: 0,
+            max_entries: 0,
+        };
+        for (label, query) in [
+            ("first", HistoryQuery::default()),
+            (
+                "last",
+                HistoryQuery {
+                    page: (rows as u64 - 1) / 50,
+                    ..HistoryQuery::default()
+                },
+            ),
+            (
+                "unicode_search",
+                HistoryQuery {
+                    query: "якорь".into(),
+                    ..HistoryQuery::default()
+                },
+            ),
+        ] {
+            let result = list_history_page_from(&conn, policy, &query).unwrap();
+            group.throughput(Throughput::Elements(result.entries.len() as u64));
+            group.bench_function(BenchmarkId::new(label, rows), |b| {
+                b.iter(|| {
+                    let result = list_history_page_from(
+                        criterion::black_box(&conn),
+                        policy,
+                        criterion::black_box(&query),
+                    )
+                    .unwrap();
+                    criterion::black_box(serde_json::to_vec(&result).unwrap());
+                });
+            });
+        }
+    }
+    group.finish();
+}
+
+// ---------------------------------------------------------------------------
+// Capture scratch buffers and cancellable VAD preparation
+// ---------------------------------------------------------------------------
+
+fn capture_sample_conversion(c: &mut Criterion) {
+    let floats = synth_audio(960);
+    let integers: Vec<i16> = floats
+        .iter()
+        .map(|sample| (sample * 32767.0) as i16)
+        .collect();
+    let mut converted = Vec::new();
+    let mut mono = Vec::new();
+    convert_samples(&integers, &mut converted, |&sample| i16_to_f32(sample));
+    criterion::black_box(mono_samples(&converted, 2, &mut mono));
+    let mut group = c.benchmark_group("capture_samples");
+    group.throughput(Throughput::Elements(floats.len() as u64));
+    group.bench_function("i16_stereo_960", |b| {
+        b.iter(|| {
+            convert_samples(criterion::black_box(&integers), &mut converted, |&sample| {
+                i16_to_f32(sample)
+            });
+            criterion::black_box(mono_samples(&converted, 2, &mut mono));
+        });
+    });
+    group.bench_function("f32_stereo_960", |b| {
+        b.iter(|| {
+            criterion::black_box(mono_samples(criterion::black_box(&floats), 2, &mut mono));
+        });
+    });
+    group.finish();
+}
+
+fn vad_preparation(c: &mut Criterion) {
+    let config = serde_json::json!({"trim_silence": true});
+    let active = Arc::new(AtomicBool::new(false));
+    let mut group = c.benchmark_group("vad_prepare");
+    group.sample_size(10);
+    for seconds in [60, 600] {
+        let audio = Arc::new(synth_audio(seconds * 16_000));
+        group.throughput(Throughput::Elements(audio.len() as u64));
+        group.bench_function(BenchmarkId::from_parameter(seconds), |b| {
+            b.iter(|| {
+                criterion::black_box(vad::prepare_dictation_unless(
+                    Some(criterion::black_box(&config)),
+                    Arc::clone(&audio),
+                    Arc::clone(&active),
+                ));
+            });
+        });
+    }
+    group.finish();
+    // This exercises the early return, so audio throughput would be misleading.
+    let audio = Arc::new(synth_audio(600 * 16_000));
+    let cancelled = Arc::new(AtomicBool::new(true));
+    c.bench_function("vad_cancelled_before_prepare", |b| {
+        b.iter(|| {
+            criterion::black_box(vad::prepare_dictation_unless(
+                Some(criterion::black_box(&config)),
+                Arc::clone(&audio),
+                Arc::clone(&cancelled),
+            ));
+        });
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -154,8 +326,11 @@ criterion_group!(
         .warm_up_time(Duration::from_millis(500))
         .measurement_time(Duration::from_secs(2))
         .sample_size(100);
-    targets = wav_encoding_throughput,
-              multipart_body_construction,
+    targets = streaming_upload_encoding,
+              live_formatter,
+              history_page,
+              capture_sample_conversion,
+              vad_preparation,
               inference_result_clone,
               mutex_recover_lock_overhead
 );

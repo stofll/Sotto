@@ -13,7 +13,6 @@ import { ModelActionOverlays, useModelActions } from "../pages/modelActions";
 import { downloadSpaceText } from "../pages/modelAssessment";
 import { useModelAssessments } from "../pages/useModelAssessments";
 import { DEFAULT_HOTKEY, hotkeyParts } from "../hotkey";
-import { invoke } from "../bridge";
 import { t, useLocale } from "../i18n";
 import { onboardingExitTab, onboardingModels, onboardingStep } from "./modelChoices";
 import "./onboarding.css";
@@ -23,7 +22,10 @@ export type OnboardingProps = {
   toolbarTarget: HTMLDivElement | null;
   config: ConfigResult;
   models: ModelInfo[];
+  modelsLoading: boolean;
+  onRetryModels: () => void;
   microphones: MicrophoneResult[];
+  microphonesLoading: boolean;
   runtime: RuntimeStatusResult | null;
   progress: DownloadProgress | null;
   onConfigChanged: (change: ConfigChange, onError?: (message: string) => void) => Promise<ConfigResult | null>;
@@ -60,7 +62,7 @@ function ModelChoice({ model, selected, disabled, onChoose }: { model: ModelInfo
 /** Remains mounted after completion while its banner or a background download
  *  still has something to show, then ends the session through `onEnd`. */
 export default function Onboarding(props: OnboardingProps) {
-  const { active, toolbarTarget, config, models, microphones, runtime, progress, onConfigChanged, onModelsChanged, onNavigate, onToggleTheme, onCardShown, onEnd } = props;
+  const { active, toolbarTarget, config, models, modelsLoading, onRetryModels, microphones, microphonesLoading, runtime, progress, onConfigChanged, onModelsChanged, onNavigate, onToggleTheme, onCardShown, onEnd } = props;
   const locale = useLocale();
   const step = onboardingStep(config.onboarding_step);
   const cloud = config.ai_processing?.pipeline_mode === "cloud";
@@ -73,7 +75,6 @@ export default function Onboarding(props: OnboardingProps) {
   const chosen = choices.find((model) => model.id === (picked ?? config.onboarding_model ?? config.model)) ?? choices[0];
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
-  const [catalogFailed, setCatalogFailed] = useState(false);
   const [banner, setBanner] = useState(false);
   const [moving, setMoving] = useState(() => document.hasFocus() && document.visibilityState !== "hidden");
   const saving = useRef(false);
@@ -228,13 +229,12 @@ export default function Onboarding(props: OnboardingProps) {
         <Card pad="rows"><Icon name="text" size={28}/><h2>{t("Текст в поле")}</h2><p>{t("Готовый текст появляется там, где курсор.")}</p></Card>
       </div>}
       {step === 1 && <>
-        <div className="onboarding__grid" role="radiogroup" aria-label={t("Модель распознавания")}>
+        {modelsLoading ? <p role="status">{t("Загрузка…")}</p> : <div className="onboarding__grid" role="radiogroup" aria-label={t("Модель распознавания")}>
           {choices.map((model) => <ModelChoice key={model.id} model={model} selected={chosen?.id === model.id} disabled={downloading} onChoose={() => void choose(model)}/>)}
-        </div>
-        {!choices.length && <div>
+        </div>}
+        {!modelsLoading && !choices.length && <div>
           <p className="inline-error" role="alert">{t("Не удалось получить список моделей. Откройте каталог или попробуйте ещё раз.")}</p>
-          <button className="btn btn--ghost" type="button" onClick={() => { setCatalogFailed(false); void invoke<ModelInfo[]>("list_models").then(onModelsChanged).catch(() => setCatalogFailed(true)); }}>{t("Повторить")}</button>
-          {catalogFailed && <p className="inline-error" role="alert">{t("Не удалось загрузить модели.")}</p>}
+          <button className="btn btn--ghost" type="button" onClick={onRetryModels}>{t("Повторить")}</button>
         </div>}
         {cloud && <p className="onboarding__note">{cloudNote}</p>}
         <p className="onboarding__note">{t("Скачивание пойдёт в фоне. «Пропустить шаг» не начинает загрузку.")}</p>
@@ -242,7 +242,8 @@ export default function Onboarding(props: OnboardingProps) {
       </>}
       {step === 2 && <div className="card-stack">
         <Card pad="rows"><div className="capture-row"><div className="set-cell"><span className="set-label">{t("Горячая клавиша")}</span><HotkeyDisplay hotkey={config.hotkey} onConfigChanged={onConfigChanged}/></div><div className="vrule"/><div className="set-cell"><span className="set-label">{t("Режим записи")}</span><RecordingModeSegmented value={config.recording_mode ?? "toggle"} onConfigChanged={onConfigChanged}/></div></div></Card>
-        <Card pad="rows"><span className="set-label">{t("Микрофон")}</span><MicPicker microphone={config.microphone} microphones={microphones} onConfigChanged={onConfigChanged}/><p>{t("Проверьте микрофон сейчас, чтобы получить системное разрешение до первой диктовки.")}</p></Card>
+        <Card pad="rows"><span className="set-label">{t("Микрофон")}</span>{microphonesLoading ? <span role="status">{t("Загрузка…")}</span>
+          : <MicPicker microphone={config.microphone} microphones={microphones} onConfigChanged={onConfigChanged}/>}<p>{t("Проверьте микрофон сейчас, чтобы получить системное разрешение до первой диктовки.")}</p></Card>
         {runtime?.os === "macos" && <AccessibilityNotice/>}
       </div>}
       {step === 3 && <Card pad="rows" className="onboarding__options">
@@ -255,7 +256,7 @@ export default function Onboarding(props: OnboardingProps) {
       <footer className="onboarding__actions">
         {step > 0 && <button className="btn btn--ghost" type="button" disabled={busy} onClick={() => void save({ onboarding_step: step - 1 })}>{t("Назад")}</button>}
         {step > 0 && <button className="btn btn--ghost" type="button" disabled={busy} onClick={() => void next()}>{t("Пропустить шаг")}</button>}
-        <button className="btn btn--primary" type="button" disabled={busy || (step === 1 && (!chosen || !!insufficient))} onClick={() => void (step === 1 ? begin() : next())}>{primary}</button>
+        <button className="btn btn--primary" type="button" disabled={busy || (step === 1 && (modelsLoading || !chosen || !!insufficient))} onClick={() => void (step === 1 ? begin() : next())}>{primary}</button>
       </footer>
     </div>
     <svg className="onboarding__waves" viewBox="0 0 1440 600" preserveAspectRatio="none" aria-hidden="true">

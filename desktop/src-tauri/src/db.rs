@@ -5,7 +5,12 @@
 
 use std::sync::Mutex;
 
-use rusqlite::Connection;
+use rusqlite::{Connection, OpenFlags};
+
+/// The database file opened by [`open`].
+pub fn path() -> std::path::PathBuf {
+    crate::user_data::data_dir().join("sotto.db")
+}
 
 /// Opens (or creates) `sotto.db` with WAL mode and applies schema migrations.
 ///
@@ -19,10 +24,19 @@ pub fn open() -> Result<Mutex<Connection>, rusqlite::Error> {
             dir, e
         ))))
     })?;
-    let conn = Connection::open(dir.join("sotto.db"))?;
+    let conn = Connection::open(path())?;
     conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;")?;
     run_migrations(&conn)?;
     Ok(Mutex::new(conn))
+}
+
+/// A read-only connection beside the shared writer. Under WAL its read
+/// transactions see a consistent snapshot without waiting for the writer.
+pub fn open_reader(path: &std::path::Path) -> Result<Connection, rusqlite::Error> {
+    Connection::open_with_flags(
+        path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
 }
 
 /// Apply schema migrations based on `PRAGMA user_version`.

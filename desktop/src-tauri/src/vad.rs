@@ -16,7 +16,10 @@
 //! - no trimming unless it removes enough to be worth the risk.
 
 use std::ops::Range;
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 
 use serde_json::Value;
 
@@ -47,19 +50,30 @@ pub(crate) const FRAGMENT_SECONDS: usize = 25;
 /// Split a recording into fragments of at most `max_seconds`. Keep every
 /// sample exactly once, preferring the middle of a pause near four fifths of
 /// the limit.
-pub(crate) fn recognition_segments(samples: &[f32], max_seconds: usize) -> Vec<Range<usize>> {
+pub(crate) fn recognition_segments_unless(
+    samples: &[f32],
+    max_seconds: usize,
+    mut cancelled: impl FnMut() -> bool,
+) -> Option<Vec<Range<usize>>> {
+    if cancelled() {
+        return None;
+    }
     if samples.len() <= max_seconds * SAMPLE_RATE {
-        return std::iter::once(0..samples.len()).collect();
+        return Some(std::iter::once(0..samples.len()).collect());
     }
     let mut detector = earshot::Detector::default_boxed();
-    let frames: Vec<(bool, f64)> = samples
-        .chunks_exact(FRAME)
-        .map(|frame| {
-            let energy = frame.iter().map(|&s| f64::from(s).powi(2)).sum::<f64>() / FRAME as f64;
-            (detector.predict_f32(frame) > SPEECH_THRESHOLD, energy)
-        })
-        .collect();
-    segment_ranges(samples.len(), &frames, max_seconds)
+    let mut frames = Vec::with_capacity(samples.len() / FRAME);
+    for frame in samples.chunks_exact(FRAME) {
+        if cancelled() {
+            return None;
+        }
+        let energy = frame.iter().map(|&s| f64::from(s).powi(2)).sum::<f64>() / FRAME as f64;
+        frames.push((detector.predict_f32(frame) > SPEECH_THRESHOLD, energy));
+    }
+    if cancelled() {
+        return None;
+    }
+    Some(segment_ranges(samples.len(), &frames, max_seconds))
 }
 
 fn segment_ranges(length: usize, frames: &[(bool, f64)], max_seconds: usize) -> Vec<Range<usize>> {
@@ -130,8 +144,8 @@ pub fn enabled(config: &Value) -> bool {
 #[derive(Debug)]
 pub enum SpeechTiming {
     Ready(Option<f64>),
-    /// Detector pass running beside inference, so statistics never add to
-    /// the wait for text.
+    /// Detector pass running beside inference. `resolve` waits for it if
+    /// the pass is still running when recognition finishes.
     Running(std::thread::JoinHandle<Option<f64>>),
 }
 
@@ -148,15 +162,26 @@ impl SpeechTiming {
         }
     }
 
-    fn start(audio: &Arc<Vec<f32>>) -> Self {
+    fn start(audio: &Arc<Vec<f32>>, cancel_flag: Arc<AtomicBool>) -> Self {
         let samples = Arc::clone(audio);
+        let running_flag = Arc::clone(&cancel_flag);
         std::thread::Builder::new()
             .name("speech-timing".into())
-            .spawn(move || analyze_speech(&samples).map(|analysis| analysis.active_seconds))
+            .spawn(move || {
+                analyze_speech_unless(&samples, || running_flag.load(Ordering::Acquire))
+                    .ok()
+                    .flatten()
+                    .map(|analysis| analysis.active_seconds)
+            })
             .map(Self::Running)
             .unwrap_or_else(|error| {
                 log::warn!("speech analysis thread unavailable: {error}");
-                Self::Ready(analyze_speech(audio).map(|analysis| analysis.active_seconds))
+                Self::Ready(
+                    analyze_speech_unless(audio, || cancel_flag.load(Ordering::Acquire))
+                        .ok()
+                        .flatten()
+                        .map(|analysis| analysis.active_seconds),
+                )
             })
     }
 }
@@ -175,37 +200,47 @@ pub struct PreparedDictation {
 /// thread while the engine transcribes.
 /// Returns the original `Arc` untouched in every case where nothing is
 /// trimmed, so the common path copies nothing.
-pub fn prepare_dictation(config: Option<&Value>, audio: Arc<Vec<f32>>) -> PreparedDictation {
+///
+/// Cancellation is checked between detector frames. `None` means cancelled;
+/// no detected speech still preserves the full recording.
+pub fn prepare_dictation_unless(
+    config: Option<&Value>,
+    audio: Arc<Vec<f32>>,
+    cancel_flag: Arc<AtomicBool>,
+) -> Option<PreparedDictation> {
+    if cancel_flag.load(Ordering::Acquire) {
+        return None;
+    }
     let whole = |audio, timing| PreparedDictation {
         audio,
         offset: 0,
         timing,
     };
     if !config.is_some_and(enabled) {
-        let timing = SpeechTiming::start(&audio);
-        return whole(audio, timing);
+        let timing = SpeechTiming::start(&audio, cancel_flag);
+        return Some(whole(audio, timing));
     }
     // One detector pass serves both metrics and trimming. Timing is independent
     // of the trim preference, and never removes internal pauses from STT audio.
-    let analysis = analyze_speech(&audio);
+    let analysis = analyze_speech_unless(&audio, || cancel_flag.load(Ordering::Acquire)).ok()?;
     let timing = SpeechTiming::Ready(analysis.as_ref().map(|value| value.active_seconds));
     let Some((range, removed)) = trim_decision(audio.len(), analysis.map(|value| value.range))
     else {
-        return whole(audio, timing);
+        return Some(whole(audio, timing));
     };
     log::info!(
         "trimmed {removed:.1}s of silence ({:.1}s → {:.1}s)",
         audio.len() as f32 / SAMPLE_RATE as f32,
         range.len() as f32 / SAMPLE_RATE as f32
     );
-    PreparedDictation {
+    Some(PreparedDictation {
         offset: range.start,
         audio: Arc::new(audio[range].to_vec()),
         timing,
-    }
+    })
 }
 
-/// The pure half of [`prepare_dictation`]: decide whether to trim to
+/// The pure half of [`prepare_dictation_unless`]: decide whether to trim to
 /// `range` and report how many seconds that saves. `None` when nothing was
 /// detected or the saving is below [`MIN_SAVING_SECONDS`].
 fn trim_decision(audio_len: usize, range: Option<Range<usize>>) -> Option<(Range<usize>, f32)> {
@@ -220,30 +255,47 @@ struct SpeechAnalysis {
     active_seconds: f64,
 }
 
-fn analyze_speech(samples: &[f32]) -> Option<SpeechAnalysis> {
+#[derive(Debug)]
+struct AnalysisCancelled;
+
+fn analyze_speech_unless(
+    samples: &[f32],
+    mut cancelled: impl FnMut() -> bool,
+) -> Result<Option<SpeechAnalysis>, AnalysisCancelled> {
     let started = std::time::Instant::now();
+    if cancelled() {
+        return Err(AnalysisCancelled);
+    }
     if samples.len() < FRAME {
-        return None;
+        return Ok(None);
     }
     // The detector holds a large amount of state; `default_boxed` builds it
     // on the heap instead of blowing a few kilobytes of stack.
     let mut detector = earshot::Detector::default_boxed();
 
+    let mut was_cancelled = false;
     let frames = samples
         .as_chunks::<FRAME>()
         .0
         .iter()
         .enumerate()
+        .take_while(|_| {
+            was_cancelled = cancelled();
+            !was_cancelled
+        })
         .filter_map(|(index, frame)| {
             (detector.predict_f32(frame) > SPEECH_THRESHOLD).then_some(index)
         });
     let analysis = analyze_speech_frames(samples.len(), frames);
+    if was_cancelled || cancelled() {
+        return Err(AnalysisCancelled);
+    }
     log::debug!(
         "speech analysis: audio_seconds={:.3} elapsed_ms={:.3}",
         samples.len() as f64 / SAMPLE_RATE as f64,
         started.elapsed().as_secs_f64() * 1000.0
     );
-    analysis
+    Ok(analysis)
 }
 
 fn analyze_speech_frames(
@@ -281,6 +333,18 @@ fn speech_range_from_frames(total_len: usize, first: usize, last: usize) -> Rang
 mod tests {
     use super::*;
     use serde_json::json;
+
+    fn recognition_segments(samples: &[f32], max_seconds: usize) -> Vec<Range<usize>> {
+        recognition_segments_unless(samples, max_seconds, || false).unwrap()
+    }
+
+    fn analyze_speech(samples: &[f32]) -> Option<SpeechAnalysis> {
+        analyze_speech_unless(samples, || false).unwrap()
+    }
+
+    fn prepare_dictation(config: Option<&Value>, audio: Arc<Vec<f32>>) -> PreparedDictation {
+        prepare_dictation_unless(config, audio, Arc::new(AtomicBool::new(false))).unwrap()
+    }
 
     #[test]
     fn longform_prefers_pauses_and_preserves_every_sample() {
@@ -382,6 +446,53 @@ mod tests {
     fn enabled_by_default_and_switchable() {
         assert!(enabled(&json!({})));
         assert!(!enabled(&json!({ "trim_silence": false })));
+    }
+
+    #[test]
+    fn cancelled_preparation_returns_no_audio_or_background_work() {
+        for config in [None, Some(json!({})), Some(json!({"trim_silence": false}))] {
+            let audio = Arc::new(tone(2.0));
+            let flag = Arc::new(AtomicBool::new(true));
+            assert!(prepare_dictation_unless(config.as_ref(), Arc::clone(&audio), flag).is_none());
+            assert_eq!(Arc::strong_count(&audio), 1);
+        }
+    }
+
+    #[test]
+    fn cancellation_during_detection_discards_partial_bounds_and_timing() {
+        let audio = tone(3.0);
+        let mut checks = 0;
+        let result = analyze_speech_unless(&audio, || {
+            checks += 1;
+            checks == 12
+        });
+        assert!(result.is_err());
+        assert_eq!(checks, 12, "detection stops at the first cancelled frame");
+    }
+
+    #[test]
+    fn cancellation_during_longform_analysis_returns_no_partial_segments() {
+        let audio = tone(26.0);
+        let mut checks = 0;
+        let ranges = recognition_segments_unless(&audio, FRAGMENT_SECONDS, || {
+            checks += 1;
+            checks == 12
+        });
+        assert!(ranges.is_none());
+        assert_eq!(checks, 12);
+        for length in [0, 1, SAMPLE_RATE] {
+            assert!(
+                recognition_segments_unless(&audio[..length], FRAGMENT_SECONDS, || true).is_none()
+            );
+        }
+    }
+
+    #[test]
+    fn background_statistics_observe_the_same_cancellation_flag() {
+        let audio = Arc::new(tone(2.0));
+        let timing = SpeechTiming::start(&audio, Arc::new(AtomicBool::new(true)));
+        assert_eq!(timing.resolve(), None);
+        assert_eq!(Arc::strong_count(&audio), 1);
     }
 
     #[test]

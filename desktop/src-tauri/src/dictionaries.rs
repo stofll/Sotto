@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DictionarySet {
     pub id: String,
     pub name: String,

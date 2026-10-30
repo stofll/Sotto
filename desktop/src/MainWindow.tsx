@@ -74,6 +74,8 @@ function openPrivacyPane(permission: string) {
 /** An entry the history page should bring into view. `seq` makes a second
  *  request for the same entry count as new. */
 type HistoryFocus = { id: number; seq: number };
+type StartupResource = "models" | "microphones" | "stats" | "keys";
+type StartupStatus = Record<StartupResource, "loading" | "ready" | "error">;
 
 function pageFor(tab: TabId, data: {
   config: ConfigResult | null;
@@ -86,6 +88,8 @@ function pageFor(tab: TabId, data: {
   models: ModelInfo[];
   runtime: RuntimeStatusResult | null;
   apiKeys: ApiKeyStatus;
+  startup: StartupStatus;
+  onRetryStartup: (resource: StartupResource) => void;
   onConfigChanged: (change: ConfigChange, onError?: (message: string) => void) => Promise<ConfigResult | null>;
   onNavigate: (tab: TabId) => void;
   onApiKeysChanged: (next: ApiKeyStatus) => void;
@@ -95,19 +99,31 @@ function pageFor(tab: TabId, data: {
   updateInstallRequested: boolean;
   onUpdateInstallRequestHandled: () => void;
 }) {
+  if (!data.config) return <DataLoadingState failed onRetry={() => window.location.reload()}/>;
+  const resource = tab === "models" ? "models" : tab === "stats" ? "stats"
+    : tab === "ai" || tab === "integrations" ? "keys" : null;
+  if (resource && data.startup[resource] !== "ready") {
+    return <DataLoadingState failed={data.startup[resource] === "error"} onRetry={() => data.onRetryStartup(resource)}/>;
+  }
   switch (tab) {
-    case "settings": return <SettingsPage config={data.config} microphones={data.microphones} models={data.models} portable={data.runtime?.portable} onConfigChanged={data.onConfigChanged}/>;
+    case "settings": return <SettingsPage config={data.config} microphones={data.microphones} microphonesLoading={data.startup.microphones === "loading"} models={data.models} portable={data.runtime?.portable} onConfigChanged={data.onConfigChanged}/>;
     case "models": return <ModelsPage models={data.models} config={data.config} onConfigChanged={data.onConfigChanged} onModelsChanged={data.onModelsChanged}/>;
     case "text": return <TextPage config={data.config} onConfigChanged={data.onConfigChanged} previewDraft={data.textPreviewDraft} onPreviewDraftChange={data.onTextPreviewDraftChange}/>;
     case "ai": return <AiPage config={data.config?.ai_processing ?? null} apiKeys={data.apiKeys} onConfigChanged={data.onConfigChanged} onNavigate={(t) => data.onNavigate(t)}/>;
     case "integrations": return <IntegrationsPage config={data.config?.ai_processing ?? null} apiKeys={data.apiKeys} onConfigChanged={data.onConfigChanged} onApiKeysChanged={data.onApiKeysChanged}/>;
-    case "history": return <HistoryPageLoader focus={data.historyFocus}/>;
+    case "history": return <HistoryPageLoader focus={data.historyFocus} config={data.config}/>;
     case "stats": return <StatsPage stats={data.stats} typingSpeedCpm={data.config?.typing_speed_cpm} onRefresh={data.onStatsRefresh}/>;
     case "info": return <InfoPage version={data.version} config={data.config} onConfigChanged={data.onConfigChanged} onStartOnboarding={data.onStartOnboarding} installRequested={data.updateInstallRequested} onInstallRequestHandled={data.onUpdateInstallRequestHandled}/>;
   }
 }
 
-function HistoryPageLoader({ focus }: { focus: HistoryFocus | null }) {
+function DataLoadingState({ failed = false, onRetry }: { failed?: boolean; onRetry: () => void }) {
+  return <div className="loading-state" role="status" data-testid="page-data-loading">
+    {failed ? <button className="btn btn--ghost" type="button" onClick={onRetry}>{t("Повторить попытку")}</button> : t("Загрузка…")}
+  </div>;
+}
+
+function HistoryPageLoader({ focus, config }: { focus: HistoryFocus | null; config: ConfigResult }) {
   const [Page, setPage] = useState<typeof import("./pages/HistoryPage")["HistoryPage"] | null>(null);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
@@ -117,7 +133,7 @@ function HistoryPageLoader({ focus }: { focus: HistoryFocus | null }) {
       .catch(() => { if (!disposed) setFailed(true); });
     return () => { disposed = true; };
   }, []);
-  if (Page) return <Page focus={focus}/>;
+  if (Page) return <Page focus={focus} config={config}/>;
   return <div className="loading-state" role={failed ? "alert" : "status"}>
     {failed ? <div>
       <p>{t("Не удалось открыть историю.")}</p>
@@ -159,6 +175,9 @@ export function MainWindow() {
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [runtime, setRuntime] = useState<RuntimeStatusResult | null>(null);
   const [apiKeys, setApiKeys] = useState<ApiKeyStatus>({});
+  const [startup, setStartup] = useState<StartupStatus>({ models: "loading", microphones: "loading", stats: "loading", keys: "loading" });
+  const [startupErrors, setStartupErrors] = useState<Record<string, string>>({});
+  const startupLoaders = useRef<Partial<Record<StartupResource, () => Promise<void>>>>({});
   const [loading, setLoading] = useState(true);
   const [onboardingSession, setOnboardingSession] = useState(false);
   const endOnboarding = useCallback(() => setOnboardingSession(false), []);
@@ -170,7 +189,9 @@ export function MainWindow() {
   const [error, setError] = useState<string | null>(null);
   const [recordingState, setRecordingState] = useState<RecordingState>("idle");
   const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(null);
-  const [viewportWidth, setViewportWidth] = useState<number>(() => typeof window === "undefined" ? 1280 : window.innerWidth);
+  const [autoCollapsed, setAutoCollapsed] = useState(() =>
+    typeof window !== "undefined" && window.innerWidth < AUTO_COLLAPSE_BELOW,
+  );
   const [permissions, setPermissions] = useState<Array<{ permission: string; hint: string; message?: string }>>([]);
   const [manualCollapse, setManualCollapse] = useState<boolean | null>(() => {
     try {
@@ -190,7 +211,6 @@ export function MainWindow() {
     });
   }, [config]);
 
-  const autoCollapsed = viewportWidth < AUTO_COLLAPSE_BELOW;
   const collapsed = manualCollapse ?? autoCollapsed;
 
   useEffect(() => {
@@ -203,8 +223,9 @@ export function MainWindow() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const onResize = () => setViewportWidth(window.innerWidth);
+    const onResize = () => setAutoCollapsed(window.innerWidth < AUTO_COLLAPSE_BELOW);
     window.addEventListener("resize", onResize);
+    onResize();
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
@@ -256,7 +277,7 @@ export function MainWindow() {
         // Keep cross-window config notifications in the same order as writes.
         await emit("config-updated", result).catch(() => {});
         if ("model" in partial || "device" in partial) {
-          invoke<ModelInfo[]>("list_models").then(setModels).catch(() => {});
+          void startupLoaders.current.models?.();
         }
         return result;
       } catch (e) {
@@ -272,8 +293,7 @@ export function MainWindow() {
   }
 
   async function refreshStats() {
-    const next = await getStats();
-    setStats(next);
+    await startupLoaders.current.stats?.();
   }
 
   async function startOnboarding() {
@@ -319,12 +339,8 @@ export function MainWindow() {
     unlisteners.push(subscribe<unknown>("history-updated", () => {
       if (mounted) void refreshStats().catch(() => {});
     }));
-    const refreshModels = () => {
-      invoke<ModelInfo[]>("list_models").then((next) => { if (mounted) setModels(next); }).catch(() => {});
-    };
-    const refreshRuntime = () => {
-      invoke<RuntimeStatusResult>("get_runtime_status").then((next) => { if (mounted) setRuntime(next); }).catch(() => {});
-    };
+    const refreshModels = () => { void loadModels(); };
+    const refreshRuntime = () => { void loadRuntime(); };
     unlisteners.push(subscribe<unknown>("model-ready", () => {
       if (mounted) setDownloadProgress(null);
       refreshModels();
@@ -376,7 +392,7 @@ export function MainWindow() {
       });
     }));
 
-    async function loadApiKeys(cfg: ConfigResult | null): Promise<ApiKeyStatus> {
+    async function loadApiKeys(cfg: ConfigResult): Promise<ApiKeyStatus> {
       const defaults = ["anthropic", "openai", "gemini", "opencode-go", "compatible"];
       const profileRefs = (cfg?.ai_processing?.profiles ?? [])
         .map((p) => p.api_key_ref || (p.id === "default" ? p.provider : `key_${p.id}`))
@@ -386,66 +402,92 @@ export function MainWindow() {
       // lose the key from the UI on every restart.
       const slotRefs = (cfg?.ai_processing?.key_slots ?? []).map((s) => s.ref).filter(Boolean);
       const ids = Array.from(new Set([...defaults, ...profileRefs, ...slotRefs]));
+      // One unreadable credential slot must not block the AI and integration
+      // pages: it shows as missing, and the key can be saved again.
       const entries = await Promise.all(ids.map(async (key_id) => {
         try {
           const result = await invoke<{ available: boolean; label?: string; masked?: string }>("has_api_key", { key_id });
           return [key_id, { available: !!result.available, label: result.label ?? "", masked: result.masked ?? "" }] as const;
-        } catch {
+        } catch (e) {
+          console.warn("[MainWindow] has_api_key failed", key_id, e);
           return [key_id, { available: false, label: "", masked: "" }] as const;
         }
       }));
       return Object.fromEntries(entries) as ApiKeyStatus;
     }
 
-    async function load() {
+    const requests = new Map<string, number>();
+    let configurationSettled = false;
+    let runtimeSettled = false;
+    async function load<T>(name: string, request: () => Promise<T>, apply: (value: T) => void, resource?: StartupResource) {
+      const generation = (requests.get(name) ?? 0) + 1;
+      requests.set(name, generation);
+      if (!mounted) return;
+      if (resource) setStartup((current) => current[resource] === "ready" ? current : { ...current, [resource]: "loading" });
+      setStartupErrors((current) => {
+        const next = { ...current };
+        delete next[name];
+        return next;
+      });
       try {
-        const setters: Array<{ p: Promise<unknown>; set: (v: unknown) => void; name: string }> = [
-          { p: invoke<AppVersionResult>("app_version"), set: (v) => { if (mounted) setVersion((v as AppVersionResult).version); }, name: "app_version" },
-          { p: invoke<ConfigResult>("get_config"), set: (v) => { if (mounted) { const cfg = v as ConfigResult; configRef.current = cfg; setConfig(cfg); setOnboardingSession(cfg.onboarding_completed === false); setIntroductionShown(cfg.onboarding_completed === false); setTheme(cfg.theme ?? "dark"); applyLocaleFromConfig(cfg.ui_language); } }, name: "get_config" },
-          { p: invoke<MicrophoneResult[]>("list_microphones"), set: (v) => { if (mounted) setMicrophones(v as MicrophoneResult[]); }, name: "list_microphones" },
-          { p: invoke<ModelInfo[]>("list_models"), set: (v) => { if (mounted) setModels(v as ModelInfo[]); }, name: "list_models" },
-          { p: getStats(), set: (v) => { if (mounted) setStats(v as StatsResult); }, name: "get_stats" },
-          { p: invoke<RuntimeStatusResult>("get_runtime_status"), set: (v) => { if (mounted) setRuntime(v as RuntimeStatusResult); }, name: "get_runtime_status" },
-        ];
-        const results = await Promise.allSettled(setters.map((s) => s.p));
-        // Every failure here is visible to the user. It used to go only to
-        // console.warn, and a release build has no DevTools — the app silently
-        // drew an empty config as "there are no settings yet", with no way to
-        // tell that apart from an honest first launch.
-        const failed: string[] = [];
-        results.forEach((r, i) => {
-          if (r.status === "fulfilled") {
-            setters[i].set(r.value);
-            return;
-          }
-          const reason = r.reason instanceof Error ? r.reason.message : String(r.reason);
-          console.warn("[MainWindow] load:", setters[i].name, "failed", r.reason);
-          failed.push(`${setters[i].name}: ${reason}`);
-        });
-        if (failed.length > 0 && mounted) {
-          setError(t("Не загрузилось при старте — {p0}", { p0: failed.join("; ") }));
-        }
-        // Determine which config we actually got (or fall back to null)
-        const appConfig = results[1].status === "fulfilled" ? results[1].value as ConfigResult : null;
-        if (mounted && staleBuiltInPrompt(appConfig?.ai_processing)) {
-          void onConfigChanged((current) => {
-            const system_prompt = staleBuiltInPrompt(current.ai_processing);
-            return system_prompt ? { ai_processing: { system_prompt } } : {};
-          });
-        }
-        const keyStatuses = await loadApiKeys(appConfig);
-        if (!mounted) return;
-        setApiKeys(keyStatuses);
+        const value = await request();
+        if (!mounted || requests.get(name) !== generation) return;
+        apply(value);
+        if (resource) setStartup((current) => ({ ...current, [resource]: "ready" }));
       } catch (e) {
-        if (mounted) setError(e instanceof Error ? e.message : String(e));
+        if (!mounted || requests.get(name) !== generation) return;
+        const reason = e instanceof Error ? e.message : String(e);
+        console.warn("[MainWindow] load:", name, "failed", e);
+        setStartupErrors((current) => ({ ...current, [name]: reason }));
+        if (resource) setStartup((current) => current[resource] === "ready" ? current : { ...current, [resource]: "error" });
       } finally {
-        if (mounted) setLoading(false);
+        if (mounted && requests.get(name) === generation) {
+          if (name === "get_config") configurationSettled = true;
+          if (name === "get_runtime_status") runtimeSettled = true;
+          // A model event can supersede the original runtime read. Only the
+          // accepted reply (or its surfaced error) matters for readiness.
+          if (configurationSettled && runtimeSettled) setLoading(false);
+        }
       }
     }
 
-    load();
+    const loadModels = () => load("list_models", () => invoke<ModelInfo[]>("list_models"), setModels, "models");
+    const loadRuntime = () => load("get_runtime_status", () => invoke<RuntimeStatusResult>("get_runtime_status"), setRuntime);
+    const loadMicrophones = () => load("list_microphones", () => invoke<MicrophoneResult[]>("list_microphones"), setMicrophones, "microphones");
+    const loadStats = () => load("get_stats", getStats, setStats, "stats");
+    const loadKeys = () => {
+      const current = configRef.current;
+      return current ? load("has_api_key", () => loadApiKeys(current), setApiKeys, "keys") : Promise.resolve();
+    };
+    startupLoaders.current = { models: loadModels, microphones: loadMicrophones, stats: loadStats, keys: loadKeys };
+
+    void load("app_version", () => invoke<AppVersionResult>("app_version"), (value) => setVersion(value.version));
+    void loadModels();
+    void loadMicrophones();
+    void loadStats();
+    void load("get_config", () => invoke<ConfigResult>("get_config"), (received) => {
+      // A cross-window update can arrive before this initial read completes.
+      const cfg = configRef.current ?? received;
+      configRef.current = cfg;
+      setConfig(cfg);
+      setOnboardingSession(cfg.onboarding_completed === false);
+      setIntroductionShown(cfg.onboarding_completed === false);
+      setTheme(cfg.theme ?? "dark");
+      applyLocaleFromConfig(cfg.ui_language);
+      void loadKeys();
+      if (staleBuiltInPrompt(cfg.ai_processing)) {
+        void onConfigChanged((current) => {
+          const system_prompt = staleBuiltInPrompt(current.ai_processing);
+          return system_prompt ? { ai_processing: { system_prompt } } : {};
+        });
+      }
+    });
+    // Device enumeration, statistics and the OS credential store must not hold
+    // the entire window on its startup screen. Their consumers wait locally.
+    void loadRuntime();
     return () => {
       mounted = false;
+      startupLoaders.current = {};
       unlisteners.forEach((stop) => stop());
     };
   }, []);
@@ -463,6 +505,8 @@ export function MainWindow() {
   const onboardingActive = config?.onboarding_completed === false;
   const askTelemetry = !loading && !onboardingCard && !telemetryQuestionHidden
     && shouldOfferTelemetryConsent(config, stats?.total_transcriptions ?? 0);
+  const startupFailure = Object.entries(startupErrors).map(([name, reason]) => `${name}: ${reason}`).join("; ");
+  const visibleError = [error, startupFailure && t("Не загрузилось при старте — {p0}", { p0: startupFailure })].filter(Boolean).join("\n");
 
   return (
     <div className="app-frame" style={{ width: "100%", height: "100%", padding: 0 }}>
@@ -494,7 +538,7 @@ export function MainWindow() {
                 </button>
               </Card>
             ))}
-            {error && <div role="alert" style={{ margin: "14px 32px 0", padding: "10px 12px", borderRadius: "var(--radius-sm)", background: "var(--err-soft)", border: "1px solid color-mix(in srgb, var(--err) 35%, transparent)", color: "var(--err)", font: "500 12px/1.35 var(--font-sans)" }}>{error}</div>}
+            {visibleError && <div role="alert" style={{ margin: "14px 32px 0", padding: "10px 12px", borderRadius: "var(--radius-sm)", background: "var(--err-soft)", border: "1px solid color-mix(in srgb, var(--err) 35%, transparent)", color: "var(--err)", font: "500 12px/1.35 var(--font-sans)" }}>{visibleError}</div>}
             {sttUnavailable && !onboardingCard && !onboardingActive && (
               <div role="status" style={{ margin: "14px 32px 0", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", padding: "12px 14px", borderRadius: "var(--radius-sm)", background: "var(--warn-soft)", border: "1px solid color-mix(in srgb, var(--warn) 30%, transparent)", color: "var(--warn)", font: "500 12.5px/1.4 var(--font-sans)" }}>
                 <Icon name="info" size={14}/>
@@ -506,11 +550,14 @@ export function MainWindow() {
             )}
             {askTelemetry && <TelemetryConsentCard onConfigChanged={onConfigChanged} onDismiss={() => setTelemetryQuestionHidden(true)}/>}
             {(onboardingSession || onboardingActive) && config && !loading && <Suspense fallback={null}>
-              <Onboarding toolbarTarget={onboardingToolbar} active={onboardingActive} config={config} models={models} microphones={microphones} runtime={runtime} progress={downloadProgress} onConfigChanged={onConfigChanged} onModelsChanged={setModels} onNavigate={setTab} onToggleTheme={() => void toggleTheme()} onCardShown={setOnboardingCard} onEnd={endOnboarding}/>
+              <Onboarding toolbarTarget={onboardingToolbar} active={onboardingActive} config={config} models={models}
+                modelsLoading={startup.models === "loading"} onRetryModels={() => { void startupLoaders.current.models?.(); }}
+                microphones={microphones} microphonesLoading={startup.microphones === "loading"} runtime={runtime} progress={downloadProgress}
+                onConfigChanged={onConfigChanged} onModelsChanged={setModels} onNavigate={setTab} onToggleTheme={() => void toggleTheme()} onCardShown={setOnboardingCard} onEnd={endOnboarding}/>
             </Suspense>}
             {loading ? <LoadingState/> : !onboardingActive && (
               <div data-testid={`page-${tab}`} style={{ position: "relative", flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
-                {pageFor(tab, { config, historyFocus, version, stats, microphones, models, runtime, apiKeys, onConfigChanged, textPreviewDraft, onTextPreviewDraftChange: setTextPreviewDraft, onNavigate: setTab, onApiKeysChanged: setApiKeys, onModelsChanged: setModels, onStatsRefresh: refreshStats, onStartOnboarding: () => void startOnboarding(), updateInstallRequested, onUpdateInstallRequestHandled: () => setUpdateInstallRequested(false) })}
+                {pageFor(tab, { config, historyFocus, version, stats, microphones, models, runtime, apiKeys, startup, onRetryStartup: (resource) => startupLoaders.current[resource]?.(), onConfigChanged, textPreviewDraft, onTextPreviewDraftChange: setTextPreviewDraft, onNavigate: setTab, onApiKeysChanged: setApiKeys, onModelsChanged: setModels, onStatsRefresh: refreshStats, onStartOnboarding: () => void startOnboarding(), updateInstallRequested, onUpdateInstallRequestHandled: () => setUpdateInstallRequested(false) })}
               </div>
             )}
           </main>

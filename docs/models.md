@@ -97,6 +97,20 @@ The download button remains available when disk space is sufficient or unknown. 
 
 The downloader checks the remaining size of a whole bundle before requesting its first file, and checks again before downloading each file. Verified files and resumable partial downloads reduce the remaining size; zero free bytes means a full disk, while an unavailable measurement permits an attempt. This check does not reserve space against other downloads or applications.
 
+## Model memory and readiness
+
+Local and hybrid mode load the selected downloaded model on startup, while cloud mode skips that automatic load. Switching to cloud releases a resident local model after active dictation or file work gives up the engine; cleanup is checked after engine commands and by the 30-second watchdog. The files remain downloaded.
+
+An explicit local load request after the mode switch cancels that deferred release once the requested files pass the initial availability check. If subsequent verification fails before replacing the resident model, the previous model can stay in memory, subject to the normal idle setting. Returning to local or hybrid mode also synchronizes a retained Whisper model with the current compute-device setting.
+
+The default idle limit is five minutes; setting it to zero disables idle unloading, while a later switch to cloud still releases unused local weights. The next local dictation restores the model in parallel with capture. A local file job uses its initial configuration for restoration, so changing mode while the file is being decoded does not prevent its local model from being restored.
+
+All context creation and destruction stays on the engine's owning thread, and bundle verification remains mandatory on load and restore. Model-ready means that the native context is loaded. Whisper allocates its decoding state on the first inference, so model-ready does not include all first-dictation work.
+
+Local diagnostics separate verification, context creation, first state creation, load-request elapsed time, and native destruction; they also record streaming-preview gaps and final full-pass fallbacks for each session. These numeric diagnostics contain no audio or transcript. Native destruction releases Sotto's model objects; operating-system or allocator caches can keep process memory above its pre-load level.
+
+The speech language in Settings applies to cloud recognition as well as local recognition. Auto omits a language hint in the cloud request. A dormant local model does not restrict cloud languages; switching back to local or hybrid mode validates that the selected local model supports the chosen language.
+
 ## Models directory
 
 The default location is `%LOCALAPPDATA%/sotto/models` (Linux/macOS use the system cache directory). The path can be overridden with the `SOTTO_MODELS_DIR` environment variable.

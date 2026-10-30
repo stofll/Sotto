@@ -6,12 +6,39 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::sync::OnceLock;
 
-/// The measurement method the bundled references were taken with, engine
-/// versions included. It is a label, not a lookup of `Cargo.toml`: after an
-/// engine upgrade the old references no longer describe the new code, and a
-/// stale label is what keeps them off the cards until they are measured again
-/// (`reference_catalog_has_valid_metrics_and_unique_contexts` checks it).
-const METHOD: &str = "sotto-stt-v2-whisper-0.14.4-sherpa-1.13.7";
+fn engine_versions() -> (&'static str, &'static str) {
+    (env!("SOTTO_WHISPER_VERSION"), env!("SOTTO_SHERPA_VERSION"))
+}
+
+fn method() -> &'static str {
+    concat!(
+        "sotto-stt-v2-whisper-",
+        env!("SOTTO_WHISPER_VERSION"),
+        "-sherpa-",
+        env!("SOTTO_SHERPA_VERSION")
+    )
+}
+
+fn method_versions(method: &str) -> Option<(&str, &str)> {
+    method
+        .strip_prefix("sotto-stt-v2-whisper-")?
+        .split_once("-sherpa-")
+}
+
+fn compatible_method(recorded: &str, whisper_model: bool, current: (&str, &str)) -> bool {
+    let Some((whisper, sherpa)) = method_versions(recorded) else {
+        return false;
+    };
+    if whisper_model {
+        whisper == current.0
+    } else {
+        sherpa == current.1
+    }
+}
+
+#[cfg(test)]
+#[path = "../build_support/engine_versions.rs"]
+mod build_versions;
 /// The language setting that leaves the choice to the engine. Its measurement
 /// is the one that fits any other language the model is asked for.
 const GENERIC_LANGUAGE: &str = "auto";
@@ -39,7 +66,7 @@ impl Profile {
             model_id: model_id.to_owned(),
             revision: revision(model_id),
             hardware: hardware_profile::fingerprint().to_owned(),
-            method: METHOD.to_owned(),
+            method: method().to_owned(),
             compute: compute.to_owned(),
         }
     }
@@ -157,7 +184,7 @@ pub fn memory_assessment(
     // keeps the question the same one every other card answers — whether this
     // machine has room for this model — instead of leaving the one model that
     // demonstrably fits as the only card without a bar.
-    let budget = (available + if loaded { required } else { 0 }) as f64 * 0.8;
+    let budget = (available as f64 + if loaded { required as f64 } else { 0.0 }) * 0.8;
     result.status = if loaded {
         "loaded"
     } else if budget < required as f64 {
@@ -202,12 +229,13 @@ fn reference(model_id: &str, language: &str) -> Option<&'static Reference> {
         serde_json::from_str(include_str!("model_reference.json")).unwrap_or_default()
     });
     let revision = revision(model_id);
+    let whisper_model = model::model_engine(model_id).ok() == Some(model::ModelEngine::Whisper);
     let measured = |language: &str| {
         references.iter().find(|value| {
             value.model_id == model_id
                 && value.revision == revision
                 && value.compute == CATALOG_COMPUTE
-                && value.method == METHOD
+                && compatible_method(&value.method, whisper_model, engine_versions())
                 && value.language == language
                 && value.rtf.is_finite()
                 && value.rtf > 0.0
@@ -283,6 +311,50 @@ pub async fn model_assessments(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn compiled_method_uses_the_pinned_engines() {
+        let actual = build_versions::versions(
+            include_str!("../Cargo.lock"),
+            include_str!("../../../scripts/sherpa-runtime.lock"),
+        )
+        .unwrap();
+        assert_eq!(engine_versions(), actual);
+        assert_eq!(method_versions(method()), Some(actual));
+    }
+
+    #[test]
+    fn engine_upgrade_invalidates_only_its_references() {
+        let historical = "sotto-stt-v2-whisper-0.14.4-sherpa-1.13.7";
+        assert!(compatible_method(historical, true, ("0.14.4", "1.13.8")));
+        assert!(!compatible_method(historical, false, ("0.14.4", "1.13.8")));
+        assert!(!compatible_method(historical, true, ("0.15.0", "1.13.7")));
+        assert!(compatible_method(historical, false, ("0.15.0", "1.13.7")));
+        assert!(!compatible_method("unknown", true, engine_versions()));
+        assert!(!compatible_method(
+            "sotto-stt-v1-whisper-0.14.4-sherpa-1.13.7",
+            false,
+            engine_versions()
+        ));
+    }
+
+    #[test]
+    fn incompatible_historical_rows_are_not_displayed_as_current() {
+        let values: Vec<Reference> =
+            serde_json::from_str(include_str!("model_reference.json")).unwrap();
+        for value in values {
+            let Ok(engine) = model::model_engine(&value.model_id) else {
+                continue;
+            };
+            if !compatible_method(
+                &value.method,
+                engine == model::ModelEngine::Whisper,
+                engine_versions(),
+            ) {
+                assert!(reference(&value.model_id, &value.language).is_none());
+            }
+        }
+    }
     #[test]
     fn memory_keeps_unknown_zero_loaded_and_gpu_distinct() {
         assert_eq!(
@@ -319,6 +391,17 @@ mod tests {
     }
 
     #[test]
+    fn loaded_memory_budget_does_not_overflow_at_large_values() {
+        // The available pool and an already-loaded model's footprint are
+        // independent u64 values. Their sum can exceed u64::MAX even though
+        // the memory assessment should remain finite.
+        let assessment = memory_assessment(Some(u64::MAX), Some(u64::MAX), true, "cpu");
+        assert_eq!(assessment.status, "loaded");
+        assert!(assessment.score.unwrap().is_finite());
+        assert_eq!(assessment.score, Some(0.375));
+    }
+
+    #[test]
     fn the_configured_language_selects_the_reference_measured_with_it() {
         // Whisper pays for a detection pass, so the `auto` row must not stand
         // in while the language the user chose has a row of its own.
@@ -337,16 +420,6 @@ mod tests {
             reference("tiny", "de").expect("auto stands in").language,
             GENERIC_LANGUAGE
         );
-        // Sherpa models do not run a detection pass, so their rows agree. The
-        // catalogue exposes them only where their runtime is packaged.
-        #[cfg(any(windows, target_os = "macos"))]
-        {
-            let (fixed, auto) = (
-                reference("gigaam-v3", "ru").unwrap().rtf,
-                reference("gigaam-v3", GENERIC_LANGUAGE).unwrap().rtf,
-            );
-            assert!((auto / fixed - 1.0).abs() < 0.2, "{auto} vs {fixed}");
-        }
         assert!(reference("custom-missing", "ru").is_none());
     }
 
@@ -399,7 +472,10 @@ mod tests {
         for value in values {
             assert_eq!(value.revision.len(), 64);
             assert!(value.revision.bytes().all(|byte| byte.is_ascii_hexdigit()));
-            assert_eq!(value.method, METHOD);
+            let (whisper, sherpa) =
+                method_versions(&value.method).expect("known historical method");
+            assert!(semver::Version::parse(whisper).is_ok());
+            assert!(semver::Version::parse(sherpa).is_ok());
             assert!(value.rtf.is_finite() && value.rtf > 0.0);
             assert!(value.audio_seconds.is_finite() && value.audio_seconds > 0.0);
             assert!(value.median_ms.is_finite() && value.median_ms > 0.0);
