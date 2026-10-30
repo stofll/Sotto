@@ -39,6 +39,12 @@ describe("checkBaseUrl", () => {
     expect(baseUrlBlocks(check)).toBe(false);
   });
 
+  it("expects no version segment in a resource address, but still blocks a broken one", () => {
+    expect(checkBaseUrl("https://my-resource.cognitiveservices.azure.com", "resource")).toBeNull();
+    expect(checkBaseUrl("my-resource.cognitiveservices.azure.com", "resource")?.code).toBe("malformed");
+    expect(checkBaseUrl("", "resource")?.code).toBe("empty");
+  });
+
   it("does not count a trailing slash as a different address", () => {
     expect(checkBaseUrl("https://api.deepseek.com/v1/")).toBeNull();
     expect(normalizeBaseUrl("  https://api.deepseek.com/v1//  ")).toBe("https://api.deepseek.com/v1");

@@ -2226,11 +2226,17 @@ fn cloud_stt_request_from_config(
     let ai = config
         .get("ai_processing")
         .ok_or_else(|| "missing ai_processing config".to_string())?;
-    let base_url = ai
-        .get("base_url")
+    let provider = ai
+        .get("provider")
         .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| "cloud STT requires 'base_url' in ai_processing".to_string())?
-        .to_string();
+        .unwrap_or_default();
+    let base_url = crate::cloud_stt::effective_base_url(
+        provider,
+        ai.get("base_url").and_then(serde_json::Value::as_str),
+    );
+    if base_url.is_empty() {
+        return Err("cloud STT requires 'base_url' in ai_processing".to_string());
+    }
     let model = ai
         .get("stt_model")
         .or_else(|| ai.get("model"))
@@ -2261,7 +2267,7 @@ fn cloud_stt_request_from_config(
         .map(str::to_string);
 
     Ok(crate::cloud_stt::CloudSttRequest {
-        provider: crate::cloud_stt::CloudSttProvider::Compatible,
+        provider: crate::cloud_stt::CloudSttProvider::for_profile(provider),
         base_url,
         api_key,
         model,
@@ -2381,7 +2387,7 @@ mod completion_tests {
             text: text.to_string(),
             language: Some("ru".to_string()),
             model_id: Some("turbo".to_string()),
-            stt_service: None,
+            cloud_stt: None,
             inference_time_ms: 500,
             audio_seconds: 4.0,
             speech_seconds: None,

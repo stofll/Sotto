@@ -244,7 +244,7 @@ impl Dispatcher {
                 inference.audio_seconds,
                 inference.inference_time_ms,
                 processed.ai_status.clone(),
-                inference.stt_service,
+                inference.cloud_stt,
             ),
         };
         // Claimed before the paste, whose `dictation::finish` would otherwise
@@ -454,7 +454,7 @@ struct PendingPaste {
 /// The completed-dictation telemetry, captured before the paste so the
 /// delivery thread does not read the config.
 struct DictationTelemetry {
-    stt_service: Option<telemetry::ProviderService>,
+    cloud_stt: Option<crate::cloud_stt::CloudSttRoute>,
     pipeline_mode: String,
     stt_model: Option<String>,
     audio_seconds: f64,
@@ -474,12 +474,12 @@ impl DictationTelemetry {
         audio_seconds: f64,
         stt_millis: u64,
         ai_status: Option<crate::ai::step::AiStatus>,
-        stt_service: Option<telemetry::ProviderService>,
+        cloud_stt: Option<crate::cloud_stt::CloudSttRoute>,
     ) -> Self {
         let (formatting_enabled, replacement_rules) =
             config.map(telemetry_formatting).unwrap_or((false, 0));
         Self {
-            stt_service,
+            cloud_stt,
             pipeline_mode: pipeline_mode.to_string(),
             recording_mode: config
                 .map(telemetry_recording_mode)
@@ -500,7 +500,7 @@ impl DictationTelemetry {
             pipeline_mode: &self.pipeline_mode,
             recording_mode: self.recording_mode,
             stt_model: self.stt_model.as_deref(),
-            stt_service: self.stt_service,
+            cloud_stt: self.cloud_stt,
             audio_seconds: self.audio_seconds,
             stt_millis: self.stt_millis,
             chars,

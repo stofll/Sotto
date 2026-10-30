@@ -233,7 +233,20 @@ describe("llmRouteBlocker", () => {
   });
 
   it.each([undefined, "", "  ", "/v1", "example.com", "file:///tmp/model"])("rejects cloud Base URL %s", (base_url) => {
-    expect(llmRouteBlocker({ ...cloud, base_url }, withKey)).toBe("invalid_base_url");
+    expect(llmRouteBlocker({ ...cloud, provider: "compatible", base_url }, withKey)).toBe("invalid_base_url");
+    expect(llmRouteBlocker({ ...cloud, provider: "azure-speech", base_url }, withKey)).toBe("invalid_base_url");
+  });
+
+  it.each(["openai", "gemini", "elevenlabs"])("lets %s transcribe without a Base URL", (provider) => {
+    expect(llmRouteBlocker({ ...cloud, provider, base_url: "" }, withKey)).toBeNull();
+    expect(llmRouteBlocker({ ...cloud, provider, base_url: "not a url" }, withKey)).toBe("invalid_base_url");
+  });
+
+  it("knows which providers cannot do the job the mode asks of them", () => {
+    expect(llmRouteBlocker({ ...cloud, provider: "anthropic", base_url: "" }, withKey)).toBe("no_transcription");
+    expect(llmRouteBlocker({ ...hybrid, provider: "elevenlabs" }, withKey)).toBe("transcription_only");
+    expect(llmRouteBlocker({ ...hybrid, provider: "azure-speech" }, withKey)).toBe("transcription_only");
+    expect(llmRouteBlocker({ ...cloud, provider: "elevenlabs", base_url: "" }, withKey)).toBeNull();
   });
 
   it("allows local HTTP servers and does not require a URL for hybrid", () => {
@@ -265,6 +278,12 @@ describe("profileGap", () => {
     expect(profileGap({ id: "voice", provider: "", model: "gpt-4o-mini", api_key_ref: "key_voice" }, inSlot)).toBe("no_provider");
     expect(profileGap(saved({ model: "  " }), inSlot)).toBe("no_model");
     expect(profileGap(saved({}), {})).toBe("no_key");
+  });
+
+  /** Manual processing is an LLM request, which a transcription-only provider
+   *  cannot serve whatever key and model it holds. */
+  it("refuses a transcription-only profile for text", () => {
+    expect(profileGap(saved({ provider: "elevenlabs", model: "scribe_v2" }), inSlot)).toBe("transcription_only");
   });
 
   /** The pill next to the picker and the note under the manual panel read the

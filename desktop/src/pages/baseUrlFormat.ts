@@ -46,7 +46,9 @@ export function normalizeBaseUrl(raw: string): string {
   return raw.trim().replace(/\/+$/, "");
 }
 
-export function checkBaseUrl(raw: string): UrlCheck {
+/** `resource` is the address of the user's own resource (an Azure Speech
+ *  endpoint), which has no API version in its path to expect. */
+export function checkBaseUrl(raw: string, kind: "api" | "resource" = "api"): UrlCheck {
   const value = normalizeBaseUrl(raw);
   if (!value) return { level: "error", code: "empty", message: t("Введите Base URL.") };
 
@@ -57,6 +59,7 @@ export function checkBaseUrl(raw: string): UrlCheck {
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     return { level: "error", code: "scheme", message: t("Адрес должен начинаться с http:// или https://.") };
   }
+  if (kind === "resource") return null;
 
   const path = url.pathname.replace(/\/+$/, "");
   if (CHAT_SUFFIXES.some((suffix) => path.endsWith(suffix))) {

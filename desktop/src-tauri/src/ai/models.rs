@@ -131,6 +131,9 @@ pub async fn fetch_models(
     base_url: Option<&str>,
     api_key: &str,
 ) -> Result<Vec<String>, String> {
+    if let Some(models) = crate::cloud_stt::transcription_models(provider) {
+        return Ok(models.iter().map(|model| model.to_string()).collect());
+    }
     let endpoint = endpoint(provider, base_url, api_key)?;
     let headers: Vec<(&str, &str)> = endpoint
         .headers
@@ -307,6 +310,17 @@ mod tests {
         );
         let models = fetch_models("openai", Some(&url), "key").await.unwrap();
         assert_eq!(models, vec!["gpt-4o", "gpt-4o-mini"]);
+    }
+
+    /// No request is made: the key is not needed to name the models.
+    #[tokio::test]
+    async fn transcription_only_providers_offer_their_models_without_a_request() {
+        let models = fetch_models("elevenlabs", Some("http://127.0.0.1:9"), "")
+            .await
+            .unwrap();
+        assert!(models.contains(&"scribe_v2".to_string()));
+        let models = fetch_models("azure-speech", None, "").await.unwrap();
+        assert_eq!(models[0], "MAI-Transcribe-2");
     }
 
     #[tokio::test]

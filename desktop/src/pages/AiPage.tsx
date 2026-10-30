@@ -551,7 +551,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
               <Hint text={t("Прогнать образец через активный профиль с его промптом и увидеть ответ модели (списывает токены)")}>
                 <button
                   className="btn btn--primary"
-                  disabled={testLoading || !ai.model.trim()}
+                  disabled={testLoading || !ai.model.trim() || provider.transcriptionOnly}
                   onClick={() => void runTestPrompt()}
                 ><Icon name="spark" size={12}/>{testLoading ? t("Отправляю…") : t("Пробный запрос")}</button>
               </Hint>
@@ -635,7 +635,7 @@ export function AiPage({ config, apiKeys, onConfigChanged, onNavigate }: Props) 
               {/* Read by Rust since cloud transcription existed, and until now
                   changeable only by hand-editing config.json. */}
               <div className="route-advanced__cell">
-                <h3>{t("Таймаут облачного STT")}<Hint text={t("Сколько ждать ответа /audio/transcriptions в облачном режиме. Распознавать больше нечем, поэтому по истечении диктовка завершится ошибкой. Значение общее для всех профилей.")}/></h3>
+                <h3>{t("Таймаут облачного STT")}<Hint text={t("Сколько ждать ответа провайдера распознавания в облачном режиме. Распознавать больше нечем, поэтому по истечении диктовка завершится ошибкой. Значение общее для всех профилей.")}/></h3>
                 <NumberField className="mono" min={5} max={300} step={5} value={ai.cloud_stt_timeout_seconds ?? 45}
                   onValueChange={(next) => void saveAi({ cloud_stt_timeout_seconds: Math.max(5, Math.min(300, Number(next) || 45)) })} style={{ width: 84 }}/>
                 <span className="route-advanced__unit">{t("секунд")}</span>

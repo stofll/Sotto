@@ -210,6 +210,10 @@ pub enum ProviderService {
     Moonshot,
     Minimax,
     Xai,
+    Elevenlabs,
+    /// Azure Speech, named by the cloud STT adapter rather than by host: every
+    /// resource has a hostname of its own.
+    Azure,
     Custom,
 }
 
@@ -237,6 +241,7 @@ pub fn provider_service(base_url: &str) -> ProviderService {
         Some("api.moonshot.cn" | "api.moonshot.ai") => Moonshot,
         Some("api.minimax.io") => Minimax,
         Some("api.x.ai") => Xai,
+        Some("api.elevenlabs.io") => Elevenlabs,
         _ => Custom,
     }
 }
@@ -291,7 +296,8 @@ pub struct Outcome<'a> {
     pub pipeline_mode: &'a str,
     pub recording_mode: RecordingMode,
     pub stt_model: Option<&'a str>,
-    pub stt_service: Option<ProviderService>,
+    /// Set only by a completed cloud request.
+    pub cloud_stt: Option<crate::cloud_stt::CloudSttRoute>,
     pub audio_seconds: f64,
     pub stt_millis: u64,
     pub chars: usize,
@@ -312,7 +318,7 @@ impl<'a> Outcome<'a> {
             pipeline_mode,
             recording_mode: RecordingMode::NotApplicable,
             stt_model: None,
-            stt_service: None,
+            cloud_stt: None,
             audio_seconds: 0.0,
             stt_millis: 0,
             chars: 0,
@@ -859,17 +865,6 @@ fn provider_wire(provider: &str) -> Option<&'static str> {
     }
 }
 
-/// Cloud STT currently executes through the OpenAI-compatible adapter. Keep
-/// the normalization strict so a future config value cannot turn into a
-/// high-cardinality provider label. The call sites use the actual request's
-/// fixed `CloudSttProvider::Compatible` value rather than the user endpoint.
-fn cloud_stt_provider_wire(provider: &str) -> Option<&'static str> {
-    match provider.trim().to_lowercase().as_str() {
-        "compatible" | "openai-compatible" | "openai_compatible" => Some("compatible"),
-        _ => None,
-    }
-}
-
 const MAX_EXTERNAL_MODEL_CHARS: usize = 64;
 
 /// Normalize a model supplied by a cloud/LLM provider without ever forwarding
@@ -941,13 +936,17 @@ fn stt_model_wire(mode: &'static str, value: Option<&str>) -> Option<String> {
     }
 }
 
-fn stt_provider_wire(mode: &'static str, completed_operation: bool) -> Option<String> {
+fn stt_provider_wire(
+    mode: &'static str,
+    completed_operation: bool,
+    cloud: Option<crate::cloud_stt::CloudSttRoute>,
+) -> Option<String> {
     if mode == "cloud" {
-        if completed_operation {
-            cloud_stt_provider_wire("compatible").map(str::to_string)
-        } else {
-            None
-        }
+        // The adapter's fixed label, never the endpoint or profile name.
+        completed_operation
+            .then_some(cloud)
+            .flatten()
+            .map(|route| route.provider.wire().to_string())
     } else {
         // Local is a fixed product route, not a user/provider label, so it is
         // safe to retain it even when a local setup/capture failure occurs.
@@ -1034,8 +1033,11 @@ fn outcome_payload(
         pipeline_mode: mode,
         recording_mode: outcome.recording_mode.wire(),
         stt_engine: stt_engine_wire(mode, outcome.stt_model),
-        stt_provider: stt_provider_wire(mode, stage.is_none()),
-        stt_service: (mode == "cloud").then_some(outcome.stt_service).flatten(),
+        stt_provider: stt_provider_wire(mode, stage.is_none(), outcome.cloud_stt),
+        stt_service: (mode == "cloud")
+            .then_some(outcome.cloud_stt)
+            .flatten()
+            .map(|route| route.service),
         stt_model: stt_model_wire(mode, outcome.stt_model),
         stt_model_name: (mode != "cloud")
             .then(|| outcome.stt_model.and_then(crate::model::catalog_model))
@@ -1478,10 +1480,6 @@ mod tests {
     fn provider_and_engine_values_are_strictly_allowlisted() {
         assert_eq!(provider_wire("OpenAI"), Some("openai"));
         assert_eq!(provider_wire("https://example.test"), None);
-        assert_eq!(
-            cloud_stt_provider_wire(" OpenAI-Compatible "),
-            Some("compatible")
-        );
         assert_eq!(stt_engine_wire("local", Some("tiny")), "whisper");
         assert_eq!(stt_engine_wire("local", Some("custom-model")), "other");
     }
@@ -1659,6 +1657,10 @@ mod tests {
         let outcome = Outcome {
             source: Source::File,
             compute: None,
+            cloud_stt: Some(crate::cloud_stt::CloudSttRoute {
+                provider: crate::cloud_stt::CloudSttProvider::Compatible,
+                service: ProviderService::Custom,
+            }),
             ..completed("cloud", Some("C:\\Users\\me\\secret-key"), Some(&status))
         };
         let event =
@@ -1961,16 +1963,37 @@ mod tests {
             .unwrap()
             .get("telemetry_service")
             .is_none());
+        use crate::cloud_stt::{CloudSttProvider, CloudSttRoute};
+        let routes = [
+            (
+                CloudSttProvider::Compatible,
+                ProviderService::Groq,
+                "compatible",
+            ),
+            (
+                CloudSttProvider::ElevenLabs,
+                ProviderService::Elevenlabs,
+                "elevenlabs",
+            ),
+            (
+                CloudSttProvider::AzureSpeech,
+                ProviderService::Azure,
+                "azure_speech",
+            ),
+            (CloudSttProvider::Gemini, ProviderService::Gemini, "gemini"),
+        ];
         for source in [Source::Microphone, Source::File] {
-            let mut outcome = completed("cloud", Some("whisper-1"), None);
-            outcome.source = source;
-            outcome.stt_service = Some(ProviderService::Groq);
-            let payload = outcome_payload("cloud", &outcome, None, None);
-            assert_eq!(payload.stt_service, Some(ProviderService::Groq));
-            assert_eq!(payload.stt_provider.as_deref(), Some("compatible"));
-            assert!(outcome_payload("local", &outcome, None, None)
-                .stt_service
-                .is_none());
+            for (provider, service, label) in routes {
+                let mut outcome = completed("cloud", Some("whisper-1"), None);
+                outcome.source = source;
+                outcome.cloud_stt = Some(CloudSttRoute { provider, service });
+                let payload = outcome_payload("cloud", &outcome, None, None);
+                assert_eq!(payload.stt_service, Some(service));
+                assert_eq!(payload.stt_provider.as_deref(), Some(label));
+                assert!(outcome_payload("local", &outcome, None, None)
+                    .stt_service
+                    .is_none());
+            }
         }
     }
 

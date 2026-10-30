@@ -13,6 +13,11 @@ export type ProviderConfig = {
   dot: string;
   icon: string;
   logo?: string;
+  /** Only transcribes speech: serves cloud recognition, not LLM processing. */
+  transcriptionOnly?: boolean;
+  /** The provider lives at the user's own resource address, so Base URL is
+   *  asked for as with an OpenAI-compatible server. Its example. */
+  endpointExample?: string;
 };
 
 export type CompatiblePreset = {
@@ -29,14 +34,36 @@ export const PROVIDERS: ProviderConfig[] = [
   { id: "gemini", name: "Google Gemini", defaultModel: "gemini-2.5-flash", dot: "#4285f4", icon: "brand-gemini", logo: "gemini.svg" },
   { id: "opencode-go", name: "OpenCode Go", defaultModel: "qwen3.5-plus", dot: "#ff8a3d", icon: "brand-opencode", logo: "opencode.svg" },
   { id: "compatible", name: "OpenAI-compatible", defaultModel: "custom-model", dot: "#a78bfa", icon: "brand-compatible" },
+  { id: "elevenlabs", name: "ElevenLabs", defaultModel: "scribe_v2", dot: "var(--ink-dim)", icon: "mic", transcriptionOnly: true },
+  {
+    id: "azure-speech", name: "Azure Speech (MAI-Transcribe)", defaultModel: "MAI-Transcribe-2", dot: "var(--ink-dim)", icon: "mic",
+    transcriptionOnly: true, endpointExample: "https://my-resource.cognitiveservices.azure.com",
+  },
 ];
+
+export function providerById(id: string | undefined): ProviderConfig | undefined {
+  return PROVIDERS.find((item) => item.id === id);
+}
+
+/** Base URL is the user's to give: an OpenAI-compatible server or an Azure resource. */
+export function needsBaseUrl(providerId: string): boolean {
+  return providerId === "compatible" || Boolean(providerById(providerId)?.endpointExample);
+}
+
+/** Providers with no speech recognition of their own. */
+const NO_TRANSCRIPTION = new Set(["anthropic"]);
+/** Providers cloud recognition reaches without a Base URL: Rust falls back to
+ *  their one public endpoint (`cloud_stt::effective_base_url`). */
+const OWN_STT_ENDPOINT = new Set(["openai", "gemini", "elevenlabs"]);
 
 export const MODEL_HINTS = (): Record<string, string> => ({
   openai: t("Model ID смотри в OpenAI Platform: docs OpenAI Models или GET /v1/models."),
   anthropic: t("Model ID смотри в Anthropic Console / документации Models, например claude-*."),
-  gemini: t("Model ID смотри в Google AI Studio / Gemini API docs, обычно gemini-*."),
+  gemini: t("Model ID смотри в Google AI Studio / Gemini API docs, обычно gemini-*. Для облачного распознавания — gemini-3.5-transcribe."),
   "opencode-go": t("OpenCode Go API принимает plain model id, например qwen3.6-plus."),
   compatible: t("Model ID берётся из документации выбранного OpenAI-compatible провайдера или его /v1/models."),
+  elevenlabs: t("Модели Scribe для облачного распознавания: scribe_v2 — основная. Обрабатывать текст через LLM этот провайдер не умеет."),
+  "azure-speech": t("MAI-Transcribe через Azure Speech, только облачное распознавание. Base URL — endpoint вашего ресурса Speech."),
 });
 
 export const OPENCODE_GO_BASE_URL = "https://opencode.ai/zen/go/v1";
@@ -333,20 +360,28 @@ export function textProfileFor(ai: AiConfig | null, profiles: LlmProfile[], voic
 }
 
 /** Checks the saved route: Rust reads the flat fields, not the profile list. */
-export type LlmRouteBlocker = "no_provider" | "no_model" | "no_key" | "invalid_base_url" | null;
+export type LlmRouteBlocker =
+  | "no_provider" | "no_model" | "no_key" | "invalid_base_url" | "transcription_only" | "no_transcription" | null;
 
 export function llmRouteBlocker(ai: AiConfig | null, apiKeys: ApiKeyStatus): LlmRouteBlocker {
   const mode = ai?.pipeline_mode ?? DEFAULT_AI.pipeline_mode;
   if (mode === "local") return null;
+  const provider = ai?.provider?.trim() ?? "";
   if (mode === "cloud") {
-    try {
-      const url = new URL(ai?.base_url ?? "");
-      if (url.protocol !== "http:" && url.protocol !== "https:") return "invalid_base_url";
-    } catch {
-      return "invalid_base_url";
+    if (NO_TRANSCRIPTION.has(provider)) return "no_transcription";
+    const baseUrl = ai?.base_url?.trim() ?? "";
+    if (baseUrl || !OWN_STT_ENDPOINT.has(provider)) {
+      try {
+        const url = new URL(baseUrl);
+        if (url.protocol !== "http:" && url.protocol !== "https:") return "invalid_base_url";
+      } catch {
+        return "invalid_base_url";
+      }
     }
-  } else if (!ai?.provider?.trim()) {
+  } else if (!provider) {
     return "no_provider";
+  } else if (providerById(provider)?.transcriptionOnly) {
+    return "transcription_only";
   }
   const model = mode === "cloud" ? ai?.stt_model ?? ai?.model : ai?.model;
   if (!model?.trim()) return "no_model";
@@ -376,6 +411,7 @@ export function profileGap(
   apiKeys: ApiKeyStatus,
 ): LlmRouteBlocker {
   if (!profile.provider?.trim()) return "no_provider";
+  if (providerById(profile.provider)?.transcriptionOnly) return "transcription_only";
   if (!profile.model?.trim()) return "no_model";
   if (!profileKeyInfo(profile, apiKeys).available) return "no_key";
   return null;
@@ -384,6 +420,8 @@ export function profileGap(
 /** What exactly stops the request from reaching the provider. */
 export function gapReason(gap: NonNullable<LlmRouteBlocker>): string {
   if (gap === "no_provider") return t("Провайдер LLM не выбран. Настройте его в «Интеграциях».");
+  if (gap === "transcription_only") return t("Провайдер профиля только распознаёт речь и не обрабатывает текст. Выберите профиль с LLM.");
+  if (gap === "no_transcription") return t("Провайдер профиля не распознаёт речь. Для облачного распознавания выберите другой профиль.");
   if (gap === "invalid_base_url") return t("Для облачного распознавания укажите Base URL с http:// или https://.");
   if (gap === "no_model") return t("Модель обработки не выбрана.");
   return t("Для обработки нет сохранённого API-ключа.");

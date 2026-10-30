@@ -16,12 +16,14 @@ import {
   effectiveSystemPrompt,
   EMPTY_KEY_INFO,
   mergeAi,
+  needsBaseUrl,
   normalizeProfile,
   OPENCODE_GO_BASE_URL,
   ProviderMark,
   profileKeyRef,
   profilesForAi,
   PROVIDERS,
+  providerById,
   routeFields,
   type AiConfig,
   type LlmProfile,
@@ -40,6 +42,11 @@ type Props = {
 
 
 type TestResponse = { available: boolean; message?: string; provider_error?: string; output?: string };
+
+/** An Azure resource address has no API version to expect in its path. */
+function profileUrlCheck(profile: LlmProfile) {
+  return checkBaseUrl(profile.base_url ?? "", providerById(profile.provider)?.endpointExample ? "resource" : "api");
+}
 
 /** The profile key used in `testingKey` and `testResults`. One function for
  *  every place it is built: a string assembled ad hoc drifts apart silently. */
@@ -317,7 +324,7 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
   function writableProfile(draft: LlmProfile, model?: string): LlmProfile | null {
     const nextModel = (model ?? draft.model).trim();
     if (!nextModel) return null;
-    if (draft.provider === "compatible" && baseUrlBlocks(checkBaseUrl(draft.base_url ?? ""))) return null;
+    if (needsBaseUrl(draft.provider) && baseUrlBlocks(profileUrlCheck(draft))) return null;
     return { ...draft, model: nextModel, base_url: normalizeBaseUrl(draft.base_url ?? "") };
   }
 
@@ -699,7 +706,7 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
           const provider = PROVIDERS.find((item) => item.id === profile.provider) ?? PROVIDERS[0];
           const keyRef = profileKeyRef(profile);
           const keyInfo = apiKeys[keyRef];
-          const urlCheck = profile.provider === "compatible" ? checkBaseUrl(profile.base_url ?? "") : null;
+          const urlCheck = needsBaseUrl(profile.provider) ? profileUrlCheck(profile) : null;
           const isOpen = expandedProfiles.has(profile.id);
           const isActive = profile.id === activeProfileId;
           const isRenaming = renamingId === profile.id;
@@ -804,7 +811,7 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
                     </div>
                   </div>
 
-                  {(profile.provider === "compatible" || profile.provider === "opencode-go" || profile.base_url) && (
+                  {(needsBaseUrl(profile.provider) || profile.provider === "opencode-go" || profile.base_url) && (
                     <div className="set-cell">
                       <span className="set-label">Base URL</span>
                       <input
@@ -813,7 +820,7 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
                         value={profile.base_url ?? ""}
                         onChange={(e) => updateProfile(profile.id, { base_url: e.target.value })}
                         onBlur={() => commitProfile(profile.id)}
-                        placeholder={profile.provider === "opencode-go" ? OPENCODE_GO_BASE_URL : "https://api.example.com/v1"}
+                        placeholder={profile.provider === "opencode-go" ? OPENCODE_GO_BASE_URL : (provider.endpointExample ?? "https://api.example.com/v1")}
                         aria-invalid={baseUrlBlocks(urlCheck)}
                         aria-describedby={urlCheck ? `base-url-check-${profile.id}` : undefined}
                       />
@@ -852,16 +859,20 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
                       </Hint>
                     )}
                     <div className="grow"/>
-                    <Hint text={t("Короткий запрос к провайдеру: жив ли ключ и отвечает ли эндпоинт")}>
-                      <button
-                        className="btn btn--ghost"
-                        onClick={() => void testProfile(profile)}
-                        disabled={testRunning || !profile.model.trim()}
-                      >
-                        <Icon name="test" size={12}/>
-                        {testRunning ? t("Проверяю…") : t("Проверить связь")}
-                      </button>
-                    </Hint>
+                    {/* The check is an LLM request, which a transcription-only
+                        provider cannot answer. */}
+                    {!provider.transcriptionOnly && (
+                      <Hint text={t("Короткий запрос к провайдеру: жив ли ключ и отвечает ли эндпоинт")}>
+                        <button
+                          className="btn btn--ghost"
+                          onClick={() => void testProfile(profile)}
+                          disabled={testRunning || !profile.model.trim()}
+                        >
+                          <Icon name="test" size={12}/>
+                          {testRunning ? t("Проверяю…") : t("Проверить связь")}
+                        </button>
+                      </Hint>
+                    )}
                   </div>
                   {testState && (
                     <div
