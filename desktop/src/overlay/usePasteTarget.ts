@@ -14,7 +14,11 @@ export function usePasteTarget(wanted: boolean, recordingKey: number | null) {
     setName("");
     if (!wanted || recordingKey === null) return;
     let stale = false;
-    invoke<string | null>("paste_target_name").then((raw) => { if (!stale) setName(targetLabel(raw)); }).catch(() => {});
+    // Let StrictMode discard its first setup before asking the native side.
+    queueMicrotask(() => {
+      if (stale) return;
+      void invoke<string | null>("paste_target_name").then((raw) => { if (!stale) setName(targetLabel(raw)); }).catch(() => {});
+    });
     return () => { stale = true; };
   }, [wanted, recordingKey]);
   return name;

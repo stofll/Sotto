@@ -65,6 +65,7 @@ enum Theme {
 }
 
 /// How a note's loudness evolves.
+#[cfg(any(windows, test))]
 #[derive(Clone, Copy)]
 enum Envelope {
     /// Sustained, then faded out over `release_ms` at the end of the note.
@@ -74,6 +75,7 @@ enum Envelope {
 }
 
 /// How a theme sounds a note.
+#[cfg(any(windows, test))]
 struct Voice {
     /// `(frequency multiple, relative amplitude)` of sine partials, summed.
     partials: &'static [(f32, f32)],
@@ -85,6 +87,7 @@ struct Voice {
 
 /// One note of a cue: `(frequency Hz, onset ms, length ms)`. Notes may
 /// overlap — a struck note keeps ringing under the next one.
+#[cfg(any(windows, test))]
 type Note = (f32, u32, u32);
 
 impl Theme {
@@ -98,6 +101,7 @@ impl Theme {
         }
     }
 
+    #[cfg(any(windows, test))]
     fn voice(self) -> Voice {
         match self {
             // An inharmonic partial and almost no tail: a dry knock that
@@ -137,6 +141,7 @@ impl Theme {
     /// Start rises and Stop falls, so the pair is distinguishable without
     /// having to learn it. Done is brighter and shorter — it fires while the
     /// user is already moving on. Error sits well below the others.
+    #[cfg(any(windows, test))]
     fn notes(self, cue: Cue) -> &'static [Note] {
         match (self, cue) {
             (Theme::Wood, Cue::Start) => &[(880.00, 0, 60), (1174.66, 70, 60)],
@@ -176,9 +181,11 @@ const DEFAULT_THEME: Theme = Theme::Wood;
 
 /// Sample rate of the generated PCM. 22.05 kHz is plenty for tones under
 /// 1.5 kHz and halves the buffer against 44.1.
+#[cfg(any(windows, test))]
 const SAMPLE_RATE: u32 = 22_050;
 /// Fade that pins the end of every note to zero. Without it the waveform
 /// stops at a non-zero sample and the speaker clicks.
+#[cfg(any(windows, test))]
 const FADE_MS: f32 = 8.0;
 
 /// Imported sounds keep this rate: what people pick as a cue often has
@@ -261,6 +268,7 @@ fn plan(config: &Value, cue: Cue) -> Option<Plan> {
 }
 
 /// One cue to render and play.
+#[cfg_attr(not(windows), allow(dead_code))] // Playback is a no-op on other platforms.
 struct Job {
     cue: Cue,
     theme: Theme,
@@ -299,6 +307,7 @@ fn custom_path(cue: Cue) -> PathBuf {
 ///
 /// A custom sound that has gone missing or unreadable falls back to the
 /// theme's: the user asked for a cue, and some cue beats none.
+#[cfg(any(windows, test))]
 fn render(job: &Job) -> Vec<u8> {
     if let Some(path) = &job.custom {
         match load_custom(path, job.volume) {
@@ -315,6 +324,7 @@ fn render(job: &Job) -> Vec<u8> {
 /// Read an imported cue back and scale it to `volume`. Imported cues are
 /// stored peak-normalised, so the same volume means the same peak as a
 /// synthesised one.
+#[cfg(any(windows, test))]
 fn load_custom(path: &Path, volume: f32) -> Option<Vec<u8>> {
     let (samples, rate) = crate::wav::decode_pcm16_mono(&std::fs::read(path).ok()?)?;
     let scaled: Vec<i16> = samples
@@ -380,12 +390,14 @@ fn ms_to_samples(ms: f32, rate: u32) -> usize {
 
 /// Echo repeats rendered. The fourth comes back at 0.35⁴ ≈ −36 dB of the
 /// dry sound; past that the tail is inaudible under any speech.
+#[cfg(any(windows, test))]
 const ECHO_REPEATS: usize = 4;
 
 /// Synthesise `cue` in `theme`, peak-normalised to `volume`.
 ///
 /// Notes are mixed at their onsets, echoes added after, and the result
 /// normalised as a whole, since overlapping notes and echoes sum.
+#[cfg(any(windows, test))]
 fn render_pcm(theme: Theme, cue: Cue, volume: f32) -> Vec<i16> {
     let voice = theme.voice();
     let notes = theme.notes(cue);
@@ -424,6 +436,7 @@ fn render_pcm(theme: Theme, cue: Cue, volume: f32) -> Vec<i16> {
 /// `dry` plus [`ECHO_REPEATS`] copies, each `delay` samples later and
 /// `feedback` times quieter than the one before. Every copy ends where the
 /// dry sound does — on silence — so the tail needs no fade of its own.
+#[cfg(any(windows, test))]
 fn with_echo(dry: &[f32], delay: usize, feedback: f32) -> Vec<f32> {
     let mut out = vec![0.0f32; dry.len() + ECHO_REPEATS * delay];
     let mut gain = 1.0;
@@ -438,6 +451,7 @@ fn with_echo(dry: &[f32], delay: usize, feedback: f32) -> Vec<f32> {
 }
 
 /// Gain of sample `i` of a note `len` samples long.
+#[cfg(any(windows, test))]
 fn envelope(voice: &Voice, i: usize, len: usize) -> f32 {
     // A ramp longer than half the note would never reach full amplitude and
     // the two ramps would fight each other.

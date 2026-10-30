@@ -51,7 +51,7 @@ def test_tall_popover_scrolls_inside_the_window(app, page):
     editor.locator('.ove-stage [data-filled="level"]').click()
     pop = editor.get_by_role("dialog", name="Уровень: варианты")
     expect(pop).to_be_visible()
-    box = pop.bounding_box()
+    box = wait_until_still(pop)
     assert box["y"] >= 0 and box["y"] + box["height"] <= 560, box
     assert pop.evaluate("el => el.scrollHeight > el.clientHeight")
     # The nearest scrolling ancestor of the editor is the page the wheel used to move.
@@ -64,8 +64,10 @@ def test_tall_popover_scrolls_inside_the_window(app, page):
     before = editor.evaluate(page_scroll)
     page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
     page.mouse.wheel(0, 2000)
-    page.wait_for_timeout(200)
-    assert pop.evaluate("el => el.scrollTop + el.clientHeight >= el.scrollHeight - 1")
+    page.wait_for_function(
+        "el => el.scrollTop + el.clientHeight >= el.scrollHeight - 1",
+        arg=pop.element_handle(),
+    )
     assert editor.evaluate(page_scroll) == before
 
 
@@ -410,6 +412,29 @@ def test_data_elements_name_the_target_and_the_engine(app, page):
     expect(scene.locator(".ovs-rg-start")).to_contain_text("облако")
     expect(scene.locator(".ovs-flip")).to_be_visible()
     assert len(ui.calls("paste_target_name")) == 1
+    ui.queue("paste_target_name", {"result": "Code"})
+    ui.emit("recording-started", 43)
+    expect(scene.locator(".ovs-rg-center")).to_contain_text("Code")
+    assert len(ui.calls("paste_target_name")) == 2
+
+
+def test_a_late_target_reply_cannot_replace_the_next_recordings_target(app, page):
+    ui = app(
+        "overlay",
+        config={
+            "overlay": {"recipe": {"shell": "pill", "slots": {"center": "target"}}}
+        },
+    )
+    ui.queue("paste_target_name", {"hold": True})
+    ui.emit("recording-started", 42)
+    page.wait_for_function("window.__sottoTest.pending('paste_target_name')")
+    ui.queue("paste_target_name", {"result": "Code"})
+    ui.emit("recording-started", 43)
+    target = page.locator(".ovs-rg-center")
+    expect(target).to_contain_text("Code")
+    ui.settle("paste_target_name", result="Telegram")
+    expect(target).to_contain_text("Code")
+    assert len(ui.calls("paste_target_name")) == 2
 
 
 def test_recipe_without_a_target_never_asks_for_the_application(app, page):
@@ -460,6 +485,22 @@ def test_notch_shell_without_a_notch_uses_the_named_size(app, page):
     shell = page.locator(".ovs-shell")
     expect(shell).to_have_css("width", "356px")
     expect(shell).to_have_css("height", "32px")
+    assert len(ui.calls("overlay_notch")) == 1
+
+
+def test_a_late_notch_reply_cannot_replace_the_current_screen(app, page):
+    ui = app(
+        "overlay",
+        config={"overlay": {"recipe": {"shell": "notch"}}},
+        responses={"overlay_notch": [{"hold": True}]},
+    )
+    ui.emit("recording-started", 44)
+    page.wait_for_function("window.__sottoTest.pending('overlay_notch')")
+    ui.emit("overlay-notch", {"width": 186, "height": 38})
+    shell = page.locator(".ovs-shell")
+    expect(shell).to_have_css("width", "362px")
+    ui.settle("overlay_notch", result=None)
+    expect(shell).to_have_css("width", "362px")
     assert len(ui.calls("overlay_notch")) == 1
 
 

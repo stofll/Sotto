@@ -29,6 +29,7 @@ pub fn encode_pcm16_mono(samples: &[i16], sample_rate: u32) -> Vec<u8> {
 ///
 /// Only that exact layout is accepted. It reads files this app wrote itself,
 /// and anything else in their place is treated as damaged rather than parsed.
+#[cfg(any(windows, test))]
 pub fn decode_pcm16_mono(wav: &[u8]) -> Option<(Vec<i16>, u32)> {
     let header = wav.get(..44)?;
     let u16_at = |at: usize| u16::from_le_bytes([header[at], header[at + 1]]);

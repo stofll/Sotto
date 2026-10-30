@@ -30,8 +30,11 @@ export function useOverlayNotch(wanted: boolean) {
       heard = true;
       setFit(notchFit(event.payload));
     });
-    // The reply can be older than an event that overtakes it.
-    invoke<unknown>("overlay_notch").then((raw) => { if (!disposed && !heard) setFit(notchFit(raw)); }).catch(() => {});
+    // Skip StrictMode's discarded setup; a later event also outranks this reply.
+    queueMicrotask(() => {
+      if (disposed) return;
+      void invoke<unknown>("overlay_notch").then((raw) => { if (!disposed && !heard) setFit(notchFit(raw)); }).catch(() => {});
+    });
     return () => { disposed = true; void unlisten.then((stop) => stop()).catch(() => {}); };
   }, [wanted]);
   return fit;
