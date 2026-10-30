@@ -233,11 +233,11 @@ pub fn list_history_page_from(
 ) -> Result<HistoryPageResult, rusqlite::Error> {
     // A single history page performs multiple SQL statements (retention tail,
     // counts, focus position, entries, and selected IDs). On a separate WAL
-    // reader, a writer may commit between them. Keep all values on the same
-    // read snapshot without changing the caller's transaction state.
-    let savepoint = conn.unchecked_transaction()?;
-    let result = list_history_page_in_snapshot(&savepoint, policy, query)?;
-    savepoint.commit()?;
+    // reader, a writer may commit between them. One read transaction keeps all
+    // values on the same snapshot, so `conn` must not already be inside one.
+    let snapshot = conn.unchecked_transaction()?;
+    let result = list_history_page_in_snapshot(&snapshot, policy, query)?;
+    snapshot.commit()?;
     Ok(result)
 }
 

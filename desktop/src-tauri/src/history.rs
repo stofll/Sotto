@@ -295,10 +295,20 @@ pub fn clear_from(conn: &Connection) -> Result<(ClearResult, Vec<String>), rusql
     ))
 }
 
+/// One page read on its own connection: long Unicode substring scans must not
+/// hold the writer connection's mutex and delay saving a dictation.
+fn list_history_page_at(
+    path: &std::path::Path,
+    policy: RetentionPolicy,
+    query: &HistoryQuery,
+) -> Result<HistoryPageResult, rusqlite::Error> {
+    let conn = crate::db::open_reader(path)?;
+    list_history_page_from(&conn, policy, query)
+}
+
 #[tauri::command]
 pub(crate) async fn list_history(
     app: AppHandle,
-    state: tauri::State<'_, crate::state::AppState>,
     query: Option<HistoryQuery>,
 ) -> Result<HistoryPageResult, String> {
     // Read the retention policy before handing off to the blocking worker —
@@ -306,24 +316,9 @@ pub(crate) async fn list_history(
     let policy = crate::config::Config::load(&app)
         .map(|cfg| RetentionPolicy::from_config(cfg.as_value()))
         .unwrap_or_default();
-    // Use a separate read-only connection. Long Unicode substring scans must
-    // not hold the writer connection's mutex and delay saving a dictation.
-    // The database is opened with WAL by db::open(); read transactions see a
-    // consistent snapshot while the writer continues appending records.
-    let _ = &state;
     let query = query.unwrap_or_default();
     let mut result = tokio::task::spawn_blocking(move || {
-        let path = crate::user_data::data_dir().join("sotto.db");
-        let conn = rusqlite::Connection::open_with_flags(
-            path,
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-        )
-        .map_err(|e| e.to_string())?;
-        conn.execute_batch("BEGIN DEFERRED TRANSACTION")
-            .map_err(|e| e.to_string())?;
-        let result = list_history_page_from(&conn, policy, &query).map_err(|e| e.to_string())?;
-        conn.execute_batch("COMMIT").map_err(|e| e.to_string())?;
-        Ok::<_, String>(result)
+        list_history_page_at(&crate::db::path(), policy, &query).map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())??;
@@ -843,6 +838,53 @@ mod tests {
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         crate::db::run_migrations(&conn).unwrap();
         std::sync::Mutex::new(conn)
+    }
+
+    /// The command's path: a WAL file written by the shared connection and
+    /// read through a separate read-only one.
+    #[test]
+    fn history_command_reads_pages_beside_an_active_wal_writer() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sotto.db");
+        let writer = rusqlite::Connection::open(&path).unwrap();
+        writer
+            .execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;")
+            .unwrap();
+        crate::db::run_migrations(&writer).unwrap();
+        let writer = Mutex::new(writer);
+        for text in ["first", "second", "third"] {
+            append(&writer, text, None, None, 100, 1.0).unwrap();
+        }
+
+        let page =
+            list_history_page_at(&path, RetentionPolicy::default(), &HistoryQuery::default())
+                .unwrap();
+        assert_eq!(page.total_count, 3);
+        assert_eq!(
+            page.entries
+                .iter()
+                .map(|e| e.text.as_str())
+                .collect::<Vec<_>>(),
+            ["third", "second", "first"]
+        );
+
+        // An uncommitted write neither blocks the reader nor leaks into it.
+        {
+            let conn = writer.lock().unwrap();
+            conn.execute_batch("BEGIN IMMEDIATE").unwrap();
+            conn.execute("DELETE FROM history", []).unwrap();
+        }
+        let query = HistoryQuery {
+            query: "SECOND".into(),
+            ids: Some(page.entries.iter().map(|e| e.id).collect()),
+            ..HistoryQuery::default()
+        };
+        let filtered = list_history_page_at(&path, RetentionPolicy::default(), &query).unwrap();
+        assert_eq!(filtered.total_count, 3);
+        assert_eq!(filtered.filtered_count, 1);
+        writer.lock().unwrap().execute_batch("COMMIT").unwrap();
+        let emptied = list_history_page_at(&path, RetentionPolicy::default(), &query).unwrap();
+        assert_eq!(emptied.total_count, 0);
     }
 
     // ------------------------------------------------------------------
