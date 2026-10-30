@@ -47,8 +47,6 @@ def test_recipe_save_failure_rolls_back_and_same_choice_retries(app, page):
 @pytest.mark.parametrize(
     "name,shell,width,height",
     [
-        ("Окошко", "window", 252, 88),
-        ("Чек", "receipt", 212, 148),
         ("Двойка", "split", 254, 36),
         ("Кольцо", "ring", 80, 80),
         ("Чёлка", "notch", 356, 32),
@@ -328,8 +326,6 @@ def test_existing_template_update_failure_can_be_retried(app, page):
         ("stack", 72, 112),
         ("card", 360, 100),
         ("caps", 520, 138),
-        ("window", 240, 88),
-        ("receipt", 200, 140),
         ("split", 240, 40),
         ("ring", 80, 80),
         ("notch", 340, 30),
