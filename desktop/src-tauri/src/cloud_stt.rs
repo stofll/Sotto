@@ -459,12 +459,15 @@ fn build_upload(req: &CloudSttRequest, language: Option<&str>) -> Result<Upload,
             )
         }
         CloudSttProvider::Gemini => {
-            let wav = audio_to_wav_bytes(&req.audio);
-            if wav.len().div_ceil(3) * 4 > GEMINI_INLINE_LIMIT_BYTES {
+            // Sized from the sample count, so a long file is refused before
+            // it is encoded at all.
+            let wav_len = req.audio.len().saturating_mul(2).saturating_add(44);
+            if wav_len.div_ceil(3).saturating_mul(4) > GEMINI_INLINE_LIMIT_BYTES {
                 return Err(
                     "cloud STT audio exceeds the Gemini inline limit (about 7 minutes)".to_string(),
                 );
             }
+            let wav = audio_to_wav_bytes(&req.audio);
             let mut body = json!({
                 "model": req.model,
                 // Interactions are kept on Google's side by default; a
@@ -1011,5 +1014,15 @@ mod tests {
         };
         let error = build_upload(&req, None).err().unwrap();
         assert!(error.contains("inline limit"), "{error}");
+        let upload = build_upload(
+            &CloudSttRequest {
+                audio: Arc::new(vec![0.0; 16_000 * 60 * 7]),
+                ..req
+            },
+            None,
+        )
+        .ok()
+        .unwrap();
+        assert!(upload.content_length < GEMINI_INLINE_LIMIT_BYTES);
     }
 }
