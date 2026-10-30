@@ -57,6 +57,7 @@ const APP_COMMANDS: &[&str] = &[
     "check_accessibility",
     "test_paste",
     "preview_sound_cue",
+    "import_sound_cue",
     "preview_output_duck",
     "get_diagnostics",
     "get_public_diagnostics",

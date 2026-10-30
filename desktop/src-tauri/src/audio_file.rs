@@ -67,6 +67,31 @@ pub fn decode_to_pcm16k_mono(path: &Path) -> Result<DecodedAudio, String> {
 fn decode_cancellable(
     path: &Path,
     max_seconds: f64,
+    cancelled: impl FnMut() -> bool,
+) -> Result<DecodedAudio, String> {
+    decode_limited(path, TARGET_RATE, max_seconds, OverLimit::Refuse, cancelled)
+}
+
+/// Decode the first `max_seconds` of `path` into mono `f32` at `rate`,
+/// dropping the rest. For short clips such as custom sound cues, where a
+/// longer file is still usable from its beginning.
+pub fn decode_clip(path: &Path, rate: u32, max_seconds: f64) -> Result<Vec<f32>, String> {
+    decode_limited(path, rate, max_seconds, OverLimit::Truncate, || false)
+        .map(|decoded| decoded.samples)
+}
+
+/// What decoding does once a file passes its duration cap.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum OverLimit {
+    Refuse,
+    Truncate,
+}
+
+fn decode_limited(
+    path: &Path,
+    target_rate: u32,
+    max_seconds: f64,
+    over_limit: OverLimit,
     mut cancelled: impl FnMut() -> bool,
 ) -> Result<DecodedAudio, String> {
     let check_cancelled = |cancelled: &mut dyn FnMut() -> bool| {
@@ -173,18 +198,31 @@ fn decode_cancellable(
         if filter.is_none() {
             source_rate = Some(rate);
             filter = Some(
-                crate::audio_resampler::AudioResampler::new(rate, TARGET_RATE)
+                crate::audio_resampler::AudioResampler::new(rate, target_rate)
                     .map_err(describe_resampling_error)?,
             );
         }
         mono.clear();
         append_downmixed(&decoded, &mut interleaved, &mut mono);
-        source_frames += mono.len();
         // Count decoded frames, not container metadata or padded resampler output.
-        if source_frames as f64 / f64::from(rate) > max_seconds {
-            return Err(crate::ui_text::t("Файл длиннее {p0} часов.")
-                .replace("{p0}", &format!("{:.0}", max_seconds / 3600.0)));
+        let allowed = (max_seconds * f64::from(rate)) as usize;
+        if source_frames + mono.len() > allowed {
+            if over_limit == OverLimit::Refuse {
+                return Err(crate::ui_text::t("Файл длиннее {p0} часов.")
+                    .replace("{p0}", &format!("{:.0}", max_seconds / 3600.0)));
+            }
+            mono.truncate(allowed.saturating_sub(source_frames));
+            source_frames += mono.len();
+            samples.extend_from_slice(
+                filter
+                    .as_mut()
+                    .unwrap()
+                    .push(&mono)
+                    .map_err(describe_resampling_error)?,
+            );
+            break;
         }
+        source_frames += mono.len();
         samples.extend_from_slice(
             filter
                 .as_mut()
@@ -209,7 +247,7 @@ fn decode_cancellable(
     );
 
     Ok(DecodedAudio {
-        audio_seconds: samples.len() as f64 / f64::from(TARGET_RATE),
+        audio_seconds: samples.len() as f64 / f64::from(target_rate),
         samples,
     })
 }
@@ -261,7 +299,7 @@ fn rate_refusal(rate: u32, established: Option<u32>) -> Option<String> {
 }
 
 fn describe_resampling_error(error: String) -> String {
-    log::error!("decode: resampling to {TARGET_RATE} failed: {error}");
+    log::error!("decode: resampling failed: {error}");
     crate::ui_text::t("Не удалось преобразовать частоту дискретизации файла.")
 }
 

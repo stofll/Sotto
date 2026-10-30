@@ -289,15 +289,92 @@ def test_hotkey_escape_leaves_config_unchanged(app, page):
     assert not ui.calls("save_config")
 
 
-def test_sound_volume_and_disable(app, page):
+def test_sound_theme_and_disable(app, page):
     ui = app()
-    page.get_by_role("button", name="Средне", exact=True).click()
+    page.get_by_role("button", name="Дерево", exact=True).click()
     page.get_by_role("option", name="Выключено", exact=True).click()
     ui.saved("sound_feedback", False)
+    expect(page.get_by_role("slider", name="Громкость сигналов")).to_be_disabled()
     page.get_by_role("button", name="Выключено", exact=True).click()
-    page.get_by_role("option", name="Средне", exact=True).click()
+    page.get_by_role("option", name="Сонар", exact=True).click()
     ui.saved("sound_feedback", True)
+    ui.saved("sound_theme", "sonar")
+    # Switching off and back keeps the volume the user had.
     assert ui.state()["config"]["sound_volume"] == 0.35
+    previewed = [call["args"] for call in ui.calls("preview_sound_cue")]
+    # Only the start cue: the others are heard in the per-cue panel.
+    assert len(previewed) == 1
+    assert previewed[0] == {
+        "cue": "start",
+        "theme": "sonar",
+        "source": "theme",
+        "volume": 0.35,
+    }
+
+
+def test_sound_volume_saves_on_release(app, page):
+    ui = app()
+    slider = page.get_by_role("slider", name="Громкость сигналов")
+    slider.focus()
+    slider.press("ArrowLeft")
+    # One step down from the default on the 40 dB scale.
+    expected = 10 ** ((76 / 100 - 1) * 40 / 20)
+    page.wait_for_function(
+        "v => Math.abs(window.__sottoTest.state.config.sound_volume - v) < 1e-6",
+        arg=expected,
+    )
+    # Saved once, on release, not on every step of the thumb.
+    saves = [c for c in ui.calls("save_config") if "sound_volume" in c["args"]["patch"]]
+    assert len(saves) == 1
+
+
+def sound_cue_row(page, label):
+    return page.locator(".sound-cues__row").filter(has_text=label)
+
+
+def test_sound_cue_custom_file_and_mute(app, page):
+    ui = app(responses={"import_sound_cue": [{"result": "chime.mp3"}]})
+    page.get_by_role("button", name="Настроить каждый сигнал").click()
+    row = sound_cue_row(page, "Вставка текста")
+    row.get_by_role("button", name="Из общего набора", exact=True).click()
+    page.get_by_role("option", name="Выбрать файл…", exact=True).click()
+    ui.saved("sound_cues", {"done": {"source": "custom", "file_name": "chime.mp3"}})
+    assert ui.calls("import_sound_cue")[0]["args"] == {"cue": "done"}
+    assert ui.calls("preview_sound_cue")[-1]["args"]["source"] == "custom"
+
+    row.get_by_role("button", name="chime.mp3", exact=True).click()
+    page.get_by_role("option", name="Без звука", exact=True).click()
+    ui.saved("sound_cues", {"done": {"source": "mute", "file_name": "chime.mp3"}})
+    expect(row.get_by_role("slider")).to_be_disabled()
+    # The imported file stays on offer after switching away from it.
+    row.get_by_role("button", name="Без звука", exact=True).click()
+    expect(page.get_by_role("option", name="chime.mp3", exact=True)).to_be_visible()
+
+
+def test_sound_cue_from_another_theme(app, page):
+    ui = app()
+    page.get_by_role("button", name="Настроить каждый сигнал").click()
+    row = sound_cue_row(page, "Ошибка")
+    row.get_by_role("button", name="Из общего набора", exact=True).click()
+    page.get_by_role("option", name="Сонар", exact=True).click()
+    ui.saved("sound_cues", {"error": {"source": "theme", "theme": "sonar"}})
+    assert ui.calls("preview_sound_cue")[-1]["args"]["theme"] == "sonar"
+    # The overall theme is untouched; going back follows it again.
+    assert ui.state()["config"].get("sound_theme") is None
+    row.get_by_role("button", name="Сонар", exact=True).click()
+    page.get_by_role("option", name="Из общего набора", exact=True).click()
+    ui.saved("sound_cues", {"error": {"source": "theme", "theme": None}})
+
+
+def test_sound_cue_import_failure_is_shown(app, page):
+    ui = app(responses={"import_sound_cue": [{"error": "В файле нет звука."}]})
+    page.get_by_role("button", name="Настроить каждый сигнал").click()
+    row = sound_cue_row(page, "Начало записи")
+    row.get_by_role("button", name="Из общего набора", exact=True).click()
+    page.get_by_role("option", name="Выбрать файл…", exact=True).click()
+    expect(row.get_by_role("alert")).to_have_text("В файле нет звука.")
+    saves = [c["args"]["patch"] for c in ui.calls("save_config")]
+    assert not [patch for patch in saves if "sound_cues" in patch]
 
 
 @pytest.mark.parametrize(

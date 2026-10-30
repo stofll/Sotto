@@ -1120,7 +1120,8 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .advanced__recordings-row .checkbox-row,
 .advanced__recordings-caption,
 .overlay-settings .checkbox-row,
-.sound-feedback-control__label { font: 500 11.5px/1 var(--font-sans); color: var(--ink-mute); }
+.sound-feedback-control__label,
+.sound-cues__label { font: 500 11.5px/1 var(--font-sans); color: var(--ink-mute); }
 
 /* Text for the screen reader only: it takes no space in the flow, so it can
    voice what the screen shows with an icon or a colour. */
@@ -1212,7 +1213,35 @@ button.card { appearance: none; font: inherit; color: inherit; }
 /* The width fits the longest option — «Выключено» / «Off». Measured: at 112px
    it is already ellipsised, so 118 is the minimum plus a pixel of rounding
    slack, not an arbitrary number. */
-.set-cell .custom-select.custom-select--sound-volume { width: 118px; max-width: 118px; }
+.set-cell .custom-select.custom-select--sound-theme { width: 124px; max-width: 124px; }
+.sound-feedback-control__tune[aria-expanded="true"] { color: var(--accent-text); background: var(--accent-soft); }
+
+/* Volume sliders. A thin track and a plain thumb: the value is a loudness,
+   not a colour, so unlike the palette sliders the track draws no scale. */
+.volume-slider { -webkit-appearance: none; appearance: none; width: 80px; height: 18px; margin: 0; background: transparent; cursor: pointer; }
+.volume-slider::-webkit-slider-runnable-track { height: 4px; border-radius: 999px; background: var(--bg-5); }
+.volume-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 14px; height: 14px; margin-top: -5px; border: 0; border-radius: 50%; background: var(--ink-dim); }
+.volume-slider:hover:not(:disabled)::-webkit-slider-thumb { background: var(--ink); }
+.volume-slider:disabled { opacity: .5; cursor: default; }
+.volume-slider:focus-visible { outline: none; }
+.volume-slider:focus-visible::-webkit-slider-thumb { box-shadow: var(--ring); }
+
+/* Per-cue sounds: a whole line of the wrapping behaviour row, laid out as one
+   grid so the four selects and sliders line up under each other. */
+.behavior-row__sound-cues {
+  flex: 1 0 100%;
+  display: grid;
+  grid-template-columns: max-content 168px 140px max-content;
+  justify-content: start;
+  align-items: center;
+  gap: 6px 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line-soft);
+}
+.sound-cues__row { display: contents; }
+.sound-cues__label { white-space: nowrap; }
+.behavior-row__sound-cues .volume-slider { width: 100%; }
+.sound-cues__error { grid-column: 2 / -1; font-size: 11.5px; color: var(--err); }
 
 .device-picker { display: flex; align-items: center; gap: 10px; min-width: 0; }
 

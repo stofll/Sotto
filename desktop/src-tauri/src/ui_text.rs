@@ -121,6 +121,7 @@ fn en(key: &str) -> Option<&'static str> {
         "Не удалось открыть файл: {p0}" => "Could not open the file: {p0}",
         "В файле нет звуковой дорожки." => "The file has no audio track.",
         "В файле нет звука." => "The file contains no audio.",
+        "Не удалось сохранить звук." => "Couldn't save the sound.",
         "В файле не распознана речь." => "No speech was recognised in the file.",
         "Файл длиннее {p0} часов." => "The file is longer than {p0} hours.",
         "Не удалось прочитать звук из файла — возможно, он повреждён." => {

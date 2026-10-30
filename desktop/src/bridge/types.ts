@@ -78,6 +78,21 @@ export interface TextFormattingConfig {
   enabled_presets: string[];
 }
 
+/** A moment of the dictation cycle marked by a sound. */
+export type SoundCue = "start" | "stop" | "done" | "error";
+export type SoundTheme = "wood" | "chord" | "sonar" | "classic";
+
+export interface SoundCueSetting {
+  /** `theme` plays the theme's sound, `custom` the imported file, `mute` nothing. */
+  source: "theme" | "custom" | "mute";
+  /** The theme a `theme` source plays; `null` follows `sound_theme`. */
+  theme: SoundTheme | null;
+  /** Scales `sound_volume`, a linear amplitude 0..1. Default 1. */
+  volume: number;
+  /** Name of the imported file, shown to tell it apart. */
+  file_name: string;
+}
+
 export interface ConfigResult {
   /** Initialized by Rust before any startup settings writes. */
   onboarding_completed?: boolean;
@@ -102,8 +117,12 @@ export interface ConfigResult {
   auto_start: boolean;
   /** Sound cues for the dictation cycle. Enabled by default. */
   sound_feedback: boolean;
-  /** Cue volume, 0..1. Default 0.35. */
+  /** Overall cue volume, a linear amplitude 0..1. Default 0.35. */
   sound_volume: number;
+  /** Synthesised sound family for every cue. Default `wood`. */
+  sound_theme?: SoundTheme;
+  /** Per-cue overrides; a missing cue or field keeps its default. */
+  sound_cues?: Partial<Record<SoundCue, Partial<SoundCueSetting>>>;
   /** Lower the overall volume while recording. Disabled by default. */
   duck_output_while_recording: boolean;
   /** How far to lower it, 0..1. Default 0.2. */

@@ -108,7 +108,7 @@ Statistics show usage over selected periods and estimate typing time saved using
 
 ### Fit dictation into your day
 
-Choose and test your microphone, configure the hotkey and recording mode, and use sound cues or optional audio ducking during recording. A configurable recording limit stops and transcribes a forgotten session; idle model unloading frees memory between sessions. The interface supports Russian and English, light and dark themes, and a custom accent color independent of the overlay.
+Choose and test your microphone, configure the hotkey and recording mode, and use optional audio ducking during recording. Sound cues mark the start and end of a recording, the inserted text and errors: pick a set of sounds, take any cue from another set or from your own audio file, and set each cue's volume or silence it. A configurable recording limit stops and transcribes a forgotten session; idle model unloading frees memory between sessions. The interface supports Russian and English, light and dark themes, and a custom accent color independent of the overlay.
 
 ## Get started
 

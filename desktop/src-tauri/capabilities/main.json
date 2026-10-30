@@ -37,6 +37,7 @@
     "allow-get-whats-new",
     "allow-has-api-key",
     "allow-history-recording",
+    "allow-import-sound-cue",
     "allow-install-update",
     "allow-list-history",
     "allow-list-microphones",

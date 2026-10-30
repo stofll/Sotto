@@ -1818,6 +1818,7 @@ pub fn run() {
             accessibility::check_accessibility,
             clipboard::test_paste,
             sounds::preview_sound_cue,
+            sounds::import_sound_cue,
             output_volume::preview_output_duck,
             debug::get_diagnostics,
             feedback::get_public_diagnostics,

@@ -1,66 +1,20 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
-import { CustomSelect } from "../../components/CustomSelect";
 import { Icon } from "../../components/Icon";
 import { Hint } from "../../components/Hint";
 import { HintIcon, type ConfigChanged } from "./controls";
 import { t } from "../../i18n";
 import type { ConfigResult } from "../../bridge/types";
-
-const SOUND_VOLUME_PRESETS = () => ([
-  { label: t("Тихо"), value: 0.15 },
-  { label: t("Средне"), value: 0.35 },
-  { label: t("Громко"), value: 0.7 },
-]);
-const DEFAULT_SOUND_VOLUME = 0.35;
-// A pseudo-volume for the «Выключено» option. To the user "are the sounds on"
-// and "how loud" are one choice, so there is one control: a separate switch cost
-// a second click and kept the select disabled while deciding nothing.
-const SOUND_OFF = 0;
-
-// Dictation sound cues: recording start, end, text insertion, error. The
-// defaults are duplicated in src-tauri/src/sounds.rs.
-function SoundFeedbackControl({ enabled, volume, onConfigChanged }: { enabled: boolean; volume: number; onConfigChanged: ConfigChanged }) {
-  const presets = SOUND_VOLUME_PRESETS();
-  const knownVolume = presets.some((preset) => preset.value === volume) ? volume : DEFAULT_SOUND_VOLUME;
-  // We play the chosen value immediately: volume is not picked by ear from the
-  // name of a preset.
-  function preview(nextVolume: number) {
-    void tauriInvoke("preview_sound_cue", { cue: "done", volume: nextVolume }).catch(() => {});
-  }
-
-  // «Выключено» does not touch sound_volume: on bringing the cues back the user
-  // gets the same volume they chose before.
-  function select(next: number) {
-    if (next === SOUND_OFF) {
-      void onConfigChanged({ sound_feedback: false });
-      return;
-    }
-    void onConfigChanged({ sound_feedback: true, sound_volume: next });
-    preview(next);
-  }
-
-  return (
-    <div className="sound-feedback-control">
-      <span className="label-with-hint">
-        <span className="sound-feedback-control__label">{t("Звуковые сигналы")}</span>
-        <HintIcon text={t("Сигналы отмечают начало записи, завершение, вставку текста и ошибку.")}/>
-      </span>
-      <CustomSelect
-        className="custom-select--sound-volume"
-        value={enabled ? knownVolume : SOUND_OFF}
-        options={[{ label: t("Выключено"), value: SOUND_OFF }, ...presets]}
-        onChange={select}
-      />
-    </div>
-  );
-}
+import { SoundCuePanel, SoundFeedbackControl } from "./SoundCues";
 
 export function BehaviorSection({ config, onConfigChanged }: { config: ConfigResult | null; onConfigChanged: ConfigChanged }) {
   const autoPaste = config?.auto_paste ?? true;
   const duckOutput = config?.duck_output_while_recording ?? false;
   const [duckTest, setDuckTest] = useState<"idle" | "running" | "done" | "error">("idle");
   const [duckTestError, setDuckTestError] = useState("");
+  const [tuningSounds, setTuningSounds] = useState(false);
+  const soundPanelId = useId();
+  const soundsOn = config?.sound_feedback ?? true;
 
   async function testOutputDuck() {
     setDuckTest("running");
@@ -98,9 +52,11 @@ export function BehaviorSection({ config, onConfigChanged }: { config: ConfigRes
       <div className="vrule"/>
       <div className="set-cell behavior-row__sound-feedback">
         <SoundFeedbackControl
-          enabled={config?.sound_feedback ?? true}
-          volume={config?.sound_volume ?? DEFAULT_SOUND_VOLUME}
+          config={config}
           onConfigChanged={onConfigChanged}
+          tuning={tuningSounds}
+          onToggleTuning={() => setTuningSounds((open) => !open)}
+          panelId={soundPanelId}
         />
       </div>
       <div className="vrule"/>
@@ -143,6 +99,8 @@ export function BehaviorSection({ config, onConfigChanged }: { config: ConfigRes
         </Hint>
         <span className="sr-only" role="status">{duckTest === "idle" ? "" : duckTestLabel}</span>
       </div>
+      {/* Takes a whole line of the wrapping row, under all the cells. */}
+      {soundsOn && tuningSounds && <SoundCuePanel id={soundPanelId} config={config} onConfigChanged={onConfigChanged}/>}
     </div>
   );
 }
