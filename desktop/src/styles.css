@@ -2233,7 +2233,8 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .ove-radius__corner--tr { translate: var(--gap) calc(-100% - var(--gap)); border-width: 2px 2px 0 0; border-top-right-radius: var(--r); cursor: nesw-resize; }
 .ove-radius__corner--bl { translate: calc(-100% - var(--gap)) var(--gap); border-width: 0 0 2px 2px; border-bottom-left-radius: var(--r); cursor: nesw-resize; }
 .ove-radius__corner--br { translate: var(--gap) var(--gap); border-width: 0 2px 2px 0; border-bottom-right-radius: var(--r); cursor: nwse-resize; }
-.ove-pop { position: absolute; z-index: 20; width: 320px; max-width: calc(100% - 8px); display: grid; gap: 8px; padding: 10px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--bg-3); box-shadow: var(--shadow-pop); }
+/* --pop-room is the viewport space beside the target, set by usePopoverPlace. */
+.ove-pop { position: absolute; z-index: 20; width: 320px; max-width: calc(100% - 8px); max-height: var(--pop-room, none); overflow-y: auto; overscroll-behavior: contain; align-content: start; display: grid; gap: 8px; padding: 10px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--bg-3); box-shadow: var(--shadow-pop); }
 .ove-pop__head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font: 400 12px/1.2 var(--font-sans); color: var(--ink-mute); }
 .ove-pop__head b { color: var(--ink); font-weight: 600; }
 .ove-pop__head .btn { height: 26px; padding: 0 8px; font-size: 12px; }
@@ -2252,7 +2253,7 @@ button.card { appearance: none; font: inherit; color: inherit; }
 .ove-bar__grow { flex: 1; }
 .ove-pop__note { margin: 0; font: 400 11.5px/1.35 var(--font-sans); color: var(--ink-mute); }
 .ove-pop .ove-part, .ove-part--pick { cursor: pointer; }
-.ove-pop--insert { width: 360px; max-height: min(460px, 70vh); overflow-y: auto; gap: 4px; }
+.ove-pop--insert { width: 360px; max-height: min(460px, 70vh, var(--pop-room, 70vh)); gap: 4px; }
 .ove-stagecard .overlay-settings-hint { margin: 0; }
 .ove-toast { min-height: 1.4em; margin: 0; font: 400 12.5px/1.4 var(--font-sans); color: var(--ink-dim); }
 .ove-toast--warn { color: var(--warn); }

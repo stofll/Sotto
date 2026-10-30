@@ -304,7 +304,7 @@ export function OverlayEditor({ config, onConfigChanged, onClose, template }: {
 
   return <PreviewActivity.Provider value={previewActive}><div className="page ove" data-testid="overlay-editor">
     <div className="ove-head">
-      <button type="button" className="btn btn--ghost" onClick={onClose}><Icon name="chev-left" size={14}/>{t("Настройки")}</button>
+      <button type="button" className="btn btn--ghost btn--icon" aria-label={t("Назад")} onClick={onClose}><Icon name="chev-left" size={16}/></button>
       <div className="ove-head__title"><h1 className="page-title">{t("Оверлей")}</h1>{subtitle && <span>{subtitle}</span>}</div>
       <span className="ove-head__grow"/>
       {editing && <button type="button" className="btn" disabled={editingSaved}
@@ -502,7 +502,8 @@ function InsertPopover({ recipe, region, stageRef, names, onPick, onClose }: {
   </div>;
 }
 
-/** Where a popover goes: under its target in the stage, above it only when the window has no room underneath. */
+/** Where a popover goes: under its target in the stage, above it when there is more room there.
+ *  A popover taller than the room scrolls inside, so its options stay reachable without scrolling the page. */
 function usePopoverPlace(stageRef: RefObject<HTMLDivElement | null>, selector: string | null, recipe: Recipe) {
   const ref = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<CSSProperties>({ visibility: "hidden" });
@@ -511,10 +512,18 @@ function usePopoverPlace(stageRef: RefObject<HTMLDivElement | null>, selector: s
     const target = selector ? stage?.querySelector<HTMLElement>(selector) : null;
     if (!stage || !pop || !target) return;
     const bounds = stage.getBoundingClientRect(), anchor = target.getBoundingClientRect();
-    let top = anchor.bottom - bounds.top + 8;
-    if (anchor.bottom + 8 + pop.offsetHeight > window.innerHeight && anchor.top - pop.offsetHeight - 8 > 0) top = anchor.top - bounds.top - pop.offsetHeight - 8;
+    // scrollHeight is the full content even while an earlier limit clips it.
+    const height = pop.scrollHeight + pop.offsetHeight - pop.clientHeight;
+    const below = window.innerHeight - anchor.bottom - 16, above = anchor.top - 16;
+    const up = height > below && above > below;
+    // max-height limits the content box, so the room leaves out the border and the padding.
+    const frame = pop.offsetHeight - pop.clientHeight + 2 * parseFloat(getComputedStyle(pop).paddingTop);
+    const room = Math.max(120, up ? above : below) - frame;
     const left = Math.max(4, Math.min(bounds.width - pop.offsetWidth - 4, anchor.left - bounds.left + anchor.width / 2 - pop.offsetWidth / 2));
-    setPosition({ top, left });
+    setPosition({
+      top: up ? undefined : anchor.bottom - bounds.top + 8, bottom: up ? bounds.bottom - anchor.top + 8 : undefined,
+      left, "--pop-room": `${room}px`,
+    } as CSSProperties);
   }, [selector, recipe, stageRef]);
   return [ref, position] as const;
 }
@@ -561,7 +570,7 @@ function AfterRecording({ recipe, preferences, names, place }: { recipe: Recipe;
   if (!regionOf(recipe, "level") && !regionOf(recipe, "timer") && !regionOf(recipe, "rec")) warnings.push(t("Во время записи оверлей пуст: добавьте уровень, таймер или индикатор."));
   if (recipe.style.fill === "none" && (regionOf(recipe, "timer") || regionOf(recipe, "mode") || (draft && draft !== "lines"))) warnings.push(t("Без заливки цифры и текст теряются на светлом документе."));
   if (shell === "island" && !preferences.anchor.startsWith("top")) warnings.push(t("Остров задуман у верхнего края."));
-  return <details className={`ove-after ove-after--${place}`} open>
+  return <details className={`ove-after ove-after--${place}`}>
     <summary>{t("После записи оверлей разложится так")}</summary>
     <dl>{rows.map(([term, text]) => <div key={term}><dt>{term}</dt><dd>{text}</dd></div>)}</dl>
     {warnings.length > 0 && <ul className="ove-warns">{warnings.map((text) => <li key={text}>{text}</li>)}</ul>}

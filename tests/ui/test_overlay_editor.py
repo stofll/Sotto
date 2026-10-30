@@ -44,6 +44,31 @@ def test_recipe_save_failure_rolls_back_and_same_choice_retries(app, page):
     expect(editor.locator(".ove-stage .ovs")).to_have_attribute("data-shell", "mini")
 
 
+def test_tall_popover_scrolls_inside_the_window(app, page):
+    page.set_viewport_size({"width": 1000, "height": 560})
+    app(config={"overlay": {"recipe": RECIPE}})
+    editor = open_editor(page)
+    editor.locator('.ove-stage [data-filled="level"]').click()
+    pop = editor.get_by_role("dialog", name="Уровень: варианты")
+    expect(pop).to_be_visible()
+    box = pop.bounding_box()
+    assert box["y"] >= 0 and box["y"] + box["height"] <= 560, box
+    assert pop.evaluate("el => el.scrollHeight > el.clientHeight")
+    # The nearest scrolling ancestor of the editor is the page the wheel used to move.
+    page_scroll = """el => {
+      for (let node = el.parentElement; node; node = node.parentElement) {
+        if (/auto|scroll/.test(getComputedStyle(node).overflowY)) return node.scrollTop;
+      }
+      return document.scrollingElement.scrollTop;
+    }"""
+    before = editor.evaluate(page_scroll)
+    page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    page.mouse.wheel(0, 2000)
+    page.wait_for_timeout(200)
+    assert pop.evaluate("el => el.scrollTop + el.clientHeight >= el.scrollHeight - 1")
+    assert editor.evaluate(page_scroll) == before
+
+
 @pytest.mark.parametrize(
     "name,shell,width,height",
     [
