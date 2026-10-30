@@ -1,20 +1,10 @@
 import {
-  DEFAULT_STYLE, DRAWINGS, SHELL_REGIONS, compatible, defaultProcessing, emptySlots, fitCancel, fitProcessDraw, fitsShell, regionOf,
+  DRAWINGS, SHELL_REGIONS, compatible, defaultProcessing, emptySlots, fitCancel, fitProcessDraw, fitsShell, regionOf,
   type ElementType, type Recipe, type RegionKind, type Shell,
 } from "../../overlay/overlayRecipe";
 
 // Every edit the constructor makes to a recipe. Each returns a new recipe
 // or a reason it cannot be done; nothing here knows about the screen.
-
-const hasOrb = (recipe: Recipe) => recipe.draw.level === "orb" && regionOf(recipe, "level") !== null;
-
-/** The orb is the only drawing meant to float without a shell. When an edit
- *  takes it away, a shell that is still invisible gets its default look back,
- *  otherwise the new parts would hang in the air. */
-export function restoreShell(before: Recipe, after: Recipe): Recipe {
-  if (!hasOrb(before) || hasOrb(after) || after.style.fill !== "none" || after.style.stroke !== "none") return after;
-  return { ...after, style: { ...after.style, fill: DEFAULT_STYLE.fill, stroke: DEFAULT_STYLE.stroke, glow: DEFAULT_STYLE.glow } };
-}
 
 /** The figures (limit, words, pace, engine, label, target) go to the shell's side places, in this order. */
 const figures = (places: string[]): Partial<Record<ElementType, string[]>> =>
@@ -29,8 +19,6 @@ const PREFERRED: Record<Shell, Partial<Record<ElementType, string[]>>> = {
   stack: { level: ["top", "bottom"], timer: ["bottom", "top"], rec: ["top", "bottom"], mode: ["bottom", "top"] },
   caps: { draft: ["lines"], timer: ["c1", "c2"], level: ["c2", "c1"], rec: ["c1", "c2"], mode: ["c2", "c1"], ...figures(["c1", "c2"]) },
   mini: { level: ["start", "end"], timer: ["end", "start"], rec: ["start", "end"], mode: ["end", "start"], ...figures(["end", "start"]) },
-  window: { level: ["body"], timer: ["footL", "footR"], rec: ["footL", "footR"], mode: ["footR", "footL"], draft: ["title"], ...figures(["footR", "footL"]) },
-  receipt: { level: ["level"], timer: ["total"], rec: ["total"], mode: ["total"], draft: ["print"], ...figures(["total"]) },
   split: { level: ["center", "dot", "start"], timer: ["start"], rec: ["dot", "start"], mode: ["center", "start"], ...figures(["start", "center"]), limit: ["dot", "start"] },
   ring: { timer: ["hole"], rec: ["hole"], level: ["hole"], mode: ["hole"], ...figures(["hole"]) },
   notch: { level: ["earL", "earR"], timer: ["earR", "earL"], rec: ["earR", "earL"], mode: ["earR", "earL"], ...figures(["earR", "earL"]) },

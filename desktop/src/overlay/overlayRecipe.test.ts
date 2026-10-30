@@ -53,6 +53,15 @@ describe("level drawings", () => {
     expect(normalizeRecipe({ shell: "bead", slots: { core: "level" }, draw: { level: "dorb" } })!.slots.core).toBe("level");
     expect(normalizeRecipe({ shell: "pill", slots: { center: "level" }, draw: { level: "tides" } })!.draw.level).toBe("bars");
   });
+
+  it("turns a saved orb into the ring, which fits the same places", () => {
+    const saved = { shell: "bead", slots: { core: "level" }, draw: { level: "orb" } };
+    const bead = normalizeRecipe(saved)!;
+    expect(bead.draw.level).toBe("ring");
+    expect(bead.slots.core).toBe("level");
+    expect(saved.draw.level).toBe("orb");
+    expect(normalizeRecipe({ shell: "pill", slots: { center: "level" }, draw: { level: "orb" } })!.slots.center).toBe("level");
+  });
 });
 
 describe("recipeLayout", () => {
@@ -218,8 +227,8 @@ describe("label", () => {
   });
 });
 
-describe("window, receipt, split and ring", () => {
-  const NEW_SHELLS = ["window", "receipt", "split", "ring"] as const;
+describe("split and ring", () => {
+  const NEW_SHELLS = ["split", "ring"] as const;
 
   it("opens each into the pill row for an error, and keeps its own window otherwise", () => {
     for (const shell of NEW_SHELLS) {
@@ -231,44 +240,27 @@ describe("window, receipt, split and ring", () => {
   });
 
   it("keeps parts that fit the new regions and drops those that do not", () => {
-    expect(normalizeRecipe({ shell: "window", slots: { title: "draft", body: "level", footL: "timer", footR: "mode" }, draw: { level: "tide", mode: "short" } })?.slots)
-      .toEqual({ title: "draft", body: "level", footL: "timer", footR: "mode" });
-    // The title bar holds one line of text and the body a wide drawing.
-    expect(normalizeRecipe({ shell: "window", slots: { title: "timer", body: "draft" } })?.slots).toMatchObject({ title: null, body: null });
-    expect(normalizeRecipe({ shell: "receipt", slots: { level: "level", print: "draft", total: "timer" }, draw: { level: "halftone" } })?.slots)
-      .toEqual({ level: "level", print: "draft", total: "timer" });
     expect(normalizeRecipe({ shell: "split", slots: { dot: "level", start: "timer", center: "mode" }, draw: { level: "dorb" } })?.slots)
       .toEqual({ dot: "level", start: "timer", center: "mode" });
     expect(normalizeRecipe({ shell: "ring", slots: { hole: "timer", rim: "level" } })?.slots).toEqual({ hole: "timer" });
   });
 
   it("gives the cancel button its own places and no word where there is no room", () => {
-    expect(normalizeRecipe({ shell: "window" })?.cancel.at).toBe("box");
-    expect(normalizeRecipe({ shell: "window", cancel: { at: "corner" } })?.cancel.at).toBe("box");
-    expect(normalizeRecipe({ shell: "window", cancel: { at: "footL", draw: "text", show: "always" } })?.cancel).toEqual({ at: "footL", draw: "x", show: "always" });
-    expect(normalizeRecipe({ shell: "receipt", cancel: { draw: "text" } })?.cancel).toEqual({ at: "corner", draw: "text", show: "hover" });
     expect(normalizeRecipe({ shell: "split", cancel: { at: "end", draw: "text", show: "always" } })?.cancel).toEqual({ at: "dot", draw: "x", show: "hover" });
     expect(normalizeRecipe({ shell: "ring", cancel: { draw: "stop", show: "always" } })?.cancel).toEqual({ at: "hole", draw: "stop", show: "hover" });
   });
 
   it("keeps the processing drawings that need a row to the shells that have one", () => {
-    for (const shell of ["window", "receipt"] as const) expect(processDraws(shell)).toContain("decode");
-    expect(processDraws("window")).toContain("bar");
     for (const shell of ["split", "ring"] as const) {
       expect(processDraws(shell)).not.toContain("decode");
       expect(processDraws(shell)).not.toContain("bar");
       expect(processDraws(shell)).toContain("waves");
     }
     expect(normalizeRecipe({ shell: "ring", processing: { draw: "decode" } })?.processing.draw).toBe("arc");
-    expect(normalizeRecipe({ shell: "window", processing: { draw: "decode" } })?.processing.draw).toBe("decode");
   });
 
-  it("rounds a window and a receipt only a little, and a split like a pill", () => {
-    const round = (shell: string) => shellRadius(normalizeRecipe({ shell })!, "m");
-    expect(round("window")).toBeLessThan(8);
-    expect(round("receipt")).toBeLessThan(8);
-    expect(round("split")).toBe((WINDOW_SIZE.split.m[1] - 8) / 2);
-    expect(shellRadius(normalizeRecipe({ shell: "window", style: { radius: "soft" } })!, "m")).toBe(14);
+  it("rounds a split like a pill", () => {
+    expect(shellRadius(normalizeRecipe({ shell: "split" })!, "m")).toBe((WINDOW_SIZE.split.m[1] - 8) / 2);
   });
 });
 

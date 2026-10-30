@@ -7,8 +7,7 @@ const FORMS: &[&str] = &["pill", "bead", "glow"];
 /// Mirrors `SHELLS` in overlayRecipe.ts. A saved recipe picks the window
 /// from its shell; without one the legacy `form` does.
 const SHELLS: &[&str] = &[
-    "pill", "card", "bead", "stack", "island", "caps", "mini", "window", "receipt", "split",
-    "ring", "notch",
+    "pill", "card", "bead", "stack", "island", "caps", "mini", "split", "ring", "notch",
 ];
 /// Mirrors `MAX_TEMPLATES` in overlayRecipe.ts.
 const MAX_TEMPLATES: usize = 8;
@@ -97,8 +96,6 @@ impl OverlayPreferences {
                 "bead" => Layout::Bead,
                 "stack" => Layout::Stack,
                 "mini" => Layout::Mini,
-                "window" => Layout::Window,
-                "receipt" => Layout::Receipt,
                 "split" => Layout::Split,
                 "ring" => Layout::Ring,
                 "notch" => Layout::Notch,
@@ -140,12 +137,6 @@ impl OverlayPreferences {
             (Layout::Mini, "s") => (132.0, 40.0),
             (Layout::Mini, "l") => (168.0, 48.0),
             (Layout::Mini, _) => (148.0, 44.0),
-            (Layout::Window, "s") => (240.0, 88.0),
-            (Layout::Window, "l") => (300.0, 110.0),
-            (Layout::Window, _) => (260.0, 96.0),
-            (Layout::Receipt, "s") => (200.0, 140.0),
-            (Layout::Receipt, "l") => (250.0, 176.0),
-            (Layout::Receipt, _) => (220.0, 156.0),
             (Layout::Split, "s") => (240.0, 40.0),
             (Layout::Split, "l") => (300.0, 50.0),
             (Layout::Split, _) => (262.0, 44.0),
@@ -169,8 +160,6 @@ pub enum Layout {
     Glow,
     Stack,
     Mini,
-    Window,
-    Receipt,
     Split,
     Ring,
     Notch,
@@ -458,8 +447,6 @@ mod tests {
             "errors open into the pill row"
         );
         for (shell, layout, medium) in [
-            ("window", Layout::Window, (260.0, 96.0)),
-            ("receipt", Layout::Receipt, (220.0, 156.0)),
             ("split", Layout::Split, (262.0, 44.0)),
             ("ring", Layout::Ring, (88.0, 88.0)),
             ("notch", Layout::Notch, (356.0, 32.0)),
@@ -589,8 +576,6 @@ mod tests {
                 ("glow", Layout::Glow),
                 ("stack", Layout::Stack),
                 ("mini", Layout::Mini),
-                ("window", Layout::Window),
-                ("receipt", Layout::Receipt),
                 ("split", Layout::Split),
                 ("ring", Layout::Ring),
                 ("notch", Layout::Notch),

@@ -28,7 +28,7 @@ const ALL_SYSTEM = Object.keys(SYSTEM_TEMPLATES) as SystemTemplate[];
 /** The shape a part is previewed in: the place it most naturally goes. */
 function previewKind(type: ElementType, draw: string): RegionKind {
   const kinds = DRAWINGS[type][draw] ?? [];
-  if (type === "level" && kinds.includes("square") && (draw === "ring" || draw === "orb" || draw === "dorb")) return "square";
+  if (type === "level" && kinds.includes("square") && (draw === "ring" || draw === "dorb")) return "square";
   if (type === "limit") return "square";
   if (type === "level" && kinds.includes("wide")) return "wide";
   if (kinds.includes("text")) return "text";

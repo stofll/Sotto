@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_STYLE, normalizeRecipe, regionOf } from "../../overlay/overlayRecipe";
-import { addPart, changeShell, freePartsFor, partsFor, placeInto, removePart, replacementPatch, restoreShell } from "./recipeEdits";
+import { normalizeRecipe, regionOf } from "../../overlay/overlayRecipe";
+import { addPart, changeShell, freePartsFor, partsFor, placeInto, removePart, replacementPatch } from "./recipeEdits";
 import { SYSTEM_TEMPLATES } from "./templates";
 
 const pill = SYSTEM_TEMPLATES.pill;
@@ -17,13 +17,11 @@ describe("addPart", () => {
     expect(result.ok && regionOf(result.recipe, "rec")).toBe("end");
   });
 
-  it("puts the ring and the orb in a pill's centre and in the stack", () => {
-    for (const draw of ["ring", "orb"]) {
-      const inPill = addPart(pill, "level", draw);
-      expect(inPill.ok && regionOf(inPill.recipe, "level")).toBe("center");
-      const inStack = addPart(SYSTEM_TEMPLATES.stack, "level", draw);
-      expect(inStack.ok && inStack.recipe.draw.level).toBe(draw);
-    }
+  it("puts the ring in a pill's centre and in the stack", () => {
+    const inPill = addPart(pill, "level", "ring");
+    expect(inPill.ok && regionOf(inPill.recipe, "level")).toBe("center");
+    const inStack = addPart(SYSTEM_TEMPLATES.stack, "level", "ring");
+    expect(inStack.ok && inStack.recipe.draw.level).toBe("ring");
   });
 
   it("explains a drawing the shell has no place for", () => {
@@ -125,23 +123,6 @@ describe("replacementPatch", () => {
   });
 });
 
-describe("restoreShell", () => {
-  const orb = SYSTEM_TEMPLATES.orb;
-
-  it("gives a shell back when the orb is replaced", () => {
-    const result = addPart(orb, "level", "caps");
-    if (!result.ok) throw new Error("rejected");
-    const style = restoreShell(orb, result.recipe).style;
-    expect(style.fill).not.toBe("none");
-    expect(style.stroke).toBe(DEFAULT_STYLE.stroke);
-  });
-
-  it("keeps a transparent shell the user chose without an orb", () => {
-    const glassy = { ...pill, style: { ...pill.style, fill: "none", stroke: "none" } } as typeof pill;
-    expect(restoreShell(glassy, glassy)).toBe(glassy);
-  });
-});
-
 describe("the cancel button", () => {
   it("keeps a place and a look the new shell has, and falls back where it has none", () => {
     const text = { ...pill, cancel: { at: "start", draw: "text", show: "always" } } as typeof pill;
@@ -192,9 +173,9 @@ describe("changeShell and the processing drawing", () => {
   });
 });
 
-describe("the window, receipt, split and ring shells", () => {
+describe("the split, ring and notch shells", () => {
   it("each system template is a recipe that survives normalisation unchanged", () => {
-    for (const shell of ["window", "receipt", "split", "ring", "notch"] as const) {
+    for (const shell of ["split", "ring", "notch"] as const) {
       const template = SYSTEM_TEMPLATES[shell];
       expect(template.shell).toBe(shell);
       expect(normalizeRecipe(template)).toEqual(template);
@@ -203,13 +184,6 @@ describe("the window, receipt, split and ring shells", () => {
   });
 
   it("puts a new part where the shell was designed to hold it", () => {
-    const receipt = changeShell(pill, "receipt").recipe;
-    expect(regionOf(receipt, "draft")).toBe("print");
-    expect(regionOf(receipt, "timer")).toBe("total");
-    const window = changeShell(pill, "window").recipe;
-    expect(regionOf(window, "draft")).toBe("title");
-    expect(regionOf(window, "timer")).toBe("footL");
-    expect(regionOf(window, "level")).toBe("body");
     const split = addPart(removePart(SYSTEM_TEMPLATES.split, "timer"), "limit", "ring");
     expect(split.ok && regionOf(split.recipe, "limit")).toBe("start");
   });
@@ -228,9 +202,9 @@ describe("the window, receipt, split and ring shells", () => {
   });
 
   it("falls back to a sign when a decoding processing moves to a shell without a row", () => {
-    const decoding = { ...SYSTEM_TEMPLATES.window, processing: { ...SYSTEM_TEMPLATES.window.processing, draw: "decode" as const } };
+    const decoding = { ...SYSTEM_TEMPLATES.plank, processing: { ...SYSTEM_TEMPLATES.plank.processing, draw: "decode" as const } };
     // Pixel motion shows a block cursor where the other motions show an arc.
     expect(changeShell(decoding, "split").recipe.processing.draw).toBe("cursor");
-    expect(changeShell(decoding, "receipt").recipe.processing.draw).toBe("decode");
+    expect(changeShell(decoding, "card").recipe.processing.draw).toBe("decode");
   });
 });

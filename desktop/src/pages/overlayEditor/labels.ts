@@ -7,7 +7,7 @@ import type { MatrixProcess, MatrixSpeech } from "../../overlay/dotMatrix";
 
 export const shellNames = (): Record<Shell, string> => ({
   pill: t("Пилюля"), card: t("Карточка"), bead: t("Бусина"), stack: t("Стопка"), island: t("Остров"), caps: t("Субтитры"), mini: t("Мини"),
-  window: t("Окошко"), receipt: t("Чек"), split: t("Двойка"), ring: t("Кольцо"), notch: t("Чёлка"),
+  split: t("Двойка"), ring: t("Кольцо"), notch: t("Чёлка"),
 });
 
 export const processNames = (): Record<ProcessDraw, string> => ({
@@ -57,7 +57,7 @@ export const cancelShowNames = (): Record<RecipeCancel["show"], string> => ({ ho
 export const drawNames = (): Record<ElementType, Record<string, string>> => ({
   level: {
     bars: t("Столбики"), wave: t("Волна"), qbars: t("Пиксели"), scope: t("Осциллограф"), ascii: t("Символы"),
-    caps: t("Капсулы"), matrix: t("Матрица"), segments: t("Сегменты"), ring: t("Кольцо"), orb: t("Сфера"), beam: t("Свечение по краю"),
+    caps: t("Капсулы"), matrix: t("Матрица"), segments: t("Сегменты"), ring: t("Кольцо"), beam: t("Свечение по краю"),
     dorb: t("Сфера из пикселей"), tide: t("Прилив"), static: t("Помехи"), halftone: t("Растр"), glitch: t("Глитч"), lava: t("Лава"), cols: t("Столбцы символов"),
   },
   timer: {

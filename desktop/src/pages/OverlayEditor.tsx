@@ -16,7 +16,7 @@ import { CancelOptions, EditorLibrary, isWidePart, LabelField, PartPreview, type
 import { usesCloudEngine } from "../overlay/recordingFigures";
 import { cancelShowNames, cancelSpotNames, drawNames, elementNames, kindPlaces, processNames, regionNames, shellNames, styleNames } from "./overlayEditor/labels";
 import { currentRecipe, matchingTemplate, newTemplate, preferencesOf, templateLook, updatedTemplate, useOverlaySaver, type ConfigChange, type OverlayLook } from "./overlayEditor/overlayDraft";
-import { addPart, changeShell, drawingKinds, freePartsFor, partsFor, placeInto, removePart, restoreShell, type EditResult } from "./overlayEditor/recipeEdits";
+import { addPart, changeShell, drawingKinds, freePartsFor, partsFor, placeInto, removePart, type EditResult } from "./overlayEditor/recipeEdits";
 import { frameAt, PHASE_MODES, PreviewActivity, SIMULATED_LIMIT_SECONDS, samplePhrase, simulatedVoice, silentVoice, stillVoice, useTicker, type PhaseMode } from "./overlayEditor/simulatedVoice";
 import { RadiusHandle } from "./overlayEditor/RadiusHandle";
 import { NameDialog } from "./overlayEditor/TemplateTiles";
@@ -112,8 +112,7 @@ export function OverlayEditor({ config, onConfigChanged, onClose, template }: {
       setToast(null);
     });
   }
-  function commitRecipe(edited: Recipe, message?: string, look: Partial<OverlayLook> = {}, warn = false) {
-    const next = restoreShell(recipe, edited);
+  function commitRecipe(next: Recipe, message?: string, look: Partial<OverlayLook> = {}, warn = false) {
     remember();
     setRecipe(next);
     if (Object.keys(look).length) setPreferences((current) => ({ ...current, ...look }));
@@ -543,13 +542,12 @@ function CancelPopover({ recipe, stageRef, onRecipe, onClose }: {
 const PASTED_SECONDS = { short: 1, normal: 1.8, long: 3.5 } as const;
 
 function AfterRecording({ recipe, preferences, names, place }: { recipe: Recipe; preferences: ReturnType<typeof preferencesOf>; names: Names; place: "stage" | "page" }) {
-  const shell = recipe.shell, round = COMPACT_SHELLS.includes(shell), opensIntoPill = round || shell === "window" || shell === "receipt", draft = regionOf(recipe, "draft");
+  const shell = recipe.shell, round = COMPACT_SHELLS.includes(shell), opensIntoPill = round, draft = regionOf(recipe, "draft");
   const pill = WINDOW_SIZE.pill[preferences.size].join("×"), stream = WINDOW_SIZE.streaming[preferences.size].join("×");
   const rows: Array<[string, string]> = [
     [t("Обработка"), t("«{p0}»; {p1}", { p0: processNames()[recipe.processing.draw], p1: round ? t("в центре корпуса")
       : shell === "card" ? t("статус встаёт в тело, остальное уходит") : shell === "caps" ? t("статус в чипе, по словам проходит блик")
-      : shell === "island" ? t("строка сжимается под статус") : shell === "window" ? t("статус встаёт в тело окошка")
-      : shell === "receipt" ? t("статус печатается посередине ленты") : t("статус занимает всю строку") })],
+      : shell === "island" ? t("строка сжимается под статус") : t("статус занимает всю строку") })],
     [t("Вставка"), t("{p0}; держится {p1} с", {
       p0: round || !recipe.pasted.words ? t("галочка в корпусе") : t("галочка и число вставленных символов"),
       p1: PASTED_SECONDS[recipe.pasted.hold].toLocaleString(localeTag()),

@@ -20,27 +20,24 @@ export const SYSTEM_TEMPLATES = {
   pill: recipe("pill", { start: "timer", center: "level", below: "draft" }, {}, {}, "soft"),
   bead: recipe("bead", { core: "level" }, { level: "ring" }, {}, "soft"),
   glow: recipe("card", { body: "draft", footL: "timer", edge: "level" }, { level: "beam", timer: "plain" }, { glow: "0" }, "soft"),
-  orb: recipe("bead", { core: "level" }, { level: "orb" }, { stroke: "none", fill: "none", glow: "0" }, "soft"),
-  plank: recipe("pill", { start: "timer", center: "level", below: "draft" }, { level: "qbars", timer: "plain" }, { radius: "sharp", ...flat }, "pixel"),
   square: recipe("bead", { core: "level" }, { level: "matrix" }, { radius: "sharp", ...flat }, "pixel", { speech: "rings", process: "perimeter", density: 7 }),
+  plank: recipe("pill", { start: "timer", center: "level", below: "draft" }, { level: "qbars", timer: "plain" }, { radius: "sharp", ...flat }, "pixel"),
   stack: recipe("stack", { top: "level", bottom: "timer" }, { level: "matrix", timer: "plain" }, flat, "soft", { speech: "ripple", process: "sonar", density: 9 }),
   scope: recipe("pill", { start: "timer", center: "level" }, { level: "scope", timer: "plain" }, { radius: "soft", ...flat }, "soft"),
   caps: recipe("caps", { c1: "timer", c2: "level", lines: "draft" }, { timer: "plain" }, { stroke: "none", fill: "black", glow: "0" }, "soft"),
   term: recipe("pill", { start: "rec", center: "level", end: "timer", below: "draft" }, { rec: "REC", level: "ascii", timer: "plain" }, { radius: "soft", ...flat, font: "mono" }, "pixel"),
   mini: recipe("mini", { start: "level", end: "timer" }, { timer: "plain" }, {}, "soft"),
-  window: recipe("window", { body: "level", footL: "timer", footR: "mode" }, { level: "tide", timer: "plain", mode: "short" }, { radius: "sharp", ...flat, font: "mono" }, "pixel"),
-  receipt: recipe("receipt", { level: "level", print: "draft", total: "timer" }, { level: "halftone", timer: "plain", draft: "plain" }, { fill: "paper", glow: "0", font: "mono" }, "soft"),
   split: recipe("split", { dot: "level", start: "timer", center: "mode" }, { level: "dorb", timer: "plain" }, {}, "soft"),
   ring: recipe("ring", { hole: "timer" }, { timer: "plain" }, {}, "soft"),
   notch: recipe("notch", { earL: "level", earR: "timer" }, { level: "tide" }, {}, "soft"),
 } satisfies Record<string, Recipe>;
 export type SystemTemplate = keyof typeof SYSTEM_TEMPLATES;
-export const QUICK_TEMPLATES: SystemTemplate[] = ["pill", "bead", "glow", "orb"];
+export const QUICK_TEMPLATES: SystemTemplate[] = ["pill", "bead", "glow", "square"];
 
 export const systemTemplateNames = (): Record<SystemTemplate, string> => ({
-  pill: t("Пилюля"), bead: t("Бусина"), glow: t("Сияние"), orb: t("Сфера"), plank: t("Планка"), square: t("Квадрат"),
+  pill: t("Пилюля"), bead: t("Бусина"), glow: t("Сияние"), plank: t("Планка"), square: t("Квадрат"),
   stack: t("Стопка"), scope: t("Осциллограф"), caps: t("Субтитры"), term: t("Терминал"), mini: t("Мини"),
-  window: t("Окошко"), receipt: t("Чек"), split: t("Двойка"), ring: t("Кольцо"), notch: t("Чёлка"),
+  split: t("Двойка"), ring: t("Кольцо"), notch: t("Чёлка"),
 });
 
 /** The recipe a config without one is drawn with, so the constructor opens on what the user already sees. */

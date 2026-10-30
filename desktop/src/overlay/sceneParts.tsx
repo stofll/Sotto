@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useId, useRef, type ComponentProps, type CSSProperties, type RefObject } from "react";
+import { lazy, Suspense, useEffect, useRef, type ComponentProps, type CSSProperties, type RefObject } from "react";
 import { t } from "../i18n";
 import { OverlayWaveform } from "./OverlayWaveform";
 import { easeStep, frameRunner, onFrame, prefersReducedMotion, type FrameTick } from "./frameClock";
@@ -86,7 +86,7 @@ export function LevelPart({ draw, kind, box, source, matrix, sharp, size, phase,
       </div>;
     case "ring": {
       // Only the bead's core is sized for the full ring. Elsewhere it is compact: a bar
-      // reaches 3 px past the radius, so a ring of radius 11 fits the small orb's 30 px.
+      // reaches 3 px past the radius, so a ring of radius 11 fits a 30 px box.
       const compact = kind !== "square";
       return <div className={`ovs-ring${compact ? " ovs-ring--small" : ""}`} style={{ "--overlay-ring-radius": `${compact ? 11 : Math.round(box * 0.36)}px` } as CSSProperties}>
         <OverlayWaveform source={source} surfaceRef={surfaceRef} circular compact={compact}/>
@@ -108,7 +108,6 @@ export function LevelPart({ draw, kind, box, source, matrix, sharp, size, phase,
     case "ascii": return <Ascii source={source} count={small ? 7 : 26}/>;
     case "caps": return <Capsules source={source} kind={kind} box={box}/>;
     case "segments": return <Segments source={source} unit={small || kind === "wide" ? 7 : Math.max(5, Math.round(box * 0.14))}/>;
-    case "orb": return <Orb source={source} side={small || kind === "wide" ? 30 : Math.round(box * (kind === "square" ? 1 : 0.7))}/>;
     case "dorb":
       return <Suspense fallback={null}><OverlayPixelLevel draw="dorb" source={source} sharp={sharp} size={Math.round(box * (kind === "square" ? 1 : 0.7))}/></Suspense>;
     case "tide": case "static": case "halftone": case "glitch": case "lava": case "cols": {
@@ -196,56 +195,6 @@ function Segments({ source, unit }: { source: LevelSource; unit: number }) {
   });
   return <div className="ovs-seg" style={{ "--u": `${unit}px` } as CSSProperties} aria-hidden="true">
     {[0, 1, 2].map((index) => <i key={index} ref={(node) => { refs.current[index] = node; }}/>)}
-  </div>;
-}
-
-/**
- * A drop of liquid that answers the voice. Everything follows a smoothed
- * level, so the drop swells and settles instead of twitching with each
- * reading. The blobs circle on their own slow ellipses, half of them the
- * other way round, and those paths drift over seconds, so the figure keeps
- * changing without jumping. Silence draws the blobs into the core, which
- * then only breathes. The goo filter's blur follows the size, otherwise a
- * small orb blurs below the alpha threshold and disappears when the room is
- * quiet.
- */
-function Orb({ source, side }: { source: LevelSource; side: number }) {
-  const filter = `ovs-goo-${useId().replace(/:/g, "")}`;
-  const refs = useRef<(HTMLElement | null)[]>([]);
-  const motion = useRef({ smooth: 0, angle: 0, own: [0, 0, 0, 0] });
-  const core = Math.round(side * 0.52), blob = Math.round(side * 0.28);
-  useLevelFrames(source, (readings, now, seconds) => {
-    const state = motion.current, level = Math.sqrt(readings[readings.length - 1] ?? 0);
-    state.smooth += (level - state.smooth) * easeStep(seconds, 0.18);
-    // Unlike easing, the spin integrates time linearly, so a stalled frame would jump it ahead.
-    state.angle += Math.min(seconds, 0.1) * (0.35 + state.smooth * 0.9);
-    const [ball, ...blobs] = refs.current;
-    const breath = 1 + 0.035 * Math.sin(now / 1100);
-    if (ball) ball.style.transform = `scale(${(breath + state.smooth * 0.12).toFixed(3)})`;
-    blobs.forEach((node, index) => {
-      const i = index + 1, direction = i % 2 ? 1 : -1;
-      // Each blob answers a slightly older reading, so they swell one after another.
-      state.own[index] += (Math.sqrt(readings[readings.length - 1 - i * 3] ?? 0) - state.own[index]) * easeStep(seconds, 0.22);
-      const own = state.own[index];
-      const drift = Math.sin(now / (5200 + i * 1300) + i * 1.7);
-      const a = direction * state.angle * (0.8 + i * 0.15) + i * 1.57 + drift * 0.6;
-      const reach = Math.min(0.5, 0.04 + state.smooth * (0.26 + own * 0.16)) * side;
-      // An ellipse that slowly turns instead of a fixed circle.
-      const wide = 1 + 0.22 * drift, tilt = i * 0.8 + now / 9000;
-      const x = Math.cos(a) * reach * wide, y = Math.sin(a) * reach / wide;
-      const grow = 0.55 + state.smooth * 0.4 + own * 0.2;
-      if (node) node.style.transform = `translate(${(x * Math.cos(tilt) - y * Math.sin(tilt)).toFixed(2)}px,${(x * Math.sin(tilt) + y * Math.cos(tilt)).toFixed(2)}px) scale(${grow.toFixed(3)})`;
-    });
-  });
-  return <div className="ovs-orb" style={{ width: side, height: side, filter: `url(#${filter})` }} aria-hidden="true">
-    <svg width="0" height="0" style={{ position: "absolute" }}>
-      <filter id={filter} x="-50%" y="-50%" width="200%" height="200%">
-        <feGaussianBlur in="SourceGraphic" stdDeviation={Math.max(1.2, side * 0.06).toFixed(2)}/>
-        <feColorMatrix values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 19 -8"/>
-      </filter>
-    </svg>
-    {[0, 1, 2, 3, 4].map((index) => <i key={index} ref={(node) => { refs.current[index] = node; }}
-      style={{ "--d": `${index ? blob : core}px` } as CSSProperties}/>)}
   </div>;
 }
 

@@ -6,7 +6,7 @@ import { MATRIX_DENSITIES, MATRIX_PROCESS, MATRIX_SPEECH, type MatrixDensity, ty
 // side reads only the shell and whether the draft row is used (see
 // overlay_preferences.rs); everything else is normalised here.
 
-export const SHELLS = ["pill", "card", "bead", "stack", "island", "caps", "mini", "window", "receipt", "split", "ring", "notch"] as const;
+export const SHELLS = ["pill", "card", "bead", "stack", "island", "caps", "mini", "split", "ring", "notch"] as const;
 export type Shell = typeof SHELLS[number];
 export type RegionKind = "small" | "wide" | "text" | "square" | "tall" | "edge";
 
@@ -18,9 +18,6 @@ export const SHELL_REGIONS: Record<Shell, Record<string, readonly RegionKind[]>>
   island: { start: ["small"], center: ["wide"], end: ["small"], below: ["text"] },
   caps: { c1: ["small"], c2: ["small"], lines: ["text"] },
   mini: { start: ["small"], end: ["small"] },
-  // The title bar holds a line of text; the strip's torn edge is the shell's own, not a region.
-  window: { title: ["text"], body: ["wide"], footL: ["small"], footR: ["small"] },
-  receipt: { level: ["wide"], print: ["text"], total: ["small"] },
   split: { dot: ["square"], start: ["small"], center: ["wide"] },
   // The rim always draws the voice as ticks (OverlayRing.tsx); the hole is the only place for parts.
   ring: { hole: ["small"] },
@@ -36,7 +33,7 @@ export const DRAWINGS: { [T in ElementType]: Record<string, readonly RegionKind[
   level: {
     bars: ["small", "wide"], wave: ["small", "wide"], qbars: ["small", "wide"], scope: ["small", "wide"],
     ascii: ["small", "wide"], caps: ALL_SMALL, matrix: ALL_SMALL, segments: ALL_SMALL,
-    ring: ["small", "wide", "square", "tall"], orb: ["small", "wide", "square", "tall"], beam: ["edge"],
+    ring: ["small", "wide", "square", "tall"], beam: ["edge"],
     dorb: ["square", "tall"], tide: ["small", "wide"], static: ["small", "wide"], halftone: ["small", "wide"],
     glitch: ["small", "wide"], lava: ["small", "wide"], cols: ["small", "wide"],
   },
@@ -92,7 +89,7 @@ export type RecipeMatrix = { speech: MatrixSpeech; process: MatrixProcess; densi
 export const CANCEL_SPOTS: Record<Shell, readonly string[]> = {
   pill: ["end", "start"], island: ["end", "start"], card: ["footR", "footL", "corner"],
   bead: ["center"], stack: ["top", "bottom"], caps: ["end", "start"], mini: ["end", "start"],
-  window: ["box", "footR", "footL"], receipt: ["corner"], split: ["dot"], ring: ["hole"], notch: ["ear"],
+  split: ["dot"], ring: ["hole"], notch: ["ear"],
 };
 export const CANCEL_DRAWS = ["x", "stop", "text"] as const;
 export const CANCEL_SHOWS = ["hover", "always"] as const;
@@ -100,8 +97,8 @@ export type RecipeCancel = { at: string; draw: typeof CANCEL_DRAWS[number]; show
 /** Shells too small to give the cancel button a place of its own: it floats
  *  over the parts on hover, and a status is shown as a sign without words. */
 export const COMPACT_SHELLS: readonly Shell[] = ["bead", "stack", "mini", "split", "ring", "notch"];
-/** A word needs a row: the window's close box and footers are too small for one as well. */
-export const cancelDraws = (shell: Shell): readonly RecipeCancel["draw"][] => COMPACT_SHELLS.includes(shell) || shell === "window" ? ["x", "stop"] : CANCEL_DRAWS;
+/** A word needs a row. */
+export const cancelDraws = (shell: Shell): readonly RecipeCancel["draw"][] => COMPACT_SHELLS.includes(shell) ? ["x", "stop"] : CANCEL_DRAWS;
 /** In a compact shell the button sits over the parts, so it can only appear on hover. */
 export const cancelShows = (shell: Shell): readonly RecipeCancel["show"][] => COMPACT_SHELLS.includes(shell) ? ["hover"] : CANCEL_SHOWS;
 /** The cancel button a shell can have that is closest to `raw`. */
@@ -121,7 +118,7 @@ export const PROCESS_DRAWS = ["dots", "arc", "matrix", "cursor", "none", "decode
 export type ProcessDraw = typeof PROCESS_DRAWS[number];
 /** Drawings that need a row to run in: the compact shells and the caption chip give them too little room. */
 const PROCESS_ROW_SHELLS: Partial<Record<ProcessDraw, readonly Shell[]>> = {
-  decode: ["pill", "island", "card", "window", "receipt"], bar: ["pill", "card", "window", "receipt"],
+  decode: ["pill", "island", "card"], bar: ["pill", "card"],
 };
 export const processDraws = (shell: Shell): readonly ProcessDraw[] =>
   PROCESS_DRAWS.filter((draw) => PROCESS_ROW_SHELLS[draw]?.includes(shell) ?? true);
@@ -193,7 +190,9 @@ export function normalizeRecipe(raw: unknown): Recipe | null {
   if (!SHELLS.includes(value.shell as Shell)) return null;
   const shell = value.shell as Shell;
   const draw = { ...DEFAULT_DRAW };
-  const rawDraw = record(value.draw);
+  const rawDraw = { ...record(value.draw) };
+  // The retired orb level fitted every region the ring does, so a saved one keeps its place.
+  if (rawDraw.level === "orb") rawDraw.level = "ring";
   for (const type of ELEMENTS) if (typeof rawDraw[type] === "string" && DRAWINGS[type][rawDraw[type] as string]) draw[type] = rawDraw[type] as string;
   const slots = emptySlots(shell);
   const rawSlots = record(value.slots);
@@ -241,7 +240,7 @@ function normalizePasted(value: unknown): RecipePasted {
   return { flash: flag("flash"), words: flag("words"), hold: pick(PASTED_HOLDS, raw.hold, DEFAULT_PASTED.hold), exit: pick(PASTED_EXITS, raw.exit, DEFAULT_PASTED.exit) };
 }
 
-export type RecipeLayout = "pill" | "bead" | "streaming" | "glow" | "stack" | "mini" | "window" | "receipt" | "split" | "ring" | "notch";
+export type RecipeLayout = "pill" | "bead" | "streaming" | "glow" | "stack" | "mini" | "split" | "ring" | "notch";
 /** Mirrors `OverlayPreferences::layout` for a saved recipe in overlay_preferences.rs. */
 export function recipeLayout(recipe: Recipe, streaming: boolean, needsText: boolean): RecipeLayout {
   if (recipe.shell === "card") return "glow";
@@ -249,7 +248,7 @@ export function recipeLayout(recipe: Recipe, streaming: boolean, needsText: bool
   if (needsText) return "pill";
   if (recipe.shell === "bead") return "bead";
   if (recipe.shell === "stack") return "stack";
-  if (recipe.shell === "mini" || recipe.shell === "window" || recipe.shell === "receipt" || recipe.shell === "split" || recipe.shell === "ring" || recipe.shell === "notch") return recipe.shell;
+  if (recipe.shell === "mini" || recipe.shell === "split" || recipe.shell === "ring" || recipe.shell === "notch") return recipe.shell;
   return streaming && recipe.slots.below === "draft" ? "streaming" : "pill";
 }
 
@@ -261,8 +260,6 @@ export const WINDOW_SIZE: Record<RecipeLayout, Record<OverlaySize, readonly [num
   bead: { s: [64, 64], m: [72, 72], l: [80, 80] },
   stack: { s: [72, 112], m: [80, 128], l: [88, 144] },
   mini: { s: [132, 40], m: [148, 44], l: [168, 48] },
-  window: { s: [240, 88], m: [260, 96], l: [300, 110] },
-  receipt: { s: [200, 140], m: [220, 156], l: [250, 176] },
   split: { s: [240, 40], m: [262, 44], l: [300, 50] },
   ring: { s: [80, 80], m: [88, 88], l: [100, 100] },
   // Used where the screen has no camera notch; with one the native side sizes the window around it (overlay_notch.rs).
@@ -273,7 +270,7 @@ export const NOTCH_EAR: Record<OverlaySize, number> = { s: 80, m: 88, l: 100 };
 /** The camera notch the native side placed the shell around, in points. */
 export type NotchFit = { width: number; height: number };
 /** The window a shell is designed around, before any state opens it wider. */
-export const SHELL_LAYOUT: Record<Shell, RecipeLayout> = { pill: "pill", island: "pill", card: "glow", bead: "bead", stack: "stack", caps: "streaming", mini: "mini", window: "window", receipt: "receipt", split: "split", ring: "ring", notch: "notch" };
+export const SHELL_LAYOUT: Record<Shell, RecipeLayout> = { pill: "pill", island: "pill", card: "glow", bead: "bead", stack: "stack", caps: "streaming", mini: "mini", split: "split", ring: "ring", notch: "notch" };
 export const FONT_SCALE: Record<OverlaySize, number> = { s: 0.92, m: 1, l: 1.12 };
 
 /** The legacy form that comes closest, kept in sync so an older Sotto that
@@ -293,9 +290,6 @@ export function shellRadius(recipe: Recipe, size: OverlaySize) {
   if (recipe.style.radius === "sharp") return 3;
   if (recipe.style.radius === "soft") return Math.round(14 * FONT_SCALE[size]);
   if (recipe.shell === "card") return Math.round(28 * FONT_SCALE[size]);
-  // A window and a paper strip are nearly square-cornered by nature; round only softens them a little.
-  if (recipe.shell === "window") return 6;
-  if (recipe.shell === "receipt") return 5;
   const [width, height] = WINDOW_SIZE[SHELL_LAYOUT[recipe.shell]][size];
   return Math.floor((Math.min(width, height) - 8) / 2);
 }

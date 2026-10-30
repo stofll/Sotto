@@ -1,9 +1,9 @@
-import { useMemo, useRef, type CSSProperties, type ReactNode, type RefObject } from "react";
+import { useRef, type CSSProperties, type ReactNode, type RefObject } from "react";
 import { Icon } from "../components/Icon";
 import { dissolveAllowed, useShellDissolve } from "./shellDissolve";
 import { t } from "../i18n";
 import { CheckMark, DraftPart, FigurePart, FillLayers, LevelPart, ModePart, ProcessLead, RecPart, RingRim, TimerPart } from "./sceneParts";
-import { ringClip, ringHoleSize, tornEdgeClip } from "./shellShapes";
+import { ringClip, ringHoleSize } from "./shellShapes";
 import { sampleFigures, type SceneFigures } from "./recordingFigures";
 import type { SmokeFrame } from "./fillPainters";
 import type { LevelSource } from "./levelSource";
@@ -51,7 +51,7 @@ export type SceneProps = {
 /** How much of the shell's side a status sign takes when the shell is compact. */
 const SIGN_SCALE: Partial<Record<Shell, number>> = { mini: 0.8, ring: 0.42, notch: 0.7 };
 /** How many characters of the decoding text fit a shell's status row. */
-const DECODE_CHARS: Partial<Record<Shell, number>> = { island: 14, card: 30, receipt: 20 };
+const DECODE_CHARS: Partial<Record<Shell, number>> = { island: 14, card: 30 };
 
 export function OverlayScene(props: SceneProps) {
   const { recipe, size, phase, streaming, source, interactive, still } = props;
@@ -72,8 +72,6 @@ export function OverlayScene(props: SceneProps) {
   // The split's capsules show two parts of one smoke field; the first one moves it on.
   const splitRef = useRef<HTMLDivElement>(null);
   const splitSmoke = useRef<SmokeFrame>({ time: 0, drift: 0, energy: 0.18 });
-  // The receipt prints the time it was started at; the scene is rebuilt for every dictation.
-  const receiptTime = useMemo(() => new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), []);
   const dissolving = !!props.leaving && phase === "pasted" && recipe.pasted.exit === "dissolve" && dissolveAllowed();
   useShellDissolve(rootRef, dissolving);
 
@@ -89,7 +87,7 @@ export function OverlayScene(props: SceneProps) {
       case "rec": return <RecPart draw={draw}/>;
       case "mode": return <ModePart draw={draw} {...props.mode}/>;
       case "draft": return <DraftPart draw={draw} text={props.draft} captions={region === "lines"} phase={phase} still={still}
-        placeholder={region === "below" || region === "title" || !streaming ? "" : props.draftPlaceholder}/>;
+        placeholder={region === "below" || !streaming ? "" : props.draftPlaceholder}/>;
       case "limit": case "words": case "pace": case "engine": case "label": case "target":
         return <FigurePart type={type} kind={kind} box={box} figures={props.figures ?? sampleFigures()} draft={props.draft} streaming={streaming}
           limited={props.limited && phase === "recording"} label={recipe.label ?? ""} labelPlaceholder={interactive ? t("Метка") : undefined}/>;
@@ -156,7 +154,6 @@ export function OverlayScene(props: SceneProps) {
   const radius = shellRadius(recipe, size);
   const ringShape = recipe.shell === "ring" && layout === "ring";
   const skinless = recipe.shell === "caps" || recipe.shell === "split" || recipe.shell === "ring" || band;
-  const shape = ringShape ? { clipPath: ringClip(shellWidth) } : recipe.shell === "receipt" ? { clipPath: tornEdgeClip(shellWidth, shellHeight) } : {};
 
   let body: ReactNode;
   if (recipe.shell === "caps") {
@@ -186,7 +183,7 @@ export function OverlayScene(props: SceneProps) {
   } else if (recipe.shell === "ring") {
     // The parts sit outside the skin: its clip-path would cut the hole's content away too.
     body = <>
-      <div className="ovs-skin ovs-ring-skin" style={ringShape ? { ...shape, borderRadius: "50%" } : { borderRadius: radius }}>
+      <div className="ovs-skin ovs-ring-skin" style={ringShape ? { clipPath: ringClip(shellWidth), borderRadius: "50%" } : { borderRadius: radius }}>
         {layers}
         {ringShape && <RingRim size={shellWidth} mode={phase === "recording" ? "recording" : phase === "processing" ? "processing" : "idle"}
           live={!still && shown && (phase === "recording" || phase === "processing")} source={source} pace={PROCESS_PACE[processing.speed]}
@@ -199,26 +196,6 @@ export function OverlayScene(props: SceneProps) {
     if (recipe.shell === "pill" || recipe.shell === "island") content = <><div className="ovs-main-row">{at("start")}{R("start")}{R("center")}{R("end")}{stl}{at("end")}</div>{R("below")}</>;
     else if (recipe.shell === "card") content = <>{R("body")}<div className="ovs-foot">{at("footL")}{R("footL")}<div className="ovs-sp"/>{R("footR")}{at("footR")}</div>{stl}{at("corner")}</>;
     else if (recipe.shell === "mini") content = <div className="ovs-main-row">{at("start")}{R("start")}{R("end")}{stl}{at("end")}</div>;
-    else if (recipe.shell === "window") content = <>
-      <div className="ovs-win">
-        <div className="ovs-win-tb">
-          {cancel.at === "box" ? close : <i className="ovs-win-box"/>}
-          <div className="ovs-win-title">{R("title")}{!recipe.slots.title && !interactive && <span className="ovs-win-name">sotto</span>}</div>
-          <i className="ovs-win-box ovs-win-box--pad"/>
-        </div>
-        {R("body")}
-        <div className="ovs-win-ft">{at("footL")}{R("footL")}<div className="ovs-sp"/>{R("footR")}{at("footR")}</div>
-      </div>
-      {stl}
-    </>;
-    else if (recipe.shell === "receipt") content = <>
-      <div className="ovs-rc">
-        <div className="ovs-rc-hd"><b>SOTTO</b><span>{receiptTime}</span></div>
-        {R("level")}<div className="ovs-rc-rule"/>{R("print")}<div className="ovs-rc-rule"/>
-        <div className="ovs-rc-tot"><span>{t("ИТОГО")}</span>{R("total")}</div>
-      </div>
-      {stl}{at("corner")}
-    </>;
     else if (recipe.shell === "notch") content = <div className="ovs-main-row">{R("earL")}{R("earR")}{stl}{close}</div>;
     else if (recipe.shell === "bead") content = <>{R("core")}{stl}{close}</>;
     else content = <>{R("top")}{R("bottom")}{stl}{close}</>;
@@ -244,7 +221,7 @@ export function OverlayScene(props: SceneProps) {
     <div className={`ovs-shell${skinless ? "" : " ovs-skin"}`} ref={recipe.shell === "caps" ? undefined : surfaceRef}
       style={{
         width: shellWidth, height: shellHeight, borderRadius: skinless ? undefined : radius,
-        ...(recipe.shell === "receipt" ? shape : {}), ...(recipe.shell === "ring" ? { "--hole": `${ringHoleSize(shellWidth)}px` } : {}),
+        ...(recipe.shell === "ring" ? { "--hole": `${ringHoleSize(shellWidth)}px` } : {}),
       } as CSSProperties}>
       {recipe.shell === "caps" ? <div className="ovs-chip-radius" style={{ "--ovs-radius": `${shellRadius(recipe, size)}px` } as CSSProperties}>{body}</div> : body}
     </div>

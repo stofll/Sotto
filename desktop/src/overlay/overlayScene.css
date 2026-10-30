@@ -161,8 +161,6 @@
 .ovs-seg i:nth-child(2) { height: calc(var(--u) * 2.3); }
 .ovs-seg i:nth-child(3) { height: calc(var(--u) * 3.4); }
 .ovs-seg i[data-on="true"] { background: var(--overlay-wave-mid); }
-.ovs-orb { position: relative; }
-.ovs-orb i { position: absolute; left: 50%; top: 50%; width: var(--d); height: var(--d); margin: calc(var(--d) / -2) 0 0 calc(var(--d) / -2); border-radius: 50%; background: radial-gradient(circle at 35% 30%, var(--overlay-wave-top), var(--overlay-wave-mid) 50%, var(--overlay-wave-bottom)); }
 
 /* Timer, indicator, mode */
 .ovs-tt { font: 600 calc(12.5px * var(--fs))/1 var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--ink); }
@@ -234,7 +232,7 @@
 .ovs[data-shell="card"] .ovs-content { padding: calc(var(--pad) + 10px) calc(var(--pad) + 10px) calc(var(--pad) + 6px) calc(var(--pad) + 14px); }
 .ovs-rg-body { flex: 1; min-height: 0; align-items: flex-start; justify-content: flex-start; }
 /* Text and wide drawings start at the corner; a round one sits in the middle. */
-.ovs-rg-body > :is(.ovs-ring, .ovs-orb) { margin: auto; }
+.ovs-rg-body > .ovs-ring { margin: auto; }
 .ovs-foot { position: relative; display: flex; align-items: center; gap: 8px; min-height: 30px; }
 .ovs-sp { flex: 1; }
 /* After recording the footer is empty, so the status takes the middle of the whole card;
@@ -281,50 +279,6 @@
 .ovs[data-band="1"] .ovs-limitb { left: auto; right: 6px; transform: translateY(-50%); }
 .ovs[data-shell="notch"][data-needs-text="1"] .ovs-close { top: 50%; right: 8px; }
 
-/* Window: a 1-bit title bar, a body and a footer. An error opens it into the pill row, which has no room for the footer. */
-.ovs-win { position: relative; flex: 1; min-height: 0; display: grid; grid-template-rows: 20px minmax(0, 1fr) 24px; }
-.ovs-win-tb { display: grid; grid-template-columns: 14px minmax(0, 1fr) 14px; align-items: center; gap: 6px; padding: 0 6px; border-bottom: 1px solid var(--ink-mute); background: repeating-linear-gradient(180deg, var(--ink-mute) 0 1px, transparent 1px 3px) 0 5px / 100% 10px no-repeat; }
-.ovs-win-box { display: block; width: 14px; height: 14px; background: var(--overlay-surface); box-shadow: inset 0 0 0 1px var(--ink); }
-.ovs-win-box--pad { visibility: hidden; }
-.ovs-win-title { position: relative; display: flex; align-items: center; justify-content: center; height: 100%; min-width: 0; }
-.ovs-win-name, .ovs[data-shell="window"] .ovs-rg-title { padding: 0 8px; background: var(--overlay-surface); }
-.ovs-win-name { font: 600 calc(10.5px * var(--fs))/14px var(--font-mono); color: var(--ink); }
-.ovs[data-shell="window"] .ovs-rg-title { flex: 0 1 auto; max-width: 100%; height: 14px; }
-.ovs-rg-title .ovs-draft { display: flex; justify-content: flex-end; font-size: calc(11px * var(--fs)); line-height: 14px; white-space: nowrap; }
-.ovs[data-shell="window"] .ovs-rg-body { align-items: center; justify-content: center; padding: 0 8px; }
-.ovs-win-ft { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 0 8px; overflow: hidden; border-top: 1px solid var(--ink-mute); font-variant-numeric: tabular-nums; }
-.ovs-win-ft .ovs-level--small { height: 16px; }
-.ovs-win-ft .ovs-tcap { height: 20px; min-width: 0; }
-.ovs-win-ft .ovs-close { width: 18px; height: 18px; flex-basis: 18px; }
-.ovs[data-shell="window"] .ovs-content > .ovs-stl { position: absolute; inset: 20px 12px 24px; }
-.ovs[data-shell="window"][data-needs-text="1"] .ovs-win { grid-template-rows: 20px minmax(0, 1fr); }
-.ovs[data-shell="window"][data-needs-text="1"] .ovs-win-ft { position: absolute; right: 8px; top: 20px; bottom: 0; padding: 0; border: 0; }
-.ovs[data-shell="window"][data-needs-text="1"] .ovs-content > .ovs-stl { inset: 20px 34px 0 12px; justify-content: flex-start; }
-/* The close box is the cancel button: a frame, and the cross appears with the pointer. */
-.ovs-win-tb .ovs-close { width: 14px; height: 14px; flex-basis: 14px; border-radius: 0; background: var(--overlay-surface); box-shadow: inset 0 0 0 1px var(--ink); color: var(--ink); opacity: 1; }
-.ovs-win-tb .ovs-close > * { opacity: 0; width: 10px; height: 10px; }
-.ovs[data-hovered="true"] .ovs-win-tb .ovs-close > *, .ovs[data-cancel-show="always"] .ovs-win-tb .ovs-close > *, .ovs-win-tb .ovs-close:focus-visible > * { opacity: 1; }
-.ovs-win-tb .ovs-close .ovs-close__stop { width: 6px; height: 6px; }
-
-/* Receipt: a paper strip whose torn bottom edge is the clip-path of the shell (shellShapes.ts). */
-.ovs[data-shell="receipt"] .ovs-content { padding: calc(var(--pad) + 10px) calc(var(--pad) + 12px) calc(var(--pad) + 16px); }
-.ovs-rc { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 6px; font: 400 calc(10.5px * var(--fs))/1.5 var(--font-mono); color: var(--ink); }
-.ovs-rc-hd { display: flex; justify-content: space-between; font-weight: 600; letter-spacing: .04em; }
-.ovs-rc-hd b { font-weight: 600; }
-.ovs-rc-rule { flex: 0 0 0; border-top: 1px dashed var(--ink-mute); }
-.ovs-rc .ovs-rg-level { flex: 0 0 calc(22px * var(--fs)); width: 100%; }
-.ovs-rc .ovs-rg-print { flex: 1 1 0; min-height: 0; align-items: flex-start; justify-content: flex-start; overflow: hidden; }
-.ovs-rc .ovs-draft { font: inherit; white-space: pre-wrap; color: var(--ink); }
-.ovs-rc-tot { display: flex; align-items: center; justify-content: space-between; min-height: 18px; font-weight: 600; font-variant-numeric: tabular-nums; transition: opacity var(--fd) ease; }
-.ovs:not([data-phase="recording"]) .ovs-rc-tot > span:first-child { opacity: 0; }
-.ovs[data-shell="receipt"] .ovs-content > .ovs-stl { position: absolute; inset: 30px 12px 26px; }
-.ovs[data-shell="receipt"][data-needs-text="1"] .ovs-rc { visibility: hidden; }
-.ovs[data-shell="receipt"][data-needs-text="1"] .ovs-content > .ovs-stl { inset: 0 44px 0 14px; justify-content: flex-start; }
-.ovs[data-shell="receipt"][data-cancel-at="corner"] .ovs-close { position: absolute; top: 6px; right: 8px; background: linear-gradient(rgba(255, 255, 255, .12), rgba(255, 255, 255, .12)), var(--overlay-surface); }
-.ovs[data-shell="receipt"][data-needs-text="1"] .ovs-close { top: 50%; transform: translateY(-50%); }
-.ovs[data-fill="black"][data-shell="receipt"] .ovs-close { background: linear-gradient(rgba(255, 255, 255, .12), rgba(255, 255, 255, .12)), var(--ovs-black); }
-.ovs:is([data-fill="light"], [data-fill="paper"])[data-shell="receipt"] .ovs-close { background: linear-gradient(rgba(0, 0, 0, .07), rgba(0, 0, 0, .07)), var(--overlay-surface); }
-
 /* Split: two capsules with a transparent gap. After recording the right one is drawn in and the status takes the left; an error joins them into one row. */
 .ovs-split { position: absolute; inset: 0; display: flex; align-items: stretch; justify-content: center; gap: 8px; }
 .ovs-cap { height: 100%; transition: flex-basis var(--sd) var(--se), margin var(--sd) var(--se), opacity var(--fd) ease, border-radius var(--sd) var(--se), box-shadow .2s; }
@@ -339,7 +293,7 @@
 .ovs-split > .ovs-close { position: absolute; top: 50%; left: calc(var(--capw) / 2); transform: translate(-50%, -50%); width: 24px; height: 24px; flex-basis: 24px; transition: opacity .12s ease, left var(--sd) var(--se); }
 .ovs[data-shell="split"]:not([data-phase="recording"]):not([data-needs-text="1"]) .ovs-split > .ovs-close { left: 50%; }
 .ovs[data-shell="split"][data-needs-text="1"] .ovs-split > .ovs-close { left: auto; right: 10px; transform: translateY(-50%); }
-.ovs[data-needs-text="1"]:is([data-shell="split"], [data-shell="window"], [data-shell="receipt"]) .ovs-rg { opacity: 0; }
+.ovs[data-needs-text="1"][data-shell="split"] .ovs-rg { opacity: 0; }
 
 /* Ring: the rim is a canvas inside the clipped skin; the hole's parts sit outside it, over whatever is behind the window. */
 .ovs-ring-skin { position: absolute; inset: 0; }
