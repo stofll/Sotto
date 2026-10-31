@@ -368,6 +368,44 @@ def test_file_result_shows_stages_and_processes_with_llm_in_place(app, page):
     )
 
 
+def test_file_llm_stage_shows_rejected_answer_without_replacing_result(app, page):
+    ui = app()
+    ui.nav("ai")
+    rejected = "Synthetic rejected file answer."
+    result = {
+        **FILE_RESULT,
+        "ai_status": {
+            "enabled": True,
+            "attempted": True,
+            "used": False,
+            "fallback": True,
+            "skipped_reason": "model_changed_terms",
+            "rejected_reason": "model_changed_terms",
+            "rejected_text": rejected,
+        },
+    }
+    ui.queue("pick_audio_file", {"result": "/synthetic/sample.wav"})
+    ui.queue("transcribe_audio_file", {"result": result})
+    page.get_by_role("button", name="Выбрать файл").click()
+    panel = page.get_by_test_id("page-ai")
+    panel.get_by_role("button", name="Подробнее", exact=True).click()
+    panel.get_by_role("button", name="LLM", exact=True).click()
+    expect(panel.get_by_role("note")).to_have_text(
+        "Вариант LLM не применён: модель изменила названия."
+    )
+    expect(panel.get_by_text("rejected", exact=False)).to_be_visible()
+    page.evaluate("""() => {
+      Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
+        writeText: async text => { window.copiedStage = text; },
+      }});
+    }""")
+    panel.get_by_role("button", name="Копировать текст этапа", exact=True).click()
+    page.wait_for_function("window.copiedStage !== undefined")
+    assert page.evaluate("window.copiedStage") == rejected
+    expect(panel.get_by_text(FILE_RESULT["text"], exact=True)).to_be_visible()
+    assert ui.state()["history"] == []
+
+
 def test_file_llm_pass_names_a_skip_and_keeps_to_its_result(app, page):
     ui = app(keys=KEYS)
     ui.nav("ai")

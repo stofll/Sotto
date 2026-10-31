@@ -74,6 +74,8 @@ Include the OS, architecture, app version, selected model, and whether the failu
 
 Cloud STT and LLM formatting are opt-in. Verify the selected provider, endpoint, model, and key in the Integrations settings, then retry with local processing to separate provider failures from the local pipeline.
 
+If a check rejects an LLM answer, History → Details → LLM shows the saved answer with a warning and a copy button. The main transcript keeps the accepted text; open **LLM variant** and choose **Replace text** to accept the rejected answer manually. File transcription also shows saved rejected answers under Details → LLM.
+
 The LLM timeout in the Integrations settings is the whole budget for one dictation, including retries and the pause between them, not the limit for a single attempt. When it runs out, the transcription is delivered without cloud formatting rather than held back.
 
 The timeout is a minimum: a long text gets as much time as a model needs to rewrite it at a conservative output speed, up to five minutes.

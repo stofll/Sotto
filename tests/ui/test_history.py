@@ -490,6 +490,60 @@ TURNED_DOWN = {
 }
 
 
+@pytest.mark.parametrize("locale", ["ru", "en"])
+@pytest.mark.parametrize("theme", ["dark", "light"])
+@pytest.mark.parametrize("result", ["rejected", "partial", "legacy"])
+def test_history_llm_stage_shows_and_copies_rejected_answer(
+    app, page, locale, theme, result, output_path
+):
+    entry = {**TURNED_DOWN, "ai_processing": {**TURNED_DOWN["ai_processing"]}}
+    if result == "partial":
+        entry["ai_processing"].update(
+            used=True, fallback=False, skipped_reason="", parts={"total": 2, "used": 1}
+        )
+    elif result == "legacy":
+        entry.pop("raw_text")
+        entry.pop("formatted_text")
+    ui = app(history=[entry], config={"ui_language": locale, "theme": theme})
+    ui.nav("history")
+    card = page.get_by_test_id("history-entry-8")
+    card.get_by_role(
+        "button", name="Подробнее" if locale == "ru" else "Details", exact=True
+    ).click()
+    llm = card.get_by_role("button", name="LLM", exact=True)
+    llm.focus()
+    page.keyboard.press("Enter")
+    expect(llm).to_have_attribute("aria-pressed", "true")
+    expect(card.get_by_role("note")).to_have_text(
+        "Вариант LLM не применён: модель изменила названия."
+        if locale == "ru"
+        else "The LLM variant was not applied: model changed names."
+    )
+    expect(
+        card.get_by_role("note").locator("..").get_by_text("Посмотри", exact=False)
+    ).to_be_visible()
+    page.evaluate("""() => {
+      Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
+        writeText: async text => { window.copiedStage = text; },
+      }});
+    }""")
+    copy = card.get_by_role(
+        "button",
+        name="Копировать текст этапа" if locale == "ru" else "Copy stage text",
+        exact=True,
+    )
+    copy.focus()
+    expect(copy).to_be_focused()
+    card.screenshot(path=str(Path(output_path) / "rejected-llm-stage.png"))
+    page.keyboard.press("Enter")
+    page.wait_for_function("window.copiedStage !== undefined")
+    assert (
+        page.evaluate("window.copiedStage") == entry["ai_processing"]["rejected_text"]
+    )
+    assert ui.state()["history"][0]["text"] == entry["text"]
+    assert not ui.calls("apply_history_ai_processing")
+
+
 def test_history_offers_an_answer_a_check_turned_down(app, page):
     ui = app(history=[TURNED_DOWN])
     ui.nav("history")

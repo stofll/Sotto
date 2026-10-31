@@ -194,7 +194,7 @@ export function defaultStage(entry: TranscriptRecord): TextStage {
 /** One recognized text at a time instead of a stack of near-identical blocks.
  *  Formatting and LLM show what they changed against the previous stage; the
  *  copy button always takes the clean text of the stage on screen. */
-export function TranscriptStages({ entry, copyKey: keyPrefix, stage, onStage, copiedKey, onCopy }: {
+export function TranscriptStages({ entry, copyKey: keyPrefix, stage: requestedStage, onStage, copiedKey, onCopy }: {
   entry: TranscriptRecord;
   /** Prefix of the copy-button key, unique per transcript on the page. */
   copyKey: string;
@@ -204,10 +204,13 @@ export function TranscriptStages({ entry, copyKey: keyPrefix, stage, onStage, co
   onCopy: (key: string, text: string) => void;
 }) {
   const recognized = recognizedText(entry);
-  if (recognized === undefined) return null;
+  const rejected = entry.ai_processing?.rejected_text || null;
+  if (recognized === undefined && !rejected) return null;
   const formatted = formattedText(entry);
-  const llmUsed = aiStatusKind(entry) === "processed";
-  const text = stage === "raw" ? recognized : stage === "formatted" ? formatted : llmUsed ? entry.text : null;
+  const stage = recognized === undefined ? "llm" : requestedStage;
+  const llmText = rejected ?? (aiStatusKind(entry) === "processed" ? entry.text : null);
+  const text = stage === "raw" ? recognized ?? formatted : stage === "formatted" ? formatted : llmText;
+  const rejectedReason = entry.ai_processing?.rejected_reason || entry.ai_processing?.skipped_reason;
   const copyKey = `${keyPrefix}:${stage}`;
   const copied = copiedKey === copyKey;
   const textStyle = { font: "400 13px/1.5 var(--font-sans)", color: "var(--ink)", whiteSpace: "pre-wrap", overflowWrap: "break-word", minWidth: 0 } as const;
@@ -216,17 +219,26 @@ export function TranscriptStages({ entry, copyKey: keyPrefix, stage, onStage, co
     <div style={{ display: "grid", gap: 8 }}>
       <div>
         <Segmented value={stage} onChange={(value) => onStage(value as TextStage)} options={[
-          { value: "raw", label: t("Распознавание") },
-          { value: "formatted", label: t("Форматирование") },
+          ...(recognized === undefined ? [] : [
+            { value: "raw", label: t("Распознавание") },
+            { value: "formatted", label: t("Форматирование") },
+          ]),
           { value: "llm", label: "LLM" },
         ]}/>
       </div>
+      {stage === "llm" && rejected && (
+        <div role="note" style={{ ...textStyle, color: "var(--warn)" }}>
+          {rejectedReason
+            ? t("Вариант LLM не применён: {p0}.", { p0: aiSkipLabel(rejectedReason) })
+            : t("Вариант LLM не применён.")}
+        </div>
+      )}
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", gap: 8, alignItems: "start", padding: 10, borderRadius: "var(--radius-sm)", background: "var(--bg-3)", border: "1px solid var(--line)" }}>
         {text === null ? (
           <div style={{ ...textStyle, color: "var(--ink-mute)" }}>{aiStatusText(entry)}</div>
         ) : (
           <div style={textStyle}>
-            {stage === "raw" ? text : <DiffText before={stage === "formatted" ? recognized : formatted} after={text}/>}
+            {stage === "raw" ? text : <DiffText before={stage === "formatted" ? recognized ?? formatted : formatted} after={text}/>}
           </div>
         )}
         {text !== null && (
