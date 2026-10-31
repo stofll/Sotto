@@ -1136,6 +1136,8 @@ export const en: Record<string, string | string[]> = {
   "LLM: вариант принят вручную": "LLM: variant accepted manually",
   "LLM: вариант принят вручную · {p0}": "LLM: variant accepted manually · {p0}",
   "Вариант LLM": "LLM variant",
+  "Вариант LLM не применён: {p0}.": "The LLM variant was not applied: {p0}.",
+  "Вариант LLM не применён.": "The LLM variant was not applied.",
   "Diff: сейчас → вариант LLM": "Diff: current → LLM variant",
   "Проверка отклонила ответ: {p0}. Сравните и замените текст, если вариант верный.": "A check rejected the answer: {p0}. Compare and replace the text if the variant is correct.",
   "Проверка отклонила часть ответа. Сравните и замените текст, если вариант верный.": "A check rejected part of the answer. Compare and replace the text if the variant is correct.",

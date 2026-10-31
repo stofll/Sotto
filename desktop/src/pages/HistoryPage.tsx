@@ -142,7 +142,7 @@ async function copyToClipboard(text: string): Promise<boolean> {
 
 function entryHasDetails(entry: HistoryEntry): boolean {
   // Any stored stage opens the stage switcher.
-  if (entry.raw_text || entry.formatted_text) return true;
+  if (entry.raw_text || entry.formatted_text || entry.ai_processing?.rejected_text) return true;
   if (entry.ai_processing?.provider_error) return true;
   if (processingStatsText(entry)) return true;
   return false;
