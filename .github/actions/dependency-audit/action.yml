@@ -8,7 +8,7 @@ runs:
   using: composite
   steps:
     - name: Setup Node.js
-      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
       with:
         node-version-file: .node-version
 
@@ -31,7 +31,7 @@ runs:
       run: pnpm audit --prod=false --audit-level high
 
     - name: Install Python dependency tool
-      uses: taiki-e/install-action@94c31af3204a9f15ab40b35ad084410b905bbc73 # v2.87.17
+      uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
       with:
         tool: uv@0.13.5
 
