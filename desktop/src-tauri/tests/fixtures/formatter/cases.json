@@ -2296,6 +2296,27 @@
     "config": {"language":"ru","text_formatting":{"capitalize_sentences":false,"final_punctuation":false}}
   },
   {
+    "id": "no-dot-style-preserves-including-abbreviation-period",
+    "category": "sentence-style",
+    "input": "пиши сокращённо т. ч.",
+    "expected": "Пиши сокращённо т. ч.",
+    "config": {"language":"ru","text_formatting":{"final_punctuation":false}}
+  },
+  {
+    "id": "chat-style-preserves-so-called-abbreviation-period",
+    "category": "sentence-style",
+    "input": "Сократи до т. н.",
+    "expected": "сократи до т. н.",
+    "config": {"language":"ru","text_formatting":{"capitalize_sentences":false,"final_punctuation":false}}
+  },
+  {
+    "id": "no-dot-style-removes-sentence-period-after-an-email",
+    "category": "sentence-style",
+    "input": "напиши на a@b.com.",
+    "expected": "Напиши на a@b.com",
+    "config": {"language":"ru","text_formatting":{"final_punctuation":false}}
+  },
+  {
     "id": "no-dot-style-removes-period-after-a-pronoun",
     "category": "sentence-style",
     "input": "я горжусь им.",

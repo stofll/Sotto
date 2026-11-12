@@ -22,7 +22,7 @@ static MILLIMETRES: LazyLock<Regex> = LazyLock::new(|| {
 // Speech language: the periods in these abbreviations belong to the expression.
 static PUNCTUATED_ABBREVIATION: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r"(?i)\b(?:(?:до[ \t\u{00a0}\u{202f}]+)?н\.[ \t\u{00a0}\u{202f}]*э|т\.[ \t\u{00a0}\u{202f}]*[декп])\.",
+        r"(?i)\b(?:(?:до[ \t\u{00a0}\u{202f}]+)?н\.[ \t\u{00a0}\u{202f}]*э|т\.[ \t\u{00a0}\u{202f}]*[декнпч])\.",
     )
     .expect("valid abbreviation pattern")
 });
