@@ -3032,9 +3032,9 @@ fn without_final_period(text: &str) -> String {
     if ending.is_empty()
         || ending.ends_with('.')
         || is_sentence_abbreviation(ending, "")
-        || crate::text_protection::code_spans(text)
-            .last()
-            .is_some_and(|span| span.contains(&before_period.len()))
+        || crate::text_protection::cleanup_spans(text)
+            .iter()
+            .any(|span| span.contains(&before_period.len()))
     {
         return text.to_string();
     }
@@ -3045,7 +3045,7 @@ fn without_final_period(text: &str) -> String {
 
 impl FormatStep for PunctuationFinalizer {
     fn protected_spans(&self, _text: &str) -> Vec<std::ops::Range<usize>> {
-        // This step needs to see the actual ending and checks code spans itself.
+        // This step needs the actual ending to locate its punctuation and spans.
         Vec::new()
     }
     fn name(&self) -> &str {

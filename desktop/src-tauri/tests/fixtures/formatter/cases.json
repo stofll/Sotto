@@ -2261,6 +2261,41 @@
     "config": {"language":"ru","text_formatting":{"final_punctuation":false}}
   },
   {
+    "id": "no-dot-style-removes-period-after-a-single-word-answer",
+    "category": "sentence-style",
+    "input": "Кто? Я.",
+    "expected": "Кто? Я",
+    "config": {"language":"ru","text_formatting":{"final_punctuation":false}}
+  },
+  {
+    "id": "chat-style-removes-period-after-a-quoted-question-and-answer",
+    "category": "sentence-style",
+    "input": "Он спросил «Кто?» Я.",
+    "expected": "он спросил «Кто?» Я",
+    "config": {"language":"ru","text_formatting":{"capitalize_sentences":false,"final_punctuation":false}}
+  },
+  {
+    "id": "no-dot-style-preserves-era-period",
+    "category": "sentence-style",
+    "input": "это произошло в 120 году н. э.",
+    "expected": "Это произошло в 120 году н. э.",
+    "config": {"language":"ru","text_formatting":{"final_punctuation":false}}
+  },
+  {
+    "id": "no-dot-style-preserves-multi-part-abbreviation-period",
+    "category": "sentence-style",
+    "input": "сократи до т. к.",
+    "expected": "Сократи до т. к.",
+    "config": {"language":"ru","text_formatting":{"final_punctuation":false}}
+  },
+  {
+    "id": "chat-style-preserves-quoted-compact-abbreviation-period",
+    "category": "sentence-style",
+    "input": "Используй «т.д.»",
+    "expected": "используй «т.д.»",
+    "config": {"language":"ru","text_formatting":{"capitalize_sentences":false,"final_punctuation":false}}
+  },
+  {
     "id": "no-dot-style-removes-period-after-a-pronoun",
     "category": "sentence-style",
     "input": "я горжусь им.",
@@ -2307,6 +2342,13 @@
     "category": "spelling",
     "input": "театр им. Ширене открыли вчера.",
     "expected": "Театр им. Ширене открыли вчера.",
+    "config": {"language":"ru"}
+  },
+  {
+    "id": "spelling-recognizes-the-end-of-a-single-word-answer",
+    "category": "spelling",
+    "input": "Кто? Я. Вобщем всё готово.",
+    "expected": "Кто? Я. В общем всё готово.",
     "config": {"language":"ru"}
   },
   {

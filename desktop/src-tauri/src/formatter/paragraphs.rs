@@ -27,7 +27,9 @@ pub(crate) fn is_sentence_abbreviation(before_period: &str, after_period: &str) 
     if is_initial(word) {
         let previous = previous_word();
         let after_name = previous.starts_with(char::is_uppercase)
-            && previous.strip_suffix('.').is_none_or(is_initial);
+            && previous
+                .strip_suffix('.')
+                .map_or_else(|| previous.ends_with(char::is_alphabetic), is_initial);
         if after_name || (!matches!(word, "Я" | "I") && next.starts_with(char::is_uppercase)) {
             return true;
         }
