@@ -699,7 +699,7 @@
     "id": "local-paragraphs",
     "category": "paragraphs",
     "input": "Это подробное предложение описывает настройку приложения и поведение его интерфейса при обработке записи. Это подробное предложение описывает настройку приложения и поведение его интерфейса при обработке записи. Это подробное предложение описывает настройку приложения и поведение его интерфейса при обработке записи. Это подробное предложение описывает настройку приложения и поведение его интерфейса при обработке записи. Это подробное предложение описывает настройку приложения и поведение его интерфейса при обработке записи. Это подробное предложение описывает настройку приложения и поведение его интерфейса при обработке записи. Это подробное предложение описывает настройку приложения и поведение его интерфейса при обработке записи. Это подробное предложение описывает настройку приложения и поведение его интерфейса при обработке записи.",
-    "expected": "Это подробное предложение описывает настройку приложения и поведение его интерфейса при обработке записи. Это подробное предложение описывает настройку приложения и поведение его интерфейса при обработке записи. Это подробное предложение описывает настройку приложения и поведение его интерфейса при обработке записи. Это подробное предложение описывает настройку приложения и поведение его интерфейса при обработке записи.\n\nЭто подробное предложение описывает настройку приложения и поведение его интерфейса при обработке записи. Это подробное предложение описывает настройку приложения и поведение его интерфейса при обработке записи. Это подробное предложение описывает настройку приложения и поведение его интерфейса при обработке записи. Это подробное предложение описывает настройку приложения и поведение его интерфейса при обработке записи.",
+    "expected": "Это подробное предложение описывает настройку приложения и поведение его интерфейса при обработке записи. Это подробное предложение описывает настройку приложения и поведение его интерфейса при обработке записи. Это подробное предложение описывает настройку приложения и поведение его интерфейса при обработке записи.\n\nЭто подробное предложение описывает настройку приложения и поведение его интерфейса при обработке записи. Это подробное предложение описывает настройку приложения и поведение его интерфейса при обработке записи. Это подробное предложение описывает настройку приложения и поведение его интерфейса при обработке записи.\n\nЭто подробное предложение описывает настройку приложения и поведение его интерфейса при обработке записи. Это подробное предложение описывает настройку приложения и поведение его интерфейса при обработке записи.",
     "config": {
       "language": "ru",
       "text_formatting": {
@@ -1790,10 +1790,10 @@
     "config": {"language":"ru","text_formatting":{"custom_words":["скролл"],"enabled_presets":[]}}
   },
   {
-    "id": "latin-term-keeps-explicit-canonical-spelling",
+    "id": "latin-term-keeps-russian-ending",
     "category": "dictionary-correction",
     "input": "используй другие harnessы",
-    "expected": "Используй другие harness.",
+    "expected": "Используй другие harnessы.",
     "config": {"language":"ru","text_formatting":{"custom_words":["harness"],"enabled_presets":[]}}
   },
   {
@@ -2156,10 +2156,164 @@
     }
   },
   {
+    "id": "replacement-preserves-lowercase-titlecase-and-uppercase",
+    "category": "replacements",
+    "input": "alpha Alpha ALPHA",
+    "expected": "beta Beta BETA",
+    "config": {"language":"en","text_formatting":{"enabled":false},"replacement_rules":[{"id":"case","find":"alpha","replace":"beta","match":"word","preserve_case":true}]}
+  },
+  {
+    "id": "replacement-preserves-case-after-opening-punctuation",
+    "category": "replacements",
+    "input": "(alpha) (Alpha)",
+    "expected": "beta Beta",
+    "config": {"language":"en","text_formatting":{"enabled":false},"replacement_rules":[{"id":"case","find":"(alpha)","replace":"beta","match":"phrase","preserve_case":true}]}
+  },
+  {
+    "id": "replacement-word-mode-matches-punctuation-edged-terms",
+    "category": "replacements",
+    "input": "пишу на C++, XC++ и C++17",
+    "expected": "Пишу на cpp, XC++ и C++17.",
+    "config": {"language":"ru","replacement_rules":[{"id":"cpp","find":"C++","replace":"cpp","match":"word"}]}
+  },
+  {
+    "id": "replacement-deletion-collapses-adjacent-commas",
+    "category": "replacements",
+    "input": "это стоит, например, дорого",
+    "expected": "Это стоит, дорого.",
+    "config": {"language":"ru","replacement_rules":[{"id":"delete","find":"например","replace":"","match":"word"}]}
+  },
+  {
+    "id": "replacement-deletion-removes-comma-before-sentence-end",
+    "category": "replacements",
+    "input": "это стоит, например. а вот и пример",
+    "expected": "Это стоит. А вот и пример.",
+    "config": {"language":"ru","replacement_rules":[{"id":"delete","find":"например","replace":"","match":"word"}]}
+  },
+  {
+    "id": "replacement-deletion-removes-dangling-final-comma",
+    "category": "replacements",
+    "input": "это стоит, например",
+    "expected": "Это стоит.",
+    "config": {"language":"ru","replacement_rules":[{"id":"delete","find":"например","replace":"","match":"word"}]}
+  },
+  {
+    "id": "sentence-split-reuses-the-existing-separator",
+    "category": "sentence-style",
+    "input": "сегодня мы закончили работу над проектом, потом проверили сборку и обсудили дальнейшие планы на следующую неделю с командой вместе и назначили ответственных. и я сохранил отчёт",
+    "expected": "Сегодня мы закончили работу над проектом. Потом проверили сборку и обсудили дальнейшие планы на следующую неделю с командой вместе и назначили ответственных. И я сохранил отчёт.",
+    "config": {"language":"ru","text_formatting":{"split_sentences":true}}
+  },
+  {
+    "id": "sentence-case-distinguishes-numeric-and-sentence-periods",
+    "category": "sentence-style",
+    "input": "версия 3.14 работает. адрес 192.168.0.1 доступен. номер 3.14. дальше проверим",
+    "expected": "Версия 3.14 работает. Адрес 192.168.0.1 доступен. Номер 3.14. Дальше проверим.",
+    "config": {"language":"ru"}
+  },
+  {
+    "id": "chat-style-lowercases-dictation-start",
+    "category": "sentence-style",
+    "input": "И завтра продолжим",
+    "expected": "и завтра продолжим",
+    "config": {"language":"ru","text_formatting":{"capitalize_sentences":false,"final_punctuation":false}}
+  },
+  {
+    "id": "chat-style-removes-only-the-final-sentence-period",
+    "category": "sentence-style",
+    "input": "И завтра продолжим. Потом сверим результаты.",
+    "expected": "и завтра продолжим. Потом сверим результаты",
+    "config": {"language":"ru","text_formatting":{"capitalize_sentences":false,"final_punctuation":false}}
+  },
+  {
+    "id": "no-dot-style-removes-the-final-period-and-capitalizes",
+    "category": "sentence-style",
+    "input": "и завтра продолжим.",
+    "expected": "И завтра продолжим",
+    "config": {"language":"ru","text_formatting":{"final_punctuation":false}}
+  },
+  {
+    "id": "no-dot-style-preserves-an-ellipsis",
+    "category": "sentence-style",
+    "input": "и завтра продолжим...",
+    "expected": "И завтра продолжим...",
+    "config": {"language":"ru","text_formatting":{"final_punctuation":false}}
+  },
+  {
+    "id": "no-dot-style-preserves-an-abbreviation-period",
+    "category": "sentence-style",
+    "input": "запиши стоимость в руб.",
+    "expected": "Запиши стоимость в руб.",
+    "config": {"language":"ru","text_formatting":{"final_punctuation":false}}
+  },
+  {
+    "id": "no-dot-style-preserves-a-period-inside-unclosed-code",
+    "category": "sentence-style",
+    "input": "проверь `echo hello.",
+    "expected": "Проверь `echo hello.",
+    "config": {"language":"ru","text_formatting":{"final_punctuation":false}}
+  },
+  {
+    "id": "disabled-cleanup-keeps-the-recognizer-period",
+    "category": "sentence-style",
+    "input": "И завтра продолжим.",
+    "expected": "И завтра продолжим.",
+    "config": {"language":"ru","text_formatting":{"enabled":false,"capitalize_sentences":false,"final_punctuation":false}}
+  },
+  {
+    "id": "chat-style-preserves-leading-brand",
+    "category": "sentence-style",
+    "input": "GitHub уже открыт",
+    "expected": "GitHub уже открыт",
+    "config": {"language":"ru","text_formatting":{"capitalize_sentences":false,"final_punctuation":false}}
+  },
+  {
+    "id": "chat-style-lowercases-only-the-start",
+    "category": "sentence-style",
+    "input": "Hello there. GitHub is open!",
+    "expected": "hello there. GitHub is open!",
+    "config": {"language":"en","text_formatting":{"capitalize_sentences":false,"final_punctuation":false}}
+  },
+  {
+    "id": "chat-style-preserves-english-pronoun",
+    "category": "sentence-style",
+    "input": "I’ll check GitHub",
+    "expected": "I’ll check GitHub",
+    "config": {"language":"en","text_formatting":{"capitalize_sentences":false,"final_punctuation":false}}
+  },
+  {
+    "id": "chat-style-preserves-a-leading-technical-span",
+    "category": "sentence-style",
+    "input": "`GitHub` Уже открыт",
+    "expected": "`GitHub` Уже открыт",
+    "config": {"language":"ru","text_formatting":{"capitalize_sentences":false,"final_punctuation":false}}
+  },
+  {
+    "id": "chat-style-respects-the-cleanup-switch",
+    "category": "sentence-style",
+    "input": "И завтра продолжим",
+    "expected": "И завтра продолжим",
+    "config": {"language":"ru","text_formatting":{"enabled":false,"capitalize_sentences":false,"final_punctuation":false}}
+  },
+  {
+    "id": "chat-style-keeps-canonical-dictionary-case",
+    "category": "sentence-style",
+    "input": "Таури уже открыт",
+    "expected": "Tauri уже открыт",
+    "config": {"language":"ru","text_formatting":{"capitalize_sentences":false,"final_punctuation":false,"custom_words":["Tauri"]}}
+  },
+  {
+    "id": "chat-style-preserves-case-sensitive-replacement-matches",
+    "category": "sentence-style",
+    "input": "И завтра продолжим",
+    "expected": "а завтра продолжим",
+    "config": {"language":"ru","text_formatting":{"capitalize_sentences":false,"final_punctuation":false},"replacement_rules":[{"id":"first","find":"И","replace":"а","match":"word","enabled":true,"case_sensitive":true}]}
+  },
+  {
     "id": "pause-ellipsis-independent-switch",
     "category": "pause-punctuation",
     "input": "Можно ... продолжить ...",
-    "expected": "Можно продолжить.",
+    "expected": "можно продолжить",
     "config": {
       "language": "ru",
       "text_formatting": {
@@ -2353,5 +2507,299 @@
     "input": "Открой cloud code и cloudcode.",
     "expected": "Открой локальный инструмент и Claude Code.",
     "config": {"language":"ru","text_formatting":{"enabled_presets":["development"]},"replacement_rules":[{"id":"local","find":"cloud code","replace":"локальный инструмент","enabled":true,"match":"word","stage":"pre_llm"}]}
+  },
+  {
+    "id": "dictionary-preserves-unrelated-recognition",
+    "category": "russian-cleanup-regressions",
+    "input": "Проверь стоппинг и ссылки на редит.",
+    "expected": "Проверь стоппинг и ссылки на редит.",
+    "config": {"language":"ru","text_formatting":{"enabled_presets":["development"]}}
+  },
+  {
+    "id": "dictionary-reviewed-staging-redis",
+    "category": "russian-cleanup-regressions",
+    "input": "Проверь стейджинг и рэдис.",
+    "expected": "Проверь staging и Redis.",
+    "config": {"language":"ru","text_formatting":{"enabled_presets":["development"]}}
+  },
+  {
+    "id": "dictionary-preserves-russian-term-endings",
+    "category": "russian-cleanup-regressions",
+    "input": "Проверь endpointми, комиты, линтеры и пул реквестов.",
+    "expected": "Проверь endpointми, коммиты, линтеры и пул-реквестов.",
+    "config": {"language":"ru","text_formatting":{"enabled_presets":["development"]}}
+  },
+  {
+    "id": "dictionary-base-forms-still-corrected",
+    "category": "russian-cleanup-regressions",
+    "input": "Проверь комит, линтер и пул реквест.",
+    "expected": "Проверь commit, linter и pull request.",
+    "config": {"language":"ru","text_formatting":{"enabled_presets":["development"]}}
+  },
+  {
+    "id": "duplicate-preserves-predicate-after-to-est",
+    "category": "russian-cleanup-regressions",
+    "input": "То есть есть готовый ответ.",
+    "expected": "То есть есть готовый ответ.",
+    "config": {"language":"ru","text_formatting":{"enabled_presets":["development"]}}
+  },
+  {
+    "id": "duplicate-preserves-correlative-chto",
+    "category": "russian-cleanup-regressions",
+    "input": "Не подходит, потому что что первый, что второй вариант медленные.",
+    "expected": "Не подходит, потому что что первый, что второй вариант медленные.",
+    "config": {"language":"ru","text_formatting":{"enabled_presets":["development"]}}
+  },
+  {
+    "id": "duplicate-still-removes-stutter",
+    "category": "russian-cleanup-regressions",
+    "input": "Я я проверю ответ и и отправлю его.",
+    "expected": "Я проверю ответ и отправлю его.",
+    "config": {"language":"ru","text_formatting":{"enabled_presets":["development"]}}
+  },
+  {
+    "id": "duplicate-keeps-sentence-boundary",
+    "category": "russian-cleanup-regressions",
+    "input": "То есть. Есть есть готовый ответ.",
+    "expected": "То есть. Есть готовый ответ.",
+    "config": {"language":"ru","text_formatting":{"enabled_presets":["development"]}}
+  },
+  {
+    "id": "dictionary-explicit-replacement-keeps-priority",
+    "category": "russian-cleanup-regressions",
+    "input": "Проверь endpointми.",
+    "expected": "Проверь эндпоинтами.",
+    "config": {"language":"ru","text_formatting":{"enabled_presets":["development"]},"replacement_rules":[{"id":"ending","find":"endpointми","replace":"эндпоинтами","enabled":true,"match":"word"}]}
+  },
+  {
+    "id": "paragraph-medium-text-short-tail",
+    "category": "russian-cleanup-regressions",
+    "input": "Сначала проверим настройки приложения и убедимся, что выбранный язык подходит для текущей записи и результат сохраняется корректно. После этого откроем окно истории и проверим текст последней записи, чтобы убедиться в сохранности слов и правильном порядке предложений. Затем можно продолжить работу с другими записями и сравнить результаты обработки.",
+    "expected": "Сначала проверим настройки приложения и убедимся, что выбранный язык подходит для текущей записи и результат сохраняется корректно. После этого откроем окно истории и проверим текст последней записи, чтобы убедиться в сохранности слов и правильном порядке предложений.\n\nЗатем можно продолжить работу с другими записями и сравнить результаты обработки.",
+    "config": {"language":"ru","text_formatting":{"split_paragraphs":true}}
+  },
+  {
+    "id": "dictionary-endings-after-phonetic-folding",
+    "category": "dictionary-preservation",
+    "input": "Проверь данные на endpointе и новые пол реквесты.",
+    "expected": "Проверь данные на endpointе и новые пол реквесты.",
+    "config": {"language":"ru","text_formatting":{"enabled_presets":["development"]}}
+  },
+  {
+    "id": "dictionary-reviewed-alias-still-wins",
+    "category": "dictionary-correction",
+    "input": "Проверь гитхаба и ворк три.",
+    "expected": "Проверь GitHub и worktree.",
+    "config": {"language":"ru","text_formatting":{"enabled_presets":["development"]}}
+  },
+  {
+    "id": "sentence-start-spelling",
+    "category": "russian-spelling",
+    "input": "Итогуу проверки достаточно. Компьюетр готов! Итогуу достаточно.",
+    "expected": "Итогу проверки достаточно. Компьютер готов! Итогу достаточно.",
+    "config": {"language":"ru"}
+  },
+  {
+    "id": "sentence-start-preserves-mid-sentence-name",
+    "category": "russian-spelling",
+    "input": "Открой Итогуу и ИТОГУУ.",
+    "expected": "Открой Итогуу и ИТОГУУ.",
+    "config": {"language":"ru"}
+  },
+  {
+    "id": "stable-word-splits",
+    "category": "russian-spelling",
+    "input": "Вобщем всё готово, какбудто ошибок нет.",
+    "expected": "В общем всё готово, как будто ошибок нет.",
+    "config": {"language":"ru"}
+  },
+  {
+    "id": "stable-word-splits-preserve-valid-words",
+    "category": "russian-spelling",
+    "input": "Вообще также чтобы потом настроить приложение.",
+    "expected": "Вообще также чтобы потом настроить приложение.",
+    "config": {"language":"ru"}
+  },
+  {
+    "id": "spelling-keeps-protected-terms",
+    "category": "russian-spelling",
+    "input": "Итогуу проверки вобщем готовы.",
+    "expected": "Итогуу проверки вобщем готовы.",
+    "config": {"language":"ru","text_formatting":{"custom_words":["Итогуу","вобщем"]}}
+  },
+  {
+    "id": "spelling-splits-protected-code",
+    "category": "russian-spelling",
+    "input": "Проверь `вобщем итогуу`, https://example.org/вобщем и файл вобщем.txt.",
+    "expected": "Проверь `вобщем итогуу`, https://example.org/вобщем и файл вобщем.txt.",
+    "config": {"language":"ru"}
+  },
+  {
+    "id": "spelling-start-after-code-keeps-name",
+    "category": "russian-spelling",
+    "input": "Проверь `код` Итогуу.",
+    "expected": "Проверь `код` Итогуу.",
+    "config": {"language":"ru"}
+  },
+  {
+    "id": "spelling-disabled-leaves-new-cases",
+    "category": "russian-spelling",
+    "input": "Итогуу проверки вобщем готовы.",
+    "expected": "Итогуу проверки вобщем готовы.",
+    "config": {"language":"ru","text_formatting":{"correct_spelling":false}}
+  },
+  {
+    "id": "spelling-auto-leaves-new-cases",
+    "category": "russian-spelling",
+    "input": "Итогуу проверки вобщем готовы.",
+    "expected": "Итогуу проверки вобщем готовы.",
+    "config": {"language":"auto"}
+  },
+  {
+    "id": "technical-inflections-reviewed",
+    "category": "russian-spelling",
+    "input": "Комиты готовы, проверь комитами и пул реквестов.",
+    "expected": "Коммиты готовы, проверь коммитами и пул-реквестов.",
+    "config": {"language":"ru","text_formatting":{"enabled_presets":["development"]}}
+  },
+  {
+    "id": "technical-inflections-disabled",
+    "category": "russian-spelling",
+    "input": "Комиты готовы, проверь комитами и пул реквестов.",
+    "expected": "Комиты готовы, проверь комитами и пул реквестов.",
+    "config": {"language":"ru"}
+  },
+  {
+    "id": "technical-inflections-preserve-base-aliases",
+    "category": "russian-spelling",
+    "input": "Проверь комит и пул реквест.",
+    "expected": "Проверь commit и pull request.",
+    "config": {"language":"ru","text_formatting":{"enabled_presets":["development"]}}
+  },
+  {
+    "id": "spelling-explicit-rule-priority",
+    "category": "russian-spelling",
+    "input": "Вобщем всё готово.",
+    "expected": "По итогу всё готово.",
+    "config": {"language":"ru","replacement_rules":[{"id":"phrase","find":"Вобщем","replace":"По итогу","enabled":true,"match":"word"}]}
+  },
+  {
+    "id": "sentence-start-spelling-after-abbreviation",
+    "category": "russian-spelling",
+    "input": "г. Итогуу и проф. Компьюетр. Готово. Итогуу проверки достаточно.",
+    "expected": "Г. Итогуу и проф. Компьюетр. Готово. Итогу проверки достаточно.",
+    "config": {"language":"ru"}
+  },
+  {
+    "id": "technical-inflections-literal-term-priority",
+    "category": "dictionary-preservation",
+    "input": "Проверь комиты.",
+    "expected": "Проверь комиты.",
+    "config": {"language":"ru","text_formatting":{"enabled_presets":["development"],"custom_words":["комиты"]}}
+  },
+  {
+    "id": "issue-sidebar-reviewed",
+    "category": "term-aliases",
+    "input": "Открой issu и сайтбар, затем side bar и сайдбар.",
+    "expected": "Открой issue и sidebar, затем sidebar и sidebar.",
+    "config": {"language":"ru","text_formatting":{"enabled_presets":["development"]}}
+  },
+  {
+    "id": "sidebar-case-endings",
+    "category": "term-aliases",
+    "input": "Ширина сайтбара, в сайтбаре и между сайтбарами.",
+    "expected": "Ширина сайдбара, в сайдбаре и между сайдбарами.",
+    "config": {"language":"ru","text_formatting":{"enabled_presets":["development"]}}
+  },
+  {
+    "id": "issue-sidebar-valid-words",
+    "category": "term-aliases",
+    "input": "Проверь issue, issues, issuance, tissue, sidebar и сайдбара.",
+    "expected": "Проверь issue, issues, issuance, tissue, sidebar и сайдбара.",
+    "config": {"language":"ru","text_formatting":{"enabled_presets":["development"]}}
+  },
+  {
+    "id": "issue-sidebar-disabled",
+    "category": "term-aliases",
+    "input": "Открой issu и сайтбар.",
+    "expected": "Открой issu и сайтбар.",
+    "config": {"language":"ru"}
+  },
+  {
+    "id": "issue-sidebar-protected",
+    "category": "term-aliases",
+    "input": "Проверь `issu сайтбар`, issu.txt и https://example.org/issu.",
+    "expected": "Проверь `issu сайтбар`, issu.txt и https://example.org/issu.",
+    "config": {"language":"ru","text_formatting":{"enabled_presets":["development"]}}
+  },
+  {
+    "id": "issue-sidebar-explicit-rule",
+    "category": "term-aliases",
+    "input": "Открой issu.",
+    "expected": "Открой задачу.",
+    "config": {"language":"ru","text_formatting":{"enabled_presets":["development"]},"replacement_rules":[{"id":"term","find":"issu","replace":"задачу","enabled":true,"match":"word"}]}
+  },
+  {
+    "id": "reviewed-russian-typos",
+    "category": "russian-spelling",
+    "input": "По ширене блок должен быть атамарным.",
+    "expected": "По ширине блок должен быть атомарным.",
+    "config": {"language":"ru"}
+  },
+  {
+    "id": "reviewed-regret-context",
+    "category": "russian-spelling",
+    "input": "Выглядит клёво, жаля только цвет другой. Мне жаля. Жаля, что не получилось.",
+    "expected": "Выглядит клёво, жаль только цвет другой. Мне жаль. Жаль, что не получилось.",
+    "config": {"language":"ru"}
+  },
+  {
+    "id": "reviewed-participle-preserved",
+    "category": "russian-spelling",
+    "input": "Оса защищалась, жаля противника.",
+    "expected": "Оса защищалась, жаля противника.",
+    "config": {"language":"ru"}
+  },
+  {
+    "id": "reviewed-context-not-cached",
+    "category": "russian-spelling",
+    "input": "Мне жаля. Оса защищалась, жаля противника.",
+    "expected": "Мне жаль. Оса защищалась, жаля противника.",
+    "config": {"language":"ru"}
+  },
+  {
+    "id": "reviewed-typos-protected",
+    "category": "russian-spelling",
+    "input": "Проверь `ширене атамарным жаля`, ширене.txt и https://example.org/ширене.",
+    "expected": "Проверь `ширене атамарным жаля`, ширене.txt и https://example.org/ширене.",
+    "config": {"language":"ru"}
+  },
+  {
+    "id": "reviewed-typos-disabled",
+    "category": "russian-spelling",
+    "input": "По ширене блок должен быть атамарным. Мне жаля.",
+    "expected": "По ширене блок должен быть атамарным. Мне жаля.",
+    "config": {"language":"ru","text_formatting":{"correct_spelling":false}}
+  },
+  {
+    "id": "reviewed-typos-custom-terms",
+    "category": "russian-spelling",
+    "input": "По ширене блок должен быть атамарным. Мне жаля.",
+    "expected": "По ширене блок должен быть атамарным. Мне жаля.",
+    "config": {"language":"ru","text_formatting":{"custom_words":["ширене","атамарным","жаля"]}}
+  },
+  {
+    "id": "reviewed-regret-sentence-boundary",
+    "category": "russian-spelling",
+    "input": "Оса защищалась, жаля. Что произошло дальше?",
+    "expected": "Оса защищалась, жаля. Что произошло дальше?",
+    "config": {"language":"ru"}
+  },
+  {
+    "id": "reviewed-context-after-preserved-participle",
+    "category": "russian-spelling",
+    "input": "Оса защищалась, жаля противника. Мне жаля.",
+    "expected": "Оса защищалась, жаля противника. Мне жаль.",
+    "config": {"language":"ru"}
   }
 ]

@@ -36,6 +36,7 @@ use std::collections::HashSet;
 use std::sync::{Arc, LazyLock, Mutex};
 
 mod paragraphs;
+pub(crate) use paragraphs::is_sentence_abbreviation;
 mod pauses;
 mod term_aliases;
 
@@ -317,11 +318,14 @@ static SOUND_TAG: LazyLock<Regex> = LazyLock::new(|| {
 static MUSIC_NOTES: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"[♪♫]+(?:[^♪♫\n]*[♪♫]+)?").expect("valid music-note pattern"));
 
-static DOUBLE_COMMA: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r",\s*,").expect("valid double comma"));
+static REPEATED_COMMAS: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r",(?:\s*,)+").expect("valid comma run"));
 
 static LEADING_COMMA: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^\s*,\s*").expect("valid leading comma"));
+
+static DANGLING_COMMA: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r",[^\S\r\n]*([.!?…]|$)").expect("valid dangling comma"));
 
 static MULTI_SPACE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r" {2,}").expect("valid multi-space pattern"));
@@ -331,7 +335,7 @@ static SPACE_BEFORE_PUNCT: LazyLock<Regex> =
 
 static SPLIT_KEYWORDS: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r"\s+(и\s+(я|мы|он|она|оно|они|это|мне|нам|ему|ей|им|их|меня|нас|его|её|вас)\s+|потом\s+|далее\s+|во-первых\s*[,;:]?\s*|во-вторых\s*[,;:]?\s*|в-третьих\s*[,;:]?\s*)",
+        r",?\s+(и\s+(я|мы|он|она|оно|они|это|мне|нам|ему|ей|им|их|меня|нас|его|её|вас)\s+|потом\s+|далее\s+|во-первых\s*[,;:]?\s*|во-вторых\s*[,;:]?\s*|в-третьих\s*[,;:]?\s*)",
     )
     .expect("valid split keyword pattern")
 });
@@ -539,13 +543,9 @@ fn replacement_pattern(rule: &ReplacementRule) -> String {
         return rule.find.clone();
     }
     let escaped = regex::escape(&rule.find);
-    // Rust's `regex` crate does not support look-behind, so the
-    // `match=word` case uses `\b` (unicode-aware word boundary)
-    // instead of the Python `(?<!\w){find}(?!\w)`. The two are
-    // equivalent for the use cases here (Cyrillic + Latin words,
-    // no hyphenated compound matches).
     if matches!(rule.match_, ReplacementMatchMode::Word) {
-        format!(r"\b{escaped}\b")
+        // Only the neighbors must be non-word characters: a term like C++ ends in punctuation.
+        format!(r"\b{{start-half}}{escaped}\b{{end-half}}")
     } else {
         escaped
     }
@@ -561,13 +561,16 @@ fn replacement_regex(rule: &ReplacementRule) -> Result<Regex, regex::Error> {
 }
 
 fn preserve_replacement_case(matched: &str, replacement: &str) -> String {
-    if replacement.is_empty() {
+    let starts_uppercase = matched
+        .chars()
+        .find(|ch| ch.is_alphabetic())
+        .is_some_and(char::is_uppercase);
+    if replacement.is_empty() || !starts_uppercase {
         return replacement.to_string();
     }
     if matched
         .chars()
         .all(|c| !c.is_lowercase() && c.is_alphabetic())
-        && !matched.is_empty()
     {
         return replacement.to_uppercase();
     }
@@ -618,24 +621,26 @@ pub fn apply_replacement_rules(
     if text.is_empty() || paused {
         return (text.to_string(), ReplacementStats::default());
     }
-    apply_compiled_replacements(
+    let (text, stats, _) = apply_compiled_replacements(
         text,
         &compile_replacements(normalize_replacement_rules(source)),
-    )
+    );
+    (text, stats)
 }
 
 fn apply_compiled_replacements(
     text: &str,
     rules: &[CompiledReplacement],
-) -> (String, ReplacementStats) {
+) -> (String, ReplacementStats, bool) {
     if text.is_empty() {
-        return (String::new(), ReplacementStats::default());
+        return (String::new(), ReplacementStats::default(), false);
     }
     let mut stats = ReplacementStats {
         total: 0,
         rules: Vec::new(),
     };
     let mut current = text.to_string();
+    let mut removed_text = false;
     for CompiledReplacement { rule, pattern } in rules {
         let preserve_case = rule.preserve_case;
         let match_mode = rule.match_;
@@ -656,6 +661,7 @@ fn apply_compiled_replacements(
                 if preserve_case {
                     replacement = preserve_replacement_case(matched, &replacement);
                 }
+                removed_text |= !matched.is_empty() && replacement.is_empty();
                 replacement
             })
             .into_owned();
@@ -671,7 +677,7 @@ fn apply_compiled_replacements(
             });
         }
     }
-    (current, stats)
+    (current, stats, removed_text)
 }
 
 /// Expand `$1`, `$2`, … back-references in `template` from `caps`. The
@@ -1192,6 +1198,7 @@ mod localized_preview_tests {
 /// Both rules are checked by tests, not by eye.
 const PRESET_DEVELOPMENT: &[&str] = &[
     // Git and process
+    "issue",
     "pull request",
     "merge request",
     "commit",
@@ -1264,6 +1271,7 @@ const PRESET_DEVELOPMENT: &[&str] = &[
     "AGENTS.md",
     "Markdown",
     // Concepts
+    "sidebar",
     "backend",
     "frontend",
     "middleware",
@@ -1878,8 +1886,8 @@ impl CustomWordsCorrector {
         scratch: &mut DistanceScratch,
     ) -> Option<(usize, &str)> {
         let limit = self.max_window().min(words.len() - start);
-        if let Some((n, target)) = self.aliases.find(&words[start..start + limit]) {
-            return target.map(|index| (n, self.terms[index].canonical.as_str()));
+        if let Some((n, target)) = self.aliases.find(&words[start..start + limit], &self.terms) {
+            return target.map(|canonical| (n, canonical));
         }
         let mut best: Option<(f64, usize, &str)> = None;
         let mut ambiguous = false;
@@ -2008,6 +2016,11 @@ impl CustomWordsCorrector {
                 let Some(distance) = scratch.within(&folded, key, budget) else {
                     continue;
                 };
+                if !cyrillic
+                    && has_russian_term_ending(&words[start..start + n], key, distance, scratch)
+                {
+                    continue;
+                }
                 let score = distance_score(distance, folded.len(), key.len());
                 if n > 1 {
                     let trimmed = self
@@ -2036,6 +2049,36 @@ impl CustomWordsCorrector {
         best.filter(|_| !ambiguous)
             .map(|(_, n, canonical)| (n, canonical))
     }
+}
+
+/// A closer stem is not permission to delete its Russian case/number ending.
+fn has_russian_term_ending(
+    words: &[&str],
+    key: &[char],
+    distance: usize,
+    scratch: &mut DistanceScratch,
+) -> bool {
+    let last = words[words.len() - 1]
+        .trim_matches(|c: char| !c.is_alphanumeric())
+        .to_lowercase();
+    let prefix: String = words[..words.len() - 1]
+        .iter()
+        .map(|word| fold_for_match(word))
+        .collect();
+    [
+        "а", "у", "ом", "е", "ы", "и", "ов", "ам", "ами", "ах", "я", "ю", "ем", "ев", "ям", "ями",
+        "ях", "ми",
+    ]
+    .iter()
+    .filter_map(|ending| last.strip_suffix(ending))
+    .filter(|stem| !stem.is_empty())
+    .any(|stem| {
+        let stem: Vec<char> = prefix.chars().chain(fold_for_match(stem).chars()).collect();
+        // Folding drops a final e, so an exact stem also protects endpoint-е.
+        scratch
+            .within(&stem, key, distance.saturating_sub(1))
+            .is_some()
+    })
 }
 
 /// A word together with the separator that stood before it.
@@ -2426,16 +2469,21 @@ fn dedupe_adjacent_words(text: &str) -> String {
     }
     // Walk and skip duplicates.
     let mut last_word: Option<String> = None;
+    let mut preceding_word: Option<String> = None;
     let mut out = String::with_capacity(text.len());
     for (tok, is_word) in tokens {
         if is_word {
             let lowered = tok.to_lowercase();
             if last_word.as_deref() == Some(lowered.as_str())
                 && !matches!(lowered.as_str(), "чуть" | "еле" | "едва")
+                && !matches!(
+                    (preceding_word.as_deref(), lowered.as_str()),
+                    (Some("то"), "есть") | (Some("потому"), "что")
+                )
             {
                 continue;
             }
-            last_word = Some(lowered);
+            preceding_word = last_word.replace(lowered);
         } else {
             // Whitespace separates two distinct words; clear the dedupe
             // memory only if the whitespace is a NEWLINE (paragraph
@@ -2443,6 +2491,7 @@ fn dedupe_adjacent_words(text: &str) -> String {
             // and a duplicate across them is a real duplicate.
             if tok.contains('\n') {
                 last_word = None;
+                preceding_word = None;
             }
         }
         out.push_str(&tok);
@@ -2696,7 +2745,7 @@ impl FormatStep for CommaCleaner {
             return text.to_string();
         }
         let mut out = text.to_string();
-        out = DOUBLE_COMMA.replace_all(&out, ",").into_owned();
+        out = REPEATED_COMMAS.replace_all(&out, ",").into_owned();
         out = LEADING_COMMA.replace_all(&out, "").into_owned();
         out
     }
@@ -2795,11 +2844,11 @@ impl FormatStep for SentenceSplitter {
         }
         let mut out = SPLIT_KEYWORDS
             .replace_all(text, |caps: &regex::Captures| {
-                let conj = caps.get(1).map(|m| m.as_str().trim()).unwrap_or("");
-                if conj.is_empty() {
-                    return caps[0].to_string();
+                let matched = caps.get(0).expect("complete keyword match");
+                if text[..matched.start()].ends_with(['.', '!', '?', '…']) {
+                    return matched.as_str().to_string();
                 }
-                // Capitalize the first letter of the conjunction.
+                let conj = caps[1].trim();
                 let mut chars = conj.chars();
                 let first = chars.next().unwrap_or(' ');
                 let mut upper: String = first.to_uppercase().collect();
@@ -2821,6 +2870,7 @@ impl FormatStep for SentenceSplitter {
 pub struct ContextReplacements {
     enabled: bool,
     rules: Vec<CompiledReplacement>,
+    clean_commas_after_deletion: bool,
 }
 
 impl ContextReplacements {
@@ -2828,6 +2878,7 @@ impl ContextReplacements {
         Self {
             enabled,
             rules: compile_replacements(rules),
+            clean_commas_after_deletion: false,
         }
     }
 }
@@ -2849,7 +2900,57 @@ impl FormatStep for ContextReplacements {
         if !self.enabled || self.rules.is_empty() {
             return text.to_string();
         }
-        apply_compiled_replacements(text, &self.rules).0
+        let (text, _, removed_text) = apply_compiled_replacements(text, &self.rules);
+        if self.clean_commas_after_deletion && removed_text && text.contains(',') {
+            let cleaner = CommaCleaner::new(true);
+            let spans = cleaner.protected_spans(&text);
+            return crate::text_protection::apply(&text, spans, |masked| {
+                let cleaned = cleaner.apply_unprotected(masked);
+                DANGLING_COMMA.replace_all(&cleaned, "$1").into_owned()
+            });
+        }
+        text
+    }
+    fn enabled(&self) -> bool {
+        self.enabled
+    }
+    fn set_enabled(&mut self, value: bool) {
+        self.enabled = value;
+    }
+}
+
+struct ChatStartLowercaser {
+    enabled: bool,
+}
+
+impl FormatStep for ChatStartLowercaser {
+    fn name(&self) -> &str {
+        "Chat sentence start"
+    }
+    fn description(&self) -> &str {
+        "строчная буква в начале текста для чата"
+    }
+    fn apply_unprotected(&self, text: &str) -> String {
+        let Some((start, first)) = text.char_indices().find(|(_, ch)| ch.is_alphanumeric()) else {
+            return text.to_string();
+        };
+        let rest = &text[start + first.len_utf8()..];
+        // Keep English “I”, acronyms and mixed-case terms such as GitHub.
+        if !first.is_uppercase()
+            || (first == 'I' && !rest.starts_with(char::is_alphabetic))
+            || rest
+                .chars()
+                .take_while(|ch| ch.is_alphanumeric() || matches!(ch, '-' | '\'' | '’'))
+                .any(|ch| ch.is_uppercase() || ch.is_numeric())
+        {
+            return text.to_string();
+        }
+
+        let mut out = String::with_capacity(text.len());
+        out.push_str(&text[..start]);
+        out.extend(first.to_lowercase());
+        out.push_str(rest);
+        out
     }
     fn enabled(&self) -> bool {
         self.enabled
@@ -2882,14 +2983,17 @@ impl FormatStep for Capitalizer {
         }
         let mut out = String::with_capacity(text.len());
         let mut capitalize_next = true;
-        for ch in text.chars() {
+        for (offset, ch) in text.char_indices() {
             if capitalize_next && ch.is_alphabetic() {
                 out.extend(ch.to_uppercase());
                 capitalize_next = false;
             } else {
                 out.push(ch);
             }
-            if matches!(ch, '.' | '!' | '?') {
+            let numeric_period = ch == '.'
+                && text[..offset].ends_with(char::is_numeric)
+                && text[offset + 1..].starts_with(char::is_numeric);
+            if matches!(ch, '.' | '!' | '?') && !numeric_period {
                 capitalize_next = true;
             }
         }
@@ -2905,28 +3009,57 @@ impl FormatStep for Capitalizer {
 
 pub struct PunctuationFinalizer {
     enabled: bool,
+    add_period: bool,
 }
 
 impl PunctuationFinalizer {
-    pub fn new(enabled: bool) -> Self {
-        Self { enabled }
+    pub fn new(enabled: bool, add_period: bool) -> Self {
+        Self {
+            enabled,
+            add_period,
+        }
     }
+}
+
+fn without_final_period(text: &str) -> &str {
+    let Some(before_period) = text.trim_end().strip_suffix('.') else {
+        return text;
+    };
+    let ending = before_period.trim_end();
+    if ending.is_empty() || ending.ends_with('.') {
+        return text;
+    }
+    let last_word = ending
+        .rsplit(|ch: char| !ch.is_alphabetic())
+        .next()
+        .unwrap_or_default();
+    if (!last_word.is_empty() && is_sentence_abbreviation(last_word))
+        || crate::text_protection::code_spans(text)
+            .last()
+            .is_some_and(|span| span.contains(&before_period.len()))
+    {
+        return text;
+    }
+    ending
 }
 
 impl FormatStep for PunctuationFinalizer {
     fn protected_spans(&self, _text: &str) -> Vec<std::ops::Range<usize>> {
-        // This step only appends punctuation and needs to see the actual ending.
+        // This step needs to see the actual ending and checks code spans itself.
         Vec::new()
     }
     fn name(&self) -> &str {
         "Final punctuation"
     }
     fn description(&self) -> &str {
-        "точка в конце если нет знаков"
+        "оформить точку в конце текста"
     }
     fn apply_unprotected(&self, text: &str) -> String {
         if !self.enabled || text.is_empty() {
             return text.to_string();
+        }
+        if !self.add_period {
+            return without_final_period(text).to_string();
         }
         if crate::text_protection::code_spans(text)
             .last()
@@ -3150,7 +3283,10 @@ impl Formatter {
         let replacements_enabled = !rules.is_empty();
         let words = fmt.effective_custom_words();
         let spelling_terms = words.clone();
-        let replacements = ContextReplacements::new(replacements_enabled, rules);
+        let replacements = ContextReplacements {
+            clean_commas_after_deletion: clean,
+            ..ContextReplacements::new(replacements_enabled, rules)
+        };
         let replacement_protection = replacements
             .rules
             .iter()
@@ -3186,6 +3322,10 @@ impl Formatter {
             // keys, which are now ignored.
             Box::new(CommaCleaner::new(clean)),
             Box::new(SpaceNormalizer::new(clean)),
+            // Let the dictionary and explicit replacements supply their own casing.
+            Box::new(ChatStartLowercaser {
+                enabled: clean && !fmt.capitalize_sentences && !fmt.final_punctuation,
+            }),
             // After whitespace normalisation — word windows are cut on single
             // spaces rather than on random clumps. And before the replacement
             // rules: a user rule must see the already-corrected term rather than
@@ -3203,7 +3343,7 @@ impl Formatter {
             Box::new(SentenceSplitter::new(clean && fmt.split_sentences)),
             Box::new(replacements),
             Box::new(Capitalizer::new(clean && fmt.capitalize_sentences)),
-            Box::new(PunctuationFinalizer::new(clean && fmt.final_punctuation)),
+            Box::new(PunctuationFinalizer::new(clean, fmt.final_punctuation)),
         ];
         Self {
             split_paragraphs: clean && fmt.split_paragraphs,

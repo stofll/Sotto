@@ -5,6 +5,11 @@ use std::collections::HashMap;
 // Literal aliases deliberately do not use phonetic folding or edit distance.
 // Ordinary words (e.g. «ритме», Maine, cloud, code) are not aliases.
 const TERMS: &[(&str, &[&str])] = &[
+    ("issue", &["issu"]),
+    ("sidebar", &["side bar", "сайдбар", "сайтбар"]),
+    // Fuzzy matching confuses unrelated recognition output with these terms.
+    ("staging", &["стейджинг"]),
+    ("Redis", &["рэдис"]),
     (
         "GitHub",
         &[
@@ -197,8 +202,41 @@ pub(super) fn exact_only(term: &str) -> bool {
 
 pub(super) struct TermAliases {
     matches: HashMap<String, Option<usize>>,
+    inflected: HashMap<&'static str, &'static str>,
     pub max_window: usize,
 }
+
+// Inflected common nouns keep Russian number/case instead of becoming an
+// uninflected English term. Only these reviewed spellings are normalized.
+const INFLECTED: &[(&str, &str, &str)] = &[
+    ("sidebar", "сайтбара", "сайдбара"),
+    ("sidebar", "сайтбару", "сайдбару"),
+    ("sidebar", "сайтбаром", "сайдбаром"),
+    ("sidebar", "сайтбаре", "сайдбаре"),
+    ("sidebar", "сайтбары", "сайдбары"),
+    ("sidebar", "сайтбаров", "сайдбаров"),
+    ("sidebar", "сайтбарам", "сайдбарам"),
+    ("sidebar", "сайтбарами", "сайдбарами"),
+    ("sidebar", "сайтбарах", "сайдбарах"),
+    ("commit", "комиты", "коммиты"),
+    ("commit", "комита", "коммита"),
+    ("commit", "комиту", "коммиту"),
+    ("commit", "комитом", "коммитом"),
+    ("commit", "комите", "коммите"),
+    ("commit", "комитов", "коммитов"),
+    ("commit", "комитам", "коммитам"),
+    ("commit", "комитами", "коммитами"),
+    ("commit", "комитах", "коммитах"),
+    ("pull request", "пул реквесты", "пул-реквесты"),
+    ("pull request", "пул реквеста", "пул-реквеста"),
+    ("pull request", "пул реквесту", "пул-реквесту"),
+    ("pull request", "пул реквестом", "пул-реквестом"),
+    ("pull request", "пул реквесте", "пул-реквесте"),
+    ("pull request", "пул реквестов", "пул-реквестов"),
+    ("pull request", "пул реквестам", "пул-реквестам"),
+    ("pull request", "пул реквестами", "пул-реквестами"),
+    ("pull request", "пул реквестах", "пул-реквестах"),
+];
 
 impl TermAliases {
     pub fn new(terms: &[super::CustomTerm]) -> Self {
@@ -241,18 +279,30 @@ impl TermAliases {
                 }
             }
         }
+        let inflected: HashMap<_, _> = INFLECTED
+            .iter()
+            .filter(|(term, _, _)| terms.iter().any(|t| t.canonical.eq_ignore_ascii_case(term)))
+            .map(|(_, from, to)| (*from, *to))
+            .collect();
         let max_window = matches
             .keys()
+            .map(String::as_str)
+            .chain(inflected.keys().copied())
             .map(|s| s.split_whitespace().count())
             .max()
             .unwrap_or(0);
         Self {
             matches,
+            inflected,
             max_window,
         }
     }
 
-    pub fn find(&self, words: &[&str]) -> Option<(usize, Option<usize>)> {
+    pub fn find<'a>(
+        &self,
+        words: &[&str],
+        terms: &'a [super::CustomTerm],
+    ) -> Option<(usize, Option<&'a str>)> {
         let mut key = String::new();
         let mut best = None;
         for (index, word) in words.iter().take(self.max_window).enumerate() {
@@ -271,7 +321,9 @@ impl TermAliases {
                     .to_lowercase(),
             );
             if let Some(target) = self.matches.get(&key) {
-                best = Some((index + 1, *target));
+                best = Some((index + 1, target.map(|i| terms[i].canonical.as_str())));
+            } else if let Some(target) = self.inflected.get(key.as_str()) {
+                best = Some((index + 1, Some(*target)));
             }
         }
         best

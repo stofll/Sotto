@@ -1,8 +1,45 @@
 //! Readable paragraphs without inventing punctuation or changing words.
 
+/// Abbreviations and initials are not reliable sentence boundaries.
+pub(crate) fn is_sentence_abbreviation(token: &str) -> bool {
+    token.chars().count() <= 1
+        || matches!(
+            token.to_lowercase().as_str(),
+            "г" | "ул"
+                | "д"
+                | "кв"
+                | "стр"
+                | "рис"
+                | "им"
+                | "тов"
+                | "проф"
+                | "др"
+                | "пр"
+                | "руб"
+                | "коп"
+                | "тыс"
+                | "млн"
+                | "млрд"
+                | "см"
+                | "т"
+                | "е"
+                | "п"
+                | "dr"
+                | "mr"
+                | "mrs"
+                | "ms"
+                | "prof"
+                | "st"
+                | "vs"
+                | "etc"
+                | "e"
+                | "g"
+        )
+}
+
 pub(super) fn split(text: &str) -> String {
     // Existing layout may be a list, code or a deliberate short paragraph.
-    if text.contains(['\n', '\r']) || text.chars().take(350).count() < 350 {
+    if text.contains(['\n', '\r']) || text.chars().take(250).count() < 250 {
         return text.to_owned();
     }
     let protected = crate::text_protection::cleanup_spans(text);
@@ -38,40 +75,7 @@ pub(super) fn split(text: &str) -> String {
                 .rsplit(|c: char| !c.is_alphabetic())
                 .next()
                 .unwrap_or_default();
-            if token.chars().count() <= 1
-                || matches!(
-                    token.to_lowercase().as_str(),
-                    "г" | "ул"
-                        | "д"
-                        | "кв"
-                        | "стр"
-                        | "рис"
-                        | "им"
-                        | "тов"
-                        | "проф"
-                        | "др"
-                        | "пр"
-                        | "руб"
-                        | "коп"
-                        | "тыс"
-                        | "млн"
-                        | "млрд"
-                        | "см"
-                        | "т"
-                        | "е"
-                        | "п"
-                        | "dr"
-                        | "mr"
-                        | "mrs"
-                        | "ms"
-                        | "prof"
-                        | "st"
-                        | "vs"
-                        | "etc"
-                        | "e"
-                        | "g"
-                )
-            {
+            if is_sentence_abbreviation(token) {
                 continue;
             }
         }
@@ -84,8 +88,8 @@ pub(super) fn split(text: &str) -> String {
         sentences += 1;
         let length = text[start..end].chars().count();
         if sentences >= 2
-            && (length >= 350 || (sentences >= 4 && length >= 200))
-            && text[next..].chars().take(100).count() == 100
+            && (length >= 250 || (sentences >= 4 && length >= 180))
+            && text[next..].chars().take(60).count() == 60
         {
             out.push_str(&text[start..end]);
             out.push_str("\n\n");
@@ -100,6 +104,29 @@ pub(super) fn split(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn medium_text_requires_two_sentences_and_a_readable_tail() {
+        let first = format!("Первое {}.", "слово ".repeat(22).trim_end());
+        let second = format!("Второе {}.", "слово ".repeat(22).trim_end());
+        for tail_length in [59, 60] {
+            let tail = format!("Т{}.", "а".repeat(tail_length - 2));
+            let text = format!("{first} {second} {tail}");
+            let expected = if tail_length == 60 {
+                format!("{first} {second}\n\n{tail}")
+            } else {
+                text.clone()
+            };
+            assert_eq!(split(&text), expected);
+            assert_eq!(split(&expected), expected);
+        }
+        let text = format!(
+            "Первое {}. Второе {}.",
+            "слово ".repeat(50).trim_end(),
+            "слово ".repeat(20).trim_end()
+        );
+        assert_eq!(split(&text), text);
+    }
 
     #[test]
     fn groups_sentences_without_changing_words_or_punctuation() {
