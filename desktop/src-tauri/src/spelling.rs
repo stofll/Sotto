@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 use spellbook::Dictionary;
 use std::sync::LazyLock;
 
-use crate::formatter::FormatStep;
+use crate::formatter::{is_sentence_abbreviation, FormatStep, SENTENCE_CLOSERS};
 
 static RUSSIAN: LazyLock<Dictionary> = LazyLock::new(|| {
     Dictionary::new(
@@ -230,17 +230,15 @@ fn mechanical_edit(chars: &[char], candidate: &str) -> bool {
     false
 }
 
-fn ends_sentence(token: &str) -> bool {
-    let token = token.trim_end_matches(['»', '”', '"', '\'', ')', ']']);
-    if token.ends_with(['!', '?']) {
+fn ends_sentence(before: &str, after: &str) -> bool {
+    let before = before.trim_end_matches(SENTENCE_CLOSERS);
+    if before.ends_with(['!', '?']) {
         return true;
     }
-    token.strip_suffix('.').is_some_and(|prefix| {
-        let word = prefix
-            .rsplit(|c: char| !c.is_alphabetic())
-            .next()
-            .unwrap_or("");
-        !crate::formatter::is_sentence_abbreviation(word)
+    before.strip_suffix('.').is_some_and(|prefix| {
+        let prefix = prefix.trim_end_matches(SENTENCE_CLOSERS);
+        // A protected span ends in a marker, not a word or number.
+        prefix.ends_with(char::is_alphanumeric) && !is_sentence_abbreviation(prefix, after)
     })
 }
 
@@ -296,8 +294,11 @@ impl FormatStep for RussianSpellingCorrector {
             let capitalized =
                 letters.next().is_some_and(char::is_uppercase) && letters.all(char::is_lowercase);
             let allow_capital = sentence_start && capitalized;
+            let after = &text[offset..];
+            let sentence_end =
+                !token.is_empty() && ends_sentence(&text[..before.len() + token.len()], after);
             if !token.is_empty() {
-                sentence_start = ends_sentence(token);
+                sentence_start = sentence_end;
             }
             sentence_start |= part.contains('\n');
             let lower = word.to_lowercase();
@@ -308,10 +309,10 @@ impl FormatStep for RussianSpellingCorrector {
                 && (allow_capital || word.chars().all(char::is_lowercase))
                 && !self.protected.contains(&lower);
             if eligible {
-                let after = if ends_sentence(token) || part.contains(['\n', '\r']) {
+                let after = if sentence_end || part.contains(['\n', '\r']) {
                     ""
                 } else {
-                    &text[offset..]
+                    after
                 };
                 let reviewed = reviewed_correction(&lower, before, after);
                 if reviewed.is_none()

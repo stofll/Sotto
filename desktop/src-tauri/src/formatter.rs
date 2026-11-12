@@ -36,7 +36,7 @@ use std::collections::HashSet;
 use std::sync::{Arc, LazyLock, Mutex};
 
 mod paragraphs;
-pub(crate) use paragraphs::is_sentence_abbreviation;
+pub(crate) use paragraphs::{is_sentence_abbreviation, SENTENCE_CLOSERS};
 mod pauses;
 mod term_aliases;
 
@@ -3021,26 +3021,26 @@ impl PunctuationFinalizer {
     }
 }
 
-fn without_final_period(text: &str) -> &str {
-    let Some(before_period) = text.trim_end().strip_suffix('.') else {
-        return text;
+fn without_final_period(text: &str) -> String {
+    let trimmed = text.trim_end();
+    let before_closers =
+        trimmed.trim_end_matches(|ch: char| ch.is_whitespace() || SENTENCE_CLOSERS.contains(&ch));
+    let Some(before_period) = before_closers.strip_suffix('.') else {
+        return text.to_string();
     };
     let ending = before_period.trim_end();
-    if ending.is_empty() || ending.ends_with('.') {
-        return text;
-    }
-    let last_word = ending
-        .rsplit(|ch: char| !ch.is_alphabetic())
-        .next()
-        .unwrap_or_default();
-    if (!last_word.is_empty() && is_sentence_abbreviation(last_word))
+    if ending.is_empty()
+        || ending.ends_with('.')
+        || is_sentence_abbreviation(ending, "")
         || crate::text_protection::code_spans(text)
             .last()
             .is_some_and(|span| span.contains(&before_period.len()))
     {
-        return text;
+        return text.to_string();
     }
-    ending
+    let mut out = ending.to_string();
+    out.push_str(&trimmed[before_closers.len()..]);
+    out
 }
 
 impl FormatStep for PunctuationFinalizer {
@@ -3059,7 +3059,7 @@ impl FormatStep for PunctuationFinalizer {
             return text.to_string();
         }
         if !self.add_period {
-            return without_final_period(text).to_string();
+            return without_final_period(text);
         }
         if crate::text_protection::code_spans(text)
             .last()

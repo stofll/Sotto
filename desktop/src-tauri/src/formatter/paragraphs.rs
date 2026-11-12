@@ -1,16 +1,67 @@
 //! Readable paragraphs without inventing punctuation or changing words.
 
-/// Abbreviations and initials are not reliable sentence boundaries.
-pub(crate) fn is_sentence_abbreviation(token: &str) -> bool {
-    token.chars().count() <= 1
-        || matches!(
-            token.to_lowercase().as_str(),
+pub(crate) const SENTENCE_CLOSERS: [char; 8] = ['»', '”', '’', '"', '\'', ')', ']', '}'];
+
+fn is_initial(word: &str) -> bool {
+    let mut chars = word.chars();
+    chars.next().is_some_and(char::is_uppercase) && chars.next().is_none()
+}
+
+/// Some abbreviations need context because their spelling is also a word.
+pub(crate) fn is_sentence_abbreviation(before_period: &str, after_period: &str) -> bool {
+    let word = before_period
+        .rsplit(|ch: char| !ch.is_alphabetic())
+        .next()
+        .unwrap_or_default();
+    if word.is_empty() {
+        return false;
+    }
+    let previous_word = || {
+        before_period[..before_period.len() - word.len()]
+            .split_whitespace()
+            .next_back()
+            .unwrap_or_default()
+            .trim_start_matches(|ch: char| !ch.is_alphabetic())
+    };
+    let next = after_period.trim_start();
+    if is_initial(word) {
+        let previous = previous_word();
+        let after_name = previous.starts_with(char::is_uppercase)
+            && previous.strip_suffix('.').is_none_or(is_initial);
+        if after_name || (!matches!(word, "Я" | "I") && next.starts_with(char::is_uppercase)) {
+            return true;
+        }
+    }
+
+    match word.to_lowercase().as_str() {
+        "рис" => {
+            next.starts_with(|ch: char| ch.is_ascii_digit())
+                || previous_word().to_lowercase() == "см."
+        }
+        "им" if next.starts_with(char::is_uppercase) => {
+            let previous = previous_word();
+            let acronym = !previous.is_empty() && previous.chars().all(char::is_uppercase);
+            let previous = previous.to_lowercase();
+            acronym
+                || [
+                    "театр",
+                    "музе",
+                    "институт",
+                    "университет",
+                    "академи",
+                    "школ",
+                    "библиотек",
+                    "парк",
+                ]
+                .iter()
+                .any(|&prefix| previous.starts_with(prefix))
+        }
+        word => matches!(
+            word,
             "г" | "ул"
                 | "д"
                 | "кв"
                 | "стр"
-                | "рис"
-                | "им"
                 | "тов"
                 | "проф"
                 | "др"
@@ -34,7 +85,8 @@ pub(crate) fn is_sentence_abbreviation(token: &str) -> bool {
                 | "etc"
                 | "e"
                 | "g"
-        )
+        ),
+    }
 }
 
 pub(super) fn split(text: &str) -> String {
@@ -70,14 +122,8 @@ pub(super) fn split(text: &str) -> String {
         if !tail.chars().next().is_some_and(char::is_uppercase) {
             continue;
         }
-        if ch == '.' {
-            let token = text[..byte]
-                .rsplit(|c: char| !c.is_alphabetic())
-                .next()
-                .unwrap_or_default();
-            if is_sentence_abbreviation(token) {
-                continue;
-            }
+        if ch == '.' && is_sentence_abbreviation(&text[..byte], tail) {
+            continue;
         }
         boundaries.push((next_byte, text.len() - tail.len()));
     }

@@ -2247,6 +2247,76 @@
     "config": {"language":"ru","text_formatting":{"final_punctuation":false}}
   },
   {
+    "id": "chat-style-removes-period-after-single-letter-word",
+    "category": "sentence-style",
+    "input": "Я.",
+    "expected": "я",
+    "config": {"language":"ru","text_formatting":{"capitalize_sentences":false,"final_punctuation":false}}
+  },
+  {
+    "id": "no-dot-style-removes-period-after-capitalized-single-letter-word",
+    "category": "sentence-style",
+    "input": "Я.",
+    "expected": "Я",
+    "config": {"language":"ru","text_formatting":{"final_punctuation":false}}
+  },
+  {
+    "id": "no-dot-style-removes-period-after-a-pronoun",
+    "category": "sentence-style",
+    "input": "я горжусь им.",
+    "expected": "Я горжусь им",
+    "config": {"language":"ru","text_formatting":{"final_punctuation":false}}
+  },
+  {
+    "id": "chat-style-removes-period-after-ordinary-noun",
+    "category": "sentence-style",
+    "input": "Я люблю рис.",
+    "expected": "я люблю рис",
+    "config": {"language":"ru","text_formatting":{"capitalize_sentences":false,"final_punctuation":false}}
+  },
+  {
+    "id": "no-dot-style-removes-period-before-closing-quote",
+    "category": "sentence-style",
+    "input": "он сказал «готово.»",
+    "expected": "Он сказал «готово»",
+    "config": {"language":"ru","text_formatting":{"final_punctuation":false}}
+  },
+  {
+    "id": "no-dot-style-preserves-quoted-ellipsis-and-initial-period",
+    "category": "sentence-style",
+    "input": "он сказал «готово…» и подписался «Иванов А.»",
+    "expected": "Он сказал «готово…» и подписался «Иванов А.»",
+    "config": {"language":"ru","text_formatting":{"final_punctuation":false}}
+  },
+  {
+    "id": "no-dot-style-follows-replacement-output",
+    "category": "sentence-style",
+    "input": "это конец",
+    "expected": "это fin",
+    "config": {"language":"ru","text_formatting":{"capitalize_sentences":false,"final_punctuation":false},"replacement_rules":[{"id":"end","find":"конец","replace":"fin.","match":"word"}]}
+  },
+  {
+    "id": "spelling-recognizes-sentence-ends-after-numbers-and-ordinary-words",
+    "category": "spelling",
+    "input": "версия 3.14. Вобщем всё готово. Это сделал я. Вобщем проверка прошла. Я люблю рис. Вобщем можно готовить.",
+    "expected": "Версия 3.14. В общем всё готово. Это сделал я. В общем проверка прошла. Я люблю рис. В общем можно готовить.",
+    "config": {"language":"ru"}
+  },
+  {
+    "id": "spelling-keeps-a-name-after-an-abbreviated-namesake-marker",
+    "category": "spelling",
+    "input": "театр им. Ширене открыли вчера.",
+    "expected": "Театр им. Ширене открыли вчера.",
+    "config": {"language":"ru"}
+  },
+  {
+    "id": "spelling-keeps-a-name-after-a-protected-abbreviation",
+    "category": "spelling",
+    "input": "e.g. Ширене выступил.",
+    "expected": "e.g. Ширене выступил.",
+    "config": {"language":"ru"}
+  },
+  {
     "id": "no-dot-style-preserves-a-period-inside-unclosed-code",
     "category": "sentence-style",
     "input": "проверь `echo hello.",
