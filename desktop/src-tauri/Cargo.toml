@@ -77,12 +77,12 @@ earshot = "1.2.1"
 symphonia = { version = "0.6.1", features = ["mp3", "isomp4", "aac", "alac"] }
 rubato = "5.0.0"
 tauri-plugin-dialog = "2.8.3"
+tempfile = "3"
 sysinfo = { version = "=0.39.6", default-features = false, features = ["system"] }
 spellbook = "=0.4.2"
 
 [dev-dependencies]
 criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
-tempfile = "3"
 tokio = { version = "1", features = ["test-util", "macros", "rt"] }
 
 [target.'cfg(windows)'.dependencies]
@@ -137,7 +137,6 @@ libc = "0.2"
 # .cargo/config.toml prevents an unchecked download by direct Cargo commands
 # without that preparation.
 sherpa-onnx = { version = "=1.13.8" }
-tempfile = "3"
 objc2 = "0.6"
 block2 = "0.6"
 objc2-foundation = { version = "0.3.2", default-features = false, features = [

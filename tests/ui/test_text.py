@@ -378,12 +378,44 @@ def test_replacement_import_export_roundtrip(app, page):
     page.wait_for_function(
         "window.__sottoTest.state.config.replacement_rules.length === 1"
     )
-    with page.expect_download() as download:
-        page.get_by_role("button", name="Экспорт и импорт правил", exact=True).click()
-        page.get_by_role("menuitem", name="Экспорт", exact=True).click()
-    exported = json.loads(download.value.path().read_text())
-    assert exported["replacement_rules"][0]["find"] == "sotto"
-    assert exported["replacement_rules"][0]["replace"] == "Sotto"
+    ui.queue("export_replacement_rules", {"result": None})
+    page.get_by_role("button", name="Экспорт и импорт правил", exact=True).click()
+    page.get_by_role("menuitem", name="Экспорт", exact=True).click()
+    calls = ui.calls("export_replacement_rules")
+    assert len(calls) == 1, "Export must invoke the native save command"
+    assert json.loads(calls[0]["args"]["content"]) == {"replacement_rules": [rule]}
+
+
+def test_replacement_export_cancel_and_retry(app, page):
+    ui = app()
+    ui.nav("text")
+    page.get_by_role("button", name=re.compile(r"^Замены")).click()
+    page.get_by_role("button", name="Добавить правило", exact=True).click()
+    menu = page.get_by_role("button", name="Экспорт и импорт правил", exact=True)
+    export = page.get_by_role("menuitem", name="Экспорт", exact=True)
+    error = page.get_by_role("alert").filter(
+        has_text="Не удалось экспортировать правила замен."
+    )
+    ui.queue(
+        "export_replacement_rules",
+        {"hold": True},
+        {"error": "synthetic write failure"},
+        {"result": None},
+    )
+
+    menu.click()
+    export.click()
+    menu.click()
+    expect(export).to_be_disabled()
+    ui.settle("export_replacement_rules", result=None)
+    expect(export).to_be_enabled()
+    expect(error).to_have_count(0)
+
+    export.click()
+    expect(error).to_be_visible()
+    menu.click()
+    export.click()
+    expect(error).to_have_count(0)
 
 
 def test_replacement_options_live_behind_the_row_menu(app, page):

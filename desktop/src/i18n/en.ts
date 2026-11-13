@@ -588,6 +588,7 @@ export const en: Record<string, string | string[]> = {
   "Не загрузилось при старте — {p0}": "Failed to load at startup — {p0}",
   "Не удалось сохранить ключ.": "Could not save the key.",
   "Не удалось импортировать JSON.": "Could not import the JSON.",
+  "Не удалось экспортировать правила замен. Проверьте права на запись и свободное место.": "Could not export replacement rules. Check write permissions and free disk space.",
   "Недоступно в портативной версии: запись автозапуска указывала бы на папку, которая ездит вместе с приложением, и перебила бы автозапуск установленной копии.":
     "Not available in the portable version: the autostart entry would point at a folder that travels with the app, and it would override the installed copy's autostart.",
   "Комбинация {p0} зарезервирована системой. Выберите другую.": "{p0} is reserved by the system. Pick another shortcut.",

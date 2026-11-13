@@ -54,6 +54,7 @@ const APP_COMMANDS: &[&str] = &[
     "process_text_ai",
     "preview_format",
     "preview_replacements",
+    "export_replacement_rules",
     "check_accessibility",
     "test_paste",
     "preview_sound_cue",

@@ -9,8 +9,12 @@
 //! This lets the Settings UI show a live preview as the user tweaks
 //! formatting options without saving first.
 
+use std::io::{self, Write};
+use std::path::Path;
+
 use serde_json::{Map, Value};
-use tauri::AppHandle;
+use tauri::{AppHandle, WebviewWindow};
+use tauri_plugin_dialog::DialogExt;
 
 use crate::config;
 
@@ -50,6 +54,45 @@ mod tests {
     fn some_patch_is_preserved_unchanged() {
         let resolved = resolve_patch(Some(json!({ "theme": "light" })));
         assert_eq!(resolved, json!({ "theme": "light" }));
+    }
+
+    #[test]
+    fn export_writes_and_replaces_the_selected_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rules.json");
+        let rules = r#"{"replacement_rules":[{"find":"flare","replace":"FLAIR"}]}"#;
+        write_replacement_export(&path, rules).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), rules);
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640)).unwrap();
+        }
+
+        let updated = "{\"replacement_rules\":[]}";
+        write_replacement_export(&path, updated).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), updated);
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(path).unwrap().permissions().mode() & 0o777,
+                0o640
+            );
+        }
+    }
+
+    #[test]
+    fn failed_export_keeps_the_destination_and_removes_the_temp_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rules.json");
+        std::fs::create_dir(&path).unwrap();
+        assert!(write_replacement_export(&path, "{}").is_err());
+        assert!(path.is_dir());
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
     }
 }
 
@@ -100,4 +143,62 @@ pub async fn preview_replacements(
     })
     .await
     .map_err(|_| "Formatting worker failed".to_string())?
+}
+
+#[tauri::command]
+pub async fn export_replacement_rules(
+    window: WebviewWindow,
+    content: String,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(path) = window
+            .dialog()
+            .file()
+            .set_parent(&window)
+            .set_file_name("replacement-rules.json")
+            .add_filter("JSON", &["json"])
+            .blocking_save_file()
+        else {
+            return Ok(());
+        };
+        let path = path.into_path().map_err(|_| {
+            log::warn!("Replacement export requires a local path");
+            "Non-local export destination".to_string()
+        })?;
+        write_replacement_export(&path, &content).map_err(|error| {
+            log::warn!("Replacement export write failed: {}", error.kind());
+            error.kind().to_string()
+        })
+    })
+    .await
+    .map_err(|error| {
+        log::warn!("Replacement export worker failed: {error}");
+        "Export worker failed".to_string()
+    })?
+}
+
+fn write_replacement_export(path: &Path, content: &str) -> io::Result<()> {
+    let parent = path.parent().ok_or(io::ErrorKind::InvalidInput)?;
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
+    #[cfg(unix)]
+    let mut file = tempfile::Builder::new()
+        .permissions(std::fs::Permissions::from_mode(0o666))
+        .tempfile_in(parent)?;
+    #[cfg(not(unix))]
+    let mut file = tempfile::NamedTempFile::new_in(parent)?;
+    #[cfg(unix)]
+    match std::fs::metadata(path) {
+        Ok(metadata) => file
+            .as_file()
+            .set_permissions(std::fs::Permissions::from_mode(
+                metadata.permissions().mode() & 0o777,
+            ))?,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error),
+    }
+    file.write_all(content.as_bytes())?;
+    file.as_file().sync_all()?;
+    file.persist(path).map_err(|error| error.error)?;
+    Ok(())
 }

@@ -8,6 +8,8 @@ A dictionary says how a term is spelled, and Sotto decides which recognised frag
 
 **Word** mode can match a term with punctuation, such as `C++`, when it stands on its own. A letter, digit or underscore immediately outside the match makes it part of a larger word. With **Case** enabled, an uppercase match such as `ALPHA` produces `BETA`, `Alpha` produces `Beta`, and `alpha` uses the spelling you entered for the replacement.
 
+In **Processing → Text → Replacements**, open the **⋯** menu and choose **Export** to select a folder and file name in the system save dialog. Sotto suggests `replacement-rules.json`. To load rules from a JSON file, choose **Import** from the same menu, then click **Save** in the Replacements section to apply them.
+
 The set view groups its terms by how they fire: **Exact spellings** change only the listed reviewed variants, **By similar sound** terms also correct fragments that sound almost the same, and **Model hint only** terms never change the text. **Check a word** runs that set alone, enabled or not, on a spelling you type and shows the result and which route produced it. The text preview lists dictionary corrections separately from the replacement rules that fired.
 
 ## Built-in sets
