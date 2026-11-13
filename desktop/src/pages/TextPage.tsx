@@ -50,18 +50,6 @@ function validateReplacementRules(rules: ReplacementRule[]): string | null {
   return null;
 }
 
-function downloadTextFile(filename: string, text: string, mime = "application/json;charset=utf-8") {
-  const blob = new Blob([text], { type: mime });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
 function ReplacementsEmptyState() {
   return (
     <div style={{ display: "grid", justifyItems: "center", gap: 4, padding: "18px 12px", textAlign: "center" }}>
@@ -191,6 +179,7 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
   const [rules, setRules] = useState<ReplacementRule[]>(() => configRules);
   const [filter, setFilter] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
+  const [exportState, setExportState] = useState<"idle" | "saving" | "failed">("idle");
   const [savingRules, setSavingRules] = useState(false);
   const [saved, setSaved] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -425,8 +414,14 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
     window.setTimeout(() => findRef.current?.focus(), 0);
   }
 
-  function exportRules() {
-    downloadTextFile("replacement-rules.json", JSON.stringify({ replacement_rules: rules }, null, 2));
+  async function exportRules() {
+    setExportState("saving");
+    try {
+      await invoke("export_replacement_rules", { content: JSON.stringify({ replacement_rules: rules }, null, 2) });
+      setExportState("idle");
+    } catch {
+      setExportState("failed");
+    }
   }
 
   async function importRules(file: File) {
@@ -638,7 +633,10 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
                 </div>
               );
             })}
-            {formError && <div role="alert" style={{ padding: "10px 12px", color: "var(--err)", font: "500 12px/1.4 var(--font-sans)", borderBottom: "1px solid var(--line-soft)" }}>{formError}</div>}
+            {(formError || exportState === "failed") && <div role="alert" style={{ padding: "10px 12px", color: "var(--err)", font: "500 12px/1.4 var(--font-sans)", borderBottom: "1px solid var(--line-soft)" }}>
+              {formError && <div>{formError}</div>}
+              {exportState === "failed" && <div>{t("Не удалось экспортировать правила замен. Проверьте права на запись и свободное место.")}</div>}
+            </div>}
             {/* Export and import are one-off operations, so they share a «⋯»
                 rather than standing beside the frequent ones. «Сохранить»
                 appears only when there is something to save. */}
@@ -646,7 +644,7 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
               <button type="button" className="btn btn--ghost btn--sm" onClick={() => addRule()} disabled={savingRules}><Icon name="plus" size={12}/>{t("Добавить правило")}</button>
               <div className="flex-grow"/>
               <RowMenu label={t("Экспорт и импорт правил")} items={[
-                { id: "export", label: t("Экспорт"), icon: "download", disabled: rules.length === 0, onSelect: exportRules },
+                { id: "export", label: t("Экспорт"), icon: "download", disabled: rules.length === 0 || exportState === "saving", onSelect: () => void exportRules() },
                 { id: "import", label: t("Импорт"), icon: "folder", onSelect: () => fileInputRef.current?.click() },
               ]}/>
               {!saved && <button type="button" className="btn btn--primary btn--sm" onClick={() => void saveRules()} disabled={savingRules}><Icon name="check" size={12}/>{savingRules ? t("Сохраняю") : t("Сохранить")}</button>}

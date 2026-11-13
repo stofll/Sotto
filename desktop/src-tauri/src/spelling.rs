@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 use spellbook::Dictionary;
 use std::sync::LazyLock;
 
-use crate::formatter::FormatStep;
+use crate::formatter::{is_sentence_abbreviation, FormatStep, SENTENCE_CLOSERS};
 
 static RUSSIAN: LazyLock<Dictionary> = LazyLock::new(|| {
     Dictionary::new(
@@ -31,7 +31,47 @@ pub(crate) fn known_russian_word(word: &str) -> bool {
     !word.is_empty() && word.chars().all(russian_letter) && RUSSIAN.check(&word.to_lowercase())
 }
 
+fn reviewed_correction(word: &str, before: &str, after: &str) -> Option<&'static str> {
+    match word {
+        "ширене" => Some("ширине"),
+        "атамарным" => Some("атомарным"),
+        "жаля" => {
+            // «Жаля» can also be the participle of «жалить». Do not rewrite
+            // it without a regret cue, and never cache this contextual choice.
+            let previous = before
+                .split_whitespace()
+                .next_back()
+                .unwrap_or("")
+                .to_lowercase();
+            let next = after
+                .split_whitespace()
+                .next()
+                .unwrap_or("")
+                .trim_matches(|c: char| !c.is_alphabetic())
+                .to_lowercase();
+            let regret = matches!(
+                previous.as_str(),
+                "мне" | "нам" | "тебе" | "вам" | "ему" | "ей" | "им"
+            ) || next == "что"
+                || (next == "только"
+                    && matches!(
+                        previous.trim_end_matches(','),
+                        "клёво" | "клево" | "хорошо" | "отлично" | "здорово" | "красиво"
+                    ))
+                || (before.trim().is_empty() && after.trim().is_empty());
+            regret.then_some("жаль")
+        }
+        _ => None,
+    }
+}
+
 fn unique_correction(word: &str) -> Option<String> {
+    // Reviewed phrases only: two dictionary words do not prove a valid split.
+    match word {
+        "вобщем" => return Some("в общем".into()),
+        "какбудто" => return Some("как будто".into()),
+        _ => {}
+    }
     let chars: Vec<char> = word.chars().collect();
     // Short function words need a narrower rule than the full edit neighbourhood.
     if chars.len() == 4 && chars[2] == chars[3] {
@@ -190,6 +230,18 @@ fn mechanical_edit(chars: &[char], candidate: &str) -> bool {
     false
 }
 
+fn ends_sentence(before: &str, after: &str) -> bool {
+    let before = before.trim_end_matches(SENTENCE_CLOSERS);
+    if before.ends_with(['!', '?']) {
+        return true;
+    }
+    before.strip_suffix('.').is_some_and(|prefix| {
+        let prefix = prefix.trim_end_matches(SENTENCE_CLOSERS);
+        // A protected span ends in a marker, not a word or number.
+        prefix.ends_with(char::is_alphanumeric) && !is_sentence_abbreviation(prefix, after)
+    })
+}
+
 pub(crate) struct RussianSpellingCorrector {
     enabled: bool,
     protected: HashSet<String>,
@@ -229,24 +281,60 @@ impl FormatStep for RussianSpellingCorrector {
         if !self.enabled {
             return text.to_string();
         }
-        let mut cache: HashMap<&str, Option<String>> = HashMap::new();
+        let mut cache: HashMap<String, Option<String>> = HashMap::new();
         let mut out = String::with_capacity(text.len());
+        let mut sentence_start = true;
+        let mut offset = 0;
         for part in text.split_inclusive(char::is_whitespace) {
+            let before = &text[..offset];
+            offset += part.len();
             let token = part.trim_end_matches(char::is_whitespace);
             let word = token.trim_matches(|c| ".,!?;:()[]{}«»\"'…".contains(c));
-            // Capitalisation can mark a name. Mixed scripts, identifiers, paths,
-            // hyphenated compounds and quoted code must not be guessed at.
+            let mut letters = word.chars();
+            let capitalized =
+                letters.next().is_some_and(char::is_uppercase) && letters.all(char::is_lowercase);
+            let allow_capital = sentence_start && capitalized;
+            let after = &text[offset..];
+            let sentence_end =
+                !token.is_empty() && ends_sentence(&text[..before.len() + token.len()], after);
+            if !token.is_empty() {
+                sentence_start = sentence_end;
+            }
+            sentence_start |= part.contains('\n');
+            let lower = word.to_lowercase();
+            // Mid-sentence capitals may be names. Mixed scripts, identifiers,
+            // hyphenated compounds and protected terms must not be guessed at.
             let eligible = (4..=MAX_WORD_CHARS).contains(&word.chars().count())
-                && word.chars().all(|c| russian_letter(c) && c.is_lowercase())
-                && !self.protected.contains(word);
-            if eligible && !known_russian_word(word) {
-                if !cache.contains_key(word) && cache.len() < MAX_UNKNOWN_WORDS {
-                    cache.insert(word, unique_correction(word));
+                && word.chars().all(russian_letter)
+                && (allow_capital || word.chars().all(char::is_lowercase))
+                && !self.protected.contains(&lower);
+            if eligible {
+                let after = if sentence_end || part.contains(['\n', '\r']) {
+                    ""
+                } else {
+                    after
+                };
+                let reviewed = reviewed_correction(&lower, before, after);
+                if reviewed.is_none()
+                    && !known_russian_word(&lower)
+                    && !cache.contains_key(&lower)
+                    && cache.len() < MAX_UNKNOWN_WORDS
+                {
+                    let replacement = unique_correction(&lower);
+                    cache.insert(lower.clone(), replacement);
                 }
-                if let Some(Some(replacement)) = cache.get(word) {
+                if let Some(replacement) =
+                    reviewed.or_else(|| cache.get(&lower).and_then(|r| r.as_deref()))
+                {
                     let start = token.find(word).expect("trimmed word is a substring");
                     out.push_str(&part[..start]);
-                    out.push_str(replacement);
+                    if allow_capital {
+                        let mut letters = replacement.chars();
+                        out.extend(letters.next().unwrap().to_uppercase());
+                        out.push_str(letters.as_str());
+                    } else {
+                        out.push_str(replacement);
+                    }
                     out.push_str(&part[start + word.len()..]);
                     continue;
                 }

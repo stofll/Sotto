@@ -1538,10 +1538,7 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        // Only ever driven from Rust (`pick_audio_file`), so the JS API
-        // stays out of `capabilities/default.json` — the webview cannot
-        // open a file dialog, and the one place that can is a command that
-        // decides for itself which extensions are offered.
+        // Rust commands own their native dialogs and file filters.
         .plugin(tauri_plugin_dialog::init())
         .on_window_event(crate::window_state::handle)
         .setup(|app| {
@@ -1813,6 +1810,7 @@ pub fn run() {
             ai::process_text_ai,
             format_commands::preview_format,
             format_commands::preview_replacements,
+            format_commands::export_replacement_rules,
             // macOS: check Accessibility permission on demand (frontend can
             // call this after the user grants access in System Settings).
             accessibility::check_accessibility,

@@ -19,10 +19,12 @@ static MILLIMETRES: LazyLock<Regex> = LazyLock::new(|| {
     .expect("valid millimetre pattern")
 });
 
-// Speech language: era abbreviations contain punctuation, not sentence boundaries.
-static ERA: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)\b(?:до[ \t\u{00a0}\u{202f}]+)?н\.[ \t\u{00a0}\u{202f}]*э\.")
-        .expect("valid era pattern")
+// Speech language: the periods in these abbreviations belong to the expression.
+static PUNCTUATED_ABBREVIATION: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?i)\b(?:(?:до[ \t\u{00a0}\u{202f}]+)?н\.[ \t\u{00a0}\u{202f}]*э|т\.[ \t\u{00a0}\u{202f}]*[декнпч])\.",
+    )
+    .expect("valid abbreviation pattern")
 });
 
 // Ellipses between numbers can denote a range rather than a speech pause.
@@ -113,7 +115,7 @@ pub(crate) fn technical_spans(text: &str) -> Vec<Range<usize>> {
 pub(crate) fn cleanup_spans(text: &str) -> Vec<Range<usize>> {
     let mut spans = technical_spans(text);
     spans.extend(MILLIMETRES.find_iter(text).map(|m| m.range()));
-    spans.extend(ERA.find_iter(text).map(|m| m.range()));
+    spans.extend(PUNCTUATED_ABBREVIATION.find_iter(text).map(|m| m.range()));
     spans.extend(NUMBER_RANGE.find_iter(text).map(|m| m.range()));
     spans
 }
