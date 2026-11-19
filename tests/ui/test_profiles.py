@@ -1,3 +1,4 @@
+import pytest
 from playwright.sync_api import expect
 
 
@@ -19,6 +20,38 @@ def test_wizard_search_and_clean_close(app, page):
     dialog.get_by_role("button", name="Закрыть", exact=True).click()
     expect(dialog).not_to_be_visible()
     assert not ui.state()["config"]["ai_processing"]["profiles"]
+
+
+@pytest.mark.parametrize("theme", ["light", "dark"])
+@pytest.mark.parametrize(
+    "locale,new_profile,go,zen",
+    [
+        (
+            "ru",
+            "Новый профиль",
+            "По подписке Go",
+            "Каталог Console · есть бесплатные модели",
+        ),
+        (
+            "en",
+            "New profile",
+            "With a Go subscription",
+            "Console catalog · free models available",
+        ),
+    ],
+)
+def test_opencode_catalog_captions(app, page, theme, locale, new_profile, go, zen):
+    ui = app(config={"ui_language": locale, "theme": theme})
+    ui.nav("integrations")
+    page.get_by_role("button", name=new_profile, exact=True).click()
+    dialog = page.get_by_role("dialog")
+    for name, caption in [("OpenCode Go", go), ("OpenCode Zen", zen)]:
+        card = dialog.get_by_role("button", name=f"{name} {caption}", exact=True)
+        card.focus()
+        expect(card).to_be_focused()
+        note = card.get_by_text(caption, exact=True)
+        expect(note).to_be_visible()
+        assert note.evaluate("el => el.scrollWidth <= el.clientWidth")
 
 
 def test_wizard_invalid_url_and_unsaved_guard(app, page):
@@ -711,3 +744,91 @@ def test_profile_editor_keeps_an_incomplete_provider_switch_as_a_draft(app, page
     assert (
         ui.state()["config"]["ai_processing"]["profiles"][0]["provider"] == "compatible"
     )
+
+
+@pytest.mark.parametrize(
+    "active,locale,theme", [(True, "ru", "dark"), (False, "en", "light")]
+)
+def test_opencode_url_save_and_diagnostics(app, page, active, locale, theme):
+    url = "https://opencode.ai/inference/go/openai/v1"
+    profile = {
+        **PROFILE,
+        "id": "go",
+        "name": "OpenCode Go",
+        "provider": "opencode-go",
+        "model": "glm-5.3-flash",
+        "base_url": "https://example.test/v1",
+        "api_key_ref": "go",
+    }
+    active_profile = profile if active else PROFILE
+    ui = app(
+        config={
+            "ui_language": locale,
+            "theme": theme,
+            "ai_processing": {
+                **active_profile,
+                "active_profile_id": active_profile["id"],
+                "profiles": [profile, PROFILE],
+            },
+        },
+        keys={
+            k: {"available": True, "label": k, "masked": "test-••••"}
+            for k in ["go", "openai"]
+        },
+    )
+    ui.nav("integrations")
+    row = page.get_by_test_id("profile-go")
+    row.get_by_role("button", name="OpenCode Go", exact=False).first.click()
+    field = row.get_by_label("Base URL", exact=True)
+    field.fill(url + "/")
+    detail = (
+        '{"error":{"code":"invalid_request","message":"Unsupported model parameter"}}'
+    )
+    ui.queue(
+        "test_ai_prompt",
+        {
+            "result": {
+                "available": False,
+                "message": "HTTP 400 Bad Request",
+                "http_status": 400,
+                "response_snippet": detail,
+            }
+        },
+    )
+    row.get_by_role(
+        "button", name="Проверить связь" if active else "Check connection", exact=True
+    ).click()
+    expect(row.locator(".profile-url-saved")).to_have_text(
+        "Сохранено." if active else "Saved."
+    )
+    expect(field).to_have_value(url)
+    ai = ui.state()["config"]["ai_processing"]
+    assert ai["profiles"][0]["base_url"] == url
+    assert (ai.get("base_url") == url) == active
+    assert ai["active_profile_id"] == active_profile["id"]
+    assert ui.calls("test_ai_prompt")[-1]["args"]["base_url"] == url
+    row.locator("details summary").click()
+    expect(row.locator("pre")).to_have_text(detail)
+
+
+def test_last_key_menu_fits_above_trigger(app, page):
+    page.set_viewport_size({"width": 1024, "height": 510})
+    keys = {
+        f"key-{n}": {"available": True, "label": f"Demo {n}", "masked": "test-••••"}
+        for n in range(14)
+    }
+    slots = [
+        {"ref": ref, "label": meta["label"], "provider": "openai"}
+        for ref, meta in keys.items()
+    ]
+    ui = app(keys=keys, config={"ai_processing": {"key_slots": slots}})
+    ui.nav("integrations")
+    trigger = page.get_by_role("button", name="Действия с ключом", exact=True).last
+    trigger.evaluate("el => el.scrollIntoView({block: 'end'})")
+    trigger.click()
+    menu = page.get_by_role("menu")
+    expect(menu.get_by_role("menuitem").first).to_be_focused()
+    box = menu.bounding_box()
+    assert 0 <= box["y"] < box["y"] + box["height"] <= trigger.bounding_box()["y"]
+    page.keyboard.press("Escape")
+    expect(trigger).to_be_focused()

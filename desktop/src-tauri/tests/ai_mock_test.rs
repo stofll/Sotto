@@ -141,6 +141,40 @@ fn anthropic_provider_sends_correct_request_shape() {
 }
 
 #[test]
+fn opencode_go_sends_a_stable_session_per_operation() {
+    for (model, response) in [
+        (
+            "glm-5.3-flash",
+            r#"{"choices":[{"message":{"content":"OK"}}]}"#,
+        ),
+        ("minimax-m2.7", r#"{"content":[{"text":"OK"}]}"#),
+    ] {
+        let (url, captured) = mock_server_sequence(&[("HTTP/1.1 200 OK", response); 3]);
+        let make_provider =
+            || sotto_lib::ai::OpenCodeGoProvider::new("test", model, Some(url.clone()), None);
+        let first = make_provider();
+        let second = make_provider();
+        for provider in [&first, &first, &second] {
+            block_on(provider.complete("system", "sample")).unwrap();
+        }
+        let sessions: Vec<_> = captured
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|request| {
+                let id = request["headers"]
+                    .lines()
+                    .find_map(|line| line.strip_prefix("x-opencode-session: "))
+                    .expect("Go requests must identify their session");
+                uuid::Uuid::parse_str(id).unwrap()
+            })
+            .collect();
+        assert_eq!(sessions[0], sessions[1]);
+        assert_ne!(sessions[0], sessions[2]);
+    }
+}
+
+#[test]
 fn openai_provider_extracts_choices_content() {
     let (url, _) = mock_server(
         "HTTP/1.1 200 OK",
@@ -434,6 +468,11 @@ fn another_400_is_not_retried() {
     );
     let error = block_on(provider.complete("system", "user")).expect_err("400 stays an error");
     assert_eq!(error.http_status, Some(400));
+    assert_eq!(error.message, "HTTP 400 Bad Request");
+    assert_eq!(
+        error.response_snippet.as_deref(),
+        Some(r#"{"error":{"message":"Invalid model"}}"#)
+    );
     assert_eq!(requests.lock().unwrap().len(), 1);
 }
 

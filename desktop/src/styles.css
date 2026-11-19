@@ -835,7 +835,7 @@ textarea.field { height: auto; padding: 10px 12px; line-height: 1.5; resize: ver
    заранее» without inventing a second card shape for it. */
 .wizard-provider-card--custom { border-style: dashed; }
 .wizard-provider-card--custom[data-selected="true"] { border-style: solid; }
-.wizard-provider-card--custom .meta { font-family: var(--font-sans); white-space: normal; }
+.wizard-provider-card--custom .meta, .wizard-provider-card .meta--caption { font-family: var(--font-sans); white-space: normal; }
 /* The usual .checkbox, in a frame: on the key step this line stands in for the
    field it hides, so it has to carry the same weight. */
 .wizard-check { display: flex; align-items: flex-start; gap: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); }
@@ -1381,9 +1381,8 @@ button.card { appearance: none; font: inherit; color: inherit; }
 }
 .prov-exp-grid { display: flex; gap: 14px; flex-wrap: wrap; }
 .prov-exp-grid > .set-cell { flex: 1 1 0; min-width: 190px; max-width: 300px; }
-/* Base URL keeps its own line — a URL needs the room — but stops at the width
-   of two columns rather than running the full width of the card. */
-.prov-exp > .set-cell { max-width: 614px; }
+.prov-exp > .set-cell { max-width: 420px; }
+.profile-url-saved { color: var(--ok); }
 .prov-exp__actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-top: 12px; border-top: 1px solid var(--line-soft); }
 /* «This profile is the one in use» — a statement, in the same green as the dot
    in the list, not a button that cannot be pressed. */

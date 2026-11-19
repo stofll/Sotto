@@ -27,6 +27,8 @@ The application may contact:
 - GitHub Releases for automatic and manual update checks in installed release builds, for an update download after the user requests installation, and for release notes before installation or after an upgrade when they are not cached;
 - PostHog Cloud EU for telemetry, when the build includes an ingest token and you have allowed telemetry.
 
+For OpenCode Go, each connection check or text formatting operation sends a fresh random session ID. Retries and chunks of the same operation share that ID so the provider can route related requests together.
+
 The application UI uses system fonts and does not load font assets from a third-party CDN.
 
 Update checks use stable releases by default. Enabling **Help → Updates → Receive beta builds** also queries the public GitHub Releases list to find newer published betas; the choice is saved locally. Update checks send no audio, transcripts, provider credentials, or application history, and installation still requires an explicit click.

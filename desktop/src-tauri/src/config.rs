@@ -8,6 +8,33 @@ use std::sync::{Arc, LazyLock, Mutex};
 use std::time::SystemTime;
 use tauri::{AppHandle, Manager};
 
+fn migrate_provider_urls(config: &mut Value) {
+    fn migrate(route: &mut Value) {
+        let base = route["base_url"]
+            .as_str()
+            .unwrap_or("")
+            .trim()
+            .trim_end_matches('/');
+        let url = match (route["provider"].as_str(), base) {
+            (Some("opencode-go"), "https://opencode.ai/zen/go/v1") => {
+                crate::ai::providers::OPENCODE_GO_BASE_URL
+            }
+            (Some("compatible"), "https://opencode.ai/zen/v1") => {
+                "https://opencode.ai/inference/openai/v1"
+            }
+            (Some("compatible"), "https://api.together.xyz/v1") => "https://api.together.ai/v1",
+            _ => return,
+        };
+        route["base_url"] = Value::from(url);
+    }
+    if let Some(ai) = config.get_mut("ai_processing") {
+        migrate(ai);
+        if let Some(profiles) = ai.get_mut("profiles").and_then(Value::as_array_mut) {
+            profiles.iter_mut().for_each(migrate);
+        }
+    }
+}
+
 const DEFAULT_HOTKEY: &str = "ctrl+shift+space";
 
 // The application permits one process, but settings and hotkey commands can
@@ -197,6 +224,7 @@ impl Config {
             serde_json::from_str(&raw).map_err(|e| format!("parse config.json: {e}"))?;
         crate::dictionaries::migrate(&mut data);
         crate::overlay_preferences::migrate(&mut data);
+        migrate_provider_urls(&mut data);
         let data = Arc::new(data);
         if let Some(stamp) = stamp {
             remember(path, stamp, &data);
@@ -1228,6 +1256,26 @@ mod tests {
     // Path-closed `_at` helpers (extracted so the logic is testable
     // without `tauri::AppHandle`)
     // ------------------------------------------------------------------
+
+    #[test]
+    fn legacy_provider_urls_update_only_known_routes() {
+        let mut config = serde_json::json!({"ai_processing":{
+        "provider":"opencode-go","base_url":"https://opencode.ai/zen/go/v1/",
+        "profiles":[
+            {"provider":"compatible","base_url":"https://api.together.xyz/v1"},
+            {"provider":"compatible","base_url":"https://opencode.ai/zen/v1"},
+            {"provider":"opencode-go","base_url":"https://proxy.example/v1"}
+        ]}});
+        migrate_provider_urls(&mut config);
+        let ai = &config["ai_processing"];
+        assert_eq!(ai["base_url"], "https://opencode.ai/inference/go/openai/v1");
+        assert_eq!(ai["profiles"][0]["base_url"], "https://api.together.ai/v1");
+        assert_eq!(
+            ai["profiles"][1]["base_url"],
+            "https://opencode.ai/inference/openai/v1"
+        );
+        assert_eq!(ai["profiles"][2]["base_url"], "https://proxy.example/v1");
+    }
 
     #[test]
     fn load_at_missing_file_yields_empty_config() {

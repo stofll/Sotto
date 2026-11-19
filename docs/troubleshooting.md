@@ -93,6 +93,8 @@ Reasoning models think before they answer, and that thinking shares the answer's
 
 When a model refuses one of these values with an error that names the parameter, Sotto retries with the next lower option and remembers the accepted one until the app restarts; an automatic answer limit depends on the text and is not remembered. If a reasoning model still returns an empty answer, the history shows the stop reason and token counts; raise the answer limit or choose a non-reasoning model for dictation.
 
+In **Integrations**, edit a profile’s **Base URL**, then press Enter or leave the field. **Saved** beside the address confirms the write. **Test connection** uses that profile even when another one is active. If the request fails, expand **Provider response** below the HTTP status to read the available excerpt.
+
 ## Report a problem or suggest an improvement
 
 Open **Help → Report a problem** to preview a public technical summary and optionally prepare sanitized logs. Continue on GitHub opens a bug-report draft in your browser; a GitHub account is required, and you must submit the issue there. You can exclude the summary or copy it manually. Add your OS version, reproduction steps, expected result and actual result on GitHub.

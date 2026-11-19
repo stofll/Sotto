@@ -2,6 +2,7 @@ import { createElement } from "react";
 import { Icon } from "../components/Icon";
 import type { ApiKeyInfo, ApiKeyStatus, ConfigResult } from "../bridge/types";
 import { t } from "../i18n";
+import { normalizeBaseUrl } from "./baseUrlFormat";
 
 export type AiConfig = ConfigResult["ai_processing"];
 export type LlmProfile = NonNullable<AiConfig["profiles"]>[number];
@@ -66,18 +67,26 @@ export const MODEL_HINTS = (): Record<string, string> => ({
   "azure-speech": t("MAI-Transcribe через Azure Speech, только облачное распознавание. Base URL — endpoint вашего ресурса Speech."),
 });
 
-export const OPENCODE_GO_BASE_URL = "https://opencode.ai/zen/go/v1";
+export const OPENCODE_GO_BASE_URL = "https://opencode.ai/inference/go/openai/v1";
+const OPENCODE_ZEN_BASE_URL = "https://opencode.ai/inference/openai/v1";
+
+export function providerCaption(id: string, baseUrl?: string | null): string | undefined {
+  if (id === "opencode-go") return t("По подписке Go");
+  if (id === "opencode" || (id === "compatible" && normalizeBaseUrl(baseUrl ?? "") === OPENCODE_ZEN_BASE_URL)) {
+    return t("Каталог Console · есть бесплатные модели");
+  }
+}
 
 export const COMPATIBLE_PRESETS = () => ([
   { id: "openrouter", name: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1", signupHint: "openrouter.ai/keys", logo: "openrouter.svg" },
-  { id: "opencode", name: "OpenCode Zen", baseUrl: "https://opencode.ai/zen/v1", signupHint: "opencode.ai/auth", logo: "opencode.svg" },
+  { id: "opencode", name: "OpenCode Zen", baseUrl: OPENCODE_ZEN_BASE_URL, signupHint: "opencode.ai/auth", logo: "opencode.svg" },
   { id: "deepseek", name: "DeepSeek", baseUrl: "https://api.deepseek.com/v1", signupHint: "platform.deepseek.com", logo: "deepseek.svg" },
   { id: "cerebras", name: "Cerebras", baseUrl: "https://api.cerebras.ai/v1", signupHint: "cloud.cerebras.ai", logo: "cerebras.svg" },
   { id: "kimi", name: t("Kimi (Китай)"), baseUrl: "https://api.moonshot.cn/v1", signupHint: "platform.moonshot.cn", logo: "kimi.svg" },
   { id: "kimi-intl", name: "Kimi (Global)", baseUrl: "https://api.moonshot.ai/v1", signupHint: "platform.moonshot.ai", logo: "kimi.svg" },
   { id: "minimax", name: "MiniMax", baseUrl: "https://api.minimax.io/v1", signupHint: "platform.minimax.io", logo: "minimax.svg" },
   { id: "groq", name: "Groq", baseUrl: "https://api.groq.com/openai/v1", signupHint: "console.groq.com", logo: "groq.svg" },
-  { id: "together", name: "Together AI", baseUrl: "https://api.together.xyz/v1", signupHint: "api.together.ai", logo: "together.svg" },
+  { id: "together", name: "Together AI", baseUrl: "https://api.together.ai/v1", signupHint: "api.together.ai", logo: "together.svg" },
   { id: "fireworks", name: "Fireworks AI", baseUrl: "https://api.fireworks.ai/inference/v1", signupHint: "fireworks.ai", logo: "fireworks.svg" },
   { id: "mistral", name: "Mistral", baseUrl: "https://api.mistral.ai/v1", signupHint: "console.mistral.ai", logo: "mistral.svg" },
   { id: "xai", name: "xAI Grok", baseUrl: "https://api.x.ai/v1", signupHint: "console.x.ai", logo: "xai.svg" },

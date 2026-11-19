@@ -2331,6 +2331,27 @@
     "config": {"language":"ru","text_formatting":{"capitalize_sentences":false,"final_punctuation":false}}
   },
   {
+    "id": "no-dot-style-preserves-a-final-figure-reference",
+    "category": "sentence-style",
+    "input": "подробнее на рис.",
+    "expected": "Подробнее на рис.",
+    "config": {"language":"ru","text_formatting":{"final_punctuation":false}}
+  },
+  {
+    "id": "no-dot-style-removes-the-period-after-a-food-noun-with-the-same-preposition",
+    "category": "sentence-style",
+    "input": "положи это на рис.",
+    "expected": "Положи это на рис",
+    "config": {"language":"ru","text_formatting":{"final_punctuation":false}}
+  },
+  {
+    "id": "paragraphs-preserve-a-multi-word-institution-name",
+    "category": "paragraphs",
+    "input": "Перед прогулкой мы подробно обсудили маршрут, выбрали удобное время для встречи и договорились взять с собой воду, лёгкий перекус и запасную карту, чтобы спокойно провести весь день на свежем воздухе и вернуться домой к вечеру. Парк культуры и отдыха им. Горького открывается рано утром, поэтому мы успеем пройти вдоль набережной до того, как там соберутся посетители. После прогулки мы остановимся на обед, обсудим планы на следующую неделю и вернёмся домой до наступления темноты.",
+    "expected": "Перед прогулкой мы подробно обсудили маршрут, выбрали удобное время для встречи и договорились взять с собой воду, лёгкий перекус и запасную карту, чтобы спокойно провести весь день на свежем воздухе и вернуться домой к вечеру. Парк культуры и отдыха им. Горького открывается рано утром, поэтому мы успеем пройти вдоль набережной до того, как там соберутся посетители.\n\nПосле прогулки мы остановимся на обед, обсудим планы на следующую неделю и вернёмся домой до наступления темноты.",
+    "config": {"language":"ru","text_formatting":{"split_paragraphs":true}}
+  },
+  {
     "id": "no-dot-style-removes-period-before-closing-quote",
     "category": "sentence-style",
     "input": "он сказал «готово.»",
@@ -2363,6 +2384,13 @@
     "category": "spelling",
     "input": "театр им. Ширене открыли вчера.",
     "expected": "Театр им. Ширене открыли вчера.",
+    "config": {"language":"ru"}
+  },
+  {
+    "id": "spelling-recognizes-a-pronoun-after-an-institution-mention",
+    "category": "spelling",
+    "input": "мы были в парке и помогли им. Вобщем всё готово.",
+    "expected": "Мы были в парке и помогли им. В общем всё готово.",
     "config": {"language":"ru"}
   },
   {

@@ -59,7 +59,7 @@ pub fn completion_budget(text: &str) -> u32 {
         .saturating_mul(3)
         .clamp(MIN_COMPLETION_TOKENS, MAX_COMPLETION_TOKENS)
 }
-pub const OPENCODE_GO_BASE_URL: &str = "https://opencode.ai/zen/go/v1";
+pub const OPENCODE_GO_BASE_URL: &str = "https://opencode.ai/inference/go/openai/v1";
 pub const ANTHROPIC_BASE_URL: &str = "https://api.anthropic.com/v1";
 pub const OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 pub const DEFAULT_USER_AGENT: &str = concat!(
@@ -69,22 +69,6 @@ pub const DEFAULT_USER_AGENT: &str = concat!(
 );
 
 pub const OPENCODE_GO_MESSAGES_MODELS: &[&str] = &["minimax-m2.7", "minimax-m2.5"];
-pub const OPENCODE_GO_CHAT_MODELS: &[&str] = &[
-    "glm-5.1",
-    "glm-5",
-    "kimi-k2.6",
-    "kimi-k2.5",
-    "deepseek-v4-pro",
-    "deepseek-v4-flash",
-    "mimo-v2-pro",
-    "mimo-v2-omni",
-    "mimo-v2.5-pro",
-    "mimo-v2.5",
-    "qwen3.6-plus",
-    "qwen3.5-plus",
-    "hy3-preview",
-];
-
 /// Stable error categories surfaced to the dispatcher. Matches the
 /// Python `_classify_provider_exception` taxonomy so the existing
 /// History entry `error_type` field round-trips through both
@@ -214,6 +198,7 @@ impl ProviderError {
 // ---------------------------------------------------------------------------
 
 pub struct AnthropicProvider {
+    go_session: Option<uuid::Uuid>,
     api_key: String,
     model: String,
     base_url: String,
@@ -238,6 +223,7 @@ impl AnthropicProvider {
             api_key: api_key.into(),
             model: model.into(),
             base_url: resolve_base_url(base_url.as_deref(), ANTHROPIC_BASE_URL),
+            go_session: None,
             timeout: timeout.unwrap_or(Duration::from_secs(DEFAULT_TIMEOUT_SECS)),
             // Same contract as OpenAI's: `None` sizes the budget to the
             // request. Anthropic requires the field, so it is always sent.
@@ -319,7 +305,7 @@ impl Provider for AnthropicProvider {
                         ],
                     );
                     send_request(
-                        request,
+                        with_go_session(request, this.go_session),
                         this.timeout,
                         "anthropic",
                         &this.model,
@@ -334,6 +320,7 @@ impl Provider for AnthropicProvider {
 }
 
 pub struct OpenAIProvider {
+    go_session: Option<uuid::Uuid>,
     api_key: String,
     model: String,
     base_url: String,
@@ -357,6 +344,7 @@ impl OpenAIProvider {
             api_key: api_key.into(),
             model: model.into(),
             base_url: resolve_base_url(base_url.as_deref(), OPENAI_BASE_URL),
+            go_session: None,
             timeout: timeout.unwrap_or(Duration::from_secs(DEFAULT_TIMEOUT_SECS)),
             // `None` means "size it to the request" — see `completion_budget`.
             // An explicit value stays an explicit hard cap.
@@ -392,7 +380,7 @@ impl OpenAIProvider {
             &[("Authorization", &format!("Bearer {}", self.api_key))],
         );
         send_request(
-            request,
+            with_go_session(request, self.go_session),
             self.timeout,
             "openai",
             &self.model,
@@ -634,6 +622,8 @@ impl Provider for GeminiProvider {
 }
 
 pub struct OpenCodeGoProvider {
+    // One provider per formatting run, shared by its chunks and retries.
+    session: uuid::Uuid,
     api_key: String,
     model: String,
     base_url: String,
@@ -652,6 +642,7 @@ impl OpenCodeGoProvider {
         Self {
             api_key: api_key.into(),
             model: normalise_model(model.into()),
+            session: uuid::Uuid::new_v4(),
             base_url: resolve_base_url(base_url.as_deref(), OPENCODE_GO_BASE_URL),
             timeout: timeout.unwrap_or(Duration::from_secs(OPENCODE_GO_TIMEOUT_SECS)),
             limit: OutputLimit::Auto,
@@ -684,11 +675,12 @@ impl Provider for OpenCodeGoProvider {
         >,
     > {
         Box::pin(async move {
-            // OpenCode Go routes to either the Anthropic Messages API
-            // (for M2.7/M2.5) or the OpenAI chat/completions API. The
-            // Python `OpenCodeGoProvider` does the same dispatch.
-            if OPENCODE_GO_MESSAGES_MODELS.contains(&self.model.as_str()) {
-                let inner = AnthropicProvider::new(
+            // The current OpenAI gateway translates Chat Completions for every Go model.
+            // Older and custom gateways retain their native MiniMax Messages route.
+            if self.base_url != OPENCODE_GO_BASE_URL
+                && OPENCODE_GO_MESSAGES_MODELS.contains(&self.model.as_str())
+            {
+                let mut inner = AnthropicProvider::new(
                     self.api_key.clone(),
                     self.model.clone(),
                     Some(self.base_url.clone()),
@@ -698,15 +690,10 @@ impl Provider for OpenCodeGoProvider {
                     None,
                 )
                 .with_options(self.reasoning, self.limit);
+                inner.go_session = Some(self.session);
                 return inner.complete(system_prompt, text).await;
             }
-            if !OPENCODE_GO_CHAT_MODELS.contains(&self.model.as_str()) {
-                log::info!(
-                    "OpenCode Go: unknown model id '{}'; falling back to chat/completions",
-                    self.model
-                );
-            }
-            let inner = OpenAIProvider::new(
+            let mut inner = OpenAIProvider::new(
                 self.api_key.clone(),
                 self.model.clone(),
                 Some(self.base_url.clone()),
@@ -714,6 +701,7 @@ impl Provider for OpenCodeGoProvider {
                 None,
             )
             .with_options(self.reasoning, self.limit);
+            inner.go_session = Some(self.session);
             inner.complete(system_prompt, text).await
         })
     }
@@ -722,6 +710,16 @@ impl Provider for OpenCodeGoProvider {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+fn with_go_session(
+    request: reqwest::RequestBuilder,
+    session: Option<uuid::Uuid>,
+) -> reqwest::RequestBuilder {
+    match session {
+        Some(id) => request.header("x-opencode-session", id.to_string()),
+        None => request,
+    }
+}
 
 /// Resolve a configured base URL against the adapter's own default.
 ///
@@ -811,7 +809,7 @@ async fn send_request(
         // `message` stays snippet-free: it is what reaches the overlay, the
         // logs and the AI status. The body goes only into `response_snippet`,
         // which nothing persists and only the Settings test surfaces.
-        let message = format!("HTTP {status} {}", status.canonical_reason().unwrap_or(""));
+        let message = format!("HTTP {status}");
         let kind = classify_http_status(status.as_u16());
         let snippet = crate::http_client::read_bounded_body(response, 64 * 1024)
             .await
@@ -1409,16 +1407,6 @@ mod tests {
     }
 
     #[test]
-    fn opencode_go_model_routing_classifies_correctly() {
-        // M2.7 / M2.5 use the Anthropic Messages contract.
-        assert!(OPENCODE_GO_MESSAGES_MODELS.contains(&"minimax-m2.7"));
-        assert!(OPENCODE_GO_MESSAGES_MODELS.contains(&"minimax-m2.5"));
-        // Everything else routes through chat/completions.
-        assert!(OPENCODE_GO_CHAT_MODELS.contains(&"qwen3.5-plus"));
-        assert!(OPENCODE_GO_CHAT_MODELS.contains(&"glm-5.1"));
-    }
-
-    #[test]
     fn mask_key_pattern_works_on_long_inputs() {
         // 12-char key: head 6 + … + tail 4.
         let chars: Vec<char> = "abcdefghijkl".chars().collect();
@@ -1548,7 +1536,7 @@ mod tests {
             None
         );
         assert_eq!(
-            minimal_reasoning_path("https://opencode.ai/zen/go/v1", "glm", false),
+            minimal_reasoning_path("https://opencode.ai/inference/go/openai/v1", "glm", false),
             None
         );
     }

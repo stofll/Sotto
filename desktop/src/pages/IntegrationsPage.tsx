@@ -7,6 +7,7 @@ import { Hint } from "../components/Hint";
 import { CustomSelect, type SelectOption } from "../components/CustomSelect";
 import { FieldCheckNote } from "../components/FieldCheckNote";
 import { Modal } from "../components/Modal";
+import { ProviderSnippet, type ProviderDiagnostics } from "../components/ProviderSnippet";
 import { RowMenu } from "../components/RowMenu";
 import { ProfileWizard, type ProfileWizardSeed } from "../components/ProfileWizard";
 import type { ApiKeyStatus, ConfigChange, ConfigResult } from "../bridge/types";
@@ -24,6 +25,7 @@ import {
   profilesForAi,
   PROVIDERS,
   providerById,
+  providerCaption,
   routeFields,
   type AiConfig,
   type LlmProfile,
@@ -41,17 +43,18 @@ type Props = {
 };
 
 
-type TestResponse = { available: boolean; message?: string; provider_error?: string; output?: string };
+type TestResponse = ProviderDiagnostics & { available: boolean; message?: string; provider_error?: string; output?: string };
 
 /** An Azure resource address has no API version to expect in its path. */
 function profileUrlCheck(profile: LlmProfile) {
+  if (!needsBaseUrl(profile.provider) && !profile.base_url?.trim()) return null;
   return checkBaseUrl(profile.base_url ?? "", providerById(profile.provider)?.endpointExample ? "resource" : "api");
 }
 
 /** The profile key used in `testingKey` and `testResults`. One function for
  *  every place it is built: a string assembled ad hoc drifts apart silently. */
-function testKeyFor(profileId: string): string {
-  return `profile:${profileId}`;
+function testKeyFor(profile: LlmProfile): string {
+  return JSON.stringify([profile.id, profile.provider, profile.model.trim(), profileKeyRef(profile), normalizeBaseUrl(profile.base_url ?? "")]);
 }
 
 /** A key action runs from JSX, where a rejected promise would otherwise become
@@ -96,10 +99,11 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
   const [expandedProfiles, setExpandedProfiles] = useState<Set<string>>(() => new Set());
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
+  const [savedUrl, setSavedUrl] = useState<{ id: string; url: string } | null>(null);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [testingKey, setTestingKey] = useState<string | null>(null);
-  const [testResults, setTestResults] = useState<Record<string, { ok: boolean; text: string }>>({});
+  const [testResults, setTestResults] = useState<Record<string, { ok: boolean; text: string; diagnostics?: ProviderDiagnostics }>>({});
   const [wizardSeed, setWizardSeed] = useState<ProfileWizardSeed | null>(null);
   // One search for the whole page: profiles and keys are two views of the same
   // set-up, and looking for «cerebras» in one of them and not the other made no
@@ -235,7 +239,7 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
         if (!onError) showMessage(t("Не удалось сохранить профиль. Проверьте ошибку и повторите попытку."));
         return false;
       }
-      showMessage(text);
+      if (text) showMessage(text);
       return true;
     } finally {
       setSaving(false);
@@ -324,7 +328,7 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
   function writableProfile(draft: LlmProfile, model?: string): LlmProfile | null {
     const nextModel = (model ?? draft.model).trim();
     if (!nextModel) return null;
-    if (needsBaseUrl(draft.provider) && baseUrlBlocks(profileUrlCheck(draft))) return null;
+    if (baseUrlBlocks(profileUrlCheck(draft))) return null;
     return { ...draft, model: nextModel, base_url: normalizeBaseUrl(draft.base_url ?? "") };
   }
 
@@ -335,7 +339,7 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
    *  event, and `draftProfiles` still holds the previous id until React
    *  re-renders — the write would compare the old value against itself and
    *  conclude there was nothing to save. */
-  function commitProfile(profileId: string, model?: string) {
+  async function commitProfile(profileId: string, model?: string) {
     const draft = draftProfiles.find((item) => item.id === profileId);
     const saved = profiles.find((item) => item.id === profileId);
     if (!draft || !saved) return;
@@ -343,7 +347,9 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
     if (!normalized || JSON.stringify(normalized) === JSON.stringify(saved)) return;
     // The saved list, not the drafts: another profile's half-typed field is
     // not this write's to make.
-    void writeProfiles(profiles.map((item) => (item.id === profileId ? normalized : item)), t("Сохранено."));
+    const urlChanged = normalized.base_url !== saved.base_url;
+    const written = await writeProfiles(profiles.map((item) => (item.id === profileId ? normalized : item)), urlChanged ? "" : t("Сохранено."));
+    if (written && urlChanged) setSavedUrl({ id: profileId, url: normalized.base_url ?? "" });
   }
 
   async function setActiveProfile(profile: LlmProfile) {
@@ -438,7 +444,10 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
       const text = result.available
         ? t("Тест пройден — LLM ответила.")
         : (result.message || result.provider_error || t("Тест не прошёл."));
-      setTestResults((prev) => ({ ...prev, [key]: { ok: result.available, text } }));
+      const diagnostics = result.response_snippet && !result.available
+        ? { response_snippet: result.response_snippet, http_status: result.http_status }
+        : undefined;
+      setTestResults((prev) => ({ ...prev, [key]: { ok: result.available, text, diagnostics } }));
     } catch (e) {
       setTestResults((prev) => ({ ...prev, [key]: { ok: false, text: e instanceof Error ? e.message : String(e) } }));
     } finally {
@@ -447,7 +456,7 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
   }
 
   async function testProfile(profile: LlmProfile) {
-    const testKey = testKeyFor(profile.id);
+    const testKey = testKeyFor(profile);
     const model = profile.model?.trim();
     if (!model) {
       setTestResults((prev) => ({ ...prev, [testKey]: { ok: false, text: t("Укажите модель перед тестом.") } }));
@@ -464,7 +473,7 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
       provider: profile.provider,
       model,
       api_key_ref: keyRef,
-      base_url: profile.base_url ?? "",
+      base_url: normalizeBaseUrl(profile.base_url ?? ""),
       system_prompt: effectiveSystemPrompt(profile),
       llm_reasoning: profile.llm_reasoning,
       llm_output_limit: profile.llm_output_limit,
@@ -706,12 +715,12 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
           const provider = PROVIDERS.find((item) => item.id === profile.provider) ?? PROVIDERS[0];
           const keyRef = profileKeyRef(profile);
           const keyInfo = apiKeys[keyRef];
-          const urlCheck = needsBaseUrl(profile.provider) ? profileUrlCheck(profile) : null;
+          const urlCheck = profileUrlCheck(profile);
           const isOpen = expandedProfiles.has(profile.id);
           const isActive = profile.id === activeProfileId;
           const isRenaming = renamingId === profile.id;
           const maskedKey = keyInfo?.available ? (keyInfo.masked || "—") : "";
-          const testKey = testKeyFor(profile.id);
+          const testKey = testKeyFor(profile);
           const testState = testResults[testKey];
           const testRunning = testingKey === testKey;
 
@@ -778,7 +787,9 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
                       <span className="set-label">{t("Провайдер")}</span>
                       <CustomSelect<string>
                         value={profile.provider}
-                        options={PROVIDERS.map<SelectOption<string>>((item) => ({ value: item.id, label: item.name }))}
+                        options={PROVIDERS.map<SelectOption<string>>((item) => ({
+                          value: item.id, label: item.name, meta: providerCaption(item.id, item.id === profile.provider ? profile.base_url : undefined),
+                        }))}
                         onChange={(next) => updateProfile(profile.id, { provider: next }, true)}
                       />
                     </div>
@@ -813,12 +824,21 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
 
                   {(needsBaseUrl(profile.provider) || profile.provider === "opencode-go" || profile.base_url) && (
                     <div className="set-cell">
-                      <span className="set-label">Base URL</span>
+                      <span className="set-label">
+                        Base URL{" "}
+                        <span className="profile-url-saved" aria-live="polite">
+                          {savedUrl?.id === profile.id && savedUrl.url === profile.base_url && t("Сохранено.")}
+                        </span>
+                      </span>
                       <input
                         className="field mono"
                         aria-label="Base URL"
                         value={profile.base_url ?? ""}
-                        onChange={(e) => updateProfile(profile.id, { base_url: e.target.value })}
+                        onChange={(e) => {
+                          setSavedUrl(null);
+                          updateProfile(profile.id, { base_url: e.target.value });
+                        }}
+                        onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
                         onBlur={() => commitProfile(profile.id)}
                         placeholder={profile.provider === "opencode-go" ? OPENCODE_GO_BASE_URL : (provider.endpointExample ?? "https://api.example.com/v1")}
                         aria-invalid={baseUrlBlocks(urlCheck)}
@@ -866,7 +886,7 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
                         <button
                           className="btn btn--ghost"
                           onClick={() => void testProfile(profile)}
-                          disabled={testRunning || !profile.model.trim()}
+                          disabled={testRunning || !profile.model.trim() || baseUrlBlocks(urlCheck)}
                         >
                           <Icon name="test" size={12}/>
                           {testRunning ? t("Проверяю…") : t("Проверить связь")}
@@ -889,6 +909,7 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
                     >
                       <Icon name={testState.ok ? "check" : "info"} size={12}/>{" "}
                       {testState.text}
+                      {testState.diagnostics && <ProviderSnippet result={testState.diagnostics}/>}
                     </div>
                   )}
                 </div>
@@ -1021,7 +1042,7 @@ export function IntegrationsPage({ config: ai, apiKeys, onConfigChanged, onApiKe
               <span className="wizard-label">{t("Провайдер")}</span>
               <CustomSelect<string>
                 value={newProvider}
-                options={PROVIDERS.map<SelectOption<string>>((p) => ({ value: p.id, label: p.name }))}
+                options={PROVIDERS.map<SelectOption<string>>((p) => ({ value: p.id, label: p.name, meta: providerCaption(p.id) }))}
                 onChange={(next) => setNewProvider(next)}
               />
             </label>
