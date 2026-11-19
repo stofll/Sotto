@@ -13,6 +13,7 @@ import {
   PROVIDERS,
   PROVIDER_CATALOG,
   providerById,
+  providerCaption,
   type CompatiblePreset,
   type LlmProfile,
 } from "../pages/aiShared";
@@ -413,14 +414,11 @@ export function ProfileWizard({ apiKeys, existingProfiles, seed, onClose, onCrea
                           data-selected={entry.preset ? state.preset?.id === entry.id : state.provider === entry.id && !state.preset}
                           onClick={() => (entry.preset ? pickPreset(entry.preset) : pickProvider(entry.id))}>
                           <LogoMark logo={entry.logo} fallback={entry.icon} color={entry.color} size={22}/>
-                          {group === "local" ? (
                             <div style={{ minWidth: 0 }}>
                               <div className="name">{entry.name}</div>
-                              <div className="meta">{baseUrlLabel(entry.meta)}</div>
+                              {group === "local" && <div className="meta">{baseUrlLabel(entry.meta)}</div>}
+                              {providerCaption(entry.id) && <div className="meta meta--caption">{providerCaption(entry.id)}</div>}
                             </div>
-                          ) : (
-                            <div className="name">{entry.name}</div>
-                          )}
                         </button>
                       ))}
                     </div>

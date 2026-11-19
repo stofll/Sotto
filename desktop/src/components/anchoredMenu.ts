@@ -9,16 +9,11 @@ import { useLayoutEffect, useRef, useState, type CSSProperties, type RefObject }
  * to, it simply was not drawn. Fixed coordinates computed from the button do not
  * know that boundary: the menu is clamped to the window.
  *
- * It always opens below. Flipping upward when room ran short made the same
- * menu open on a different side depending on how far the page was scrolled; a
- * list that does not fit below scrolls instead, and so does the page.
- *
  * Recalculation is hooked to scroll (in the capture phase — scrolling happens
  * in an inner container, not in the window) and to resize.
  */
 const GAP = 6;
 const MARGIN = 8;
-const MIN_USABLE = 140;
 const MIN_MENU_W = 180;
 
 export type AnchoredMenu = {
@@ -50,9 +45,10 @@ export type MenuAlign = "start" | "end";
  * scrollbar: otherwise the bar is drawn inside the width measured for the
  * content, and the items shrink and get cut short.
  */
-export function menuPlacement(below: number, natural: number, maxHeight: number) {
-  const height = Math.max(MIN_USABLE, Math.min(maxHeight, below));
-  return { height, scrolls: natural > height };
+export function menuPlacement(below: number, above: number, natural: number, maxHeight: number) {
+  const opensAbove = below < Math.min(natural, maxHeight) && above > below;
+  const height = Math.max(0, Math.min(maxHeight, opensAbove ? above : below));
+  return { height, opensAbove, scrolls: natural > height };
 }
 
 export function useAnchoredMenu(
@@ -62,7 +58,7 @@ export function useAnchoredMenu(
   align: MenuAlign = "start",
 ): AnchoredMenu {
   const menuRef = useRef<HTMLDivElement | null>(null);
-  const [box, setBox] = useState<{ left: number; top: number; minWidth: number; maxHeight: number; scrolls: boolean } | null>(null);
+  const [box, setBox] = useState<{ left: number; top?: number; bottom?: number; minWidth: number; maxHeight: number; scrolls: boolean } | null>(null);
 
   useLayoutEffect(() => {
     if (!open) {
@@ -77,7 +73,7 @@ export function useAnchoredMenu(
       // The whole list, not the height it is clamped to right now: on a
       // re-placement during scroll `offsetHeight` is already capped.
       const natural = menu ? menu.scrollHeight + menu.offsetHeight - menu.clientHeight : maxHeight;
-      const { height, scrolls } = menuPlacement(below, natural, maxHeight);
+      const { height, opensAbove, scrolls } = menuPlacement(below, anchor.top - GAP - MARGIN, natural, maxHeight);
       // Width and height are taken from the already-rendered menu: they depend
       // on the content and the CSS, not on the button.
       const width = menuRef.current?.offsetWidth ?? anchor.width;
@@ -85,7 +81,8 @@ export function useAnchoredMenu(
       const wanted = align === "end" ? anchor.right - width : anchor.left;
       setBox({
         left: Math.min(Math.max(MARGIN, wanted), maxLeft),
-        top: anchor.bottom + GAP,
+        top: opensAbove ? undefined : anchor.bottom + GAP,
+        bottom: opensAbove ? window.innerHeight - anchor.top + GAP : undefined,
         // The menu is as wide as its own content (`width: max-content` in the
         // stylesheet), not as wide as the button. Stretching it to the button
         // left a field-wide strip of empty space beside three short model ids;
@@ -111,7 +108,7 @@ export function useAnchoredMenu(
     // First pass — the menu is in the DOM but not yet measured: we hide it so it
     // does not flash in the top-left corner. useLayoutEffect lands before paint.
     style: box
-      ? { left: box.left, top: box.top, minWidth: box.minWidth, maxHeight: box.maxHeight, scrollbarGutter: box.scrolls ? "stable" : undefined }
+      ? { left: box.left, top: box.top, bottom: box.bottom, minWidth: box.minWidth, maxHeight: box.maxHeight, scrollbarGutter: box.scrolls ? "stable" : undefined }
       : { left: 0, top: 0, visibility: "hidden" },
   };
 }

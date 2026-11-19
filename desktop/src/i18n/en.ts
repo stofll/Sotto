@@ -1011,6 +1011,8 @@ export const en: Record<string, string | string[]> = {
   "Активный профиль": "Active profile",
   "Активный профиль: «{p0}».": "Active profile: “{p0}”.",
   "Новый профиль": "New profile",
+  "По подписке Go": "With a Go subscription",
+  "Каталог Console · есть бесплатные модели": "Console catalog · free models available",
   "Показать список моделей": "Show the model list",
   "Действия с профилем": "Profile actions",
   "Действия с ключом": "Key actions",
