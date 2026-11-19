@@ -16,16 +16,15 @@ pub(crate) fn is_sentence_abbreviation(before_period: &str, after_period: &str) 
     if word.is_empty() {
         return false;
     }
-    let previous_word = || {
+    let previous_words = || {
         before_period[..before_period.len() - word.len()]
             .split_whitespace()
-            .next_back()
-            .unwrap_or_default()
-            .trim_start_matches(|ch: char| !ch.is_alphabetic())
+            .rev()
+            .map(|word| word.trim_start_matches(|ch: char| !ch.is_alphabetic()))
     };
     let next = after_period.trim_start();
     if is_initial(word) {
-        let previous = previous_word();
+        let previous = previous_words().next().unwrap_or_default();
         let after_name = previous.starts_with(char::is_uppercase)
             && previous
                 .strip_suffix('.')
@@ -37,11 +36,29 @@ pub(crate) fn is_sentence_abbreviation(before_period: &str, after_period: &str) 
 
     match word.to_lowercase().as_str() {
         "рис" => {
+            let mut words = previous_words();
             next.starts_with(|ch: char| ch.is_ascii_digit())
-                || previous_word().to_lowercase() == "см."
+                || match words.next().map(str::to_lowercase).as_deref() {
+                    Some("см.") => true,
+                    Some("на") => words
+                        .next()
+                        .is_some_and(|word| word.to_lowercase() == "подробнее"),
+                    _ => false,
+                }
         }
         "им" if next.starts_with(char::is_uppercase) => {
-            let previous = previous_word();
+            let mut words = previous_words();
+            let previous = words.next().unwrap_or_default();
+            let previous = if previous.to_lowercase() == "отдыха"
+                && words.next().is_some_and(|word| word.to_lowercase() == "и")
+                && words
+                    .next()
+                    .is_some_and(|word| word.to_lowercase() == "культуры")
+            {
+                words.next().unwrap_or_default()
+            } else {
+                previous
+            };
             let acronym = !previous.is_empty() && previous.chars().all(char::is_uppercase);
             let previous = previous.to_lowercase();
             acronym
