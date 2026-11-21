@@ -69,7 +69,17 @@ An audio file chosen as a sound cue is copied into the `sounds` folder as a shor
 
 When an overlay recipe shows the **target** element, the overlay asks the application for the name of the focused program as it was when the recording started, so it can say where the text will go. The name stays in memory for that recording: it is not saved, written to the logs or sent anywhere, and telemetry never includes focused-window details.
 
-Pasting goes through the system clipboard, so the last dictated text stays there until something else is copied, and a clipboard history such as Windows' Win+V may keep it longer.
+Pasting goes through the system clipboard, so by default the last dictated text stays there until something else is copied, and a clipboard history such as Windows' Win+V may keep it longer.
+
+With **Keep clipboard unchanged** (`preserve_clipboard`) enabled, Sotto saves the clipboard before an automatic paste and puts it back about half a second later; with auto-paste off it does not copy the text at all, and the text stays in the history. The dictated text is marked so that Win+V history, the cloud clipboard and clipboard managers that honour the Windows exclusion formats or the macOS `org.nspasteboard.TransientType` convention do not record it. If you copy something during that half second, Sotto leaves your new contents in place instead of restoring the older ones.
+
+What is restored depends on the platform:
+
+- Windows: every format stored as a memory block — text, HTML, RTF, images, copied files and application formats. GDI-handle formats are not saved: a bitmap is rebuilt from its DIB copy, but metafile-only content is lost.
+- macOS: every type of every pasteboard item, including several copied files.
+- Linux: plain text or a single image only; other formats such as HTML or copied files are not kept.
+
+The restore needs the clipboard to be free: if another application holds it for longer than a fraction of a second, or Sotto quits before the restore, the dictated text remains on the clipboard. Unless this option is enabled, the clipboard behaves as described above.
 
 Model cards take their speed from measurements bundled with the application and record nothing about your own dictations or model loads. Builds up to 0.1.3 kept such timings in the local database; a newer build deletes them on its first launch.
 

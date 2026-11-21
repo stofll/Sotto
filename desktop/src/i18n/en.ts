@@ -664,6 +664,9 @@ export const en: Record<string, string | string[]> = {
   "Автовставка": "Auto-paste",
   "Сразу вставлять распознанный текст в активное поле. Если выключить, текст останется только в буфере обмена.":
     "Paste the transcript straight into the focused field. Turn it off to leave the text in the clipboard only.",
+  "Не изменять буфер обмена": "Keep clipboard unchanged",
+  "При включении Sotto сохраняет содержимое буфера обмена. Распознанный текст автоматически вставляется в активное поле, но не остаётся в буфере обмена после вставки. Если авто-вставка выключена, текст не копируется и остаётся только в истории.":
+    "Sotto keeps whatever is on your clipboard. The transcript is still pasted into the focused field but does not stay on the clipboard afterwards. With auto-paste off, the text is not copied and stays in the history only.",
   "Enter после вставки": "Enter after pasting",
   "Нажать Enter сразу после вставки — отправит сообщение в чате или запустит поиск.":
     "Press Enter right after pasting — sends the chat message or runs the search.",

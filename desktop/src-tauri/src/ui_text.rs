@@ -114,6 +114,9 @@ fn en(key: &str) -> Option<&'static str> {
         "Текст скопирован. Нажмите ⌘V для вставки. Для автоматической вставки разрешите Sotto доступ в настройках универсального доступа macOS." => {
             "Text copied. Press ⌘V to paste. For automatic pasting, allow Sotto in macOS Accessibility settings."
         }
+        "Для автоматической вставки разрешите Sotto доступ в настройках универсального доступа macOS." => {
+            "For automatic pasting, allow Sotto in macOS Accessibility settings."
+        }
         // Transcription of an attached file: the decoder, the gates and the
         // refusals.
         "Аудио" => "Audio",

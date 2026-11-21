@@ -9,6 +9,7 @@ import { SoundCuePanel, SoundFeedbackControl } from "./SoundCues";
 
 export function BehaviorSection({ config, onConfigChanged }: { config: ConfigResult | null; onConfigChanged: ConfigChanged }) {
   const autoPaste = config?.auto_paste ?? true;
+  const preserveClipboard = config?.preserve_clipboard ?? false;
   const duckOutput = config?.duck_output_while_recording ?? false;
   const [duckTest, setDuckTest] = useState<"idle" | "running" | "done" | "error">("idle");
   const [duckTestError, setDuckTestError] = useState("");
@@ -47,6 +48,15 @@ export function BehaviorSection({ config, onConfigChanged }: { config: ConfigRes
             {t("Авто-вставка текста")}
           </label>
           <HintIcon text={t("Сразу вставлять распознанный текст в активное поле. Если выключить, текст останется только в буфере обмена.")}/>
+        </span>
+        {/* Independent of auto-paste: with it off, the setting keeps the
+            text off the clipboard altogether. */}
+        <span className="label-with-hint">
+          <label className="checkbox-row">
+            <input className="checkbox" type="checkbox" checked={preserveClipboard} onChange={(e) => void onConfigChanged({ preserve_clipboard: e.target.checked })}/>
+            {t("Не изменять буфер обмена")}
+          </label>
+          <HintIcon text={t("При включении Sotto сохраняет содержимое буфера обмена. Распознанный текст автоматически вставляется в активное поле, но не остаётся в буфере обмена после вставки. Если авто-вставка выключена, текст не копируется и остаётся только в истории.")}/>
         </span>
       </div>
       <div className="vrule"/>

@@ -376,6 +376,9 @@ impl Dispatcher {
             .unwrap_or_default();
         let success = if delivery.auto_paste {
             telemetry::PasteResult::Success
+        } else if delivery.preserve_clipboard {
+            // Neither pasted nor copied: the text stays in the history.
+            telemetry::PasteResult::NotApplicable
         } else {
             telemetry::PasteResult::ClipboardOnly
         };

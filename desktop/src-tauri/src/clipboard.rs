@@ -64,6 +64,9 @@ pub struct DeliveryOptions {
     /// query in a search box. Off by default — a stray Enter sends
     /// something half-finished, which is not an error you can take back.
     pub auto_submit: bool,
+    /// Leave the user's clipboard as it was: an automatic paste puts it
+    /// back afterwards, copy-only mode does not touch it at all.
+    pub preserve_clipboard: bool,
 }
 
 impl Default for DeliveryOptions {
@@ -72,6 +75,7 @@ impl Default for DeliveryOptions {
             auto_paste: true,
             trailing_space: false,
             auto_submit: false,
+            preserve_clipboard: false,
         }
     }
 }
@@ -88,6 +92,7 @@ impl DeliveryOptions {
             auto_paste: flag("auto_paste", true),
             trailing_space: flag("paste_trailing_space", false),
             auto_submit: flag("paste_auto_submit", false),
+            preserve_clipboard: flag("preserve_clipboard", false),
         }
     }
 }
@@ -170,7 +175,13 @@ fn queue_delivery(job: DeliveryJob) -> Result<(), String> {
 pub fn deliver(app: AppHandle, text: String, options: DeliveryOptions) -> Result<(), String> {
     let text = apply_delivery_text(&text, options);
     if !options.auto_paste {
-        let result = copy_to_clipboard(&app, &text);
+        // With the clipboard preserved there is nothing to deliver to: the
+        // text stays in the history.
+        let result = if options.preserve_clipboard {
+            Ok(())
+        } else {
+            copy_to_clipboard(&app, &text)
+        };
         // A hotkey-started session leaves its target HWND behind until the
         // delivery step consumes it. Copy-only mode consumes the session too:
         // keeping that HWND would let a later tray/button recording paste into
@@ -179,7 +190,33 @@ pub fn deliver(app: AppHandle, text: String, options: DeliveryOptions) -> Result
         crate::windows_util::clear_captured_hwnd();
         return result;
     }
-    paste_text(app, text)?;
+    if !options.preserve_clipboard {
+        paste_text(app, text)?;
+        submit_if_requested(options);
+        return Ok(());
+    }
+
+    // Checked before the clipboard is touched: the paste could not happen,
+    // and unlike `paste_text` there is no copy left to paste by hand.
+    #[cfg(target_os = "macos")]
+    if !crate::accessibility::is_accessibility_granted() {
+        crate::accessibility::emit_accessibility_error(&app);
+        return Err(crate::ui_text::t(
+            "Для автоматической вставки разрешите Sotto доступ в настройках универсального доступа macOS.",
+        ));
+    }
+    let result = crate::clipboard_preserve::paste_preserving(&app, &text, || {
+        send_paste(&app, &text)?;
+        submit_if_requested(options);
+        Ok(())
+    });
+    // The paste may not have run at all; see the copy-only branch.
+    #[cfg(windows)]
+    crate::windows_util::clear_captured_hwnd();
+    result
+}
+
+fn submit_if_requested(options: DeliveryOptions) {
     if options.auto_submit {
         // Failure to submit is not a failure to deliver — the text is in
         // the window either way, and reporting an error here would make the
@@ -188,7 +225,6 @@ pub fn deliver(app: AppHandle, text: String, options: DeliveryOptions) -> Result
             log::warn!("auto-submit failed: {error}");
         }
     }
-    Ok(())
 }
 
 /// Press Enter in the focused window. No-op off Windows: the paste
@@ -445,13 +481,18 @@ pub fn paste_text(app: AppHandle, text: String) -> Result<(), String> {
             "Текст скопирован. Нажмите ⌘V для вставки. Для автоматической вставки разрешите Sotto доступ в настройках универсального доступа macOS.",
         ));
     }
+    send_paste(&app, &text)
+}
 
+/// The keystroke half of [`paste_text`], for `text` already on the clipboard.
+fn send_paste(app: &AppHandle, text: &str) -> Result<(), String> {
     #[cfg(windows)]
     {
         use crate::windows_util::{
             clear_captured_hwnd, force_focus, get_captured_hwnd, release_stuck_modifiers,
             send_ctrl_v_sendinput,
         };
+        let _ = app;
         let hwnd = get_captured_hwnd();
 
         // Even without a captured hwnd (e.g. recording started via the
@@ -467,7 +508,7 @@ pub fn paste_text(app: AppHandle, text: String) -> Result<(), String> {
         // target receives whatever the user copied previously. Not being
         // able to confirm it is not a reason to abort: the read can fail
         // purely because another process holds the clipboard open.
-        if !wait_for_clipboard_write(&text, 200) {
+        if !wait_for_clipboard_write(text, 200) {
             log::warn!("clipboard write unconfirmed after 200ms, pasting anyway");
         }
 
@@ -516,6 +557,11 @@ pub fn paste_text(app: AppHandle, text: String) -> Result<(), String> {
 
     #[cfg(not(windows))]
     {
+        // Only Windows confirms the clipboard write before the keystroke.
+        let _ = text;
+        #[cfg(not(target_os = "macos"))]
+        let _ = app;
+
         // The hotkey that stopped the dictation is still down. Send the
         // shortcut only once its modifiers are up — see `settle_modifiers`.
         #[cfg(target_os = "macos")]
@@ -539,7 +585,7 @@ pub fn paste_text(app: AppHandle, text: String) -> Result<(), String> {
         // All strategies failed. Check if it's an Accessibility issue.
         #[cfg(target_os = "macos")]
         if !crate::accessibility::is_accessibility_granted() {
-            crate::accessibility::emit_accessibility_error(&app);
+            crate::accessibility::emit_accessibility_error(app);
         }
 
         Err("all paste strategies failed".into())
@@ -621,6 +667,8 @@ mod delivery_tests {
         assert!(options.auto_paste);
         assert!(!options.trailing_space);
         assert!(!options.auto_submit);
+        // An old config without the key keeps the old clipboard behaviour.
+        assert!(!options.preserve_clipboard);
     }
 
     #[test]
@@ -629,10 +677,12 @@ mod delivery_tests {
             "auto_paste": false,
             "paste_trailing_space": true,
             "paste_auto_submit": true,
+            "preserve_clipboard": true,
         }));
         assert!(!options.auto_paste);
         assert!(options.trailing_space);
         assert!(options.auto_submit);
+        assert!(options.preserve_clipboard);
     }
 
     #[test]
