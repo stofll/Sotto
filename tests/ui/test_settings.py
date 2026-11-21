@@ -18,6 +18,8 @@ def open_overlay_settings(page):
     [
         ("Авто-вставка текста", "auto_paste", True),
         ("Приглушать звук", "duck_output_while_recording", False),
+        # Absent from the mock config, as in a config from an older release.
+        ("Не изменять буфер обмена", "preserve_clipboard", False),
     ],
 )
 def test_preferences_persist(app, page, label, field, initial):
@@ -44,6 +46,19 @@ def test_paste_options_depend_on_auto_paste(app, page):
     expect(trailing).to_be_checked()
     page.get_by_role("checkbox", name="Авто-вставка текста", exact=True).check()
     expect(trailing).to_be_enabled()
+
+
+def test_preserve_clipboard_is_independent_of_auto_paste(app, page):
+    ui = app()
+    preserve = page.get_by_role("checkbox", name="Не изменять буфер обмена", exact=True)
+    page.get_by_role("checkbox", name="Авто-вставка текста", exact=True).uncheck()
+    ui.saved("auto_paste", False)
+    expect(preserve).to_be_enabled()
+    preserve.check()
+    ui.saved("preserve_clipboard", True)
+    expect(
+        page.get_by_role("checkbox", name="Авто-вставка текста", exact=True)
+    ).not_to_be_checked()
 
 
 def test_setting_failure_and_retry(app, page):

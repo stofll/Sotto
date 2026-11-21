@@ -114,6 +114,9 @@ export interface ConfigResult {
   paste_trailing_space: boolean;
   /** Press Enter after inserting. */
   paste_auto_submit: boolean;
+  /** Put the user's clipboard back after a paste; never copy in copy-only
+   *  mode. Disabled by default. */
+  preserve_clipboard?: boolean;
   auto_start: boolean;
   /** Sound cues for the dictation cycle. Enabled by default. */
   sound_feedback: boolean;
