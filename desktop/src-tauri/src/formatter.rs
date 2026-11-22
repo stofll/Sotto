@@ -560,6 +560,40 @@ fn replacement_regex(rule: &ReplacementRule) -> Result<Regex, regex::Error> {
     }
 }
 
+#[derive(Debug, PartialEq, Eq, Serialize)]
+pub struct ReplacementRuleValidationError {
+    pub index: usize,
+    pub message: String,
+}
+
+/// Validate unsaved rules with the same parser and case flags as dictation.
+/// Disabled rules are checked too, so enabling one cannot reveal a hidden
+/// syntax error. Duplicate resolution belongs to the import/editor workflow.
+pub fn validate_replacement_rules(
+    rules: &[ReplacementRule],
+) -> Vec<ReplacementRuleValidationError> {
+    rules
+        .iter()
+        .enumerate()
+        .filter_map(|(index, rule)| {
+            let mut rule = rule.clone();
+            rule.find = rule.find.trim().to_string();
+            let message = if rule.find.is_empty() {
+                Some(crate::ui_text::t(
+                    "У правила должно быть заполнено поле поиска.",
+                ))
+            } else if rule.match_ != ReplacementMatchMode::Regex && rule.find == rule.replace {
+                Some(crate::ui_text::t("Текст поиска совпадает с заменой."))
+            } else {
+                replacement_regex(&rule)
+                    .err()
+                    .map(|error| error.to_string())
+            };
+            message.map(|message| ReplacementRuleValidationError { index, message })
+        })
+        .collect()
+}
+
 fn preserve_replacement_case(matched: &str, replacement: &str) -> String {
     let starts_uppercase = matched
         .chars()
@@ -4935,6 +4969,37 @@ mod tests {
         assert_eq!(rules[0].replace, "b");
         assert_eq!(rules[0].id, "legacy-1");
     }
+
+    #[test]
+    fn replacement_validation_uses_rust_regex_and_keeps_source_indices() {
+        let rules: Vec<ReplacementRule> = serde_json::from_value(serde_json::json!([
+            {"find": "(?i)flare", "replace": "FLAIR", "match": "regex"},
+            {"find": "[", "replace": "bracket", "match": "phrase"},
+            {"find": "(?<=x)y", "replace": "z", "match": "regex"},
+            {"find": "[", "replace": "z", "match": "regex", "enabled": false},
+            {"find": "  ", "replace": "z"},
+            {"find": "same", "replace": "same"},
+            {"find": "remove", "replace": ""}
+        ]))
+        .unwrap();
+        let errors = validate_replacement_rules(&rules);
+        assert_eq!(
+            errors.iter().map(|error| error.index).collect::<Vec<_>>(),
+            [2, 3, 4, 5]
+        );
+        assert!(errors[0].message.contains("look-around"));
+        assert!(errors[1].message.contains("unclosed character class"));
+        let valid = [rules[0].clone(), rules[1].clone(), rules[6].clone()];
+        assert!(validate_replacement_rules(&valid).is_empty());
+        let config = serde_json::json!({"replacement_rules": [
+            {"find": "(?i)flare", "replace": "FLAIR", "match": "regex"},
+            {"find": "[", "replace": "bracket", "match": "phrase"}
+        ]});
+        assert_eq!(
+            apply_replacement_rules("flare [", Some(&config), false).0,
+            "FLAIR bracket"
+        );
+    }
 }
 
 #[cfg(test)]
@@ -4945,7 +5010,7 @@ mod custom_words_tests {
     #[ignore = "opt-in synthetic dictionary latency measurement"]
     fn dictionary_scaling_benchmark() {
         let text = "Taurx00001 OpenRuter00002 ArchitectureNotebok00003 Taurx00004 OpenRuter00005 ArchitectureNotebok00006";
-        for count in [100, 1_000, 10_000] {
+        for count in [100, 1_000, 2_000, 10_000] {
             let words: Vec<String> = (0..count)
                 .map(|index| match index % 3 {
                     0 => format!("Tauri{index:05}"),
@@ -4968,6 +5033,67 @@ mod custom_words_tests {
             apply.sort_unstable();
             println!(
                 "dictionary_terms={count} build_ms={:.3} apply_ms={:.3}",
+                build[2].as_secs_f64() * 1000.0,
+                apply[2].as_secs_f64() * 1000.0
+            );
+        }
+    }
+
+    #[test]
+    fn two_thousand_terms_keep_late_matches_and_ambiguous_measurements_unchanged() {
+        // Synthetic neighbours exercise ambiguity; they are not a medical
+        // recognition corpus. The last entry catches accidental truncation.
+        let mut words: Vec<String> = (0..1_997)
+            .map(|index| format!("Исследование{index:05}"))
+            .collect();
+        words.extend(["Лимфоузелаб".into(), "Лимфоузелав".into(), "Tauri".into()]);
+        let mut config = FormatterConfig::default();
+        config.text_formatting.enabled = false;
+        config.text_formatting.dictionary_sets = vec![crate::dictionaries::DictionarySet {
+            id: "large".into(),
+            name: "Synthetic terms".into(),
+            description: String::new(),
+            enabled: true,
+            words,
+        }];
+        assert_eq!(config.text_formatting.effective_custom_words().len(), 2_000);
+        let text = "лимфоузелаг, таури; размер 8,8 мм";
+        assert_eq!(
+            Formatter::from_config(&config).process(text),
+            "лимфоузелаг, Tauri; размер 8,8 мм"
+        );
+        config.text_formatting.dictionary_sets[0].enabled = false;
+        assert_eq!(Formatter::from_config(&config).process(text), text);
+    }
+
+    #[test]
+    #[ignore = "opt-in synthetic medical-term dictionary latency measurement"]
+    fn medical_dictionary_scaling_benchmark() {
+        let text =
+            "лимфаденапатия00001, остеахондропатия00002, нейрафиброматоз00003. размер 8,8 мм";
+        for count in [100, 1_000, 2_000] {
+            let words: Vec<String> = (0..count)
+                .map(|index| match index % 3 {
+                    0 => format!("Лимфаденопатия{index:05}"),
+                    1 => format!("Остеохондропатия{index:05}"),
+                    _ => format!("Нейрофиброматоз{index:05}"),
+                })
+                .collect();
+            let mut build = Vec::new();
+            let mut apply = Vec::new();
+            for _ in 0..5 {
+                let started = std::time::Instant::now();
+                let corrector =
+                    CustomWordsCorrector::new(true, std::hint::black_box(words.clone()));
+                build.push(started.elapsed());
+                let started = std::time::Instant::now();
+                std::hint::black_box(corrector.apply(std::hint::black_box(text)));
+                apply.push(started.elapsed());
+            }
+            build.sort_unstable();
+            apply.sort_unstable();
+            println!(
+                "medical_dictionary_terms={count} build_ms={:.3} apply_ms={:.3}",
                 build[2].as_secs_f64() * 1000.0,
                 apply[2].as_secs_f64() * 1000.0
             );

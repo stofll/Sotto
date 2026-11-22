@@ -33,3 +33,8 @@ export function checkDictionaryText(text: string, words: string[], builtin: bool
 export function analyzeDictionary(formatting: TextFormattingConfig): Promise<DictionaryAnalysis> {
   return invoke("analyze_dictionary", { formatting });
 }
+
+/** Native save dialog: false means cancellation, true means the file was saved. */
+export function exportDictionarySet(content: string): Promise<boolean> {
+  return invoke("export_dictionary_set", { content });
+}

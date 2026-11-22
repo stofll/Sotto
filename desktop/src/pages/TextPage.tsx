@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "../bridge";
 import type { ConfigResult, DictionaryMatch, PreviewFormatResult, PreviewReplacementsResult, ReplacementMatchMode, ReplacementRule, TextFormattingConfig } from "../bridge/types";
 import { Card, PageHeader, Segmented, Switch } from "../components/Shell";
@@ -14,13 +14,12 @@ import { textPreview, replacementExamples } from "./textExamples";
 import { DictionaryLibrary } from "./DictionaryLibrary";
 import { Modal } from "../components/Modal";
 import { getParasiteSets, type ParasiteSet } from "../bridge/dictionaries";
+import { makeReplacementRule, replacementRuleKey } from "./replacementRules";
+import { ReplacementPager, REPLACEMENT_PAGE_SIZE } from "./ReplacementPager";
+
+const ReplacementImportDialog = lazy(() => import("./ReplacementImportDialog").then((module) => ({ default: module.ReplacementImportDialog })));
 
 const MATCH_LABELS = (): Record<string, string> => ({ word: t("Слово"), phrase: t("Фраза"), contains: t("Внутри"), regex: "Regex" });
-
-function makeReplacementRule(find = "", replace = ""): ReplacementRule {
-  const id = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `rule-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  return { id, find, replace, enabled: true, match: "word", case_sensitive: false, preserve_case: false, usage_count: 0 };
-}
 
 function replacementRulesFromConfig(config: ConfigResult | null): ReplacementRule[] {
   const rules = Array.isArray(config?.replacement_rules) ? config!.replacement_rules : [];
@@ -29,7 +28,7 @@ function replacementRulesFromConfig(config: ConfigResult | null): ReplacementRul
 }
 
 function replacementRulesToLegacyRecord(rules: ReplacementRule[]): Record<string, string> {
-  const result: Record<string, string> = {};
+  const result: Record<string, string> = Object.create(null);
   for (const rule of rules) {
     const find = rule.find.trim();
     if (find && rule.enabled) result[find] = rule.replace;
@@ -42,7 +41,7 @@ function validateReplacementRules(rules: ReplacementRule[]): string | null {
   for (const rule of rules) {
     const find = rule.find.trim();
     if (!find) return t("У каждого правила должно быть заполнено поле поиска.");
-    const key = `${rule.match}:${find.toLowerCase()}`;
+    const key = replacementRuleKey(rule);
     if (seen.has(key)) return t("Правила с одинаковым поиском и режимом совпадения конфликтуют между собой.");
     seen.add(key);
     if (rule.find === rule.replace && rule.match !== "regex") return t("Одно из правил ничего не меняет: текст поиска совпадает с заменой.");
@@ -178,11 +177,14 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
   const paused = config?.replacements_paused ?? false;
   const [rules, setRules] = useState<ReplacementRule[]>(() => configRules);
   const [filter, setFilter] = useState("");
+  const [rulePage, setRulePage] = useState(0);
   const [formError, setFormError] = useState<string | null>(null);
   const [exportState, setExportState] = useState<"idle" | "saving" | "failed">("idle");
   const [savingRules, setSavingRules] = useState(false);
   const [saved, setSaved] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const importSequence = useRef(0);
+  const [importFile, setImportFile] = useState<{ file: File; sequence: number } | null>(null);
   // At most one rule shows its matching options at a time.
   const [ruleOptionsId, setRuleOptionsId] = useState<string | null>(null);
   const findRef = useRef<HTMLInputElement>(null);
@@ -214,10 +216,12 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
   }
 
   useEffect(() => {
+    // A late settings refresh must not discard an imported or edited draft.
+    // Successful save explicitly updates the draft and clears its dirty state.
+    if (!saved) return;
     setRules(configRules);
-    setSaved(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reset the draft when the saved rules change in content, not on every new array.
-  }, [JSON.stringify(config?.replacement_rules ?? []), JSON.stringify(config?.replacements ?? {})]);
+  }, [JSON.stringify(config?.replacement_rules ?? []), JSON.stringify(config?.replacements ?? {}), saved]);
 
   // Two calls for one preview: `preview_format` gives the full local result
   // (cleanup AND replacements at once), while `preview_replacements` gives only
@@ -409,6 +413,8 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
 
   function addRule(find = "", replace = "") {
     setRules((current) => [makeReplacementRule(find, replace), ...current]);
+    setFilter("");
+    setRulePage(0);
     setSaved(false);
     setFolds((current) => ({ ...current, repl: true }));
     window.setTimeout(() => findRef.current?.focus(), 0);
@@ -424,27 +430,16 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
     }
   }
 
-  async function importRules(file: File) {
-    try {
-      const parsed = JSON.parse(await file.text());
-      const imported = Array.isArray(parsed?.replacement_rules)
-        ? parsed.replacement_rules.map((rule: Partial<ReplacementRule>) => ({ ...makeReplacementRule(), ...rule }))
-        : Object.entries(parsed as Record<string, string>).map(([find, replace]) => makeReplacementRule(find, String(replace)));
-      const next = [...rules, ...imported].filter((rule) => rule.find.trim());
-      const validation = validateReplacementRules(next);
-      if (validation) throw new Error(validation);
-      setRules(next);
-      setSaved(false);
-      setFormError(null);
-    } catch (e) {
-      setFormError(e instanceof Error ? e.message : t("Не удалось импортировать JSON."));
-    } finally {
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
+  function importRules(file: File) {
+    setImportFile({ file, sequence: ++importSequence.current });
+    // Selecting the same file after fixing it must fire change again.
+    if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
   const normalizedFilter = filter.trim().toLowerCase();
-  const visibleRules = normalizedFilter ? rules.filter((rule) => `${rule.find}\n${rule.replace}`.toLowerCase().includes(normalizedFilter)) : rules;
+  const visibleRules = useMemo(() => rules.map((rule, index) => ({ rule, index })).filter(({ rule }) => !normalizedFilter || `${rule.find}\n${rule.replace}`.toLowerCase().includes(normalizedFilter)), [rules, normalizedFilter]);
+  const displayRulePage = Math.min(rulePage, Math.max(0, Math.ceil(visibleRules.length / REPLACEMENT_PAGE_SIZE) - 1));
+  const pageRules = visibleRules.slice(displayRulePage * REPLACEMENT_PAGE_SIZE, (displayRulePage + 1) * REPLACEMENT_PAGE_SIZE);
   const cleanGroups = CLEAN_GROUPS();
   const cleanRowStyle = { padding: "9px 12px", borderBottom: "1px solid var(--line-soft)", display: "flex", alignItems: "center", gap: 10, opacity: formatting.enabled ? 1 : 0.55 } as const;
   const renderGroup = (group: CleanGroup) => (
@@ -478,6 +473,14 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
   return (
     <div className="page">
       <input type="file" accept=".json,application/json" ref={fileInputRef} style={{ display: "none" }} onChange={(e) => { const file = e.target.files?.[0]; if (file) void importRules(file); }}/>
+      {importFile && <Suspense fallback={<Modal title={t("Импорт правил замен")} onClose={() => setImportFile(null)}><div className="modal__body" role="status">{t("Загрузка…")}</div></Modal>}><ReplacementImportDialog key={importFile.sequence} file={importFile.file} rules={rules} onClose={() => setImportFile(null)} onChooseFile={() => fileInputRef.current?.click()} onApply={(next) => {
+        setRules(next);
+        setSaved(false);
+        setFormError(null);
+        setFilter("");
+        setRulePage(0);
+        setImportFile(null);
+      }}/></Suspense>}
       {/* There are no state pills in the header: both duplicated what is
           visible next to the blocks themselves — «не сохранено» lights up
           right on «Замены». A permanent green "saved" pill across the whole
@@ -597,10 +600,10 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
             {showRuleSearch && <div style={{ padding: "8px 12px", borderBottom: "1px solid var(--line-soft)" }}>
               <div className="input-search">
                 <Icon name="search" size={13} className="input-search__icon"/>
-                <input className="field" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder={t("Найти правило")} style={{ height: 30 }}/>
+                <input className="field" value={filter} onChange={(e) => { setFilter(e.target.value); setRulePage(0); }} placeholder={t("Найти правило")} style={{ height: 30 }}/>
               </div>
             </div>}
-            {rules.length === 0 ? <ReplacementsEmptyState/> : visibleRules.map((rule, index) => {
+            {rules.length === 0 ? <ReplacementsEmptyState/> : pageRules.map(({ rule, index }, pageIndex) => {
               const optionsOpen = ruleOptionsId === rule.id;
               return (
                 // One line per rule. Matching mode, case and order are set once
@@ -610,7 +613,7 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
                 <div key={rule.id} style={{ padding: "7px 12px", borderBottom: "1px solid var(--line-soft)", opacity: rule.enabled ? 1 : 0.66 }}>
                   <div className="flex-row" style={{ gap: 8 }}>
                     <Switch label={rule.find || t("Правило замены")} on={rule.enabled} onChange={(enabled) => updateRule(rule.id, { enabled })}/>
-                    <input ref={index === 0 ? findRef : undefined} className="field mono" value={rule.find} onChange={(e) => updateRule(rule.id, { find: e.target.value })} placeholder={t("что искать")} aria-label={t("что искать")} style={{ height: 28, flex: "1 1 0", minWidth: 0 }}/>
+                    <input ref={pageIndex === 0 ? findRef : undefined} className="field mono" value={rule.find} onChange={(e) => updateRule(rule.id, { find: e.target.value })} placeholder={t("что искать")} aria-label={t("что искать")} style={{ height: 28, flex: "1 1 0", minWidth: 0 }}/>
                     <Icon name="arrow-right" size={12} style={{ color: "var(--ink-mute)", flexShrink: 0 }}/>
                     {/* An empty replacement deletes the match. The placeholder
                         says so in exactly the case it applies — the field is
@@ -620,7 +623,7 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
                     <RowMenu label={t("Действия с правилом")} items={[
                       { id: "options", label: optionsOpen ? t("Скрыть параметры") : t("Параметры"), icon: "sliders", onSelect: () => setRuleOptionsId(optionsOpen ? null : rule.id) },
                       { id: "up", label: t("Поднять"), icon: "chev-up", disabled: index === 0, onSelect: () => moveRule(rule.id, -1) },
-                      { id: "down", label: t("Опустить"), icon: "chev-down", disabled: index === visibleRules.length - 1, onSelect: () => moveRule(rule.id, 1) },
+                      { id: "down", label: t("Опустить"), icon: "chev-down", disabled: index === rules.length - 1, onSelect: () => moveRule(rule.id, 1) },
                       { id: "delete", label: t("Удалить"), icon: "trash", danger: true, onSelect: () => void deleteRule(rule.id) },
                     ]}/>
                   </div>
@@ -633,19 +636,18 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
                 </div>
               );
             })}
+            {rules.length > 0 && visibleRules.length === 0 && <p className="dictionary-note" style={{ padding: "8px 12px" }}>{t("Правила не найдены")}</p>}
+            <ReplacementPager label={t("Страницы правил")} page={displayRulePage} count={visibleRules.length} onPage={setRulePage}/>
             {(formError || exportState === "failed") && <div role="alert" style={{ padding: "10px 12px", color: "var(--err)", font: "500 12px/1.4 var(--font-sans)", borderBottom: "1px solid var(--line-soft)" }}>
               {formError && <div>{formError}</div>}
               {exportState === "failed" && <div>{t("Не удалось экспортировать правила замен. Проверьте права на запись и свободное место.")}</div>}
             </div>}
-            {/* Export and import are one-off operations, so they share a «⋯»
-                rather than standing beside the frequent ones. «Сохранить»
-                appears only when there is something to save. */}
-            <div className="flex-row" style={{ gap: 6, padding: "6px 12px" }}>
+            <div className="flex-row" style={{ gap: 6, padding: "6px 12px", flexWrap: "wrap" }}>
               <button type="button" className="btn btn--ghost btn--sm" onClick={() => addRule()} disabled={savingRules}><Icon name="plus" size={12}/>{t("Добавить правило")}</button>
+              <button type="button" className="btn btn--ghost btn--sm" onClick={() => fileInputRef.current?.click()} disabled={savingRules}><Icon name="folder" size={12}/>{t("Импорт")}</button>
               <div className="flex-grow"/>
               <RowMenu label={t("Экспорт и импорт правил")} items={[
                 { id: "export", label: t("Экспорт"), icon: "download", disabled: rules.length === 0 || exportState === "saving", onSelect: () => void exportRules() },
-                { id: "import", label: t("Импорт"), icon: "folder", onSelect: () => fileInputRef.current?.click() },
               ]}/>
               {!saved && <button type="button" className="btn btn--primary btn--sm" onClick={() => void saveRules()} disabled={savingRules}><Icon name="check" size={12}/>{savingRules ? t("Сохраняю") : t("Сохранить")}</button>}
             </div>

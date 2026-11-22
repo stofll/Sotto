@@ -8,7 +8,7 @@ A dictionary says how a term is spelled, and Sotto decides which recognised frag
 
 **Word** mode can match a term with punctuation, such as `C++`, when it stands on its own. A letter, digit or underscore immediately outside the match makes it part of a larger word. With **Case** enabled, an uppercase match such as `ALPHA` produces `BETA`, `Alpha` produces `Beta`, and `alpha` uses the spelling you entered for the replacement.
 
-In **Processing → Text → Replacements**, open the **⋯** menu and choose **Export** to select a folder and file name in the system save dialog. Sotto suggests `replacement-rules.json`. To load rules from a JSON file, choose **Import** from the same menu, then click **Save** in the Replacements section to apply them.
+In **Processing → Text → Replacements**, open the **⋯** menu and choose **Export** to select a folder and file name in the system save dialog. Sotto suggests `replacement-rules.json`. The visible **Import** button opens a JSON file for review before adding rules to the editor; click **Save** in the Replacements section to apply the draft. See [Import replacement rules](#import-replacement-rules) for supported formats and conflict handling.
 
 The set view groups its terms by how they fire: **Exact spellings** change only the listed reviewed variants, **By similar sound** terms also correct fragments that sound almost the same, and **Model hint only** terms never change the text. **Check a word** runs that set alone, enabled or not, on a spelling you type and shows the result and which route produced it. The text preview lists dictionary corrections separately from the replacement rules that fired.
 
@@ -24,7 +24,7 @@ A term you add to your own set or to **My words**, including a copy of a built-i
 
 ## Create and customize
 
-Choose **Create** in the Dictionaries header, enter a name and optionally a description, and paste terms on separate lines or separated by commas. A term can contain spaces, such as `Claude Code`. Empty lines and exact duplicates are removed when saving. A set may contain no terms, but its name cannot be empty.
+Choose **Create** in the Dictionaries header, enter a name and optionally a description, and paste one term per line. A term can contain spaces, such as `Claude Code`, and commas remain part of the term. Empty lines and exact duplicates are removed when saving. A set may contain no terms, but its name cannot be empty.
 
 New sets and copies are saved disabled; enable them with the switch in the library when needed. Editing an existing set preserves its enabled state. Changes in the editor take effect only after a successful save; closing it with the cross or Escape asks whether to discard unsaved changes.
 
@@ -32,9 +32,38 @@ Built-in sets are read-only. Use **Create copy** to make an independent, initial
 
 Existing personal dictionary entries appear in **My words** with their previous behavior preserved. The conversion happens when configuration is read and is persisted with the next successful settings save. Words to delete rather than spell correctly live under **Cleanup**; see [Verbal tics](#verbal-tics).
 
+## Import and export dictionary sets
+
+Choose **Import** in the Dictionaries header to prepare a new set from a local file. The editor shows the number of terms read, added and skipped as exact duplicates, and lets you review or edit the contents. Nothing is saved until **Save** succeeds; the imported set is initially disabled. Closing the imported draft asks whether to discard it. To extend an existing personal set, open **Edit → Add from file**: the file's terms are merged into the current draft without changing its name, description or enabled state.
+
+Files must use UTF-8 and be at most 2 MiB. A `.txt` file contains one term per line; Windows line endings and a UTF-8 byte-order mark are accepted. Surrounding whitespace and blank lines are removed, while commas and spaces inside a term are preserved. Exact duplicates are skipped in file order. Different letter-case spellings remain available for the existing spelling choice when their sets are enabled. Invalid terms or encoding stop the import and leave the current draft intact.
+
+A `.json` file contains one set in the following versioned format. All four fields are required, and additional fields are rejected:
+
+```json
+{
+  "version": 1,
+  "name": "Imaging terms",
+  "description": "Terms used in reports",
+  "words": ["FLAIR", "МР-ангиография", "Claude Code"]
+}
+```
+
+Open a set and choose **Export** to save this JSON through the system save dialog. Built-in and personal sets can both be exported. The file contains the name, description and ordered terms; local IDs, activation state and selected spellings are not transferred. Importing it creates an independent disabled set. A stored set may contain more than the active-term budget, but enabling it must satisfy the [active dictionary limit](#spelling-and-limits).
+
+The set view has a term search and shows at most 100 matching terms per page. The editor keeps the full list in its multiline field, including terms outside the current view page.
+
+## Import replacement rules
+
+The replacement importer accepts Sotto's exported `{"replacement_rules": [...]}` object, a bare array of rule objects, or the legacy `{"recognized text": "replacement"}` map. Files must be valid UTF-8 JSON, with an optional UTF-8 byte-order mark, and no larger than 2 MiB. A rule needs a non-empty string `find` and a string `replace`; an empty replacement deliberately deletes a match. Optional fields use the existing defaults: `match: "word"`, `enabled: true`, `case_sensitive: false`, and `preserve_case: false`. Other match modes are `phrase`, `contains` and `regex`. Unknown fields, invalid types and invalid Rust regular expressions are reported before the rules enter the draft, including errors in disabled rules.
+
+The review shows numbered entries, duplicates and conflicts. An exact duplicate is skipped. For a matching search and mode with different behavior, choose whether to keep the existing rule or replace it with the imported one; the same policy handles repeated entries within the file. Search keys follow the editor's existing case-insensitive duplicate check. Replacing a rule preserves its position, local identity and usage count; new searches are appended in file order with fresh local IDs. Order matters because replacement rules run sequentially.
+
+Fix invalid entries in the file and import it again; a file containing invalid rules cannot be partly applied. After reviewing a valid file, **Add to list** changes only the editor draft. **Save** applies the complete replacement list. Re-importing an unchanged file does not create duplicate rules. Both the review and the replacement editor use pages of up to 50 rows, and search applies to the full list.
+
 ## Spelling and limits
 
-New or edited user terms may contain at most 128 characters and 8 words. Up to 1,000 distinct user terms may be active across personal entries and enabled sets; built-in sets do not count toward this limit. A save that exceeds a limit is rejected without changing the stored dictionary. Older dictionaries already above a limit remain available, and unrelated settings can still be saved; remove or disable terms to bring them within the limit before adding more.
+New or edited user terms may contain at most 128 characters and 8 words. Up to 2,000 distinct user terms may be active across personal entries and enabled sets; built-in sets do not count toward this limit. A save that exceeds a limit is rejected without changing the stored dictionary. Older dictionaries already above a limit remain available, and unrelated settings can still be saved; remove or disable terms to bring them within the limit before adding more.
 
 User terms take precedence over built-in terms when they differ only in letter case. If enabled user sets contain multiple spellings of the same term after trimming surrounding whitespace and ignoring case, choose the desired spelling before saving. Phonetically similar terms are not spelling conflicts. The choice applies while that spelling is present in an enabled user set; output capitalization also follows the existing correction rules and the source text.
 

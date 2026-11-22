@@ -6,7 +6,7 @@ export function dictionaryName(set: Pick<DictionarySet, "id" | "name">): string 
 }
 
 export function parseDictionaryWords(text: string): string[] {
-  return [...new Set(text.split(/[\n,]/).map((word) => word.trim()).filter(Boolean))];
+  return [...new Set(text.split(/\r\n|\n|\r/u).map((word) => word.trim()).filter(Boolean))];
 }
 
 export function dictionaryPatch(formatting: TextFormattingConfig): Partial<TextFormattingConfig> {

@@ -29,9 +29,65 @@ pub struct DictionaryAnalysis {
     pub unsupported_words: Vec<String>,
 }
 
-const MAX_ACTIVE_USER_TERMS: usize = 1_000;
+const MAX_ACTIVE_USER_TERMS: usize = 2_000;
 const MAX_TERM_CHARS: usize = 128;
 const MAX_TERM_WORDS: usize = 8;
+const MAX_DICTIONARY_FILE_BYTES: usize = 2 * 1024 * 1024;
+
+/// Portable content only: local IDs, enabled state and spelling choices stay
+/// with the installation that imports the file.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DictionaryFile {
+    version: u8,
+    name: String,
+    description: String,
+    words: Vec<String>,
+}
+
+pub(crate) fn dictionary_export_content(content: &str) -> Result<String, String> {
+    if content.len() > MAX_DICTIONARY_FILE_BYTES {
+        return Err(crate::ui_text::t(
+            "Файл словаря должен быть не больше 2 МиБ.",
+        ));
+    }
+    let dictionary: DictionaryFile = serde_json::from_str(content).map_err(|_| {
+        crate::ui_text::t(
+            "Некорректный JSON словаря. Ожидаются version, name, description и words.",
+        )
+    })?;
+    if dictionary.version != 1 {
+        return Err(crate::ui_text::t(
+            "Эта версия файла словаря не поддерживается.",
+        ));
+    }
+    if dictionary.name.trim().is_empty() {
+        return Err(crate::ui_text::t("У словаря должно быть название."));
+    }
+    for word in &dictionary.words {
+        if word.trim().is_empty() || word.contains(['\r', '\n']) {
+            return Err(crate::ui_text::t(
+                "Каждый термин словаря должен быть непустой строкой без переносов.",
+            ));
+        }
+        if word.chars().count() > MAX_TERM_CHARS || word.split_whitespace().count() > MAX_TERM_WORDS
+        {
+            return Err(crate::ui_text::t(
+                "Термин словаря должен содержать не более 128 символов и 8 слов.",
+            ));
+        }
+    }
+    // A stored, disabled set can exceed the active-term budget. Export never
+    // truncates its terms or changes their spelling/order.
+    let output = serde_json::to_string_pretty(&dictionary)
+        .map_err(|_| crate::ui_text::t("Не удалось подготовить файл словаря."))?;
+    if output.len() > MAX_DICTIONARY_FILE_BYTES {
+        return Err(crate::ui_text::t(
+            "Файл словаря должен быть не больше 2 МиБ.",
+        ));
+    }
+    Ok(output)
+}
 
 fn user_terms(config: &TextFormattingConfig) -> impl Iterator<Item = &str> {
     config
@@ -104,7 +160,7 @@ pub fn validate_change(previous: &Value, candidate: &Value) -> Result<(), String
     let count = active_user_term_count(&candidate);
     if count > MAX_ACTIVE_USER_TERMS && count > active_user_term_count(&previous) {
         return Err(crate::ui_text::t(
-            "В активных пользовательских словарях допускается не более 1000 разных терминов.",
+            "В активных пользовательских словарях допускается не более 2000 разных терминов.",
         ));
     }
     Ok(())
@@ -414,6 +470,71 @@ mod tests {
         assert!(
             validate_change(&prior, &candidate(vec!["word ".repeat(MAX_TERM_WORDS + 1)])).is_err()
         );
+    }
+
+    #[test]
+    fn two_thousand_active_terms_are_counted_across_sets_without_duplicates() {
+        let words: Vec<String> = (0..2_000).map(|index| format!("Term{index}")).collect();
+        let mut candidate = json!({"text_formatting": {
+            "custom_words": ["term0"],
+            "dictionary_spellings": ["term0"],
+            "dictionary_sets": [
+                {"id": "first", "name": "First", "enabled": true, "words": &words[..1_000]},
+                {"id": "second", "name": "Second", "enabled": true, "words": &words[1_000..]},
+                {"id": "stored", "name": "Stored", "enabled": false, "words": ["ExtraTerm"]}
+            ]
+        }});
+        assert!(validate(&candidate).is_ok());
+        assert!(validate_change(&json!({}), &candidate).is_ok());
+        let formatting: TextFormattingConfig =
+            serde_json::from_value(candidate["text_formatting"].clone()).unwrap();
+        assert_eq!(active_user_term_count(&formatting), 2_000);
+        candidate["text_formatting"]["dictionary_sets"][2]["enabled"] = json!(true);
+        assert!(validate_change(&json!({}), &candidate).is_err());
+        candidate["text_formatting"]["dictionary_sets"][0]["enabled"] = json!(false);
+        assert!(validate_change(&json!({}), &candidate).is_ok());
+    }
+
+    #[test]
+    fn dictionary_export_preserves_portable_content_without_an_active_term_cap() {
+        let words: Vec<String> = (0..2_001).map(|index| format!("Термин{index}")).collect();
+        let file = json!({"version": 1, "name": "Медицинские термины", "description": "Локальный набор", "words": words});
+        let output = dictionary_export_content(&file.to_string()).unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&output).unwrap(), file);
+        let boundary = json!({"version": 1, "name": "Boundary", "description": "", "words": ["я".repeat(128), "one two three four five six seven eight"]});
+        assert!(dictionary_export_content(&boundary.to_string()).is_ok());
+    }
+
+    #[test]
+    fn dictionary_export_rejects_invalid_or_oversized_files_before_writing() {
+        let valid = json!({"version": 1, "name": "Terms", "description": "", "words": ["Термин"]});
+        for invalid in [
+            json!([]),
+            json!({"version": 2, "name": "Terms", "description": "", "words": []}),
+            json!({"version": 1, "name": "Terms", "words": []}),
+            json!({"version": 1, "name": " ", "description": "", "words": []}),
+            json!({"version": 1, "name": "Terms", "description": "", "words": [42]}),
+            json!({"version": 1, "name": "Terms", "description": "", "words": [], "enabled": true}),
+        ] {
+            assert!(
+                dictionary_export_content(&invalid.to_string()).is_err(),
+                "{invalid}"
+            );
+        }
+        for word in [
+            " ".to_string(),
+            "one\ntwo".into(),
+            "one\rtwo".into(),
+            "я".repeat(129),
+            "word ".repeat(9),
+        ] {
+            let mut invalid = valid.clone();
+            invalid["words"] = json!([word]);
+            assert!(dictionary_export_content(&invalid.to_string()).is_err());
+        }
+        let mut oversized = valid;
+        oversized["description"] = json!("x".repeat(MAX_DICTIONARY_FILE_BYTES));
+        assert!(dictionary_export_content(&oversized.to_string()).is_err());
     }
 
     #[test]

@@ -1810,7 +1810,9 @@ pub fn run() {
             ai::process_text_ai,
             format_commands::preview_format,
             format_commands::preview_replacements,
+            format_commands::validate_replacement_rules,
             format_commands::export_replacement_rules,
+            format_commands::export_dictionary_set,
             // macOS: check Accessibility permission on demand (frontend can
             // call this after the user grants access in System Settings).
             accessibility::check_accessibility,

@@ -14,9 +14,12 @@ Correcting text and prompting recognition have different limits. A short term mu
 
 Growing the library must not add file reads, network requests or noticeable latency to the dictation path. It uses the shared assembly of the effective dictionary and the existing preview; new data sources or matching algorithms need a justification of their own. An extension of the catalogue is judged by the quality of its terms and the risk of false corrections, not by the number of words.
 
+File import prepares a draft before persistence and keeps new sets disabled. The versioned JSON exchange format carries content only: installation-local identities, enabled states and spelling choices are never imported. TXT and the editor both use one term per line, preserving commas so an export/import/edit round trip does not split a term. Exact duplicates are removed without reordering; case variants still go through the existing spelling-choice workflow when enabled. Search and pagination bound the rendered list while preserving the complete draft.
+
+Replacement import validates with the same Rust regex compiler as the formatter. Its review resolves duplicate search/mode keys with an explicit keep-or-replace policy before entering the editor draft. Fresh local IDs prevent collisions with exported lists, and replacing an existing entry preserves its position because rule order affects the output. Import and validation run outside dictation; the active formatter still uses its existing compiled cache.
+
 ## Possible extensions
 
-- Importing and exporting sets, with a preview of the contents and duplicates resolved before anything is applied.
 - Search across every set, showing the source and whether it is enabled.
 - An explanation of corrections in the existing preview: the original fragment, the result and the set it came from. Correcting text and a prompt's effect on recognition must stay distinguishable.
 - Adding a term from history to a chosen set.

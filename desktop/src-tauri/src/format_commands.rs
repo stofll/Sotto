@@ -61,7 +61,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("rules.json");
         let rules = r#"{"replacement_rules":[{"find":"flare","replace":"FLAIR"}]}"#;
-        write_replacement_export(&path, rules).unwrap();
+        write_text_export(&path, rules).unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), rules);
 
         #[cfg(unix)]
@@ -71,7 +71,7 @@ mod tests {
         }
 
         let updated = "{\"replacement_rules\":[]}";
-        write_replacement_export(&path, updated).unwrap();
+        write_text_export(&path, updated).unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), updated);
         assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
 
@@ -90,7 +90,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("rules.json");
         std::fs::create_dir(&path).unwrap();
-        assert!(write_replacement_export(&path, "{}").is_err());
+        assert!(write_text_export(&path, "{}").is_err());
         assert!(path.is_dir());
         assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
     }
@@ -146,29 +146,23 @@ pub async fn preview_replacements(
 }
 
 #[tauri::command]
+pub async fn validate_replacement_rules(
+    rules: Vec<crate::formatter::ReplacementRule>,
+) -> Result<Vec<crate::formatter::ReplacementRuleValidationError>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::formatter::validate_replacement_rules(&rules)
+    })
+    .await
+    .map_err(|_| crate::ui_text::t("Не удалось проверить правила замены."))
+}
+
+#[tauri::command]
 pub async fn export_replacement_rules(
     window: WebviewWindow,
     content: String,
 ) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let Some(path) = window
-            .dialog()
-            .file()
-            .set_parent(&window)
-            .set_file_name("replacement-rules.json")
-            .add_filter("JSON", &["json"])
-            .blocking_save_file()
-        else {
-            return Ok(());
-        };
-        let path = path.into_path().map_err(|_| {
-            log::warn!("Replacement export requires a local path");
-            "Non-local export destination".to_string()
-        })?;
-        write_replacement_export(&path, &content).map_err(|error| {
-            log::warn!("Replacement export write failed: {}", error.kind());
-            error.kind().to_string()
-        })
+        export_json(&window, "replacement-rules.json", &content).map(|_| ())
     })
     .await
     .map_err(|error| {
@@ -177,7 +171,42 @@ pub async fn export_replacement_rules(
     })?
 }
 
-fn write_replacement_export(path: &Path, content: &str) -> io::Result<()> {
+#[tauri::command]
+pub async fn export_dictionary_set(window: WebviewWindow, content: String) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let content = crate::dictionaries::dictionary_export_content(&content)?;
+        export_json(&window, "dictionary.json", &content)
+    })
+    .await
+    .map_err(|error| {
+        log::warn!("Dictionary export worker failed: {error}");
+        crate::ui_text::t("Не удалось сохранить файл словаря.")
+    })?
+}
+
+fn export_json(window: &WebviewWindow, file_name: &str, content: &str) -> Result<bool, String> {
+    let Some(path) = window
+        .dialog()
+        .file()
+        .set_parent(window)
+        .set_file_name(file_name)
+        .add_filter("JSON", &["json"])
+        .blocking_save_file()
+    else {
+        return Ok(false);
+    };
+    let path = path.into_path().map_err(|_| {
+        log::warn!("Text export requires a local path");
+        "Non-local export destination".to_string()
+    })?;
+    write_text_export(&path, content).map_err(|error| {
+        log::warn!("Text export write failed: {}", error.kind());
+        error.kind().to_string()
+    })?;
+    Ok(true)
+}
+
+fn write_text_export(path: &Path, content: &str) -> io::Result<()> {
     let parent = path.parent().ok_or(io::ErrorKind::InvalidInput)?;
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;

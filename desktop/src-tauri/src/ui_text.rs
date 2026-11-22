@@ -186,9 +186,23 @@ fn en(key: &str) -> Option<&'static str> {
         "Термин словаря должен содержать не более 128 символов и 8 слов." => {
             "A dictionary term may contain at most 128 characters and 8 words."
         }
-        "В активных пользовательских словарях допускается не более 1000 разных терминов." => {
-            "Active personal dictionaries may contain at most 1,000 distinct terms."
+        "В активных пользовательских словарях допускается не более 2000 разных терминов." => {
+            "Active personal dictionaries may contain at most 2,000 distinct terms."
         }
+        "Файл словаря должен быть не больше 2 МиБ." => "The dictionary file must be no larger than 2 MiB.",
+        "Некорректный JSON словаря. Ожидаются version, name, description и words." => {
+            "Invalid dictionary JSON. Expected version, name, description and words."
+        }
+        "Эта версия файла словаря не поддерживается." => "This dictionary file version is not supported.",
+        "У словаря должно быть название." => "The dictionary must have a name.",
+        "Каждый термин словаря должен быть непустой строкой без переносов." => {
+            "Each dictionary term must be a non-empty line without line breaks."
+        }
+        "Не удалось подготовить файл словаря." => "Could not prepare the dictionary file.",
+        "Не удалось сохранить файл словаря." => "Could not save the dictionary file.",
+        "У правила должно быть заполнено поле поиска." => "The rule must have a search value.",
+        "Текст поиска совпадает с заменой." => "The search text and replacement are identical.",
+        "Не удалось проверить правила замены." => "Could not validate the replacement rules.",
         "провайдер вернул пустой список" => "the provider returned an empty list",
         _ => return None,
     })

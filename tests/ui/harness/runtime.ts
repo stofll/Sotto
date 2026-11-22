@@ -160,6 +160,8 @@ export function install(seed: any = {}) {
       case 'check_dictionary_text': return args.words.includes('Sotto') && args.text.trim().toLowerCase() === 'сотто' ? [{ from: 'сотто', to: 'Sotto', count: 1 }] : [];
       case 'term_matching': return args.words.map((term: string) => ({ term, variants: term === 'Sotto' ? ['сотто'] : [], fuzzy: !args.builtin }));
       case 'analyze_dictionary': return { effective_count: 0, conflicts: [], unsupported_words: [] };
+      case 'validate_replacement_rules': return [];
+      case 'export_dictionary_set': return true;
       // Processing outputs are fixtures, not a second implementation of the Rust engines.
       // A dictionary correction is reported for one synthetic spelling only, so
       // a test can show the preview naming it.
