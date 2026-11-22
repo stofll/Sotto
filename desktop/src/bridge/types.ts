@@ -56,6 +56,9 @@ export interface TextFormattingConfig {
   remove_duplicates: boolean;
   collapse_phrase_loops: boolean;
   normalize_ellipsis: boolean;
+  normalize_russian_numbers: boolean;
+  normalize_dimensions: boolean;
+  punctuation_mode: "automatic" | "no_sentence_breaks" | "none";
   correct_spelling: boolean;
   split_sentences: boolean;
   split_paragraphs: boolean;

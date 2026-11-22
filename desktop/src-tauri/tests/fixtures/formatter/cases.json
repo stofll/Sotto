@@ -1,5 +1,173 @@
 [
   {
+    "id": "numbers-after-duplicate-cleanup",
+    "category": "russian-numbers",
+    "input": "тридцать тридцать пять миллиметров",
+    "expected": "35 мм.",
+    "config": {"language":"ru","text_formatting":{"normalize_russian_numbers":true}}
+  },
+  {
+    "id": "dimensions-repeated-three-multiword-values",
+    "category": "russian-dimensions",
+    "input": "размеры тридцать пять на тридцать пять на тридцать пять миллиметров",
+    "expected": "Размеры 35 х 35 х 35 мм.",
+    "config": {"language":"ru","text_formatting":{"normalize_dimensions":true}}
+  },
+  {
+    "id": "dimensions-preserve-repeated-four-value-chain",
+    "category": "russian-dimensions",
+    "input": "размеры восемь на восемь на восемь на восемь миллиметров",
+    "expected": "Размеры восемь на восемь на восемь на восемь миллиметров.",
+    "config": {"language":"ru","text_formatting":{"normalize_dimensions":true}}
+  },
+  {
+    "id": "numbers-default-off",
+    "category": "russian-numbers",
+    "input": "тридцать пять миллиметров",
+    "expected": "Тридцать пять миллиметров.",
+    "config": {"language":"ru"}
+  },
+  {
+    "id": "numbers-explicit-off",
+    "category": "russian-numbers",
+    "input": "размерами тридцать пять на тридцать пять миллиметров",
+    "expected": "Размерами тридцать пять на тридцать пять миллиметров.",
+    "config": {"language":"ru","text_formatting":{"normalize_russian_numbers":false,"normalize_dimensions":false}}
+  },
+  {
+    "id": "numbers-cardinal-measurement",
+    "category": "russian-numbers",
+    "input": "сто двадцать три миллиграмма",
+    "expected": "123 мг.",
+    "config": {"language":"ru","text_formatting":{"normalize_russian_numbers":true}}
+  },
+  {
+    "id": "numbers-signed-decimal",
+    "category": "russian-numbers",
+    "input": "отклонение минус ноль запятая пять миллиметров",
+    "expected": "Отклонение -0,5 мм.",
+    "config": {"language":"ru","text_formatting":{"normalize_russian_numbers":true}}
+  },
+  {
+    "id": "numbers-fraction-leading-zero",
+    "category": "russian-numbers",
+    "input": "объём ноль целых пять сотых миллилитра",
+    "expected": "Объём 0,05 мл.",
+    "config": {"language":"ru","text_formatting":{"normalize_russian_numbers":true}}
+  },
+  {
+    "id": "dimensions-issue-example",
+    "category": "russian-dimensions",
+    "input": "размерами тридцать пять на тридцать пять миллиметров",
+    "expected": "Размерами 35 х 35 мм.",
+    "config": {"language":"ru","text_formatting":{"normalize_dimensions":true}}
+  },
+  {
+    "id": "dimensions-leading-digits",
+    "category": "russian-dimensions",
+    "input": "8 на 8 мм",
+    "expected": "8 х 8 мм.",
+    "config": {"language":"ru","text_formatting":{"normalize_dimensions":true}}
+  },
+  {
+    "id": "dimensions-spoken-with-abbreviated-unit",
+    "category": "russian-dimensions",
+    "input": "размерами тридцать пять на тридцать пять мм",
+    "expected": "Размерами 35 х 35 мм.",
+    "config": {"language":"ru","text_formatting":{"normalize_dimensions":true}}
+  },
+  {
+    "id": "dimensions-three-decimal-values",
+    "category": "russian-dimensions",
+    "input": "размеры 8,8 на 9,1 на 10 мм",
+    "expected": "Размеры 8,8 х 9,1 х 10 мм.",
+    "config": {"language":"ru","text_formatting":{"normalize_dimensions":true}}
+  },
+  {
+    "id": "dimensions-independent-switch",
+    "category": "russian-dimensions",
+    "input": "пять узлов размерами три на четыре миллиметра",
+    "expected": "Пять узлов размерами 3 х 4 мм.",
+    "config": {"language":"ru","text_formatting":{"normalize_dimensions":true,"normalize_russian_numbers":false}}
+  },
+  {
+    "id": "numbers-without-dimension-switch",
+    "category": "russian-dimensions",
+    "input": "размерами тридцать пять на тридцать пять миллиметров",
+    "expected": "Размерами 35 на 35 мм.",
+    "config": {"language":"ru","text_formatting":{"normalize_dimensions":false,"normalize_russian_numbers":true}}
+  },
+  {
+    "id": "dimensions-preserve-real-decimal",
+    "category": "russian-dimensions",
+    "input": "размер 8,8 мм",
+    "expected": "Размер 8,8 мм.",
+    "config": {"language":"ru","text_formatting":{"normalize_dimensions":true,"normalize_russian_numbers":true}}
+  },
+  {
+    "id": "dimensions-preserve-spoken-decimal",
+    "category": "russian-dimensions",
+    "input": "размер восемь целых восемь десятых миллиметра",
+    "expected": "Размер 8,8 мм.",
+    "config": {"language":"ru","text_formatting":{"normalize_dimensions":true,"normalize_russian_numbers":true}}
+  },
+  {
+    "id": "dimensions-preserve-four-value-chain",
+    "category": "russian-dimensions",
+    "input": "размеры восемь на девять на десять на одиннадцать миллиметров",
+    "expected": "Размеры восемь на девять на десять на одиннадцать миллиметров.",
+    "config": {"language":"ru","text_formatting":{"normalize_dimensions":true}}
+  },
+  {
+    "id": "dimensions-preserve-mixed-units",
+    "category": "russian-dimensions",
+    "input": "размеры восемь миллиметров на два сантиметра",
+    "expected": "Размеры восемь миллиметров на два сантиметра.",
+    "config": {"language":"ru","text_formatting":{"normalize_dimensions":true}}
+  },
+  {
+    "id": "numbers-foreign-language",
+    "category": "russian-numbers",
+    "input": "размерами тридцать пять на тридцать пять миллиметров",
+    "expected": "Размерами тридцать пять на тридцать пять миллиметров.",
+    "config": {"language":"en","text_formatting":{"normalize_dimensions":true,"normalize_russian_numbers":true}}
+  },
+  {
+    "id": "numbers-auto-language",
+    "category": "russian-numbers",
+    "input": "размерами восемь на восемь миллиметров",
+    "expected": "Размерами 8 х 8 мм.",
+    "config": {"language":"auto","text_formatting":{"normalize_dimensions":true,"normalize_russian_numbers":true}}
+  },
+  {
+    "id": "numbers-protected-code",
+    "category": "russian-numbers",
+    "input": "пример `тридцать пять на тридцать пять мм`, рядом пять миллиметров",
+    "expected": "Пример `тридцать пять на тридцать пять мм`, рядом 5 мм.",
+    "config": {"language":"ru","text_formatting":{"normalize_dimensions":true,"normalize_russian_numbers":true}}
+  },
+  {
+    "id": "numbers-preserve-ordinal-date",
+    "category": "russian-numbers",
+    "input": "двадцать третьего ноября",
+    "expected": "Двадцать третьего ноября.",
+    "config": {"language":"ru","text_formatting":{"normalize_dimensions":true,"normalize_russian_numbers":true}}
+  },
+  {
+    "id": "numbers-explicit-replacement-wins",
+    "category": "russian-numbers",
+    "input": "восемь на восемь миллиметров",
+    "expected": "Пользовательский размер.",
+    "config": {"language":"ru","text_formatting":{"normalize_dimensions":true,"normalize_russian_numbers":true},"replacement_rules":[{"id":"measurement","find":"восемь на восемь миллиметров","replace":"пользовательский размер","enabled":true,"match":"phrase"}]}
+  },
+  {
+    "id": "numbers-cleanup-disabled",
+    "category": "russian-numbers",
+    "input": "размерами тридцать пять на тридцать пять миллиметров",
+    "expected": "размерами тридцать пять на тридцать пять миллиметров",
+    "config": {"language":"ru","text_formatting":{"enabled":false,"normalize_dimensions":true,"normalize_russian_numbers":true}}
+  },
+  {
     "id": "repeated-letter",
     "category": "correction",
     "input": "по итогуу нужна проверкка",

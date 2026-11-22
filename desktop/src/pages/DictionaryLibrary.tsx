@@ -360,7 +360,7 @@ function DictionaryDialog({ session, formatting, onSave, onClose }: { session: S
             <div className="dictionary-toolbar"><p className="dictionary-note">{t("По одному слову или фразе в строке. Запятые остаются частью термина.")}</p><button type="button" className="btn btn--ghost btn--sm" disabled={stale} onClick={() => fileRef.current?.click()}><Icon name="folder" size={12}/>{reading ? t("Чтение…") : t("Добавить из файла")}</button></div>
             <p className="dictionary-note">{t("TXT: один термин в строке, UTF-8. JSON: экспортированный набор версии 1. До 2 МиБ.")}</p>
             {importSummary && <ImportNotice summary={importSummary} newSet={Boolean(session.create)}/>}
-            <p className="dictionary-note">{t("Термин — до 128 символов и 8 слов. Во всех активных пользовательских наборах — до 2000 разных терминов.")}</p>
+            <p className="dictionary-note">{t("Термин — до 128 символов и 8 слов. Во всех активных пользовательских наборах — до 5000 разных терминов.")}</p>
           </> : !session.draft && <>
             <div className="dictionary-check">
               <label className="dictionary-label">{t("Проверить слово")}<input className="field" value={probe} onChange={(event) => setProbe(event.target.value)} placeholder={t("например: пул реквест")}/></label>

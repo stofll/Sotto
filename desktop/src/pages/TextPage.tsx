@@ -67,6 +67,9 @@ const FORMAT_DEFAULTS: TextFormattingConfig = {
   remove_duplicates: true,
   collapse_phrase_loops: true,
   normalize_ellipsis: false,
+  normalize_russian_numbers: false,
+  normalize_dimensions: false,
+  punctuation_mode: "automatic",
   correct_spelling: true,
   split_sentences: false,
   split_paragraphs: false,
@@ -92,6 +95,8 @@ const CLEAN_GROUPS = (): CleanGroup[] => ([
   { id: "disfluencies", keys: ["remove_fillers", "remove_duplicates"], title: t("Убирать запинки и повторы"), hint: t("э-э, ммм, «я я хочу» → «я хочу»; английские uh, umm — при английской диктовке") },
   { id: "parasites", keys: ["remove_parasites"], title: t("Удалять слова-паразиты"), hint: t("встроенный список только русский; свои слова работают на любом языке") },
   { id: "spelling", keys: ["correct_spelling"], title: t("Исправлять опечатки"), hint: t("при русском языке диктовки: однозначные исправления по встроенному словарю, без LLM") },
+  { id: "numbers", keys: ["normalize_russian_numbers"], title: t("Русские числа — цифрами"), hint: t("«тридцать пять миллиметров» → «35 мм»; однозначные числительные и десятичные дроби при русском языке диктовки") },
+  { id: "dimensions", keys: ["normalize_dimensions"], title: t("Оформлять размеры"), hint: t("«тридцать пять на двадцать миллиметров» → «35 х 20 мм»; два или три измерения. «8,8 мм» остаётся десятичным числом") },
   { id: "ellipsis", keys: ["normalize_ellipsis"], title: t("Убирать многоточия пауз"), hint: t("внутри фразы — пробел, на границе предложения — точка; код, ссылки и числовые диапазоны сохраняются") },
   { id: "paragraphs", keys: ["split_paragraphs"], title: t("Разбивать на абзацы"), hint: t("группировать готовые предложения без изменения слов; сохранять существующие переносы") },
   { id: "split", keys: ["split_sentences"], title: t("Разбивать длинные фразы"), hint: t("мягкое разделение длинных фраз по связкам") },
@@ -107,6 +112,17 @@ const SENTENCE_STYLES = (): Array<{ value: SentenceStyle; label: string; hint: s
   { value: "letter", label: "Aa.", hint: t("Заглавные и точка") },
   { value: "no_dot", label: "Aa", hint: t("Без точки в конце") },
   { value: "chat", label: "aa", hint: t("Как в чате: строчные, без точки") },
+]);
+
+const CAPITALIZATION_STYLES = () => ([
+  { value: "letter", label: "Aa", hint: t("Начинать с заглавной") },
+  { value: "chat", label: "aa", hint: t("Начинать со строчной") },
+]);
+
+const PUNCTUATION_MODES = (): Array<SelectOption<TextFormattingConfig["punctuation_mode"]>> => ([
+  { value: "automatic", label: t("Автоматически") },
+  { value: "no_sentence_breaks", label: t("Без точек, ? и !") },
+  { value: "none", label: t("Без знаков препинания") },
 ]);
 
 const SENTENCE_STYLE_FLAGS: Record<SentenceStyle, Pick<TextFormattingConfig, "capitalize_sentences" | "final_punctuation">> = {
@@ -507,15 +523,26 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
           >
             <div className="fold__rows">
               {cleanGroups.map(renderGroup)}
+              <div style={cleanRowStyle}>
+                <div className="flex-grow" style={{ font: "500 13px/1.2 var(--font-sans)", color: "var(--ink)", display: "inline-flex", alignItems: "center", gap: 5 }}>
+                  {t("Пунктуация")}
+                  <Hint text={t("Удаляет пунктуацию после распознавания. Без точек — также без ? ! и многоточий. Числа, время, ссылки и код сохраняются.")}/>
+                </div>
+                <CustomSelect
+                  value={formatting.punctuation_mode}
+                  options={PUNCTUATION_MODES()}
+                  onChange={(next) => void saveFormatting({ punctuation_mode: next })}
+                />
+              </div>
               {/* One choice for two flags: of their four combinations only
                   three are ever wanted, and a messenger reply without a final
                   dot is the one two plain switches made awkward to find. */}
               <div style={{ ...cleanRowStyle, borderBottom: "none" }}>
-                <div className="flex-grow" style={{ font: "500 13px/1.2 var(--font-sans)", color: "var(--ink)" }}>{t("Предложения")}</div>
+                <div className="flex-grow" style={{ font: "500 13px/1.2 var(--font-sans)", color: "var(--ink)" }}>{formatting.punctuation_mode === "automatic" ? t("Предложения") : t("Регистр")}</div>
                 <Segmented
-                  value={sentenceStyle(formatting)}
-                  options={SENTENCE_STYLES()}
-                  onChange={(next) => void saveFormatting(SENTENCE_STYLE_FLAGS[next as SentenceStyle])}
+                  value={formatting.punctuation_mode === "automatic" ? sentenceStyle(formatting) : formatting.capitalize_sentences ? "letter" : "chat"}
+                  options={formatting.punctuation_mode === "automatic" ? SENTENCE_STYLES() : CAPITALIZATION_STYLES()}
+                  onChange={(next) => void saveFormatting(formatting.punctuation_mode === "automatic" ? SENTENCE_STYLE_FLAGS[next as SentenceStyle] : { capitalize_sentences: next === "letter" })}
                 />
               </div>
             </div>

@@ -146,6 +146,9 @@ pub struct AiConfig {
     /// no overlay waiting on it: a long text in parts may take up to
     /// [`FILE_PARTS_MAX_SECS`]. Everything else keeps the dictation's budget.
     pub may_run_long: bool,
+    /// Local output preference captured with the request, including late replies.
+    #[serde(skip)]
+    pub(crate) output_punctuation: crate::formatter::OutputPunctuation,
 }
 
 /// What happens to an answer that arrives after the timeout, when the local
@@ -233,6 +236,7 @@ impl AiConfig {
             ),
             output_limit: OutputLimit::parse(v.get("llm_output_limit")),
             may_run_long: false,
+            output_punctuation: crate::formatter::OutputPunctuation::default(),
         }
     }
 }
@@ -789,6 +793,7 @@ fn judge_answer(
         };
     }
 
+    let cleaned = config.output_punctuation.apply(&cleaned);
     status.used = true;
     status.output_length = Some(cleaned.chars().count());
     CallOutcome {
@@ -1158,6 +1163,7 @@ mod tests {
             reasoning: ReasoningMode::Minimal,
             output_limit: OutputLimit::Auto,
             may_run_long: false,
+            output_punctuation: crate::formatter::OutputPunctuation::default(),
         }
     }
 
@@ -2029,6 +2035,99 @@ mod tests {
         assert!(outcome.status.skipped_reason.is_empty());
     }
 
+    #[tokio::test]
+    async fn accepted_answers_apply_the_selected_output_punctuation_policy() {
+        use crate::formatter::{OutputPunctuation, PunctuationMode, TextFormattingConfig};
+
+        let input = "размеры 8,8 х 3,5 мм затем проверим";
+        let reply = "Размеры: 8,8 х 3,5 мм. Затем проверим!";
+        for (mode, capitalize, expected) in [
+            (PunctuationMode::Automatic, true, reply),
+            (
+                PunctuationMode::NoSentenceBreaks,
+                true,
+                "Размеры: 8,8 х 3,5 мм Затем проверим",
+            ),
+            (
+                PunctuationMode::None,
+                false,
+                "размеры 8,8 х 3,5 мм Затем проверим",
+            ),
+        ] {
+            let mut config = base_config();
+            config.output_punctuation = OutputPunctuation::from_config(&TextFormattingConfig {
+                punctuation_mode: mode,
+                capitalize_sentences: capitalize,
+                ..Default::default()
+            });
+            let provider = Arc::new(MockProvider {
+                outcomes: std::sync::Mutex::new(vec![Ok((
+                    reply.to_string(),
+                    ProviderInfo::success(reply, None, 0.1),
+                ))]),
+                calls: std::sync::atomic::AtomicUsize::new(0),
+            });
+            let outcome = finish_with_provider(
+                input,
+                &config,
+                provider,
+                "system",
+                input,
+                Duration::from_secs(12),
+                AiStatus::default(),
+            )
+            .await;
+            assert_eq!(outcome.text, expected, "{mode:?}");
+            assert!(outcome.status.used);
+            assert!(!outcome.status.fallback);
+            assert_eq!(outcome.status.output_length, Some(expected.chars().count()));
+            assert!(outcome.status.rejected_text.is_none());
+        }
+    }
+
+    #[tokio::test]
+    async fn decimal_changed_to_dimensions_keeps_the_source_and_rejection_reason() {
+        let input = "размер 8,8 мм без изменений";
+        let reply = "Размер 8 х 8 мм без изменений.";
+        let mut config = base_config();
+        config.output_punctuation = crate::formatter::OutputPunctuation::from_config(
+            &crate::formatter::TextFormattingConfig {
+                punctuation_mode: crate::formatter::PunctuationMode::None,
+                ..Default::default()
+            },
+        );
+        let provider = Arc::new(MockProvider {
+            outcomes: std::sync::Mutex::new(vec![Ok((
+                reply.to_string(),
+                ProviderInfo::success(reply, None, 0.1),
+            ))]),
+            calls: std::sync::atomic::AtomicUsize::new(0),
+        });
+        let outcome = finish_with_provider(
+            input,
+            &config,
+            provider,
+            "system",
+            input,
+            Duration::from_secs(12),
+            AiStatus::default(),
+        )
+        .await;
+        assert_eq!(outcome.text, input);
+        assert!(outcome.status.fallback);
+        assert!(!outcome.status.used);
+        assert_eq!(
+            outcome.status.error_type.as_deref(),
+            Some("altered_response")
+        );
+        assert_eq!(outcome.status.skipped_reason, "model_changed_numbers");
+        assert_eq!(outcome.status.rejected_text.as_deref(), Some(reply));
+        assert_eq!(
+            outcome.status.rejected_reason.as_deref(),
+            Some("model_changed_numbers")
+        );
+    }
+
     /// A short answer without its «never» is too short for the word ratio to
     /// judge; the paste must still stay the dictation.
     #[tokio::test]
@@ -2195,6 +2294,59 @@ mod tests {
         assert!(answer.status.late);
         assert!(!answer.status.fallback);
         assert!(answer.status.skipped_reason.is_empty());
+        assert!((answer.status.elapsed_seconds - 20.0).abs() < 0.01);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn late_answer_uses_the_punctuation_snapshot_from_its_request() {
+        const REPLY: &str = "Размеры: 8,8 мм. Готово!";
+        struct DelayedPunctuation;
+        impl Provider for DelayedPunctuation {
+            fn name(&self) -> &'static str {
+                "delayed-punctuation"
+            }
+            fn complete<'a>(&'a self, _: &'a str, _: &'a str) -> CompletionFuture<'a> {
+                Box::pin(async {
+                    tokio::time::sleep(Duration::from_secs(20)).await;
+                    Ok((REPLY.to_string(), ProviderInfo::success(REPLY, None, 20.0)))
+                })
+            }
+        }
+
+        let input = "размеры 8,8 мм готово";
+        let mut config = base_config();
+        config.output_punctuation = crate::formatter::OutputPunctuation::from_config(
+            &crate::formatter::TextFormattingConfig {
+                punctuation_mode: crate::formatter::PunctuationMode::None,
+                capitalize_sentences: false,
+                ..Default::default()
+            },
+        );
+        let outcome = finish_with_provider(
+            input,
+            &config,
+            Arc::new(DelayedPunctuation),
+            "system",
+            input,
+            Duration::from_secs(12),
+            AiStatus::default(),
+        )
+        .await;
+        assert!(outcome.status.fallback);
+        assert_eq!(outcome.text, input);
+        let late = outcome.late.expect("the timed-out request keeps running");
+
+        // A later settings change belongs to subsequent requests.
+        config.output_punctuation = crate::formatter::OutputPunctuation::default();
+        assert_eq!(config.output_punctuation.apply(REPLY), REPLY);
+        let answer = late.wait().await.expect("answer arrives within the grace");
+        let expected = "размеры 8,8 мм Готово";
+        assert_eq!(answer.text, expected);
+        assert!(answer.status.used);
+        assert!(answer.status.late);
+        assert!(!answer.status.fallback);
+        assert!(answer.status.skipped_reason.is_empty());
+        assert_eq!(answer.status.output_length, Some(expected.chars().count()));
         assert!((answer.status.elapsed_seconds - 20.0).abs() < 0.01);
     }
 

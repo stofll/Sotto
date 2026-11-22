@@ -24,11 +24,11 @@ def file_payload(name, content):
     }
 
 
-def test_import_previews_2000_terms_and_saves_disabled_without_losing_commas(app, page):
+def test_import_previews_5000_terms_and_saves_disabled_without_losing_commas(app, page):
     ui = app()
     ui.nav("text")
     words = ["Синтетический термин, вариант 1"] + [
-        f"Synthetic term {index}" for index in range(1, 2000)
+        f"Synthetic term {index}" for index in range(1, 5000)
     ]
     # Import is reachable while the dictionary block is collapsed.
     with page.expect_file_chooser() as chooser:
@@ -41,7 +41,7 @@ def test_import_previews_2000_terms_and_saves_disabled_without_losing_commas(app
     expect(dialog.get_by_label("Название набора", exact=True)).to_have_value("Medical")
     expect(dialog.get_by_label("Термины", exact=True)).to_have_value("\n".join(words))
     expect(dialog).to_contain_text(
-        "Прочитано терминов: 2001. Добавлено: 2000. Пропущено повторов: 1."
+        "Прочитано терминов: 5001. Добавлено: 5000. Пропущено повторов: 1."
     )
     assert ui.state()["config"]["text_formatting"]["dictionary_sets"] == []
     # An imported draft is unsaved even before the user edits its fields.
@@ -209,7 +209,7 @@ def test_large_dictionary_search_paging_and_layout(
 ):
     ru = locale == "ru"
     page.set_viewport_size({"width": 1000, "height": 710})
-    words = [f"Synthetic term {index:04}" for index in range(2000)]
+    words = [f"Synthetic term {index:04}" for index in range(5000)]
     ui = app(
         config={
             "ui_language": locale,
@@ -230,9 +230,9 @@ def test_large_dictionary_search_paging_and_layout(
     expect(terms).to_have_count(100)
     # The second textbox searches terms; the first checks recognition variants.
     search = dialog.get_by_role("textbox").nth(1)
-    search.fill("1999")
+    search.fill("4999")
     expect(terms).to_have_count(1)
-    expect(dialog.get_by_text("Synthetic term 1999", exact=True)).to_be_visible()
+    expect(dialog.get_by_text("Synthetic term 4999", exact=True)).to_be_visible()
     search.fill("absent")
     expect(terms).to_have_count(0)
     search.fill("")
@@ -243,6 +243,6 @@ def test_large_dictionary_search_paging_and_layout(
     ).to_be_in_viewport()
     assert dialog.evaluate("e => e.scrollWidth <= e.clientWidth + 1")
     page.screenshot(
-        path=str(Path(output_path) / f"dictionary-2000-{locale}-{theme}.png"),
+        path=str(Path(output_path) / f"dictionary-5000-{locale}-{theme}.png"),
         animations="disabled",
     )

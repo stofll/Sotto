@@ -68,6 +68,12 @@ def test_sentence_style_sets_both_flags(app, page, choice, capitalize, final_dot
         ("correct_spelling", "Исправлять опечатки", "Correct spelling"),
         ("split_paragraphs", "Разбивать на абзацы", "Split into paragraphs"),
         ("normalize_ellipsis", "Убирать многоточия пауз", "Remove pause ellipses"),
+        (
+            "normalize_russian_numbers",
+            "Русские числа — цифрами",
+            "Russian numbers as digits",
+        ),
+        ("normalize_dimensions", "Оформлять размеры", "Format dimensions"),
     ],
 )
 def test_local_cleanup_switch_persists_and_recovers_from_save_failure(

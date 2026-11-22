@@ -13,12 +13,12 @@ describe("dictionary file import", () => {
     });
   });
 
-  it("imports 2000 terms without truncation and keeps all terms through the editor", () => {
-    const words = Array.from({ length: 2000 }, (_, index) => `Синтетический термин ${index}`);
+  it("imports 5000 terms without truncation and keeps all terms through the editor", () => {
+    const words = Array.from({ length: 5000 }, (_, index) => `Синтетический термин ${index}`);
     const imported = parseDictionaryImport(json(words), "terms.json");
     expect(imported.words).toEqual(words);
     expect(parseDictionaryWords(imported.words.join("\n"))).toEqual(words);
-    expect(imported.total).toBe(2000);
+    expect(imported.total).toBe(5000);
   });
 
   it("round-trips one versioned set without transferring identity or activation", () => {

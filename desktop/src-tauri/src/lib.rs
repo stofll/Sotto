@@ -2089,10 +2089,8 @@ pub(crate) async fn post_process_transcription(
     let raw_text = inference.text.trim().to_string();
     let config = crate::config::Config::load(app).ok();
 
-    // 1. Local formatting (fillers, capitalization, replacements, …). Gated
-    //    by `text_formatting.enabled`; when disabled the formatter just
-    //    trims, so `formatted_text == raw_text` and the formatting stage
-    //    shows no change.
+    // 1. Local formatting. The Cleanup switch gates automatic edits;
+    //    dictionaries and explicit replacements keep their own switches.
     //
     //    The shared formatter classifies intentional empty results after
     //    protecting code and replacement matches. Incidental empty cleanup
@@ -2129,6 +2127,11 @@ pub(crate) async fn post_process_transcription(
             ai_cfg.language = speech_language(config.as_ref());
             ai_cfg.audio_duration_seconds = Some(inference.audio_seconds);
             ai_cfg.may_run_long = may_run_long;
+            if let Some(config) = &config {
+                ai_cfg.output_punctuation = crate::formatter::OutputPunctuation::from_config(
+                    &text_formatting_config(config),
+                );
+            }
             let api_key = if ai_cfg.api_key_ref.is_empty() {
                 None
             } else {

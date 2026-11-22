@@ -65,7 +65,9 @@ If saved replacement settings change while you have an unsaved draft, the editor
 
 ## Spelling and limits
 
-New or edited user terms may contain at most 128 characters and 8 words. Up to 2,000 distinct user terms may be active across personal entries and enabled sets; built-in sets do not count toward this limit. A save that exceeds a limit is rejected without changing the stored dictionary. Older dictionaries already above a limit remain available, and unrelated settings can still be saved; remove or disable terms to bring them within the limit before adding more.
+New or edited user terms may contain at most 128 characters and 8 words. Up to 5,000 distinct user terms may be active across personal entries and enabled sets; built-in sets do not count toward this limit. Terms are counted without regard to case, so the same term in several active sets counts once.
+
+The active-term budget limits the local corrector's work, not the total number of characters in a dictionary. A disabled set may contain more than 5,000 terms, within the import/export file limit, so a larger library can be stored while only the needed sets are enabled. A save that exceeds an active-term or per-term limit is rejected without changing the stored dictionary. Older dictionaries already above a limit remain available, and unrelated settings can still be saved; remove or disable terms to bring them within the limit before adding more.
 
 User terms take precedence over built-in terms when they differ only in letter case. If enabled user sets contain multiple spellings of the same term after trimming surrounding whitespace and ignoring case, choose the desired spelling before saving. Phonetically similar terms are not spelling conflicts. The choice applies while that spelling is present in an enabled user set; output capitalization also follows the existing correction rules and the source text.
 
@@ -130,6 +132,8 @@ Built-in verbal-tic cleanup removes «типа» as padding, also mid-clause in 
 Duplicate cleanup also preserves the predicate in «то есть есть ответ» and the repeated conjunction in «потому что что первый, что второй». These safeguards do not infer sentence meaning, and other deliberate repetitions can remain ambiguous.
 
 The spelling dictionary is prepared on a background worker at startup when needed by the saved settings, or loaded on demand after those settings change. Local formatting runs on a background worker for dictation, file transcription, and text preview. Candidate searches are bounded to words of 4–24 letters and 128 distinct unknown words per pass; words beyond that limit remain unchanged. Source revision, checksums and redistribution notices are recorded in [the bundled dictionary sources](../desktop/src-tauri/resources/spelling/SOURCES.md).
+
+For opt-in Russian number conversion, dimensions and punctuation-removal modes, see [Numbers, dimensions and punctuation](dictation-formatting.md). These settings share the same local preview and dictation pipeline.
 
 ## Local paragraphs
 

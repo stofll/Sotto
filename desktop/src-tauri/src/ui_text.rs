@@ -186,8 +186,8 @@ fn en(key: &str) -> Option<&'static str> {
         "Термин словаря должен содержать не более 128 символов и 8 слов." => {
             "A dictionary term may contain at most 128 characters and 8 words."
         }
-        "В активных пользовательских словарях допускается не более 2000 разных терминов." => {
-            "Active personal dictionaries may contain at most 2,000 distinct terms."
+        "В активных пользовательских словарях допускается не более 5000 разных терминов." => {
+            "Active personal dictionaries may contain at most 5,000 distinct terms."
         }
         "Файл словаря должен быть не больше 2 МиБ." => "The dictionary file must be no larger than 2 MiB.",
         "Некорректный JSON словаря. Ожидаются version, name, description и words." => {
@@ -403,10 +403,12 @@ mod tests {
     /// are read by developers and stay in English.
     #[test]
     fn russian_text_reaches_the_user_only_through_t() {
-        const SPEECH_MODULES: [&str; 5] = [
+        const SPEECH_MODULES: [&str; 7] = [
             "formatter.rs",
+            "formatter/numbers.rs",
             "formatter/paragraphs.rs",
             "formatter/term_aliases.rs",
+            "ai/fidelity.rs",
             "spelling.rs",
             "ui_text.rs",
         ];

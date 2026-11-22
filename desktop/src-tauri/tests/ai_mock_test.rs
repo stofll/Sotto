@@ -16,12 +16,33 @@ use std::time::Duration;
 
 use sotto_lib::ai::model_params::{OutputLimit, ReasoningMode};
 use sotto_lib::ai::providers::{AnthropicProvider, OpenAIProvider, Provider, ProviderErrorType};
-use sotto_lib::ai::step::{ai_process_text_with_status, AiConfig, LateAnswerMode};
+use sotto_lib::ai::step::{ai_process_text_with_status, AiConfig};
 
 /// Per-test type alias — the captured-request log is an
 /// `Arc<Mutex<Vec<HashMap<...>>>>`, too noisy to repeat in every
 /// function signature.
 type CapturedRequests = Arc<Mutex<Vec<HashMap<String, String>>>>;
+
+fn ai_config(provider: &str, model: &str, url: String) -> AiConfig {
+    let mut config = AiConfig::from_ai_processing(&serde_json::json!({
+        "pipeline_mode": "hybrid",
+        "provider": provider,
+        "model": model,
+        "api_key_ref": provider,
+        "system_prompt": "system",
+        "language": "ru",
+        "base_url": url,
+        "llm_min_duration_seconds": 0.0,
+        "llm_timeout_seconds": 12,
+        "llm_late_answer": "off",
+        "llm_reasoning": "minimal",
+        "llm_output_limit": "auto",
+    }));
+    config.profile_id = "default".to_string();
+    config.profile_name = "Default".to_string();
+    config.audio_duration_seconds = Some(45.0);
+    config
+}
 
 /// Start a one-shot HTTP server on a random port. Returns the URL and
 /// a `requests` Arc that records every captured request body.
@@ -271,24 +292,8 @@ fn local_mode_does_not_call_provider() {
     // The mock server would panic on a request; if the orchestrator
     // touches it, the test fails.
     let (url, captured) = mock_server("HTTP/1.1 200 OK", "{}");
-    let config = AiConfig {
-        pipeline_mode: "local".to_string(),
-        provider: "openai".to_string(),
-        model: "gpt-4o-mini".to_string(),
-        profile_id: "default".to_string(),
-        profile_name: "Default".to_string(),
-        api_key_ref: "openai".to_string(),
-        system_prompt: "system".to_string(),
-        language: "ru".to_string(),
-        base_url: Some(url),
-        audio_duration_seconds: Some(45.0),
-        llm_min_duration_seconds: 0.0,
-        llm_timeout_seconds: 12,
-        late_answer: LateAnswerMode::Off,
-        reasoning: ReasoningMode::Minimal,
-        output_limit: OutputLimit::Auto,
-        may_run_long: false,
-    };
+    let mut config = ai_config("openai", "gpt-4o-mini", url);
+    config.pipeline_mode = "local".to_string();
     let outcome = block_on(ai_process_text_with_status(
         "hello",
         &config,
@@ -302,24 +307,7 @@ fn local_mode_does_not_call_provider() {
 #[test]
 fn missing_api_key_short_circuits_before_http() {
     let (url, captured) = mock_server("HTTP/1.1 200 OK", "{}");
-    let config = AiConfig {
-        pipeline_mode: "hybrid".to_string(),
-        provider: "openai".to_string(),
-        model: "gpt-4o-mini".to_string(),
-        profile_id: "default".to_string(),
-        profile_name: "Default".to_string(),
-        api_key_ref: "openai".to_string(),
-        system_prompt: "system".to_string(),
-        language: "ru".to_string(),
-        base_url: Some(url),
-        audio_duration_seconds: Some(45.0),
-        llm_min_duration_seconds: 0.0,
-        llm_timeout_seconds: 12,
-        late_answer: LateAnswerMode::Off,
-        reasoning: ReasoningMode::Minimal,
-        output_limit: OutputLimit::Auto,
-        may_run_long: false,
-    };
+    let config = ai_config("openai", "gpt-4o-mini", url);
     let outcome = block_on(ai_process_text_with_status("hello", &config, None));
     assert_eq!(outcome.status.skipped_reason, "missing_api_key");
     assert!(!outcome.status.attempted);
@@ -485,24 +473,7 @@ fn profile_kind_chooses_the_request_dialect() {
         ("compatible", "max_tokens"),
     ] {
         let (url, requests) = mock_server("HTTP/1.1 200 OK", OPENAI_OK);
-        let config = AiConfig {
-            pipeline_mode: "hybrid".to_string(),
-            provider: provider.to_string(),
-            model: "gpt-5-mini".to_string(),
-            profile_id: "default".to_string(),
-            profile_name: "Default".to_string(),
-            api_key_ref: provider.to_string(),
-            system_prompt: "system".to_string(),
-            language: "ru".to_string(),
-            base_url: Some(url),
-            audio_duration_seconds: Some(45.0),
-            llm_min_duration_seconds: 0.0,
-            llm_timeout_seconds: 12,
-            late_answer: LateAnswerMode::Off,
-            reasoning: ReasoningMode::Minimal,
-            output_limit: OutputLimit::Auto,
-            may_run_long: false,
-        };
+        let config = ai_config(provider, "gpt-5-mini", url);
         let outcome = block_on(ai_process_text_with_status(
             "hello",
             &config,

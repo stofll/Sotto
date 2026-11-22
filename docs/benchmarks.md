@@ -94,7 +94,7 @@ Establish a release benchmark baseline on a known machine before setting a strea
 
 ### `live_formatter`
 
-Every iteration calls the same `format_transcription_with_config_value` API as dictation and file delivery. The deterministic Russian text, personal vocabulary and replacement rules are in `benches/support/formatting.rs`. Cases cover default settings, 0/100/1,000/2,000 terms with 50 replacement rules, cleanup switched off with 1,000 terms (terms and rules still apply), alternating unrelated settings, and alternating replacement text that must rebuild the cached pipeline.
+Every iteration calls the same `format_transcription_with_config_value` API as dictation and file delivery. The deterministic Russian text, personal vocabulary and replacement rules are in `benches/support/formatting.rs`. Cases cover default settings, 0/100/1,000/2,000/5,000 terms with 50 replacement rules, cleanup switched off with 1,000 terms (terms and rules still apply), alternating unrelated settings, and alternating replacement text that must rebuild the cached pipeline.
 
 Settings and input are prepared outside measurement. Warm repeated calls include typed configuration parsing, cache lookup and text processing; initial spelling-dictionary initialization is excluded. Compare a fresh process's first call separately, especially when checking disabled formatting. The relevant-setting case measures a cache miss on each alternation; the unrelated-setting case should reuse the same prepared matchers. Keep output equality and the reviewed formatter corpus alongside any timing comparison.
 
@@ -182,7 +182,7 @@ If a supported native environment or verified model is unavailable, leave those 
 
 ## User dictionary scaling
 
-Run `cargo test --locked --release --lib dictionary_scaling_benchmark -- --ignored --nocapture --test-threads=1` after native runtime preparation to run both dictionary fixtures. The technical fixture compares 100, 1,000, 2,000 and 10,000 synthetic terms over six similar tokens. The medical-style fixture compares 100, 1,000 and 2,000 synthetic near-neighbor terms with an unchanged numeric measurement in the input. Each reports the median of five construction and correction runs; neither loads user dictionaries or asserts a machine-dependent timing threshold.
+Run `cargo test --locked --release --lib dictionary_scaling_benchmark -- --ignored --nocapture --test-threads=1` after native runtime preparation to run the dictionary fixtures. The technical fixture compares 100, 1,000, 2,000, 5,000 and 10,000 synthetic terms over six similar tokens. The medical-style fixture compares 100, 1,000, 2,000 and 5,000 synthetic near-neighbor terms with an unchanged numeric measurement in the input. The longer-input fixture repeats each six-word input 100 times and compares 1,000, 2,000 and 5,000 terms. Each reports the median of five runs; none loads user dictionaries or asserts a machine-dependent timing threshold.
 
 The 2026-09-29 Windows debug measurement reported construction/correction times of 0.652/1.857 ms for 100 terms, 6.347/16.911 ms for 1,000 and 64.960/135.218 ms for 10,000. These are local debug timings, not release latency targets. Grouping candidates by length did not improve this fixture and was not retained.
 
@@ -190,11 +190,20 @@ The 2026-11-22 optimized Linux component check used Rust 1.97.1 and the reposito
 
 | Fixture | Terms | Construction | Application |
 | --- | ---: | ---: | ---: |
-| Technical | 1,000 | 1.758 ms | 0.932 ms |
-| Technical | 2,000 | 3.453 ms | 1.509 ms |
-| Medical-style synthetic neighbors | 1,000 | 4.452 ms | 0.881 ms |
-| Medical-style synthetic neighbors | 2,000 | 8.835 ms | 1.797 ms |
+| Technical | 1,000 | 1.886 ms | 0.941 ms |
+| Technical | 2,000 | 3.506 ms | 1.575 ms |
+| Technical | 5,000 | 8.849 ms | 3.622 ms |
+| Medical-style synthetic neighbors | 1,000 | 4.073 ms | 0.816 ms |
+| Medical-style synthetic neighbors | 2,000 | 8.164 ms | 1.653 ms |
+| Medical-style synthetic neighbors | 5,000 | 20.357 ms | 4.048 ms |
 
-These short component fixtures support checking the 2,000-term boundary without introducing a new matching algorithm. They do not measure stop-to-paste latency, cold application startup, longer dictations or recognition accuracy. Compare the native `live_formatter/same_settings/2000` benchmark and representative recordings on the target machine before setting a user-facing latency expectation. The existing formatter cache continues to reuse prepared matchers when relevant settings have not changed.
+The longer inputs contain 600 words: 10,199 characters for the technical fixture and 7,999 for the medical-style fixture. They deliberately repeat similar tokens, so they stress candidate matching rather than represent typical prose. After one warm-up, the median application times were:
+
+| Fixture | 1,000 terms | 2,000 terms | 5,000 terms |
+| --- | ---: | ---: | ---: |
+| Technical, 600 words | 93.120 ms | 169.730 ms | 375.063 ms |
+| Medical-style synthetic neighbors, 600 words | 89.250 ms | 175.920 ms | 472.896 ms |
+
+These component fixtures support the 5,000-term budget without introducing a new matching algorithm, while showing why the active dictionary size still matters for longer text. They do not measure stop-to-paste latency, cold application startup or recognition accuracy. Compare the native `live_formatter/same_settings/5000` benchmark and representative recordings on the target machine before setting a user-facing latency expectation. The existing formatter cache continues to reuse prepared matchers when relevant settings have not changed.
 
 New dictionary edits now enforce the [documented term limits](dictionaries.md#spelling-and-limits). Existing oversized dictionaries remain intact and can still be reduced; their processing cost is not silently capped or skipped.

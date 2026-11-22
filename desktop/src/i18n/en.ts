@@ -937,8 +937,8 @@ export const en: Record<string, string | string[]> = {
   "встроенный список только русский; свои слова работают на любом языке": "the built-in list is Russian only; your own words work in any language",
   "По одному слову или фразе в строке. Запятые остаются частью термина.":
     "One word or phrase per line. Commas remain part of the term.",
-  "Термин — до 128 символов и 8 слов. Во всех активных пользовательских наборах — до 2000 разных терминов.":
-    "Each term may have up to 128 characters and 8 words. Active personal sets may hold up to 2,000 distinct terms in total.",
+  "Термин — до 128 символов и 8 слов. Во всех активных пользовательских наборах — до 5000 разных терминов.":
+    "Each term may have up to 128 characters and 8 words. Active personal sets may hold up to 5,000 distinct terms in total.",
   "Введите слово или фразу и нажмите Enter. Несколько сразу можно разделить запятыми.":
     "Type a word or phrase and press Enter. Separate several with commas.",
   "Своё слово-паразит": "Your own verbal tic",
@@ -1497,6 +1497,17 @@ export const en: Record<string, string | string[]> = {
   "Перейти на локальную модель": "Switch to local model",
   "Полный перечень полей приведён в документации Sotto о приватности.": "The full list of fields is in Sotto's privacy documentation.",
   "Убирать многоточия пауз": "Remove pause ellipses",
+  "Русские числа — цифрами": "Russian numbers as digits",
+  "«тридцать пять миллиметров» → «35 мм»; однозначные числительные и десятичные дроби при русском языке диктовки": "«тридцать пять миллиметров» → «35 мм»; unambiguous numbers and decimals in Russian dictation",
+  "Оформлять размеры": "Format dimensions",
+  "«тридцать пять на двадцать миллиметров» → «35 х 20 мм»; два или три измерения. «8,8 мм» остаётся десятичным числом": "«тридцать пять на двадцать миллиметров» → «35 х 20 мм»; two or three dimensions. «8,8 мм» stays a decimal measurement",
+  "Пунктуация": "Punctuation",
+  "Автоматически": "Automatic",
+  "Без точек, ? и !": "No periods, ? or !",
+  "Без знаков препинания": "No punctuation",
+  "Удаляет пунктуацию после распознавания. Без точек — также без ? ! и многоточий. Числа, время, ссылки и код сохраняются.": "Removes punctuation after recognition. No periods also removes ? ! and ellipses. Numbers, times, links and code are preserved.",
+  "Начинать с заглавной": "Capitalized start",
+  "Начинать со строчной": "Lowercase start",
   "внутри фразы — пробел, на границе предложения — точка; код, ссылки и числовые диапазоны сохраняются": "Use a space within a phrase and a period at a sentence boundary; preserve code, links and numeric ranges",
   "{from}–{to} из {total}": "{from}–{to} of {total}",
   "В текстовом файле нет терминов. Добавьте по одному термину в строке.": "The text file has no terms. Add one term per line.",

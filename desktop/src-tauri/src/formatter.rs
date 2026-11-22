@@ -35,9 +35,13 @@ use serde_json::Value;
 use std::collections::HashSet;
 use std::sync::{Arc, LazyLock, Mutex};
 
+mod numbers;
 mod paragraphs;
 pub(crate) use paragraphs::{is_sentence_abbreviation, SENTENCE_CLOSERS};
 mod pauses;
+mod punctuation;
+pub(crate) use punctuation::OutputPunctuation;
+pub use punctuation::PunctuationMode;
 mod term_aliases;
 
 // ---------------------------------------------------------------------------
@@ -1069,6 +1073,7 @@ impl FormatStep for FillerWordsRemover {
                     let prefix = out[..sound.start()].trim_end();
                     if before.is_some_and(|c| matches!(c, '-' | '‑' | '–' | '\''))
                         || after.is_some_and(|c| matches!(c, '-' | '‑' | '–' | '\''))
+                        || (sound.as_str() == "мм" && numbers::preceded_by_number(prefix))
                         || (sound.as_str() == "Э"
                             && (after == Some('.')
                                 || (!prefix.is_empty() && !prefix.ends_with(['.', '!', '?', '…']))))
@@ -2549,6 +2554,13 @@ impl PhraseLoopCollapser {
 }
 
 impl FormatStep for PhraseLoopCollapser {
+    fn protected_spans(&self, text: &str) -> Vec<std::ops::Range<usize>> {
+        let mut spans = crate::text_protection::cleanup_spans(text);
+        // Equal axes are meaningful repetition, including an unsupported 4D
+        // chain that must not be shortened into a valid three-axis dimension.
+        spans.extend(numbers::dimension_spans(text));
+        spans
+    }
     fn name(&self) -> &str {
         "Collapse phrase loops"
     }
@@ -3018,7 +3030,7 @@ impl FormatStep for Capitalizer {
         let mut out = String::with_capacity(text.len());
         let mut capitalize_next = true;
         for (offset, ch) in text.char_indices() {
-            if capitalize_next && ch.is_alphabetic() {
+            if capitalize_next && ch.is_alphanumeric() {
                 out.extend(ch.to_uppercase());
                 capitalize_next = false;
             } else {
@@ -3155,6 +3167,14 @@ pub struct TextFormattingConfig {
     pub normalize_ellipsis: bool,
     #[serde(default = "default_true")]
     pub correct_spelling: bool,
+    /// Opt-in Russian cardinal and explicit decimal normalization.
+    #[serde(default)]
+    pub normalize_russian_numbers: bool,
+    /// Independent of general number normalization; requires dimension context.
+    #[serde(default)]
+    pub normalize_dimensions: bool,
+    #[serde(default)]
+    pub punctuation_mode: PunctuationMode,
     #[serde(default)]
     pub split_sentences: bool,
     /// Off by default: the line breaks reach whatever field the text is
@@ -3258,6 +3278,9 @@ impl Default for TextFormattingConfig {
             collapse_phrase_loops: true,
             normalize_ellipsis: false,
             correct_spelling: true,
+            normalize_russian_numbers: false,
+            normalize_dimensions: false,
+            punctuation_mode: PunctuationMode::Automatic,
             // Off by default: sentence splitting rewrites the user's
             // phrasing, which is a bigger intervention than the cleanup
             // steps above.
@@ -3309,6 +3332,7 @@ impl Formatter {
         // `enabled` is the Cleanup switch. Replacements (paused by their own
         // switch) and dictionaries are separate settings and run without it.
         let clean = fmt.enabled;
+        let automatic_punctuation = fmt.punctuation_mode == PunctuationMode::Automatic;
         let rules = if config.replacements_paused {
             Vec::new()
         } else {
@@ -3358,7 +3382,9 @@ impl Formatter {
             Box::new(SpaceNormalizer::new(clean)),
             // Let the dictionary and explicit replacements supply their own casing.
             Box::new(ChatStartLowercaser {
-                enabled: clean && !fmt.capitalize_sentences && !fmt.final_punctuation,
+                enabled: clean
+                    && !fmt.capitalize_sentences
+                    && (!fmt.final_punctuation || !automatic_punctuation),
             }),
             // After whitespace normalisation — word windows are cut on single
             // spaces rather than on random clumps. And before the replacement
@@ -3374,13 +3400,30 @@ impl Formatter {
                 config.language.as_deref(),
                 &spelling_terms,
             )),
-            Box::new(SentenceSplitter::new(clean && fmt.split_sentences)),
+            Box::new(numbers::RussianNumbers {
+                enabled: clean,
+                normalize_numbers: fmt.normalize_russian_numbers,
+                normalize_dimensions: fmt.normalize_dimensions,
+                language: config.language.clone(),
+            }),
+            Box::new(SentenceSplitter::new(
+                clean && automatic_punctuation && fmt.split_sentences,
+            )),
+            // Explicit replacement output can supply punctuation after local
+            // removal. Do not run the replacement pass a second time for AI.
+            Box::new(punctuation::PunctuationFilter {
+                enabled: clean,
+                mode: fmt.punctuation_mode,
+            }),
             Box::new(replacements),
             Box::new(Capitalizer::new(clean && fmt.capitalize_sentences)),
-            Box::new(PunctuationFinalizer::new(clean, fmt.final_punctuation)),
+            Box::new(PunctuationFinalizer::new(
+                clean && automatic_punctuation,
+                fmt.final_punctuation,
+            )),
         ];
         Self {
-            split_paragraphs: clean && fmt.split_paragraphs,
+            split_paragraphs: clean && automatic_punctuation && fmt.split_paragraphs,
             steps,
             replacement_protection,
         }
@@ -3813,6 +3856,9 @@ mod tests {
                 collapse_phrase_loops: true,
                 normalize_ellipsis: false,
                 correct_spelling: true,
+                normalize_russian_numbers: false,
+                normalize_dimensions: false,
+                punctuation_mode: PunctuationMode::Automatic,
                 split_sentences: false,
                 split_paragraphs: true,
                 capitalize_sentences: true,
@@ -5010,7 +5056,7 @@ mod custom_words_tests {
     #[ignore = "opt-in synthetic dictionary latency measurement"]
     fn dictionary_scaling_benchmark() {
         let text = "Taurx00001 OpenRuter00002 ArchitectureNotebok00003 Taurx00004 OpenRuter00005 ArchitectureNotebok00006";
-        for count in [100, 1_000, 2_000, 10_000] {
+        for count in [100, 1_000, 2_000, 5_000, 10_000] {
             let words: Vec<String> = (0..count)
                 .map(|index| match index % 3 {
                     0 => format!("Tauri{index:05}"),
@@ -5040,10 +5086,10 @@ mod custom_words_tests {
     }
 
     #[test]
-    fn two_thousand_terms_keep_late_matches_and_ambiguous_measurements_unchanged() {
+    fn five_thousand_terms_keep_late_matches_and_ambiguous_measurements_unchanged() {
         // Synthetic neighbours exercise ambiguity; they are not a medical
         // recognition corpus. The last entry catches accidental truncation.
-        let mut words: Vec<String> = (0..1_997)
+        let mut words: Vec<String> = (0..4_997)
             .map(|index| format!("Исследование{index:05}"))
             .collect();
         words.extend(["Лимфоузелаб".into(), "Лимфоузелав".into(), "Tauri".into()]);
@@ -5056,7 +5102,7 @@ mod custom_words_tests {
             enabled: true,
             words,
         }];
-        assert_eq!(config.text_formatting.effective_custom_words().len(), 2_000);
+        assert_eq!(config.text_formatting.effective_custom_words().len(), 5_000);
         let text = "лимфоузелаг, таури; размер 8,8 мм";
         assert_eq!(
             Formatter::from_config(&config).process(text),
@@ -5071,7 +5117,7 @@ mod custom_words_tests {
     fn medical_dictionary_scaling_benchmark() {
         let text =
             "лимфаденапатия00001, остеахондропатия00002, нейрафиброматоз00003. размер 8,8 мм";
-        for count in [100, 1_000, 2_000] {
+        for count in [100, 1_000, 2_000, 5_000] {
             let words: Vec<String> = (0..count)
                 .map(|index| match index % 3 {
                     0 => format!("Лимфаденопатия{index:05}"),
@@ -5097,6 +5143,51 @@ mod custom_words_tests {
                 build[2].as_secs_f64() * 1000.0,
                 apply[2].as_secs_f64() * 1000.0
             );
+        }
+    }
+
+    #[test]
+    #[ignore = "opt-in synthetic long dictionary latency measurement"]
+    fn long_dictionary_scaling_benchmark() {
+        for medical in [false, true] {
+            let short = if medical {
+                "лимфаденапатия00001, остеахондропатия00002, нейрафиброматоз00003. размер 8,8 мм"
+            } else {
+                "Taurx00001 OpenRuter00002 ArchitectureNotebok00003 Taurx00004 OpenRuter00005 ArchitectureNotebok00006"
+            };
+            let text = std::iter::repeat_n(short, 100)
+                .collect::<Vec<_>>()
+                .join(" ");
+            for count in [1_000, 2_000, 5_000] {
+                let words: Vec<String> = (0..count)
+                    .map(|index| match (medical, index % 3) {
+                        (false, 0) => format!("Tauri{index:05}"),
+                        (false, 1) => format!("OpenRouter{index:05}"),
+                        (false, _) => format!("ArchitectureNotebook{index:05}"),
+                        (true, 0) => format!("Лимфаденопатия{index:05}"),
+                        (true, 1) => format!("Остеохондропатия{index:05}"),
+                        (true, _) => format!("Нейрофиброматоз{index:05}"),
+                    })
+                    .collect();
+                let corrector = CustomWordsCorrector::new(true, words);
+                let mut apply = Vec::new();
+                let once = corrector.apply(&text);
+                if medical {
+                    assert_eq!(once.matches("8,8 мм").count(), 100);
+                }
+                for _ in 0..5 {
+                    let started = std::time::Instant::now();
+                    std::hint::black_box(corrector.apply(std::hint::black_box(&text)));
+                    apply.push(started.elapsed());
+                }
+                apply.sort_unstable();
+                println!(
+                    "long_dictionary_medical={medical} terms={count} words={} characters={} apply_ms={:.3}",
+                    text.split_whitespace().count(),
+                    text.chars().count(),
+                    apply[2].as_secs_f64() * 1000.0
+                );
+            }
         }
     }
 

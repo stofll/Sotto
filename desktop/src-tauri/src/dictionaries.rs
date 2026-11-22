@@ -29,7 +29,7 @@ pub struct DictionaryAnalysis {
     pub unsupported_words: Vec<String>,
 }
 
-const MAX_ACTIVE_USER_TERMS: usize = 2_000;
+const MAX_ACTIVE_USER_TERMS: usize = 5_000;
 const MAX_TERM_CHARS: usize = 128;
 const MAX_TERM_WORDS: usize = 8;
 const MAX_DICTIONARY_FILE_BYTES: usize = 2 * 1024 * 1024;
@@ -160,7 +160,7 @@ pub fn validate_change(previous: &Value, candidate: &Value) -> Result<(), String
     let count = active_user_term_count(&candidate);
     if count > MAX_ACTIVE_USER_TERMS && count > active_user_term_count(&previous) {
         return Err(crate::ui_text::t(
-            "В активных пользовательских словарях допускается не более 2000 разных терминов.",
+            "В активных пользовательских словарях допускается не более 5000 разных терминов.",
         ));
     }
     Ok(())
@@ -473,14 +473,14 @@ mod tests {
     }
 
     #[test]
-    fn two_thousand_active_terms_are_counted_across_sets_without_duplicates() {
-        let words: Vec<String> = (0..2_000).map(|index| format!("Term{index}")).collect();
+    fn five_thousand_active_terms_are_counted_across_sets_without_duplicates() {
+        let words: Vec<String> = (0..5_000).map(|index| format!("Term{index}")).collect();
         let mut candidate = json!({"text_formatting": {
             "custom_words": ["term0"],
             "dictionary_spellings": ["term0"],
             "dictionary_sets": [
-                {"id": "first", "name": "First", "enabled": true, "words": &words[..1_000]},
-                {"id": "second", "name": "Second", "enabled": true, "words": &words[1_000..]},
+                {"id": "first", "name": "First", "enabled": true, "words": &words[..2_500]},
+                {"id": "second", "name": "Second", "enabled": true, "words": &words[2_500..]},
                 {"id": "stored", "name": "Stored", "enabled": false, "words": ["ExtraTerm"]}
             ]
         }});
@@ -488,7 +488,7 @@ mod tests {
         assert!(validate_change(&json!({}), &candidate).is_ok());
         let formatting: TextFormattingConfig =
             serde_json::from_value(candidate["text_formatting"].clone()).unwrap();
-        assert_eq!(active_user_term_count(&formatting), 2_000);
+        assert_eq!(active_user_term_count(&formatting), 5_000);
         candidate["text_formatting"]["dictionary_sets"][2]["enabled"] = json!(true);
         assert!(validate_change(&json!({}), &candidate).is_err());
         candidate["text_formatting"]["dictionary_sets"][0]["enabled"] = json!(false);
@@ -496,8 +496,23 @@ mod tests {
     }
 
     #[test]
+    fn inactive_sets_can_store_more_than_the_active_budget() {
+        let words: Vec<String> = (0..5_001).map(|index| format!("Term{index}")).collect();
+        let mut candidate = json!({"text_formatting": {"dictionary_sets": [
+            {"id": "stored", "name": "Stored", "enabled": false, "words": words}
+        ]}});
+        assert!(validate(&candidate).is_ok());
+        assert!(validate_change(&json!({}), &candidate).is_ok());
+        let saved = candidate.clone();
+        candidate["text_formatting"]["dictionary_sets"][0]["enabled"] = json!(true);
+        assert!(validate_change(&saved, &candidate).is_err());
+    }
+
+    #[test]
     fn dictionary_export_preserves_portable_content_without_an_active_term_cap() {
-        let words: Vec<String> = (0..2_001).map(|index| format!("Термин{index}")).collect();
+        let words: Vec<String> = (0..MAX_ACTIVE_USER_TERMS + 1)
+            .map(|index| format!("Термин{index}"))
+            .collect();
         let file = json!({"version": 1, "name": "Медицинские термины", "description": "Локальный набор", "words": words});
         let output = dictionary_export_content(&file.to_string()).unwrap();
         assert_eq!(serde_json::from_str::<Value>(&output).unwrap(), file);
