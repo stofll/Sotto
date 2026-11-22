@@ -101,21 +101,41 @@ impl FormatStep for PunctuationFilter {
 fn compact_spacing(text: &str) -> String {
     let mut result = String::with_capacity(text.len());
     let mut pending_space = false;
-    for ch in text.chars() {
+    let mut double_quoted = false;
+    let mut single_quoted = false;
+    let mut after_opening = false;
+    let mut chars = text.chars().peekable();
+    while let Some(ch) = chars.next() {
         match ch {
             '\n' | '\r' => {
                 pending_space = false;
+                after_opening = false;
                 result.push(ch);
             }
             ch if ch.is_whitespace() => pending_space = true,
             _ => {
+                let apostrophe = ch == '\''
+                    && !pending_space
+                    && result.ends_with(char::is_alphanumeric)
+                    && chars.peek().is_some_and(|c| c.is_alphanumeric());
+                let closing = matches!(ch, '»' | '”' | '’' | ')' | ']' | '}' | ',' | ':' | ';')
+                    || (ch == '"' && double_quoted)
+                    || (ch == '\'' && single_quoted && !apostrophe);
                 if pending_space
                     && !result.is_empty()
-                    && !result.ends_with(['\n', '\r', '(', '[', '{', '«', '“'])
-                    && !super::SENTENCE_CLOSERS.contains(&ch)
-                    && !matches!(ch, ',' | ':' | ';')
+                    && !result.ends_with(['\n', '\r'])
+                    && !after_opening
+                    && !closing
                 {
                     result.push(' ');
+                }
+                after_opening = matches!(ch, '(' | '[' | '{' | '«' | '“' | '‘')
+                    || (ch == '"' && !double_quoted)
+                    || (ch == '\'' && !single_quoted && !apostrophe);
+                if ch == '"' {
+                    double_quoted = !double_quoted;
+                } else if ch == '\'' && !apostrophe {
+                    single_quoted = !single_quoted;
                 }
                 result.push(ch);
                 pending_space = false;
@@ -194,6 +214,13 @@ mod tests {
                 PunctuationMode::NoSentenceBreaks
             ),
             "«Готово» (Проверено) Затем, да"
+        );
+        assert_eq!(
+            filter(
+                "Он. \"Готово.\" Затем. 'Проверено!'",
+                PunctuationMode::NoSentenceBreaks
+            ),
+            "Он \"Готово\" Затем 'Проверено'"
         );
     }
 
