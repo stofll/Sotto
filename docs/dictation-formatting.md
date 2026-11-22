@@ -1,6 +1,6 @@
 # Numbers, dimensions and punctuation
 
-Open **Processing → Text → Cleanup → Advanced** to choose local formatting. **Russian numbers as digits** and **Format dimensions** are independent, off-by-default options; existing settings keep their previous behavior. They operate on recognized text in Rust, without an LLM or an additional network request. Dictation, file transcription and the local text preview use the same formatter.
+Open **Processing → Text** and expand **Cleanup** to choose local formatting. **Russian numbers as digits** and **Format dimensions** are independent, off-by-default options; existing settings keep their previous behavior. They operate on recognized text in Rust, without an LLM or an additional network request. Dictation, file transcription and the local text preview use the same formatter.
 
 For a first Russian measurement test, select Russian as the dictation language, enable **Cleanup**, **Russian numbers as digits** and **Format dimensions**, then choose the punctuation mode you want. Test in the text preview before using the settings in another application's input field. The number parser also accepts **Auto**; an explicit different language leaves its input unchanged.
 
@@ -23,7 +23,7 @@ This is a strict grammar, not a general language model. Unsupported case forms, 
 
 ## Dimensions
 
-**Format dimensions** handles two or three non-negative axes separated by an explicit `на`, `х`, `x` or `×`, and writes the separator as Cyrillic `х`. A length unit at the end, or an immediately preceding cue such as `размерами`, is required. This option parses the numbers inside a dimension even when general number conversion is off.
+**Format dimensions** handles two or three non-negative axes separated by an explicit `на`, `х`, `x` or `×`, and writes the separator as Cyrillic `х`. Values, separators and units must be separate tokens; compact identifiers such as `8x8мм` stay unchanged. A length unit at the end, or an immediately preceding cue such as `размерами`, is required. This option parses the numbers inside a dimension even when general number conversion is off.
 
 | Recognized text | Local result before sentence styling |
 | --- | --- |
