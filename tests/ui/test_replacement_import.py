@@ -184,6 +184,7 @@ def test_import_module_failure_keeps_dirty_rules_available_for_export_and_save(
     expect(page.get_by_label("на что заменить", exact=True)).to_have_value(
         "Unsaved replacement"
     )
+    ui.queue("export_replacement_rules", {"result": None})
     page.get_by_role("button", name="Экспорт и импорт правил", exact=True).click()
     page.get_by_role("menuitem", name="Экспорт", exact=True).click()
     page.wait_for_function(
@@ -253,6 +254,7 @@ def test_import_uses_current_rules_and_preserves_its_draft_on_config_refresh(app
     assert replacement_saves(ui) == []
 
     # Export remains available to preserve this unsaved draft before reopening.
+    ui.queue("export_replacement_rules", {"result": None})
     page.get_by_role("button", name="Экспорт и импорт правил", exact=True).click()
     page.get_by_role("menuitem", name="Экспорт", exact=True).click()
     page.wait_for_function(
