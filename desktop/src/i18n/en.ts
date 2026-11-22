@@ -1566,5 +1566,7 @@ export const en: Record<string, string | string[]> = {
   "Страницы правил": "Rule pages",
   "Файл правил должен быть в кодировке UTF-8.": "The rules file must use UTF-8 encoding.",
   "Файл правил не должен превышать 2 МиБ.": "The rules file must be no larger than 2 MiB.",
+  "Не удалось открыть импорт правил. Черновик остался в редакторе; закройте окно импорта, сохраните или экспортируйте правила и перезапустите Sotto.": "Could not open the rule importer. Your draft remains in the editor; close the import dialog, save or export your rules, and restart Sotto.",
+  "Правила замен изменились в другом окне. Экспортируйте несохранённые правила и откройте страницу «Текст» заново.": "Replacement rules changed in another window. Export your unsaved rules and reopen the Text page.",
   "TXT: один термин в строке, UTF-8. JSON: экспортированный набор версии 1. До 2 МиБ.": "TXT: one term per line, UTF-8. JSON: an exported version 1 set. Up to 2 MiB.",
 };

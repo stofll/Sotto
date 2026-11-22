@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "../bridge";
 import type { ConfigResult, DictionaryMatch, PreviewFormatResult, PreviewReplacementsResult, ReplacementMatchMode, ReplacementRule, TextFormattingConfig } from "../bridge/types";
 import { Card, PageHeader, Segmented, Switch } from "../components/Shell";
@@ -16,8 +16,7 @@ import { Modal } from "../components/Modal";
 import { getParasiteSets, type ParasiteSet } from "../bridge/dictionaries";
 import { makeReplacementRule, replacementRuleKey } from "./replacementRules";
 import { ReplacementPager, REPLACEMENT_PAGE_SIZE } from "./ReplacementPager";
-
-const ReplacementImportDialog = lazy(() => import("./ReplacementImportDialog").then((module) => ({ default: module.ReplacementImportDialog })));
+import { ReplacementImportLoader } from "./ReplacementImportLoader";
 
 const MATCH_LABELS = (): Record<string, string> => ({ word: t("Слово"), phrase: t("Фраза"), contains: t("Внутри"), regex: "Regex" });
 
@@ -26,6 +25,8 @@ function replacementRulesFromConfig(config: ConfigResult | null): ReplacementRul
   if (rules.length) return rules.map((rule) => ({ ...makeReplacementRule(), ...rule, find: rule.find ?? "", replace: rule.replace ?? "" }));
   return Object.entries(config?.replacements ?? {}).map(([find, replace]) => ({ ...makeReplacementRule(find, replace), id: `legacy-${find}` }));
 }
+
+const replacementConfigKey = (config: ConfigResult | null) => JSON.stringify([config?.replacement_rules ?? [], config?.replacements ?? {}]);
 
 function replacementRulesToLegacyRecord(rules: ReplacementRule[]): Record<string, string> {
   const result: Record<string, string> = Object.create(null);
@@ -174,14 +175,17 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
 
   // ── Replacements: a draft until the «Сохранить» button ─────────────────
   const configRules = replacementRulesFromConfig(config);
+  const configRulesKey = replacementConfigKey(config);
   const paused = config?.replacements_paused ?? false;
   const [rules, setRules] = useState<ReplacementRule[]>(() => configRules);
+  const [rulesBaseline, setRulesBaseline] = useState(configRulesKey);
   const [filter, setFilter] = useState("");
   const [rulePage, setRulePage] = useState(0);
   const [formError, setFormError] = useState<string | null>(null);
   const [exportState, setExportState] = useState<"idle" | "saving" | "failed">("idle");
   const [savingRules, setSavingRules] = useState(false);
   const [saved, setSaved] = useState(true);
+  const staleRules = !saved && rulesBaseline !== configRulesKey;
   const fileInputRef = useRef<HTMLInputElement>(null);
   const importSequence = useRef(0);
   const [importFile, setImportFile] = useState<{ file: File; sequence: number } | null>(null);
@@ -220,8 +224,9 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
     // Successful save explicitly updates the draft and clears its dirty state.
     if (!saved) return;
     setRules(configRules);
+    setRulesBaseline(configRulesKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reset the draft when the saved rules change in content, not on every new array.
-  }, [JSON.stringify(config?.replacement_rules ?? []), JSON.stringify(config?.replacements ?? {}), saved]);
+  }, [configRulesKey, saved]);
 
   // Two calls for one preview: `preview_format` gives the full local result
   // (cleanup AND replacements at once), while `preview_replacements` gives only
@@ -380,6 +385,7 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
   }
 
   async function saveRules(nextRules = rules) {
+    if (savingRules || staleRules) return;
     const validation = validateReplacementRules(nextRules);
     if (validation) {
       setFormError(validation);
@@ -395,6 +401,7 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
       const result = await onConfigChanged({ replacement_rules: nextRules, replacements: replacementRulesToLegacyRecord(nextRules) });
       if (result) {
         setRules(replacementRulesFromConfig(result));
+        setRulesBaseline(replacementConfigKey(result));
         setSaved(true);
       }
     } finally {
@@ -473,14 +480,14 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
   return (
     <div className="page">
       <input type="file" accept=".json,application/json" ref={fileInputRef} style={{ display: "none" }} onChange={(e) => { const file = e.target.files?.[0]; if (file) void importRules(file); }}/>
-      {importFile && <Suspense fallback={<Modal title={t("Импорт правил замен")} onClose={() => setImportFile(null)}><div className="modal__body" role="status">{t("Загрузка…")}</div></Modal>}><ReplacementImportDialog key={importFile.sequence} file={importFile.file} rules={rules} onClose={() => setImportFile(null)} onChooseFile={() => fileInputRef.current?.click()} onApply={(next) => {
+      {importFile && <ReplacementImportLoader key={importFile.sequence} file={importFile.file} rules={rules} onClose={() => setImportFile(null)} onChooseFile={() => fileInputRef.current?.click()} onApply={(next) => {
         setRules(next);
         setSaved(false);
         setFormError(null);
         setFilter("");
         setRulePage(0);
         setImportFile(null);
-      }}/></Suspense>}
+      }}/>}
       {/* There are no state pills in the header: both duplicated what is
           visible next to the blocks themselves — «не сохранено» lights up
           right on «Замены». A permanent green "saved" pill across the whole
@@ -638,7 +645,8 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
             })}
             {rules.length > 0 && visibleRules.length === 0 && <p className="dictionary-note" style={{ padding: "8px 12px" }}>{t("Правила не найдены")}</p>}
             <ReplacementPager label={t("Страницы правил")} page={displayRulePage} count={visibleRules.length} onPage={setRulePage}/>
-            {(formError || exportState === "failed") && <div role="alert" style={{ padding: "10px 12px", color: "var(--err)", font: "500 12px/1.4 var(--font-sans)", borderBottom: "1px solid var(--line-soft)" }}>
+            {(staleRules || formError || exportState === "failed") && <div role="alert" style={{ padding: "10px 12px", color: "var(--err)", font: "500 12px/1.4 var(--font-sans)", borderBottom: "1px solid var(--line-soft)" }}>
+              {staleRules && <div>{t("Правила замен изменились в другом окне. Экспортируйте несохранённые правила и откройте страницу «Текст» заново.")}</div>}
               {formError && <div>{formError}</div>}
               {exportState === "failed" && <div>{t("Не удалось экспортировать правила замен. Проверьте права на запись и свободное место.")}</div>}
             </div>}
@@ -649,7 +657,7 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
               <RowMenu label={t("Экспорт и импорт правил")} items={[
                 { id: "export", label: t("Экспорт"), icon: "download", disabled: rules.length === 0 || exportState === "saving", onSelect: () => void exportRules() },
               ]}/>
-              {!saved && <button type="button" className="btn btn--primary btn--sm" onClick={() => void saveRules()} disabled={savingRules}><Icon name="check" size={12}/>{savingRules ? t("Сохраняю") : t("Сохранить")}</button>}
+              {!saved && <button type="button" className="btn btn--primary btn--sm" onClick={() => void saveRules()} disabled={savingRules || staleRules}><Icon name="check" size={12}/>{savingRules ? t("Сохраняю") : t("Сохранить")}</button>}
             </div>
           </Foldable>
 

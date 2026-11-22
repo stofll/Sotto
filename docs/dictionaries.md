@@ -61,6 +61,8 @@ The review shows numbered entries, duplicates and conflicts. An exact duplicate 
 
 Fix invalid entries in the file and import it again; a file containing invalid rules cannot be partly applied. After reviewing a valid file, **Add to list** changes only the editor draft. **Save** applies the complete replacement list. Re-importing an unchanged file does not create duplicate rules. Both the review and the replacement editor use pages of up to 50 rows, and search applies to the full list.
 
+If saved replacement settings change while you have an unsaved draft, the editor keeps your draft and blocks Save to avoid overwriting the newer list. Export the draft, reopen the Text page, and import it against the current settings to review the conflicts. An error opening the importer also leaves the editor and its unsaved rules available; close the import dialog before saving or exporting them.
+
 ## Spelling and limits
 
 New or edited user terms may contain at most 128 characters and 8 words. Up to 2,000 distinct user terms may be active across personal entries and enabled sets; built-in sets do not count toward this limit. A save that exceeds a limit is rejected without changing the stored dictionary. Older dictionaries already above a limit remain available, and unrelated settings can still be saved; remove or disable terms to bring them within the limit before adding more.

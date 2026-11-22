@@ -134,6 +134,63 @@ def test_native_validation_failure_can_retry_with_the_same_ids(app, page):
     expect(page.get_by_label("что искать", exact=True)).to_have_value("old")
 
 
+def test_import_module_failure_keeps_dirty_rules_available_for_export_and_save(
+    app, page, pytestconfig
+):
+    original = [rule("original", "Original")]
+    ui = app(config={"replacement_rules": original})
+    open_replacements(ui, page)
+    page.get_by_label("на что заменить", exact=True).fill("Unsaved replacement")
+    production = pytestconfig.getoption("--ui-mode") == "production"
+    module_url = (
+        "**/assets/ReplacementImportDialog-*.js"
+        if production
+        else "**/src/pages/ReplacementImportDialog.tsx*"
+    )
+    ui.allow_asset_failure(module_url)
+    page.route(
+        module_url,
+        lambda route: route.fulfill(
+            status=503,
+            body="Synthetic import module unavailable",
+            headers={"Cache-Control": "no-store"},
+        ),
+    )
+    dialog = upload(page, [{"find": "imported", "replace": "Imported"}])
+    expect(dialog.get_by_role("alert")).to_contain_text(
+        "Не удалось открыть импорт правил"
+    )
+    expect(page.get_by_label("на что заменить", exact=True)).to_have_value(
+        "Unsaved replacement"
+    )
+    assert ui.state()["config"]["replacement_rules"] == original
+    assert ui.calls("save_config") == []
+
+    dialog.get_by_role("button", name="Отмена", exact=True).click()
+    expect(dialog).to_have_count(0)
+    page.unroute(module_url)
+    expect(page.get_by_role("button", name="Сохранить", exact=True)).to_be_enabled()
+    expect(page.get_by_label("что искать", exact=True)).to_have_value("original")
+    expect(page.get_by_label("на что заменить", exact=True)).to_have_value(
+        "Unsaved replacement"
+    )
+    page.get_by_role("button", name="Экспорт и импорт правил", exact=True).click()
+    page.get_by_role("menuitem", name="Экспорт", exact=True).click()
+    page.wait_for_function(
+        "window.__sottoTest.calls.some(call => call.command === 'export_replacement_rules')"
+    )
+    exported = json.loads(ui.calls("export_replacement_rules")[-1]["args"]["content"])
+    assert exported["replacement_rules"] == [
+        {**original[0], "replace": "Unsaved replacement"}
+    ]
+    assert ui.calls("save_config") == []
+    page.get_by_role("button", name="Сохранить", exact=True).click()
+    page.wait_for_function(
+        "window.__sottoTest.state.config.replacement_rules[0].replace === 'Unsaved replacement'"
+    )
+    assert ui.state()["config"]["replacement_rules"] == exported["replacement_rules"]
+
+
 def test_cancelling_pending_validation_ignores_its_late_result(app, page):
     ui = app()
     open_replacements(ui, page)
@@ -171,10 +228,42 @@ def test_import_uses_current_rules_and_preserves_its_draft_on_config_refresh(app
 
     # Another saved-config notification must not replace an unsaved draft.
     updated["replacement_rules"][0]["replace"] = "Externally updated"
+    page.evaluate("config => window.__sottoTest.state.config = config", updated)
     ui.emit("config-updated", updated)
     expect(page.get_by_label("что искать", exact=True)).to_have_count(3)
     expect(page.get_by_label("что искать", exact=True).last).to_have_value("imported")
-    expect(page.get_by_role("button", name="Сохранить", exact=True)).to_be_enabled()
+    expect(page.get_by_role("alert")).to_contain_text(
+        "Правила замен изменились в другом окне"
+    )
+    save = page.get_by_role("button", name="Сохранить", exact=True)
+    expect(save).to_be_disabled()
+    # Even an attempted activation cannot write the stale array over newer rules.
+    save.evaluate("button => button.click()")
+    assert ui.state()["config"]["replacement_rules"] == updated["replacement_rules"]
+    assert ui.calls("save_config") == []
+
+    # Export remains available to preserve this unsaved draft before reopening.
+    page.get_by_role("button", name="Экспорт и импорт правил", exact=True).click()
+    page.get_by_role("menuitem", name="Экспорт", exact=True).click()
+    page.wait_for_function(
+        "window.__sottoTest.calls.some(call => call.command === 'export_replacement_rules')"
+    )
+    exported = json.loads(ui.calls("export_replacement_rules")[-1]["args"]["content"])
+    assert [
+        (item["find"], item["replace"]) for item in exported["replacement_rules"]
+    ] == [
+        ("original", "Original"),
+        ("external", "External"),
+        ("imported", "Imported"),
+    ]
+    ui.nav("settings")
+    ui.nav("text")
+    expect(page.get_by_label("что искать", exact=True)).to_have_count(2)
+    expect(page.get_by_label("на что заменить", exact=True).first).to_have_value(
+        "Externally updated"
+    )
+    expect(page.get_by_role("button", name="Сохранить", exact=True)).to_have_count(0)
+    expect(page.get_by_role("alert")).to_have_count(0)
     assert ui.calls("save_config") == []
 
 
