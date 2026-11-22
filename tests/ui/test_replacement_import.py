@@ -25,6 +25,15 @@ def open_replacements(ui, page):
     page.get_by_role("button", name=re.compile(r"^(Замены|Replacements)")).click()
 
 
+def replacement_saves(ui):
+    # Startup may save UI preferences; watch both persisted rule representations.
+    return [
+        call
+        for call in ui.calls("save_config")
+        if {"replacement_rules", "replacements"}.intersection(call["args"]["patch"])
+    ]
+
+
 def upload(page, value, *, button="Импорт", raw=False):
     with page.expect_file_chooser() as chooser:
         page.locator(".fold__body").get_by_role(
@@ -61,11 +70,12 @@ def test_replacement_import_reviews_conflicts_and_saves_only_after_apply(app, pa
     expect(dialog).to_contain_text("Добавится: 1; заменится: 1")
     expect(dialog).to_contain_text("Совпадение с записью 3 из файла")
     assert ui.state()["config"]["replacement_rules"] == original
-    assert ui.calls("save_config") == []
+    assert replacement_saves(ui) == []
 
     dialog.get_by_role("button", name="Добавить в список", exact=True).click()
     expect(page.get_by_label("что искать", exact=True)).to_have_count(3)
     assert ui.state()["config"]["replacement_rules"] == original
+    assert replacement_saves(ui) == []
     page.get_by_role("button", name="Сохранить", exact=True).click()
     page.wait_for_function(
         "window.__sottoTest.state.config.replacement_rules.length === 3"
@@ -164,7 +174,7 @@ def test_import_module_failure_keeps_dirty_rules_available_for_export_and_save(
         "Unsaved replacement"
     )
     assert ui.state()["config"]["replacement_rules"] == original
-    assert ui.calls("save_config") == []
+    assert replacement_saves(ui) == []
 
     dialog.get_by_role("button", name="Отмена", exact=True).click()
     expect(dialog).to_have_count(0)
@@ -183,7 +193,7 @@ def test_import_module_failure_keeps_dirty_rules_available_for_export_and_save(
     assert exported["replacement_rules"] == [
         {**original[0], "replace": "Unsaved replacement"}
     ]
-    assert ui.calls("save_config") == []
+    assert replacement_saves(ui) == []
     page.get_by_role("button", name="Сохранить", exact=True).click()
     page.wait_for_function(
         "window.__sottoTest.state.config.replacement_rules[0].replace === 'Unsaved replacement'"
@@ -205,7 +215,7 @@ def test_cancelling_pending_validation_ignores_its_late_result(app, page):
     expect(page.get_by_role("dialog")).to_have_count(0)
     expect(page.get_by_text("Нет правил замены", exact=True)).to_be_visible()
     assert ui.state()["config"]["replacement_rules"] == []
-    assert ui.calls("save_config") == []
+    assert replacement_saves(ui) == []
 
 
 def test_import_uses_current_rules_and_preserves_its_draft_on_config_refresh(app, page):
@@ -240,7 +250,7 @@ def test_import_uses_current_rules_and_preserves_its_draft_on_config_refresh(app
     # Even an attempted activation cannot write the stale array over newer rules.
     save.evaluate("button => button.click()")
     assert ui.state()["config"]["replacement_rules"] == updated["replacement_rules"]
-    assert ui.calls("save_config") == []
+    assert replacement_saves(ui) == []
 
     # Export remains available to preserve this unsaved draft before reopening.
     page.get_by_role("button", name="Экспорт и импорт правил", exact=True).click()
@@ -264,7 +274,7 @@ def test_import_uses_current_rules_and_preserves_its_draft_on_config_refresh(app
     )
     expect(page.get_by_role("button", name="Сохранить", exact=True)).to_have_count(0)
     expect(page.get_by_role("alert")).to_have_count(0)
-    assert ui.calls("save_config") == []
+    assert replacement_saves(ui) == []
 
 
 @pytest.mark.parametrize(
@@ -284,7 +294,7 @@ def test_replacement_import_rejects_oversize_and_non_utf8_files(
     expect(dialog.get_by_role("alert")).to_contain_text(error)
     expect(dialog.get_by_role("button", name="Добавить в список")).to_be_disabled()
     assert ui.calls("validate_replacement_rules") == []
-    assert ui.calls("save_config") == []
+    assert replacement_saves(ui) == []
 
 
 def test_two_thousand_rules_are_reviewed_and_edited_in_bounded_pages(app, page):
