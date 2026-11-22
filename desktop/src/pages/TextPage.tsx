@@ -523,16 +523,18 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
           >
             <div className="fold__rows">
               {cleanGroups.map(renderGroup)}
-              <div style={cleanRowStyle}>
-                <div className="flex-grow" style={{ font: "500 13px/1.2 var(--font-sans)", color: "var(--ink)", display: "inline-flex", alignItems: "center", gap: 5 }}>
-                  {t("Пунктуация")}
+              <div style={{ ...cleanRowStyle, flexWrap: "wrap" }}>
+                <div style={{ flex: "1 0 auto", font: "500 13px/1.2 var(--font-sans)", color: "var(--ink)", display: "inline-flex", alignItems: "center", gap: 5 }}>
+                  <span>{t("Пунктуация")}</span>
                   <Hint text={t("Удаляет пунктуацию после распознавания. Без точек — также без ? ! и многоточий. Числа, время, ссылки и код сохраняются.")}/>
                 </div>
-                <CustomSelect
-                  value={formatting.punctuation_mode}
-                  options={PUNCTUATION_MODES()}
-                  onChange={(next) => void saveFormatting({ punctuation_mode: next })}
-                />
+                <div style={{ width: 230, maxWidth: "100%", flexShrink: 0 }}>
+                  <CustomSelect
+                    value={formatting.punctuation_mode}
+                    options={PUNCTUATION_MODES()}
+                    onChange={(next) => void saveFormatting({ punctuation_mode: next })}
+                  />
+                </div>
               </div>
               {/* One choice for two flags: of their four combinations only
                   three are ever wanted, and a messenger reply without a final

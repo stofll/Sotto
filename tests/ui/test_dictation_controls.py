@@ -170,6 +170,27 @@ def test_punctuation_policy_preserves_sentence_style_and_recovers_from_failed_sa
     expect(selector).to_be_visible()
     selector.focus()
     expect(selector).to_be_focused()
+    punctuation_label = page.get_by_text(
+        "Пунктуация" if locale == "ru" else "Punctuation", exact=True
+    )
+    expect(punctuation_label).to_be_visible()
+    label_box = punctuation_label.bounding_box()
+    control_box = selector.bounding_box()
+    assert label_box is not None and control_box is not None
+    assert (
+        label_box["x"] + label_box["width"] <= control_box["x"] + 1
+        or label_box["y"] + label_box["height"] <= control_box["y"] + 1
+    ), "The punctuation control must not overlap its label"
+    assert (
+        punctuation_label.locator("..").evaluate("e => e.scrollWidth - e.clientWidth")
+        <= 1
+    )
+    assert (
+        selector.locator(".custom-select__label").evaluate(
+            "e => e.scrollWidth - e.clientWidth"
+        )
+        <= 1
+    )
     assert (
         page.get_by_test_id("main-content").evaluate(
             "e => e.scrollWidth - e.clientWidth"
