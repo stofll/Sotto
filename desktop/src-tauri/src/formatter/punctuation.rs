@@ -109,7 +109,12 @@ fn compact_spacing(text: &str) -> String {
             }
             ch if ch.is_whitespace() => pending_space = true,
             _ => {
-                if pending_space && !result.is_empty() && !result.ends_with(['\n', '\r']) {
+                if pending_space
+                    && !result.is_empty()
+                    && !result.ends_with(['\n', '\r', '(', '[', '{', '«', '“'])
+                    && !super::SENTENCE_CLOSERS.contains(&ch)
+                    && !matches!(ch, ',' | ':' | ';')
+                {
                     result.push(' ');
                 }
                 result.push(ch);
@@ -183,6 +188,13 @@ mod tests {
             "можно добавить"
         );
         assert_eq!(filter("...?!", PunctuationMode::NoSentenceBreaks), "");
+        assert_eq!(
+            filter(
+                "«Готово.» (Проверено!) Затем, да.",
+                PunctuationMode::NoSentenceBreaks
+            ),
+            "«Готово» (Проверено) Затем, да"
+        );
     }
 
     #[test]
