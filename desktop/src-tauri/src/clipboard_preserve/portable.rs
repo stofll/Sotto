@@ -2,6 +2,12 @@
 //! without a native backend (Linux). The plugin reads only plain text and
 //! images, so other formats — HTML, copied files — are not kept: text stays
 //! as plain text, anything unreadable is cleared after the paste.
+//!
+//! Known gaps, tracked separately because Linux is experimental: the reads
+//! run on the thread `run_delivery` picks (the main thread off Windows),
+//! which the plugin warns can freeze on content copied from our own WebView,
+//! and a failed read is indistinguishable from an empty clipboard here. There
+//! is no change counter either, so ownership is judged by the text.
 
 // Compiled into the tests on every platform so the Linux path cannot rot
 // unnoticed; only Linux calls it.
@@ -21,6 +27,16 @@ impl Clipboard {
     }
 }
 
+impl super::Store for Clipboard {
+    type Session = Plugin;
+
+    fn open(&self) -> Result<Plugin, String> {
+        Ok(Plugin(self.app.clone()))
+    }
+}
+
+pub struct Plugin(AppHandle);
+
 pub enum Snapshot {
     Empty,
     Text(String),
@@ -31,13 +47,26 @@ pub enum Snapshot {
     },
 }
 
-impl super::Store for Clipboard {
+/// The text on the clipboard. A clipboard without text never counts as
+/// Sotto's: an image the user copies must not look like one Sotto restored.
+pub struct Text(Option<String>);
+
+impl PartialEq for Text {
+    fn eq(&self, other: &Self) -> bool {
+        matches!((&self.0, &other.0), (Some(ours), Some(theirs)) if ours == theirs)
+    }
+}
+
+impl super::Session for Plugin {
     type Snapshot = Snapshot;
-    /// Our text: there is no change counter to compare.
-    type Stamp = String;
+    type Stamp = Text;
+
+    fn stamp(&self) -> Text {
+        Text(self.0.clipboard().read_text().ok())
+    }
 
     fn capture(&self) -> Result<Snapshot, String> {
-        let clipboard = self.app.clipboard();
+        let clipboard = self.0.clipboard();
         if let Ok(text) = clipboard.read_text() {
             return Ok(Snapshot::Text(text));
         }
@@ -51,20 +80,12 @@ impl super::Store for Clipboard {
         })
     }
 
-    fn write_text(&self, text: &str) -> Result<String, String> {
-        crate::clipboard::copy_to_clipboard(&self.app, text)?;
-        Ok(text.to_string())
+    fn replace_with_text(&mut self, text: &str) -> Result<(), String> {
+        crate::clipboard::copy_to_clipboard(&self.0, text)
     }
 
-    fn still_ours(&self, stamp: &String) -> bool {
-        self.app
-            .clipboard()
-            .read_text()
-            .is_ok_and(|text| text == *stamp)
-    }
-
-    fn restore(&self, snapshot: &Snapshot) -> Result<(), String> {
-        let clipboard = self.app.clipboard();
+    fn replace_with(&mut self, snapshot: &Snapshot) -> Result<(), String> {
+        let clipboard = self.0.clipboard();
         match snapshot {
             Snapshot::Empty => clipboard.clear(),
             Snapshot::Text(text) => clipboard.write_text(text.as_str()),

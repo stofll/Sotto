@@ -95,6 +95,27 @@ impl DeliveryOptions {
             preserve_clipboard: flag("preserve_clipboard", false),
         }
     }
+
+    /// Neither pasted nor copied: the history is the only place the text
+    /// goes, so the dictation is delivered only once it has been saved there.
+    pub fn history_only(self) -> bool {
+        !self.auto_paste && self.preserve_clipboard
+    }
+
+    /// The delivery to run once the history write is known. When the
+    /// history is the only destination and the write failed, the text is
+    /// copied after all: a transcript the user can still paste beats one
+    /// that is nowhere.
+    pub fn after_history_write(self, saved: bool) -> Self {
+        if self.history_only() && !saved {
+            Self {
+                preserve_clipboard: false,
+                ..self
+            }
+        } else {
+            self
+        }
+    }
 }
 
 /// Apply `options` to `text`: the text the user actually receives.
@@ -683,6 +704,49 @@ mod delivery_tests {
         assert!(options.trailing_space);
         assert!(options.auto_submit);
         assert!(options.preserve_clipboard);
+    }
+
+    #[test]
+    fn only_preserved_copy_only_mode_is_history_only() {
+        let options = |auto_paste, preserve_clipboard| DeliveryOptions {
+            auto_paste,
+            preserve_clipboard,
+            ..DeliveryOptions::default()
+        };
+        assert!(options(false, true).history_only());
+        assert!(!options(false, false).history_only());
+        assert!(!options(true, true).history_only());
+        assert!(!options(true, false).history_only());
+    }
+
+    #[test]
+    fn a_failed_history_write_falls_back_to_copying() {
+        let history_only = DeliveryOptions {
+            auto_paste: false,
+            preserve_clipboard: true,
+            ..DeliveryOptions::default()
+        };
+        assert_eq!(history_only.after_history_write(true), history_only);
+        let fallback = history_only.after_history_write(false);
+        assert!(!fallback.auto_paste);
+        assert!(!fallback.preserve_clipboard, "the text must be copied");
+    }
+
+    #[test]
+    fn other_modes_do_not_depend_on_the_history_write() {
+        for options in [
+            DeliveryOptions::default(),
+            DeliveryOptions {
+                preserve_clipboard: true,
+                ..DeliveryOptions::default()
+            },
+            DeliveryOptions {
+                auto_paste: false,
+                ..DeliveryOptions::default()
+            },
+        ] {
+            assert_eq!(options.after_history_write(false), options);
+        }
     }
 
     #[test]

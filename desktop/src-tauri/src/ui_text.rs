@@ -117,6 +117,12 @@ fn en(key: &str) -> Option<&'static str> {
         "Для автоматической вставки разрешите Sotto доступ в настройках универсального доступа macOS." => {
             "For automatic pasting, allow Sotto in macOS Accessibility settings."
         }
+        "Не удалось сохранить текст в историю. Он скопирован в буфер обмена." => {
+            "Couldn't save the text to the history. It has been copied to the clipboard."
+        }
+        "Не удалось сохранить текст в историю или скопировать его." => {
+            "Couldn't save the text to the history or copy it."
+        }
         // Transcription of an attached file: the decoder, the gates and the
         // refusals.
         "Аудио" => "Audio",

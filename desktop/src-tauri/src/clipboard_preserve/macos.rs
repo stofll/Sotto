@@ -2,7 +2,13 @@
 //!
 //! That covers plain and rich text, HTML, images, file URLs and application
 //! types, including several items (several copied files). Promised data the
-//! owner has not delivered is rendered on capture.
+//! owner has not delivered is rendered on capture; a type that still yields
+//! no data fails the capture rather than being dropped.
+//!
+//! NSPasteboard has no lock another process would respect. A session is
+//! therefore a sequence with no waiting in it: `changeCount` is compared
+//! right before the write it guards, which leaves a window of a few calls
+//! rather than the wait for access that Windows needs.
 
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
@@ -26,12 +32,24 @@ impl Clipboard {
     }
 }
 
-fn item_with(types: &[(String, Vec<u8>)]) -> Retained<NSPasteboardItem> {
+impl super::Store for Clipboard {
+    type Session = Pasteboard;
+
+    fn open(&self) -> Result<Pasteboard, String> {
+        Ok(Pasteboard(NSPasteboard::generalPasteboard()))
+    }
+}
+
+pub struct Pasteboard(Retained<NSPasteboard>);
+
+fn item_with(types: &[(String, Vec<u8>)]) -> Result<Retained<NSPasteboardItem>, String> {
     let item = NSPasteboardItem::new();
     for (kind, bytes) in types {
-        item.setData_forType(&NSData::with_bytes(bytes), &NSString::from_str(kind));
+        if !item.setData_forType(&NSData::with_bytes(bytes), &NSString::from_str(kind)) {
+            return Err(format!("pasteboard type {kind} could not be set"));
+        }
     }
-    item
+    Ok(item)
 }
 
 fn write_items(
@@ -49,76 +67,66 @@ fn write_items(
     }
 }
 
-impl super::Store for Clipboard {
+impl super::Session for Pasteboard {
     /// Items in pasteboard order, each with its types and their data.
     type Snapshot = Vec<Vec<(String, Vec<u8>)>>;
-    /// `changeCount` right after our write.
     type Stamp = isize;
 
+    fn stamp(&self) -> isize {
+        self.0.changeCount()
+    }
+
     fn capture(&self) -> Result<Self::Snapshot, String> {
-        let pasteboard = NSPasteboard::generalPasteboard();
-        let Some(items) = pasteboard.pasteboardItems() else {
-            return Ok(Vec::new());
-        };
-        let mut skipped = 0;
-        let snapshot = items
+        // An empty pasteboard is an empty array; nil means the items could
+        // not be read.
+        let items = self
+            .0
+            .pasteboardItems()
+            .ok_or("the pasteboard items could not be read")?;
+        items
             .to_vec()
             .into_iter()
             .map(|item| {
                 item.types()
                     .to_vec()
                     .into_iter()
-                    .filter_map(|kind| match item.dataForType(&kind) {
-                        Some(data) => Some((kind.to_string(), data.to_vec())),
-                        None => {
-                            skipped += 1;
-                            None
-                        }
+                    .map(|kind| match item.dataForType(&kind) {
+                        Some(data) => Ok((kind.to_string(), data.to_vec())),
+                        None => Err(format!("pasteboard type {kind} could not be read")),
                     })
                     .collect()
             })
-            .collect();
-        if skipped > 0 {
-            log::warn!("{skipped} pasteboard types not saved");
-        }
-        Ok(snapshot)
+            .collect()
     }
 
-    fn write_text(&self, text: &str) -> Result<isize, String> {
-        let pasteboard = NSPasteboard::generalPasteboard();
-        pasteboard.clearContents();
-        write_items(
-            &pasteboard,
-            vec![item_with(&[
-                (PLAIN_TEXT.to_string(), text.as_bytes().to_vec()),
-                (TRANSIENT.to_string(), Vec::new()),
-            ])],
-        )?;
-        Ok(pasteboard.changeCount())
+    fn replace_with_text(&mut self, text: &str) -> Result<(), String> {
+        let item = item_with(&[
+            (PLAIN_TEXT.to_string(), text.as_bytes().to_vec()),
+            (TRANSIENT.to_string(), Vec::new()),
+        ])?;
+        self.0.clearContents();
+        write_items(&self.0, vec![item])
     }
 
-    fn still_ours(&self, stamp: &isize) -> bool {
-        NSPasteboard::generalPasteboard().changeCount() == *stamp
-    }
-
-    fn restore(&self, snapshot: &Self::Snapshot) -> Result<(), String> {
-        let pasteboard = NSPasteboard::generalPasteboard();
-        pasteboard.clearContents();
-        // An empty pasteboard stays empty: no marker on it.
-        if snapshot.is_empty() {
-            return Ok(());
-        }
+    fn replace_with(&mut self, snapshot: &Self::Snapshot) -> Result<(), String> {
+        // Built before the pasteboard is cleared: a failure here leaves it as
+        // it was.
         let items = snapshot
             .iter()
             .enumerate()
             .map(|(index, types)| {
-                let item = item_with(types);
+                let item = item_with(types)?;
                 if index == 0 && !types.iter().any(|(kind, _)| kind == TRANSIENT) {
                     item.setData_forType(&NSData::with_bytes(&[]), &NSString::from_str(TRANSIENT));
                 }
-                item
+                Ok(item)
             })
-            .collect();
-        write_items(&pasteboard, items)
+            .collect::<Result<Vec<_>, String>>()?;
+        self.0.clearContents();
+        // An empty pasteboard stays empty: no marker on it.
+        if items.is_empty() {
+            return Ok(());
+        }
+        write_items(&self.0, items)
     }
 }
