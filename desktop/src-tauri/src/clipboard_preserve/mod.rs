@@ -174,19 +174,26 @@ impl<S, T: PartialEq> Preserver<S, T> {
             .open()
             .map_err(|error| BeginError { error, retry: None })?;
         let current = session.stamp();
-        let snapshot = match self.pending.take() {
-            // Still the previous dictation: its capture is the user's data.
-            Some(pending) if pending.stamp == current => pending.snapshot,
-            stale => match session.capture() {
-                Ok(snapshot) => snapshot,
-                Err(error) => {
-                    self.pending = stale;
-                    return Err(BeginError { error, retry: None });
-                }
-            },
+        // Still the previous dictation: its capture is the user's data. It
+        // stays pending, with its own restore due, until this write has
+        // actually replaced the clipboard.
+        let reuse = self
+            .pending
+            .as_ref()
+            .is_some_and(|pending| pending.stamp == current);
+        let fresh = if reuse {
+            None
+        } else {
+            match session.capture() {
+                Ok(snapshot) => Some(snapshot),
+                Err(error) => return Err(BeginError { error, retry: None }),
+            }
         };
         match session.replace_with_text(text, &current) {
-            Ok(stamp) => Ok(self.park(snapshot, stamp)),
+            Ok(stamp) => {
+                let snapshot = self.original(fresh);
+                Ok(self.park(snapshot, stamp))
+            }
             // Someone copied after the capture: that copy is the user's data
             // now, and nothing was written over it.
             Err(WriteError::Changed) => Err(BeginError {
@@ -200,16 +207,33 @@ impl<S, T: PartialEq> Preserver<S, T> {
             Err(WriteError::Failed {
                 error,
                 left: Some(left),
-            }) => match session.replace_with(&snapshot, &left) {
-                Ok(_) | Err(WriteError::Changed) => Err(BeginError { error, retry: None }),
-                Err(WriteError::Failed {
-                    error: restore,
-                    left: after,
-                }) => Err(BeginError {
-                    error: format!("{error}; restoring the clipboard failed: {restore}"),
-                    retry: Some(self.park(snapshot, after.unwrap_or(left))),
-                }),
-            },
+            }) => {
+                let snapshot = self.original(fresh);
+                match session.replace_with(&snapshot, &left) {
+                    Ok(_) | Err(WriteError::Changed) => Err(BeginError { error, retry: None }),
+                    Err(WriteError::Failed {
+                        error: restore,
+                        left: after,
+                    }) => Err(BeginError {
+                        error: format!("{error}; restoring the clipboard failed: {restore}"),
+                        retry: Some(self.park(snapshot, after.unwrap_or(left))),
+                    }),
+                }
+            }
+        }
+    }
+
+    /// The user's contents a write has just replaced: the fresh capture, or
+    /// the pending one it reused, which a new restore now takes over.
+    fn original(&mut self, fresh: Option<S>) -> S {
+        match fresh {
+            Some(snapshot) => snapshot,
+            None => {
+                self.pending
+                    .take()
+                    .expect("a reused capture is still pending")
+                    .snapshot
+            }
         }
     }
 
@@ -359,6 +383,9 @@ mod tests {
         copied_before_restore: Option<String>,
         busy: bool,
         fail_capture: bool,
+        /// A write that fails before touching the clipboard, as running out
+        /// of memory while preparing the blocks does on Windows.
+        fail_prepare: bool,
         fail_write: bool,
         /// Restores that fail after writing part of the snapshot.
         failing_restores: u32,
@@ -430,6 +457,12 @@ mod tests {
             let mut state = self.0.borrow_mut();
             if state.changes != *expected {
                 return Err(WriteError::Changed);
+            }
+            if state.fail_prepare {
+                return Err(WriteError::Failed {
+                    error: "out of memory".into(),
+                    left: None,
+                });
             }
             // Emptied first, as the native backends do.
             state.set(None);
@@ -540,6 +573,20 @@ mod tests {
         let second = state.begin(&clipboard, "вторая").unwrap();
         assert_eq!(state.restore(second, &clipboard), Restore::Restored);
         assert_eq!(clipboard.contents().as_deref(), Some("новое"));
+    }
+
+    #[test]
+    fn a_second_paste_that_fails_untouched_leaves_the_first_restore_due() {
+        let clipboard = Fake::holding("мой текст");
+        let mut state = FakePreserver::new();
+        let first = state.begin(&clipboard, "первая").unwrap();
+        clipboard.with(|s| s.fail_prepare = true);
+        let error = state.begin(&clipboard, "вторая").unwrap_err();
+        assert!(error.retry.is_none());
+        assert_eq!(clipboard.contents().as_deref(), Some("первая"));
+        // The first dictation's restore still owns the user's contents.
+        assert_eq!(state.restore(first, &clipboard), Restore::Restored);
+        assert_eq!(clipboard.contents().as_deref(), Some("мой текст"));
     }
 
     #[test]
