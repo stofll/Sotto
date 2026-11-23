@@ -21,6 +21,8 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use tauri::AppHandle;
+
+use super::WriteError;
 use windows_sys::Win32::Foundation::{GetLastError, GlobalFree, SetLastError, HANDLE, HGLOBAL};
 use windows_sys::Win32::System::DataExchange::{
     CloseClipboard, EmptyClipboard, EnumClipboardFormats, GetClipboardData,
@@ -181,29 +183,56 @@ fn read_block(format: u32) -> Result<Vec<u8>, String> {
     }
 }
 
-/// Put `bytes` on the clipboard as `format`. Only call while it is open and
-/// owned by us, i.e. after `EmptyClipboard`.
-fn write_block(format: u32, bytes: &[u8]) -> Result<(), String> {
-    // SAFETY: the block is allocated with room for `bytes`, written while
-    // locked, and freed only if the clipboard did not take it over.
-    unsafe {
-        let block = GlobalAlloc(GMEM_MOVEABLE, bytes.len().max(1));
-        if block.is_null() {
-            return Err("out of memory".into());
+/// A movable memory block ready to hand to the clipboard. Prepared before
+/// `EmptyClipboard`, so that running out of memory fails while the user's
+/// contents are still there; freed if the clipboard never takes it.
+struct Block(HGLOBAL);
+
+impl Block {
+    fn new(bytes: &[u8]) -> Result<Self, String> {
+        // SAFETY: the block is allocated with room for `bytes` and written
+        // while locked.
+        unsafe {
+            let block = GlobalAlloc(GMEM_MOVEABLE, bytes.len().max(1));
+            if block.is_null() {
+                return Err("out of memory".into());
+            }
+            let data = GlobalLock(block) as *mut u8;
+            if data.is_null() {
+                GlobalFree(block);
+                return Err("could not lock clipboard memory".into());
+            }
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), data, bytes.len());
+            GlobalUnlock(block);
+            Ok(Self(block))
         }
-        let data = GlobalLock(block) as *mut u8;
-        if data.is_null() {
-            GlobalFree(block);
-            return Err("could not lock clipboard memory".into());
-        }
-        std::ptr::copy_nonoverlapping(bytes.as_ptr(), data, bytes.len());
-        GlobalUnlock(block);
-        if SetClipboardData(format, block as HANDLE) == 0 {
-            GlobalFree(block);
-            return Err(format!("could not set clipboard format {format}"));
+    }
+
+    /// Put the block on the clipboard as `format`. Only call while it is open
+    /// and owned by us, i.e. after `EmptyClipboard`.
+    fn set(self, format: u32) -> Result<(), String> {
+        let block = std::mem::ManuallyDrop::new(self);
+        // SAFETY: on success the clipboard owns the block; on failure it is
+        // still ours and freed here.
+        unsafe {
+            if SetClipboardData(format, block.0 as HANDLE) == 0 {
+                GlobalFree(block.0);
+                return Err(format!("could not set clipboard format {format}"));
+            }
         }
         Ok(())
     }
+}
+
+impl Drop for Block {
+    fn drop(&mut self) {
+        // SAFETY: a block that was never handed to the clipboard is ours.
+        unsafe { GlobalFree(self.0) };
+    }
+}
+
+fn write_block(format: u32, bytes: &[u8]) -> Result<(), String> {
+    Block::new(bytes)?.set(format)
 }
 
 /// Best effort: a clipboard history recording the text is a privacy leak,
@@ -220,14 +249,16 @@ fn write_exclusions(present: &[u32]) {
     }
 }
 
-/// Empty the clipboard and mark it as Sotto's. Written first, so that a
-/// write failing part-way still leaves a state Sotto may restore over.
-fn empty_and_mark() -> Result<(), String> {
+fn empty() -> Result<(), String> {
     // SAFETY: called with the clipboard open.
     if unsafe { EmptyClipboard() } == 0 {
         return Err("could not empty the clipboard".into());
     }
-    write_block(register(OWNER_FORMAT), &next_mark().to_le_bytes())
+    Ok(())
+}
+
+fn untouched<T>(error: String) -> WriteError<T> {
+    WriteError::Failed { error, left: None }
 }
 
 impl super::Session for Held {
@@ -268,39 +299,72 @@ impl super::Session for Held {
         Ok(formats)
     }
 
-    fn replace_with_text(&mut self, text: &str) -> Result<(), String> {
-        empty_and_mark()?;
+    /// `expected` is not checked: the clipboard is held for the whole
+    /// session, so nothing can have changed since it was read.
+    fn replace_with_text(
+        &mut self,
+        text: &str,
+        _expected: &Owner,
+    ) -> Result<Owner, WriteError<Owner>> {
         let bytes: Vec<u8> = wide(text)
             .iter()
             .flat_map(|unit| unit.to_le_bytes())
             .collect();
-        write_block(CF_UNICODETEXT, &bytes)?;
+        let mark = Block::new(&next_mark().to_le_bytes()).map_err(untouched)?;
+        let body = Block::new(&bytes).map_err(untouched)?;
+        empty().map_err(untouched)?;
+        // Without the mark a later restore could not tell this text from a
+        // copy by someone else: that counts as a failed write.
+        let written = mark
+            .set(register(OWNER_FORMAT))
+            .and_then(|()| body.set(CF_UNICODETEXT));
+        if let Err(error) = written {
+            return Err(WriteError::Failed {
+                error,
+                left: Some(self.stamp()),
+            });
+        }
         write_exclusions(&[]);
-        Ok(())
+        Ok(self.stamp())
     }
 
-    fn replace_with(&mut self, snapshot: &Self::Snapshot) -> Result<(), String> {
+    /// `expected` is not checked, as in [`Self::replace_with_text`].
+    fn replace_with(
+        &mut self,
+        snapshot: &Self::Snapshot,
+        _expected: &Owner,
+    ) -> Result<Owner, WriteError<Owner>> {
         // An empty clipboard stays empty: no mark or markers on it.
         if snapshot.is_empty() {
-            // SAFETY: called with the clipboard open.
-            if unsafe { EmptyClipboard() } == 0 {
-                return Err("could not empty the clipboard".into());
-            }
-            return Ok(());
+            empty().map_err(untouched)?;
+            return Ok(self.stamp());
         }
-        let marked = empty_and_mark();
-        let failed: Vec<u32> = snapshot
+        let mark = Block::new(&next_mark().to_le_bytes()).map_err(untouched)?;
+        let blocks = snapshot
             .iter()
-            .filter(|(format, bytes)| write_block(*format, bytes).is_err())
-            .map(|(format, _)| *format)
+            .map(|(format, bytes)| Ok((*format, Block::new(bytes)?)))
+            .collect::<Result<Vec<_>, String>>()
+            .map_err(untouched)?;
+        empty().map_err(untouched)?;
+        // The mark goes first so that a restore failing part-way leaves a
+        // state the retry recognizes. Once every format is back it is no
+        // longer needed, so losing it alone is not a failure.
+        if let Err(error) = mark.set(register(OWNER_FORMAT)) {
+            log::warn!("clipboard owner mark not set: {error}");
+        }
+        let failed: Vec<u32> = blocks
+            .into_iter()
+            .filter_map(|(format, block)| block.set(format).err().map(|_| format))
             .collect();
         let present: Vec<u32> = snapshot.iter().map(|(format, _)| *format).collect();
         write_exclusions(&present);
-        marked?;
         if failed.is_empty() {
-            Ok(())
+            Ok(self.stamp())
         } else {
-            Err(format!("clipboard formats not restored: {failed:?}"))
+            Err(WriteError::Failed {
+                error: format!("clipboard formats not restored: {failed:?}"),
+                left: Some(self.stamp()),
+            })
         }
     }
 }
@@ -308,7 +372,8 @@ impl super::Session for Held {
 /// These use the real system clipboard, which is shared with the desktop and
 /// with every other test, so they are opt-in:
 /// `cargo test clipboard_preserve -- --ignored --test-threads=1`.
-/// They save the clipboard first and put it back at the end.
+/// They save the clipboard first and put it back when they end, a failing
+/// assertion included.
 #[cfg(test)]
 mod tests {
     use super::super::{Session, Store};
@@ -329,6 +394,33 @@ mod tests {
 
     fn capture() -> Vec<(u32, Vec<u8>)> {
         Clipboard.open().unwrap().capture().unwrap()
+    }
+
+    fn put(formats: &[(u32, Vec<u8>)]) {
+        // Not checked: the clipboard is held for the whole session.
+        let ignored = Owner(None);
+        Clipboard
+            .open()
+            .unwrap()
+            .replace_with(&formats.to_vec(), &ignored)
+            .unwrap();
+    }
+
+    /// The user's clipboard, put back on drop, panics included.
+    struct UsersClipboard(Vec<(u32, Vec<u8>)>);
+
+    impl UsersClipboard {
+        fn save() -> Self {
+            Self(capture())
+        }
+    }
+
+    impl Drop for UsersClipboard {
+        fn drop(&mut self) {
+            if let Ok(mut held) = Clipboard.open() {
+                let _ = held.replace_with(&self.0, &Owner(None));
+            }
+        }
     }
 
     fn utf16(text: &str) -> Vec<u8> {
@@ -373,9 +465,10 @@ mod tests {
     /// in one session.
     fn paste(text: &str) -> (Vec<(u32, Vec<u8>)>, Owner) {
         let mut held = Clipboard.open().unwrap();
+        let current = held.stamp();
         let snapshot = held.capture().unwrap();
-        held.replace_with_text(text).unwrap();
-        (snapshot, held.stamp())
+        let stamp = held.replace_with_text(text, &current).unwrap();
+        (snapshot, stamp)
     }
 
     #[test]
@@ -408,7 +501,7 @@ mod tests {
     #[test]
     #[ignore = "uses the live system clipboard"]
     fn text_html_files_and_images_survive_a_paste() {
-        let users = capture();
+        let _users = UsersClipboard::save();
 
         let html = register("HTML Format");
         let text = utf16("Кириллица, Latin, №1 — «спец» <&> \"' \t🙂");
@@ -426,10 +519,9 @@ mod tests {
         let pasted = crate::windows_util::clipboard_contains("диктовка");
         // Closing the clipboard adds synthesized formats; ownership survives.
         let still_ours = Clipboard.open().unwrap().stamp() == stamp;
-        Clipboard.open().unwrap().replace_with(&snapshot).unwrap();
+        put(&snapshot);
         let after = capture();
 
-        Clipboard.open().unwrap().replace_with(&users).unwrap();
         assert!(pasted);
         assert!(still_ours, "Sotto's own write must still count as its own");
         assert!(holds(&after, CF_UNICODETEXT, &text));
@@ -441,18 +533,17 @@ mod tests {
     #[test]
     #[ignore = "uses the live system clipboard"]
     fn an_empty_clipboard_stays_empty_and_a_newer_copy_is_detected() {
-        let users = capture();
+        let _users = UsersClipboard::save();
 
         foreign_copy(&[]);
         let (snapshot, stamp) = paste("диктовка");
-        Clipboard.open().unwrap().replace_with(&snapshot).unwrap();
+        put(&snapshot);
         let after = capture();
         let (_, stamp_again) = paste("диктовка");
         foreign_copy(&[(CF_UNICODETEXT, utf16("диктовка"))]);
         // Even a copy of the very same text is someone else's.
         let changed = Clipboard.open().unwrap().stamp() != stamp_again;
 
-        Clipboard.open().unwrap().replace_with(&users).unwrap();
         assert!(snapshot.is_empty());
         assert!(after.is_empty(), "{after:?}");
         assert!(stamp != stamp_again, "each write carries its own mark");

@@ -47,7 +47,7 @@ export function BehaviorSection({ config, onConfigChanged }: { config: ConfigRes
             <input className="checkbox" type="checkbox" checked={autoPaste} onChange={(e) => void onConfigChanged({ auto_paste: e.target.checked })}/>
             {t("Авто-вставка текста")}
           </label>
-          <HintIcon text={t("Сразу вставлять распознанный текст в активное поле. Если выключить, текст останется только в буфере обмена.")}/>
+          <HintIcon text={t("Сразу вставлять распознанный текст в активное поле. Если выключить, текст копируется в буфер обмена, а при «Не изменять буфер обмена» остаётся только в истории.")}/>
         </span>
         {/* Independent of auto-paste: with it off, the setting keeps the
             text off the clipboard altogether. */}

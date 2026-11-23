@@ -73,7 +73,9 @@ Pasting goes through the system clipboard, so by default the last dictated text 
 
 With **Keep clipboard unchanged** (`preserve_clipboard`) enabled, Sotto saves the clipboard before an automatic paste and puts it back about half a second later; with auto-paste off it does not copy the text at all, and the text stays in the history. The dictated text is marked so that Win+V history, the cloud clipboard and clipboard managers that honour the Windows exclusion formats or the macOS `org.nspasteboard.TransientType` convention do not record it. If you copy something during that half second, Sotto leaves your new contents in place instead of restoring the older ones.
 
-If the clipboard contents cannot be read in full, Sotto does not paste rather than lose part of them; the text is still saved in the history. With auto-paste off, a dictation counts as delivered only once it is saved in the history: if saving fails, Sotto copies the text to the clipboard after all and says so.
+If a format that the platform keeps (listed below) cannot be read in full, Sotto does not paste rather than lose part of the clipboard; the text is still saved in the history. Formats a platform does not keep are not covered by this check: they are lost after the paste, as are copied files and anything other than plain text or a single image on Linux. With auto-paste off, a dictation counts as delivered only once it is saved in the history: if saving fails, Sotto copies the text to the clipboard after all and says so.
+
+The restore is best effort. Sotto cannot tell when the target application has read the pasted text, only that the keystroke was sent; an application that reads the clipboard more than half a second later pastes your previous contents instead. The dictation is still in the history, and turning the option off returns to the default behavior.
 
 What is restored depends on the platform:
 
@@ -81,7 +83,7 @@ What is restored depends on the platform:
 - macOS: every type of every pasteboard item, including several copied files.
 - Linux: plain text or a single image only; other formats such as HTML or copied files are not kept.
 
-The restore needs the clipboard to be free. If another application holds it, or a format cannot be written back, Sotto tries again a few times and then on the next dictation; if Sotto quits first, the dictated text remains on the clipboard. On Windows, Sotto marks what it writes with a private `Sotto.ClipboardOwner` format, which stays on your restored contents, and checks for that mark while holding the clipboard open, so a copy made in the meantime is never overwritten. macOS has no such lock, so the check and the restore follow each other without waiting. Unless this option is enabled, the clipboard behaves as described above.
+The restore needs the clipboard to be free. If another application holds it, or a format cannot be written back, Sotto tries again a few times and then on the next dictation; if Sotto quits first, the dictated text remains on the clipboard. On Windows, Sotto marks what it writes with a private `Sotto.ClipboardOwner` format, which stays on your restored contents, and checks for that mark while holding the clipboard open, so a copy made in the meantime is never overwritten. macOS has no such lock: Sotto checks the pasteboard's change count as the last step before clearing it, which narrows the window for a copy made at that moment but does not close it. On Linux, Sotto recognizes its own write only by the text, so a copy of exactly the dictated text made before the restore is overwritten. Unless this option is enabled, the clipboard behaves as described above.
 
 Model cards take their speed from measurements bundled with the application and record nothing about your own dictations or model loads. Builds up to 0.1.3 kept such timings in the local database; a newer build deletes them on its first launch.
 

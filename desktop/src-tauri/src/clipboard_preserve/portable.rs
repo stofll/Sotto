@@ -7,7 +7,9 @@
 //! run on the thread `run_delivery` picks (the main thread off Windows),
 //! which the plugin warns can freeze on content copied from our own WebView,
 //! and a failed read is indistinguishable from an empty clipboard here. There
-//! is no change counter either, so ownership is judged by the text.
+//! is no change counter either, so ownership is judged by the text: a copy of
+//! exactly the dictated text made before the restore counts as Sotto's, and
+//! nothing re-checks the clipboard just before it is written.
 
 // Compiled into the tests on every platform so the Linux path cannot rot
 // unnoticed; only Linux calls it.
@@ -16,6 +18,8 @@
 use tauri::image::Image;
 use tauri::AppHandle;
 use tauri_plugin_clipboard_manager::ClipboardExt;
+
+use super::WriteError;
 
 pub struct Clipboard {
     app: AppHandle,
@@ -80,13 +84,28 @@ impl super::Session for Plugin {
         })
     }
 
-    fn replace_with_text(&mut self, text: &str) -> Result<(), String> {
-        crate::clipboard::copy_to_clipboard(&self.0, text)
+    /// `expected` is not checked here; see the module notes.
+    fn replace_with_text(
+        &mut self,
+        text: &str,
+        _expected: &Text,
+    ) -> Result<Text, WriteError<Text>> {
+        match crate::clipboard::copy_to_clipboard(&self.0, text) {
+            Ok(()) => Ok(Text(Some(text.to_string()))),
+            Err(error) => Err(WriteError::Failed {
+                error,
+                left: Some(self.stamp()),
+            }),
+        }
     }
 
-    fn replace_with(&mut self, snapshot: &Snapshot) -> Result<(), String> {
+    fn replace_with(
+        &mut self,
+        snapshot: &Snapshot,
+        _expected: &Text,
+    ) -> Result<Text, WriteError<Text>> {
         let clipboard = self.0.clipboard();
-        match snapshot {
+        let written = match snapshot {
             Snapshot::Empty => clipboard.clear(),
             Snapshot::Text(text) => clipboard.write_text(text.as_str()),
             Snapshot::Image {
@@ -94,7 +113,13 @@ impl super::Session for Plugin {
                 width,
                 height,
             } => clipboard.write_image(&Image::new_owned(rgba.clone(), *width, *height)),
+        };
+        match written {
+            Ok(()) => Ok(self.stamp()),
+            Err(error) => Err(WriteError::Failed {
+                error: error.to_string(),
+                left: Some(self.stamp()),
+            }),
         }
-        .map_err(|error| error.to_string())
     }
 }

@@ -5,16 +5,19 @@
 //! owner has not delivered is rendered on capture; a type that still yields
 //! no data fails the capture rather than being dropped.
 //!
-//! NSPasteboard has no lock another process would respect. A session is
-//! therefore a sequence with no waiting in it: `changeCount` is compared
-//! right before the write it guards, which leaves a window of a few calls
-//! rather than the wait for access that Windows needs.
+//! NSPasteboard has no lock another process would respect. `changeCount` is
+//! therefore compared as the last step before every clear, after the items
+//! to write are built, and a failed write's stamp is the count its own clear
+//! returned. That leaves a window of a few calls rather than the wait for
+//! access Windows needs; it is narrowed, not closed.
 
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2_app_kit::{NSPasteboard, NSPasteboardItem, NSPasteboardWriting};
 use objc2_foundation::{NSArray, NSData, NSString};
 use tauri::AppHandle;
+
+use super::WriteError;
 
 /// `NSPasteboardTypeString`.
 const PLAIN_TEXT: &str = "public.utf8-plain-text";
@@ -99,16 +102,24 @@ impl super::Session for Pasteboard {
             .collect()
     }
 
-    fn replace_with_text(&mut self, text: &str) -> Result<(), String> {
+    fn replace_with_text(
+        &mut self,
+        text: &str,
+        expected: &isize,
+    ) -> Result<isize, WriteError<isize>> {
         let item = item_with(&[
             (PLAIN_TEXT.to_string(), text.as_bytes().to_vec()),
             (TRANSIENT.to_string(), Vec::new()),
-        ])?;
-        self.0.clearContents();
-        write_items(&self.0, vec![item])
+        ])
+        .map_err(untouched)?;
+        self.write(vec![item], *expected)
     }
 
-    fn replace_with(&mut self, snapshot: &Self::Snapshot) -> Result<(), String> {
+    fn replace_with(
+        &mut self,
+        snapshot: &Self::Snapshot,
+        expected: &isize,
+    ) -> Result<isize, WriteError<isize>> {
         // Built before the pasteboard is cleared: a failure here leaves it as
         // it was.
         let items = snapshot
@@ -121,12 +132,44 @@ impl super::Session for Pasteboard {
                 }
                 Ok(item)
             })
-            .collect::<Result<Vec<_>, String>>()?;
-        self.0.clearContents();
+            .collect::<Result<Vec<_>, String>>()
+            .map_err(untouched)?;
+        self.write(items, *expected)
+    }
+}
+
+fn untouched(error: String) -> WriteError<isize> {
+    WriteError::Failed { error, left: None }
+}
+
+impl Pasteboard {
+    /// Clear the pasteboard and write `items`, unless its count moved past
+    /// `expected`. The check is the last step before the clear, with
+    /// everything to write already prepared; it narrows the window another
+    /// application could slip into, it does not close it.
+    fn write(
+        &self,
+        items: Vec<Retained<NSPasteboardItem>>,
+        expected: isize,
+    ) -> Result<isize, WriteError<isize>> {
+        if self.0.changeCount() != expected {
+            return Err(WriteError::Changed);
+        }
+        // The count our own clear produced: a failed write leaves this
+        // state, and a later read could already be someone else's.
+        let cleared = self.0.clearContents();
         // An empty pasteboard stays empty: no marker on it.
         if items.is_empty() {
-            return Ok(());
+            return Ok(cleared);
         }
-        write_items(&self.0, items)
+        match write_items(&self.0, items) {
+            // `writeObjects` after `clearContents` keeps the owner, so the
+            // count should not move; read it anyway in case it does.
+            Ok(()) => Ok(self.0.changeCount()),
+            Err(error) => Err(WriteError::Failed {
+                error,
+                left: Some(cleared),
+            }),
+        }
     }
 }

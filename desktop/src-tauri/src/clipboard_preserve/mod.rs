@@ -66,10 +66,41 @@ trait Session {
     /// supported part of them cannot be read: an empty clipboard and formats
     /// a platform deliberately leaves out are not failures.
     fn capture(&self) -> Result<Self::Snapshot, String>;
-    fn replace_with_text(&mut self, text: &str) -> Result<(), String>;
-    /// Fails when any part of `snapshot` could not be written; the clipboard
-    /// may then hold part of it.
-    fn replace_with(&mut self, snapshot: &Self::Snapshot) -> Result<(), String>;
+    /// Replace the contents with `text`, unless they changed since
+    /// `expected`. Returns the stamp of what was written.
+    fn replace_with_text(
+        &mut self,
+        text: &str,
+        expected: &Self::Stamp,
+    ) -> Result<Self::Stamp, WriteError<Self::Stamp>>;
+    /// Replace the contents with `snapshot`, unless they changed since
+    /// `expected`. Fails when any part of it could not be written; the
+    /// clipboard may then hold part of it.
+    fn replace_with(
+        &mut self,
+        snapshot: &Self::Snapshot,
+        expected: &Self::Stamp,
+    ) -> Result<Self::Stamp, WriteError<Self::Stamp>>;
+}
+
+/// Why a write did not go through.
+///
+/// `expected` is checked immediately before the clipboard is cleared, after
+/// everything to be written has been prepared. A backend that holds the
+/// clipboard for the whole session (Windows) cannot see a change and ignores
+/// it; one that cannot hold it (macOS) narrows the window to that moment.
+#[derive(Debug)]
+enum WriteError<T> {
+    /// Someone else wrote since `expected`; nothing was changed. Never
+    /// produced on Windows, where the clipboard is held instead.
+    #[cfg_attr(all(windows, not(test)), allow(dead_code))]
+    Changed,
+    Failed {
+        error: String,
+        /// The state the failed write left behind, which Sotto may still
+        /// write over; `None` when the clipboard was not changed.
+        left: Option<T>,
+    },
 }
 
 trait Store {
@@ -154,23 +185,30 @@ impl<S, T: PartialEq> Preserver<S, T> {
                 }
             },
         };
-        match session.replace_with_text(text) {
-            Ok(()) => {
-                let stamp = session.stamp();
-                Ok(self.park(snapshot, stamp))
-            }
-            // The write may have emptied the clipboard. Put the contents
-            // back while it is still held; only if that fails too is the
-            // capture left for a later restore.
-            Err(error) => match session.replace_with(&snapshot) {
-                Ok(()) => Err(BeginError { error, retry: None }),
-                Err(restore) => {
-                    let stamp = session.stamp();
-                    Err(BeginError {
-                        error: format!("{error}; restoring the clipboard failed: {restore}"),
-                        retry: Some(self.park(snapshot, stamp)),
-                    })
-                }
+        match session.replace_with_text(text, &current) {
+            Ok(stamp) => Ok(self.park(snapshot, stamp)),
+            // Someone copied after the capture: that copy is the user's data
+            // now, and nothing was written over it.
+            Err(WriteError::Changed) => Err(BeginError {
+                error: "the clipboard changed while the paste was prepared".into(),
+                retry: None,
+            }),
+            Err(WriteError::Failed { error, left: None }) => Err(BeginError { error, retry: None }),
+            // The write changed the clipboard. Put the contents back while it
+            // is still held; only if that fails too is the capture left for a
+            // later restore.
+            Err(WriteError::Failed {
+                error,
+                left: Some(left),
+            }) => match session.replace_with(&snapshot, &left) {
+                Ok(_) | Err(WriteError::Changed) => Err(BeginError { error, retry: None }),
+                Err(WriteError::Failed {
+                    error: restore,
+                    left: after,
+                }) => Err(BeginError {
+                    error: format!("{error}; restoring the clipboard failed: {restore}"),
+                    retry: Some(self.park(snapshot, after.unwrap_or(left))),
+                }),
             },
         }
     }
@@ -194,19 +232,18 @@ impl<S, T: PartialEq> Preserver<S, T> {
                 return Restore::Failed(error);
             }
         };
-        // Checked with the clipboard held, so nothing can land between this
-        // and the write.
         if session.stamp() != pending.stamp {
             return Restore::ChangedByUser;
         }
-        match session.replace_with(&pending.snapshot) {
-            Ok(()) => Restore::Restored,
-            Err(error) => {
-                // The failed attempt changed the clipboard itself; what it
-                // left is still ours to write over on the next try.
-                self.pending = Some(Pending {
-                    stamp: session.stamp(),
-                    ..pending
+        match session.replace_with(&pending.snapshot, &pending.stamp) {
+            Ok(_) => Restore::Restored,
+            Err(WriteError::Changed) => Restore::ChangedByUser,
+            Err(WriteError::Failed { error, left }) => {
+                // A failed attempt that changed the clipboard left a state
+                // that is still ours to write over on the next try.
+                self.pending = Some(match left {
+                    Some(stamp) => Pending { stamp, ..pending },
+                    None => pending,
                 });
                 Restore::Failed(error)
             }
@@ -273,8 +310,11 @@ fn schedule_restore(app: &AppHandle, generation: u64, attempt: u32) {
                 log::warn!("clipboard restore not scheduled: {error}");
             }
         });
-    if spawned.is_err() && attempt == 1 {
-        // Early is better than never: the user's contents would be lost.
+    if spawned.is_err() {
+        // Early is better than never: the user's contents would be lost. This
+        // runs on the delivery thread like the scheduled attempt would: it is
+        // reached from a delivery job, the first time from the paste and
+        // later from the failed attempt. No further retry is scheduled.
         restore_now(app, generation, MAX_RESTORE_ATTEMPTS);
     }
 }
@@ -311,6 +351,12 @@ mod tests {
         changes: u32,
         /// Another application copying this while we wait for access.
         copied_while_opening: Option<String>,
+        /// Another application copying this right after the capture, before
+        /// the clipboard is cleared (no lock on macOS).
+        copied_after_capture: Option<String>,
+        /// Another application copying this while a restore prepares its
+        /// items, after the ownership check.
+        copied_before_restore: Option<String>,
         busy: bool,
         fail_capture: bool,
         fail_write: bool,
@@ -366,31 +412,58 @@ mod tests {
             self.0.borrow().changes
         }
         fn capture(&self) -> Result<Option<String>, String> {
-            let state = self.0.borrow();
+            let mut state = self.0.borrow_mut();
             if state.fail_capture {
                 return Err("unreadable format".into());
             }
-            Ok(state.contents.clone())
+            let contents = state.contents.clone();
+            if let Some(text) = state.copied_after_capture.take() {
+                state.set(Some(text));
+            }
+            Ok(contents)
         }
-        fn replace_with_text(&mut self, text: &str) -> Result<(), String> {
+        fn replace_with_text(
+            &mut self,
+            text: &str,
+            expected: &u32,
+        ) -> Result<u32, WriteError<u32>> {
             let mut state = self.0.borrow_mut();
+            if state.changes != *expected {
+                return Err(WriteError::Changed);
+            }
             // Emptied first, as the native backends do.
             state.set(None);
             if state.fail_write {
-                return Err("write failed".into());
+                return Err(WriteError::Failed {
+                    error: "write failed".into(),
+                    left: Some(state.changes),
+                });
             }
             state.set(Some(text.to_string()));
-            Ok(())
+            Ok(state.changes)
         }
-        fn replace_with(&mut self, snapshot: &Option<String>) -> Result<(), String> {
+        fn replace_with(
+            &mut self,
+            snapshot: &Option<String>,
+            expected: &u32,
+        ) -> Result<u32, WriteError<u32>> {
             let mut state = self.0.borrow_mut();
+            if let Some(text) = state.copied_before_restore.take() {
+                state.set(Some(text));
+            }
+            if state.changes != *expected {
+                return Err(WriteError::Changed);
+            }
             if state.failing_restores > 0 {
                 state.failing_restores -= 1;
                 state.set(Some("частично".into()));
-                return Err("format not restored".into());
+                return Err(WriteError::Failed {
+                    error: "format not restored".into(),
+                    left: Some(state.changes),
+                });
             }
             state.set(snapshot.clone());
-            Ok(())
+            Ok(state.changes)
         }
     }
 
@@ -466,6 +539,52 @@ mod tests {
         clipboard.with(|s| s.copied_while_opening = Some("новое".into()));
         let second = state.begin(&clipboard, "вторая").unwrap();
         assert_eq!(state.restore(second, &clipboard), Restore::Restored);
+        assert_eq!(clipboard.contents().as_deref(), Some("новое"));
+    }
+
+    #[test]
+    fn a_copy_made_between_capture_and_write_is_kept_and_nothing_is_pasted() {
+        // macOS cannot hold the pasteboard: the count is checked again
+        // right before it is cleared.
+        let clipboard = Fake::holding("старое");
+        clipboard.with(|s| s.copied_after_capture = Some("новое".into()));
+        let mut state = FakePreserver::new();
+        let error = state.begin(&clipboard, "диктовка").unwrap_err();
+        assert!(error.retry.is_none());
+        assert!(state.pending.is_none());
+        assert_eq!(clipboard.contents().as_deref(), Some("новое"));
+    }
+
+    #[test]
+    fn a_copy_made_while_a_restore_prepares_is_not_overwritten() {
+        let clipboard = Fake::holding("старое");
+        let mut state = FakePreserver::new();
+        let generation = state.begin(&clipboard, "диктовка").unwrap();
+        clipboard.with(|s| s.copied_before_restore = Some("новое".into()));
+        assert_eq!(
+            state.restore(generation, &clipboard),
+            Restore::ChangedByUser
+        );
+        assert_eq!(clipboard.contents().as_deref(), Some("новое"));
+    }
+
+    #[test]
+    fn a_copy_made_while_a_retry_prepares_is_not_overwritten() {
+        // The retry writes only over the state its failed attempt reported
+        // leaving, and checks it again right before clearing.
+        let clipboard = Fake::holding("мой текст");
+        let mut state = FakePreserver::new();
+        let generation = state.begin(&clipboard, "диктовка").unwrap();
+        clipboard.with(|s| s.failing_restores = 1);
+        assert!(matches!(
+            state.restore(generation, &clipboard),
+            Restore::Failed(_)
+        ));
+        clipboard.with(|s| s.copied_before_restore = Some("новое".into()));
+        assert_eq!(
+            state.restore(generation, &clipboard),
+            Restore::ChangedByUser
+        );
         assert_eq!(clipboard.contents().as_deref(), Some("новое"));
     }
 

@@ -227,7 +227,10 @@ pub fn deliver(app: AppHandle, text: String, options: DeliveryOptions) -> Result
         ));
     }
     let result = crate::clipboard_preserve::paste_preserving(&app, &text, || {
-        send_paste(&app, &text)?;
+        // The old clipboard comes back after this, so the text is not left
+        // there to paste by hand.
+        send_paste(&app, &text)
+            .map_err(|error| format!("{error}; the text is saved in the history"))?;
         submit_if_requested(options);
         Ok(())
     });
@@ -502,7 +505,7 @@ pub fn paste_text(app: AppHandle, text: String) -> Result<(), String> {
             "Текст скопирован. Нажмите ⌘V для вставки. Для автоматической вставки разрешите Sotto доступ в настройках универсального доступа macOS.",
         ));
     }
-    send_paste(&app, &text)
+    send_paste(&app, &text).map_err(|error| format!("{error}; the text is on the clipboard"))
 }
 
 /// The keystroke half of [`paste_text`], for `text` already on the clipboard.

@@ -359,7 +359,7 @@ impl Dispatcher {
         let session_id = paste.session_id;
         let (app, state, recorder) = (self.app.clone(), self.state.clone(), self.telemetry.clone());
         let queued = std::time::Instant::now();
-        let scheduled = crate::clipboard::run_delivery(&self.app, move || {
+        let job = move || {
             let started = std::time::Instant::now();
             let queue_ms = queued.elapsed().as_millis();
             // Measured on the text that is actually going in: `whisper-done`
@@ -423,14 +423,23 @@ impl Dispatcher {
                 started.elapsed().as_millis()
             );
             dictation::finish(&state, session_id);
-        });
-        if scheduled.is_err() {
+        };
+        // Saved in the history, nothing to paste or copy: no clipboard, focus
+        // or keystroke is involved, so nothing has to wait for the delivery
+        // thread — or fail because it is gone.
+        if delivery.history_only() {
+            job();
+            return;
+        }
+        if crate::clipboard::run_delivery(&self.app, job).is_err() {
+            let message = if history_unsaved {
+                crate::ui_text::t("Не удалось сохранить текст в историю или скопировать его.")
+            } else {
+                crate::ui_text::t("Не удалось вставить текст в активное окно.")
+            };
             let _ = self.app.emit(
                 "paste-failed",
-                serde_json::json!({
-                    "session_id": session_id,
-                    "message": crate::ui_text::t("Не удалось вставить текст в активное окно."),
-                }),
+                serde_json::json!({ "session_id": session_id, "message": message }),
             );
             dictation::finish(&self.state, session_id);
         }
