@@ -141,7 +141,9 @@ pub fn force_focus(hwnd: HWND) -> Result<(), String> {
         }
         SetForegroundWindow(hwnd);
         if GetForegroundWindow() != hwnd {
-            return Err("could not restore paste target focus; text is on the clipboard".into());
+            // Where the text can be found instead is the caller's to say:
+            // a preserving paste puts the old clipboard back.
+            return Err("could not restore paste target focus".into());
         }
     }
     Ok(())

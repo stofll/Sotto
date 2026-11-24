@@ -250,11 +250,29 @@ impl Dispatcher {
         // Claimed before the paste, whose `dictation::finish` would otherwise
         // let the recording go without its history entry.
         let recording_file = self.state.pending_recordings.take(inference.session_id);
-        // The text goes in first; the database write does not hold it up.
-        self.paste(paste, config.as_ref());
-        let entry_id = self
-            .record(session_id, &inference, processed, recording_file)
-            .await;
+        let delivery = config
+            .as_ref()
+            .map(|cfg| crate::clipboard::DeliveryOptions::from_config(cfg.as_value()))
+            .unwrap_or_default();
+        let entry_id = if delivery.waits_for_history() {
+            // The history may be the only copy of this text: deliver it only
+            // once the write is known, so a failure can say where the text is.
+            let entry_id = self
+                .record(session_id, &inference, processed, recording_file)
+                .await;
+            let history = if entry_id.is_some() {
+                History::Saved
+            } else {
+                History::Unsaved
+            };
+            self.paste(paste, delivery, history);
+            entry_id
+        } else {
+            // The text goes in first; the database write does not hold it up.
+            self.paste(paste, delivery, History::NotAwaited);
+            self.record(session_id, &inference, processed, recording_file)
+                .await
+        };
         // History and statistics re-fetch on this.
         let _ = self.app.emit(
             "history-updated",
@@ -279,8 +297,9 @@ impl Dispatcher {
     }
 
     /// Stats and history on a blocking worker: the connection guard must not
-    /// be held across an `.await`. Failures are logged, never fatal: the paste
-    /// has already been scheduled. Returns the new history entry.
+    /// be held across an `.await`. Failures are logged here; the caller
+    /// decides what a missing entry means for the delivery. Returns the new
+    /// history entry.
     async fn record(
         &self,
         session_id: u64,
@@ -290,70 +309,25 @@ impl Dispatcher {
     ) -> Option<u64> {
         let started = std::time::Instant::now();
         let db = self.state.db.clone();
-        let language = inference.language.clone();
-        let transcription_model = inference.model_id.clone();
-        let inference_ms = inference.inference_time_ms;
-        let audio_seconds = inference.audio_seconds;
-        let speech_seconds = inference.speech_seconds;
-        let inference_session = inference.session_id;
-        let recording_file = recording_file.await;
-        let written = tokio::task::spawn_blocking(move || {
-            let ProcessedTranscription {
-                raw_text,
-                formatted_text,
-                final_text,
-                ai_json,
-                ai_status,
-                timings,
-                system_prompt,
-                late_answer: _,
-            } = processed;
-            let stats_json = timings.history_json(audio_seconds, speech_seconds);
-            // LLM outcome first: it is the one aggregate that survives history
-            // pruning, so it must not be skipped when a later write fails.
-            if let Some(status) = &ai_status {
-                if let Err(e) = crate::stats::record_ai_outcome(&db, status) {
-                    log::warn!("llm stats write failed (non-fatal): {e}");
-                }
-            }
-            crate::stats::record_transcription(
-                &db,
-                &final_text,
-                language.as_deref(),
-                timings,
-                audio_seconds,
-                crate::stats::TIME_SAVED_CPM_FALLBACK,
-                speech_seconds,
-            )
-            .and_then(|_| {
-                crate::history::append_entry(
-                    &db,
-                    &crate::history::NewEntry {
-                        text: &final_text,
-                        raw_text: &raw_text,
-                        formatted_text: &formatted_text,
-                        session_id: Some(inference_session),
-                        language: language.as_deref(),
-                        inference_time_ms: inference_ms,
-                        ai_processing_json: ai_json.as_deref(),
-                        processing_stats_json: Some(&stats_json),
-                        system_prompt: system_prompt.as_deref(),
-                        transcription_model: transcription_model.as_deref(),
-                        recording_file: recording_file.as_deref(),
-                    },
-                )
-            })
-            .map_err(|e| e.to_string())
-        })
-        .await;
+        let record = DictationRecord {
+            processed,
+            language: inference.language.clone(),
+            transcription_model: inference.model_id.clone(),
+            inference_ms: inference.inference_time_ms,
+            audio_seconds: inference.audio_seconds,
+            speech_seconds: inference.speech_seconds,
+            session: inference.session_id,
+            recording_file: recording_file.await,
+        };
+        let written = tokio::task::spawn_blocking(move || persist_dictation(&db, record)).await;
         let entry_id = match written {
             Ok(Ok(id)) => Some(id),
             Ok(Err(e)) => {
-                log::warn!("stats/history write failed (non-fatal): {e}");
+                log::warn!("history write failed: {e}");
                 None
             }
             Err(_) => {
-                log::warn!("stats/history worker channel closed (non-fatal)");
+                log::warn!("stats/history worker channel closed");
                 None
             }
         };
@@ -368,27 +342,51 @@ impl Dispatcher {
     /// `paste-done` follow the paste result: the overlay waits for it before
     /// claiming anything was inserted, which keeps it quiet while a slow LLM
     /// is still working.
-    fn paste(&self, paste: PendingPaste, config: Option<&crate::config::Config>) {
-        // Read here rather than inside the delivery call, which on macOS runs
-        // on the main thread.
-        let delivery = config
-            .map(|cfg| crate::clipboard::DeliveryOptions::from_config(cfg.as_value()))
-            .unwrap_or_default();
+    ///
+    /// `history`: what is known about the history entry. When the text was
+    /// meant for the history alone and could not be saved there, `delivery`
+    /// copies it instead. That is reported as a failure carrying the way to
+    /// recover the text, not as success.
+    fn paste(
+        &self,
+        paste: PendingPaste,
+        delivery: crate::clipboard::DeliveryOptions,
+        history: History,
+    ) {
+        let history_unsaved = delivery.history_only() && history == History::Unsaved;
+        let history_saved = history == History::Saved;
+        let delivery = delivery.after_history_write(history != History::Unsaved);
         let success = if delivery.auto_paste {
             telemetry::PasteResult::Success
+        } else if delivery.history_only() {
+            // Neither pasted nor copied: the text stays in the history.
+            telemetry::PasteResult::NotApplicable
         } else {
             telemetry::PasteResult::ClipboardOnly
         };
         let session_id = paste.session_id;
         let (app, state, recorder) = (self.app.clone(), self.state.clone(), self.telemetry.clone());
         let queued = std::time::Instant::now();
-        let scheduled = crate::clipboard::run_delivery(&self.app, move || {
+        let job = move || {
             let started = std::time::Instant::now();
             let queue_ms = queued.elapsed().as_millis();
             // Measured on the text that is actually going in: `whisper-done`
             // counted the pre-cleanup draft.
             let length = paste.text.chars().count();
-            match crate::clipboard::deliver(app.clone(), paste.text, delivery) {
+            match crate::clipboard::deliver(app.clone(), paste.text, delivery, history_saved) {
+                Ok(()) if history_unsaved => {
+                    crate::sounds::play(&app, crate::sounds::Cue::Error);
+                    let _ = app.emit(
+                        "paste-failed",
+                        serde_json::json!({
+                            "session_id": session_id,
+                            "message": crate::ui_text::t(
+                                "Не удалось сохранить текст в историю. Он скопирован в буфер обмена."
+                            ),
+                        }),
+                    );
+                    paste.telemetry.record(&recorder, length, success);
+                }
                 Ok(()) => {
                     crate::sounds::play(&app, crate::sounds::Cue::Done);
                     let _ = app.emit(
@@ -404,10 +402,14 @@ impl Dispatcher {
                 Err(e) => {
                     log::error!("paste failed: {e}");
                     crate::sounds::play(&app, crate::sounds::Cue::Error);
-                    let message = format!(
-                        "{} {e}",
+                    let cause = if history_unsaved {
+                        crate::ui_text::t(
+                            "Не удалось сохранить текст в историю или скопировать его.",
+                        )
+                    } else {
                         crate::ui_text::t("Не удалось вставить текст в активное окно.")
-                    );
+                    };
+                    let message = format!("{cause} {e}");
                     let _ = app.emit(
                         "app-error",
                         serde_json::json!({ "kind": "paste", "message": message }),
@@ -429,14 +431,23 @@ impl Dispatcher {
                 started.elapsed().as_millis()
             );
             dictation::finish(&state, session_id);
-        });
-        if scheduled.is_err() {
+        };
+        // Saved in the history, nothing to paste or copy: no clipboard, focus
+        // or keystroke is involved, so nothing has to wait for the delivery
+        // thread — or fail because it is gone.
+        if delivery.history_only() {
+            job();
+            return;
+        }
+        if crate::clipboard::run_delivery(&self.app, job).is_err() {
+            let message = if history_unsaved {
+                crate::ui_text::t("Не удалось сохранить текст в историю или скопировать его.")
+            } else {
+                crate::ui_text::t("Не удалось вставить текст в активное окно.")
+            };
             let _ = self.app.emit(
                 "paste-failed",
-                serde_json::json!({
-                    "session_id": session_id,
-                    "message": crate::ui_text::t("Не удалось вставить текст в активное окно."),
-                }),
+                serde_json::json!({ "session_id": session_id, "message": message }),
             );
             dictation::finish(&self.state, session_id);
         }
@@ -449,6 +460,15 @@ struct PendingPaste {
     text: String,
     ai: Option<serde_json::Value>,
     telemetry: DictationTelemetry,
+}
+
+/// The history entry as the delivery sees it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum History {
+    /// Written after the delivery: the delivery does not depend on it.
+    NotAwaited,
+    Saved,
+    Unsaved,
 }
 
 /// The completed-dictation telemetry, captured before the paste so the
@@ -510,5 +530,155 @@ impl DictationTelemetry {
             replacement_rules: self.replacement_rules,
             paste_result,
         });
+    }
+}
+
+/// A finished dictation as the database receives it.
+struct DictationRecord {
+    processed: ProcessedTranscription,
+    language: Option<String>,
+    transcription_model: Option<String>,
+    inference_ms: u64,
+    audio_seconds: f64,
+    speech_seconds: Option<f64>,
+    session: u64,
+    recording_file: Option<String>,
+}
+
+/// Save `record` to statistics and history. Returns the history entry.
+///
+/// The history entry is the transcript itself, so only its failure is an
+/// error. Statistics are aggregates: a failed write is logged and must not
+/// keep the text from being saved.
+fn persist_dictation(
+    db: &std::sync::Mutex<rusqlite::Connection>,
+    record: DictationRecord,
+) -> Result<u64, String> {
+    let DictationRecord {
+        processed,
+        language,
+        transcription_model,
+        inference_ms,
+        audio_seconds,
+        speech_seconds,
+        session,
+        recording_file,
+    } = record;
+    let ProcessedTranscription {
+        raw_text,
+        formatted_text,
+        final_text,
+        ai_json,
+        ai_status,
+        timings,
+        system_prompt,
+        late_answer: _,
+    } = processed;
+    let stats_json = timings.history_json(audio_seconds, speech_seconds);
+    // LLM outcome first: it is the one aggregate that survives history
+    // pruning, so it must not be skipped when a later write fails.
+    if let Some(status) = &ai_status {
+        if let Err(e) = crate::stats::record_ai_outcome(db, status) {
+            log::warn!("llm stats write failed (non-fatal): {e}");
+        }
+    }
+    if let Err(e) = crate::stats::record_transcription(
+        db,
+        &final_text,
+        language.as_deref(),
+        timings,
+        audio_seconds,
+        crate::stats::TIME_SAVED_CPM_FALLBACK,
+        speech_seconds,
+    ) {
+        log::warn!("stats write failed (non-fatal): {e}");
+    }
+    crate::history::append_entry(
+        db,
+        &crate::history::NewEntry {
+            text: &final_text,
+            raw_text: &raw_text,
+            formatted_text: &formatted_text,
+            session_id: Some(session),
+            language: language.as_deref(),
+            inference_time_ms: inference_ms,
+            ai_processing_json: ai_json.as_deref(),
+            processing_stats_json: Some(&stats_json),
+            system_prompt: system_prompt.as_deref(),
+            transcription_model: transcription_model.as_deref(),
+            recording_file: recording_file.as_deref(),
+        },
+    )
+    .map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod persist_tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    fn database() -> Mutex<rusqlite::Connection> {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        crate::db::run_migrations(&conn).unwrap();
+        Mutex::new(conn)
+    }
+
+    fn record(text: &str) -> DictationRecord {
+        DictationRecord {
+            processed: ProcessedTranscription {
+                raw_text: text.into(),
+                formatted_text: text.into(),
+                final_text: text.into(),
+                ai_json: None,
+                ai_status: None,
+                timings: crate::stats::ProcessingTimings::new(100, std::time::Duration::ZERO, 0.0),
+                system_prompt: None,
+                late_answer: None,
+            },
+            language: Some("ru".into()),
+            transcription_model: Some("gigaam-v3".into()),
+            inference_ms: 100,
+            audio_seconds: 2.0,
+            speech_seconds: Some(1.5),
+            session: 7,
+            recording_file: None,
+        }
+    }
+
+    fn history_texts(db: &Mutex<rusqlite::Connection>) -> Vec<String> {
+        let conn = db.lock().unwrap();
+        let mut statement = conn.prepare("SELECT text FROM history").unwrap();
+        let rows = statement.query_map([], |row| row.get(0)).unwrap();
+        rows.map(Result::unwrap).collect()
+    }
+
+    #[test]
+    fn a_dictation_is_saved_to_history() {
+        let db = database();
+        assert!(persist_dictation(&db, record("диктовка")).is_ok());
+        assert_eq!(history_texts(&db), ["диктовка"]);
+    }
+
+    #[test]
+    fn a_statistics_failure_does_not_keep_the_text_out_of_history() {
+        let db = database();
+        db.lock()
+            .unwrap()
+            .execute_batch("DROP TABLE stats_daily")
+            .unwrap();
+        assert!(persist_dictation(&db, record("диктовка")).is_ok());
+        assert_eq!(history_texts(&db), ["диктовка"]);
+    }
+
+    #[test]
+    fn a_failed_history_write_is_reported() {
+        // What a full disk or a broken database looks like to the delivery:
+        // the history-only mode must not report success after this.
+        let db = database();
+        db.lock()
+            .unwrap()
+            .execute_batch("DROP TABLE history")
+            .unwrap();
+        assert!(persist_dictation(&db, record("диктовка")).is_err());
     }
 }

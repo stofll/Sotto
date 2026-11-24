@@ -32,6 +32,7 @@ mod audio_worker;
 #[cfg(any(target_os = "macos", test))]
 mod autostart;
 mod clipboard;
+mod clipboard_preserve;
 pub mod cloud_stt;
 pub mod config;
 mod db;
