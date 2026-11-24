@@ -29,7 +29,7 @@ use windows_sys::Win32::System::DataExchange::{
     GetClipboardFormatNameW, OpenClipboard, RegisterClipboardFormatW, SetClipboardData,
 };
 use windows_sys::Win32::System::Memory::{
-    GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock, GMEM_MOVEABLE,
+    GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock, GMEM_MOVEABLE, GMEM_ZEROINIT,
 };
 
 const CF_UNICODETEXT: u32 = 13;
@@ -191,9 +191,11 @@ struct Block(HGLOBAL);
 impl Block {
     fn new(bytes: &[u8]) -> Result<Self, String> {
         // SAFETY: the block is allocated with room for `bytes` and written
-        // while locked.
+        // while locked. It is zeroed first: `GlobalAlloc` may round the size
+        // up, and the whole block — tail included — is published and later
+        // read back up to `GlobalSize`.
         unsafe {
-            let block = GlobalAlloc(GMEM_MOVEABLE, bytes.len().max(1));
+            let block = GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, bytes.len().max(1));
             if block.is_null() {
                 return Err("out of memory".into());
             }

@@ -254,18 +254,22 @@ impl Dispatcher {
             .as_ref()
             .map(|cfg| crate::clipboard::DeliveryOptions::from_config(cfg.as_value()))
             .unwrap_or_default();
-        let entry_id = if delivery.history_only() {
-            // The history is the only place this text goes: report success
-            // only once it is saved there, and copy it if it could not be.
+        let entry_id = if delivery.waits_for_history() {
+            // The history may be the only copy of this text: deliver it only
+            // once the write is known, so a failure can say where the text is.
             let entry_id = self
                 .record(session_id, &inference, processed, recording_file)
                 .await;
-            let saved = entry_id.is_some();
-            self.paste(paste, delivery.after_history_write(saved), !saved);
+            let history = if entry_id.is_some() {
+                History::Saved
+            } else {
+                History::Unsaved
+            };
+            self.paste(paste, delivery, history);
             entry_id
         } else {
             // The text goes in first; the database write does not hold it up.
-            self.paste(paste, delivery, false);
+            self.paste(paste, delivery, History::NotAwaited);
             self.record(session_id, &inference, processed, recording_file)
                 .await
         };
@@ -339,15 +343,19 @@ impl Dispatcher {
     /// claiming anything was inserted, which keeps it quiet while a slow LLM
     /// is still working.
     ///
-    /// `history_unsaved`: the text was meant for the history alone and could
-    /// not be saved there, so `delivery` copies it instead. That is reported
-    /// as a failure carrying the way to recover the text, not as success.
+    /// `history`: what is known about the history entry. When the text was
+    /// meant for the history alone and could not be saved there, `delivery`
+    /// copies it instead. That is reported as a failure carrying the way to
+    /// recover the text, not as success.
     fn paste(
         &self,
         paste: PendingPaste,
         delivery: crate::clipboard::DeliveryOptions,
-        history_unsaved: bool,
+        history: History,
     ) {
+        let history_unsaved = delivery.history_only() && history == History::Unsaved;
+        let history_saved = history == History::Saved;
+        let delivery = delivery.after_history_write(history != History::Unsaved);
         let success = if delivery.auto_paste {
             telemetry::PasteResult::Success
         } else if delivery.history_only() {
@@ -365,7 +373,7 @@ impl Dispatcher {
             // Measured on the text that is actually going in: `whisper-done`
             // counted the pre-cleanup draft.
             let length = paste.text.chars().count();
-            match crate::clipboard::deliver(app.clone(), paste.text, delivery) {
+            match crate::clipboard::deliver(app.clone(), paste.text, delivery, history_saved) {
                 Ok(()) if history_unsaved => {
                     crate::sounds::play(&app, crate::sounds::Cue::Error);
                     let _ = app.emit(
@@ -452,6 +460,15 @@ struct PendingPaste {
     text: String,
     ai: Option<serde_json::Value>,
     telemetry: DictationTelemetry,
+}
+
+/// The history entry as the delivery sees it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum History {
+    /// Written after the delivery: the delivery does not depend on it.
+    NotAwaited,
+    Saved,
+    Unsaved,
 }
 
 /// The completed-dictation telemetry, captured before the paste so the

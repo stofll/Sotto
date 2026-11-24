@@ -102,6 +102,15 @@ impl DeliveryOptions {
         !self.auto_paste && self.preserve_clipboard
     }
 
+    /// The history write has to finish before the text goes out. With the
+    /// clipboard preserved the history may be the only copy left: the
+    /// history-only mode delivers nothing else, and a preserving paste
+    /// takes the text off the clipboard afterwards. What happens when the
+    /// delivery fails depends on whether the history has it.
+    pub fn waits_for_history(self) -> bool {
+        self.preserve_clipboard
+    }
+
     /// The delivery to run once the history write is known. When the
     /// history is the only destination and the write failed, the text is
     /// copied after all: a transcript the user can still paste beats one
@@ -192,8 +201,18 @@ fn queue_delivery(job: DeliveryJob) -> Result<(), String> {
 
 /// Hand the finished text to the user according to `options`.
 ///
+/// `history_saved`: the text is known to be in the history. Only read with
+/// the clipboard preserved, where the dispatcher waits for that write: a
+/// failed paste then leaves the text on the clipboard unless the history
+/// has it.
+///
 /// Runs inside [`run_delivery`], like [`paste_text`].
-pub fn deliver(app: AppHandle, text: String, options: DeliveryOptions) -> Result<(), String> {
+pub fn deliver(
+    app: AppHandle,
+    text: String,
+    options: DeliveryOptions,
+    history_saved: bool,
+) -> Result<(), String> {
     let text = apply_delivery_text(&text, options);
     if !options.auto_paste {
         // With the clipboard preserved there is nothing to deliver to: the
@@ -226,11 +245,18 @@ pub fn deliver(app: AppHandle, text: String, options: DeliveryOptions) -> Result
             "Для автоматической вставки разрешите Sotto доступ в настройках универсального доступа macOS.",
         ));
     }
-    let result = crate::clipboard_preserve::paste_preserving(&app, &text, || {
-        // The old clipboard comes back after this, so the text is not left
-        // there to paste by hand.
-        send_paste(&app, &text)
-            .map_err(|error| format!("{error}; the text is saved in the history"))?;
+    let result = crate::clipboard_preserve::paste_preserving(&app, &text, history_saved, || {
+        send_paste(&app, &text).map_err(|error| {
+                if history_saved {
+                    // The old clipboard comes back after this, so the text
+                    // is not left there to paste by hand.
+                    format!("{error}; the text is saved in the history")
+                } else {
+                    format!(
+                        "{error}; saving it in the history failed too, so the text is left on the clipboard"
+                    )
+                }
+            })?;
         submit_if_requested(options);
         Ok(())
     });
@@ -707,6 +733,19 @@ mod delivery_tests {
         assert!(options.trailing_space);
         assert!(options.auto_submit);
         assert!(options.preserve_clipboard);
+    }
+
+    #[test]
+    fn only_a_preserved_clipboard_waits_for_the_history_write() {
+        let options = |auto_paste, preserve_clipboard| DeliveryOptions {
+            auto_paste,
+            preserve_clipboard,
+            ..DeliveryOptions::default()
+        };
+        assert!(options(true, true).waits_for_history());
+        assert!(options(false, true).waits_for_history());
+        assert!(!options(true, false).waits_for_history());
+        assert!(!options(false, false).waits_for_history());
     }
 
     #[test]

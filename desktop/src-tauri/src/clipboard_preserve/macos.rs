@@ -155,17 +155,18 @@ impl Pasteboard {
         if self.0.changeCount() != expected {
             return Err(WriteError::Changed);
         }
-        // The count our own clear produced: a failed write leaves this
-        // state, and a later read could already be someone else's.
+        // The count our own clear produced. It is the stamp of this write
+        // whether or not the items go in: `writeObjects` after `clearContents`
+        // keeps the owner and does not move the count, so a later read could
+        // only ever be someone else's copy. Should the count move after all,
+        // the restore sees a mismatch and leaves the pasteboard alone.
         let cleared = self.0.clearContents();
         // An empty pasteboard stays empty: no marker on it.
         if items.is_empty() {
             return Ok(cleared);
         }
         match write_items(&self.0, items) {
-            // `writeObjects` after `clearContents` keeps the owner, so the
-            // count should not move; read it anyway in case it does.
-            Ok(()) => Ok(self.0.changeCount()),
+            Ok(()) => Ok(cleared),
             Err(error) => Err(WriteError::Failed {
                 error,
                 left: Some(cleared),

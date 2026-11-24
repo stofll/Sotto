@@ -91,9 +91,10 @@ trait Session {
 /// it; one that cannot hold it (macOS) narrows the window to that moment.
 #[derive(Debug)]
 enum WriteError<T> {
-    /// Someone else wrote since `expected`; nothing was changed. Never
-    /// produced on Windows, where the clipboard is held instead.
-    #[cfg_attr(all(windows, not(test)), allow(dead_code))]
+    /// Someone else wrote since `expected`; nothing was changed. Only the
+    /// macOS backend produces it: Windows holds the clipboard instead, and
+    /// the portable backend cannot see a change.
+    #[cfg_attr(all(not(target_os = "macos"), not(test)), allow(dead_code))]
     Changed,
     Failed {
         error: String,
@@ -284,9 +285,15 @@ static STATE: std::sync::Mutex<NativePreserver> = std::sync::Mutex::new(Preserve
 ///
 /// Nothing is pasted when the contents cannot be captured: pasting anyway
 /// would lose exactly what the setting promises to keep.
+///
+/// `restore_after_failure`: whether the contents come back when `paste`
+/// fails. Off when the text has no other copy: it is then left on the
+/// clipboard to paste by hand. The capture stays pending, so the next
+/// preserving paste over that text still puts the user's contents back.
 pub fn paste_preserving(
     app: &AppHandle,
     text: &str,
+    restore_after_failure: bool,
     paste: impl FnOnce() -> Result<(), String>,
 ) -> Result<(), String> {
     let store = native::Clipboard::new(app);
@@ -303,21 +310,29 @@ pub fn paste_preserving(
         }
     };
     // Dropped on every way out of `paste`, a panic included.
-    let _restore = ScheduledRestore {
+    let mut restore = ScheduledRestore {
         app: app.clone(),
         generation,
+        armed: true,
     };
-    paste()
+    let result = paste();
+    if result.is_err() && !restore_after_failure {
+        restore.armed = false;
+    }
+    result
 }
 
 struct ScheduledRestore {
     app: AppHandle,
     generation: u64,
+    armed: bool,
 }
 
 impl Drop for ScheduledRestore {
     fn drop(&mut self) {
-        schedule_restore(&self.app, self.generation, 1);
+        if self.armed {
+            schedule_restore(&self.app, self.generation, 1);
+        }
     }
 }
 
