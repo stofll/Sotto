@@ -241,29 +241,52 @@ pub fn deliver(
     #[cfg(target_os = "macos")]
     if !crate::accessibility::is_accessibility_granted() {
         crate::accessibility::emit_accessibility_error(&app);
-        return Err(crate::ui_text::t(
+        let error = crate::ui_text::t(
             "Для автоматической вставки разрешите Sotto доступ в настройках универсального доступа macOS.",
-        ));
+        );
+        return Err(keep_unsaved_text(&app, &text, history_saved, error));
     }
+    let mut pasting = false;
     let result = crate::clipboard_preserve::paste_preserving(&app, &text, history_saved, || {
+        pasting = true;
         send_paste(&app, &text).map_err(|error| {
-                if history_saved {
-                    // The old clipboard comes back after this, so the text
-                    // is not left there to paste by hand.
-                    format!("{error}; the text is saved in the history")
-                } else {
-                    format!(
-                        "{error}; saving it in the history failed too, so the text is left on the clipboard"
-                    )
-                }
-            })?;
+            if history_saved {
+                // The old clipboard comes back after this, so the text is
+                // not left there to paste by hand.
+                format!("{error}; the text is saved in the history")
+            } else {
+                format!(
+                    "{error}; saving it in the history failed too, so the text is left on the clipboard"
+                )
+            }
+        })?;
         submit_if_requested(options);
         Ok(())
     });
+    // Failed before the text reached the clipboard.
+    let result = match result {
+        Err(error) if !pasting => Err(keep_unsaved_text(&app, &text, history_saved, error)),
+        other => other,
+    };
     // The paste may not have run at all; see the copy-only branch.
     #[cfg(windows)]
     crate::windows_util::clear_captured_hwnd();
     result
+}
+
+/// The error of a preserving paste that stopped before the text reached the
+/// clipboard. Without a history entry the text would then be nowhere, so it
+/// is copied after all, like the history-only fallback.
+fn keep_unsaved_text(app: &AppHandle, text: &str, history_saved: bool, error: String) -> String {
+    if history_saved {
+        return error;
+    }
+    match copy_to_clipboard(app, text) {
+        Ok(()) => format!(
+            "{error}; saving it in the history failed too, so the text is copied to the clipboard"
+        ),
+        Err(copy) => format!("{error}; saving it in the history and copying it failed too: {copy}"),
+    }
 }
 
 fn submit_if_requested(options: DeliveryOptions) {
