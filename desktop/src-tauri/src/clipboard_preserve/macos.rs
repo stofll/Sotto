@@ -174,3 +174,90 @@ impl Pasteboard {
         }
     }
 }
+
+/// Native checks of what the restore guard relies on. They run against a
+/// private pasteboard, never the user's, so they are not ignored: the macOS
+/// CI job runs them.
+#[cfg(test)]
+mod tests {
+    use super::super::{Preserver, Restore, Session, Store};
+    use super::*;
+
+    /// A pasteboard of its own, released when the test ends.
+    struct Private(Retained<NSPasteboard>);
+
+    impl Private {
+        fn with_text(text: &str) -> Self {
+            let private = Self(NSPasteboard::pasteboardWithUniqueName());
+            private.copy(text);
+            private
+        }
+
+        /// What another application copying `text` does.
+        fn copy(&self, text: &str) {
+            self.0.clearContents();
+            assert!(self
+                .0
+                .setString_forType(&NSString::from_str(text), &NSString::from_str(PLAIN_TEXT)));
+        }
+
+        fn text(&self) -> Option<String> {
+            self.0
+                .stringForType(&NSString::from_str(PLAIN_TEXT))
+                .map(|text| text.to_string())
+        }
+    }
+
+    impl Drop for Private {
+        fn drop(&mut self) {
+            // SAFETY: `releaseGlobally` takes no arguments and returns void.
+            unsafe {
+                let _: () = objc2::msg_send![&*self.0, releaseGlobally];
+            }
+        }
+    }
+
+    impl Store for Private {
+        type Session = Pasteboard;
+
+        fn open(&self) -> Result<Pasteboard, String> {
+            Ok(Pasteboard(self.0.clone()))
+        }
+    }
+
+    #[test]
+    fn a_write_keeps_the_count_its_clear_returned() {
+        let private = Private::with_text("старое");
+        let mut session = private.open().unwrap();
+        let before = session.stamp();
+        let stamp = session.replace_with_text("диктовка", &before).unwrap();
+        assert_ne!(stamp, before);
+        // `writeObjects` after `clearContents` must not move the count: the
+        // stamp is all the restore has to recognise Sotto's write.
+        assert_eq!(private.0.changeCount(), stamp);
+        assert_eq!(private.text().as_deref(), Some("диктовка"));
+    }
+
+    #[test]
+    fn the_users_text_comes_back_when_nothing_else_was_copied() {
+        let private = Private::with_text("старое");
+        let mut preserver = Preserver::new();
+        let generation = preserver.begin(&private, "диктовка").unwrap();
+        assert_eq!(private.text().as_deref(), Some("диктовка"));
+        assert_eq!(preserver.restore(generation, &private), Restore::Restored);
+        assert_eq!(private.text().as_deref(), Some("старое"));
+    }
+
+    #[test]
+    fn a_copy_made_before_the_restore_survives() {
+        let private = Private::with_text("старое");
+        let mut preserver = Preserver::new();
+        let generation = preserver.begin(&private, "диктовка").unwrap();
+        private.copy("новое");
+        assert_eq!(
+            preserver.restore(generation, &private),
+            Restore::ChangedByUser
+        );
+        assert_eq!(private.text().as_deref(), Some("новое"));
+    }
+}
