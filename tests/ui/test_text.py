@@ -68,6 +68,12 @@ def test_sentence_style_sets_both_flags(app, page, choice, capitalize, final_dot
         ("correct_spelling", "Исправлять опечатки", "Correct spelling"),
         ("split_paragraphs", "Разбивать на абзацы", "Split into paragraphs"),
         ("normalize_ellipsis", "Убирать многоточия пауз", "Remove pause ellipses"),
+        (
+            "normalize_russian_numbers",
+            "Русские числа — цифрами",
+            "Russian numbers as digits",
+        ),
+        ("normalize_dimensions", "Оформлять размеры", "Format dimensions"),
     ],
 )
 def test_local_cleanup_switch_persists_and_recovers_from_save_failure(
@@ -364,8 +370,9 @@ def test_replacement_import_export_roundtrip(app, page):
         "usage_count": 0,
     }
     with page.expect_file_chooser() as chooser:
-        page.get_by_role("button", name="Экспорт и импорт правил", exact=True).click()
-        page.get_by_role("menuitem", name="Импорт", exact=True).click()
+        page.locator(".fold__body").get_by_role(
+            "button", name="Импорт", exact=True
+        ).click()
     chooser.value.set_files(
         {
             "name": "rules.json",
@@ -373,6 +380,10 @@ def test_replacement_import_export_roundtrip(app, page):
             "buffer": json.dumps({"replacement_rules": [rule]}).encode(),
         }
     )
+    dialog = page.get_by_role("dialog", name="Импорт правил замен")
+    expect(dialog.get_by_role("button", name="Добавить в список")).to_be_enabled()
+    assert ui.state()["config"]["replacement_rules"] == []
+    dialog.get_by_role("button", name="Добавить в список").click()
     expect(page.get_by_placeholder("что искать", exact=True)).to_have_value("sotto")
     page.get_by_role("button", name="Сохранить", exact=True).click()
     page.wait_for_function(
@@ -383,7 +394,10 @@ def test_replacement_import_export_roundtrip(app, page):
     page.get_by_role("menuitem", name="Экспорт", exact=True).click()
     calls = ui.calls("export_replacement_rules")
     assert len(calls) == 1, "Export must invoke the native save command"
-    assert json.loads(calls[0]["args"]["content"]) == {"replacement_rules": [rule]}
+    exported = json.loads(calls[0]["args"]["content"])["replacement_rules"]
+    assert len(exported) == 1
+    assert exported[0]["id"] != rule["id"]
+    assert exported[0] == {**rule, "id": exported[0]["id"]}
 
 
 def test_replacement_export_cancel_and_retry(app, page):
@@ -446,12 +460,16 @@ def test_invalid_replacement_import_preserves_rules(app, page):
     ui.nav("text")
     page.get_by_role("button", name=re.compile(r"^Замены")).click()
     with page.expect_file_chooser() as chooser:
-        page.get_by_role("button", name="Экспорт и импорт правил", exact=True).click()
-        page.get_by_role("menuitem", name="Импорт", exact=True).click()
+        page.locator(".fold__body").get_by_role(
+            "button", name="Импорт", exact=True
+        ).click()
     chooser.value.set_files(
         {"name": "invalid.json", "mimeType": "application/json", "buffer": b"not json"}
     )
-    expect(page.get_by_test_id("page-text")).to_contain_text("JSON")
+    dialog = page.get_by_role("dialog", name="Импорт правил замен")
+    expect(dialog.get_by_role("alert")).to_contain_text("JSON")
+    expect(dialog.get_by_role("button", name="Добавить в список")).to_be_disabled()
+    dialog.get_by_role("button", name="Отмена").click()
     expect(page.get_by_text("Нет правил замены", exact=True)).to_be_visible()
     assert ui.state()["config"]["replacement_rules"] == []
 

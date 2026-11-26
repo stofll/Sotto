@@ -186,9 +186,23 @@ fn en(key: &str) -> Option<&'static str> {
         "Термин словаря должен содержать не более 128 символов и 8 слов." => {
             "A dictionary term may contain at most 128 characters and 8 words."
         }
-        "В активных пользовательских словарях допускается не более 1000 разных терминов." => {
-            "Active personal dictionaries may contain at most 1,000 distinct terms."
+        "В активных пользовательских словарях допускается не более 5000 разных терминов." => {
+            "Active personal dictionaries may contain at most 5,000 distinct terms."
         }
+        "Файл словаря должен быть не больше 2 МиБ." => "The dictionary file must be no larger than 2 MiB.",
+        "Некорректный JSON словаря. Ожидаются version, name, description и words." => {
+            "Invalid dictionary JSON. Expected version, name, description and words."
+        }
+        "Эта версия файла словаря не поддерживается." => "This dictionary file version is not supported.",
+        "У словаря должно быть название." => "The dictionary must have a name.",
+        "Каждый термин словаря должен быть непустой строкой без переносов." => {
+            "Each dictionary term must be a non-empty line without line breaks."
+        }
+        "Не удалось подготовить файл словаря." => "Could not prepare the dictionary file.",
+        "Не удалось сохранить файл словаря." => "Could not save the dictionary file.",
+        "У правила должно быть заполнено поле поиска." => "The rule must have a search value.",
+        "Текст поиска совпадает с заменой." => "The search text and replacement are identical.",
+        "Не удалось проверить правила замены." => "Could not validate the replacement rules.",
         "провайдер вернул пустой список" => "the provider returned an empty list",
         _ => return None,
     })
@@ -389,10 +403,12 @@ mod tests {
     /// are read by developers and stay in English.
     #[test]
     fn russian_text_reaches_the_user_only_through_t() {
-        const SPEECH_MODULES: [&str; 5] = [
+        const SPEECH_MODULES: [&str; 7] = [
             "formatter.rs",
+            "formatter/numbers.rs",
             "formatter/paragraphs.rs",
             "formatter/term_aliases.rs",
+            "ai/fidelity.rs",
             "spelling.rs",
             "ui_text.rs",
         ];

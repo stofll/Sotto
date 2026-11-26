@@ -11,6 +11,9 @@
 //! the edits the prompt permits (filler removal, de-stuttering) subtract only
 //! a small share of them.
 
+use regex::Regex;
+use std::sync::LazyLock;
+
 /// Smallest share of the dictation's words we accept back.
 ///
 /// The model is allowed to delete: "э-э", stutters, false starts and
@@ -95,7 +98,7 @@ pub fn altered_meaning(input: &str, output: &str) -> Option<Alteration> {
     if negation_count(output) < negation_count(input) {
         return Some(Alteration::Negation);
     }
-    if !digits_survive(input, output) {
+    if !digits_survive(input, output) || !measurements_survive(input, output) {
         return Some(Alteration::Numbers);
     }
     if mostly_cyrillic(input) {
@@ -242,6 +245,121 @@ fn digits_survive(input: &str, output: &str) -> bool {
         }
     }
     reached[source.len()]
+}
+
+// Digit concatenation deliberately tolerates phone/grouping edits. Measurements
+// need a stricter check: 8,8 mm, 8 x 8 mm and 88 mm carry different values.
+const MEASURED_NUMBER: &str =
+    r"(?:[+−-][ \t]*)?[0-9]+(?:[ \u{00a0}\u{202f}][0-9]{3})*(?:[.,][0-9]+)?";
+const DIMENSION_SEPARATOR: &str = r"[ \t]*(?:[xх×]|на)[ \t]*";
+
+static MEASUREMENT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(&format!(r"(?i)(?P<amount>{MEASURED_NUMBER}(?:{DIMENSION_SEPARATOR}{MEASURED_NUMBER}){{0,2}})[ \t]*(?P<unit>[\p{{L}}%]+(?:\^?[23]|[²³])?(?:/[\p{{L}}]+)?)"))
+        .expect("valid measurement fidelity pattern")
+});
+
+static DIMENSION: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(&format!(
+        r"(?i){MEASURED_NUMBER}(?:{DIMENSION_SEPARATOR}{MEASURED_NUMBER}){{1,2}}"
+    ))
+    .expect("valid dimension fidelity pattern")
+});
+
+fn canonical_unit(unit: &str) -> Option<String> {
+    let lower = unit.to_lowercase();
+    if let Some((numerator, denominator)) = lower.split_once('/') {
+        return Some(format!(
+            "{}/{}",
+            canonical_unit(numerator)?,
+            canonical_unit(denominator)?
+        ));
+    }
+    let (base, power) = if let Some(base) = lower.strip_suffix(['²', '2']) {
+        (base.trim_end_matches('^'), "2")
+    } else if let Some(base) = lower.strip_suffix(['³', '3']) {
+        (base.trim_end_matches('^'), "3")
+    } else {
+        (lower.as_str(), "")
+    };
+    let canonical = match base {
+        "мкм" | "µm" | "μm" | "микрометр" | "микрометра" | "микрометров" => {
+            "um"
+        }
+        "мм" | "mm" | "миллиметр" | "миллиметра" | "миллиметров" | "миллиметры" => {
+            "mm"
+        }
+        "см" | "cm" | "сантиметр" | "сантиметра" | "сантиметров" | "сантиметры" => {
+            "cm"
+        }
+        "м" | "m" | "метр" | "метра" | "метров" | "метры" => "m",
+        "км" | "km" | "километр" | "километра" | "километров" => "km",
+        "мкг" | "µg" | "μg" | "микрограмм" | "микрограмма" | "микрограммов" => {
+            "ug"
+        }
+        "мг" | "mg" | "миллиграмм" | "миллиграмма" | "миллиграммов" => {
+            "mg"
+        }
+        "г" | "g" | "грамм" | "грамма" | "граммов" => "g",
+        "кг" | "kg" | "килограмм" | "килограмма" | "килограммов" => {
+            "kg"
+        }
+        "мкл" | "µl" | "μl" | "микролитр" | "микролитра" | "микролитров" => {
+            "ul"
+        }
+        "мл" | "ml" | "миллилитр" | "миллилитра" | "миллилитров" => {
+            "ml"
+        }
+        "л" | "l" | "литр" | "литра" | "литров" => "l",
+        "%" | "процент" | "процента" | "процентов" => "%",
+        _ => return None,
+    };
+    Some(format!("{canonical}{power}"))
+}
+
+fn canonical_amount(amount: &str) -> String {
+    amount
+        .to_lowercase()
+        .replace("на", "х")
+        .replace(['x', '×'], "х")
+        .replace(',', ".")
+        .replace('−', "-")
+        .chars()
+        .filter(|ch| !ch.is_whitespace())
+        .collect()
+}
+
+fn measurements(text: &str) -> Vec<(String, String)> {
+    MEASUREMENT
+        .captures_iter(text)
+        .filter_map(|captures| {
+            let unit = canonical_unit(&captures["unit"])?;
+            let amount = canonical_amount(&captures["amount"]);
+            Some((amount, unit))
+        })
+        .collect()
+}
+
+fn measurements_survive(input: &str, output: &str) -> bool {
+    let dimensions: Vec<_> = DIMENSION
+        .find_iter(output)
+        .map(|m| canonical_amount(m.as_str()))
+        .collect();
+    let mut remaining_dimensions = dimensions.iter();
+    if !DIMENSION.find_iter(input).all(|m| {
+        let value = canonical_amount(m.as_str());
+        remaining_dimensions.any(|candidate| candidate == &value)
+    }) {
+        return false;
+    }
+    let source = measurements(input);
+    if source.is_empty() {
+        return true;
+    }
+    let answer = measurements(output);
+    let mut remaining = answer.iter();
+    source
+        .iter()
+        .all(|measurement| remaining.any(|candidate| candidate == measurement))
 }
 
 /// In Russian dictation a Latin word is a name, a brand or a term — the words
@@ -480,6 +598,46 @@ mod tests {
     #[test]
     fn spelling_out_digits_from_words_is_allowed() {
         assert_eq!(altered_meaning("купи пять яблок", "Купи 5 яблок."), None);
+    }
+
+    #[test]
+    fn decimal_measurements_cannot_become_dimensions_or_change_units() {
+        for (input, output) in [
+            ("размер 8,8 мм", "Размер 8 х 8 мм."),
+            ("размер 8 х 8 мм", "Размер 8,8 мм."),
+            ("размер 8,8 мм", "Размер 88 мм."),
+            ("размер 8,8 мм", "Размер 8,8 см."),
+            ("значение -0,5 мм", "Значение 0,5 мм."),
+            ("значение - 0,5 мм", "Значение 0,5 мм."),
+            ("размерами 8 х 8", "Размерами 8,8."),
+            ("объём 5 см³", "Объём 5 см."),
+            ("концентрация 5 мг/мл", "Концентрация 5 мг/л."),
+            ("размер 8 мм и 8 мм", "Размер 8 мм."),
+        ] {
+            assert_eq!(
+                altered_meaning(input, output),
+                Some(Alteration::Numbers),
+                "{input} → {output}"
+            );
+        }
+    }
+
+    #[test]
+    fn measurement_spelling_changes_keep_value_shape_and_unit() {
+        for (input, output) in [
+            ("размер 8,8 мм", "Размер 8.8 миллиметра."),
+            ("размер 8 на 8 мм", "Размер 8 × 8 mm."),
+            ("размер 8 х 8 х 3,5 см", "Размер 8 x 8 x 3.5 сантиметра."),
+            ("значение −0,5 мм", "Значение -0.5 mm."),
+            ("значение − 0,5 мм", "Значение -0.5 mm."),
+            ("значение 1 500 мг", "Значение 1500 мг."),
+            ("значение 1500 мг", "Значение 1\u{202f}500 mg."),
+            ("размерами 8 на 8", "Размерами 8 × 8."),
+            ("объём 5 см³", "Объём 5 cm^3."),
+            ("концентрация 5 мг/мл", "Концентрация 5 mg/ml."),
+        ] {
+            assert_eq!(altered_meaning(input, output), None, "{input} → {output}");
+        }
     }
 
     #[test]

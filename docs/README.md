@@ -10,6 +10,7 @@ This is the public documentation index for Sotto. Start with the guides below; d
 - [Portable version](portable.md) — the Windows ZIP that keeps its data next to the executable.
 - [Overlay appearance](overlay.md) — shape, colors, size, placement and cancellation.
 - [Dictionaries](dictionaries.md) — inspect, create and enable term sets, and manage the verbal tics the cleanup removes.
+- [Numbers and punctuation](dictation-formatting.md) — format Russian measurements and dimensions, control punctuation, and preserve numeric meaning.
 - [Privacy](privacy.md) — telemetry, optional cloud providers, and network data flow.
 - [Verifying a download](verifying-downloads.md) — checksums, the update signature, and how to open a build that is not signed by a publisher.
 - [Troubleshooting](troubleshooting.md) — common installation and runtime issues.

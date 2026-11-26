@@ -1337,7 +1337,7 @@ mod tests {
     fn legacy_oversized_dictionary_allows_unrelated_save_but_rejects_growth() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.json");
-        let words: Vec<String> = (0..1_001).map(|index| format!("Term{index}")).collect();
+        let words: Vec<String> = (0..5_001).map(|index| format!("Term{index}")).collect();
         fs::write(
             &path,
             json!({"text_formatting": {"custom_words": words}}).to_string(),
@@ -1349,7 +1349,7 @@ mod tests {
                 .as_array()
                 .unwrap()
                 .len(),
-            1_001
+            5_001
         );
         let saved = save_with_merge_patch_at(&path, json!({"theme": "light"})).unwrap();
         assert_eq!(saved["theme"], "light");
@@ -1358,7 +1358,7 @@ mod tests {
                 .as_array()
                 .unwrap()
                 .len(),
-            1_001
+            5_001
         );
         let mut grown = saved["text_formatting"]["dictionary_sets"].clone();
         grown[0]["words"]

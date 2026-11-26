@@ -15,6 +15,7 @@ const config: ConfigResult = {
     enabled: true, remove_hallucinations: true, remove_fillers: true,
     remove_parasites: true, remove_duplicates: true, collapse_phrase_loops: true,
     normalize_ellipsis: false, correct_spelling: true,
+    normalize_russian_numbers: false, normalize_dimensions: false, punctuation_mode: 'automatic',
     split_sentences: true,
     split_paragraphs: true,
     capitalize_sentences: true, final_punctuation: true, custom_parasite_words: [],
@@ -160,6 +161,8 @@ export function install(seed: any = {}) {
       case 'check_dictionary_text': return args.words.includes('Sotto') && args.text.trim().toLowerCase() === 'сотто' ? [{ from: 'сотто', to: 'Sotto', count: 1 }] : [];
       case 'term_matching': return args.words.map((term: string) => ({ term, variants: term === 'Sotto' ? ['сотто'] : [], fuzzy: !args.builtin }));
       case 'analyze_dictionary': return { effective_count: 0, conflicts: [], unsupported_words: [] };
+      case 'validate_replacement_rules': return [];
+      case 'export_dictionary_set': return true;
       // Processing outputs are fixtures, not a second implementation of the Rust engines.
       // A dictionary correction is reported for one synthetic spelling only, so
       // a test can show the preview naming it.

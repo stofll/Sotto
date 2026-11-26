@@ -85,6 +85,7 @@ async fn run_ai_prompt(
         // The text page cannot cancel, so a long paste keeps the dictation's
         // budget; parts not done by then stay as pasted.
         may_run_long: false,
+        output_punctuation: crate::formatter::OutputPunctuation::default(),
     };
     let api_key = if api_key_ref.is_empty() {
         None

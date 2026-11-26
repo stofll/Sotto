@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { analyzeDictionary, getDictionaryPresets, getParasiteSets } from "./dictionaries";
+import { analyzeDictionary, exportDictionarySet, getDictionaryPresets, getParasiteSets } from "./dictionaries";
 import type { TextFormattingConfig } from "./types";
 
 const invoke = vi.hoisted(() => vi.fn());
@@ -29,5 +29,16 @@ describe("dictionary bridge", () => {
     invoke.mockRejectedValue(new Error("offline"));
     await expect(getDictionaryPresets()).rejects.toThrow("offline");
     await expect(analyzeDictionary({} as TextFormattingConfig)).rejects.toThrow("offline");
+  });
+  it("preserves native save cancellation instead of reporting it as an export", async () => {
+    const content = JSON.stringify({ version: 1, name: "Terms", description: "", words: ["Миокард"] });
+    invoke.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    expect(await exportDictionarySet(content)).toBe(false);
+    expect(await exportDictionarySet(content)).toBe(true);
+    expect(invoke).toHaveBeenLastCalledWith("export_dictionary_set", { content });
+  });
+  it("propagates export failures without converting them to cancellation", async () => {
+    invoke.mockRejectedValue(new Error("permission denied"));
+    await expect(exportDictionarySet("{}")).rejects.toThrow("permission denied");
   });
 });

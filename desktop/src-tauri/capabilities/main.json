@@ -27,6 +27,7 @@
     "allow-dictionary-presets",
     "allow-dismiss-whats-new",
     "allow-download-model",
+    "allow-export-dictionary-set",
     "allow-export-replacement-rules",
     "allow-fetch-provider-models",
     "allow-get-config",
@@ -68,6 +69,7 @@
     "allow-test-ai-prompt",
     "allow-test-paste",
     "allow-transcribe-audio-file",
-    "allow-validate-hotkey"
+    "allow-validate-hotkey",
+    "allow-validate-replacement-rules"
   ]
 }

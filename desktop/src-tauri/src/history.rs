@@ -447,6 +447,8 @@ async fn run_history_entry_ai(
     let ai = crate::ai_processing_config(&config)?;
     let mut ai_cfg = crate::ai::step::AiConfig::from_ai_processing(ai);
     ai_cfg.language = crate::speech_language(Some(&config));
+    ai_cfg.output_punctuation =
+        crate::formatter::OutputPunctuation::from_config(&crate::text_formatting_config(&config));
     ai_cfg.pipeline_mode = manual_llm_mode(&ai_cfg.pipeline_mode).to_string();
     apply_ai_profile(&mut ai_cfg, ai, profile_id.as_deref())?;
     // Rust is handed finished prompt text here exactly as it is on the

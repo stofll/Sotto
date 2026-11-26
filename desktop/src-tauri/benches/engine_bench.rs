@@ -96,7 +96,7 @@ fn live_formatter(c: &mut Criterion) {
             ));
         });
     });
-    for terms in [0, 100, 1000] {
+    for terms in [0, 100, 1000, 2000, 5000] {
         let config = formatting_cases::config(terms, true, 50);
         // Dictionary initialization and the first pipeline build are separate
         // cold-call measurements; these cases exercise repeated dictations.

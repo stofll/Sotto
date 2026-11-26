@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "../bridge";
 import type { ConfigResult, DictionaryMatch, PreviewFormatResult, PreviewReplacementsResult, ReplacementMatchMode, ReplacementRule, TextFormattingConfig } from "../bridge/types";
 import { Card, PageHeader, Segmented, Switch } from "../components/Shell";
@@ -14,13 +14,11 @@ import { textPreview, replacementExamples } from "./textExamples";
 import { DictionaryLibrary } from "./DictionaryLibrary";
 import { Modal } from "../components/Modal";
 import { getParasiteSets, type ParasiteSet } from "../bridge/dictionaries";
+import { makeReplacementRule, replacementRuleKey } from "./replacementRules";
+import { ReplacementPager, REPLACEMENT_PAGE_SIZE } from "./ReplacementPager";
+import { ReplacementImportLoader } from "./ReplacementImportLoader";
 
 const MATCH_LABELS = (): Record<string, string> => ({ word: t("Слово"), phrase: t("Фраза"), contains: t("Внутри"), regex: "Regex" });
-
-function makeReplacementRule(find = "", replace = ""): ReplacementRule {
-  const id = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `rule-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  return { id, find, replace, enabled: true, match: "word", case_sensitive: false, preserve_case: false, usage_count: 0 };
-}
 
 function replacementRulesFromConfig(config: ConfigResult | null): ReplacementRule[] {
   const rules = Array.isArray(config?.replacement_rules) ? config!.replacement_rules : [];
@@ -28,8 +26,10 @@ function replacementRulesFromConfig(config: ConfigResult | null): ReplacementRul
   return Object.entries(config?.replacements ?? {}).map(([find, replace]) => ({ ...makeReplacementRule(find, replace), id: `legacy-${find}` }));
 }
 
+const replacementConfigKey = (config: ConfigResult | null) => JSON.stringify([config?.replacement_rules ?? [], config?.replacements ?? {}]);
+
 function replacementRulesToLegacyRecord(rules: ReplacementRule[]): Record<string, string> {
-  const result: Record<string, string> = {};
+  const result: Record<string, string> = Object.create(null);
   for (const rule of rules) {
     const find = rule.find.trim();
     if (find && rule.enabled) result[find] = rule.replace;
@@ -42,7 +42,7 @@ function validateReplacementRules(rules: ReplacementRule[]): string | null {
   for (const rule of rules) {
     const find = rule.find.trim();
     if (!find) return t("У каждого правила должно быть заполнено поле поиска.");
-    const key = `${rule.match}:${find.toLowerCase()}`;
+    const key = replacementRuleKey(rule);
     if (seen.has(key)) return t("Правила с одинаковым поиском и режимом совпадения конфликтуют между собой.");
     seen.add(key);
     if (rule.find === rule.replace && rule.match !== "regex") return t("Одно из правил ничего не меняет: текст поиска совпадает с заменой.");
@@ -67,6 +67,9 @@ const FORMAT_DEFAULTS: TextFormattingConfig = {
   remove_duplicates: true,
   collapse_phrase_loops: true,
   normalize_ellipsis: false,
+  normalize_russian_numbers: false,
+  normalize_dimensions: false,
+  punctuation_mode: "automatic",
   correct_spelling: true,
   split_sentences: false,
   split_paragraphs: false,
@@ -92,6 +95,8 @@ const CLEAN_GROUPS = (): CleanGroup[] => ([
   { id: "disfluencies", keys: ["remove_fillers", "remove_duplicates"], title: t("Убирать запинки и повторы"), hint: t("э-э, ммм, «я я хочу» → «я хочу»; английские uh, umm — при английской диктовке") },
   { id: "parasites", keys: ["remove_parasites"], title: t("Удалять слова-паразиты"), hint: t("встроенный список только русский; свои слова работают на любом языке") },
   { id: "spelling", keys: ["correct_spelling"], title: t("Исправлять опечатки"), hint: t("при русском языке диктовки: однозначные исправления по встроенному словарю, без LLM") },
+  { id: "numbers", keys: ["normalize_russian_numbers"], title: t("Русские числа — цифрами"), hint: t("«тридцать пять миллиметров» → «35 мм»; однозначные числительные и десятичные дроби при русском языке диктовки") },
+  { id: "dimensions", keys: ["normalize_dimensions"], title: t("Оформлять размеры"), hint: t("«тридцать пять на двадцать миллиметров» → «35 х 20 мм»; два или три измерения. «8,8 мм» остаётся десятичным числом") },
   { id: "ellipsis", keys: ["normalize_ellipsis"], title: t("Убирать многоточия пауз"), hint: t("внутри фразы — пробел, на границе предложения — точка; код, ссылки и числовые диапазоны сохраняются") },
   { id: "paragraphs", keys: ["split_paragraphs"], title: t("Разбивать на абзацы"), hint: t("группировать готовые предложения без изменения слов; сохранять существующие переносы") },
   { id: "split", keys: ["split_sentences"], title: t("Разбивать длинные фразы"), hint: t("мягкое разделение длинных фраз по связкам") },
@@ -107,6 +112,17 @@ const SENTENCE_STYLES = (): Array<{ value: SentenceStyle; label: string; hint: s
   { value: "letter", label: "Aa.", hint: t("Заглавные и точка") },
   { value: "no_dot", label: "Aa", hint: t("Без точки в конце") },
   { value: "chat", label: "aa", hint: t("Как в чате: строчные, без точки") },
+]);
+
+const CAPITALIZATION_STYLES = () => ([
+  { value: "letter", label: "Aa", hint: t("Начинать с заглавной") },
+  { value: "chat", label: "aa", hint: t("Начинать со строчной") },
+]);
+
+const PUNCTUATION_MODES = (): Array<SelectOption<TextFormattingConfig["punctuation_mode"]>> => ([
+  { value: "automatic", label: t("Автоматически") },
+  { value: "no_sentence_breaks", label: t("Без точек, ? и !") },
+  { value: "none", label: t("Без знаков препинания") },
 ]);
 
 const SENTENCE_STYLE_FLAGS: Record<SentenceStyle, Pick<TextFormattingConfig, "capitalize_sentences" | "final_punctuation">> = {
@@ -175,14 +191,20 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
 
   // ── Replacements: a draft until the «Сохранить» button ─────────────────
   const configRules = replacementRulesFromConfig(config);
+  const configRulesKey = replacementConfigKey(config);
   const paused = config?.replacements_paused ?? false;
   const [rules, setRules] = useState<ReplacementRule[]>(() => configRules);
+  const [rulesBaseline, setRulesBaseline] = useState(configRulesKey);
   const [filter, setFilter] = useState("");
+  const [rulePage, setRulePage] = useState(0);
   const [formError, setFormError] = useState<string | null>(null);
   const [exportState, setExportState] = useState<"idle" | "saving" | "failed">("idle");
   const [savingRules, setSavingRules] = useState(false);
   const [saved, setSaved] = useState(true);
+  const staleRules = !saved && rulesBaseline !== configRulesKey;
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const importSequence = useRef(0);
+  const [importFile, setImportFile] = useState<{ file: File; sequence: number } | null>(null);
   // At most one rule shows its matching options at a time.
   const [ruleOptionsId, setRuleOptionsId] = useState<string | null>(null);
   const findRef = useRef<HTMLInputElement>(null);
@@ -214,10 +236,13 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
   }
 
   useEffect(() => {
+    // A late settings refresh must not discard an imported or edited draft.
+    // Successful save explicitly updates the draft and clears its dirty state.
+    if (!saved) return;
     setRules(configRules);
-    setSaved(true);
+    setRulesBaseline(configRulesKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reset the draft when the saved rules change in content, not on every new array.
-  }, [JSON.stringify(config?.replacement_rules ?? []), JSON.stringify(config?.replacements ?? {})]);
+  }, [configRulesKey, saved]);
 
   // Two calls for one preview: `preview_format` gives the full local result
   // (cleanup AND replacements at once), while `preview_replacements` gives only
@@ -376,6 +401,7 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
   }
 
   async function saveRules(nextRules = rules) {
+    if (savingRules || staleRules) return;
     const validation = validateReplacementRules(nextRules);
     if (validation) {
       setFormError(validation);
@@ -391,6 +417,7 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
       const result = await onConfigChanged({ replacement_rules: nextRules, replacements: replacementRulesToLegacyRecord(nextRules) });
       if (result) {
         setRules(replacementRulesFromConfig(result));
+        setRulesBaseline(replacementConfigKey(result));
         setSaved(true);
       }
     } finally {
@@ -409,6 +436,8 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
 
   function addRule(find = "", replace = "") {
     setRules((current) => [makeReplacementRule(find, replace), ...current]);
+    setFilter("");
+    setRulePage(0);
     setSaved(false);
     setFolds((current) => ({ ...current, repl: true }));
     window.setTimeout(() => findRef.current?.focus(), 0);
@@ -424,27 +453,16 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
     }
   }
 
-  async function importRules(file: File) {
-    try {
-      const parsed = JSON.parse(await file.text());
-      const imported = Array.isArray(parsed?.replacement_rules)
-        ? parsed.replacement_rules.map((rule: Partial<ReplacementRule>) => ({ ...makeReplacementRule(), ...rule }))
-        : Object.entries(parsed as Record<string, string>).map(([find, replace]) => makeReplacementRule(find, String(replace)));
-      const next = [...rules, ...imported].filter((rule) => rule.find.trim());
-      const validation = validateReplacementRules(next);
-      if (validation) throw new Error(validation);
-      setRules(next);
-      setSaved(false);
-      setFormError(null);
-    } catch (e) {
-      setFormError(e instanceof Error ? e.message : t("Не удалось импортировать JSON."));
-    } finally {
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
+  function importRules(file: File) {
+    setImportFile({ file, sequence: ++importSequence.current });
+    // Selecting the same file after fixing it must fire change again.
+    if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
   const normalizedFilter = filter.trim().toLowerCase();
-  const visibleRules = normalizedFilter ? rules.filter((rule) => `${rule.find}\n${rule.replace}`.toLowerCase().includes(normalizedFilter)) : rules;
+  const visibleRules = useMemo(() => rules.map((rule, index) => ({ rule, index })).filter(({ rule }) => !normalizedFilter || `${rule.find}\n${rule.replace}`.toLowerCase().includes(normalizedFilter)), [rules, normalizedFilter]);
+  const displayRulePage = Math.min(rulePage, Math.max(0, Math.ceil(visibleRules.length / REPLACEMENT_PAGE_SIZE) - 1));
+  const pageRules = visibleRules.slice(displayRulePage * REPLACEMENT_PAGE_SIZE, (displayRulePage + 1) * REPLACEMENT_PAGE_SIZE);
   const cleanGroups = CLEAN_GROUPS();
   const cleanRowStyle = { padding: "9px 12px", borderBottom: "1px solid var(--line-soft)", display: "flex", alignItems: "center", gap: 10, opacity: formatting.enabled ? 1 : 0.55 } as const;
   const renderGroup = (group: CleanGroup) => (
@@ -478,6 +496,14 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
   return (
     <div className="page">
       <input type="file" accept=".json,application/json" ref={fileInputRef} style={{ display: "none" }} onChange={(e) => { const file = e.target.files?.[0]; if (file) void importRules(file); }}/>
+      {importFile && <ReplacementImportLoader key={importFile.sequence} file={importFile.file} rules={rules} onClose={() => setImportFile(null)} onChooseFile={() => fileInputRef.current?.click()} onApply={(next) => {
+        setRules(next);
+        setSaved(false);
+        setFormError(null);
+        setFilter("");
+        setRulePage(0);
+        setImportFile(null);
+      }}/>}
       {/* There are no state pills in the header: both duplicated what is
           visible next to the blocks themselves — «не сохранено» lights up
           right on «Замены». A permanent green "saved" pill across the whole
@@ -497,15 +523,28 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
           >
             <div className="fold__rows">
               {cleanGroups.map(renderGroup)}
+              <div style={{ ...cleanRowStyle, flexWrap: "wrap" }}>
+                <div style={{ flex: "1 0 auto", font: "500 13px/1.2 var(--font-sans)", color: "var(--ink)", display: "inline-flex", alignItems: "center", gap: 5 }}>
+                  <span>{t("Пунктуация")}</span>
+                  <Hint text={t("Удаляет пунктуацию после распознавания. Без точек — также без ? ! и многоточий. Числа, время, ссылки и код сохраняются.")}/>
+                </div>
+                <div style={{ width: 230, maxWidth: "100%", flexShrink: 0 }}>
+                  <CustomSelect
+                    value={formatting.punctuation_mode}
+                    options={PUNCTUATION_MODES()}
+                    onChange={(next) => void saveFormatting({ punctuation_mode: next })}
+                  />
+                </div>
+              </div>
               {/* One choice for two flags: of their four combinations only
                   three are ever wanted, and a messenger reply without a final
                   dot is the one two plain switches made awkward to find. */}
               <div style={{ ...cleanRowStyle, borderBottom: "none" }}>
-                <div className="flex-grow" style={{ font: "500 13px/1.2 var(--font-sans)", color: "var(--ink)" }}>{t("Предложения")}</div>
+                <div className="flex-grow" style={{ font: "500 13px/1.2 var(--font-sans)", color: "var(--ink)" }}>{formatting.punctuation_mode === "automatic" ? t("Предложения") : t("Регистр")}</div>
                 <Segmented
-                  value={sentenceStyle(formatting)}
-                  options={SENTENCE_STYLES()}
-                  onChange={(next) => void saveFormatting(SENTENCE_STYLE_FLAGS[next as SentenceStyle])}
+                  value={formatting.punctuation_mode === "automatic" ? sentenceStyle(formatting) : formatting.capitalize_sentences ? "letter" : "chat"}
+                  options={formatting.punctuation_mode === "automatic" ? SENTENCE_STYLES() : CAPITALIZATION_STYLES()}
+                  onChange={(next) => void saveFormatting(formatting.punctuation_mode === "automatic" ? SENTENCE_STYLE_FLAGS[next as SentenceStyle] : { capitalize_sentences: next === "letter" })}
                 />
               </div>
             </div>
@@ -597,10 +636,10 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
             {showRuleSearch && <div style={{ padding: "8px 12px", borderBottom: "1px solid var(--line-soft)" }}>
               <div className="input-search">
                 <Icon name="search" size={13} className="input-search__icon"/>
-                <input className="field" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder={t("Найти правило")} style={{ height: 30 }}/>
+                <input className="field" value={filter} onChange={(e) => { setFilter(e.target.value); setRulePage(0); }} placeholder={t("Найти правило")} style={{ height: 30 }}/>
               </div>
             </div>}
-            {rules.length === 0 ? <ReplacementsEmptyState/> : visibleRules.map((rule, index) => {
+            {rules.length === 0 ? <ReplacementsEmptyState/> : pageRules.map(({ rule, index }, pageIndex) => {
               const optionsOpen = ruleOptionsId === rule.id;
               return (
                 // One line per rule. Matching mode, case and order are set once
@@ -610,7 +649,7 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
                 <div key={rule.id} style={{ padding: "7px 12px", borderBottom: "1px solid var(--line-soft)", opacity: rule.enabled ? 1 : 0.66 }}>
                   <div className="flex-row" style={{ gap: 8 }}>
                     <Switch label={rule.find || t("Правило замены")} on={rule.enabled} onChange={(enabled) => updateRule(rule.id, { enabled })}/>
-                    <input ref={index === 0 ? findRef : undefined} className="field mono" value={rule.find} onChange={(e) => updateRule(rule.id, { find: e.target.value })} placeholder={t("что искать")} aria-label={t("что искать")} style={{ height: 28, flex: "1 1 0", minWidth: 0 }}/>
+                    <input ref={pageIndex === 0 ? findRef : undefined} className="field mono" value={rule.find} onChange={(e) => updateRule(rule.id, { find: e.target.value })} placeholder={t("что искать")} aria-label={t("что искать")} style={{ height: 28, flex: "1 1 0", minWidth: 0 }}/>
                     <Icon name="arrow-right" size={12} style={{ color: "var(--ink-mute)", flexShrink: 0 }}/>
                     {/* An empty replacement deletes the match. The placeholder
                         says so in exactly the case it applies — the field is
@@ -620,7 +659,7 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
                     <RowMenu label={t("Действия с правилом")} items={[
                       { id: "options", label: optionsOpen ? t("Скрыть параметры") : t("Параметры"), icon: "sliders", onSelect: () => setRuleOptionsId(optionsOpen ? null : rule.id) },
                       { id: "up", label: t("Поднять"), icon: "chev-up", disabled: index === 0, onSelect: () => moveRule(rule.id, -1) },
-                      { id: "down", label: t("Опустить"), icon: "chev-down", disabled: index === visibleRules.length - 1, onSelect: () => moveRule(rule.id, 1) },
+                      { id: "down", label: t("Опустить"), icon: "chev-down", disabled: index === rules.length - 1, onSelect: () => moveRule(rule.id, 1) },
                       { id: "delete", label: t("Удалить"), icon: "trash", danger: true, onSelect: () => void deleteRule(rule.id) },
                     ]}/>
                   </div>
@@ -633,21 +672,21 @@ export function TextPage({ config, onConfigChanged, previewDraft, onPreviewDraft
                 </div>
               );
             })}
-            {(formError || exportState === "failed") && <div role="alert" style={{ padding: "10px 12px", color: "var(--err)", font: "500 12px/1.4 var(--font-sans)", borderBottom: "1px solid var(--line-soft)" }}>
+            {rules.length > 0 && visibleRules.length === 0 && <p className="dictionary-note" style={{ padding: "8px 12px" }}>{t("Правила не найдены")}</p>}
+            <ReplacementPager label={t("Страницы правил")} page={displayRulePage} count={visibleRules.length} onPage={setRulePage}/>
+            {(staleRules || formError || exportState === "failed") && <div role="alert" style={{ padding: "10px 12px", color: "var(--err)", font: "500 12px/1.4 var(--font-sans)", borderBottom: "1px solid var(--line-soft)" }}>
+              {staleRules && <div>{t("Правила замен изменились в другом окне. Экспортируйте несохранённые правила и откройте страницу «Текст» заново.")}</div>}
               {formError && <div>{formError}</div>}
               {exportState === "failed" && <div>{t("Не удалось экспортировать правила замен. Проверьте права на запись и свободное место.")}</div>}
             </div>}
-            {/* Export and import are one-off operations, so they share a «⋯»
-                rather than standing beside the frequent ones. «Сохранить»
-                appears only when there is something to save. */}
-            <div className="flex-row" style={{ gap: 6, padding: "6px 12px" }}>
+            <div className="flex-row" style={{ gap: 6, padding: "6px 12px", flexWrap: "wrap" }}>
               <button type="button" className="btn btn--ghost btn--sm" onClick={() => addRule()} disabled={savingRules}><Icon name="plus" size={12}/>{t("Добавить правило")}</button>
+              <button type="button" className="btn btn--ghost btn--sm" onClick={() => fileInputRef.current?.click()} disabled={savingRules}><Icon name="folder" size={12}/>{t("Импорт")}</button>
               <div className="flex-grow"/>
               <RowMenu label={t("Экспорт и импорт правил")} items={[
                 { id: "export", label: t("Экспорт"), icon: "download", disabled: rules.length === 0 || exportState === "saving", onSelect: () => void exportRules() },
-                { id: "import", label: t("Импорт"), icon: "folder", onSelect: () => fileInputRef.current?.click() },
               ]}/>
-              {!saved && <button type="button" className="btn btn--primary btn--sm" onClick={() => void saveRules()} disabled={savingRules}><Icon name="check" size={12}/>{savingRules ? t("Сохраняю") : t("Сохранить")}</button>}
+              {!saved && <button type="button" className="btn btn--primary btn--sm" onClick={() => void saveRules()} disabled={savingRules || staleRules}><Icon name="check" size={12}/>{savingRules ? t("Сохраняю") : t("Сохранить")}</button>}
             </div>
           </Foldable>
 

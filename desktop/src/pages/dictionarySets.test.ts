@@ -3,8 +3,8 @@ import { dictionaryPatch, parseDictionaryWords, replaceDictionarySet } from "./d
 import type { DictionarySet, TextFormattingConfig } from "../bridge/types";
 
 describe("dictionary editing", () => {
-  it("accepts pasted lines and commas, preserves phrases and exposes case conflicts", () => {
-    expect(parseDictionaryWords(" Claude Code \nRust, Rust\n\nTypeScript,typescript\r\nTauri ")).toEqual(["Claude Code", "Rust", "TypeScript", "typescript", "Tauri"]);
+  it("accepts pasted lines, preserves commas within terms and exposes case conflicts", () => {
+    expect(parseDictionaryWords(" Claude Code \nRust\nRust\n\nTypeScript\ntypescript\r\nTauri\rтип 1, вариант 2 ")).toEqual(["Claude Code", "Rust", "TypeScript", "typescript", "Tauri", "тип 1, вариант 2"]);
   });
 
   it("replaces one set without changing other membership or unrelated formatting", () => {
