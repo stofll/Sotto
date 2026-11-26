@@ -1073,7 +1073,8 @@ impl FormatStep for FillerWordsRemover {
                     let prefix = out[..sound.start()].trim_end();
                     if before.is_some_and(|c| matches!(c, '-' | '‑' | '–' | '\''))
                         || after.is_some_and(|c| matches!(c, '-' | '‑' | '–' | '\''))
-                        || (sound.as_str() == "мм" && numbers::preceded_by_number(prefix))
+                        || (matches!(sound.as_str(), "мм" | "Мм")
+                            && numbers::preceded_by_number(prefix))
                         || (sound.as_str() == "Э"
                             && (after == Some('.')
                                 || (!prefix.is_empty() && !prefix.ends_with(['.', '!', '?', '…']))))
@@ -1928,7 +1929,7 @@ impl CustomWordsCorrector {
         if let Some((n, target)) = self.aliases.find(&words[start..start + limit], &self.terms) {
             return target.map(|canonical| (n, canonical));
         }
-        let mut best: Option<(f64, usize, &str)> = None;
+        let mut best: Option<(f64, usize, &CustomTerm, usize)> = None;
         let mut ambiguous = false;
         // Keep inflected Russian terms rather than flattening them to the
         // dictionary's nominative («оверлеи» and «оверлей» fold identically).
@@ -2074,19 +2075,59 @@ impl CustomWordsCorrector {
                 // `<` rather than `<=`: windows are iterated from short to
                 // long, and an equal score must go to the long one.
                 match best {
-                    Some((best_score, _, _)) if score < best_score => {}
-                    Some((best_score, best_n, best_term)) if score == best_score && n == best_n => {
-                        ambiguous |= !canonical.eq_ignore_ascii_case(best_term);
+                    Some((best_score, _, _, _)) if score < best_score => {}
+                    Some((best_score, best_n, best_term, _))
+                        if score == best_score && n == best_n =>
+                    {
+                        ambiguous |= !canonical.eq_ignore_ascii_case(&best_term.canonical);
                     }
                     _ => {
-                        best = Some((score, n, canonical.as_str()));
+                        best = Some((score, n, term, distance));
                         ambiguous = false;
                     }
                 }
             }
         }
-        best.filter(|_| !ambiguous)
-            .map(|(_, n, canonical)| (n, canonical))
+        let (_, n, term, distance) = best.filter(|_| !ambiguous)?;
+        if n == 1
+            && term.cyrillic
+            && distance >= 2
+            && self.has_competing_longer_term(words[start], term, scratch)
+        {
+            return None;
+        }
+        Some((n, term.canonical.as_str()))
+    }
+
+    fn has_competing_longer_term(
+        &self,
+        word: &str,
+        chosen: &CustomTerm,
+        scratch: &mut DistanceScratch,
+    ) -> bool {
+        let folded: Vec<char> = fold_for_match(word).chars().collect();
+        let common = folded
+            .iter()
+            .zip(&chosen.key)
+            .take_while(|(a, b)| a == b)
+            .count();
+        // A short fuzzy match can share the ending while erasing a prefix
+        // that still points to a different, longer term in the dictionary.
+        let Some(prefix) = folded
+            .get(..common + 1)
+            .filter(|_| common >= CUSTOM_WORD_MIN_CHARS)
+        else {
+            return false;
+        };
+        self.terms.iter().any(|candidate| {
+            candidate.cyrillic
+                && !candidate.exact_only
+                && candidate.key.len() > chosen.key.len()
+                && candidate.key.starts_with(prefix)
+                && candidate.canonical.split_whitespace().nth(1).is_none()
+                // Consider a rival just outside the ordinary edit budget.
+                && scratch.within(&folded, &candidate.key, edit_budget(candidate.key.len()) + 1).is_some()
+        })
     }
 }
 
@@ -2458,6 +2499,11 @@ impl DuplicateWordsRemover {
 }
 
 impl FormatStep for DuplicateWordsRemover {
+    fn protected_spans(&self, text: &str) -> Vec<std::ops::Range<usize>> {
+        let mut spans = crate::text_protection::cleanup_spans(text);
+        spans.extend(numbers::repetition_spans(text, false));
+        spans
+    }
     fn name(&self) -> &str {
         "Remove duplicates"
     }
@@ -2558,7 +2604,7 @@ impl FormatStep for PhraseLoopCollapser {
         let mut spans = crate::text_protection::cleanup_spans(text);
         // Equal axes are meaningful repetition, including an unsupported 4D
         // chain that must not be shortened into a valid three-axis dimension.
-        spans.extend(numbers::dimension_spans(text));
+        spans.extend(numbers::repetition_spans(text, true));
         spans
     }
     fn name(&self) -> &str {

@@ -21,12 +21,13 @@ pub(super) fn preceded_by_number(text: &str) -> bool {
             || scale(&word).is_some()
             || denominator(&word).is_some()
             || literal(&word)
+            || joined_axis_value(&word).is_some()
     })
 }
 
-/// Repeated axes are meaningful even when a chain is outside the normalization
-/// grammar. Keep them away from repetition cleanup without inferring a value.
-pub(super) fn dimension_spans(text: &str) -> Vec<Range<usize>> {
+/// Keep deliberate digit sequences, and optionally dimension chains, away
+/// from repetition cleanup without inferring a value.
+pub(super) fn repetition_spans(text: &str, preserve_axes: bool) -> Vec<Range<usize>> {
     let tokens = tokenize(text);
     let mut spans = Vec::new();
     let mut cursor = 0;
@@ -39,7 +40,14 @@ pub(super) fn dimension_spans(text: &str) -> Vec<Range<usize>> {
         let mut axes = 0;
         loop {
             axes += 1;
+            let axis_start = cursor;
             cursor = number_run(text, &tokens, cursor);
+            if let Some(digits) = repeated_digits_start(text, &tokens, axis_start, cursor) {
+                spans.push(tokens[digits].span.start..tokens[cursor - 1].span.end);
+            }
+            if !preserve_axes {
+                break;
+            }
             if let Some((end, _)) = following_unit(text, &tokens, cursor) {
                 cursor = end;
             }
@@ -47,7 +55,7 @@ pub(super) fn dimension_spans(text: &str) -> Vec<Range<usize>> {
                 dimension_separator(&separator.word)
                     && next_to(text, &tokens[cursor - 1], separator)
                     && tokens.get(cursor + 1).is_some_and(|next| {
-                        number_word(&next.word) && next_to(text, separator, next)
+                        number_word(&next.word) && axis_starts_after(text, separator, next)
                     })
             }) {
                 cursor += 1;
@@ -60,6 +68,38 @@ pub(super) fn dimension_spans(text: &str) -> Vec<Range<usize>> {
         }
     }
     spans
+}
+
+fn repeated_digits_start(text: &str, tokens: &[Token], start: usize, end: usize) -> Option<usize> {
+    let run = &tokens[start..end];
+    if run.len() < 2 {
+        return None;
+    }
+    if run.iter().all(|token| literal(&token.word)) {
+        return Some(start);
+    }
+    let digits = if let Some(comma) = run.iter().position(|token| token.word == "запятая") {
+        // A repetition before the decimal marker can still be a false start.
+        start + comma + 1
+    } else {
+        let cue = &tokens[start.checked_sub(1)?];
+        let gap = &text[cue.span.end..tokens[start].span.start];
+        if !matches!(
+            cue.word.as_str(),
+            "код" | "пин" | "номер" | "телефон" | "промокод"
+        ) || !gap
+            .chars()
+            .all(|c| c == ':' || c == '№' || (c.is_whitespace() && !matches!(c, '\r' | '\n')))
+        {
+            return None;
+        }
+        start
+    };
+    (end - digits >= 2
+        && tokens[digits..end].iter().all(|token| {
+            digit(&token.word).is_some() || token.word.bytes().all(|c| c.is_ascii_digit())
+        }))
+    .then_some(digits)
 }
 
 pub(super) struct RussianNumbers {
@@ -149,13 +189,31 @@ struct Token {
 }
 
 fn tokenize(text: &str) -> Vec<Token> {
-    TOKENS
-        .find_iter(text)
-        .map(|m| Token {
-            span: m.range(),
-            word: m.as_str().to_lowercase(),
-        })
-        .collect()
+    let mut tokens = Vec::new();
+    for found in TOKENS.find_iter(text) {
+        let word = found.as_str().to_lowercase();
+        if let Some(value) = joined_axis_value(&word) {
+            let separator_end = found.start() + "на".len();
+            tokens.push(Token {
+                span: found.start()..separator_end,
+                word: "на".to_owned(),
+            });
+            tokens.push(Token {
+                span: separator_end..found.end(),
+                word: value.to_owned(),
+            });
+        } else {
+            tokens.push(Token {
+                span: found.range(),
+                word,
+            });
+        }
+    }
+    tokens
+}
+
+fn joined_axis_value(word: &str) -> Option<&str> {
+    word.strip_prefix("на").filter(|value| literal(value))
 }
 
 fn dimension_separator(word: &str) -> bool {
@@ -173,12 +231,32 @@ fn next_to(text: &str, left: &Token, right: &Token) -> bool {
     horizontal_space(&text[left.span.end..right.span.start])
 }
 
+fn joined_axis(separator: &Token, axis: &Token) -> bool {
+    separator.word == "на" && separator.span.end == axis.span.start && literal(&axis.word)
+}
+
+fn axis_starts_after(text: &str, separator: &Token, axis: &Token) -> bool {
+    next_to(text, separator, axis) || joined_axis(separator, axis)
+}
+
+// Preserve hyphenated ranges, fractions, identifiers and compound words.
+fn connected(c: char) -> bool {
+    c.is_alphanumeric() || matches!(c, '_' | '-' | '–' | '/' | '\\')
+}
+
+fn attached_left(text: &str, token: &Token) -> bool {
+    text[..token.span.start]
+        .chars()
+        .next_back()
+        .is_some_and(connected)
+}
+
+fn attached_right(text: &str, token: &Token) -> bool {
+    text[token.span.end..].chars().next().is_some_and(connected)
+}
+
 fn attached(text: &str, token: &Token) -> bool {
-    let before = text[..token.span.start].chars().next_back();
-    let after = text[token.span.end..].chars().next();
-    // Preserve hyphenated ranges, fractions, identifiers and compound words.
-    let connected = |c: char| c.is_alphanumeric() || matches!(c, '_' | '-' | '–' | '/' | '\\');
-    before.is_some_and(connected) || after.is_some_and(connected)
+    attached_left(text, token) || attached_right(text, token)
 }
 
 fn number_run(text: &str, tokens: &[Token], start: usize) -> usize {
@@ -468,14 +546,7 @@ fn parse_number(tokens: &[Token]) -> Option<String> {
         if fraction.is_empty() {
             return None;
         }
-        let digits: Option<String> = fraction
-            .iter()
-            .map(|t| {
-                small(&t.word)
-                    .filter(|&v| v < 10)
-                    .map(|v| char::from(b'0' + v as u8))
-            })
-            .collect();
+        let digits: Option<String> = fraction.iter().map(|t| digit(&t.word)).collect();
         let fraction = if fraction.len() == 1
             && fraction[0].word.bytes().all(|c| c.is_ascii_digit())
             && fraction[0].word.len() <= 9
@@ -513,6 +584,15 @@ fn parse_number(tokens: &[Token]) -> Option<String> {
         cardinal(tokens)?.to_string()
     };
     Some(format!("{sign}{number}"))
+}
+
+fn digit(word: &str) -> Option<char> {
+    if let [digit @ b'0'..=b'9'] = word.as_bytes() {
+        return Some(char::from(*digit));
+    }
+    small(word)
+        .filter(|&v| v < 10)
+        .map(|v| char::from(b'0' + v as u8))
 }
 
 #[derive(Clone, Copy)]
@@ -577,7 +657,7 @@ fn dimension(text: &str, tokens: &[Token], start: usize) -> Option<(usize, Strin
     // A rejected longer or mixed-unit chain must not become a valid suffix.
     if start >= 2
         && dimension_separator(&tokens[start - 1].word)
-        && next_to(text, &tokens[start - 1], &tokens[start])
+        && axis_starts_after(text, &tokens[start - 1], &tokens[start])
         && next_to(text, &tokens[start - 2], &tokens[start - 1])
         && (number_word(&tokens[start - 2].word) || unit(&tokens[start - 2].word).is_some())
     {
@@ -586,10 +666,17 @@ fn dimension(text: &str, tokens: &[Token], start: usize) -> Option<(usize, Strin
     let mut cursor = start;
     let mut values = Vec::with_capacity(3);
     let mut common_unit = None;
+    let mut has_joined_axis = false;
     let mut last_has_unit;
     loop {
         let end = number_run(text, tokens, cursor);
-        if unsupported_fraction(text, tokens, end) || attached(text, &tokens[end - 1]) {
+        let last = &tokens[end - 1];
+        let joined_start = cursor > start && joined_axis(&tokens[cursor - 1], &tokens[cursor]);
+        has_joined_axis |= joined_start;
+        if unsupported_fraction(text, tokens, end)
+            || attached_right(text, last)
+            || (!joined_start && attached_left(text, last))
+        {
             return None;
         }
         let value = parse_number(&tokens[cursor..end])?;
@@ -616,7 +703,7 @@ fn dimension(text: &str, tokens: &[Token], start: usize) -> Option<(usize, Strin
                 return None;
             }
             let next = tokens.get(cursor + 1)?;
-            if !number_word(&next.word) || !next_to(text, &tokens[cursor], next) {
+            if !number_word(&next.word) || !axis_starts_after(text, &tokens[cursor], next) {
                 return None;
             }
             cursor += 1;
@@ -626,7 +713,8 @@ fn dimension(text: &str, tokens: &[Token], start: usize) -> Option<(usize, Strin
     }
     if values.len() < 2
         || (common_unit.is_some() && !last_has_unit)
-        || (common_unit.is_none() && !dimension_cue(text, tokens, start))
+        // A joined token needs an explicit length unit in the same chain.
+        || (common_unit.is_none() && (has_joined_axis || !dimension_cue(text, tokens, start)))
     {
         return None;
     }
@@ -863,7 +951,7 @@ mod tests {
             "8,8 x 8,8 × 8,8 мм",
         ] {
             let text = format!("размеры {chain}, проверено");
-            let spans = dimension_spans(&text);
+            let spans = repetition_spans(&text, true);
             assert_eq!(spans.len(), 1, "{text}");
             assert_eq!(&text[spans[0].clone()], chain, "{text}");
         }
@@ -873,7 +961,7 @@ mod tests {
             "пять миллиметров и пять миллиметров",
             "два на столе и три на столе",
         ] {
-            assert!(dimension_spans(text).is_empty(), "{text}");
+            assert!(repetition_spans(text, true).is_empty(), "{text}");
         }
     }
 }

@@ -17,26 +17,28 @@ This option converts complete cardinal expressions, signed values and explicit d
 | `минус ноль запятая пять` | `-0,5` |
 | `8,8 мм` | `8,8 мм` |
 
-Supported cardinal scales are thousands, millions and billions. Spoken decimal denominators cover tenths, hundredths and thousandths; an explicit `запятая` can introduce fractional digits, preserving leading zeroes. Recognized units include millimetres, centimetres, metres, micrometres, milligrams, micrograms, grams, kilograms, millilitres, litres and percentages.
+Supported cardinal scales are thousands, millions and billions. Spoken decimal denominators cover tenths, hundredths and thousandths. After an explicit `запятая`, fractional digits can be written out or appear as individual digits, as in `0 запятая 0 ноль восемь` → `0,008`. Repetition cleanup also preserves digit sequences after cues such as `код` and `телефон`. Recognized units include millimetres, centimetres, metres, micrometres, milligrams, micrograms, grams, kilograms, millilitres, litres and percentages.
 
 This is a strict grammar, not a general language model. Unsupported case forms, ordinals, incomplete fractions, mixed or malformed numeric phrases, and expressions such as `два с половиной` stay as recognized. It does not infer a date, rewrite a telephone number, convert units or repair a value that the recognizer omitted. For example, `двадцать третьего` remains words instead of becoming an incorrect partial number.
 
 ## Dimensions
 
-**Format dimensions** handles two or three non-negative axes separated by an explicit `на`, `х`, `x` or `×`, and writes the separator as Cyrillic `х`. Values, separators and units must be separate tokens; compact identifiers such as `8x8мм` stay unchanged. A length unit at the end, or an immediately preceding cue such as `размерами`, is required. This option parses the numbers inside a dimension even when general number conversion is off.
+**Format dimensions** handles two or three non-negative axes separated by an explicit `на`, `х`, `x` or `×`, and writes the separator as Cyrillic `х`. A length unit at the end, or an immediately preceding cue such as `размерами`, is required. If recognition joins `на` to the following value, Sotto also accepts forms such as `8 на8 мм` with an explicit length unit. Compact identifiers such as `8x8мм` stay unchanged. This option parses the numbers inside a dimension even when general number conversion is off.
 
 | Recognized text | Local result before sentence styling |
 | --- | --- |
 | `размерами тридцать пять на тридцать пять миллиметров` | `размерами 35 х 35 мм` |
 | `восемь на восемь на три миллиметра` | `8 х 8 х 3 мм` |
 | `8,8 на 3,5 мм` | `8,8 х 3,5 мм` |
+| `8 на8 мм` | `8 х 8 мм` |
 | `размеры восемь на восемь` | `размеры 8 х 8` |
 | `8,8 мм` | `8,8 мм` |
+| `8/8 мм` | `8/8 мм` |
 | `умножить восемь на восемь` with only dimensions enabled | unchanged |
 
 Four axes, mixed units, a missing final unit after an intermediate unit, negative dimensions and unsupported numeric phrases are not combined. If general number conversion is also enabled, independently valid numerical values can still become digits while their original separators and units remain.
 
-`8,8 мм` is a genuine decimal notation. If speech recognition produced it after the speaker said “восемь на восемь”, formatting cannot determine whether `на` was lost. Sotto therefore preserves the decimal. Inspect the raw recognition text in history when investigating this case; changing punctuation or adding a regex replacement does not recover the missing evidence.
+`8,8 мм` denotes a decimal, and slash notation such as `8/8 мм` can denote a fraction. Sotto preserves these written values, including when a preceding word mentions a size. Inspect the raw recognition text in history when a dimension or fractional digit is missing.
 
 ## Punctuation policy
 

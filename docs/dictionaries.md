@@ -20,7 +20,7 @@ The set view groups its terms by how they fire: **Exact spellings** change only 
 
 Built-in catalog terms are corrected only through reviewed recognition variants, for example «опн роутер» → `OpenRouter` and «ноушен» → `Notion`; canonical spellings also serve as Whisper hints. Names that coincide with ordinary words or names are left unchanged: «мета», «клод», «мейн», «кодекс», «лама», «курсор», «обсидиан» and «дропбокс», which may refer to a UI control. `Grok` and `Groq` share the spoken variant «грок», which stays unchanged when both terms are enabled. Already-spelled English text keeps its case.
 
-A term you add to your own set or to **My words**, including a copy of a built-in set, keeps the ordinary fuzzy matching described below in addition to its reviewed variants. Add a brand such as `Codex` to a personal set, or create a replacement rule, when you always mean it.
+A term you add to your own set or to **My words**, including a copy of a built-in set, keeps the ordinary fuzzy matching described below in addition to its reviewed variants. A fuzzy correction can leave the recognized word in place when its beginning is closer to a longer Russian term in the active dictionary. Add a brand such as `Codex` to a personal set, or create a replacement rule, when you always mean it.
 
 ## Create and customize
 
