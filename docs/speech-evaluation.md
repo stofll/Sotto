@@ -38,7 +38,7 @@ Results are flushed after every record, followed by a completion marker. The sco
 
 ## Upstream GigaAM experiments
 
-`scripts/gigaam_benchmark.py` runs the upstream GigaAM v4 CTC and GigaAM Multilingual v2 RNN-T models locally on CPU. It reports their formatted `e2e` transcripts in the same JSONL format as the native evaluator. The tool uses PyTorch for the experiments. The desktop catalog uses verified Sherpa ONNX bundles.
+`scripts/gigaam_benchmark.py` runs the upstream GigaAM v4 CTC and GigaAM Multilingual v2 RNN-T models locally on CPU. It reports their formatted `e2e` transcripts in the same JSONL format as the native evaluator. Use `model_benchmark --eval` with `--model gigaam-v4` to measure the catalog's verified Sherpa INT8 bundle.
 
 Use Python 3.11 or later in an isolated environment with CPU PyTorch and matching torchaudio, Transformers 4, NumPy, SoundFile, SentencePiece, OmegaConf, and tqdm. Download the files listed in the runner from the pinned model snapshots. The runner verifies the model code, weights and supporting files before loading them in offline mode. [v4 CTC snapshot](https://huggingface.co/ai-sage/GigaAM-v4/tree/5b81216afa29c8b5a1a3e64c424c8416e18c1e5b) · [Multilingual v2 RNN-T snapshot](https://huggingface.co/ai-sage/GigaAM-Multilingual-v2/tree/c21483b5e185ff32f6fb2e2c801f92f4e7fbfee8)
 
@@ -48,6 +48,8 @@ Prepare a fixed JSONL selection from one split of the frozen dataset with RU or 
 python scripts/gigaam_benchmark.py --model gigaam-v4 --dataset $dataset --input "$results/short-ru.jsonl" --weights "$models/GigaAM-v4" --split development --output "$results/gigaam-v4-ru.jsonl"
 python scripts/speech_eval.py --dataset $dataset --results "$results/gigaam-v4-ru.jsonl" --output "$results/gigaam-v4-ru-report.json"
 ```
+
+To run Multilingual v2, use `--model gigaam-multilingual-v2` and pass its downloaded snapshot directory as `--weights`.
 
 ## Interpretation
 

@@ -159,6 +159,24 @@ const GIGAAM_V3_ARTIFACTS: &[BundleArtifactManifestEntry] = &[
     },
 ];
 
+#[cfg(any(windows, target_os = "macos"))]
+const GIGAAM_V4_ARTIFACTS: &[BundleArtifactManifestEntry] = &[
+    BundleArtifactManifestEntry {
+        role: ArtifactRole::Model,
+        file_name: "model.int8.onnx",
+        download_url: "https://huggingface.co/ai-babai/gigaam-v4-onnx/resolve/d39e2a200f596315acef7003d246b65a73e9a327/ctc-e2e/model.int8.onnx",
+        expected_bytes: 242_080_937,
+        sha256: "0f61ec8ca69517cb68e24531c5000053b80ab84cf7071cc294571edfae493462",
+    },
+    BundleArtifactManifestEntry {
+        role: ArtifactRole::Tokens,
+        file_name: "tokens.txt",
+        download_url: "https://huggingface.co/ai-babai/gigaam-v4-onnx/resolve/d39e2a200f596315acef7003d246b65a73e9a327/ctc-e2e/tokens.txt",
+        expected_bytes: 843,
+        sha256: "c6a37fab667d53c37e66835c90083808daa116c3993c5e93ce518b5a3896de6e",
+    },
+];
+
 /// Omnilingual ASR (Meta), the 300M CTC export: one graph plus its token
 /// table, like GigaAM, but with its own config field in sherpa-onnx.
 #[cfg(any(windows, target_os = "macos"))]
@@ -660,6 +678,18 @@ pub const BUNDLE_MODEL_MANIFEST: &[BundleModelManifestEntry] = &[
         label: "Qwen3 ASR 0.6B",
         size: "941 MB",
         ram_mib: 4096,
+        recommended: false,
+    },
+    BundleModelManifestEntry {
+        public_id: "gigaam-v4",
+        directory_name: "gigaam-v4",
+        artifacts: GIGAAM_V4_ARTIFACTS,
+        engine: ModelEngine::SherpaNemoCtc,
+        family: "GigaAM",
+        languages: Some(&["ru", "en"]),
+        label: "GigaAM v4",
+        size: "231 MB",
+        ram_mib: 768,
         recommended: false,
     },
     BundleModelManifestEntry {
@@ -2365,6 +2395,27 @@ mod tests {
         assert_eq!(gigaam.engine, "sherpa-onnx");
         assert_eq!(gigaam.compute_backend, "CPU");
         assert_eq!(gigaam.family.as_deref(), Some("GigaAM"));
+    }
+
+    #[cfg(any(windows, target_os = "macos"))]
+    #[test]
+    fn gigaam_v4_is_a_separate_bilingual_cpu_model() {
+        let root = tempfile::tempdir().unwrap();
+        let _env = crate::test_support::EnvGuard::set("SOTTO_MODELS_DIR", root.path());
+        let catalog = list_model_infos("gigaam-v4", None);
+        let v4 = catalog
+            .iter()
+            .find(|model| model.id == "gigaam-v4")
+            .unwrap();
+        assert!(v4.selected);
+        assert!(v4.cpu_only);
+        assert_eq!(v4.family.as_deref(), Some("GigaAM"));
+        assert_eq!(model_languages("gigaam-v4"), Some(&["ru", "en"][..]));
+        assert!(!model_supports_language("gigaam-v4", "kk"));
+        assert_ne!(
+            bundle_manifest_entry("gigaam-v4").unwrap().directory_name,
+            bundle_manifest_entry("gigaam-v3").unwrap().directory_name
+        );
     }
 
     /// The two families added on top of the sherpa move. Both are pinned the

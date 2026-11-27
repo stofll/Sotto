@@ -16,6 +16,7 @@ The engine is selected from the manifest, not from the file name: `ModelEngine` 
 | Family | Model | Engine | Languages | Size |
 |---|---|---|---|---|
 | GigaAM | GigaAM v3 | NeMo CTC | ru | 214 MB |
+| GigaAM | GigaAM v4 | NeMo CTC | ru, en | 231 MB |
 | GigaAM | GigaAM Multilingual | NeMo CTC | ru, en, kk, ky, uz | 214 MB |
 | GigaAM | GigaAM Multilingual Large | NeMo CTC | ru, en, kk, ky, uz | 564 MB |
 | Omnilingual | Omnilingual 300M | Omnilingual CTC | multilingual, 1600+ | 348 MB |
@@ -42,6 +43,8 @@ For GigaAM, when an unfinished fragment is followed by a capitalized Russian wor
 Parakeet Ultra is an additional model, not a replacement for TDT v3. The catalog uses the [mldecode int8 export](https://huggingface.co/mldecode/parakeet-ultra-onnx-int8) of [Moondream's model based on NVIDIA Parakeet](https://huggingface.co/moondream/parakeet-ultra), under CC-BY-4.0. Its graphs must remain together; they are not interchangeable with v3. The upstream Photon benchmarks and built-in VAD do not describe this CPU integration: Sotto uses its own segmentation and does not run Photon.
 
 GigaAM Multilingual and Large use the [fussraider exports](https://huggingface.co/fussraider/GigaAM-Multilingual-sherpa-onnx-ctc) of [Sber's MIT-licensed models](https://huggingface.co/ai-sage/GigaAM-Multilingual). They extend language coverage rather than replacing the punctuating Russian v3 model. Their English recognition is weaker than their Russian recognition in the upstream evaluation; compare models on your own speech before changing the default.
+
+GigaAM v4 uses the offline INT8 CTC export with capitalization, punctuation and number formatting in Russian and English. It is available under GigaAM in Models on Windows x64 and macOS arm64. The recognizer handles both languages through a shared vocabulary. [Pinned v4 CTC export](https://huggingface.co/ai-babai/gigaam-v4-onnx/tree/d39e2a200f596315acef7003d246b65a73e9a327/ctc-e2e)
 
 Qwen3 uses the [Sherpa-maintained export](https://huggingface.co/csukuangfj2/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25) of [Qwen3-ASR-0.6B](https://huggingface.co/Qwen/Qwen3-ASR-0.6B). An explicit language conditions its decoder; Auto leaves detection to the model. Enabled dictionary terms are passed as recognition hints for each fragment. To leave room for audio and output in the finite context, only the leading whole terms fitting 1,024 UTF-8 bytes are included; the complete dictionary remains available to local text correction. Changing the dictionary does not reload the model. None of these four additions provides live overlay text.
 
