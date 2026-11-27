@@ -1331,9 +1331,21 @@ fn refresh_autostart(app: &AppHandle) {
     apply_autostart_inner(app, true)
 }
 
+fn manages_autostart(is_portable: bool) -> bool {
+    // A Windows dev build has the same Run value as the installation and
+    // may need the dev server to open its window after login.
+    let windows_development_build = cfg!(windows) && (cfg!(debug_assertions) || tauri::is_dev());
+    !(is_portable || windows_development_build)
+}
+
+#[cfg(all(test, windows, debug_assertions))]
+#[test]
+fn windows_debug_build_leaves_the_installed_autostart_entry_alone() {
+    assert!(!manages_autostart(false));
+}
+
 fn apply_autostart_inner(app: &AppHandle, rewrite_when_unchanged: bool) {
-    // A portable copy must not erase or redirect the installed copy's entry.
-    if crate::portable::data_dir().is_some() {
+    if !manages_autostart(crate::portable::data_dir().is_some()) {
         return;
     }
     use tauri_plugin_autostart::ManagerExt;

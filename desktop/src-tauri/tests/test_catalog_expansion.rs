@@ -6,7 +6,7 @@ use sotto_lib::{model, model_download, sherpa::SherpaRecognizer};
 use std::sync::{atomic::AtomicBool, Arc};
 
 #[tokio::test]
-#[ignore = "downloads about 2.5 GB, or copies from SOTTO_TEST_CATALOG_DIR"]
+#[ignore = "downloads about 2.7 GB, or copies from SOTTO_TEST_CATALOG_DIR"]
 async fn expanded_catalog_recognizes_speech_and_reuses_models_after_cancellation() {
     let models = tempfile::tempdir().unwrap();
     std::env::set_var("SOTTO_MODELS_DIR", models.path());
@@ -32,6 +32,7 @@ async fn expanded_catalog_recognizes_speech_and_reuses_models_after_cancellation
     let mut tested = 0;
     for id in [
         "parakeet-ultra",
+        "gigaam-v4",
         "gigaam-multilingual",
         "gigaam-multilingual-large",
         "qwen3-asr-0.6b",
